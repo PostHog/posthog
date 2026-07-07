@@ -1,4 +1,5 @@
 from typing import Any
+from uuid import uuid4
 
 import pytest
 
@@ -6,11 +7,24 @@ import psycopg
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BATCH_TABLE,
+    LEASE_TABLE,
     STATUS_TABLE,
     STATUS_VIEW,
     BatchQueue,
     PendingBatch,
 )
+
+# Distinct per-pod identities for the group-lease tests.
+OWNER_A = str(uuid4())
+OWNER_B = str(uuid4())
+
+
+async def _claim(conn: psycopg.AsyncConnection[Any], owner: str = OWNER_A, **kwargs: Any) -> list[PendingBatch]:
+    return await BatchQueue.get_unprocessed_and_lock(conn, owner_token=owner, **kwargs)
+
+
+async def _release(conn: psycopg.AsyncConnection[Any], *, batches: list[PendingBatch], owner: str = OWNER_A) -> None:
+    await BatchQueue.unlock_for_batches(conn, batches=batches, owner_token=owner)
 
 
 def _get_test_database_url() -> str:
@@ -58,6 +72,18 @@ def _ensure_tables(conn: psycopg.Connection[Any]) -> None:
             created_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
     """)
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS {LEASE_TABLE} (
+            id BIGSERIAL PRIMARY KEY,
+            team_id BIGINT NOT NULL,
+            schema_id VARCHAR(200) NOT NULL,
+            owner_token VARCHAR(64) NOT NULL,
+            expires_at TIMESTAMPTZ NOT NULL,
+            acquired_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            CONSTRAINT sgl_team_schema_uniq UNIQUE (team_id, schema_id)
+        )
+    """)
     conn.execute(f"DROP VIEW IF EXISTS {STATUS_VIEW}")
     conn.execute(f"""
         CREATE VIEW {STATUS_VIEW} AS
@@ -68,7 +94,7 @@ def _ensure_tables(conn: psycopg.Connection[Any]) -> None:
 
 
 def _truncate_tables(conn: psycopg.Connection[Any]) -> None:
-    conn.execute(f"TRUNCATE {STATUS_TABLE}, {BATCH_TABLE} RESTART IDENTITY CASCADE")
+    conn.execute(f"TRUNCATE {STATUS_TABLE}, {BATCH_TABLE}, {LEASE_TABLE} RESTART IDENTITY CASCADE")
 
 
 _BATCH_DEFAULTS: dict[str, Any] = {
@@ -128,6 +154,12 @@ async def conn_b(_db_url: str):
         yield c
 
 
+@pytest.fixture
+def sync_conn(_db_url: str):
+    with psycopg.Connection.connect(_db_url, autocommit=True) as c:
+        yield c
+
+
 @pytest.mark.django_db(transaction=True)
 class TestBatchQueueInsert:
     @pytest.mark.asyncio
@@ -153,7 +185,7 @@ class TestBatchQueueGetUnprocessed:
         await _insert_batch(conn, batch_index=1)
         await _insert_batch(conn, batch_index=2)
 
-        batches = await BatchQueue.get_unprocessed_and_lock(conn)
+        batches = await _claim(conn)
 
         assert len(batches) == 3
         assert sorted(b.batch_index for b in batches) == [0, 1, 2]
@@ -163,7 +195,7 @@ class TestBatchQueueGetUnprocessed:
         bid = await _insert_batch(conn)
         await BatchQueue.update_status(conn, batch_id=bid, job_state="succeeded", attempt=1)
 
-        batches = await BatchQueue.get_unprocessed_and_lock(conn)
+        batches = await _claim(conn)
 
         assert len(batches) == 0
 
@@ -172,7 +204,7 @@ class TestBatchQueueGetUnprocessed:
         bid = await _insert_batch(conn)
         await BatchQueue.update_status(conn, batch_id=bid, job_state="waiting_retry", attempt=1)
 
-        batches = await BatchQueue.get_unprocessed_and_lock(conn)
+        batches = await _claim(conn)
 
         assert len(batches) == 1
         assert batches[0].latest_attempt == 1
@@ -183,7 +215,7 @@ class TestBatchQueueGetUnprocessed:
         bid2 = await _insert_batch(conn, batch_index=1, run_uuid="run-fail")
         await BatchQueue.update_status(conn, batch_id=bid2, job_state="failed", attempt=1)
 
-        batches = await BatchQueue.get_unprocessed_and_lock(conn)
+        batches = await _claim(conn)
 
         assert len(batches) == 0
 
@@ -192,7 +224,7 @@ class TestBatchQueueGetUnprocessed:
         for i in range(10):
             await _insert_batch(conn, batch_index=i)
 
-        batches = await BatchQueue.get_unprocessed_and_lock(conn, limit=3)
+        batches = await _claim(conn, limit=3)
 
         assert len(batches) == 3
 
@@ -204,7 +236,7 @@ class TestBatchQueueGetUnprocessed:
         await _insert_batch(conn, schema_id="busy", run_uuid="run-b", batch_index=0)
         await BatchQueue.update_status(conn, batch_id=executing_bid, job_state="executing", attempt=1)
 
-        batches = await BatchQueue.get_unprocessed_and_lock(conn)
+        batches = await _claim(conn)
 
         assert batches == []
 
@@ -218,10 +250,24 @@ class TestBatchQueueGetUnprocessed:
             await _insert_batch(conn, schema_id="A", run_uuid="a-run-2", batch_index=i)
         await _insert_batch(conn, schema_id="B", run_uuid="b-run-1", batch_index=0)  # newest
 
-        batches = await BatchQueue.get_unprocessed_and_lock(conn, limit=3)
+        batches = await _claim(conn, limit=3)
 
         assert [b.schema_id for b in batches] == ["B"]
-        await BatchQueue.unlock_for_batches(conn, batches=batches)
+        await _release(conn, batches=batches)
+
+    @pytest.mark.asyncio
+    async def test_heavy_team_does_not_monopolize_poll_window(self, conn):
+        # One team's deep, older backlog must not fill the whole LIMIT window under
+        # global FIFO — round-robin interleaving must still admit another team's newer batch.
+        for i in range(5):
+            await _insert_batch(conn, team_id=1, schema_id="heavy", run_uuid="heavy-run", batch_index=i)
+        await _insert_batch(conn, team_id=2, schema_id="light", run_uuid="light-run", batch_index=0)
+        await conn.execute(f"UPDATE {BATCH_TABLE} SET created_at = created_at - interval '1 hour' WHERE team_id = 1")
+
+        batches = await _claim(conn, limit=3)
+
+        assert {b.team_id for b in batches} == {1, 2}
+        await _release(conn, batches=batches)
 
     @pytest.mark.asyncio
     async def test_in_flight_gating_clears_after_terminal_status(self, conn):
@@ -236,17 +282,17 @@ class TestBatchQueueGetUnprocessed:
             [exec_bid],
         )
 
-        assert await BatchQueue.get_unprocessed_and_lock(conn) == []
+        assert await _claim(conn) == []
 
         await conn.execute(
             f"INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, created_at) VALUES (%s, 'succeeded', 1, now())",
             [exec_bid],
         )
 
-        batches = await BatchQueue.get_unprocessed_and_lock(conn)
+        batches = await _claim(conn)
 
         assert [b.run_uuid for b in batches] == ["run-2"]
-        await BatchQueue.unlock_for_batches(conn, batches=batches)
+        await _release(conn, batches=batches)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -276,103 +322,252 @@ class TestBatchQueueFailRun:
 
         assert count == 2
 
-        batches = await BatchQueue.get_unprocessed_and_lock(conn)
+        batches = await _claim(conn)
         assert len(batches) == 0
 
 
+async def _insert_lease(
+    conn: psycopg.AsyncConnection[Any],
+    *,
+    team_id: int = 1,
+    schema_id: str = "schema-1",
+    owner: str = OWNER_A,
+    expires_in_seconds: int = 300,
+) -> None:
+    """Insert a lease row directly. Negative ``expires_in_seconds`` makes it already expired."""
+    await conn.execute(
+        f"INSERT INTO {LEASE_TABLE} (team_id, schema_id, owner_token, expires_at) "
+        f"VALUES (%s, %s, %s, now() + make_interval(secs => %s))",
+        [team_id, schema_id, owner, expires_in_seconds],
+    )
+
+
+async def _lease_owner(
+    conn: psycopg.AsyncConnection[Any], *, team_id: int = 1, schema_id: str = "schema-1"
+) -> str | None:
+    row = await (
+        await conn.execute(
+            f"SELECT owner_token FROM {LEASE_TABLE} WHERE team_id = %s AND schema_id = %s", [team_id, schema_id]
+        )
+    ).fetchone()
+    return row[0] if row else None
+
+
+async def _lease_expiry(conn: psycopg.AsyncConnection[Any], *, team_id: int = 1, schema_id: str = "schema-1") -> Any:
+    row = await (
+        await conn.execute(
+            f"SELECT expires_at FROM {LEASE_TABLE} WHERE team_id = %s AND schema_id = %s", [team_id, schema_id]
+        )
+    ).fetchone()
+    return row[0] if row else None
+
+
+async def _lease_count(conn: psycopg.AsyncConnection[Any], *, team_id: int = 1, schema_id: str = "schema-1") -> int:
+    row = await (
+        await conn.execute(
+            f"SELECT count(*) FROM {LEASE_TABLE} WHERE team_id = %s AND schema_id = %s", [team_id, schema_id]
+        )
+    ).fetchone()
+    return int(row[0]) if row else 0
+
+
+async def _insert_backdated_executing(
+    conn: psycopg.AsyncConnection[Any], *, batch_id: str, age_seconds: int = 120, attempt: int = 1
+) -> None:
+    await conn.execute(
+        f"INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, created_at) "
+        f"VALUES (%s, 'executing', %s, now() - make_interval(secs => %s))",
+        [batch_id, attempt, age_seconds],
+    )
+
+
 @pytest.mark.django_db(transaction=True)
-class TestBatchQueueAdvisoryLocks:
+class TestBatchQueueGroupLease:
     @pytest.mark.asyncio
-    async def test_unlock_for_batches_releases_locks(self, conn, conn_b):
+    async def test_live_lease_excludes_other_owner(self, conn, conn_b):
         await _insert_batch(conn, team_id=1, schema_id="s1", batch_index=0)
         await _insert_batch(conn, team_id=1, schema_id="s1", batch_index=1)
         await _insert_batch(conn, team_id=1, schema_id="s1", batch_index=2)
 
-        batches = await BatchQueue.get_unprocessed_and_lock(conn)
+        batches = await _claim(conn, owner=OWNER_A)
         assert len(batches) == 3
+        assert await _lease_owner(conn, schema_id="s1") == OWNER_A
 
-        batches_b = await BatchQueue.get_unprocessed_and_lock(conn_b)
-        assert len(batches_b) == 0, "conn_b should not acquire lock held by conn"
+        batches_b = await _claim(conn_b, owner=OWNER_B)
+        assert len(batches_b) == 0, "another owner must not claim a group with a live lease"
 
-        await BatchQueue.unlock_for_batches(conn, batches=batches)
+        await _release(conn, batches=batches, owner=OWNER_A)
+        assert await _lease_owner(conn, schema_id="s1") is None
 
-        batches_b = await BatchQueue.get_unprocessed_and_lock(conn_b)
-        assert len(batches_b) == 3, "conn_b should acquire lock after conn released it"
-
-        await BatchQueue.unlock_for_batches(conn_b, batches=batches_b)
+        batches_b = await _claim(conn_b, owner=OWNER_B)
+        assert len(batches_b) == 3, "the group is claimable once its lease is released"
+        assert await _lease_owner(conn, schema_id="s1") == OWNER_B
 
     @pytest.mark.asyncio
-    async def test_different_keys_lock_independently(self, conn, conn_b):
+    async def test_same_owner_reclaim_is_idempotent(self, conn):
+        await _insert_batch(conn, team_id=1, schema_id="s1", batch_index=0)
+        await _insert_batch(conn, team_id=1, schema_id="s1", batch_index=1)
+
+        first = await _claim(conn, owner=OWNER_A)
+        assert len(first) == 2
+        expiry_1 = await _lease_expiry(conn, schema_id="s1")
+
+        # Re-claiming the same group renews (no ON CONFLICT error, single lease row, later expiry).
+        second = await _claim(conn, owner=OWNER_A)
+        assert len(second) == 2
+        assert await _lease_count(conn, schema_id="s1") == 1
+        assert await _lease_expiry(conn, schema_id="s1") >= expiry_1
+
+    @pytest.mark.asyncio
+    async def test_different_keys_lease_independently(self, conn, conn_b):
         await _insert_batch(conn, team_id=1, schema_id="s1")
         await _insert_batch(conn, team_id=2, schema_id="s2")
 
-        batches_a = await BatchQueue.get_unprocessed_and_lock(conn)
+        batches_a = await _claim(conn, owner=OWNER_A)
         assert len(batches_a) == 2
 
-        await BatchQueue.unlock_for_batches(conn, batches=[b for b in batches_a if b.schema_id == "s1"])
+        await _release(conn, batches=[b for b in batches_a if b.schema_id == "s1"], owner=OWNER_A)
 
-        batches_b = await BatchQueue.get_unprocessed_and_lock(conn_b)
-        assert len(batches_b) == 1
+        batches_b = await _claim(conn_b, owner=OWNER_B)
+        assert len(batches_b) == 1, "only the released group is reclaimable"
         assert batches_b[0].schema_id == "s1"
 
-        await BatchQueue.unlock_for_batches(conn, batches=[b for b in batches_a if b.schema_id == "s2"])
-        await BatchQueue.unlock_for_batches(conn_b, batches=batches_b)
+    @pytest.mark.asyncio
+    async def test_expired_lease_is_reclaimed(self, conn, conn_b):
+        await _insert_batch(conn, team_id=1, schema_id="s1", batch_index=0)
+        await _insert_batch(conn, team_id=1, schema_id="s1", batch_index=1)
+        # A previous owner died without releasing; its lease has already expired.
+        await _insert_lease(conn, team_id=1, schema_id="s1", owner=OWNER_A, expires_in_seconds=-1)
+
+        batches = await _claim(conn_b, owner=OWNER_B)
+
+        assert len(batches) == 2, "an expired lease must not block a new owner"
+        assert await _lease_owner(conn, schema_id="s1") == OWNER_B
+        assert await _lease_expiry(conn, schema_id="s1") is not None
+
+    @pytest.mark.asyncio
+    async def test_release_does_not_delete_another_owners_lease(self, conn):
+        # A slow group whose lease already expired and was reclaimed by another pod
+        # must not delete the new owner's lease when its own finally-block releases.
+        await _insert_batch(conn, team_id=1, schema_id="s1")
+        claimed = await _claim(conn, owner=OWNER_B)
+        assert await _lease_owner(conn, schema_id="s1") == OWNER_B
+
+        # The old owner (A) tries to release the same group; its token no longer matches.
+        await _release(conn, batches=claimed, owner=OWNER_A)
+
+        assert await _lease_owner(conn, schema_id="s1") == OWNER_B, "a non-owner release must be a no-op"
 
 
 @pytest.mark.django_db(transaction=True)
-class TestBatchQueueStaleExecuting:
+class TestBatchQueueLeaseRenewal:
     @pytest.mark.asyncio
-    async def test_finds_orphaned_executing_batches(self, conn, conn_b, _db_url):
+    async def test_renew_extends_expiry_for_owner(self, conn):
+        await _insert_lease(conn, team_id=1, schema_id="s1", owner=OWNER_A, expires_in_seconds=10)
+        before = await _lease_expiry(conn, schema_id="s1")
+
+        renewed = await BatchQueue.renew_lease(
+            conn, team_id=1, schema_id="s1", owner_token=OWNER_A, lease_ttl_seconds=300
+        )
+
+        assert renewed is True
+        assert await _lease_expiry(conn, schema_id="s1") > before
+
+    @pytest.mark.asyncio
+    async def test_renew_returns_false_for_non_owner(self, conn):
+        await _insert_lease(conn, team_id=1, schema_id="s1", owner=OWNER_A, expires_in_seconds=300)
+
+        renewed = await BatchQueue.renew_lease(
+            conn, team_id=1, schema_id="s1", owner_token=OWNER_B, lease_ttl_seconds=300
+        )
+
+        assert renewed is False, "a non-owner cannot renew the lease"
+
+    @pytest.mark.asyncio
+    async def test_renew_returns_false_when_absent(self, conn):
+        renewed = await BatchQueue.renew_lease(
+            conn, team_id=1, schema_id="s1", owner_token=OWNER_A, lease_ttl_seconds=300
+        )
+
+        assert renewed is False
+
+
+@pytest.mark.django_db(transaction=True)
+class TestQueueFreshnessProbe:
+    @pytest.mark.asyncio
+    async def test_reports_only_batches_never_picked_up(self, conn):
+        assert await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn) is None
+
         bid = await _insert_batch(conn)
+        age = await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn)
+        assert age is not None and age >= 0
 
-        async with await psycopg.AsyncConnection.connect(_db_url, autocommit=True) as orphan_conn:
-            await BatchQueue.get_unprocessed_and_lock(orphan_conn)
-            await BatchQueue.update_status(orphan_conn, batch_id=bid, job_state="executing", attempt=1)
-        # orphan_conn is now closed — advisory lock released
+        # Any status row means the batch was picked up — it must stop counting.
+        await BatchQueue.update_status(conn, batch_id=bid, job_state="executing", attempt=1)
+        assert await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn) is None
 
-        stale = await BatchQueue.get_stale_executing(conn, grace_seconds=0)
+
+@pytest.mark.django_db(transaction=True)
+class TestGroupLeaseRecovery:
+    @pytest.mark.asyncio
+    async def test_absent_lease_orphan_is_recovered(self, conn):
+        bid = await _insert_batch(conn)
+        await _insert_backdated_executing(conn, batch_id=bid, age_seconds=120, attempt=1)
+
+        stale = await BatchQueue.get_stale_executing(conn, grace_seconds=60)
+
         assert len(stale) == 1
         assert str(stale[0].id) == bid
         assert stale[0].latest_attempt == 1
 
     @pytest.mark.asyncio
-    async def test_does_not_find_actively_held_batches(self, conn, conn_b):
+    async def test_expired_lease_orphan_is_recovered(self, conn):
+        """The prod-US wedge, in lease terms.
+
+        A pod is SIGKILLed mid-group and never releases ownership; its lease
+        expires. Recovery must reclaim the orphaned 'executing' batch off the
+        expired lease. The old advisory lock had no expiry, so an orphaned owner
+        (SIGKILL / pgbouncer session lingering / node loss) blocked recovery
+        indefinitely — the wedge. An expired lease cannot.
+        """
         bid = await _insert_batch(conn)
+        await _insert_backdated_executing(conn, batch_id=bid, age_seconds=120)
+        await _insert_lease(conn, owner=OWNER_A, expires_in_seconds=-1)
 
-        await BatchQueue.get_unprocessed_and_lock(conn)
-        await BatchQueue.update_status(conn, batch_id=bid, job_state="executing", attempt=1)
+        stale = await BatchQueue.get_stale_executing(conn, grace_seconds=60)
 
-        stale = await BatchQueue.get_stale_executing(conn_b, grace_seconds=0)
-        assert len(stale) == 0
-
-        await conn.execute("SELECT pg_advisory_unlock_all()")
+        assert len(stale) == 1
+        assert str(stale[0].id) == bid
 
     @pytest.mark.asyncio
-    async def test_grace_shields_recent_executing_from_orphan_sweep(self, conn, _db_url):
+    async def test_live_lease_shields_executing_from_recovery(self, conn):
+        """A live lease means the owner is alive (heartbeating); its group is never reclaimed.
+
+        This is the discriminating guard for the lease behaviour: the batch's
+        'executing' status is already past the grace window, so the only thing
+        keeping recovery from reclaiming it is the live lease. The pre-lease sweep
+        had no lease awareness and would reclaim it here.
+        """
         bid = await _insert_batch(conn)
+        await _insert_backdated_executing(conn, batch_id=bid, age_seconds=120)
+        await _insert_lease(conn, owner=OWNER_A, expires_in_seconds=300)
 
-        async with await psycopg.AsyncConnection.connect(_db_url, autocommit=True) as orphan_conn:
-            await BatchQueue.get_unprocessed_and_lock(orphan_conn)
-            await BatchQueue.update_status(orphan_conn, batch_id=bid, job_state="executing", attempt=1)
-        # orphan_conn closed — advisory lock released, status row is fresh.
+        stale = await BatchQueue.get_stale_executing(conn, grace_seconds=60)
 
-        # Fresh 'executing' must be ignored until it ages past the grace window:
-        # a live worker that briefly lost its psycopg session shouldn't be
-        # racily reclaimed.
+        assert stale == [], "a live lease shields its group from recovery"
+
+    @pytest.mark.asyncio
+    async def test_grace_shields_recent_executing(self, conn):
+        bid = await _insert_batch(conn)
+        # Fresh 'executing', no lease: still must wait out the grace window before recovery.
+        await BatchQueue.update_status(conn, batch_id=bid, job_state="executing", attempt=1)
+
         assert await BatchQueue.get_stale_executing(conn, grace_seconds=3600) == []
 
     @pytest.mark.asyncio
-    async def test_grace_lets_aged_executing_through(self, conn, _db_url):
+    async def test_grace_lets_aged_executing_through(self, conn):
         bid = await _insert_batch(conn)
-
-        async with await psycopg.AsyncConnection.connect(_db_url, autocommit=True) as orphan_conn:
-            await BatchQueue.get_unprocessed_and_lock(orphan_conn)
-        # Backdate the status row so it appears older than the grace window.
-        await conn.execute(
-            f"INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, created_at) "
-            f"VALUES (%s, 'executing', 1, now() - interval '120 seconds')",
-            [bid],
-        )
+        await _insert_backdated_executing(conn, batch_id=bid, age_seconds=120)
 
         stale = await BatchQueue.get_stale_executing(conn, grace_seconds=60)
         assert len(stale) == 1
@@ -387,12 +582,12 @@ class TestBatchQueueRetryBackoff:
         await BatchQueue.update_status(conn, batch_id=bid, job_state="waiting_retry", attempt=1)
 
         # With a large backoff base, the just-failed batch isn't picked up.
-        assert await BatchQueue.get_unprocessed_and_lock(conn, retry_backoff_base_seconds=3600) == []
+        assert await _claim(conn, retry_backoff_base_seconds=3600) == []
 
         # With backoff disabled, it's eligible immediately.
-        batches = await BatchQueue.get_unprocessed_and_lock(conn, retry_backoff_base_seconds=0)
+        batches = await _claim(conn, retry_backoff_base_seconds=0)
         assert len(batches) == 1
-        await BatchQueue.unlock_for_batches(conn, batches=batches)
+        await _release(conn, batches=batches)
 
     @pytest.mark.asyncio
     async def test_backoff_scales_with_attempt(self, conn):
@@ -405,21 +600,21 @@ class TestBatchQueueRetryBackoff:
         )
 
         # base=5, attempt=3 -> 15s required, only 10s elapsed: blocked.
-        assert await BatchQueue.get_unprocessed_and_lock(conn, retry_backoff_base_seconds=5) == []
+        assert await _claim(conn, retry_backoff_base_seconds=5) == []
 
         # base=3, attempt=3 -> 9s required, 10s elapsed: eligible.
-        batches = await BatchQueue.get_unprocessed_and_lock(conn, retry_backoff_base_seconds=3)
+        batches = await _claim(conn, retry_backoff_base_seconds=3)
         assert len(batches) == 1
-        await BatchQueue.unlock_for_batches(conn, batches=batches)
+        await _release(conn, batches=batches)
 
     @pytest.mark.asyncio
     async def test_backoff_does_not_gate_first_pickup(self, conn):
         # batches with no status rows (s.batch_id IS NULL) must always be eligible,
         # regardless of the backoff knob.
         await _insert_batch(conn)
-        batches = await BatchQueue.get_unprocessed_and_lock(conn, retry_backoff_base_seconds=3600)
+        batches = await _claim(conn, retry_backoff_base_seconds=3600)
         assert len(batches) == 1
-        await BatchQueue.unlock_for_batches(conn, batches=batches)
+        await _release(conn, batches=batches)
 
 
 class TestPendingBatchToExportSignal:
@@ -467,3 +662,111 @@ class TestPendingBatchToExportSignal:
         assert signal["data_folder"] == "/tmp/data"
         assert signal["primary_keys"] == ["id"]
         assert signal["cdc_write_mode"] == "upsert"
+
+
+@pytest.mark.django_db(transaction=True)
+class TestGetRunActivitySummary:
+    WF_RUN_ID = "wf-run-1"
+
+    def _summary(self, sync_conn: psycopg.Connection[Any]):
+        return BatchQueue.get_run_activity_summary(sync_conn, job_id="job-1", workflow_run_id=self.WF_RUN_ID)
+
+    @pytest.mark.parametrize("age_hours,expect_stale", [(0, False), (7, True)])
+    @pytest.mark.asyncio
+    async def test_unclaimed_batches_are_non_terminal_and_stale_only_after_grace(
+        self, conn, sync_conn, age_hours, expect_stale
+    ):
+        # Unclaimed batches (no status rows yet) must read as live backlog, not batch-less;
+        # only after the grace window with zero activity does the run become stealable.
+        bid = await _insert_batch(conn, metadata={"workflow_run_id": self.WF_RUN_ID})
+        await conn.execute(
+            f"UPDATE {BATCH_TABLE} SET created_at = now() - make_interval(hours => %s) WHERE id = %s",
+            (age_hours, bid),
+        )
+
+        summary = self._summary(sync_conn)
+
+        assert summary.has_batches is True
+        assert summary.has_non_terminal is True
+        assert summary.is_stale is expect_stale
+
+    @pytest.mark.asyncio
+    async def test_partially_loaded_run_counts_unclaimed_backlog(self, conn, sync_conn):
+        # Some batches succeeded, the rest unclaimed: mid-load, not all-terminal.
+        done = await _insert_batch(conn, batch_index=0, metadata={"workflow_run_id": self.WF_RUN_ID})
+        await BatchQueue.update_status(conn, batch_id=done, job_state="succeeded", attempt=1)
+        await _insert_batch(conn, batch_index=1, metadata={"workflow_run_id": self.WF_RUN_ID})
+
+        summary = self._summary(sync_conn)
+
+        assert summary.has_non_terminal is True
+        assert summary.is_stale is False
+
+    @pytest.mark.asyncio
+    async def test_all_terminal_batches_report_no_non_terminal(self, conn, sync_conn):
+        # Every batch terminal but the job still RUNNING (final batch never
+        # enqueued) is genuinely abandoned and must remain stealable.
+        for i in range(2):
+            bid = await _insert_batch(conn, batch_index=i, metadata={"workflow_run_id": self.WF_RUN_ID})
+            await BatchQueue.update_status(conn, batch_id=bid, job_state="succeeded", attempt=1)
+
+        summary = self._summary(sync_conn)
+
+        assert summary.has_batches is True
+        assert summary.has_non_terminal is False
+
+    @pytest.mark.asyncio
+    async def test_other_runs_batches_do_not_count(self, conn, sync_conn):
+        await _insert_batch(conn, metadata={"workflow_run_id": "other-wf-run"})
+
+        summary = self._summary(sync_conn)
+
+        assert summary.has_batches is False
+        assert summary.has_non_terminal is False
+        assert summary.is_stale is True
+
+
+@pytest.mark.django_db(transaction=True)
+class TestClaimWindowSkipsForeignLeasedGroups:
+    @pytest.mark.asyncio
+    async def test_foreign_leased_group_does_not_occupy_the_window(self, conn, conn_b):
+        # Two claimable groups; A is older so it sits at the head of the window.
+        await _insert_batch(conn, team_id=1, schema_id="schema-A", job_id="job-A", run_uuid="run-A")
+        await _insert_batch(conn, team_id=2, schema_id="schema-B", job_id="job-B", run_uuid="run-B")
+
+        got_b = await _claim(conn_b, owner=OWNER_B, limit=1)
+        assert [b.schema_id for b in got_b] == ["schema-A"]
+
+        # OWNER_A polls with a window of 1. If foreign-leased groups occupied window
+        # slots (the pre-fix behavior), group A would fill the window, its lease claim
+        # would fail, and OWNER_A would get nothing while group B sat claimable —
+        # window starvation. The fix hands the slot to group B instead.
+        got_a = await _claim(conn, owner=OWNER_A, limit=1)
+        assert [b.schema_id for b in got_a] == ["schema-B"]
+
+        # A holder's own live lease keeps its group claimable (group continuation).
+        got_b_again = await _claim(conn_b, owner=OWNER_B, limit=2)
+        assert "schema-A" in {b.schema_id for b in got_b_again}
+
+        # Expired foreign leases stop shielding the group.
+        await conn.execute(f"UPDATE {LEASE_TABLE} SET expires_at = now() - interval '1 second'")
+        got_a_after_expiry = await _claim(conn, owner=OWNER_A, limit=2)
+        assert "schema-A" in {b.schema_id for b in got_a_after_expiry}
+
+
+@pytest.mark.django_db(transaction=True)
+class TestCountBatchesForRun:
+    @pytest.mark.asyncio
+    async def test_counts_unclaimed_batches_and_zero_when_none(self, conn, _db_url):
+        # Freshly inserted batches have no status row until the loader claims them. The count
+        # must still see them: it exists so the CDC orphan reconciler can tell a run that
+        # enqueued nothing (safe to fail) from one whose batches are merely unclaimed (a
+        # status-view JOIN would report the latter as zero and strand a late load).
+        await _insert_batch(conn, job_id="job-A", batch_index=0)
+        await _insert_batch(conn, job_id="job-A", batch_index=1)
+        await _insert_batch(conn, job_id="job-B", batch_index=0)
+
+        with psycopg.Connection.connect(_db_url, autocommit=True) as sync_conn:
+            assert BatchQueue.count_batches_for_run(sync_conn, job_id="job-A") == 2
+            assert BatchQueue.count_batches_for_run(sync_conn, job_id="job-B") == 1
+            assert BatchQueue.count_batches_for_run(sync_conn, job_id="job-missing") == 0

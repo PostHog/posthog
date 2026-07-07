@@ -15,13 +15,22 @@ from posthog.models.user_integration import ReauthorizationRequired, UserGitHubI
 from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, has_write_scopes
 
 from products.mcp_store.backend.facade.api import get_active_installations
-from products.tasks.backend.constants import InitialPermissionMode, filter_user_sandbox_env_vars
+from products.tasks.backend.constants import (
+    ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS,
+    DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
+    SNAPSHOT_KIND_DIRECTORY,
+    SNAPSHOT_KIND_FILESYSTEM,
+    InitialPermissionMode,
+    SnapshotKind,
+    filter_user_sandbox_env_vars,
+)
+from products.tasks.backend.exceptions import CredentialUnavailableError
 from products.tasks.backend.redis import get_tasks_cache
 
 if TYPE_CHECKING:
     from posthog.models.user import User
 
-    from products.tasks.backend.models import Task
+    from products.tasks.backend.models import SandboxSnapshot, Task
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +124,11 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.MEDIUM,
         ReasoningEffort.HIGH,
     ),
+    "claude-sonnet-5": (
+        ReasoningEffort.LOW,
+        ReasoningEffort.MEDIUM,
+        ReasoningEffort.HIGH,
+    ),
 }
 
 CODEX_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
@@ -127,6 +141,29 @@ CODEX_XHIGH_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
     ReasoningEffort.XHIGH,
 )
 CODEX_XHIGH_REASONING_MODELS: frozenset[str] = frozenset({"gpt-5.5"})
+
+# Canonical list of Codex models. The runtime technically accepts any
+# `gpt-*` identifier passed through, but only models on this list are
+# considered tested and surfaced in pickers. Extend when a new Codex model
+# ships.
+CODEX_MODELS: tuple[str, ...] = ("gpt-5", "gpt-5.5")
+
+
+def get_models_for_runtime_adapter(runtime_adapter: RuntimeAdapter | str | None) -> tuple[str, ...]:
+    """Return the canonical model identifiers the given runtime adapter exposes.
+
+    Empty tuple if the adapter is unknown. Mirrors `get_supported_reasoning_efforts`
+    in spirit — small pure helper that callers can rely on when composing
+    runtime/model picker UIs at the consumer layer.
+    """
+    if runtime_adapter is None:
+        return ()
+    adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
+    if adapter_value == RuntimeAdapter.CLAUDE.value:
+        return tuple(CLAUDE_REASONING_EFFORTS_BY_MODEL.keys())
+    if adapter_value == RuntimeAdapter.CODEX.value:
+        return CODEX_MODELS
+    return ()
 
 
 def get_provider_for_runtime_adapter(
@@ -181,6 +218,32 @@ def get_reasoning_effort_error(
     )
 
 
+def normalize_directory_resume_snapshot_mount_path(snapshot_mount_path: object) -> str | None:
+    """Resolve where a directory resume snapshot may be mounted; ``None`` means "don't use it".
+
+    A snapshot's content layout matches the path it was captured from, so a stored path outside
+    the allowlist (notably the legacy "/tmp" default, whose mount replaced the live system temp
+    dir and killed the sandbox) cannot be remapped to a safe path — the snapshot is unusable and
+    the resume must fall back to a fresh sandbox.
+    """
+    if not snapshot_mount_path:
+        return DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH
+    if isinstance(snapshot_mount_path, str) and snapshot_mount_path in ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS:
+        return snapshot_mount_path
+
+    logger.warning(
+        "Directory resume snapshot has an unsupported mount path; invalidating the snapshot",
+        extra={"snapshot_mount_path": snapshot_mount_path},
+    )
+    return None
+
+
+def is_resume_snapshot_usable(kind: SnapshotKind, mount_path: str | None) -> bool:
+    """Whether a stored snapshot may be restored into a new sandbox; False falls back to a fresh one.
+    A directory snapshot whose stored mount path was invalidated (legacy "/tmp" captures) can't be restored."""
+    return not (kind == SNAPSHOT_KIND_DIRECTORY and mount_path is None)
+
+
 class RunState(BaseModel, extra="allow"):
     pr_authorship_mode: PrAuthorshipMode | None = None
     github_credential_source: GitHubCredentialSource | None = None
@@ -195,6 +258,8 @@ class RunState(BaseModel, extra="allow"):
     resume_from_run_id: str | None = None
     handoff_resumed: bool = False
     snapshot_external_id: str | None = None
+    snapshot_kind: str | None = None
+    snapshot_mount_path: str | None = None
     sandbox_id: str | None = None
     sandbox_url: str | None = None
     sandbox_connect_token: str | None = None
@@ -207,11 +272,65 @@ class RunState(BaseModel, extra="allow"):
     interaction_origin: str | None = None
     slack_sent_relay_ids: list[str] | None = None
 
+    def resume_snapshot_kind(self) -> SnapshotKind:
+        if self.snapshot_kind == SNAPSHOT_KIND_DIRECTORY:
+            return SNAPSHOT_KIND_DIRECTORY
+        return SNAPSHOT_KIND_FILESYSTEM
+
+    def resume_snapshot_mount_path(self) -> str | None:
+        if self.resume_snapshot_kind() != SNAPSHOT_KIND_DIRECTORY:
+            return None
+        return normalize_directory_resume_snapshot_mount_path(self.snapshot_mount_path)
+
+    def resume_snapshot_is_usable(self) -> bool:
+        """See ``is_resume_snapshot_usable`` — callers must provision fresh when False."""
+        return is_resume_snapshot_usable(self.resume_snapshot_kind(), self.resume_snapshot_mount_path())
+
+    def resume_snapshot_carry_state(self) -> dict[str, Any]:
+        """State keys a successor run must copy (always the full set, never the external ID
+        alone) to resume from this run's snapshot; ``{}`` when there is no usable snapshot."""
+        if not self.snapshot_external_id or not self.resume_snapshot_is_usable():
+            return {}
+        carried: dict[str, Any] = {
+            "snapshot_external_id": self.snapshot_external_id,
+            "snapshot_kind": self.resume_snapshot_kind(),
+        }
+        mount_path = self.resume_snapshot_mount_path()
+        if mount_path is not None:
+            carried["snapshot_mount_path"] = mount_path
+        return carried
+
 
 def parse_run_state(state: dict[str, Any] | None) -> RunState:
     return RunState.model_validate(state or {})
 
 
+@dataclass(frozen=True)
+class SnapshotMetadata:
+    kind: SnapshotKind
+    mount_path: str | None
+
+    @property
+    def is_usable(self) -> bool:
+        """See ``is_resume_snapshot_usable`` — same invalidation rule."""
+        return is_resume_snapshot_usable(self.kind, self.mount_path)
+
+
+def get_sandbox_snapshot_metadata(snapshot: SandboxSnapshot) -> SnapshotMetadata:
+    kind: SnapshotKind = (
+        SNAPSHOT_KIND_DIRECTORY
+        if snapshot.metadata.get("snapshot_kind") == SNAPSHOT_KIND_DIRECTORY
+        else SNAPSHOT_KIND_FILESYSTEM
+    )
+    mount_path = None
+    if kind == SNAPSHOT_KIND_DIRECTORY:
+        mount_path = normalize_directory_resume_snapshot_mount_path(snapshot.metadata.get("snapshot_mount_path"))
+    return SnapshotMetadata(kind=kind, mount_path=mount_path)
+
+
+# TTL for the per-run GitHub user token cache. Kept for backward-compat with callers
+# (notably the PostHog Code CLI) that still pass ``github_user_token`` on the run request.
+# The server-side identity flow should be preferred going forward.
 GITHUB_USER_TOKEN_CACHE_TTL_SECONDS = 6 * 60 * 60
 
 # Minimum interval between MCP token refreshes pushed to a live sandbox. The
@@ -312,13 +431,18 @@ def get_user_mcp_server_configs(
 def _resolve_mcp_consumer(interaction_origin: str | None) -> str:
     """Map the task's interaction origin to the `x-posthog-mcp-consumer` value.
 
-    Slack-launched runs send `"slack"`; everything else (the PostHog Code UI,
-    API callers, missing origin) is treated as PostHog Code. The MCP server
-    gates UI-apps payloads on the literal `"posthog-code"` — keep in sync with
-    `POSTHOG_CODE_CONSUMER` in `services/mcp/src/lib/client-detection.ts`.
+    Slack-launched runs send `"slack"` and posthog_ai (Max) runs send
+    `"posthog_ai"`; everything else (the PostHog Code UI, API callers, missing
+    origin) is treated as PostHog Code. Only `"posthog-code"` is a UI-apps host
+    on the MCP server — it gates UI-apps payload emission, so `"posthog_ai"` and
+    `"slack"` deliberately don't get UI apps. Keep the `"posthog-code"` literal
+    in sync with `POSTHOG_CODE_CONSUMER` in
+    `services/mcp/src/lib/client-detection.ts`.
     """
     if interaction_origin == "slack":
         return "slack"
+    if interaction_origin == "posthog_ai":
+        return "posthog_ai"
     return "posthog-code"
 
 
@@ -387,6 +511,11 @@ def get_github_token(github_integration_id: int) -> Optional[str]:
     integration = Integration.objects.get(id=github_integration_id)
     github_integration = GitHubIntegration(integration)
 
+    if github_integration.installation_unavailable():
+        raise CredentialUnavailableError(
+            "GitHub App installation for this integration is uninstalled or suspended",
+            {"github_integration_id": github_integration_id},
+        )
     if github_integration.access_token_expired():
         github_integration.refresh_access_token()
 
@@ -521,12 +650,6 @@ def user_github_integration_is_usable(user_github_integration: UserGitHubIntegra
         and bool(user_github_integration.user_refresh_token)
         and bool(user_github_integration.user_access_token)
     )
-
-
-# TTL for the per-run GitHub user token cache. Kept for backward-compat with callers
-# (notably the PostHog Code CLI) that still pass ``github_user_token`` on the run request.
-# The server-side identity flow should be preferred going forward.
-GITHUB_USER_TOKEN_CACHE_TTL_SECONDS = 6 * 60 * 60
 
 
 def _github_user_token_cache_key(run_id: str) -> str:

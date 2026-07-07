@@ -26,6 +26,7 @@ from posthog.api.shared import ProjectBackwardCompatBasicSerializer
 # project.py must NOT depend on team.py at that point. The parity *logic* (config writes, retention check,
 # and the team-config actions) is defined locally below rather than imported, so it survives that removal.
 from posthog.api.team import (
+    TEAM_CONFIG_FIELD_ACCESS_CONTROLLED_FIELDS,
     TEAM_CONFIG_FIELDS,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
     EvaluationContextSuggestionRequestSerializer,
@@ -40,6 +41,7 @@ from posthog.api.team import (
     get_or_mint_live_events_token,
     handle_conversations_token_on_update,
     handle_logs_config,
+    validate_secret_token_generation,
     validate_team_attrs,
 )
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
@@ -65,7 +67,8 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import (
     ProductIntent,
     ProductIntentSerializer,
-    calculate_product_activation,
+    cached_product_intents_for_team,
+    enqueue_product_activation_calc_debounced,
 )
 from posthog.models.project import Project
 from posthog.models.team.event_retention import should_enforce_events_retention
@@ -95,7 +98,6 @@ from posthog.session_recordings.data_retention import (
     retention_violates_entitlement,
     validate_retention_period,
 )
-from posthog.tasks.tasks import delete_project_data_and_notify_task
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_instance_realm, get_ip_address, get_week_start_for_country_code
 
@@ -169,7 +171,7 @@ def update_team_revenue_analytics_config(team: Team, validated_data: dict[str, A
     capture_team_config_diff(team, "revenue_analytics_config", old_config, new_config, context=context)
 
     if "events" in validated_data:
-        from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+        from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
         from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
         managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
@@ -901,7 +903,7 @@ class ProjectBackwardCompatSerializer(
 
     @extend_schema_field(serializers.DictField(child=serializers.BooleanField()))
     def get_managed_viewsets(self, obj: Project) -> dict[str, bool]:
-        from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+        from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
         from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
         enabled_set = set(
@@ -930,7 +932,7 @@ class ProjectBackwardCompatSerializer(
         return TeamSerializer.validate_workflows_config(value)
 
     def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:
-        team = project.teams.get(pk=project.pk)
+        team = project.passthrough_team
         return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, project: Project) -> bool:
@@ -940,7 +942,7 @@ class ProjectBackwardCompatSerializer(
         return cached_group_types_for_project(project)
 
     def get_live_events_token(self, project: Project) -> Optional[str]:
-        team = project.teams.get(pk=project.pk)
+        team = project.passthrough_team
         request = self.context.get("request")
         user_id = request.user.id if request and hasattr(request, "user") and request.user.is_authenticated else None
         return get_or_mint_live_events_token(team, user_id)
@@ -960,12 +962,13 @@ class ProjectBackwardCompatSerializer(
         }
     )
     def get_product_intents(self, obj):
-        project = obj
-        team = project.passthrough_team
-        calculate_product_activation.delay(team.id, only_calc_if_days_since_last_checked=1)
-        return ProductIntent.objects.filter(team=team).values(
-            "product_type", "created_at", "onboarding_completed_at", "updated_at"
-        )
+        # Mirror TeamSerializer.get_product_intents: debounce-then-enqueue rather than
+        # .delay() on every render, and read intents from a per-team cache. The old
+        # unconditional .delay() did a broker round-trip on every retrieve and would
+        # 500 the endpoint when the broker was unavailable.
+        team = obj.passthrough_team
+        enqueue_product_activation_calc_debounced(team.id)
+        return cached_product_intents_for_team(team.id)
 
     @extend_schema_field(
         serializers.ListField(child=serializers.ChoiceField(choices=[(e.value, e.value) for e in SetupTaskId]))
@@ -1352,14 +1355,15 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         if mixin_result is not None:
             return mixin_result
 
-        # See TeamViewSet.dangerously_get_required_scopes for the rationale. Only downgrade
-        # to project:read when every field is a member-safe team config field; anything else
-        # falls through to project:write so admin-only settings require admin object access.
+        # See TeamViewSet.dangerously_get_required_scopes for the rationale. Only downgrade to
+        # project:read when every field is member-safe or carries its own field-level access control;
+        # anything else falls through to project:write so admin-only settings require admin object access.
         if self.action == "partial_update":
             is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
             if is_session_auth:
                 request_fields = set(request.data.keys())
-                if request_fields and request_fields.issubset(TEAM_CONFIG_MEMBER_FIELDS_SET):
+                downgradable_fields = TEAM_CONFIG_MEMBER_FIELDS_SET | TEAM_CONFIG_FIELD_ACCESS_CONTROLLED_FIELDS
+                if request_fields and request_fields.issubset(downgradable_fields):
                     return ["project:read"]
 
         # Team-level config actions that any member should be able to edit via the UI.
@@ -1467,27 +1471,15 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         project.save(update_fields=["is_pending_deletion"])
 
         # Hand off all deletion work (bulky postgres, batch exports, project/team records,
-        # ClickHouse, email). Route to the durable Temporal workflow when the rollout flag
-        # is enabled for this org; otherwise keep the legacy Celery task.
-        from posthog.temporal.delete_teams.dispatch import (
-            delete_via_temporal_enabled,
-            start_delete_project_data_workflow,
-        )
+        # ClickHouse, email) to the durable Temporal workflow.
+        from posthog.temporal.delete_teams.dispatch import start_delete_project_data_workflow
 
-        if delete_via_temporal_enabled(str(organization_id)):
-            start_delete_project_data_workflow(
-                team_ids=team_ids,
-                project_id=project_id,
-                user_id=user.id,
-                project_name=project_name,
-            )
-        else:
-            delete_project_data_and_notify_task.delay(
-                team_ids=team_ids,
-                project_id=project_id,
-                user_id=user.id,
-                project_name=project_name,
-            )
+        start_delete_project_data_workflow(
+            team_ids=team_ids,
+            project_id=project_id,
+            user_id=user.id,
+            project_name=project_name,
+        )
 
         for team in teams:
             log_activity(
@@ -1540,6 +1532,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     )
     def rotate_secret_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         project = self.get_object()
+        validate_secret_token_generation(project.passthrough_team, cast(User, request.user))
         project.passthrough_team.rotate_secret_token_and_save(
             user=request.user, is_impersonated_session=is_impersonated(request)
         )
@@ -1875,7 +1868,7 @@ class PremiumMultiProjectPermission(BasePermission):
 
         if request.data.get("is_demo"):
             # If we're requesting to make a demo project but the org already has a demo project
-            if organization.teams.filter(is_demo=True).count() > 0:
+            if organization.teams.filter(is_demo=True).exists():
                 return False
 
         current_non_demo_project_count = organization.teams.exclude(is_demo=True).distinct("project_id").count()

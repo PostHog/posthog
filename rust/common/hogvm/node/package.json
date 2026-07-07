@@ -1,0 +1,22 @@
+{
+    "name": "@posthog/hogvm-node",
+    "version": "0.1.0",
+    "private": true,
+    "description": "Rust HogVM exposed to Node via napi-rs, for shadow execution of ingestion transformations",
+    "main": "index.js",
+    "types": "index.d.ts",
+    "scripts": {
+        "test": "cargo test --features noop",
+        "build": "cargo build --release && pnpm run build:move-lib",
+        "build:dev": "cargo build && pnpm run build:move-lib:dev",
+        "build:move-lib": "TARGET_DIR=${CARGO_TARGET_DIR:-target} && cp \"$TARGET_DIR/release/libhogvm_node.dylib\" index.node 2>/dev/null || cp \"$TARGET_DIR/release/libhogvm_node.so\" index.node || (echo \"No valid library file found in $TARGET_DIR/release/\" && exit 1)",
+        "build:move-lib:dev": "TARGET_DIR=${CARGO_TARGET_DIR:-target} && cp \"$TARGET_DIR/debug/libhogvm_node.dylib\" index.node 2>/dev/null || cp \"$TARGET_DIR/debug/libhogvm_node.so\" index.node || (echo \"No valid library file found in $TARGET_DIR/debug/\" && exit 1)",
+        "clean": "rm -rf index.node"
+    },
+    "license": "MIT",
+    "files": [
+        "index.js",
+        "index.d.ts",
+        "index.node"
+    ]
+}

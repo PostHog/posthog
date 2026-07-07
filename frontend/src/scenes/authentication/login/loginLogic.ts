@@ -178,8 +178,12 @@ export const loginLogic = kea<loginLogicType>([
                 breakpoint()
                 // Clear any previous passkey errors when submitting with password
                 actions.clearGeneralError()
+                // Forward `next` so email verification / login-verification links can resume the
+                // original destination (e.g. an /oauth/authorize flow). The link carries `next`, so
+                // it works even when opened in a different browser than the one that started login.
+                const next = getRelativeNextPath(router.values.searchParams['next'], location) || undefined
                 try {
-                    return await api.create<any>('api/login', { email, password })
+                    return await api.create<any>('api/login', { email, password, ...(next ? { next } : {}) })
                 } catch (e) {
                     const { code, detail } = e as Record<string, any>
                     if (code === '2fa_required') {

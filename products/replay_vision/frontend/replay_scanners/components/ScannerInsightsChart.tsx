@@ -67,7 +67,10 @@ function buildQuery(
                     properties: [base],
                 },
             ],
-            trendsFilter: { display: ChartDisplayType.ActionsLineGraph, formula: 'A / B * 100' },
+            trendsFilter: {
+                display: ChartDisplayType.ActionsLineGraph,
+                formulaNodes: [{ formula: 'A / B * 100', custom_name: 'Yes rate' }],
+            },
             dateRange,
             interval: 'day',
         }

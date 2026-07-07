@@ -7,8 +7,12 @@ import {
     McpAnalyticsMissingCapabilitiesCreateBody,
     McpAnalyticsSessionsGenerateIntentParams,
     McpAnalyticsSessionsGenerateIntentQueryParams,
+    McpAnalyticsSessionsListQueryParams,
+    McpAnalyticsSessionsToolCallsParams,
+    McpAnalyticsSessionsToolCallsQueryParams,
 } from '@/generated/mcp_analytics/api'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const McpAnalyticsIntentClustersRecomputeSchema = z.object({})
@@ -69,6 +73,57 @@ const mcpAnalyticsSessionsGenerateIntent = (): ToolBase<
             },
         })
         return result
+    },
+})
+
+const McpAnalyticsSessionsListSchema = McpAnalyticsSessionsListQueryParams
+
+const mcpAnalyticsSessionsList = (): ToolBase<
+    typeof McpAnalyticsSessionsListSchema,
+    WithPostHogUrl<Schemas.PaginatedMCPSessionList>
+> => ({
+    name: 'mcp-analytics-sessions-list',
+    schema: McpAnalyticsSessionsListSchema,
+    handler: async (context: Context, params: z.infer<typeof McpAnalyticsSessionsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedMCPSessionList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_analytics/sessions/`,
+            query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
+                limit: params.limit,
+                offset: params.offset,
+                order_by: params.order_by,
+                search: params.search,
+            },
+        })
+        return await withPostHogUrl(context, result, '/mcp-analytics')
+    },
+})
+
+const McpAnalyticsSessionsToolCallsSchema = McpAnalyticsSessionsToolCallsParams.omit({ project_id: true }).extend(
+    McpAnalyticsSessionsToolCallsQueryParams.shape
+)
+
+const mcpAnalyticsSessionsToolCalls = (): ToolBase<
+    typeof McpAnalyticsSessionsToolCallsSchema,
+    WithPostHogUrl<Schemas.PaginatedMCPToolCallList>
+> => ({
+    name: 'mcp-analytics-sessions-tool-calls',
+    schema: McpAnalyticsSessionsToolCallsSchema,
+    handler: async (context: Context, params: z.infer<typeof McpAnalyticsSessionsToolCallsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedMCPToolCallList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_analytics/sessions/${encodeURIComponent(String(params.id))}/tool_calls/`,
+            query: {
+                date_from: params.date_from,
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/mcp-analytics')
     },
 })
 
@@ -229,6 +284,17 @@ const PersonPropertyFilter = z.object({
     value: PropertyFilterValue.optional(),
 })
 
+const PersonMetadataPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z
+        .literal('person_metadata')
+        .describe('Top-level columns on the persons table (e.g. created_at), not properties JSON')
+        .default('person_metadata'),
+    value: PropertyFilterValue.optional(),
+})
+
 const ElementPropertyFilter = z.object({
     key: z.enum(['tag_name', 'text', 'href', 'selector']),
     label: z.string().optional(),
@@ -265,7 +331,15 @@ const CohortPropertyFilter = z.object({
 const DurationType = z.enum(['duration', 'active_seconds', 'inactive_seconds'])
 
 const RecordingPropertyFilter = z.object({
-    key: z.union([DurationType, z.literal('snapshot_source'), z.literal('visited_page'), z.literal('comment_text')]),
+    key: z.union([
+        DurationType,
+        z.literal('snapshot_source'),
+        z.literal('visited_page'),
+        z.literal('comment_text'),
+        z.literal('click_count'),
+        z.literal('keypress_count'),
+        z.literal('mouse_activity_count'),
+    ]),
     label: z.string().optional(),
     operator: PropertyOperator,
     type: z.literal('recording').default('recording'),
@@ -383,6 +457,7 @@ const WorkflowVariablePropertyFilter = z.object({
 const AnyPropertyFilter = z.union([
     EventPropertyFilter,
     PersonPropertyFilter,
+    PersonMetadataPropertyFilter,
     ElementPropertyFilter,
     EventMetadataPropertyFilter,
     SessionPropertyFilter,
@@ -475,6 +550,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'mcp-analytics-intent-clusters-recompute': mcpAnalyticsIntentClustersRecompute,
     'mcp-analytics-intent-clusters-retrieve': mcpAnalyticsIntentClustersRetrieve,
     'mcp-analytics-sessions-generate-intent': mcpAnalyticsSessionsGenerateIntent,
+    'mcp-analytics-sessions-list': mcpAnalyticsSessionsList,
+    'mcp-analytics-sessions-tool-calls': mcpAnalyticsSessionsToolCalls,
     'mcp-feedback-submit': mcpFeedbackSubmit,
     'mcp-missing-capability-report': mcpMissingCapabilityReport,
     'query-mcp-harness-breakdown': createQueryWrapper({

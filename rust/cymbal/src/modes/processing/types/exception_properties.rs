@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::{
     error::{EventError, UnhandledError},
-    fingerprinting::FingerprintRecordPart,
+    fingerprinting::{FingerprintRecordPart, FingerprintVersion},
     frames::releases::ReleaseInfo,
     issue_resolution::Issue,
     langs::native::DebugImage,
@@ -42,7 +42,13 @@ pub struct ExceptionProperties {
 
     #[serde(rename = "$exception_fingerprint")]
     pub fingerprint: Option<String>,
-    #[serde(rename = "$exception_proposed_fingerprint")]
+    #[serde(
+        rename = "$exception_fingerprint_version",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub fingerprint_version: Option<FingerprintVersion>,
+    // Deprecated: accepted for old events but no longer emitted.
+    #[serde(rename = "$exception_proposed_fingerprint", skip_serializing)]
     pub proposed_fingerprint: Option<String>,
     #[serde(rename = "$exception_fingerprint_record")]
     pub fingerprint_record: Option<Vec<FingerprintRecordPart>>,
@@ -105,15 +111,10 @@ impl ExceptionProperties {
             .fingerprint
             .clone()
             .ok_or_else(|| UnhandledError::Other("Missing fingerprint".into()))?;
-        let proposed_fingerprint = self
-            .proposed_fingerprint
-            .clone()
-            .ok_or_else(|| UnhandledError::Other("Missing proposed_fingerprint".into()))?;
-
         Ok(OutputErrProps {
             exception_list: self.exception_list.clone(),
             fingerprint,
-            proposed_fingerprint,
+            fingerprint_version: self.fingerprint_version,
             fingerprint_record: self.fingerprint_record.clone().unwrap_or_default(),
             issue_id,
             other: self.props.clone(),
@@ -135,12 +136,9 @@ impl TryFrom<AnyEvent> for ExceptionProperties {
             return Err(EventError::WrongEventType(event.event.clone(), event.uuid));
         }
 
-        let mut properties: Value = match serde_json::from_value(event.properties) {
-            Ok(r) => r,
-            Err(e) => {
-                return Err(EventError::InvalidProperties(event.uuid, e.to_string()));
-            }
-        };
+        // `event.properties` is already a `serde_json::Value`; running it back through
+        // `from_value` only deep-rebuilds the tree. Take ownership directly instead.
+        let mut properties = event.properties;
 
         if let Some(v) = properties
             .as_object_mut()

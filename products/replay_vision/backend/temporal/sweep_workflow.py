@@ -25,6 +25,7 @@ from products.replay_vision.backend.temporal.activities import (
     find_scanner_candidates_activity,
 )
 from products.replay_vision.backend.temporal.constants import (
+    APPLY_SCANNER_EXECUTION_TIMEOUT,
     APPLY_SCANNER_WORKFLOW_NAME,
     COUNT_IN_FLIGHT_APPLIES_TIMEOUT,
     MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
@@ -162,8 +163,7 @@ class SweepScannerWorkflow(PostHogWorkflow):
                 task_queue=settings.REPLAY_VISION_TASK_QUEUE,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                 parent_close_policy=wf.ParentClosePolicy.ABANDON,
-                # Matches the on-demand /observe/ ceiling.
-                execution_timeout=dt.timedelta(hours=1),
+                execution_timeout=APPLY_SCANNER_EXECUTION_TIMEOUT,
                 search_attributes=TypedSearchAttributes(
                     search_attributes=[
                         SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=inputs.team_id),

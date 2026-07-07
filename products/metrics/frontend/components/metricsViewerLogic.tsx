@@ -15,10 +15,11 @@ import type {
     MetricAnomalyDirectionEnumApi,
 } from 'products/metrics/frontend/generated/api.schemas'
 
+import { metricNamePickerLogic } from './metricNamePickerLogic'
 import { formatSeriesName, seriesColor } from './metricsSeries'
 import type { metricsViewerLogicType } from './metricsViewerLogicType'
 
-export type MetricAggregation = 'sum' | 'avg' | 'count' | 'p95'
+export type MetricAggregation = 'sum' | 'avg' | 'count' | 'p95' | 'rate' | 'increase'
 
 // `chart` shows the time series; `stat` shows a single headline value + change pill (a Grafana "stat" panel).
 export type MetricsViewMode = 'chart' | 'stat'
@@ -35,6 +36,19 @@ export interface MetricsAnomalyBadge {
 }
 
 const DEFAULT_AGGREGATION: MetricAggregation = 'sum'
+
+// Aggregation applied automatically when a metric of this type is selected.
+// Cumulative counters (OTel type 'sum') summed raw give meaningless ever-growing
+// totals — 'increase' is the honest default and is temporality-aware server-side
+// (delta samples are summed as-is), so it's correct for delta producers too.
+export const RECOMMENDED_AGGREGATION_BY_TYPE: Record<string, MetricAggregation> = {
+    gauge: 'avg',
+    sum: 'increase',
+    counter: 'increase',
+    histogram: 'p95',
+    summary: 'p95',
+    exponential_histogram: 'p95',
+}
 const DEFAULT_DATE_FROM = '-1h'
 const NEW_QUERY_STARTED_ERROR_MESSAGE = 'A new metrics query started, cancelling the previous one'
 // The anomaly badge characterizes the most recent slice of the selected window against the rest.
@@ -62,7 +76,7 @@ const resolveDate = (value: string | null | undefined): string | null => {
 export const metricsViewerLogic = kea<metricsViewerLogicType>([
     path(['products', 'metrics', 'frontend', 'components', 'metricsViewerLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], metricNamePickerLogic, ['items']],
     })),
     actions({
         setMetricName: (metricName: string) => ({ metricName }),
@@ -101,6 +115,15 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => ({
+        setMetricName: ({ metricName }) => {
+            // Each metric type has one sensible default; a manual aggregation pick
+            // holds only until the next metric switch.
+            const metricType = values.items.find((item) => item.name === metricName)?.metric_type
+            const recommended = metricType ? RECOMMENDED_AGGREGATION_BY_TYPE[metricType] : undefined
+            if (recommended && recommended !== values.aggregation) {
+                actions.setAggregation(recommended)
+            }
+        },
         cancelInProgressQuery: ({ controller }) => {
             if (values.queryAbortController !== null) {
                 values.queryAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)

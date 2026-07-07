@@ -4,6 +4,7 @@ from typing import Any
 from django.conf import settings
 from django.utils import timezone
 
+import requests
 import structlog
 
 from posthog.schema import HogQLFilters
@@ -13,6 +14,8 @@ from posthog.models import Team
 from posthog.schema_enums import ProductKey
 
 logger = structlog.get_logger(__name__)
+
+DIGEST_WEBHOOK_TIMEOUT_SECONDS = 10
 
 # Keep in sync with SOURCE_MAPS_DOCS_URL in sourceMapsFixWizardLogic.ts
 SOURCE_MAPS_DOCS_URL = "https://posthog.com/docs/error-tracking/upload-source-maps"
@@ -410,6 +413,73 @@ def get_source_maps_recommendation_for_team(team: Team) -> dict | None:
         "wizard_command": _source_maps_wizard_command(),
         "docs_url": f"{SOURCE_MAPS_DOCS_URL}?utm_source=error_tracking_weekly_digest",
     }
+
+
+def build_team_digest_data(team: Team) -> dict[str, Any] | None:
+    """Assemble all digest data for one team, or None when it had no exceptions this week."""
+    # posthog.tasks.__init__ eagerly imports every task module (celery autoimport);
+    # import the helper at call time so this module doesn't pull the task graph.
+    from posthog.tasks.email_utils import compute_week_over_week_change  # noqa: PLC0415
+
+    counts = get_exception_summary_for_team(team)
+    if not counts or counts["exception_count"] == 0:
+        return None
+
+    return {
+        "team": team,
+        "exception_count": counts["exception_count"],
+        "exception_change": compute_week_over_week_change(
+            counts["exception_count"], counts["prev_exception_count"], higher_is_better=False
+        ),
+        "ingestion_failure_count": counts["ingestion_failure_count"],
+        "top_issues": get_top_issues_for_team(team),
+        "new_issues": get_new_issues_for_team(team),
+        "daily_counts": get_daily_exception_counts(team),
+        "crash_free": get_crash_free_sessions(team),
+        "source_maps_recommendation": get_source_maps_recommendation_for_team(team),
+        "error_tracking_url": f"{settings.SITE_URL}/project/{team.pk}/error_tracking?utm_source=error_tracking_weekly_digest",
+        "ingestion_failures_url": build_ingestion_failures_url(team.pk),
+    }
+
+
+def build_team_section_payload(data: dict[str, Any]) -> dict[str, Any]:
+    """JSON-safe project section for the digest workflow webhook payload."""
+
+    def serialize_issue(issue: dict[str, Any]) -> dict[str, Any]:
+        return {**issue, "id": str(issue["id"])}
+
+    section = {k: v for k, v in data.items() if k != "team"}
+    section["team_name"] = data["team"].name
+    section["top_issues"] = [serialize_issue(i) for i in data["top_issues"]]
+    section["new_issues"] = [serialize_issue(i) for i in data["new_issues"]]
+    return section
+
+
+# Webhook trigger of the "[Error tracking] Weekly digest email" workflow in the internal
+# PostHog project. Protected by WORKFLOWS_WEBHOOK_SECRET, so the URL is not a secret.
+DIGEST_WORKFLOW_WEBHOOK_URL = "https://webhooks.us.posthog.com/public/webhooks/019f2754-aeff-0000-6a0d-5d3933a94b08"
+
+
+def send_digest_to_workflow(digest: dict[str, Any], distinct_id: str) -> None:
+    """POST one recipient's digest to the delivery workflow's webhook trigger.
+
+    Raises on failure so callers (celery autoretry) can retry.
+    """
+    headers = {}
+    if settings.WORKFLOWS_WEBHOOK_SECRET:
+        headers["Authorization"] = settings.WORKFLOWS_WEBHOOK_SECRET
+
+    response = requests.post(
+        DIGEST_WORKFLOW_WEBHOOK_URL,
+        json={
+            "event": "error_tracking_weekly_digest",
+            "distinct_id": distinct_id,
+            "digest": digest,
+        },
+        headers=headers,
+        timeout=DIGEST_WEBHOOK_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
 
 
 def build_ingestion_failures_url(team_id: int) -> str:

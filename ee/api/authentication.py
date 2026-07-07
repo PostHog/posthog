@@ -1,4 +1,6 @@
 import re
+import json
+import base64
 from typing import Any, Literal, TypedDict, Union, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -9,6 +11,7 @@ import jwt
 import structlog
 import posthoganalytics
 from jwt.algorithms import RSAAlgorithm
+from onelogin.saml2.xml_utils import OneLogin_Saml2_XML
 from rest_framework import authentication
 from rest_framework.decorators import api_view
 from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
@@ -25,6 +28,7 @@ from social_core.backends.saml import (
 )
 from social_core.exceptions import AuthFailed, AuthMissingParameter
 from social_django.models import UserSocialAuth
+from social_django.strategy import DjangoStrategy
 from social_django.utils import load_backend, load_strategy
 
 from posthog.cloud_utils import get_cached_instance_license
@@ -89,16 +93,93 @@ class MultitenantSAMLAuth(SAMLAuth):
     """
 
     def auth_complete(self, *args, **kwargs):
+        # attempt to recover from missing relay state in idp-initiated SAML
+        self._recover_idp_initiated_relay_state()
+
         try:
             result = super().auth_complete(*args, **kwargs)
             saml_logger.info("saml_auth_complete")
             return result
         except Exception as e:
-            import json
-
             posthoganalytics.tag("request_data", json.dumps(self.strategy.request_data()))
             saml_logger.warning("saml_auth_complete_failed", error=str(e))
             raise
+
+    def _recover_idp_initiated_relay_state(self) -> None:
+        """
+        SP-initiated logins carry a RelayState holding the `OrganizationDomain` UUID, which
+        is how we route an assertion to the right tenant. IdP-initiated logins don't: the IdP
+        either omits RelayState (Azure AD) or sends its own value (e.g. an app URL). When the
+        RelayState doesn't map to a verified domain, recover the tenant from the Response's
+        <Issuer> (the IdP entity ID, stored on the linked `IdentityProviderConfig` as
+        `saml_entity_id`) and inject a RelayState so the rest of the flow — including signature
+        validation — proceeds unchanged.
+        """
+        data = self.strategy.request_data()
+        saml_response = data.get("SAMLResponse")
+        if not saml_response:
+            return
+
+        if self._relay_state_points_to_domain(data.get("RelayState")):
+            return  # SP-initiated: RelayState already identifies the tenant
+
+        issuer = self._extract_response_issuer(saml_response)
+        if not issuer:
+            return
+
+        # `saml_entity_id` has no uniqueness constraint, so only act on an unambiguous match —
+        # never guess which tenant an unsolicited assertion belongs to. The IdP config is the
+        # source of truth for SAML settings, so match the issuer against its `saml_entity_id`.
+        matches = list(
+            # nosemgrep: idor-lookup-without-org (pre-auth SAML routing by IdP entity id; the assertion signature is verified afterwards)
+            OrganizationDomain.objects.verified_domains().filter(identity_provider_config__saml_entity_id=issuer)
+        )
+        if len(matches) != 1:
+            if len(matches) > 1:
+                saml_logger.warning("saml_idp_initiated_ambiguous_issuer", issuer=issuer, count=len(matches))
+            return
+
+        organization_domain = matches[0]
+        if not organization_domain.has_saml:
+            return
+
+        saml_logger.info(
+            "saml_idp_initiated_relay_state_recovered",
+            domain=organization_domain.domain,
+            organization_id=str(organization_domain.organization_id),
+        )
+        # Inject the resolved RelayState so the standard flow routes (and labels the response
+        # with) the correct tenant. Work on a mutable copy via the public QueryDict API.
+        strategy = cast(DjangoStrategy, self.strategy)
+        mutable_post = strategy.request.POST.copy()
+        mutable_post["RelayState"] = str(organization_domain.id)
+        # django-stubs types request.POST as immutable; reassigning it is valid at runtime.
+        strategy.request.POST = mutable_post  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+
+    def _relay_state_points_to_domain(self, relay_state_str: str | None) -> bool:
+        if not relay_state_str:
+            return False
+        candidate = self.parse_relay_state(relay_state_str).get("idp")
+        if not candidate:
+            return False
+        try:
+            # nosemgrep: idor-lookup-without-org (pre-auth SAML routing check by domain UUID)
+            return OrganizationDomain.objects.verified_domains().filter(id=candidate).exists()
+        except (DjangoValidationError, ValueError):
+            return False  # not a valid UUID (e.g. an IdP-supplied URL)
+
+    @staticmethod
+    def _extract_response_issuer(saml_response_b64: str) -> str | None:
+        # POST-binding SAMLResponse is base64-encoded (not deflated). Parsing is XXE-safe
+        # (onelogin forbids DTDs/entities); the signature is still verified afterwards.
+        try:
+            document = OneLogin_Saml2_XML.to_etree(base64.b64decode(saml_response_b64))
+            issuer_nodes = OneLogin_Saml2_XML.query(document, "/samlp:Response/saml:Issuer")
+        except Exception:
+            return None
+        if not issuer_nodes:
+            return None
+        return (OneLogin_Saml2_XML.element_text(issuer_nodes[0]) or "").strip() or None
 
     def get_idp(self, organization_domain_or_id: Union["OrganizationDomain", str, None]) -> SAMLIdentityProvider:
         if organization_domain_or_id is None:
@@ -127,12 +208,13 @@ class MultitenantSAMLAuth(SAMLAuth):
                 "Your organization does not have the required license to use SAML.",
             )
 
+        idp_config = organization_domain.idp_config
         return SAMLIdentityProvider(
             self,
             str(organization_domain.id),
-            entity_id=organization_domain.saml_entity_id,
-            url=organization_domain.saml_acs_url,
-            x509cert=organization_domain.saml_x509_cert,
+            entity_id=idp_config.saml_entity_id,
+            url=idp_config.saml_acs_url,
+            x509cert=idp_config.saml_x509_cert,
         )
 
     def auth_url(self):
@@ -159,10 +241,16 @@ class MultitenantSAMLAuth(SAMLAuth):
             **_saml_log_context(email, instance),
         )
         auth = self._create_saml_auth(idp=self.get_idp(instance))
-        # Below, return_to sets the RelayState, which contains the ID of
-        # the `OrganizationDomain`.  We use it to store the specific SAML IdP
-        # name, since we multiple IdPs share the same auth_complete URL.
-        return auth.login(return_to=str(instance.id))
+        # `return_to` sets the RelayState, a value the IdP echoes back in its POST to the
+        # (shared) auth_complete URL. The session cookie is SameSite=Lax and so is dropped on
+        # the IdP's cross-site POST, which would otherwise lose `next` and send the user to `/`;
+        # carrying it in RelayState lets the base `auth_complete` recover it for the post-login
+        # redirect. `idp` carries the OrganizationDomain id since multiple IdPs share the URL.
+        # We deliberately omit the session key that upstream `SAMLAuth.auth_url` also packs into
+        # RelayState: it would be disclosed to the (potentially attacker-controlled) IdP in the
+        # redirect, and `next` alone is enough to recover the redirect without it.
+        relay_state = {"idp": str(instance.id), "next": self.data.get("next")}
+        return auth.login(return_to=json.dumps(relay_state))
 
     def _get_attr(
         self,

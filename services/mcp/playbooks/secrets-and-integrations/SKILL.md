@@ -225,20 +225,17 @@ The only exception is when the user has explicitly told you to
 the value — set it once and we'll rotate it after"), and even
 then warn them about the trace before complying.
 
-## Setting an integration
+## Connecting a third-party service
 
-For systems that DO use team integrations (not Slack), you don't
-set them — the team admin does, via PostHog's integrations UI.
-You can:
+There is no `spec.integrations[]` field. For a third-party service
+the agent should call:
 
-- Check whether an integration is installed by reading the team's
-  integrations from PostHog. (No dedicated MCP tool for this today
-  — surface as a known gap, ask the user to confirm in the UI.)
-- Reference an integration in `spec.integrations[]`. The runner
-  resolves it at session start.
-- Tell the user "this agent needs an X integration on this team; an
-  admin can install it at <link>" — the link is a PostHog URL the
-  user follows manually.
+- **MCP server** — connect it once (OAuth/DCR or api-key) and
+  reference it with `mcps[].connection`; every asker of the agent
+  shares that one owner-connected credential.
+- **Per-asker OAuth** — wire an `identity_providers[]` entry plus an
+  `auth.provider` on the MCP/tool so each asker authenticates as
+  themselves. See `skills/authenticating-as-the-user`.
 
 > Slack is **not** one of these. Use `SLACK_BOT_TOKEN` +
 > `SLACK_SIGNING_SECRET` on the agent's `encrypted_env` via the

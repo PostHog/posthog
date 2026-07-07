@@ -19,6 +19,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -47,9 +48,9 @@ import {
     evaluationTypeSupportsSignalEmission,
     evaluationTypeUsesModelConfiguration,
 } from './evaluationCapabilities'
-import { LLMEvaluationLogicProps, llmEvaluationLogic } from './llmEvaluationLogic'
+import { DEFAULT_TRACE_WINDOW_SECONDS, LLMEvaluationLogicProps, llmEvaluationLogic } from './llmEvaluationLogic'
 import { statusReasonLabel, statusReasonRecoveryLabel } from './statusDisplay'
-import { EvaluationType } from './types'
+import { EvaluationTarget, EvaluationType } from './types'
 
 export function AIObservabilityEvaluation(): JSX.Element {
     const {
@@ -78,6 +79,8 @@ export function AIObservabilityEvaluation(): JSX.Element {
         saveEvaluation,
         resetEvaluation,
         setEvaluationType,
+        setEvaluationTarget,
+        setTraceWindowSeconds,
         setSignalEmission,
         setActiveTab,
     } = useActions(llmEvaluationLogic)
@@ -460,6 +463,54 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                     'Use an LLM to evaluate each generation against a natural-language prompt.'
                                                 )}
                                             </p>
+
+                                            {featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_EVALUATIONS_TRACE_TARGET] &&
+                                                !isSentiment && (
+                                                    <>
+                                                        <Field name="target" label="Evaluate">
+                                                            <LemonSelect<EvaluationTarget>
+                                                                value={evaluation.target ?? 'generation'}
+                                                                onChange={setEvaluationTarget}
+                                                                options={[
+                                                                    {
+                                                                        value: 'generation',
+                                                                        label: 'Each generation',
+                                                                    },
+                                                                    {
+                                                                        value: 'trace',
+                                                                        label: 'Whole trace',
+                                                                    },
+                                                                ]}
+                                                                fullWidth
+                                                            />
+                                                        </Field>
+                                                        <p className="text-muted text-sm -mt-2">
+                                                            {evaluation.target === 'trace'
+                                                                ? 'Runs once per trace on all of its events together, after a delay that lets the trace complete.'
+                                                                : 'Runs on each matching generation event individually, right after it is ingested.'}
+                                                        </p>
+                                                        {evaluation.target === 'trace' && (
+                                                            <Field name="trace_window" label="Wait before evaluating">
+                                                                <div className="space-y-1">
+                                                                    <DurationPicker
+                                                                        value={
+                                                                            evaluation.target_config.window_seconds ??
+                                                                            DEFAULT_TRACE_WINDOW_SECONDS
+                                                                        }
+                                                                        onChange={setTraceWindowSeconds}
+                                                                    />
+                                                                    <p className="text-muted text-xs">
+                                                                        How long to wait after the first matching
+                                                                        generation before pulling the whole trace
+                                                                        (10s–2h). Captured when the run is scheduled —
+                                                                        changing it won't affect trace runs already in
+                                                                        flight.
+                                                                    </p>
+                                                                </div>
+                                                            </Field>
+                                                        )}
+                                                    </>
+                                                )}
 
                                             <Field name="description" label="Description (optional)">
                                                 <LemonTextArea

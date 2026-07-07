@@ -346,6 +346,26 @@ async def test_acheck_query_in_query_log_error(clickhouse_client, django_db_setu
             await clickhouse_client.acheck_query_in_query_log(query_id)
 
 
+async def test_acheck_query_in_query_log_uses_unique_check_query_ids(clickhouse_client: ClickHouseClient) -> None:
+    query_id = f"test-check-query-id-{uuid.uuid4()}"
+    check_query_ids: list[str] = []
+
+    async def mock_read_query_as_jsonl(
+        _query: str, query_parameters: dict[str, object] | None = None, query_id: str | None = None
+    ) -> list[dict[str, str]]:
+        assert query_id is not None
+        check_query_ids.append(query_id)
+        return [{"type": "QueryFinish", "exception": ""}]
+
+    with patch.object(clickhouse_client, "read_query_as_jsonl", side_effect=mock_read_query_as_jsonl):
+        await clickhouse_client.acheck_query_in_query_log(query_id)
+        await clickhouse_client.acheck_query_in_query_log(query_id)
+
+    assert len(check_query_ids) == 2
+    assert check_query_ids[0] != check_query_ids[1]
+    assert all(value.startswith(f"{query_id}-CHECK-QUERY-LOG-") for value in check_query_ids)
+
+
 async def test_acheck_query_found(clickhouse_client, django_db_setup):
     query_id = f"test-acheck-query-{uuid.uuid4()}"
     await clickhouse_client.execute_query("SELECT 1", query_id=query_id)

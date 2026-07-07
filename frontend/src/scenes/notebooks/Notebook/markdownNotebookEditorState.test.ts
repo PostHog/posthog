@@ -1,14 +1,20 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
 import { NotebookNodeType, NotebookType } from '../types'
-import { buildMarkdownNotebookContent } from './markdownNotebookV2'
-import { notebookLogic } from './notebookLogic'
+import {
+    buildMarkdownNotebookContent,
+    getMarkdownNotebookMarkdown,
+    isMarkdownNotebookContent,
+} from './markdownNotebookV2'
+import { NotebookLogicMode, notebookLogic } from './notebookLogic'
 import { NOTEBOOK_AI_PRESENCE_CLIENT_ID, NOTEBOOK_AI_PRESENCE_NAME } from './notebookPresence'
 
 jest.mock('./migrations/migrate', () => {
@@ -47,7 +53,7 @@ describe('notebookLogic markdown editor state', () => {
         useMocks({
             get: {
                 [`/api/projects/@current/notebooks/${SHORT_ID}/`]: () => [200, cachedNotebook],
-                [`/api/projects/:project_id/notebooks/${SHORT_ID}/kernel/status/`]: () => [200, { backend: null }],
+                [`/api/projects/:project_id/notebooks/:short_id/kernel/status/`]: () => [200, { backend: null }],
             },
         })
         // localContent is a persisted reducer — clear it so tests don't leak into each other
@@ -248,7 +254,80 @@ Thinking...`)
         expect(logic.values.notebook?.content).toEqual(latestNotebook.content)
     })
 
-    it('does not surface legacy left-column state for markdown notebooks', () => {
+    it.each([
+        // NotebookSelectButton and the scene menus pass an array of resources
+        ['an array of resources', [{ type: NotebookNodeType.Recording, attrs: { id: 'rec-1' } }]],
+        // The notebook panel dropzone passes a single dropped resource
+        ['a single dropped resource', { type: NotebookNodeType.Recording, attrs: { id: 'rec-1' } }],
+    ])('insertAfterLastNode appends %s to the markdown source', async (_name, content) => {
+        await expectLogic(logic, () => {
+            logic.actions.insertAfterLastNode(content)
+        }).toDispatchActions(['setLocalContent'])
+
+        const markdown = getMarkdownNotebookMarkdown(logic.values.localContent)
+        expect(markdown.startsWith(BASE_MARKDOWN)).toBe(true)
+        expect(markdown).toContain('<Recording')
+        expect(markdown).toContain('id="rec-1"')
+    })
+
+    it('pasteAfterLastNode appends dropped text to the markdown source', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.pasteAfterLastNode('Dropped text')
+        }).toDispatchActions(['setLocalContent'])
+
+        expect(getMarkdownNotebookMarkdown(logic.values.localContent)).toEqual(`${BASE_MARKDOWN}\n\nDropped text`)
+    })
+
+    it.each([
+        ['scratchpad', { shortId: 'scratchpad', mode: 'notebook' as NotebookLogicMode }],
+        ['canvas', { shortId: 'canvas-test', mode: 'canvas' as NotebookLogicMode }],
+    ])('starts an empty %s as a markdown notebook when the flag is enabled', (_name, props) => {
+        logic.unmount()
+        logic = notebookLogic(props)
+        logic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MARKDOWN_NOTEBOOKS], {
+            [FEATURE_FLAGS.MARKDOWN_NOTEBOOKS]: true,
+        })
+
+        expect(isMarkdownNotebookContent(logic.values.content)).toBe(true)
+        expect(getMarkdownNotebookMarkdown(logic.values.content)).toEqual('')
+    })
+
+    it('duplicates a legacy template as a markdown notebook when the flag is enabled', async () => {
+        logic.unmount()
+        const templateNotebook = {
+            ...cachedNotebook,
+            short_id: 'template-test',
+            is_template: true,
+            content: {
+                type: 'doc',
+                content: [
+                    { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Template title' }] },
+                ],
+            },
+        } as unknown as NotebookType
+        logic = notebookLogic({ shortId: 'template-test', mode: 'notebook', cachedNotebook: templateNotebook })
+        logic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MARKDOWN_NOTEBOOKS], {
+            [FEATURE_FLAGS.MARKDOWN_NOTEBOOKS]: true,
+        })
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess'])
+
+        const createSpy = jest
+            .spyOn(api.notebooks, 'create')
+            .mockResolvedValue({ ...templateNotebook, short_id: 'duplicated' } as any)
+
+        logic.actions.duplicateNotebook()
+        await expectLogic(logic).toDispatchActions(['duplicateNotebookSuccess'])
+
+        expect(createSpy).toHaveBeenCalledTimes(1)
+        const createdContent = createSpy.mock.calls[0][0]?.content
+        expect(isMarkdownNotebookContent(createdContent)).toBe(true)
+        expect(getMarkdownNotebookMarkdown(createdContent)).toEqual('# Template title')
+    })
+
+    it('only surfaces the left column for markdown notebooks when history is open', () => {
         logic.unmount()
         logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook' })
         logic.mount()
@@ -275,5 +354,9 @@ Thinking...`)
         expect(logic.values.editingNodeLogics).toEqual([nodeLogic])
         expect(logic.values.editingNodeLogicsForLeft).toEqual([])
         expect(logic.values.isShowingLeftColumn).toBe(false)
+
+        logic.actions.setShowHistory(true)
+
+        expect(logic.values.isShowingLeftColumn).toBe(true)
     })
 })

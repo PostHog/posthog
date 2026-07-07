@@ -358,6 +358,154 @@ def normalize_table_column_names(table: pa.Table) -> pa.Table:
     return table
 
 
+INTERNAL_COLUMN_NAMES = frozenset({"_ph_debug", PARTITION_KEY, "_dlt_id", "_dlt_load_id"})
+
+
+def _fold_column_name_for_match(name: str) -> str:
+    try:
+        return NamingConvention.normalize_identifier(name)
+    except ValueError:
+        return name
+
+
+def apply_enabled_columns_projection(
+    table: pa.Table,
+    enabled_columns: list[str] | None,
+    primary_keys: list[str] | None,
+    incremental_field: str | None,
+    partition_keys: list[str] | None,
+) -> tuple[pa.Table, list[str]]:
+    """Drop table columns not selected in `enabled_columns`. Returns `(table, dropped_names)`.
+
+    Delta-write-side counterpart of the SQL sources' SELECT projection, for sources that can't
+    push the projection into the fetch. `None` means all columns sync. Primary keys, the active
+    incremental field, partition-key source columns, and the pipeline's own internal columns
+    (`INTERNAL_COLUMN_NAMES`) are always retained — matched by exact name, not prefix, so an
+    upstream source can't smuggle a deselected column past the projection by naming it e.g.
+    `_ph_secret` or `_dlt_secret`. Both sides are folded through the dlt naming convention: the table has already been
+    through `normalize_table_column_names` while `enabled_columns`/primary keys arrive in the
+    source namespace, so a raw comparison would drop every non-lowercase column. If the
+    projection would drop every user-facing column, the table is returned unchanged (mirrors the
+    empty-projection fallback in `filter_dwh_columns_by_enabled_columns`) — an empty table is
+    never the intended result of a column selection.
+    """
+    if enabled_columns is None:
+        return table, []
+
+    retained = {_fold_column_name_for_match(name) for name in enabled_columns}
+    for primary_key in primary_keys or []:
+        retained.add(_fold_column_name_for_match(primary_key))
+    if incremental_field:
+        retained.add(_fold_column_name_for_match(incremental_field))
+    for partition_key in partition_keys or []:
+        retained.add(_fold_column_name_for_match(partition_key))
+
+    kept_names = [
+        name
+        for name in table.column_names
+        if name in INTERNAL_COLUMN_NAMES or _fold_column_name_for_match(name) in retained
+    ]
+    dropped_names = [name for name in table.column_names if name not in set(kept_names)]
+    if not dropped_names:
+        return table, []
+    if all(name in INTERNAL_COLUMN_NAMES for name in kept_names):
+        return table, []
+    return table.select(kept_names), dropped_names
+
+
+async def observe_and_project_table(
+    table: pa.Table,
+    enabled_columns: list[str] | None,
+    primary_keys: list[str] | None,
+    incremental_field: str | None,
+    partition_keys: list[str] | None,
+    observed_columns: dict[str, dict[str, Any]],
+    logger: FilteringBoundLogger,
+    log_message: str,
+) -> pa.Table:
+    """Shared observe-then-project step for `_uses_delta_write_column_selection` pipelines.
+
+    Unions the batch's columns into `observed_columns` (for the column picker) before dropping
+    non-enabled ones, so a pinned selection never hides a column from the picker. `log_message`
+    is logged with the dropped column names appended, letting each pipeline keep its own wording.
+    """
+    for observed_column in observed_schema_metadata_columns(table.schema):
+        observed_columns[observed_column["name"]] = observed_column
+
+    table, dropped_names = apply_enabled_columns_projection(
+        table, enabled_columns, primary_keys, incremental_field, partition_keys
+    )
+    if dropped_names:
+        await logger.adebug(f"{log_message}: {dropped_names}")
+    return table
+
+
+def source_uses_delta_write_column_selection(source_type: str) -> bool:
+    """True when the pipeline applies `enabled_columns` by dropping columns before the Delta
+    write (and captures the observed columns into `schema_metadata`).
+
+    False for:
+    - SQL sources — they project `enabled_columns` into their SELECT and own
+      `schema_metadata["columns"]` via schema introspection;
+    - managed-schema sources (Stripe/Paddle/Zendesk) — column selection is disabled for them
+      (their canonical HogQL schema needs the full physical column set), so the pipeline must
+      never drop their columns even if a stale `enabled_columns` is still persisted.
+    """
+    # Imported lazily: the registry pulls in every source's (often heavy) dependencies on first use.
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import (
+        SourceRegistry,  # noqa: PLC0415
+    )
+    from products.warehouse_sources.backend.types import ExternalDataSourceType  # noqa: PLC0415
+
+    try:
+        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+    except Exception:
+        return False
+    return not source.supports_column_selection and not source.has_managed_hogql_schema
+
+
+def observed_schema_metadata_columns(schema: pa.Schema) -> list[dict[str, Any]]:
+    """`schema_metadata["columns"]`-shaped entries from a pre-projection arrow schema.
+
+    Captured before `apply_enabled_columns_projection` so the persisted catalog keeps listing
+    columns the source returns even while they're being dropped — otherwise a pinned selection
+    would make deselected (and newly-added upstream) columns invisible to the column picker.
+    """
+    return [
+        {"name": field.name, "data_type": str(field.type), "is_nullable": field.nullable}
+        for field in schema
+        if field.name not in INTERNAL_COLUMN_NAMES
+    ]
+
+
+def merge_observed_columns_into_schema_metadata(config: dict[str, Any], observed_columns: list[dict[str, Any]]) -> None:
+    """Union observed column entries into `sync_type_config["schema_metadata"]["columns"]` in place.
+
+    Existing entries keep their position and are refreshed with the observed type/nullability;
+    columns previously observed but absent from this run stay listed (union, not replace) so a
+    projection or an upstream removal never shrinks the picker. Designed as a `mutate` callback
+    for `update_sync_type_config_keys`.
+    """
+    metadata = config.get("schema_metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+        config["schema_metadata"] = metadata
+    columns = metadata.get("columns")
+    if not isinstance(columns, list):
+        columns = []
+    metadata["columns"] = columns
+    entries_by_name = {
+        column.get("name"): column for column in columns if isinstance(column, dict) and column.get("name")
+    }
+    for observed in observed_columns:
+        existing = entries_by_name.get(observed["name"])
+        if existing is None:
+            columns.append(observed)
+        else:
+            existing["data_type"] = observed["data_type"]
+            existing["is_nullable"] = observed["is_nullable"]
+
+
 PARTITION_DATETIME_COLUMN_NAMES = ["created_at", "inserted_at", "createdAt"]
 
 
@@ -374,9 +522,14 @@ async def setup_partitioning(
     # source silently re-derives its own count — discarding the operator's choice.
     partition_count = schema.partition_count_override or schema.partition_count or resource.partition_count
     partition_size = schema.partition_size_override or schema.partition_size or resource.partition_size
-    partition_keys = schema.partitioning_keys or resource.partition_keys or resource.primary_keys
+    partition_keys = (
+        schema.partitioning_keys_override
+        or schema.partitioning_keys
+        or resource.partition_keys
+        or resource.primary_keys
+    )
     partition_format = schema.partition_format or resource.partition_format
-    partition_mode = schema.partition_mode or resource.partition_mode
+    partition_mode = schema.partition_mode_override or schema.partition_mode or resource.partition_mode
 
     if not partition_keys:
         logger.debug("No partition keys, skipping partitioning")
@@ -916,11 +1069,19 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                         if py_type is decimal.Decimal
                         else [_convert_to_decimal_or_none(x) for x in all_values]
                     )
-                    number_arr = _decimal_array_from_values(decimal_values)
-                    new_field_type = number_arr.type
-
-                    py_type = decimal.Decimal
-                    unique_types_in_column = {decimal.Decimal}
+                    try:
+                        number_arr = _decimal_array_from_values(decimal_values)
+                        new_field_type = number_arr.type
+                        py_type = decimal.Decimal
+                        unique_types_in_column = {decimal.Decimal}
+                    except ValueError:
+                        # A value is too large even for decimal256 (e.g. an unconstrained Postgres
+                        # `numeric` with more than 76 significant digits) — keep the column as text
+                        # rather than crash the sync, mirroring the huge-int fallback below.
+                        number_arr = pa.array([None if v is None else str(v) for v in decimal_values], type=pa.string())
+                        new_field_type = pa.string()
+                        py_type = str
+                        unique_types_in_column = {str}
                 else:
                     raise
 

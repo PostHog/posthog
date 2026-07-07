@@ -111,8 +111,8 @@ def _validate(inputs: ValidateVisionActionInputs) -> str | None:
         return "not_found"
     if not action.enabled:
         return "disabled"
-    if action.hog_flow_id is None:
-        return "no_delivery_flow"
+    if not action.delivery_config:
+        return "no_delivery"
     return None
 
 

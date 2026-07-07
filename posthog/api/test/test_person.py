@@ -25,6 +25,7 @@ from rest_framework import status
 
 import posthog.models.person.deletion
 from posthog.clickhouse.client import sync_execute
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, Person, PropertyDefinition, Team
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person.missing_person import uuidFromDistinctId
@@ -39,6 +40,8 @@ from posthog.models.person.util import (
 from posthog.personhog_client.fake_client import fake_personhog_client
 from posthog.test.persons import add_distinct_id, create_person, delete_person
 
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.cohorts.backend.models.cohort import Cohort
 
 
@@ -2093,3 +2096,51 @@ class TestPersonFromClickhouse(TestPerson):
 
         response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
         self.assertEqual(response_include_total["count"], 19)  #  With `include_total`, the total count is returned too
+
+
+class TestPersonBatchRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
+    # Regression: batch_by_distinct_ids / batch_by_uuids built MinimalPersonSerializer with a bare
+    # {"get_team": ...} context, skipping get_serializer_context() — so restricted_person_properties
+    # was never injected and field-level access control was bypassed. The single-person GET path
+    # strips restricted properties; the batch paths must too.
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        restricted = PropertyDefinition.objects.create(
+            team=self.team, name="ssn", property_type="String", type=PropertyDefinition.Type.PERSON
+        )
+        # A default rule (no member/role) restricts the property for the default test user, a plain MEMBER.
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=restricted, access_level=PropertyAccessLevel.NONE.value
+        )
+
+    @parameterized.expand(["batch_by_distinct_ids", "batch_by_uuids"])
+    def test_batch_endpoint_strips_restricted_person_properties(self, action: str) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["restricted_user"],
+            properties={"email": "visible@example.com", "ssn": "123-45-6789"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        if action == "batch_by_distinct_ids":
+            body: dict[str, list[str]] = {"distinct_ids": ["restricted_user"]}
+            result_key = "restricted_user"
+        else:
+            body = {"uuids": [str(person.uuid)]}
+            result_key = str(person.uuid)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/{action}/",
+            body,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        properties = response.json()["results"][result_key]["properties"]
+        self.assertEqual(properties.get("email"), "visible@example.com")
+        self.assertNotIn("ssn", properties)

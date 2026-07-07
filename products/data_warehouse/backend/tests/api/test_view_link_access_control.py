@@ -3,7 +3,7 @@ import pytest
 from parameterized import parameterized
 from rest_framework import status
 
-from products.data_warehouse.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
+from products.warehouse_sources.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
 
 
 @pytest.mark.ee

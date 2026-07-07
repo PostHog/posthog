@@ -24,6 +24,7 @@ from pydantic import BaseModel, ValidationError
 from temporalio import activity
 
 from posthog.models import Team
+from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
@@ -66,6 +67,12 @@ _OutputT = TypeVar("_OutputT", bound=BaseModel)
 @track_activity()
 async def call_scanner_provider_activity(inputs: CallScannerProviderInputs) -> ScannerCallOutput:
     """Run the scanner conversation against the uploaded video + cached events; validate, finalize, return the output."""
+    # Background heartbeats let Temporal detect a dead worker in ~2 min instead of the full 10-min timeout.
+    async with Heartbeater(factor=4):
+        return await _call_scanner_provider(inputs)
+
+
+async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCallOutput:
     snapshot, team_name, llm_inputs = await asyncio.gather(
         sync_to_async(_load_snapshot)(inputs.observation_id, inputs.team_id),
         sync_to_async(_load_team_name)(inputs.team_id),
@@ -176,12 +183,20 @@ async def _run_mission(
     cached run that fails for a non-validation reason is retried inline once before giving up.
     """
     api_key = gemini_api_key()
-    client = genai.AsyncClient(api_key=api_key)
+    # Attribute every scanner generation to Replay Vision in LLM analytics so costs and traces roll up to the product.
+    client = genai.AsyncClient(
+        api_key=api_key,
+        posthog_properties={
+            "ai_product": "replay_vision",
+            "feature": "scanner",
+            "scanner_type": snapshot.scanner_type.value,
+        },
+    )
     cache_client = GoogleGenAIClient(api_key=api_key)
-    model = f"models/{snapshot.model.value}"
+    model = f"models/{snapshot.model}"
     metric_labels = {
-        "provider": snapshot.provider.value,
-        "model": snapshot.model.value,
+        "provider": snapshot.provider,
+        "model": snapshot.model,
         "scanner_type": snapshot.scanner_type.value,
     }
 
@@ -216,7 +231,7 @@ async def _run_mission(
                 # cached-content + response-schema combination, a stale cache reference, or a transient provider error.
                 logger.warning(
                     "replay_vision.video_cache.run_failed_retrying_inline",
-                    model=snapshot.model.value,
+                    model=snapshot.model,
                     error=str(exc),
                     error_type=type(exc).__name__,
                     exc_info=True,

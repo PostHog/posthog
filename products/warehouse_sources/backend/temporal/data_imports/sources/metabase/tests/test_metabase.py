@@ -221,6 +221,18 @@ class TestValidateCredentials:
             assert msg is not None
             session.get.assert_not_called()
 
+    def test_unexpected_status_does_not_leak_response_body(self):
+        # When the host isn't a Metabase instance it returns an arbitrary body (e.g. a hosting
+        # provider's error page). That body must never reach the user — only a friendly,
+        # status-coded message that points them back at the Instance URL.
+        leaked_body = '{"error": {"code": "404", "message": "SENTINEL_UPSTREAM_BODY"}}'
+        with self._patch_session(_response(status_code=404, json_data={"error": {"code": "404"}}, text=leaked_body)):
+            valid, msg = validate_credentials("https://x.metabaseapp.com", _api_key_auth())
+            assert valid is False
+            assert msg is not None
+            assert "SENTINEL_UPSTREAM_BODY" not in msg
+            assert "404" in msg
+
 
 class TestMetabaseSourceResponse:
     @pytest.mark.parametrize(

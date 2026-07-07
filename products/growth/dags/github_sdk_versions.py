@@ -6,11 +6,11 @@ from typing import Any, Optional, cast
 from django.conf import settings
 
 import dagster
-import requests
 import structlog
 
 from posthog.dags.common import JobOwners
 from posthog.dags.common.resources import redis
+from posthog.egress.github.transport import github_request
 from posthog.exceptions_capture import capture_exception
 
 from products.growth.backend.constants import SDK_CACHE_EXPIRY, SDK_TYPES, SdkTypes, github_sdk_versions_key
@@ -134,7 +134,8 @@ def fetch_releases_from_repo(repo: str, skip_cache: bool = False) -> list[Any]:
             url = f"https://api.github.com/repos/{repo}/releases?per_page=100&page={page}"
             logger.info(f"[SDK Health] Fetching releases from {url}")
 
-            response = requests.get(url, timeout=10)
+            # Identity-blind, unauthenticated call — records volume telemetry, no installation budget.
+            response = github_request("GET", url, source="growth", timeout=10)
 
             if not response.ok:
                 logger.error(f"[SDK Health] Failed to fetch releases for {repo}", status_code=response.status_code)

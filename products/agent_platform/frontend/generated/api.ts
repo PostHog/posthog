@@ -26,6 +26,7 @@ import type {
     AgentApplicationsSessionLogsParams,
     AgentApplicationsSessionsListParams,
     AgentApplicationsSessionsRetrieveParams,
+    AgentApplicationsSpecSchemaParams,
     AgentApplicationsStatsParams,
     AgentApprovalsDecideResponseApi,
     AgentFleetApprovalsListParams,
@@ -47,6 +48,7 @@ import type {
     AgentRevisionApi,
     AgentRevisionCronFireRequestApi,
     AgentRevisionCronFireResponseApi,
+    AgentRevisionDryRunToolResponseApi,
     AgentRevisionEnvKeyStatusApi,
     AgentRevisionEnvKeysResponseApi,
     AgentRevisionSlackManifestResponseApi,
@@ -57,6 +59,7 @@ import type {
     AgentUsersListApi,
     CloneFromRequestApi,
     DecideApprovalRequestApi,
+    DryRunToolRequestApi,
     NewDraftRevisionRequestApi,
     PaginatedAgentApplicationListApi,
     PaginatedAgentRevisionListApi,
@@ -1316,6 +1319,42 @@ export const agentApplicationsRevisionsToolsDestroy = async (
     })
 }
 
+export const getAgentApplicationsRevisionsToolsDryRunCreateUrl = (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    toolId: string
+) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/tools/${toolId}/dry_run/`
+}
+
+/**
+ * Execute one persisted custom tool in a single-shot sandbox.
+ *
+ * Authoring loop's "test this tool" button. The tool's source must
+ * already be PUT (compiled.js is what runs); this just invokes it
+ * with the caller-supplied args and a stubbed ctx. No real secrets
+ * leave Django — `mock_secrets` is a `{name → placeholder}` map.
+ */
+export const agentApplicationsRevisionsToolsDryRunCreate = async (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    toolId: string,
+    dryRunToolRequestApi: DryRunToolRequestApi,
+    options?: RequestInit
+): Promise<AgentRevisionDryRunToolResponseApi> => {
+    return apiMutator<AgentRevisionDryRunToolResponseApi>(
+        getAgentApplicationsRevisionsToolsDryRunCreateUrl(projectId, applicationId, id, toolId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(dryRunToolRequestApi),
+        }
+    )
+}
+
 export const getAgentApplicationsRevisionsValidateCreateUrl = (
     projectId: string,
     applicationId: string,
@@ -1980,6 +2019,36 @@ export const agentApplicationsModels = async (
     options?: RequestInit
 ): Promise<AgentApplicationApi> => {
     return apiMutator<AgentApplicationApi>(getAgentApplicationsModelsUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAgentApplicationsSpecSchemaUrl = (projectId: string, params?: AgentApplicationsSpecSchemaParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_applications/spec_schema/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_applications/spec_schema/`
+}
+
+/**
+ * The canonical JSON Schema for an agent `spec` — every field, type, enum, default, and the discriminated unions for `models` / `triggers[]` / `tools[]`, each with an inline description. Emitted from the same source the runner validates against (fields with a default are optional on write), so read it BEFORE composing a spec for create / revisions-spec-update instead of guessing the shape. Pass `section` to fetch just one part.
+ */
+export const agentApplicationsSpecSchema = async (
+    projectId: string,
+    params?: AgentApplicationsSpecSchemaParams,
+    options?: RequestInit
+): Promise<AgentApplicationApi> => {
+    return apiMutator<AgentApplicationApi>(getAgentApplicationsSpecSchemaUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
