@@ -215,8 +215,8 @@ export function EditModeActions(): JSX.Element {
 
     return (
         <>
-            {layoutEditMode && <DashboardEditSaveCancelButtons />}
             <DashboardSubscribeExperiment placement="button" />
+            {layoutEditMode && <DashboardEditSaveCancelButtons />}
             <DashboardAddTileButton />
             <DashboardSubscribeExperiment placement="menu" />
         </>
@@ -250,6 +250,7 @@ export function ViewModeActions(): JSX.Element {
 
     return (
         <>
+            <DashboardSubscribeExperiment placement="button" />
             <LemonButton
                 type="secondary"
                 data-attr="dashboard-share-button"
@@ -283,7 +284,6 @@ export function ViewModeActions(): JSX.Element {
                     </LemonButton>
                 </Shortcut>
             )}
-            <DashboardSubscribeExperiment placement="button" />
             <DashboardAddTileButton />
             <DashboardSubscribeExperiment placement="menu" />
         </>
