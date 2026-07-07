@@ -4847,7 +4847,7 @@
         }
     },
     "llma-evaluation-report-create": {
-        "description": "Create an evaluation report configuration. Reports summarize recent evaluation runs (using AI)\nand are delivered to email or Slack targets. `frequency` selects the trigger mode and defaults\nto 'every_n' if omitted:\n\n- 'every_n' (count-based): a report fires once `trigger_threshold` new evaluation results have\naccumulated, but no more often than `cooldown_minutes` apart and capped by `daily_run_cap` per\nUTC day. `trigger_threshold` is required in this mode (10–10000); `cooldown_minutes` (60–1440)\nand `daily_run_cap` are optional.\n- 'scheduled' (time-based): reports fire on the cadence defined by `rrule` (RFC 5545, e.g.\n'FREQ=WEEKLY;BYDAY=MO') anchored at `starts_at` and expanded in `timezone_name` so local clock\ntimes survive DST transitions. `rrule` and `starts_at` are required in this mode;\n`timezone_name` defaults to 'UTC'.\n\n`delivery_targets` is a list of {type: 'email', value: '<addr>'} or {type: 'slack',\nintegration_id: <int>, channel: '<channel>'} entries. Slack integrations must belong to the\nsame team. Use `report_prompt_guidance` to steer the AI report's focus.",
+        "description": "Create an evaluation report configuration. Reports summarize recent evaluation runs (using AI)\nand are delivered to email or Slack targets. `frequency` selects the trigger mode and defaults\nto 'every_n' if omitted:\n\n- 'every_n' (count-based): a report fires once `trigger_threshold` new evaluation results have\naccumulated, but no more often than `cooldown_minutes` apart and capped by `daily_run_cap` per\nUTC day. `trigger_threshold` is required in this mode (100–10000); `cooldown_minutes` (60–1440)\nand `daily_run_cap` are optional.\n- 'scheduled' (time-based): reports fire on the daily or weekly cadence defined by `rrule`. Use\n'FREQ=DAILY' for daily reports or 'FREQ=WEEKLY;BYDAY=MO,FR' for weekly reports on selected days.\nThe server sets the schedule anchor and timezone automatically.\n\n`delivery_targets` is a list of {type: 'email', value: '<addr>'} or {type: 'slack',\nintegration_id: <int>, channel: '<channel>'} entries. Slack integrations must belong to the\nsame team. Use `report_prompt_guidance` to steer the AI report's focus.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create evaluation report config",
@@ -4855,20 +4855,6 @@
         "required_scopes": ["llm_analytics:write"],
         "annotations": {
             "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "llma-evaluation-report-delete": {
-        "description": "Soft-delete an evaluation report configuration. The report stops firing and is hidden from list views; historical report runs are preserved. Equivalent to calling llma-evaluation-report-update with deleted=true — that update path is the canonical way to soft-delete and is the only option when you also want to change other fields in the same call.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Delete evaluation report config",
-        "title": "Delete evaluation report config",
-        "required_scopes": ["llm_analytics:write"],
-        "annotations": {
-            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
@@ -4931,7 +4917,7 @@
         }
     },
     "llma-evaluation-report-update": {
-        "description": "Partially update an evaluation report configuration. Toggle enabled/disabled, update delivery targets (email or Slack), or switch frequency between 'every_n' and 'scheduled'. For 'every_n' mode set trigger_threshold (10–10000) and optionally cooldown_minutes (60–1440); for 'scheduled' mode set rrule and starts_at. Set deleted=true to soft-delete the config.",
+        "description": "Partially update an evaluation report configuration. Toggle enabled/disabled, update delivery targets (email or Slack), or switch frequency between 'every_n' and 'scheduled'. For 'every_n' mode set trigger_threshold (100–10000) and optionally cooldown_minutes (60–1440); for 'scheduled' mode set rrule to a daily or weekly cadence such as 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'. Disable delivery with enabled=false; report configs are deleted only when their evaluation is deleted.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Update evaluation report config",

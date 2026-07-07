@@ -1,10 +1,16 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
+import {
+    llmAnalyticsEvaluationReportsCreate,
+    llmAnalyticsEvaluationReportsGenerateCreate,
+    llmAnalyticsEvaluationReportsList,
+    llmAnalyticsEvaluationReportsPartialUpdate,
+    llmAnalyticsEvaluationReportsRunsList,
+} from '../generated/api'
 import type { evaluationReportLogicType } from './evaluationReportLogicType'
 import type {
     EvaluationReport,
@@ -13,18 +19,23 @@ import type {
     EvaluationReportRun,
 } from './types'
 
+type EvaluationReportCreateBody = Parameters<typeof llmAnalyticsEvaluationReportsCreate>[1]
+type EvaluationReportPatchBody = Parameters<typeof llmAnalyticsEvaluationReportsPartialUpdate>[2]
+
 export interface EvaluationReportLogicProps {
     evaluationId: string
 }
+
+export type ReportScheduleCadence = 'daily' | 'weekly'
+export type ReportScheduleWeekday = 'MO' | 'TU' | 'WE' | 'TH' | 'FR' | 'SA' | 'SU'
 
 /** Draft state for the report config form — used for both the create-new-evaluation path
  * (keyed as 'new') and the edit-existing-evaluation path (keyed by the real evaluation id). */
 export interface ReportConfigDraft {
     enabled: boolean
     frequency: EvaluationReportFrequency
-    rrule: string
-    startsAt: string | null
-    timezoneName: string
+    scheduleCadence: ReportScheduleCadence
+    scheduleWeekdays: ReportScheduleWeekday[]
     emailValue: string
     slackIntegrationId: number | null
     slackChannelValue: string
@@ -33,19 +44,32 @@ export interface ReportConfigDraft {
     cooldownHours: number
 }
 
+export const TRIGGER_THRESHOLD_MIN = 100
 export const TRIGGER_THRESHOLD_DEFAULT = 100
+export const TRIGGER_THRESHOLD_MAX = 10_000
 export const COOLDOWN_HOURS_DEFAULT = 1
 export const COOLDOWN_HOURS_MIN = 1
 export const COOLDOWN_HOURS_MAX = 24
 export const DEFAULT_RRULE = 'FREQ=DAILY'
-export const DEFAULT_TIMEZONE = 'UTC'
+export const DEFAULT_SCHEDULE_CADENCE: ReportScheduleCadence = 'daily'
+export const DEFAULT_WEEKLY_DAYS: ReportScheduleWeekday[] = ['MO']
+export const WEEKDAY_OPTIONS: { value: ReportScheduleWeekday; label: string }[] = [
+    { value: 'MO', label: 'Mon' },
+    { value: 'TU', label: 'Tue' },
+    { value: 'WE', label: 'Wed' },
+    { value: 'TH', label: 'Thu' },
+    { value: 'FR', label: 'Fri' },
+    { value: 'SA', label: 'Sat' },
+    { value: 'SU', label: 'Sun' },
+]
+
+const WEEKDAY_ORDER = WEEKDAY_OPTIONS.map((option) => option.value)
 
 const DEFAULT_CONFIG_DRAFT: ReportConfigDraft = {
     enabled: true,
     frequency: 'every_n',
-    rrule: '',
-    startsAt: null,
-    timezoneName: DEFAULT_TIMEZONE,
+    scheduleCadence: DEFAULT_SCHEDULE_CADENCE,
+    scheduleWeekdays: DEFAULT_WEEKLY_DAYS,
     emailValue: '',
     slackIntegrationId: null,
     slackChannelValue: '',
@@ -54,18 +78,50 @@ const DEFAULT_CONFIG_DRAFT: ReportConfigDraft = {
     cooldownHours: COOLDOWN_HOURS_DEFAULT,
 }
 
+function normalizeScheduleWeekdays(weekdays: ReportScheduleWeekday[]): ReportScheduleWeekday[] {
+    const selected = new Set(weekdays)
+    const normalized = WEEKDAY_ORDER.filter((weekday) => selected.has(weekday))
+    return normalized.length > 0 ? normalized : DEFAULT_WEEKLY_DAYS
+}
+
+function rruleFromSchedule(cadence: ReportScheduleCadence, weekdays: ReportScheduleWeekday[]): string {
+    if (cadence === 'daily') {
+        return DEFAULT_RRULE
+    }
+    return `FREQ=WEEKLY;BYDAY=${normalizeScheduleWeekdays(weekdays).join(',')}`
+}
+
+function scheduleFromRrule(rrule: string): {
+    cadence: ReportScheduleCadence
+    weekdays: ReportScheduleWeekday[]
+} {
+    if (rrule.startsWith('FREQ=WEEKLY')) {
+        const byday = rrule
+            .split(';')
+            .find((part) => part.startsWith('BYDAY='))
+            ?.replace('BYDAY=', '')
+        const weekdays = normalizeScheduleWeekdays(
+            (byday?.split(',') ?? []).filter((day): day is ReportScheduleWeekday =>
+                WEEKDAY_ORDER.includes(day as ReportScheduleWeekday)
+            )
+        )
+        return { cadence: 'weekly', weekdays }
+    }
+    return { cadence: 'daily', weekdays: DEFAULT_WEEKLY_DAYS }
+}
+
 function draftFromReport(report: EvaluationReport): ReportConfigDraft {
     const emailTarget = report.delivery_targets.find((t) => t.type === 'email')
     const slackTarget = report.delivery_targets.find((t) => t.type === 'slack')
+    const schedule = scheduleFromRrule(report.rrule ?? '')
     // Normalise here so the dirty check (which compares against draft.emailValue
     // that buildDeliveryTargets later trims) doesn't fire a false positive when
     // the stored value is surrounded by whitespace.
     return {
-        enabled: true,
+        enabled: report.enabled,
         frequency: report.frequency,
-        rrule: report.rrule ?? '',
-        startsAt: report.starts_at ?? null,
-        timezoneName: report.timezone_name ?? DEFAULT_TIMEZONE,
+        scheduleCadence: schedule.cadence,
+        scheduleWeekdays: schedule.weekdays,
         emailValue: (emailTarget?.value ?? '').trim(),
         slackIntegrationId: slackTarget?.integration_id ?? null,
         slackChannelValue: slackTarget?.channel ?? '',
@@ -97,14 +153,13 @@ function buildReportUpdatePayload(
     targets: EvaluationReportDeliveryTarget[]
 ): Record<string, unknown> {
     const data: Record<string, unknown> = {
+        enabled: draft.enabled,
         frequency: draft.frequency,
         delivery_targets: targets,
         report_prompt_guidance: draft.reportPromptGuidance,
     }
     if (draft.frequency === 'scheduled') {
-        data.rrule = draft.rrule
-        data.starts_at = draft.startsAt
-        data.timezone_name = draft.timezoneName
+        data.rrule = rruleFromSchedule(draft.scheduleCadence, draft.scheduleWeekdays)
     }
     if (draft.frequency === 'every_n') {
         data.trigger_threshold = draft.triggerThreshold
@@ -129,18 +184,21 @@ function buildReportCreatePayload(
         frequency: draft.frequency,
         delivery_targets: targets,
         report_prompt_guidance: draft.reportPromptGuidance,
-        enabled: true,
+        enabled: draft.enabled,
     }
     if (draft.frequency === 'scheduled') {
-        body.rrule = draft.rrule
-        body.starts_at = draft.startsAt
-        body.timezone_name = draft.timezoneName
+        body.rrule = rruleFromSchedule(draft.scheduleCadence, draft.scheduleWeekdays)
     }
     if (draft.frequency === 'every_n') {
         body.trigger_threshold = draft.triggerThreshold
         body.cooldown_minutes = draft.cooldownHours * 60
     }
     return body
+}
+
+async function loadReportsForEvaluation(teamId: number, evaluationId: string): Promise<EvaluationReport[]> {
+    const response = await llmAnalyticsEvaluationReportsList(teamId.toString(), { evaluation: evaluationId })
+    return (response.results || []) as EvaluationReport[]
 }
 
 /** Inline persistor used by the parent evaluation save flow so the single
@@ -156,31 +214,19 @@ export async function persistReportDraft(
     activeReport: EvaluationReport | null
 ): Promise<boolean> {
     const targets = buildDeliveryTargets(draft)
-    if (activeReport) {
-        // Match the inner Save button's validation so the main Save flow
-        // doesn't silently clear all delivery targets on an existing report.
-        if (targets.length === 0) {
-            lemonToast.warning('Scheduled report not saved — add at least one delivery target.')
-            return false
-        }
-        // nosemgrep: prefer-codegen-api
-        await api.update(
-            `api/environments/${teamId}/llm_analytics/evaluation_reports/${activeReport.id}/`,
-            buildReportUpdatePayload(draft, activeReport, targets)
+    const report = activeReport ?? (await loadReportsForEvaluation(teamId, evaluationId))[0] ?? null
+    if (report) {
+        await llmAnalyticsEvaluationReportsPartialUpdate(
+            teamId.toString(),
+            report.id,
+            buildReportUpdatePayload(draft, report, targets) as EvaluationReportPatchBody
         )
         return true
     }
-    // No active report yet — create only if the draft has savable content.
-    if (!draft.enabled) {
-        return false
-    }
-    if (targets.length === 0 && draft.reportPromptGuidance.trim().length === 0) {
-        return false
-    }
-    // nosemgrep: prefer-codegen-api
-    await api.create(
-        `api/environments/${teamId}/llm_analytics/evaluation_reports/`,
-        buildReportCreatePayload(draft, evaluationId, targets)
+
+    await llmAnalyticsEvaluationReportsCreate(
+        teamId.toString(),
+        buildReportCreatePayload(draft, evaluationId, targets) as EvaluationReportCreateBody
     )
     return true
 }
@@ -196,9 +242,8 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
     actions({
         setDraftEnabled: (enabled: boolean) => ({ enabled }),
         setDraftFrequency: (frequency: EvaluationReportFrequency) => ({ frequency }),
-        setDraftRrule: (rrule: string) => ({ rrule }),
-        setDraftStartsAt: (startsAt: string | null) => ({ startsAt }),
-        setDraftTimezoneName: (timezoneName: string) => ({ timezoneName }),
+        setDraftScheduleCadence: (cadence: ReportScheduleCadence) => ({ cadence }),
+        toggleDraftScheduleWeekday: (weekday: ReportScheduleWeekday) => ({ weekday }),
         setDraftEmailValue: (emailValue: string) => ({ emailValue }),
         setDraftSlackIntegrationId: (integrationId: number | null) => ({ integrationId }),
         setDraftSlackChannelValue: (channelValue: string) => ({ channelValue }),
@@ -220,16 +265,25 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
             {
                 setDraftEnabled: (state, { enabled }) => ({ ...state, enabled }),
                 setDraftFrequency: (state, { frequency }) => {
-                    // Seed a default rrule when switching into scheduled mode for the first time so
-                    // the Save button can commit without forcing the user to fill the field manually.
-                    const rrule = frequency === 'scheduled' && !state.rrule ? DEFAULT_RRULE : state.rrule
-                    const startsAt =
-                        frequency === 'scheduled' && !state.startsAt ? new Date().toISOString() : state.startsAt
-                    return { ...state, frequency, rrule, startsAt }
+                    return { ...state, frequency }
                 },
-                setDraftRrule: (state, { rrule }) => ({ ...state, rrule }),
-                setDraftStartsAt: (state, { startsAt }) => ({ ...state, startsAt }),
-                setDraftTimezoneName: (state, { timezoneName }) => ({ ...state, timezoneName }),
+                setDraftScheduleCadence: (state, { cadence }) => ({
+                    ...state,
+                    scheduleCadence: cadence,
+                }),
+                toggleDraftScheduleWeekday: (state, { weekday }) => {
+                    const existing = new Set(state.scheduleWeekdays)
+                    if (existing.has(weekday)) {
+                        existing.delete(weekday)
+                    } else {
+                        existing.add(weekday)
+                    }
+                    const scheduleWeekdays = normalizeScheduleWeekdays([...existing])
+                    return {
+                        ...state,
+                        scheduleWeekdays,
+                    }
+                },
                 setDraftEmailValue: (state, { emailValue }) => ({ ...state, emailValue }),
                 setDraftSlackIntegrationId: (state, { integrationId }) => ({
                     ...state,
@@ -274,18 +328,13 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     if (props.evaluationId === 'new') {
                         return []
                     }
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.get(
-                        `api/environments/${values.currentTeamId}/llm_analytics/evaluation_reports/?evaluation=${props.evaluationId}`
-                    )
-                    return response.results || []
+                    return loadReportsForEvaluation(values.currentTeamId, props.evaluationId)
                 },
                 createReport: async (params: {
                     evaluationId: string
+                    enabled: boolean
                     frequency: EvaluationReportFrequency
                     rrule?: string
-                    starts_at?: string | null
-                    timezone_name?: string
                     delivery_targets: EvaluationReportDeliveryTarget[]
                     report_prompt_guidance?: string
                     trigger_threshold?: number | null
@@ -296,12 +345,10 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                         frequency: params.frequency,
                         delivery_targets: params.delivery_targets,
                         report_prompt_guidance: params.report_prompt_guidance ?? '',
-                        enabled: true,
+                        enabled: params.enabled,
                     }
                     if (params.frequency === 'scheduled') {
                         body.rrule = params.rrule ?? ''
-                        body.starts_at = params.starts_at ?? null
-                        body.timezone_name = params.timezone_name ?? DEFAULT_TIMEZONE
                     }
                     if (params.frequency === 'every_n' && params.trigger_threshold != null) {
                         body.trigger_threshold = params.trigger_threshold
@@ -309,28 +356,22 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     if (params.frequency === 'every_n' && params.cooldown_minutes != null) {
                         body.cooldown_minutes = params.cooldown_minutes
                     }
-                    // nosemgrep: prefer-codegen-api
-                    const report = await api.create(
-                        `api/environments/${values.currentTeamId}/llm_analytics/evaluation_reports/`,
-                        body
+                    const report = await llmAnalyticsEvaluationReportsCreate(
+                        values.currentTeamId.toString(),
+                        body as EvaluationReportCreateBody
                     )
-                    return [...values.reports, report]
+                    return [
+                        ...values.reports.filter((existing) => existing.id !== report.id),
+                        report as EvaluationReport,
+                    ]
                 },
                 updateReport: async ({ reportId, data }: { reportId: string; data: Partial<EvaluationReport> }) => {
-                    // nosemgrep: prefer-codegen-api
-                    const updated = await api.update(
-                        `api/environments/${values.currentTeamId}/llm_analytics/evaluation_reports/${reportId}/`,
-                        data
+                    const updated = await llmAnalyticsEvaluationReportsPartialUpdate(
+                        values.currentTeamId.toString(),
+                        reportId,
+                        data as EvaluationReportPatchBody
                     )
-                    return values.reports.map((r) => (r.id === reportId ? updated : r))
-                },
-                deleteReport: async (reportId: string) => {
-                    // nosemgrep: prefer-codegen-api
-                    await api.update(
-                        `api/environments/${values.currentTeamId}/llm_analytics/evaluation_reports/${reportId}/`,
-                        { deleted: true }
-                    )
-                    return values.reports.filter((r) => r.id !== reportId)
+                    return values.reports.map((r) => (r.id === reportId ? (updated as EvaluationReport) : r))
                 },
             },
         ],
@@ -338,13 +379,13 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
             [] as EvaluationReportRun[],
             {
                 loadReportRuns: async (reportId: string) => {
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.get(
-                        `api/environments/${values.currentTeamId}/llm_analytics/evaluation_reports/${reportId}/runs/`
+                    const response = await llmAnalyticsEvaluationReportsRunsList(
+                        values.currentTeamId.toString(),
+                        reportId
                     )
                     // The runs endpoint is paginated (DRF envelope); unwrap results so the
                     // reducer gets an array rather than the {count, next, previous, results} object.
-                    return response?.results || []
+                    return (response?.results || []) as unknown as EvaluationReportRun[]
                 },
             },
         ],
@@ -352,10 +393,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
             null as null,
             {
                 generateReport: async (reportId: string) => {
-                    // nosemgrep: prefer-codegen-api
-                    await api.create(
-                        `api/environments/${values.currentTeamId}/llm_analytics/evaluation_reports/${reportId}/generate/`
-                    )
+                    await llmAnalyticsEvaluationReportsGenerateCreate(values.currentTeamId.toString(), reportId)
                     return null
                 },
             },
@@ -367,7 +405,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
         activeReport: [
             (s) => [s.reports],
             (reports): EvaluationReport | null => {
-                return reports.find((r: EvaluationReport) => r.enabled && !r.deleted) || null
+                return reports.find((r: EvaluationReport) => !r.deleted) || null
             },
         ],
         isConfigDirty: [
@@ -375,15 +413,22 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
             (activeReport, draft): boolean => {
                 if (!activeReport) {
                     // No report yet: draft is "dirty" if it has any savable content.
-                    return buildDeliveryTargets(draft).length > 0 || draft.reportPromptGuidance.trim().length > 0
+                    return (
+                        !draft.enabled ||
+                        draft.frequency !== 'every_n' ||
+                        buildDeliveryTargets(draft).length > 0 ||
+                        draft.reportPromptGuidance.trim().length > 0 ||
+                        draft.triggerThreshold !== TRIGGER_THRESHOLD_DEFAULT ||
+                        draft.cooldownHours !== COOLDOWN_HOURS_DEFAULT
+                    )
                 }
                 const baseline = draftFromReport(activeReport)
                 const scheduleDirty =
                     draft.frequency === 'scheduled' &&
-                    (baseline.rrule !== draft.rrule ||
-                        baseline.startsAt !== draft.startsAt ||
-                        baseline.timezoneName !== draft.timezoneName)
+                    rruleFromSchedule(baseline.scheduleCadence, baseline.scheduleWeekdays) !==
+                        rruleFromSchedule(draft.scheduleCadence, draft.scheduleWeekdays)
                 return (
+                    baseline.enabled !== draft.enabled ||
                     baseline.frequency !== draft.frequency ||
                     baseline.emailValue !== draft.emailValue.trim() ||
                     baseline.slackIntegrationId !== draft.slackIntegrationId ||
@@ -399,9 +444,9 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
 
     listeners(({ actions, values, props }) => ({
         loadReportsSuccess: ({ reports }) => {
-            // Auto-load the run history for the active report so the Reports tab knows
+            // Auto-load the run history for the saved report so the Reports tab knows
             // whether to render itself and can show data immediately.
-            const active = reports.find((r: EvaluationReport) => r.enabled && !r.deleted)
+            const active = reports.find((r: EvaluationReport) => !r.deleted)
             if (active) {
                 actions.loadReportRuns(active.id)
                 // Seed the draft so the config form reflects the saved report instead of defaults.
@@ -431,10 +476,9 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
             } else {
                 actions.createReport({
                     evaluationId: props.evaluationId,
+                    enabled: configDraft.enabled,
                     frequency: configDraft.frequency,
-                    rrule: configDraft.rrule,
-                    starts_at: configDraft.startsAt,
-                    timezone_name: configDraft.timezoneName,
+                    rrule: rruleFromSchedule(configDraft.scheduleCadence, configDraft.scheduleWeekdays),
                     delivery_targets: targets,
                     report_prompt_guidance: configDraft.reportPromptGuidance,
                     trigger_threshold: configDraft.frequency === 'every_n' ? configDraft.triggerThreshold : null,

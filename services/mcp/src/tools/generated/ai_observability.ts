@@ -20,7 +20,6 @@ import {
     LlmAnalyticsClusteringJobsRetrieveParams,
     LlmAnalyticsEvaluationConfigSetActiveKeyCreateBody,
     LlmAnalyticsEvaluationReportsCreateBody,
-    LlmAnalyticsEvaluationReportsDestroyParams,
     LlmAnalyticsEvaluationReportsGenerateCreateParams,
     LlmAnalyticsEvaluationReportsListQueryParams,
     LlmAnalyticsEvaluationReportsPartialUpdateBody,
@@ -391,7 +390,7 @@ const llmaEvaluationList = (): ToolBase<typeof LlmaEvaluationListSchema, Schemas
     },
 })
 
-const LlmaEvaluationReportCreateSchema = LlmAnalyticsEvaluationReportsCreateBody.omit({ deleted: true })
+const LlmaEvaluationReportCreateSchema = LlmAnalyticsEvaluationReportsCreateBody
 
 const llmaEvaluationReportCreate = (): ToolBase<typeof LlmaEvaluationReportCreateSchema, Schemas.EvaluationReport> => ({
     name: 'llma-evaluation-report-create',
@@ -407,12 +406,6 @@ const llmaEvaluationReportCreate = (): ToolBase<typeof LlmaEvaluationReportCreat
         }
         if (params.rrule !== undefined) {
             body['rrule'] = params.rrule
-        }
-        if (params.starts_at !== undefined) {
-            body['starts_at'] = params.starts_at
-        }
-        if (params.timezone_name !== undefined) {
-            body['timezone_name'] = params.timezone_name
         }
         if (params.delivery_targets !== undefined) {
             body['delivery_targets'] = params.delivery_targets
@@ -439,22 +432,6 @@ const llmaEvaluationReportCreate = (): ToolBase<typeof LlmaEvaluationReportCreat
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_reports/`,
             body,
-        })
-        return result
-    },
-})
-
-const LlmaEvaluationReportDeleteSchema = LlmAnalyticsEvaluationReportsDestroyParams.omit({ project_id: true })
-
-const llmaEvaluationReportDelete = (): ToolBase<typeof LlmaEvaluationReportDeleteSchema, Schemas.EvaluationReport> => ({
-    name: 'llma-evaluation-report-delete',
-    schema: LlmaEvaluationReportDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaEvaluationReportDeleteSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.EvaluationReport>({
-            method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_reports/${encodeURIComponent(String(params.id))}/`,
-            body: { deleted: true },
         })
         return result
     },
@@ -555,12 +532,6 @@ const llmaEvaluationReportUpdate = (): ToolBase<typeof LlmaEvaluationReportUpdat
         if (params.rrule !== undefined) {
             body['rrule'] = params.rrule
         }
-        if (params.starts_at !== undefined) {
-            body['starts_at'] = params.starts_at
-        }
-        if (params.timezone_name !== undefined) {
-            body['timezone_name'] = params.timezone_name
-        }
         if (params.delivery_targets !== undefined) {
             body['delivery_targets'] = params.delivery_targets
         }
@@ -569,9 +540,6 @@ const llmaEvaluationReportUpdate = (): ToolBase<typeof LlmaEvaluationReportUpdat
         }
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
-        }
-        if (params.deleted !== undefined) {
-            body['deleted'] = params.deleted
         }
         if (params.report_prompt_guidance !== undefined) {
             body['report_prompt_guidance'] = params.report_prompt_guidance
@@ -1580,7 +1548,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-evaluation-judge-models': llmaEvaluationJudgeModels,
     'llma-evaluation-list': llmaEvaluationList,
     'llma-evaluation-report-create': llmaEvaluationReportCreate,
-    'llma-evaluation-report-delete': llmaEvaluationReportDelete,
     'llma-evaluation-report-generate': llmaEvaluationReportGenerate,
     'llma-evaluation-report-get': llmaEvaluationReportGet,
     'llma-evaluation-report-list': llmaEvaluationReportList,

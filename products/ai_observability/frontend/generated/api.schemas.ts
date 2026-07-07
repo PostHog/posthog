@@ -976,23 +976,20 @@ export interface EvaluationReportApi {
     readonly id: string
     /** UUID of the evaluation this report config belongs to. */
     evaluation: string
-    /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.
+    /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule.
      *
      * * `scheduled` - Scheduled
      * * `every_n` - Every N */
     frequency?: EvaluationReportFrequencyEnumApi
-    /** RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise. */
+    /** RFC 5545 recurrence rule string for scheduled reports. Only daily and weekly cadences are supported: use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'. Required when frequency is 'scheduled'; ignored otherwise. */
     rrule?: string
     /**
-     * Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise.
+     * Read-only anchor datetime used to expand scheduled reports. The server sets this automatically when a report is switched to scheduled mode.
      * @nullable
      */
-    starts_at?: string | null
-    /**
-     * IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'.
-     * @maxLength 64
-     */
-    timezone_name?: string
+    readonly starts_at: string | null
+    /** Read-only timezone used for scheduled reports. Evaluation reports use UTC. */
+    readonly timezone_name: string
     /** @nullable */
     readonly next_delivery_date: string | null
     /** List of delivery targets. Each entry is either {type: 'email', value: 'user@example.com'} or {type: 'slack', integration_id: <int>, channel: '<channel>'}. Slack integration_id must belong to this team. */
@@ -1005,15 +1002,15 @@ export interface EvaluationReportApi {
     max_sample_size?: number
     /** Whether report delivery is active. Disabled configs do not fire. */
     enabled?: boolean
-    /** Set to true to soft-delete this report config. */
-    deleted?: boolean
+    /** Read-only. Report configs are soft-deleted only when their evaluation is deleted. Use enabled=false to stop deliveries. */
+    readonly deleted: boolean
     /** @nullable */
     readonly last_delivered_at: string | null
     /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
     report_prompt_guidance?: string
     /**
-     * Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'.
-     * @minimum 10
+     * Number of new evaluation results that triggers a report (every_n mode only). Min 100, max 10000. Defaults to 100. Required when frequency is 'every_n'.
+     * @minimum 100
      * @maximum 10000
      * @nullable
      */
@@ -1048,23 +1045,20 @@ export interface PatchedEvaluationReportApi {
     readonly id?: string
     /** UUID of the evaluation this report config belongs to. */
     evaluation?: string
-    /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.
+    /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule.
      *
      * * `scheduled` - Scheduled
      * * `every_n` - Every N */
     frequency?: EvaluationReportFrequencyEnumApi
-    /** RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise. */
+    /** RFC 5545 recurrence rule string for scheduled reports. Only daily and weekly cadences are supported: use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'. Required when frequency is 'scheduled'; ignored otherwise. */
     rrule?: string
     /**
-     * Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise.
+     * Read-only anchor datetime used to expand scheduled reports. The server sets this automatically when a report is switched to scheduled mode.
      * @nullable
      */
-    starts_at?: string | null
-    /**
-     * IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'.
-     * @maxLength 64
-     */
-    timezone_name?: string
+    readonly starts_at?: string | null
+    /** Read-only timezone used for scheduled reports. Evaluation reports use UTC. */
+    readonly timezone_name?: string
     /** @nullable */
     readonly next_delivery_date?: string | null
     /** List of delivery targets. Each entry is either {type: 'email', value: 'user@example.com'} or {type: 'slack', integration_id: <int>, channel: '<channel>'}. Slack integration_id must belong to this team. */
@@ -1077,15 +1071,15 @@ export interface PatchedEvaluationReportApi {
     max_sample_size?: number
     /** Whether report delivery is active. Disabled configs do not fire. */
     enabled?: boolean
-    /** Set to true to soft-delete this report config. */
-    deleted?: boolean
+    /** Read-only. Report configs are soft-deleted only when their evaluation is deleted. Use enabled=false to stop deliveries. */
+    readonly deleted?: boolean
     /** @nullable */
     readonly last_delivered_at?: string | null
     /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
     report_prompt_guidance?: string
     /**
-     * Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'.
-     * @minimum 10
+     * Number of new evaluation results that triggers a report (every_n mode only). Min 100, max 10000. Defaults to 100. Required when frequency is 'every_n'.
+     * @minimum 100
      * @maximum 10000
      * @nullable
      */

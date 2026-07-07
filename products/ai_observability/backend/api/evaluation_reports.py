@@ -5,6 +5,7 @@ from typing import Any
 
 from django.conf import settings
 from django.db.models import QuerySet
+from django.utils import timezone
 
 import structlog
 from asgiref.sync import async_to_sync
@@ -31,8 +32,36 @@ from products.workflows.backend.utils.rrule_utils import validate_rrule
 
 logger = structlog.get_logger(__name__)
 
+SCHEDULE_RRULE_ERROR = (
+    "Scheduled reports support daily or weekly cadences. Use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'."
+)
+VALID_WEEKDAYS = {"MO", "TU", "WE", "TH", "FR", "SA", "SU"}
+
+
+def validate_report_schedule_rrule(rrule_string: str) -> None:
+    parts: dict[str, str] = {}
+    for part in rrule_string.split(";"):
+        if "=" not in part:
+            raise ValueError(SCHEDULE_RRULE_ERROR)
+        key, value = part.split("=", 1)
+        if key in parts:
+            raise ValueError(SCHEDULE_RRULE_ERROR)
+        parts[key] = value
+
+    if parts == {"FREQ": "DAILY"}:
+        return
+
+    if set(parts) == {"FREQ", "BYDAY"} and parts["FREQ"] == "WEEKLY":
+        weekdays = parts["BYDAY"].split(",")
+        if weekdays and all(day in VALID_WEEKDAYS for day in weekdays) and len(weekdays) == len(set(weekdays)):
+            return
+
+    raise ValueError(SCHEDULE_RRULE_ERROR)
+
 
 class EvaluationReportSerializer(serializers.ModelSerializer):
+    created_instance = True
+
     class Meta:
         model = EvaluationReport
         fields = [
@@ -55,33 +84,40 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
         ]
-        read_only_fields = ["id", "next_delivery_date", "last_delivered_at", "created_by", "created_at"]
+        read_only_fields = [
+            "id",
+            "starts_at",
+            "timezone_name",
+            "next_delivery_date",
+            "deleted",
+            "last_delivered_at",
+            "created_by",
+            "created_at",
+        ]
         extra_kwargs = {
             "evaluation": {"help_text": "UUID of the evaluation this report config belongs to."},
             "frequency": {
                 "help_text": (
                     "How report generation is triggered. 'every_n' fires once N new evaluation results have "
                     "accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence "
-                    "defined by rrule + starts_at + timezone_name."
+                    "defined by rrule."
                 )
             },
             "rrule": {
                 "help_text": (
-                    "RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the "
-                    "anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise."
+                    "RFC 5545 recurrence rule string for scheduled reports. Only daily and weekly cadences are "
+                    "supported: use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'. Required when frequency is "
+                    "'scheduled'; ignored otherwise."
                 )
             },
             "starts_at": {
                 "help_text": (
-                    "Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation "
-                    "is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise."
+                    "Read-only anchor datetime used to expand scheduled reports. The server sets this automatically "
+                    "when a report is switched to scheduled mode."
                 )
             },
             "timezone_name": {
-                "help_text": (
-                    "IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across "
-                    "DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'."
-                )
+                "help_text": "Read-only timezone used for scheduled reports. Evaluation reports use UTC."
             },
             "delivery_targets": {
                 "help_text": (
@@ -94,7 +130,12 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
                 "help_text": "Maximum number of evaluation runs included in each report. Defaults to 200."
             },
             "enabled": {"help_text": "Whether report delivery is active. Disabled configs do not fire."},
-            "deleted": {"help_text": "Set to true to soft-delete this report config."},
+            "deleted": {
+                "help_text": (
+                    "Read-only. Report configs are soft-deleted only when their evaluation is deleted. Use "
+                    "enabled=false to stop deliveries."
+                )
+            },
             "report_prompt_guidance": {
                 "help_text": (
                     "Optional custom instructions appended to the AI report prompt to steer focus, scope, or "
@@ -148,6 +189,10 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
         if not value:
             return value
         try:
+            validate_report_schedule_rrule(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
+        try:
             validate_rrule(value)
         except ValueError as exc:
             logger.warning("Invalid rrule provided for evaluation report", exc_info=True)
@@ -156,6 +201,15 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
+        if isinstance(self.initial_data, dict) and "deleted" in self.initial_data:
+            raise serializers.ValidationError(
+                {
+                    "deleted": (
+                        "Report configs are deleted only when their evaluation is deleted. "
+                        "Disable delivery with enabled=false."
+                    )
+                }
+            )
         # Numeric bounds for trigger_threshold / cooldown_minutes / daily_run_cap are enforced
         # by the field-level min_value / max_value validators. This block only handles the
         # cross-field "required" rules that the field validators can't express on their own.
@@ -174,11 +228,9 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
             rrule_str = attrs.get("rrule") if "rrule" in attrs else (self.instance.rrule if self.instance else "")
             if not rrule_str:
                 raise serializers.ValidationError({"rrule": "Required when frequency is 'scheduled'."})
-            starts_at = (
-                attrs.get("starts_at") if "starts_at" in attrs else (self.instance.starts_at if self.instance else None)
-            )
-            if starts_at is None:
-                raise serializers.ValidationError({"starts_at": "Required when frequency is 'scheduled'."})
+            if not self.instance or self.instance.starts_at is None:
+                attrs["starts_at"] = timezone.now()
+            attrs["timezone_name"] = "UTC"
         return attrs
 
     def validate_delivery_targets(self, value: list) -> list:
@@ -222,9 +274,20 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         request = self.context["request"]
         team = self.context["get_team"]()
-        validated_data["team"] = team
-        validated_data["created_by"] = request.user
-        return super().create(validated_data)
+        evaluation = validated_data["evaluation"]
+        defaults = {**validated_data, "team": team, "created_by": request.user}
+        report, created = EvaluationReport.objects.get_or_create(evaluation=evaluation, defaults=defaults)
+        self.created_instance = created
+        if created:
+            return report
+
+        for field, value in validated_data.items():
+            if field != "evaluation":
+                setattr(report, field, value)
+        if report.created_by_id is None:
+            report.created_by = request.user
+        report.save()
+        return report
 
 
 class EvaluationReportListSerializer(EvaluationReportSerializer):
@@ -319,7 +382,12 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
 
     @llma_track_latency("llma_evaluation_reports_create")
     def create(self, request: Request, *args, **kwargs) -> Response:
-        return super().create(request, *args, **kwargs)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        status_code = status.HTTP_201_CREATED if getattr(serializer, "created_instance", True) else status.HTTP_200_OK
+        return Response(serializer.data, status=status_code, headers=headers)
 
     @llma_track_latency("llma_evaluation_reports_retrieve")
     def retrieve(self, request: Request, *args, **kwargs) -> Response:
@@ -333,11 +401,22 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
     def partial_update(self, request: Request, *args, **kwargs) -> Response:
         return super().partial_update(request, *args, **kwargs)
 
+    @extend_schema(
+        responses={405: None},
+        description=(
+            "Evaluation report configs are deleted only when their evaluation is deleted. "
+            "Use PATCH enabled=false to stop delivery."
+        ),
+    )
+    def destroy(self, request: Request, *args, **kwargs) -> Response:
+        return super().destroy(request, *args, **kwargs)
+
     def perform_create(self, serializer):
         instance = serializer.save()
+        was_created = serializer.created_instance
         report_user_action(
             self.request.user,
-            "llma evaluation report created",
+            "llma evaluation report created" if was_created else "llma evaluation report updated",
             {
                 "evaluation_report_id": str(instance.id),
                 "evaluation_id": str(instance.evaluation_id),
@@ -365,13 +444,11 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
             "delivery_targets",
             "max_sample_size",
             "enabled",
-            "deleted",
             "report_prompt_guidance",
             "trigger_threshold",
             "cooldown_minutes",
             "daily_run_cap",
         ]
-        is_deletion = serializer.validated_data.get("deleted") is True and not serializer.instance.deleted
 
         changed_fields: list[str] = []
         for field in tracked_fields:
@@ -383,19 +460,7 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
 
         instance = serializer.save()
 
-        if is_deletion:
-            report_user_action(
-                self.request.user,
-                "llma evaluation report deleted",
-                {
-                    "evaluation_report_id": str(instance.id),
-                    "evaluation_id": str(instance.evaluation_id),
-                    "was_enabled": serializer.instance.enabled,
-                },
-                team=self.team,
-                request=self.request,
-            )
-        elif changed_fields:
+        if changed_fields:
             event_properties: dict[str, Any] = {
                 "evaluation_report_id": str(instance.id),
                 "evaluation_id": str(instance.evaluation_id),
