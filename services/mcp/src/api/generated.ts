@@ -258,6 +258,26 @@ export namespace Schemas {
       readonly last_modified_by: UserBasic;
     }
 
+    /**
+     * A team-defined account relationship type (CSM, Onboarding manager, ...).
+     */
+    export interface AccountRelationshipDefinition {
+      /** Relationship definition UUID. */
+      readonly id: string;
+      /**
+         * Human-readable name of the relationship. Unique within the team.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * What this relationship means, e.g. 'The customer success manager responsible for this account'.
+         * @nullable
+         */
+      description?: string | null;
+      /** Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account. */
+      is_single_holder?: boolean;
+    }
+
     export type BounceRatePageViewMode = typeof BounceRatePageViewMode[keyof typeof BounceRatePageViewMode];
 
 
@@ -31707,6 +31727,15 @@ export namespace Schemas {
       results: AccountNotebook[];
     }
 
+    export interface PaginatedAccountRelationshipDefinitionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AccountRelationshipDefinition[];
+    }
+
     export interface PaginatedActionList {
       count: number;
       /** @nullable */
@@ -36469,6 +36498,26 @@ export namespace Schemas {
       readonly created_by?: number | null;
       /** @nullable */
       readonly updated_at?: string | null;
+    }
+
+    /**
+     * A team-defined account relationship type (CSM, Onboarding manager, ...).
+     */
+    export interface PatchedAccountRelationshipDefinition {
+      /** Relationship definition UUID. */
+      readonly id?: string;
+      /**
+         * Human-readable name of the relationship. Unique within the team.
+         * @maxLength 400
+         */
+      name?: string;
+      /**
+         * What this relationship means, e.g. 'The customer success manager responsible for this account'.
+         * @nullable
+         */
+      description?: string | null;
+      /** Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account. */
+      is_single_holder?: boolean;
     }
 
     /**
@@ -61516,6 +61565,17 @@ export namespace Schemas {
      * Full-text search across note title and content, plus substring match on account name.
      */
     search?: string;
+    };
+
+    export type AccountRelationshipDefinitionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type AccountsListParams = {
