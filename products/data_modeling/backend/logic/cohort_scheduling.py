@@ -46,7 +46,7 @@ def dag_id_from_schedule_id(schedule_id: str) -> str:
 
 def is_tier_schedule_id(schedule_id: str) -> bool:
     """Whether a schedule id is a cadence tier's (vs the pre-tier bare DAG id)."""
-    return _TIER_SEPARATOR in schedule_id
+    return ":" in schedule_id
 
 
 @dataclasses.dataclass
