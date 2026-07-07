@@ -34,7 +34,8 @@ def resolve_mentioned_user_ids(user_model: Any, content: str, *, team_id: int, a
         return []
     member_ids = (
         user_model.objects.annotate(_email_lower=Lower("email"))
-        .filter(organizations__team__id=team_id, _email_lower__in=emails)
+        # Organization.members sets related_query_name="organization" (singular) for User filters.
+        .filter(organization__team__id=team_id, _email_lower__in=emails)
         .values_list("id", flat=True)
         .distinct()
     )
