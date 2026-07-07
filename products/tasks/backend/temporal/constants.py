@@ -11,6 +11,8 @@ from datetime import timedelta
 
 from django.conf import settings
 
+from products.tasks.backend.prompts import SHELL_EFFICIENCY_INSTRUCTION
+
 # Per-task inactivity timeout defaults (production). User-driven runs — explicitly
 # user-created, or with no origin product — get a longer idle grace window since a
 # human may still be in the loop; automated/background runs reclaim the sandbox
@@ -96,7 +98,7 @@ MAX_ACK_RETRIES = 5
 # flush rate-limits retries.
 OUTBOUND_RETRY_BACKOFF = timedelta(seconds=10)
 
-DEFAULT_CI_MESSAGE = """\
+DEFAULT_CI_MESSAGE = f"""\
 You are re-entering this run to address CI feedback on the pull request you opened.
 
 Scope (what to do):
@@ -123,9 +125,5 @@ When you mention the pull request in your summary, always hyperlink it to its fu
 Markdown link like [#123](https://github.com/org/repo/pull/123)) rather than plain text, so readers
 can open it directly.
 
-Shell efficiency: optimize for the fewest shell round trips.
-- Batch related commands into one Bash invocation using `&&` (e.g. `npm run typecheck && npm run lint && npm test`).
-- Emit all independent tool calls in the same response.
-- Read multiple files at once.
-- Never rerun a command solely to reproduce output you already have.
+{SHELL_EFFICIENCY_INSTRUCTION}
 """.strip()
