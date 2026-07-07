@@ -532,7 +532,7 @@ class TestFetchAverageRowSize:
         "exc",
         [
             RuntimeError("boom"),
-            # pymysql raises InterfaceError(0, "") when the connection socket was already closed —
+            # pymysql raises InterfaceError(0, "") when the connection socket was already closed:
             # a transient drop. Row-size sampling is best-effort, so it's swallowed and the caller
             # falls back to the default chunk size rather than surfacing error-tracking noise.
             pymysql.err.InterfaceError(0, ""),
