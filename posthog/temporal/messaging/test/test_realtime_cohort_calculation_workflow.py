@@ -1772,6 +1772,8 @@ class TestRuntimeParallelism:
             (10.0, 20.0, {}, None),
             # A non-positive value would spawn zero children, so it must be ignored
             (95.0, 99.0, {"REALTIME_COHORT_CALCULATION_P95_P99_PARALLELISM": 0}, None),
+            # Fractional bounds must not truncate into a neighboring band's setting
+            (95.5, 99.0, {"REALTIME_COHORT_CALCULATION_P95_P99_PARALLELISM": 7}, None),
         ],
     )
     async def test_activity_resolves_band_setting(self, percentile_min, percentile_max, settings_override, expected):
@@ -1787,15 +1789,19 @@ class TestRuntimeParallelism:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "runtime_parallelism,expected_children",
+        "runtime_parallelism,payload_parallelism,expected_children",
         [
             # Live worker setting wins over the stale value baked into the schedule payload
-            (4, 4),
+            (4, 2, 4),
             # No live setting: fall back to the schedule-provided parallelism
-            (None, 2),
+            (None, 2, 2),
+            # A non-positive payload value would crash the round-robin, so it clamps to 1
+            (None, 0, 1),
         ],
     )
-    async def test_coordinator_fans_out_with_runtime_parallelism(self, runtime_parallelism, expected_children):
+    async def test_coordinator_fans_out_with_runtime_parallelism(
+        self, runtime_parallelism, payload_parallelism, expected_children
+    ):
         workflow = RealtimeCohortCalculationCoordinatorWorkflow()
         workflow_logger = Mock()
 
@@ -1822,7 +1828,7 @@ class TestRuntimeParallelism:
             mock_execute_activity.side_effect = [thresholds, selection_result, runtime_parallelism]
 
             inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
-                parallelism=2,
+                parallelism=payload_parallelism,
                 workflows_per_batch=10,
                 duration_percentile_min=95.0,
                 duration_percentile_max=99.0,

@@ -188,13 +188,16 @@ async def get_runtime_parallelism_activity(inputs: RuntimeParallelismInput) -> i
     """
     if inputs.duration_percentile_min is None or inputs.duration_percentile_max is None:
         return None
+    # Non-integer bounds (e.g. a manual run with 95.5) would truncate into the wrong band's setting
+    if not float(inputs.duration_percentile_min).is_integer() or not float(inputs.duration_percentile_max).is_integer():
+        return None
 
     setting_name = (
         f"REALTIME_COHORT_CALCULATION_P{int(inputs.duration_percentile_min)}"
         f"_P{int(inputs.duration_percentile_max)}_PARALLELISM"
     )
     value = getattr(settings, setting_name, None)
-    if isinstance(value, int) and value >= 1:
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
         return value
     return None
 
@@ -519,6 +522,10 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
                 runtime_parallelism=parallelism,
                 schedule_parallelism=inputs.parallelism,
             )
+        if parallelism < 1:
+            # A non-positive value (e.g. manually-supplied inputs) would crash the round-robin below
+            workflow_logger.warning("Non-positive parallelism, defaulting to 1", parallelism=parallelism)
+            parallelism = 1
 
         total_cohorts = len(all_cohort_ids)
         workflow_logger.info(
