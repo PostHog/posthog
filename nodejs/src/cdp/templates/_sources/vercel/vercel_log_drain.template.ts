@@ -95,7 +95,8 @@ if (empty(logs)) {
 }
 
 // Technical limitation: Hog functions can only call postHogCapture once per invocation.
-// If Vercel batches multiple logs in one request, we capture only the first one.
+// If Vercel batches multiple logs in one request, we emit only one (the first, or the
+// first page-route log when page_routes_only is enabled — see the selection below).
 // Configure Vercel to send logs individually for complete coverage.
 let droppedCount := length(logs) - 1
 if (droppedCount > 0) {
@@ -103,7 +104,6 @@ if (droppedCount > 0) {
 }
 
 let log := logs[1]
-let proxy := log.proxy ?? {}
 
 let limit := toInt(inputs.max_message_len ?? 262144)
 
@@ -180,6 +180,34 @@ fun isPageRoute(p) {
     return ext == '' or ext == 'html' or ext == 'htm'
 }
 
+fun logPathname(l) {
+    let p := l.proxy ?? {}
+    return extractPathname(p.path ?? l.path ?? '')
+}
+
+// With page_routes_only enabled, emit the first page-route log in the batch, so a page
+// view is not lost when an asset request happens to come first in the same batch. Vercel
+// can send several logs per request but only one event can be emitted per invocation.
+if (inputs.page_routes_only) {
+    let selected := null
+    for (let _, candidate in logs) {
+        if (selected == null and isPageRoute(logPathname(candidate))) {
+            selected := candidate
+        }
+    }
+    if (selected == null) {
+        // No page-route request in this batch — ack with 200 so Vercel does not retry.
+        return {
+            'httpResponse': {
+                'status': 200,
+                'body': 'OK'
+            }
+        }
+    }
+    log := selected
+}
+let proxy := log.proxy ?? {}
+
 // Distinct ID: configurable strategy. Default is a fixed salted hash of (ip, host, ua) —
 // one stable ID per client. The active strategy is recorded as $distinct_id_strategy
 // on the event for diagnostics — it is not an analytical breakdown dimension.
@@ -243,19 +271,6 @@ if (strategy == 'rotating_salt') {
 // Parse URL for pathname and UTM parameters
 let queryParams := parseQueryParams(path)
 let pathname := extractPathname(path)
-
-// Optional: keep only top-level page routes and HTML documents. A single page view
-// fans out into many sub-resource requests (JS, CSS, images, fonts, JSON), so this
-// keeps $http_log close to a document/pageview stream and cuts ingested volume.
-// Skipped requests are acknowledged with 200 so Vercel does not retry them.
-if (inputs.page_routes_only and not isPageRoute(pathname)) {
-    return {
-        'httpResponse': {
-            'status': 200,
-            'body': 'OK'
-        }
-    }
-}
 
 let props := {
     // Person processing. Anonymous by default ($process_person_profile = false) so high-cardinality

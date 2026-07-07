@@ -786,6 +786,36 @@ describe('vercel log drain template', () => {
                 httpResponse: { status: 200, body: 'OK' },
             })
         })
+
+        it('selects the first page-route log from a batch even when an asset comes first', async () => {
+            const batch = [
+                { ...logWithPath('/static/app.abc123.js'), id: 'asset1' },
+                { ...logWithPath('/pricing'), id: 'page1' },
+                { ...logWithPath('/styles/main.css'), id: 'asset2' },
+            ]
+
+            const response = await tester.invoke({ page_routes_only: true }, { request: createVercelRequest(batch) })
+
+            expect(response.error).toBeUndefined()
+            expect(response.capturedPostHogEvents).toHaveLength(1)
+            expect(response.capturedPostHogEvents[0].properties.vercel_log_id).toBe('page1')
+            expect(response.capturedPostHogEvents[0].properties.$pathname).toBe('/pricing')
+        })
+
+        it('skips a batch with no page-route log and acknowledges with 200', async () => {
+            const batch = [
+                { ...logWithPath('/static/app.abc123.js'), id: 'asset1' },
+                { ...logWithPath('/styles/main.css'), id: 'asset2' },
+            ]
+
+            const response = await tester.invoke({ page_routes_only: true }, { request: createVercelRequest(batch) })
+
+            expect(response.error).toBeUndefined()
+            expect(response.capturedPostHogEvents).toHaveLength(0)
+            expect(response.execResult).toMatchObject({
+                httpResponse: { status: 200, body: 'OK' },
+            })
+        })
     })
 })
 
