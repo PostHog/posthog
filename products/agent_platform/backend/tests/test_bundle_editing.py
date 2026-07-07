@@ -113,6 +113,11 @@ class TestBundleEditing(APIBaseTest):
     def test_put_file_409_on_ready_live_archived(self, mock_janitor: MagicMock) -> None:
         for state in ("ready", "live", "archived"):
             with self.subTest(state=state):
+                # Reset between iterations so assert_not_called() attributes
+                # any leaked janitor call to the iteration that caused it
+                # rather than the next one.
+                mock_janitor.return_value.put_agent_md.reset_mock()
+                mock_janitor.return_value.put_skill.reset_mock()
                 revision = self._revision(state)
                 res = self.client.put(
                     self._file_url(revision),
@@ -187,6 +192,11 @@ class TestBundleEditing(APIBaseTest):
     def test_import_409_on_ready_live_archived(self, mock_janitor: MagicMock) -> None:
         for state in ("ready", "live", "archived"):
             with self.subTest(state=state):
+                # Reset between iterations so assert_not_called() attributes
+                # any leaked janitor call to the iteration that caused it
+                # rather than the next one.
+                mock_janitor.return_value.put_agent_md.reset_mock()
+                mock_janitor.return_value.put_skill.reset_mock()
                 revision = self._revision(state)
                 res = self.client.post(
                     self._import_url(revision),
