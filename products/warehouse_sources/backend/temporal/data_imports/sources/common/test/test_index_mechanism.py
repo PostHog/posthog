@@ -5,6 +5,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source import RedshiftSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source import SnowflakeSource
+from products.warehouse_sources.backend.types import IndexMechanism
 
 
 # These engines have no secondary indexes, so losing an override would make the sync-form
@@ -12,14 +13,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.
 @pytest.mark.parametrize(
     "source_class,mechanism",
     [
-        (RedshiftSource, "sort key"),
-        (BigQuerySource, "partition or clustering column"),
-        (SnowflakeSource, "clustering key"),
-        (ClickHouseSource, "sorting key"),
-        (PostgresSource, "index"),
+        (RedshiftSource, IndexMechanism.SORT_KEY),
+        (BigQuerySource, IndexMechanism.PARTITION_OR_CLUSTERING),
+        (SnowflakeSource, IndexMechanism.CLUSTERING_KEY),
+        (ClickHouseSource, IndexMechanism.SORTING_KEY),
+        (PostgresSource, IndexMechanism.INDEX),
     ],
 )
-def test_index_warning_copy_names_the_engines_native_mechanism(source_class, mechanism):
-    copy = source_class.index_warning_copy
-    assert copy["mechanism"] == mechanism
-    assert copy["suggestion"]
+def test_index_mechanism_names_the_engines_native_structure(source_class, mechanism):
+    assert source_class.index_mechanism is mechanism

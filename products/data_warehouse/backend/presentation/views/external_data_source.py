@@ -3120,7 +3120,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "label": schema.label,
                 "should_sync": False,
                 "incremental_fields": schema.incremental_fields,
-                "index_warning_copy": source.index_warning_copy,
+                "index_mechanism": source.index_mechanism,
                 "incremental_available": schema.supports_incremental,
                 "append_available": schema.supports_append,
                 "cdc_available": schema.supports_cdc if cdc_enabled else None,

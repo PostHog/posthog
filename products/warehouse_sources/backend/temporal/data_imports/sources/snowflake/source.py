@@ -27,7 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.
     SnowflakeImplementation,
     get_connection_metadata as get_connection_metadata_snowflake,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IndexWarningCopy
+from products.warehouse_sources.backend.types import ExternalDataSourceType, IndexMechanism
 
 _SNOWFLAKE_IMPLEMENTATION = SnowflakeImplementation()
 
@@ -69,10 +69,7 @@ SnowflakeErrors = {
 @SourceRegistry.register
 class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
     # Snowflake has no indexes on standard tables; `is_indexed` reflects the clustering key.
-    index_warning_copy: IndexWarningCopy = {
-        "mechanism": "clustering key",
-        "suggestion": "Consider setting the table's clustering key to this column",
-    }
+    index_mechanism = IndexMechanism.CLUSTERING_KEY
 
     @property
     def get_implementation(self) -> SnowflakeImplementation:

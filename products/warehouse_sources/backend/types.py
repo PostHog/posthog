@@ -29,15 +29,19 @@ class IncrementalField(typing.TypedDict, total=False):
     is_indexed: bool
 
 
-class IndexWarningCopy(typing.TypedDict):
-    """UI copy for the sync-form warning shown when an incremental field has `is_indexed=False`.
+class IndexMechanism(StrEnum):
+    """The fast-lookup structure `is_indexed` detection checks for an engine.
 
-    `mechanism` names the engine's fast-lookup structure the detection checked (index, sort key,
-    clustering key, ...); `suggestion` is the actionable advice for making the field fast to filter on.
+    Most databases use secondary indexes, but columnar warehouses prune scans differently —
+    the sync-form warning shown for `is_indexed=False` fields is phrased per mechanism, so the
+    advice names a structure the user can actually create on their engine.
     """
 
-    mechanism: str
-    suggestion: str
+    INDEX = "index"
+    SORT_KEY = "sort_key"
+    CLUSTERING_KEY = "clustering_key"
+    PARTITION_OR_CLUSTERING = "partition_or_clustering"
+    SORTING_KEY = "sorting_key"
 
 
 class PartitionSettings(typing.NamedTuple):

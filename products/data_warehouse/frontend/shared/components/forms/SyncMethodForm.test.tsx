@@ -1,7 +1,7 @@
-import { ExternalDataSourceSyncSchema } from '~/types'
+import { ExternalDataSourceSyncSchema, IndexMechanism } from '~/types'
 
 import { SyncTypeLabelMap } from '../../../utils'
-import { shouldOfferXmin } from './SyncMethodForm'
+import { getIndexWarningCopy, shouldOfferXmin } from './SyncMethodForm'
 
 const baseSchema: ExternalDataSourceSyncSchema = {
     table: 'orders',
@@ -34,4 +34,16 @@ describe('SyncMethodForm', () => {
     it('exposes a label for the xmin sync type', () => {
         expect(SyncTypeLabelMap.xmin).toBe('xmin')
     })
+
+    // Responses predating index_mechanism, or a mechanism added on the backend before this build
+    // knows it, must fall back to the generic copy rather than rendering "No undefined detected".
+    it.each([undefined, 'brand_new_mechanism' as IndexMechanism])(
+        'index warning copy falls back to generic index advice for %s',
+        (indexMechanism) => {
+            expect(getIndexWarningCopy(indexMechanism)).toEqual({
+                mechanism: 'index',
+                suggestion: 'Consider adding an index',
+            })
+        }
+    )
 })
