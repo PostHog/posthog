@@ -494,7 +494,9 @@ class TestQueueOperationTimeouts:
             return []
 
         with (
-            patch.object(consumer, "_connect", new_callable=AsyncMock, side_effect=lambda: _make_healthy_conn()),
+            patch.object(
+                consumer, "_connect", new_callable=AsyncMock, side_effect=lambda **kwargs: _make_healthy_conn()
+            ),
             patch.object(consumer, "_install_signal_handlers"),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
@@ -536,7 +538,9 @@ class TestQueueOperationTimeouts:
             return []
 
         with (
-            patch.object(consumer, "_connect", new_callable=AsyncMock, side_effect=lambda: _make_healthy_conn()),
+            patch.object(
+                consumer, "_connect", new_callable=AsyncMock, side_effect=lambda **kwargs: _make_healthy_conn()
+            ),
             patch.object(consumer, "_install_signal_handlers"),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
@@ -598,7 +602,9 @@ class TestPollFailureLiveness:
             return []
 
         with (
-            patch.object(consumer, "_connect", new_callable=AsyncMock, side_effect=lambda: _make_healthy_conn()),
+            patch.object(
+                consumer, "_connect", new_callable=AsyncMock, side_effect=lambda **kwargs: _make_healthy_conn()
+            ),
             patch.object(consumer, "_install_signal_handlers"),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
@@ -619,6 +625,65 @@ class TestPollFailureLiveness:
             assert consumer._consecutive_poll_failures == 0
             consumer._shutdown.set()
             await asyncio.wait_for(run_task, timeout=5.0)
+
+
+class TestStatementTimeoutBackstop:
+    @pytest.mark.parametrize(
+        "client_timeout,expected",
+        [
+            (180.0, "-c statement_timeout=210000"),  # 180s + 30s margin, in ms
+            (None, None),  # disabled client ceiling disables the backstop too
+            (0, None),
+        ],
+    )
+    def test_option_string_tracks_client_timeout(self, client_timeout, expected):
+        consumer = _make_consumer(statement_timeout_margin_seconds=30.0)
+        assert consumer._statement_timeout_options(client_timeout) == expected
+
+    @pytest.mark.asyncio
+    async def test_poll_reconnect_applies_statement_timeout(self):
+        # A reconnect that drops the backstop lets an abandoned query keep
+        # burning queue-DB CPU — the exact failure the timeout guards against.
+        consumer = _make_consumer(poll_timeout_seconds=180.0, statement_timeout_margin_seconds=30.0)
+        consumer._poll_conn = _make_healthy_conn(closed=True)  # force the reconnect branch
+        captured: dict[str, Any] = {}
+
+        async def fake_connect(*, statement_timeout_options: str | None = None) -> AsyncMock:
+            captured["options"] = statement_timeout_options
+            return _make_healthy_conn()
+
+        with patch.object(consumer, "_connect", side_effect=fake_connect):
+            await consumer._ensure_poll_conn()
+
+        assert captured["options"] == "-c statement_timeout=210000"
+
+
+class TestPollBackoff:
+    def test_delay_grows_exponentially_and_caps(self):
+        # Losing the backoff means lockstep fleet retries; losing the cap means
+        # unbounded delays.
+        consumer = _make_consumer(poll_interval_seconds=2.0)
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer.random.uniform",
+            return_value=0.0,
+        ):
+            consumer._consecutive_poll_failures = 1
+            assert consumer._poll_retry_delay() == 2.0
+            consumer._consecutive_poll_failures = 2
+            assert consumer._poll_retry_delay() == 4.0
+            consumer._consecutive_poll_failures = 3
+            assert consumer._poll_retry_delay() == 8.0
+            consumer._consecutive_poll_failures = 20  # far past the cap
+            assert consumer._poll_retry_delay() == 30.0  # POLL_BACKOFF_MAX_SECONDS
+
+    def test_jitter_is_added_within_one_interval(self):
+        consumer = _make_consumer(poll_interval_seconds=2.0)
+        consumer._consecutive_poll_failures = 1
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer.random.uniform",
+            return_value=1.5,
+        ):
+            assert consumer._poll_retry_delay() == 3.5  # 2.0 backoff + 1.5 jitter
 
 
 class TestFailRun:
@@ -835,7 +900,7 @@ class TestConnectionRecovery:
         consumer._poll_conn = _make_healthy_conn(closed=True)
         fresh = _make_healthy_conn()
 
-        async def slow_connect() -> AsyncMock:
+        async def slow_connect(**kwargs: Any) -> AsyncMock:
             await asyncio.sleep(0)  # yield so the other coroutines reach the check while we're "dialing"
             return fresh
 

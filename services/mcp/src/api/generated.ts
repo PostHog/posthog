@@ -35045,6 +35045,32 @@ export namespace Schemas {
     }
 
     /**
+     * Response shape for one @-mention of the requester in a task's thread.
+     */
+    export interface TaskMentionDTO {
+      id: string;
+      message_id: string;
+      task_id: string;
+      task_title: string;
+      /** @nullable */
+      channel_id: string | null;
+      /** @nullable */
+      channel_name: string | null;
+      author?: TaskUserBasicInfo | null;
+      content: string;
+      created_at: string;
+    }
+
+    export interface PaginatedTaskMentionDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TaskMentionDTO[];
+    }
+
+    /**
      * * `claude` - claude
      * * `codex` - codex
      */
@@ -68506,6 +68532,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type TaskMentionsListParams = {
+    /**
+     * Maximum number of mentions to return (newest first).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Only return mentions created after this ISO 8601 timestamp.
+     */
+    since?: string;
     };
 
     export type TasksListParams = {
