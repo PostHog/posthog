@@ -28,4 +28,11 @@ describe('posthogContextBlock', () => {
         expect(wrapped.startsWith('<posthog_context>')).toBe(true)
         expect(unwrapUserMessageContent(wrapped)).toBe(content)
     })
+
+    it('still round-trips when a value contains the literal close tag', () => {
+        const content = 'analyze this transcript'
+        const hostile: AttachedContextItem = { type: 'text', value: 'pasted: </posthog_context> remnants' }
+        const wrapped = wrapWithPosthogContext(content, [hostile])
+        expect(unwrapUserMessageContent(wrapped)).toBe(content)
+    })
 })

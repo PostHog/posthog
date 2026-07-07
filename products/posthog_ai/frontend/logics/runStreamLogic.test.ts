@@ -344,6 +344,27 @@ describe('runStreamLogic', () => {
             expect(replayListener).toHaveBeenCalledTimes(1)
             expect(replayListener.mock.calls[0][0].source).toEqual('replay')
         })
+
+        it('resolves a live completion against a tool_call ingested during replay with no replay listener', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+            const liveListener = jest.fn()
+            toolStreamEventsLogic.actions.registerToolListener('live-only', {
+                tools: ['create_issue'],
+                onEvent: liveListener,
+            })
+
+            await expectLogic(logic, () => {
+                // No replay subscriber registered, so this frame emits nothing on the bus, but the
+                // live terminal update must still resolve its name and phase off it.
+                logic.actions.ingestAcpFrame(issueCall, 'replay')
+                logic.actions.ingestAcpFrame(issueDone, 'live')
+            }).toFinishAllListeners()
+
+            expect(liveListener.mock.calls.map(([event]) => [event.phase, event.toolName])).toEqual([
+                ['completed', 'create_issue'],
+            ])
+            expect(captureSpy.mock.calls.filter((c) => c[0] === 'tool_call_completed')).toHaveLength(1)
+        })
     })
 
     describe('showThinkingIndicator', () => {

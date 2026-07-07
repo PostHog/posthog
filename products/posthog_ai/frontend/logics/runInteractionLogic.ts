@@ -16,7 +16,7 @@ import {
     type ReasoningEffortEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
-import { attachedContextItemKey } from '../types/contextTypes'
+import { type AttachedContextItem, attachedContextItemKey } from '../types/contextTypes'
 import { wrapWithPosthogContext } from '../utils/posthogContextBlock'
 import { attachedContextLogic } from './attachedContextLogic'
 import type { runInteractionLogicType } from './runInteractionLogicType'
@@ -80,11 +80,13 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             runStreamLogic({ streamKey: props.streamKey ?? props.runId }),
             ['currentRunStatus', 'pendingPermissionRequest', 'respondingToPermission', 'isThinking'],
             attachedContextLogic,
-            ['contextItems'],
+            ['contextItems', 'sentContextKeysByTask'],
         ],
         actions: [
             runStreamLogic({ streamKey: props.streamKey ?? props.runId }),
             ['pushHumanMessage', 'respondToPermission', 'cancelRun', 'markTurnComplete'],
+            attachedContextLogic,
+            ['markContextSent'],
         ],
     })),
 
@@ -115,10 +117,6 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         // `set_config_option` when the pick actually differs from what the session is already running.
         setSentModel: (model: string) => ({ model }),
         setSentEffort: (effort: string) => ({ effort }),
-        // Internal: record which attached-context items were already wrapped into a sent message this
-        // run, so static on-screen context isn't re-inflated onto every follow-up (mirrors the backend's
-        // `prune_repeated_entity_refs`).
-        markContextSent: (keys: string[]) => ({ keys }),
     }),
 
     reducers({
@@ -182,23 +180,6 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 setSentEffort: (_, { effort }) => effort,
             },
         ],
-        // Per-run set of `attachedContextItemKey`s already wrapped into a sent message. The logic is keyed
-        // by `runId`, so a fresh run starts empty.
-        sentContextKeys: [
-            new Set<string>(),
-            {
-                markContextSent: (state, { keys }) => {
-                    if (keys.length === 0) {
-                        return state
-                    }
-                    const next = new Set(state)
-                    for (const key of keys) {
-                        next.add(key)
-                    }
-                    return next
-                },
-            },
-        ],
     }),
 
     forms(({ actions, values }) => ({
@@ -258,152 +239,161 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         ],
         // In-flight indicator for the composer's send button — a live send or a new-run start.
         isSubmitting: [(s) => [s.sending, s.startingRun], (sending, startingRun): boolean => sending || startingRun],
-        // Attached context not yet wrapped into a message this run — the snapshot the next send wraps.
+        // Attached context not yet wrapped into a message for this task, the snapshot the next send wraps.
+        // The sent-key bookkeeping is task-scoped (`attachedContextLogic.sentContextKeysByTask`), not
+        // run-scoped, so the dedupe survives a terminal-run send re-pointing to a fresh run instance.
         // `text` items are never deduped (matches the backend's `prune_repeated_entity_refs`: repeated
         // text is intentional, e.g. consecutive error snippets).
         pendingContextItems: [
-            (s) => [s.contextItems, s.sentContextKeys],
-            (contextItems, sentContextKeys) =>
-                contextItems.filter(
-                    (item) => item.type === 'text' || !sentContextKeys.has(attachedContextItemKey(item))
-                ),
+            (s) => [s.contextItems, s.sentContextKeysByTask, (_, p: RunInteractionLogicProps) => p.taskId],
+            (contextItems, sentContextKeysByTask, taskId): AttachedContextItem[] => {
+                const sentKeys = new Set(sentContextKeysByTask[taskId] ?? [])
+                return contextItems.filter(
+                    (item) => item.type === 'text' || !sentKeys.has(attachedContextItemKey(item))
+                )
+            },
         ],
     }),
 
-    listeners(({ actions, values, props }) => ({
-        // Drain the staged "Up next" message — only when the run is idle and can actually take it, so a flush
-        // against a busy/terminal/in-flight send is a no-op rather than dropping the message. The buffer is
-        // cleared up-front (not after the send) so a follow-up typed during the in-flight send stages cleanly
-        // instead of being wiped along with this send on success; `sendNow` re-stages it if the send fails.
-        flushQueue: () => {
-            const [queued] = values.queuedMessages
-            if (!queued || values.isBusy || !values.canSend) {
-                return
+    listeners(({ actions, values, props }) => {
+        // Record the non-text refs just wrapped into a send under the task, so no later send anywhere in
+        // the task's resume chain (including the next run after a terminal-run send) re-inflates them.
+        const markPendingContextSent = (pendingContext: AttachedContextItem[]): void => {
+            const sentKeys = pendingContext.filter((item) => item.type !== 'text').map(attachedContextItemKey)
+            if (sentKeys.length > 0) {
+                actions.markContextSent(props.taskId, sentKeys)
             }
-            actions.clearQueue()
-            actions.sendNow(queued.content, 'queue')
-        },
+        }
 
-        sendNow: async ({ content, source }) => {
-            if (values.sending || !content.trim() || values.isTerminal || values.currentProjectId == null) {
-                // Nothing was sent. The queue buffer was already cleared in `flushQueue`, so re-stage for
-                // retry; the draft path leaves its content untouched in the composer.
-                if (source === 'queue') {
-                    actions.prependQueuedMessage(content)
+        return {
+            // Drain the staged "Up next" message — only when the run is idle and can actually take it, so a flush
+            // against a busy/terminal/in-flight send is a no-op rather than dropping the message. The buffer is
+            // cleared up-front (not after the send) so a follow-up typed during the in-flight send stages cleanly
+            // instead of being wiped along with this send on success; `sendNow` re-stages it if the send fails.
+            flushQueue: () => {
+                const [queued] = values.queuedMessages
+                if (!queued || values.isBusy || !values.canSend) {
+                    return
                 }
-                return
-            }
-            actions.setSending(true)
-            // Clear the draft synchronously before the await so text the user types while the send is in
-            // flight isn't clobbered when the request resolves; a failed send restores it ahead of anything
-            // typed since. The queue buffer was already cleared up-front in `flushQueue`.
-            if (source === 'draft') {
-                actions.resetComposerForm()
-            }
-            try {
-                // Sync the picked model/effort to the agent session first, but only what the user actually
-                // changed since the last sync — mid-run config lives as session state, so it must go via a
-                // `set_config_option` command before the message rather than ride inside `user_message`. A
-                // failure here aborts the send (the catch restores the content); `setSent*` runs only after a
-                // successful sync so the next send retries an unsent change.
-                const activeModel = values.sentModel ?? props.currentModel ?? DEFAULT_COMPOSER_MODEL
-                const activeEffort = resolveEffortForModel(
-                    values.sentEffort ?? props.currentEffort ?? DEFAULT_COMPOSER_EFFORT,
-                    activeModel
-                )
-                if (values.selectedModel !== activeModel) {
-                    await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
-                        jsonrpc: '2.0',
-                        method: 'set_config_option',
-                        params: { configId: MODEL_CONFIG_ID, value: values.selectedModel },
-                    })
-                    actions.setSentModel(values.selectedModel)
+                actions.clearQueue()
+                actions.sendNow(queued.content, 'queue')
+            },
+
+            sendNow: async ({ content, source }) => {
+                if (values.sending || !content.trim() || values.isTerminal || values.currentProjectId == null) {
+                    // Nothing was sent. The queue buffer was already cleared in `flushQueue`, so re-stage for
+                    // retry; the draft path leaves its content untouched in the composer.
+                    if (source === 'queue') {
+                        actions.prependQueuedMessage(content)
+                    }
+                    return
                 }
-                if (values.selectedEffort !== activeEffort) {
-                    await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
-                        jsonrpc: '2.0',
-                        method: 'set_config_option',
-                        params: { configId: EFFORT_CONFIG_ID, value: values.selectedEffort },
-                    })
-                    actions.setSentEffort(values.selectedEffort)
-                }
-                // Wrap the outgoing content with the on-screen context block (invisible to the user —
-                // `runStreamLogic.unwrapUserMessageContent` strips it on replay, and the echo below is raw).
-                const pendingContext = values.pendingContextItems
-                await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
-                    jsonrpc: '2.0',
-                    method: 'user_message',
-                    params: { content: wrapWithPosthogContext(content, pendingContext) },
-                })
-                // The SSE echo (`pushHumanMessage`) reopens the turn — always the raw text the user typed.
-                actions.pushHumanMessage(content)
-                const sentKeys = pendingContext.filter((item) => item.type !== 'text').map(attachedContextItemKey)
-                if (sentKeys.length > 0) {
-                    actions.markContextSent(sentKeys)
-                }
-            } catch {
-                // Restore unsent content for retry, preserving send order — draft content goes back ahead of
-                // anything typed during the failed send, queue content re-stages ahead of anything staged since.
+                actions.setSending(true)
+                // Clear the draft synchronously before the await so text the user types while the send is in
+                // flight isn't clobbered when the request resolves; a failed send restores it ahead of anything
+                // typed since. The queue buffer was already cleared up-front in `flushQueue`.
                 if (source === 'draft') {
-                    actions.setComposerFormValues({
-                        draft: values.composerForm.draft ? `${content}\n\n${values.composerForm.draft}` : content,
+                    actions.resetComposerForm()
+                }
+                try {
+                    // Sync the picked model/effort to the agent session first, but only what the user actually
+                    // changed since the last sync — mid-run config lives as session state, so it must go via a
+                    // `set_config_option` command before the message rather than ride inside `user_message`. A
+                    // failure here aborts the send (the catch restores the content); `setSent*` runs only after a
+                    // successful sync so the next send retries an unsent change.
+                    const activeModel = values.sentModel ?? props.currentModel ?? DEFAULT_COMPOSER_MODEL
+                    const activeEffort = resolveEffortForModel(
+                        values.sentEffort ?? props.currentEffort ?? DEFAULT_COMPOSER_EFFORT,
+                        activeModel
+                    )
+                    if (values.selectedModel !== activeModel) {
+                        await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
+                            jsonrpc: '2.0',
+                            method: 'set_config_option',
+                            params: { configId: MODEL_CONFIG_ID, value: values.selectedModel },
+                        })
+                        actions.setSentModel(values.selectedModel)
+                    }
+                    if (values.selectedEffort !== activeEffort) {
+                        await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
+                            jsonrpc: '2.0',
+                            method: 'set_config_option',
+                            params: { configId: EFFORT_CONFIG_ID, value: values.selectedEffort },
+                        })
+                        actions.setSentEffort(values.selectedEffort)
+                    }
+                    // Wrap the outgoing content with the on-screen context block (invisible to the user —
+                    // `runStreamLogic.unwrapUserMessageContent` strips it on replay, and the echo below is raw).
+                    const pendingContext = values.pendingContextItems
+                    await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
+                        jsonrpc: '2.0',
+                        method: 'user_message',
+                        params: { content: wrapWithPosthogContext(content, pendingContext) },
                     })
-                } else {
-                    actions.prependQueuedMessage(content)
+                    // The SSE echo (`pushHumanMessage`) reopens the turn — always the raw text the user typed.
+                    actions.pushHumanMessage(content)
+                    markPendingContextSent(pendingContext)
+                } catch {
+                    // Restore unsent content for retry, preserving send order — draft content goes back ahead of
+                    // anything typed during the failed send, queue content re-stages ahead of anything staged since.
+                    if (source === 'draft') {
+                        actions.setComposerFormValues({
+                            draft: values.composerForm.draft ? `${content}\n\n${values.composerForm.draft}` : content,
+                        })
+                    } else {
+                        actions.prependQueuedMessage(content)
+                    }
+                    lemonToast.error('Failed to send message. Please try again.')
+                } finally {
+                    actions.setSending(false)
                 }
-                lemonToast.error('Failed to send message. Please try again.')
-            } finally {
-                actions.setSending(false)
-            }
-        },
+            },
 
-        // The agent finished a turn — drain any staged follow-ups.
-        markTurnComplete: () => {
-            actions.flushQueue()
-        },
+            // The agent finished a turn — drain any staged follow-ups.
+            markTurnComplete: () => {
+                actions.flushQueue()
+            },
 
-        // The new model may not support the current effort — clamp the override so it never holds an
-        // unsupported value. No network here: the pick is synced to the agent at send time.
-        setModel: ({ model }) => {
-            const currentEffort = values.effortOverride ?? props.currentEffort
-            const resolvedEffort = resolveEffortForModel(currentEffort, model)
-            if (resolvedEffort !== currentEffort) {
-                actions.setEffort(resolvedEffort)
-            }
-        },
+            // The new model may not support the current effort — clamp the override so it never holds an
+            // unsupported value. No network here: the pick is synced to the agent at send time.
+            setModel: ({ model }) => {
+                const currentEffort = values.effortOverride ?? props.currentEffort
+                const resolvedEffort = resolveEffortForModel(currentEffort, model)
+                if (resolvedEffort !== currentEffort) {
+                    actions.setEffort(resolvedEffort)
+                }
+            },
 
-        startNewRun: async ({ content }) => {
-            if (values.startingRun || !content.trim() || values.currentProjectId == null) {
-                return
-            }
-            actions.setStartingRun(true)
-            try {
-                // Same endpoint as the "Run again" button, but seeded with the user's message and chained
-                // from the finished run so the new run continues the thread, and carrying the picked model /
-                // reasoning effort (the resume schema can't, so we send the Claude create shape). The response
-                // carries the new run id as `latest_run`; the consumer-provided `onRunStarted` re-points to it.
-                const pendingContext = values.pendingContextItems
-                const createRequest: ClaudeTaskRunCreateSchemaApi = {
-                    runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
-                    model: values.selectedModel,
-                    reasoning_effort: values.selectedEffort,
-                    resume_from_run_id: props.runId,
-                    pending_user_message: wrapWithPosthogContext(content, pendingContext),
+            startNewRun: async ({ content }) => {
+                if (values.startingRun || !content.trim() || values.currentProjectId == null) {
+                    return
                 }
-                const result = await tasksRunCreate(String(values.currentProjectId), props.taskId, createRequest)
-                actions.resetComposerForm()
-                const sentKeys = pendingContext.filter((item) => item.type !== 'text').map(attachedContextItemKey)
-                if (sentKeys.length > 0) {
-                    actions.markContextSent(sentKeys)
+                actions.setStartingRun(true)
+                try {
+                    // Same endpoint as the "Run again" button, but seeded with the user's message and chained
+                    // from the finished run so the new run continues the thread, and carrying the picked model /
+                    // reasoning effort (the resume schema can't, so we send the Claude create shape). The response
+                    // carries the new run id as `latest_run`; the consumer-provided `onRunStarted` re-points to it.
+                    const pendingContext = values.pendingContextItems
+                    const createRequest: ClaudeTaskRunCreateSchemaApi = {
+                        runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
+                        model: values.selectedModel,
+                        reasoning_effort: values.selectedEffort,
+                        resume_from_run_id: props.runId,
+                        pending_user_message: wrapWithPosthogContext(content, pendingContext),
+                    }
+                    const result = await tasksRunCreate(String(values.currentProjectId), props.taskId, createRequest)
+                    actions.resetComposerForm()
+                    markPendingContextSent(pendingContext)
+                    if (result.latest_run) {
+                        props.onRunStarted?.(result.latest_run)
+                    }
+                } catch {
+                    lemonToast.error('Failed to start a new run. Please try again.')
+                } finally {
+                    actions.setStartingRun(false)
                 }
-                if (result.latest_run) {
-                    props.onRunStarted?.(result.latest_run)
-                }
-            } catch {
-                lemonToast.error('Failed to start a new run. Please try again.')
-            } finally {
-                actions.setStartingRun(false)
-            }
-        },
-    })),
+            },
+        }
+    }),
 ])
