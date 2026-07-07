@@ -115,6 +115,22 @@ class TestScoutNotifyAPI(APIBaseTest):
         assert any("Jane Doe (Salesforce)" in str(block) for block in blocks)
 
     @patch(WEBCLIENT_PATH)
+    def test_notify_escapes_customer_controlled_account_name(self, webclient_cls) -> None:
+        client = self._client_mock(webclient_cls)
+        run = self._run_with_delivery()
+        response = self.client.post(
+            self._url(str(run.id)),
+            self._payload(account_name="<!channel> & <https://evil.example|x>"),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        call = client.chat_postMessage.call_args.kwargs
+        rendered = str(call["blocks"]) + call["text"]
+        # The raw broadcast token / smuggled link must never reach Slack live — only its escaped form.
+        assert "<!channel>" not in rendered
+        assert "&lt;!channel&gt; &amp; &lt;https://evil.example|x&gt;" in str(call["blocks"])
+
+    @patch(WEBCLIENT_PATH)
     def test_notify_requires_skill_opt_in(self, webclient_cls) -> None:
         self._client_mock(webclient_cls)
         self.skill.allowed_tools = ["emit_report", "edit_report"]

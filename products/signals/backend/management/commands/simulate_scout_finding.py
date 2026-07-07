@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 from products.signals.backend.models import SignalScoutConfig
@@ -48,10 +49,22 @@ class Command(BaseCommand):
         parser.add_argument("--text", default=DEFAULT_TEXT)
         parser.add_argument("--owner-email", default=None)
         parser.add_argument("--severity", choices=["low", "medium", "high"], default="medium")
+        parser.add_argument(
+            "--force",
+            action="store_true",
+            help="Allow posting a live message outside DEBUG (guards against pinging a real customer channel).",
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         team_id: int = options["team_id"]
         skill_name: str = options["skill_name"]
+
+        if not settings.DEBUG and not options["force"]:
+            raise CommandError(
+                "simulate_scout_finding posts a live message to the team's configured Slack channel and "
+                "is meant for local testing. Refusing to run outside DEBUG. Pass --force only if you are "
+                "certain the target channel is safe to ping."
+            )
 
         config = SignalScoutConfig.objects.for_team(team_id).filter(skill_name=skill_name).first()
         if config is None:
