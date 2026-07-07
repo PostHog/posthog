@@ -153,6 +153,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         toggleMaterializationFromMenu: true,
         openMaterializationSuggestionModal: true,
         closeMaterializationSuggestionModal: true,
+        regenerateMaterializationSuggestion: true,
         applyMaterializationSuggestion: true,
     }),
     reducers({
@@ -261,12 +262,13 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 loadEndpoint: () => false,
             },
         ],
-        // Clear stale suggestions when switching endpoints or re-requesting
+        // Cached across modal open/close (each request is a full LLM round-trip); cleared when
+        // switching endpoints or when the endpoint is updated (the saved query may have changed)
         materializationSuggestion: [
             null as EndpointMaterializationSuggestionApi | null,
             {
                 loadEndpoint: () => null,
-                openMaterializationSuggestionModal: () => null,
+                updateEndpointSuccess: () => null,
             },
         ],
     }),
@@ -443,6 +445,13 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             actions.loadMaterializationPreview()
         },
         openMaterializationSuggestionModal: () => {
+            // Reuse a cached suggestion — the saved query can't have changed while it's valid
+            // (updates clear it), and each request is a full LLM round-trip
+            if (!values.materializationSuggestion && !values.materializationSuggestionLoading) {
+                actions.loadMaterializationSuggestion()
+            }
+        },
+        regenerateMaterializationSuggestion: () => {
             actions.loadMaterializationSuggestion()
         },
         applyMaterializationSuggestion: () => {
@@ -464,7 +473,10 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 router.actions.replace(urls.endpoint(values.endpoint.name), nextSearchParams, hashParams)
             }
 
-            const editorTabId = cache.sqlEditorTabId ?? 'endpoint-query-latest'
+            // Always target the latest version's editor: apply is only reachable on the latest
+            // version, and cache.sqlEditorTabId can still point at an old version's editor when
+            // the Query tab was last mounted while browsing that version.
+            const editorTabId = 'endpoint-query-latest'
             actions.keepSqlEditorMounted(editorTabId)
             const editorLogic = sqlEditorLogic.findMounted({ tabId: editorTabId, mode: SQLEditorMode.Embedded })
 

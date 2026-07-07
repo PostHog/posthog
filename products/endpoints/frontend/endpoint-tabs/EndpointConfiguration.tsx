@@ -19,6 +19,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { MaterializationStatusModal } from 'scenes/data-warehouse/saved_queries/MaterializationStatusModal'
 
+import { NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { endpointLogic } from '../endpointLogic'
@@ -283,7 +284,10 @@ function MaterializationContent(): JSX.Element {
     // whose live checks reject the query.
     const isLatestVersion = !viewingVersion || viewingVersion.version === endpoint.current_version
     const showOptimizeWithAI =
-        materializationFixFlagEnabled && isLatestVersion && endpoint.query?.kind === 'HogQLQuery' && !isMaterialized
+        materializationFixFlagEnabled &&
+        isLatestVersion &&
+        endpoint.query?.kind === NodeKind.HogQLQuery &&
+        !isMaterialized
 
     const rangePairs = materializationPreview?.range_pairs ?? []
 
