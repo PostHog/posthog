@@ -2556,6 +2556,20 @@
             "readOnlyHint": true
         }
     },
+    "engineering-analytics-flaky-tests": {
+        "description": "Backend tests ranked by flakiness signal over a window (date_from default -7d, maximum 30 days), from the per-test CI spans. A test qualifies by passing on an automatic retry at least min_rerun_passes times (default 1) OR failing on at least min_failed_prs distinct pull requests (default 3). Use this for \"which tests are flaky right now\" and to pick quarantine candidates. Read the counts as absolute signal, never rates — fast passing runs are not emitted, so there is no honest denominator. rerun_passed_count only flows from CI lanes running with retries enabled; in other lanes a flake surfaces as a plain failure, which failed_pr_count catches. xfailed_count > 0 means the test is already quarantined but still failing. nodeid is a best-effort reconstruction (no '.py' suffix, the file/class boundary folded into '/'), so convert before using it as a pytest selector.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "Flaky test leaderboard",
+        "title": "Flaky test leaderboard",
+        "required_scopes": ["engineering_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "engineering-analytics-pr-cost": {
         "description": "Estimated CI dollar cost of one pull request, summed over the jobs of all its workflow runs, with breakdowns per workflow (by_workflow) and per run (by_run). Reach for this instead of summing runner minutes by hand: the estimate already classifies runners (billable self-hosted Linux vs free GitHub-hosted), applies the per-vCPU price ladder, and excludes non-Linux and provider-hosted jobs. jobs_available is false when the job-level source isn't synced yet — every figure is then zero/null, so check it before trusting a $0.00. estimated_cost_usd is null (not zero) when nothing was costable, and unsettled_jobs counts billable jobs still running that are left out of the estimate.",
         "category": "Engineering analytics",
