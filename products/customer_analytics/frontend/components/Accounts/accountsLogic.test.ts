@@ -11,11 +11,16 @@ import { initKeaTests } from '~/test/init'
 import type { UserBasicType, UserType } from '~/types'
 
 import {
-    accountsPartialUpdate,
-    accountsRetrieve,
+    accountRelationshipDefinitionsList,
+    accountsRelationshipsCreate,
+    accountsRelationshipsEndCreate,
+    accountsRelationshipsList,
     customPropertyDefinitionsList,
 } from 'products/customer_analytics/frontend/generated/api'
-import type { AccountApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+import type {
+    AccountRelationshipApi,
+    AccountRelationshipDefinitionApi,
+} from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 import {
@@ -31,34 +36,40 @@ import { accountsLogic, savingRoleKey } from './accountsLogic'
 const orderByOf = (source: unknown): AccountsQuery['orderBy'] => (source as AccountsQuery).orderBy
 
 jest.mock('products/customer_analytics/frontend/generated/api', () => ({
-    // Keep the real module for everything else — connected logics (e.g. column config's
-    // customPropertyDefinitionsList) call other generated functions on mount, and an
-    // absent export makes their loaders throw on every test.
+    // Keep the real module for everything else — connected logics call other generated
+    // functions on mount, and an absent export makes their loaders throw on every test.
     ...jest.requireActual('products/customer_analytics/frontend/generated/api'),
-    accountsRetrieve: jest.fn(),
-    accountsPartialUpdate: jest.fn(),
+    accountRelationshipDefinitionsList: jest.fn(),
     customPropertyDefinitionsList: jest.fn(),
+    accountsRelationshipsCreate: jest.fn(),
+    accountsRelationshipsEndCreate: jest.fn(),
+    accountsRelationshipsList: jest.fn(),
 }))
 
-const mockAccountsRetrieve = accountsRetrieve as jest.MockedFunction<typeof accountsRetrieve>
-const mockAccountsPartialUpdate = accountsPartialUpdate as jest.MockedFunction<typeof accountsPartialUpdate>
-const mockCustomPropertyDefinitionsList = customPropertyDefinitionsList as jest.MockedFunction<
+const mockDefinitionsList = accountRelationshipDefinitionsList as jest.MockedFunction<
+    typeof accountRelationshipDefinitionsList
+>
+const mockCustomPropertiesList = customPropertyDefinitionsList as jest.MockedFunction<
     typeof customPropertyDefinitionsList
 >
+const mockRelationshipsCreate = accountsRelationshipsCreate as jest.MockedFunction<typeof accountsRelationshipsCreate>
+const mockRelationshipsEnd = accountsRelationshipsEndCreate as jest.MockedFunction<
+    typeof accountsRelationshipsEndCreate
+>
+const mockRelationshipsList = accountsRelationshipsList as jest.MockedFunction<typeof accountsRelationshipsList>
 
-const buildAccount = (overrides: Partial<AccountApi> = {}): AccountApi => ({
-    id: 'acc-1',
-    name: 'Acme',
-    external_id: 'ext-1',
-    properties: {
-        csm: { id: 1, email: 'csm@example.com' },
-        stripe_customer_id: 'cus_123',
-    },
-    tags: [],
-    notebooks: [],
-    created_at: '2026-01-01T00:00:00Z',
-    created_by: null,
-    updated_at: '2026-01-01T00:00:00Z',
+const DEFINITIONS: AccountRelationshipDefinitionApi[] = [
+    { id: 'def-csm', name: 'CSM', description: null, is_single_holder: true },
+    { id: 'def-ae', name: 'Account executive', description: null, is_single_holder: true },
+    { id: 'def-owner', name: 'Account owner', description: null, is_single_holder: true },
+]
+
+const buildRelationship = (overrides: Partial<AccountRelationshipApi> = {}): AccountRelationshipApi => ({
+    id: 'rel-1',
+    definition: DEFINITIONS[0],
+    user: { id: 42, email: 'alex@example.com' },
+    started_at: '2026-01-01T00:00:00Z',
+    ended_at: null,
     ...overrides,
 })
 
@@ -75,16 +86,18 @@ const buildUser = (overrides: Partial<UserBasicType> = {}): UserBasicType =>
 describe('accountsLogic', () => {
     let logic: ReturnType<typeof accountsLogic.build>
 
-    beforeEach(() => {
+    beforeEach(async () => {
         initKeaTests()
         jest.resetAllMocks()
-        // accountsColumnConfigLogic (connected) loads custom property definitions on mount.
-        mockCustomPropertyDefinitionsList.mockResolvedValue({ count: 0, results: [] })
         // accountsLogic connects to the (localStorage-persisted) shared scene logic;
         // clear it so a "mine only" write in one test can't leak into the next.
         localStorage.clear()
+        mockDefinitionsList.mockResolvedValue({ count: DEFINITIONS.length, results: DEFINITIONS })
+        mockCustomPropertiesList.mockResolvedValue({ count: 0, results: [] })
         logic = accountsLogic()
         logic.mount()
+        // Legacy role columns only resolve into the query once definitions load.
+        await expectLogic(accountsColumnConfigLogic.findMounted()!).toFinishAllListeners()
     })
 
     afterEach(() => {
@@ -322,23 +335,7 @@ describe('accountsLogic', () => {
             logic.actions.toggleSort('notebook_count') // desc
             logic.actions.toggleSort('csm')
             expect(logic.values.sortOrder).toEqual({ column: 'csm', direction: 'asc' })
-            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['tupleElement(csm, 2)'])
-        })
-
-        it('csm desc produces tupleElement(csm, 2) DESC', () => {
-            logic.actions.toggleSort('csm')
-            logic.actions.toggleSort('csm')
-            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['tupleElement(csm, 2) DESC'])
-        })
-
-        it('account_executive sort uses the tupleElement expression', () => {
-            logic.actions.toggleSort('account_executive')
-            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['tupleElement(account_executive, 2)'])
-        })
-
-        it('account_owner sort uses the tupleElement expression', () => {
-            logic.actions.toggleSort('account_owner')
-            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['tupleElement(account_owner, 2)'])
+            expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['csm'])
         })
 
         it('arbitrary column sorts by its alias directly', () => {
@@ -346,6 +343,12 @@ describe('accountsLogic', () => {
             expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['name'])
             logic.actions.toggleSort('name')
             expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['name DESC'])
+        })
+
+        it('skips the orderBy when the sorted role column has no matching definition', () => {
+            logic.actions.toggleSort('csm')
+            accountsColumnConfigLogic.findMounted()?.actions.loadRelationshipDefinitionsSuccess([])
+            expect(orderByOf(logic.values.hogqlQuery.source)).toBeUndefined()
         })
     })
 
@@ -356,10 +359,27 @@ describe('accountsLogic', () => {
             expect(config?.values.selectColumns).toContain(ACCOUNTS_NAME_COLUMN)
         })
 
-        it('hogqlQuery.source.select equals selectColumns verbatim — no pinned aliases', () => {
-            const config = accountsColumnConfigLogic.findMounted()
+        it('translates legacy role columns through the relationships lazy join in the query select', () => {
             const source = logic.values.hogqlQuery.source as AccountsQuery
-            expect(source.select).toEqual(config?.values.selectColumns)
+            expect(source.select).toEqual([
+                ACCOUNTS_NAME_COLUMN,
+                'accounts.tags.names AS tag_names',
+                'accounts.notebooks.count AS notebook_count',
+                'accounts.relationships.values.`def-csm` AS csm',
+                'accounts.relationships.values.`def-ae` AS account_executive',
+                'accounts.relationships.values.`def-owner` AS account_owner',
+            ])
+        })
+
+        it('drops legacy role columns from the query when no matching definition exists', () => {
+            accountsColumnConfigLogic.findMounted()?.actions.loadRelationshipDefinitionsSuccess([])
+            const source = logic.values.hogqlQuery.source as AccountsQuery
+            expect(source.select).toEqual([
+                ACCOUNTS_NAME_COLUMN,
+                'accounts.tags.names AS tag_names',
+                'accounts.notebooks.count AS notebook_count',
+            ])
+            expect(logic.values.visibleColumnNames).toEqual([ACCOUNTS_NAME_COLUMN, 'tag_names', 'notebook_count'])
         })
 
         it('refuses to remove the name column via unselectColumn', () => {
@@ -503,57 +523,43 @@ describe('accountsLogic', () => {
     })
 
     describe('updateAccountRole', () => {
-        const existingAccount = buildAccount()
-
-        beforeEach(() => {
-            mockAccountsRetrieve.mockResolvedValue(existingAccount)
-        })
-
-        it('PATCHes the merged properties payload with the new assignment', async () => {
+        it('assigns via the relationships API and masks the cell with an override', async () => {
             const user = buildUser()
-            const updated = buildAccount({
-                properties: {
-                    csm: { id: user.id, email: user.email },
-                    stripe_customer_id: 'cus_123',
-                },
-            })
-            mockAccountsPartialUpdate.mockResolvedValue(updated)
+            mockRelationshipsCreate.mockResolvedValue(buildRelationship())
 
             logic.actions.updateAccountRole('acc-1', 'csm', user)
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(mockAccountsRetrieve).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'acc-1')
-            expect(mockAccountsPartialUpdate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'acc-1', {
-                properties: {
-                    csm: { id: user.id, email: user.email },
-                    stripe_customer_id: 'cus_123',
-                },
+            expect(mockRelationshipsCreate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'acc-1', {
+                definition: 'def-csm',
+                user: user.id,
             })
-            expect(logic.values.accountOverrides['acc-1']).toEqual(updated)
+            expect(logic.values.relationshipOverrides[savingRoleKey('acc-1', 'csm')]).toEqual([user.id])
         })
 
-        it('sends null when clearing an assignment', async () => {
-            mockAccountsPartialUpdate.mockResolvedValue(
-                buildAccount({ properties: { csm: null, stripe_customer_id: 'cus_123' } })
+        it('unassigning ends only the active assignments of that definition', async () => {
+            mockRelationshipsList.mockResolvedValue([
+                buildRelationship({ id: 'rel-csm', definition: DEFINITIONS[0] }),
+                buildRelationship({ id: 'rel-ae', definition: DEFINITIONS[1] }),
+            ])
+            mockRelationshipsEnd.mockResolvedValue(
+                buildRelationship({ id: 'rel-csm', ended_at: '2026-01-02T00:00:00Z' })
             )
 
             logic.actions.updateAccountRole('acc-1', 'csm', null)
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(mockAccountsPartialUpdate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'acc-1', {
-                properties: {
-                    csm: null,
-                    stripe_customer_id: 'cus_123',
-                },
-            })
+            expect(mockRelationshipsEnd).toHaveBeenCalledTimes(1)
+            expect(mockRelationshipsEnd).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'acc-1', 'rel-csm')
+            expect(logic.values.relationshipOverrides[savingRoleKey('acc-1', 'csm')]).toEqual([])
         })
 
         it('flips savingRoles during the in-flight window', async () => {
             const key = savingRoleKey('acc-1', 'account_executive')
-            let resolveUpdate!: (value: AccountApi) => void
-            mockAccountsPartialUpdate.mockReturnValueOnce(
-                new Promise<AccountApi>((resolve) => {
-                    resolveUpdate = resolve
+            let resolveCreate!: (value: AccountRelationshipApi) => void
+            mockRelationshipsCreate.mockReturnValueOnce(
+                new Promise<AccountRelationshipApi>((resolve) => {
+                    resolveCreate = resolve
                 })
             )
 
@@ -562,7 +568,7 @@ describe('accountsLogic', () => {
             expect(logic.values.savingRoles[key]).toBe(true)
             expect(logic.values.isRoleSaving('acc-1', 'account_executive')).toBe(true)
 
-            resolveUpdate(buildAccount())
+            resolveCreate(buildRelationship())
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.savingRoles[key]).toBeUndefined()
@@ -570,19 +576,19 @@ describe('accountsLogic', () => {
         })
 
         it('leaves overrides untouched on failure', async () => {
-            mockAccountsPartialUpdate.mockRejectedValueOnce(new Error('boom'))
+            mockRelationshipsCreate.mockRejectedValueOnce(new Error('boom'))
 
             logic.actions.updateAccountRole('acc-1', 'account_owner', buildUser())
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.accountOverrides['acc-1']).toBeUndefined()
+            expect(logic.values.relationshipOverrides[savingRoleKey('acc-1', 'account_owner')]).toBeUndefined()
             expect(logic.values.isRoleSaving('acc-1', 'account_owner')).toBe(false)
         })
 
         it('is a no-op while a save for the same role is already in flight', async () => {
-            let resolveFirst!: (value: AccountApi) => void
-            mockAccountsPartialUpdate.mockReturnValueOnce(
-                new Promise<AccountApi>((resolve) => {
+            let resolveFirst!: (value: AccountRelationshipApi) => void
+            mockRelationshipsCreate.mockReturnValueOnce(
+                new Promise<AccountRelationshipApi>((resolve) => {
                     resolveFirst = resolve
                 })
             )
@@ -592,9 +598,9 @@ describe('accountsLogic', () => {
             logic.actions.updateAccountRole('acc-1', 'csm', buildUser({ id: 2, email: 'second@example.com' }))
             await new Promise<void>((r) => setTimeout(r, 0))
 
-            expect(mockAccountsPartialUpdate).toHaveBeenCalledTimes(1)
+            expect(mockRelationshipsCreate).toHaveBeenCalledTimes(1)
 
-            resolveFirst(buildAccount())
+            resolveFirst(buildRelationship())
             await expectLogic(logic).toFinishAllListeners()
         })
     })

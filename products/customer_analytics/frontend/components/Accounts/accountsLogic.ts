@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isUUIDLike } from 'lib/utils/guards'
 import { objectsEqual } from 'lib/utils/objects'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -13,11 +14,11 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AccountsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import type { UserBasicType } from '~/types'
 
-import { accountsPartialUpdate, accountsRetrieve } from 'products/customer_analytics/frontend/generated/api'
-import type {
-    AccountApi,
-    PatchedAccountApiProperties,
-} from 'products/customer_analytics/frontend/generated/api.schemas'
+import {
+    accountsRelationshipsCreate,
+    accountsRelationshipsEndCreate,
+    accountsRelationshipsList,
+} from 'products/customer_analytics/frontend/generated/api'
 
 import {
     ACCOUNTS_HOGQL_DATA_NODE_KEY,
@@ -29,6 +30,7 @@ import {
     ACCOUNTS_HOGQL_DEFAULT_SELECT,
     ACCOUNTS_NAME_COLUMN,
     accountsColumnConfigLogic,
+    isLegacyRoleColumn,
 } from './accountsColumnConfigLogic'
 import {
     ACCOUNT_EXPANSION_TABS,
@@ -72,8 +74,6 @@ function clearSortIfColumnRemoved(values: SortLikeValues, actions: SortLikeActio
 
 export type RoleFilterValue = number[]
 
-export type AccountRoleKey = 'csm' | 'account_executive' | 'account_owner'
-
 export type AccountFilterType = 'tag' | 'unassigned_only' | 'my_accounts' | 'assigned_to'
 
 // `column` matches the visible column name (alias-stripped) so any selected
@@ -83,22 +83,6 @@ export type AccountSortableColumn = string
 export type AccountSortDirection = 'asc' | 'desc'
 
 export type AccountSortOrder = { column: AccountSortableColumn; direction: AccountSortDirection } | null
-
-// Columns that are HogQL `Tuple(id, email)` — sort by the `email` element so the
-// order matches what the user sees on screen rather than the opaque user id.
-const TUPLE_SORT_COLUMNS = new Set<string>(['csm', 'account_executive', 'account_owner'])
-
-// Resolve the HogQL expression to use in ORDER BY for a sortable column.
-// HogQL ORDER BY resolves SELECT aliases by name, so the visible column name
-// (which is the alias for aliased entries, or the bare expression otherwise)
-// works directly — except for tuple-shaped role columns, where we sort by
-// the email element so the visual order matches the rendered cell.
-export function deriveAccountsOrderByExpr(column: string): string {
-    if (TUPLE_SORT_COLUMNS.has(column)) {
-        return `tupleElement(${column}, 2)`
-    }
-    return column
-}
 
 interface AccountQueryFilters {
     searchQuery: string
@@ -140,13 +124,7 @@ function applyAccountFilters(source: AccountsQuery, filters: AccountQueryFilters
     }
 }
 
-const ROLE_LABELS: Record<AccountRoleKey, string> = {
-    csm: 'CSM',
-    account_executive: 'Account executive',
-    account_owner: 'Account owner',
-}
-
-export const savingRoleKey = (accountId: string, role: AccountRoleKey): string => `${accountId}:${role}`
+export const savingRoleKey = (accountId: string, column: string): string => `${accountId}:${column}`
 
 // Shareable view state encoded into the URL hash (`#view=...`) so a copied URL
 // reproduces the exact accounts list a colleague is looking at. Only non-default
@@ -175,7 +153,7 @@ export const accountsLogic = kea<accountsLogicType>([
             userLogic,
             ['user'],
             accountsColumnConfigLogic,
-            ['selectColumns', 'visibleColumnNames'],
+            ['selectColumns', 'visibleColumnNames', 'querySelectColumns', 'aliasToRelationshipDefinition'],
             accountsOverviewTilesLogic,
             ['metrics as overviewMetrics', 'tileFilter'],
             customerAnalyticsSceneLogic,
@@ -192,6 +170,8 @@ export const accountsLogic = kea<accountsLogicType>([
             ['setMineOnly'],
             userLogic,
             ['loadUserSuccess'],
+            membersLogic,
+            ['ensureAllMembersLoaded'],
         ],
     })),
     actions({
@@ -210,14 +190,18 @@ export const accountsLogic = kea<accountsLogicType>([
         // The raw filter setters are also fired by URL sync and cross-filter
         // cascades, so capturing analytics here keeps phantom events out.
         reportFilterChange: (filterType: AccountFilterType) => ({ filterType }),
-        updateAccountRole: (accountId: string, role: AccountRoleKey, user: UserBasicType | null) => ({
+        updateAccountRole: (accountId: string, column: string, user: UserBasicType | null) => ({
             accountId,
-            role,
+            column,
             user,
         }),
-        roleUpdateStarted: (accountId: string, role: AccountRoleKey) => ({ accountId, role }),
-        roleUpdateFinished: (accountId: string, role: AccountRoleKey) => ({ accountId, role }),
-        replaceAccount: (account: AccountApi) => ({ account }),
+        roleUpdateStarted: (accountId: string, column: string) => ({ accountId, column }),
+        roleUpdateFinished: (accountId: string, column: string) => ({ accountId, column }),
+        setRelationshipOverride: (accountId: string, column: string, userIds: number[]) => ({
+            accountId,
+            column,
+            userIds,
+        }),
         openAccount: (accountId: string, externalId: string | null, name: string, tab: AccountExpansionTab) => ({
             accountId,
             externalId,
@@ -275,21 +259,26 @@ export const accountsLogic = kea<accountsLogicType>([
         savingRoles: [
             {} as Record<string, true>,
             {
-                roleUpdateStarted: (state, { accountId, role }) => ({
+                roleUpdateStarted: (state, { accountId, column }) => ({
                     ...state,
-                    [savingRoleKey(accountId, role)]: true,
+                    [savingRoleKey(accountId, column)]: true,
                 }),
-                roleUpdateFinished: (state, { accountId, role }) => {
+                roleUpdateFinished: (state, { accountId, column }) => {
                     const next = { ...state }
-                    delete next[savingRoleKey(accountId, role)]
+                    delete next[savingRoleKey(accountId, column)]
                     return next
                 },
             },
         ],
-        accountOverrides: [
-            {} as Record<string, AccountApi>,
+        // Assignments written from the list, keyed `${accountId}:${column}` — masks the
+        // stale HogQL cell until the async refetch lands.
+        relationshipOverrides: [
+            {} as Record<string, number[]>,
             {
-                replaceAccount: (state, { account }) => ({ ...state, [account.id]: account }),
+                setRelationshipOverride: (state, { accountId, column, userIds }) => ({
+                    ...state,
+                    [savingRoleKey(accountId, column)]: userIds,
+                }),
             },
         ],
     }),
@@ -306,8 +295,8 @@ export const accountsLogic = kea<accountsLogicType>([
         isRoleSaving: [
             (s) => [s.savingRoles],
             (savingRoles: Record<string, true>) =>
-                (accountId: string, role: AccountRoleKey): boolean =>
-                    !!savingRoles[savingRoleKey(accountId, role)],
+                (accountId: string, column: string): boolean =>
+                    !!savingRoles[savingRoleKey(accountId, column)],
         ],
         activeFilterCount: [
             (s) => [s.searchQuery, s.tagsFilter, s.allRolesUnassigned, s.assignedToFilter],
@@ -375,7 +364,8 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.accountIdFilter,
                 s.tileFilter,
                 s.sortOrder,
-                s.selectColumns,
+                s.querySelectColumns,
+                s.visibleColumnNames,
             ],
             (
                 searchQuery: string,
@@ -385,11 +375,12 @@ export const accountsLogic = kea<accountsLogicType>([
                 accountIdFilter: string | null,
                 tileFilter: TileFilter | null,
                 sortOrder: AccountSortOrder,
-                selectColumns: string[]
+                querySelectColumns: string[],
+                visibleColumnNames: string[]
             ): DataTableNode => {
                 const source: AccountsQuery = {
                     kind: NodeKind.AccountsQuery,
-                    select: selectColumns,
+                    select: querySelectColumns,
                     tags: { ...CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS, name: 'customer_analytics_accounts_list' },
                 }
                 applyAccountFilters(source, {
@@ -400,18 +391,18 @@ export const accountsLogic = kea<accountsLogicType>([
                     accountIdFilter,
                     tileFilter,
                 })
-                if (sortOrder) {
-                    const expr = deriveAccountsOrderByExpr(sortOrder.column)
-                    source.orderBy = [sortOrder.direction === 'asc' ? expr : `${expr} DESC`]
+                // HogQL ORDER BY resolves SELECT aliases by name, so the visible column
+                // name works directly. Skip sorts on columns the translation dropped
+                // (a legacy role with no matching definition) — the alias wouldn't resolve.
+                if (sortOrder && visibleColumnNames.includes(sortOrder.column)) {
+                    source.orderBy = [sortOrder.direction === 'asc' ? sortOrder.column : `${sortOrder.column} DESC`]
                 }
                 return {
                     kind: NodeKind.DataTableNode,
                     source,
                     full: true,
                     // Suppress DataTable's built-in sort indicator on column
-                    // headers — our `SortableColumnHeader` renders its own (and
-                    // correctly reflects sorts where the orderBy expression
-                    // differs from the column name, e.g. `tupleElement(csm, 2)`).
+                    // headers — our `SortableColumnHeader` renders its own.
                     allowSorting: true,
                 }
             },
@@ -569,22 +560,36 @@ export const accountsLogic = kea<accountsLogicType>([
             dataNodeLogic.findMounted({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY })?.actions.loadData('force_async')
             dataNodeLogic.findMounted({ key: ACCOUNTS_METRICS_DATA_NODE_KEY })?.actions.loadData('force_async')
         },
-        updateAccountRole: async ({ accountId, role, user }) => {
-            if (values.isRoleSaving(accountId, role)) {
+        updateAccountRole: async ({ accountId, column, user }) => {
+            if (values.isRoleSaving(accountId, column)) {
+                return
+            }
+            const definition = values.aliasToRelationshipDefinition[column]
+            if (!definition) {
                 return
             }
             const projectId = String(values.currentTeamId)
-            actions.roleUpdateStarted(accountId, role)
+            actions.roleUpdateStarted(accountId, column)
             try {
-                const current = await accountsRetrieve(projectId, accountId)
-                const nextProperties: PatchedAccountApiProperties = {
-                    ...current.properties,
-                    [role]: user ? { id: user.id, email: user.email } : null,
+                if (user) {
+                    // Assigning a single-holder relationship ends the current holder server-side.
+                    await accountsRelationshipsCreate(projectId, accountId, {
+                        definition: definition.id,
+                        user: user.id,
+                    })
+                } else {
+                    const active = await accountsRelationshipsList(projectId, accountId)
+                    await Promise.all(
+                        active
+                            .filter((relationship) => relationship.definition.id === definition.id)
+                            .map((relationship) =>
+                                accountsRelationshipsEndCreate(projectId, accountId, relationship.id)
+                            )
+                    )
                 }
-                const updated = await accountsPartialUpdate(projectId, accountId, { properties: nextProperties })
-                actions.replaceAccount(updated)
+                actions.setRelationshipOverride(accountId, column, user ? [user.id] : [])
                 posthog.capture(AccountsEvents.RoleAssigned, {
-                    role,
+                    role: isLegacyRoleColumn(column) ? column : definition.name,
                     is_assigned: user !== null,
                     assigned_user_id: user?.id ?? null,
                     source: 'list_row',
@@ -593,9 +598,9 @@ export const accountsLogic = kea<accountsLogicType>([
                 dataNodeLogic.findMounted({ key: ACCOUNTS_METRICS_DATA_NODE_KEY })?.actions.loadData('force_async')
             } catch (error) {
                 posthog.captureException(error as Error, { scope: 'accountsLogic.updateAccountRole' })
-                lemonToast.error(`Failed to update ${ROLE_LABELS[role]}`)
+                lemonToast.error(`Failed to update ${definition.name}`)
             } finally {
-                actions.roleUpdateFinished(accountId, role)
+                actions.roleUpdateFinished(accountId, column)
             }
         },
         openAccount: ({ accountId, externalId, name, tab }) => {
@@ -651,8 +656,11 @@ export const accountsLogic = kea<accountsLogicType>([
             )
         },
     })),
-    afterMount(() => {
+    afterMount(({ actions }) => {
         posthog.capture(AccountsEvents.ListViewed)
+        // Relationship cells resolve assigned user ids against the org member list,
+        // so it must be loaded up front rather than on first dropdown open.
+        actions.ensureAllMembersLoaded()
     }),
     actionToUrl(({ values }) => {
         // Mirror the full view into the URL hash so the link is shareable.
