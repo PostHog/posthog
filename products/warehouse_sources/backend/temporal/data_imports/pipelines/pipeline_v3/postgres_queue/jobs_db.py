@@ -96,18 +96,75 @@ def pending_batch_predicate(status_alias: str) -> str:
     return f"({status_alias}.batch_id IS NULL OR {status_alias}.job_state IN ('waiting', 'waiting_retry', 'executing'))"
 
 
+def build_status_dual_write_sql(*, with_batch_created_at: bool) -> str:
+    """Single-statement status INSERT + denormalized-state UPDATE (atomic under autocommit).
+
+    The UPDATE guards: exact ``created_at`` match prunes to one partition when the
+    caller knows it (PendingBatch always does; the window fallback keeps ad-hoc
+    callers bounded); the ``IS DISTINCT FROM`` check makes heartbeat re-inserts a
+    0-row no-op so they never churn the batch heap; the monotonic
+    ``state_changed_at`` check makes cross-connection races converge to the status
+    row with the greatest ``created_at`` — the same answer the latest-status
+    lateral gives.
+    """
+    created_at_predicate = (
+        "b.created_at = %(batch_created_at)s"
+        if with_batch_created_at
+        else f"b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'"
+    )
+    return f"""
+        WITH ins AS (
+            INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
+            VALUES (%(batch_id)s, %(job_state)s, %(attempt)s, now(), %(error_response)s, now())
+            RETURNING batch_id, job_state, attempt, created_at
+        )
+        UPDATE {BATCH_TABLE} b
+        SET latest_state = ins.job_state, latest_attempt = ins.attempt, state_changed_at = ins.created_at
+        FROM ins
+        WHERE b.id = ins.batch_id
+          AND {created_at_predicate}
+          AND ((b.latest_state, b.latest_attempt) IS DISTINCT FROM (ins.job_state, ins.attempt)
+               OR b.state_changed_at IS NULL)
+          AND (b.state_changed_at IS NULL OR b.state_changed_at <= ins.created_at)
+    """
+
+
+def _bulk_fail_dual_write_sql(where_sql: str) -> str:
+    """Bulk 'failed' status inserts plus the denormalized-state UPDATE, one statement.
+
+    ``targets`` carries ``(id, created_at)`` so the UPDATE join prunes partitions
+    exactly; rowcount reports updated batches (== inserted statuses, minus any a
+    concurrent newer write already superseded via the monotonic guard).
+    """
+    return f"""
+        WITH targets AS (
+            SELECT b.id, b.created_at
+            FROM {BATCH_TABLE} b
+            {latest_status_lateral("b", "s")}
+            WHERE
+                b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                AND {where_sql}
+                AND {pending_batch_predicate("s")}
+        ),
+        ins AS (
+            INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
+            SELECT t.id, 'failed', 0, now(), %(error_response)s, now()
+            FROM targets t
+            RETURNING batch_id, created_at
+        )
+        UPDATE {BATCH_TABLE} b
+        SET latest_state = 'failed', latest_attempt = 0, state_changed_at = ins.created_at
+        FROM ins
+        JOIN targets t ON t.id = ins.batch_id
+        WHERE b.id = t.id
+          AND b.created_at = t.created_at
+          AND (b.state_changed_at IS NULL OR b.state_changed_at <= ins.created_at)
+    """
+
+
 # Shared between the async consumer path and the sync ops command so both agree
 # on what counts as a pending (fail-able) batch.
-FAIL_RUN_SQL = f"""
-    INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
-    SELECT b.id, 'failed', 0, now(), %(error_response)s, now()
-    FROM {BATCH_TABLE} b
-    {latest_status_lateral("b", "s")}
-    WHERE
-        b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-        AND b.run_uuid = %(run_uuid)s
-        AND {pending_batch_predicate("s")}
-"""
+FAIL_RUN_SQL = _bulk_fail_dual_write_sql("b.run_uuid = %(run_uuid)s")
 
 
 def _stale_executing_sql(scope_sql: str = "") -> str:
@@ -495,19 +552,24 @@ class BatchQueue:
         job_state: str,
         attempt: int = 0,
         error_response: dict[str, Any] | None = None,
+        batch_created_at: datetime | None = None,
     ) -> None:
-        """Append a status row for a batch (executing, succeeded, waiting_retry, failed)."""
+        """Append a status row and mirror it into the batch's denormalized state columns.
+
+        ``batch_created_at`` (from PendingBatch) prunes the state UPDATE to one
+        partition; without it the update falls back to the retention-window scan.
+        """
+        params: dict[str, Any] = {
+            "batch_id": batch_id,
+            "job_state": job_state,
+            "attempt": attempt,
+            "error_response": json.dumps(error_response) if error_response else None,
+        }
+        if batch_created_at is not None:
+            params["batch_created_at"] = batch_created_at
         await conn.execute(
-            f"""
-            INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
-            VALUES (%(batch_id)s, %(job_state)s, %(attempt)s, now(), %(error_response)s, now())
-            """,
-            {
-                "batch_id": batch_id,
-                "job_state": job_state,
-                "attempt": attempt,
-                "error_response": json.dumps(error_response) if error_response else None,
-            },
+            build_status_dual_write_sql(with_batch_created_at=batch_created_at is not None),
+            params,
         )
 
     @staticmethod
@@ -634,16 +696,7 @@ class BatchQueue:
         newer data or flip the FAILED job back to COMPLETED via the final batch.
         """
         cursor = conn.execute(
-            f"""
-            INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
-            SELECT b.id, 'failed', 0, now(), %(error_response)s, now()
-            FROM {BATCH_TABLE} b
-            {latest_status_lateral("b", "s")}
-            WHERE
-                b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                AND b.job_id = %(job_id)s
-                AND (s.batch_id IS NULL OR s.job_state IN ('waiting', 'waiting_retry', 'executing'))
-            """,
+            _bulk_fail_dual_write_sql("b.job_id = %(job_id)s"),
             {
                 "job_id": job_id,
                 "error_response": json.dumps({"error": reason}),
@@ -660,17 +713,7 @@ class BatchQueue:
     ) -> int:
         """Mark non-terminal batches from older runs of the same job as superseded."""
         cursor = conn.execute(
-            f"""
-            INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
-            SELECT b.id, 'failed', 0, now(), %(error_response)s, now()
-            FROM {BATCH_TABLE} b
-            {latest_status_lateral("b", "s")}
-            WHERE
-                b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                AND b.job_id = %(job_id)s
-                AND b.run_uuid != %(current_run_uuid)s
-                AND (s.batch_id IS NULL OR s.job_state IN ('waiting', 'waiting_retry', 'executing'))
-            """,
+            _bulk_fail_dual_write_sql("b.job_id = %(job_id)s AND b.run_uuid != %(current_run_uuid)s"),
             {
                 "job_id": job_id,
                 "current_run_uuid": current_run_uuid,
