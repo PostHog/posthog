@@ -96,14 +96,14 @@ export class InstructionsFormatter {
      *  query-tool catalog is kept: in single-exec mode it lives here on the exec
      *  tool, not in `instructions` (which only carries the `query` tool domain).
      *
-     *  `keepToolDomains` is the escape hatch for clients that report
+     *  `keepEnvContext` is the escape hatch for clients that report
      *  `supportsInstructions` but don't actually surface the `instructions`
-     *  payload to the model (Claude web/desktop): it retains the tool-domain
-     *  index here even when the rest of env-context is stripped, so the domain
-     *  list still reaches the agent. */
+     *  payload to the model (Claude web/desktop): it retains the full env-context
+     *  (tool-domain index, project metadata, group types) here even though
+     *  `stripEnvContext` is set, so it still reaches the agent. */
     buildExecCommandReference(
         ctx: InstructionsContext,
-        opts: { stripEnvContext: boolean; keepToolDomains?: boolean }
+        opts: { stripEnvContext: boolean; keepEnvContext?: boolean }
     ): string {
         const sections = [
             CLI_SYNTAX,
@@ -126,7 +126,9 @@ export class InstructionsFormatter {
                   guidelines: ctx.guidelines,
                   queryTools: ctx.queryTools,
                   featureFlags: ctx.featureFlags,
-                  ...(opts.keepToolDomains ? { tools: ctx.tools } : {}),
+                  ...(opts.keepEnvContext
+                      ? { tools: ctx.tools, metadata: ctx.metadata, groupTypes: ctx.groupTypes }
+                      : {}),
               }
             : ctx
         return this.compose(sections, renderCtx, { compact: false })

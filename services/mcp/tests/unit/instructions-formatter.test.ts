@@ -190,17 +190,18 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('\n- dashboard\n')
         })
 
-        it('keeps the tool-domain list but still strips the rest of env-context when keepToolDomains is set', () => {
+        it('keeps the full env-context even when stripEnvContext is set, when keepEnvContext is set', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildExecCommandReference(fullCtx, {
                 stripEnvContext: true,
-                keepToolDomains: true,
+                keepEnvContext: true,
             })
-            // Tool domains survive for clients (Claude web/desktop) that ignore the
-            // `instructions` payload, while user/metadata env-context stays stripped.
+            // The whole env-context (tool domains, project metadata, group types)
+            // survives for clients (Claude web/desktop) that ignore the `instructions`
+            // payload, so it still reaches the model via the command reference.
             expect(result).toContain('- dashboard')
-            expect(result).not.toContain("The user's name is Jane Doe")
-            expect(result).not.toContain('Defined group types: organization')
+            expect(result).toContain("The user's name is Jane Doe")
+            expect(result).toContain('Defined group types: organization')
         })
 
         it('includes the agent-feedback section only when the mcp-feedback-tool flag is on', () => {

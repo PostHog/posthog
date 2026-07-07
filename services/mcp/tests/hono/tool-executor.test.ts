@@ -62,6 +62,8 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         scopeGatedTools: [],
         distinctId: 'test-distinct-id',
         renderUiEnabled: false,
+        metadata: undefined,
+        groupTypes: undefined,
         ...overrides,
     }
 }
@@ -180,45 +182,60 @@ describe('ToolExecutor', () => {
             expect(result.tools[0]!.name).toBe('exec')
         })
 
-        it('keeps the tool-domain list on the exec command for Claude UI hosts (they ignore instructions)', async () => {
-            const tools = catalog
-                .getPreBuiltEntries()
-                .slice(0, 5)
-                .map((e) => ({ name: e.name }))
+        // Env-context (active project metadata + tool-domain index) must reach the model
+        // on the exec `command` for clients that don't otherwise receive the `instructions`
+        // payload: Codex reports `supportsInstructions: false` so never gets it, and Claude
+        // web/desktop report `true` but silently ignore it. Claude Code strips it here
+        // because it arrives via `instructions` instead.
+        it.each([
+            {
+                label: 'Claude web/desktop (ignores instructions)',
+                supportsInstructions: true,
+                isClaudeUiHost: true,
+                expectEnv: true,
+            },
+            {
+                label: 'Codex (supportsInstructions: false)',
+                supportsInstructions: false,
+                isClaudeUiHost: false,
+                expectEnv: true,
+            },
+            {
+                label: 'Claude Code (consumes instructions)',
+                supportsInstructions: true,
+                isClaudeUiHost: false,
+                expectEnv: false,
+            },
+        ])(
+            'injects project metadata into the exec command for $label → $expectEnv',
+            async ({ supportsInstructions, isClaudeUiHost, expectEnv }) => {
+                const tools = catalog
+                    .getPreBuiltEntries()
+                    .slice(0, 5)
+                    .map((e) => ({ name: e.name }))
+                const metadataMarker = 'CURRENT PROJECT: Acme (timezone America/New_York)'
 
-            const uiHostState = makeState(tools, {
-                useSingleExec: true,
-                clientProfile: {
-                    capabilities: { supportsInstructions: true },
-                    isCliModeEnabled: vi.fn(() => true),
-                    isClaudeUiHost: vi.fn(() => true),
-                } as any,
-            })
-            const codeState = makeState(tools, {
-                useSingleExec: true,
-                clientProfile: {
-                    capabilities: { supportsInstructions: true },
-                    isCliModeEnabled: vi.fn(() => true),
-                    isClaudeUiHost: vi.fn(() => false),
-                } as any,
-            })
+                const state = makeState(tools, {
+                    useSingleExec: true,
+                    metadata: metadataMarker,
+                    clientProfile: {
+                        capabilities: { supportsInstructions },
+                        isCliModeEnabled: vi.fn(() => true),
+                        isClaudeUiHost: vi.fn(() => isClaudeUiHost),
+                    } as any,
+                })
 
-            const commandDescOf = async (state: ReturnType<typeof makeState>): Promise<string> => {
                 const result = await executor.handleToolsList(state)
-                const exec = result.tools[0]!
-                return (exec.inputSchema.properties as any).command.description as string
+                const commandDesc = (result.tools[0]!.inputSchema.properties as any).command.description as string
+
+                expect(commandDesc).toContain('PostHog tools have lowercase kebab-case naming')
+                if (expectEnv) {
+                    expect(commandDesc).toContain(metadataMarker)
+                } else {
+                    expect(commandDesc).not.toContain(metadataMarker)
+                }
             }
-
-            const uiHostDesc = await commandDescOf(uiHostState)
-            const codeDesc = await commandDescOf(codeState)
-
-            // Both carry the tool-search section; only Claude web/desktop also get the
-            // rendered domain list inlined here, since they never surface the
-            // `instructions` payload where Claude Code receives it instead.
-            expect(uiHostDesc).toContain('PostHog tools have lowercase kebab-case naming')
-            expect(codeDesc).toContain('PostHog tools have lowercase kebab-case naming')
-            expect(uiHostDesc.length).toBeGreaterThan(codeDesc.length)
-        })
+        )
 
         it('lists render-ui alongside exec when render-ui is enabled and a UI-app tool is available', async () => {
             const state = makeState([uiAppTool], { useSingleExec: true, renderUiEnabled: true })
