@@ -26,6 +26,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     _no_data_event_names,
     _person_property_names,
     _pinned_event_names,
+    _recent_event_names,
     _select_relevant_events,
     build_context_blob,
     compute_report_window,
@@ -215,10 +216,21 @@ class TestSelectRelevantEvents(APIBaseTest):
         assert selected[0] == "named_event"
         assert len(selected) == RELEVANT_EVENTS_LIMIT
 
+    @patch(f"{_SG}.CANDIDATE_EVENTS_LIMIT", 5)
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_pins_event_outside_the_candidate_cap(self, mock_chat: MagicMock) -> None:
+        # The whole reason the pin scan has its own (larger) bound: an event ranked below the candidate
+        # cap is invisible to the selection LLM, but an explicit mention must still resolve. With the cap
+        # patched to 5, the named event (oldest last_seen_at) falls outside the candidate slice.
+        for i in range(5):
+            EventDefinition.objects.create(team=self.team, name=f"common_{i}", last_seen_at=datetime.now(tz=UTC))
+        EventDefinition.objects.create(team=self.team, name="rare_event", last_seen_at=None)
+        mock_chat.return_value.with_structured_output.return_value.invoke.return_value = RelevantEvents(events=[])
+
+        assert _select_relevant_events(self.team, self.user, "what about `rare_event`?") == ["rare_event"]
+
 
 class TestExtractQuotedEventTokens:
-    """Pure token extraction — no DB. Validation against the taxonomy lives in `_pinned_event_names`."""
-
     @parameterized.expand(
         [
             ("backticks", "how is `export created`?", {"export created"}),
@@ -234,41 +246,22 @@ class TestExtractQuotedEventTokens:
         assert _extract_quoted_event_tokens(prompt) == expected
 
 
-class TestPinnedEventNames(APIBaseTest):
+class TestPinnedEventNames:
+    # Pure: matching against a given name list. Quote-style parsing is covered by
+    # TestExtractQuotedEventTokens; the single quoted case here covers the quoted->pin wiring.
     @parameterized.expand(
         [
-            ("backticked_name_pinned", "how is `export created`?", ["export created"]),
-            ("double_quoted_name_pinned", 'how is "export created"?', ["export created"]),
-            ("single_quoted_name_pinned", "how is 'export created'?", ["export created"]),
+            ("quoted_name_pinned", "how is `export created`?", ["export created"]),
+            ("case_insensitive_match", "how is `EXPORT CREATED`?", ["export created"]),
             ("bare_exact_single_word_pinned", "trends for signup over time", ["signup"]),
             ("bare_exact_multi_word_pinned", "how is export created trending", ["export created"]),
-            ("case_insensitive_match", "how is `EXPORT CREATED`?", ["export created"]),
             ("nonexistent_quoted_name_ignored", "how is `totally made up`?", []),
             ("substring_does_not_match", "tell me about signups please", []),
             ("no_reference_pins_nothing", "give me a weekly summary", []),
         ]
     )
     def test_pins_only_validated_named_events(self, _name: str, prompt: str, expected: list[str]) -> None:
-        # Validation is against the FULL taxonomy, so a name outside the candidate cap is still resolvable.
-        EventDefinition.objects.create(team=self.team, name="export created")
-        EventDefinition.objects.create(team=self.team, name="signup")
-
-        assert _pinned_event_names(self.team, prompt) == expected
-
-    def test_pins_event_outside_the_candidate_cap(self) -> None:
-        # An event ranked far below CANDIDATE_EVENTS_LIMIT (oldest last_seen_at) must still be pinnable —
-        # the lookup deliberately scans the full taxonomy rather than the capped candidate set.
-        EventDefinition.objects.create(team=self.team, name="rare_event", last_seen_at=None)
-        for i in range(20):
-            EventDefinition.objects.create(team=self.team, name=f"common_{i}", last_seen_at=datetime.now(tz=UTC))
-
-        assert _pinned_event_names(self.team, "what about `rare_event`?") == ["rare_event"]
-
-    def test_excludes_other_teams_events(self) -> None:
-        other = Team.objects.create(organization=self.organization, name="other")
-        EventDefinition.objects.create(team=other, name="export created")
-
-        assert _pinned_event_names(self.team, "how is `export created`?") == []
+        assert _pinned_event_names(prompt, ["export created", "signup"]) == expected
 
     @parameterized.expand(
         [
@@ -282,20 +275,28 @@ class TestPinnedEventNames(APIBaseTest):
         ]
     )
     def test_special_char_token_boundaries(self, _name: str, prompt: str, expected: list[str]) -> None:
-        for name in ("$pageview", "pageview", "app.opened"):
-            EventDefinition.objects.create(team=self.team, name=name)
-
-        assert _pinned_event_names(self.team, prompt) == expected
+        assert _pinned_event_names(prompt, ["$pageview", "pageview", "app.opened"]) == expected
 
     def test_caps_pinned_count_at_max(self) -> None:
         # A degenerate prompt naming more events than the ceiling pins at most MAX_PINNED_EVENTS, so the
         # planner context and the downstream property lookup stay bounded.
         names = [f"evt_{i}" for i in range(MAX_PINNED_EVENTS + 5)]
-        for name in names:
-            EventDefinition.objects.create(team=self.team, name=name)
         prompt = " ".join(f"`{n}`" for n in names)
 
-        assert len(_pinned_event_names(self.team, prompt)) == MAX_PINNED_EVENTS
+        assert len(_pinned_event_names(prompt, names)) == MAX_PINNED_EVENTS
+
+
+class TestRecentEventNames(APIBaseTest):
+    def test_scopes_to_team_and_respects_limit(self) -> None:
+        other = Team.objects.create(organization=self.organization, name="other")
+        EventDefinition.objects.create(team=other, name="other_team_event")
+        for i in range(3):
+            EventDefinition.objects.create(team=self.team, name=f"evt_{i}", last_seen_at=datetime.now(tz=UTC))
+
+        names = _recent_event_names(self.team, limit=2)
+
+        assert len(names) == 2
+        assert "other_team_event" not in names
 
 
 class TestEventPropertyNames(APIBaseTest):
