@@ -258,7 +258,7 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
         let formattedDate = getFormattedDate(date, { interval, dateRange, timezone, weekStartDay })
         // Match the classic insight tooltip, which spells out the weekday on daily buckets
         if (interval === 'day' && typeof date === 'string') {
-            const parsed = parseDateInTimezone(date, timezone ?? 'UTC')
+            const parsed = parseDateInTimezone(date, timezone)
             if (parsed.isValid()) {
                 formattedDate = `${parsed.format('dddd')}, ${formattedDate}`
             }

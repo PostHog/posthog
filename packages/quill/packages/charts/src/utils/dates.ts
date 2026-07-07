@@ -79,6 +79,7 @@ export function createTooltipDateFormatter({
                 return date.format('MMM YYYY')
             case 'week':
                 return date.format('MMM D, YYYY')
+            case 'day':
             default:
                 return date.format('ddd, MMM D, YYYY')
         }
