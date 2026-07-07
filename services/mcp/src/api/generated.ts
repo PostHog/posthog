@@ -27911,6 +27911,41 @@ export namespace Schemas {
       id_jag_allowed_clients?: string[];
     }
 
+    /**
+     * One skill entry in a bulk-import payload.
+     *
+     * Skills are store-backed: each entry publishes to (or creates) a skill in
+     * the skill store and pins a `skill_refs` entry on the draft. The optional
+     * `description` is honoured when supplied; when omitted on an existing
+     * skill, the current store description is preserved. Skill `id` must match
+     * the canonical resource-id regex used by the janitor.
+     */
+    export interface ImportBundleSkill {
+      /** Skill id. Lowercase letters, digits, hyphens, or underscores; must start and end with `[a-z0-9]`. */
+      id: string;
+      /** One-line summary shown in the skill index. Required when creating a new skill; optional when updating one. */
+      description?: string;
+      /** The skill's markdown body, published as a new version of the store skill. */
+      body: string;
+    }
+
+    /**
+     * Body shape for POST /revisions/<id>/bundle/import/.
+     *
+     * Bulk-paste hatch for migrating an existing multi-file agent. Either
+     * `agent_md` or `skills` (or both) may be present. Skills merge by `id`
+     * into the skill store: an id already referenced by the draft publishes a
+     * new version of its store skill; a new id attaches (or creates) the store
+     * skill of that name and appends a pinned `skill_refs` entry. Skills NOT
+     * mentioned are left alone — the import is safe to retry.
+     */
+    export interface ImportBundleRequest {
+      /** New `agent.md` contents. When omitted, the existing agent.md is left alone. */
+      agent_md?: string;
+      /** Per-skill payloads merged into the skill store by id and pinned onto the draft's skill references. When omitted, no skills are touched. */
+      skills?: ImportBundleSkill[];
+    }
+
     export interface InsightBulkDeleteRequest {
       /**
          * Insight IDs to soft-delete (or restore). At most 1000 ids per request. Soft-deleted insights can be brought back via the bulk_restore endpoint.
@@ -27949,41 +27984,6 @@ export namespace Schemas {
       restored: InsightBulkOperationResult[];
       /** Insights that were not restored, with the reason for each. */
       skipped: InsightBulkOperationSkipped[];
-    }
-
-    /**
-     * One skill entry in a bulk-import payload.
-     *
-     * Skills are store-backed: each entry publishes to (or creates) a skill in
-     * the skill store and pins a `skill_refs` entry on the draft. The optional
-     * `description` is honoured when supplied; when omitted on an existing
-     * skill, the current store description is preserved. Skill `id` must match
-     * the canonical resource-id regex used by the janitor.
-     */
-    export interface ImportBundleSkill {
-      /** Skill id. Lowercase letters, digits, hyphens, or underscores; must start and end with `[a-z0-9]`. */
-      id: string;
-      /** One-line summary shown in the skill index. Required when creating a new skill; optional when updating one. */
-      description?: string;
-      /** The skill's markdown body, published as a new version of the store skill. */
-      body: string;
-    }
-
-    /**
-     * Body shape for POST /revisions/<id>/bundle/import/.
-     *
-     * Bulk-paste hatch for migrating an existing multi-file agent. Either
-     * `agent_md` or `skills` (or both) may be present. Skills merge by `id`
-     * into the skill store: an id already referenced by the draft publishes a
-     * new version of its store skill; a new id attaches (or creates) the store
-     * skill of that name and appends a pinned `skill_refs` entry. Skills NOT
-     * mentioned are left alone — the import is safe to retry.
-     */
-    export interface ImportBundleRequest {
-      /** New `agent.md` contents. When omitted, the existing agent.md is left alone. */
-      agent_md?: string;
-      /** Per-skill payloads merged into the skill store by id and pinned onto the draft's skill references. When omitted, no skills are touched. */
-      skills?: ImportBundleSkill[];
     }
 
     /**
