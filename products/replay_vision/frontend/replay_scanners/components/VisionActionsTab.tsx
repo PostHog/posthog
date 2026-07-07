@@ -76,7 +76,7 @@ function VisionActionsTable({ scannerId }: { scannerId: string }): JSX.Element {
         return (
             <ProductIntroduction
                 productName="Scheduled summaries"
-                thingName="action"
+                thingName="summary"
                 isEmpty
                 customHog={HedgehogXRay}
                 description="Set up scheduled summaries of this scanner's observations — synthesized by AI and delivered to Slack on the cadence you choose. Great for a daily digest of what the scanner has been finding."
@@ -88,7 +88,7 @@ function VisionActionsTable({ scannerId }: { scannerId: string }): JSX.Element {
                             to={urls.replayVisionActionNew(scannerId)}
                             data-attr="vision-action-new-empty"
                         >
-                            New action
+                            New summary
                         </LemonButton>
                     </EditorGate>
                 }
@@ -212,7 +212,7 @@ function VisionActionsTable({ scannerId }: { scannerId: string }): JSX.Element {
                         to={urls.replayVisionActionNew(scannerId)}
                         data-attr="vision-action-new"
                     >
-                        New action
+                        New summary
                     </LemonButton>
                 </EditorGate>
             </div>
@@ -222,7 +222,7 @@ function VisionActionsTable({ scannerId }: { scannerId: string }): JSX.Element {
                 loading={visionActionsLoading}
                 rowKey="id"
                 data-attr="vision-actions-table"
-                emptyState="No actions yet — this scanner has no scheduled summaries."
+                emptyState="No summaries scheduled for this scanner yet."
             />
         </div>
     )

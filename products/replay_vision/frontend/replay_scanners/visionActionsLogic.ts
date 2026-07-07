@@ -119,7 +119,7 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
                 const response = await visionActionsList(String(teamId), { scanner: props.scannerId, limit: 100 })
                 actions.loadActionsSuccess(response.results ?? [])
             } catch (error: any) {
-                lemonToast.error(`Failed to load actions${error.detail ? `: ${error.detail}` : ''}`)
+                lemonToast.error(`Failed to load summaries${error.detail ? `: ${error.detail}` : ''}`)
                 actions.loadActionsFailure()
             }
         },
@@ -137,7 +137,7 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
                 actions.toggleActionEnabledDone(id)
             } catch (error: any) {
                 const verb = action.enabled ? 'enable' : 'disable'
-                lemonToast.error(`Failed to ${verb} action${error.detail ? `: ${error.detail}` : ''}`)
+                lemonToast.error(`Failed to ${verb} summary${error.detail ? `: ${error.detail}` : ''}`)
                 actions.revertActionEnabled(id)
             }
         },
@@ -150,9 +150,9 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
             try {
                 await visionActionsDestroy(String(teamId), id)
                 actions.deleteActionSuccess(id)
-                lemonToast.success('Action deleted')
+                lemonToast.success('Summary deleted')
             } catch (error: any) {
-                lemonToast.error(`Failed to delete action${error.detail ? `: ${error.detail}` : ''}`)
+                lemonToast.error(`Failed to delete summary${error.detail ? `: ${error.detail}` : ''}`)
             }
         },
     })),

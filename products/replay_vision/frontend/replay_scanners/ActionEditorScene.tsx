@@ -195,7 +195,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
     if (!isNew && !loadedAction) {
         return (
             <SceneContent>
-                <SceneTitleSection name="Action not found" resourceType={{ type: 'replay_vision' }} />
+                <SceneTitleSection name="Summary not found" resourceType={{ type: 'replay_vision' }} />
                 <div className="flex justify-center pt-4">
                     <LemonButton type="secondary" to={urls.replayVision()}>
                         Back to Replay vision
@@ -207,8 +207,8 @@ export function ActionEditorSceneComponent(): JSX.Element {
 
     const title = isNew
         ? scannerName
-            ? `New action for ${scannerName}`
-            : 'New action'
+            ? `New summary for ${scannerName}`
+            : 'New summary'
         : loadedAction?.name || 'Edit action'
     const noDays = actionForm.cadence.weekdays.length === 0
     const backTo = isNew
@@ -275,7 +275,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
                                     disabledReason={noDays ? 'Pick at least one day to run on' : undefined}
                                     data-attr="vision-action-editor-save"
                                 >
-                                    {isNew ? 'Create action' : 'Save'}
+                                    {isNew ? 'Create summary' : 'Save'}
                                 </LemonButton>
                             </div>
                         </div>

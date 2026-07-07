@@ -105,13 +105,13 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                             path: `${urls.replayVision(effectiveScannerId)}?tab=actions`,
                         })
                     }
-                    crumbs.push({ key: 'new-action', name: 'New action' })
+                    crumbs.push({ key: 'new-action', name: 'New summary' })
                     return crumbs
                 }
                 crumbs.push(
                     {
                         key: `action-${actionId}`,
-                        name: loadedAction?.name || 'Action',
+                        name: loadedAction?.name || 'Summary',
                         path: urls.replayVisionAction(actionId),
                     },
                     { key: `action-${actionId}-edit`, name: 'Edit' }
@@ -125,7 +125,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
         actionForm: {
             defaults: NEW_ACTION_FORM(),
             errors: ({ name, cadence, integration_id, channel }: VisionActionForm) => ({
-                name: !name?.trim() ? 'Give this action a name' : undefined,
+                name: !name?.trim() ? 'Give this summary a name' : undefined,
                 // weekdays is a number[], which kea-forms can't carry a string error on, so we hang the
                 // "pick a day" error on the cadence object via `hour` to mark the form invalid. This blocks
                 // Enter-to-submit; the user-facing message is the inline danger text + submit disabledReason.
@@ -144,13 +144,13 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 const body = buildActionBody(form, scannerId)
                 if (values.isNew) {
                     const created = await visionActionsCreate(String(teamId), body)
-                    lemonToast.success('Action created')
+                    lemonToast.success('Summary created')
                     visionActionsLogic.findMounted({ scannerId })?.actions.loadActions()
                     router.actions.push(urls.replayVisionAction(created.id))
                     return
                 }
                 const updated = await visionActionsPartialUpdate(String(teamId), values.actionId, body)
-                lemonToast.success('Action updated')
+                lemonToast.success('Summary updated')
                 visionActionsLogic.findMounted({ scannerId })?.actions.loadActions()
                 const runsLogic = visionActionRunsLogic.findMounted({ actionId: updated.id })
                 runsLogic?.actions.loadAction()
@@ -174,7 +174,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 breakpoint()
                 actions.setScannerName(scanner.name)
             } catch {
-                // Display-only — the title falls back to "New action".
+                // Display-only — the title falls back to "New summary".
             }
         },
 
@@ -188,7 +188,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 const action = await visionActionsRetrieve(String(teamId), actionId)
                 actions.loadActionSuccess(action)
             } catch (error: any) {
-                lemonToast.error(`Failed to load action${error.detail ? `: ${error.detail}` : ''}`)
+                lemonToast.error(`Failed to load summary${error.detail ? `: ${error.detail}` : ''}`)
                 actions.loadActionFailure()
             }
         },
@@ -206,7 +206,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
         },
 
         submitActionFormFailure: ({ error }: { error?: Error & { detail?: string } }) => {
-            lemonToast.error(`Failed to save action${error?.detail ? `: ${error.detail}` : ''}`)
+            lemonToast.error(`Failed to save summary${error?.detail ? `: ${error.detail}` : ''}`)
         },
     })),
 
