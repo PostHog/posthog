@@ -5661,6 +5661,28 @@ class TestExperimentCRUD(APILicensedTest):
         )
         self.assertEqual(second_freeze.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid", return_value=0)
+    @patch(
+        "products.experiments.backend.experiment_service.ExperimentService._fetch_exposed_person_uuids",
+        return_value=["00000000-0000-0000-0000-000000000001"],
+    )
+    def test_unfreeze_exposure_endpoint(self, mock_fetch: MagicMock, mock_insert: MagicMock) -> None:
+        data = self._create_running_experiment(name="Unfreeze Endpoint", flag_key="unfreeze-endpoint-flag")
+        experiment_id = data["id"]
+        self.client.post(f"/api/projects/{self.team.id}/experiments/{experiment_id}/freeze_exposure/")
+
+        unfreeze_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/unfreeze_exposure/",
+        )
+        self.assertEqual(unfreeze_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(unfreeze_response.json()["status"], "running")
+
+        # Not frozen anymore — a second unfreeze is rejected.
+        second_unfreeze = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/unfreeze_exposure/",
+        )
+        self.assertEqual(second_unfreeze.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_freeze_exposure_draft_returns_400(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",

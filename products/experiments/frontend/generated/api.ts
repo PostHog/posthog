@@ -871,6 +871,31 @@ export const experimentsUnarchiveCreate = async (
     })
 }
 
+export const getExperimentsUnfreezeExposureCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/unfreeze_exposure/`
+}
+
+/**
+ * Reopen enrollment on an exposure-frozen experiment.
+ *
+ * Removes the snapshot-cohort condition and freeze markers from every release
+ * group, restoring the flag's original targeting: new users can enroll again
+ * and already-enrolled users keep their assigned variant. The snapshot cohort
+ * is soft-deleted. The serialized status returns to 'running'.
+ *
+ * Returns 400 if the experiment is not running or its exposure is not frozen.
+ */
+export const experimentsUnfreezeExposureCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentApi> => {
+    return apiMutator<ExperimentApi>(getExperimentsUnfreezeExposureCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getExperimentsCalculateRunningTimeCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/experiments/calculate_running_time/`
 }
