@@ -754,6 +754,68 @@ async fn existing_issue_under_older_version_wins(db: PgPool) {
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
+async fn legacy_order_issue_wins_across_versions_and_aliases(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let mut input = make_event(vec![make_exception_with_stack(
+        "Error",
+        "boom",
+        vec![
+            frame_at(make_frame_js("main"), "src/app.js", 10, 1),
+            frame_at(make_frame_js("crash"), "src/app.js", 42, 10),
+        ],
+    )]);
+    // A crash-first SDK below any cutoff: wire-order normalization reverses
+    // the frames at ingest.
+    input.properties["$lib"] = json!("posthog-go");
+    input.properties["$lib_version"] = json!("1.0.0");
+
+    let (_, body): (_, SuccessResponse) = harness.post_event(&input).await;
+    let event = body.first_event().as_ref().unwrap();
+    let canonical_value = event.properties["$exception_fingerprint"]
+        .as_str()
+        .expect("fingerprint should be a string")
+        .to_string();
+    let issue_id = harness.get_issue_id().await;
+
+    // The fingerprint the same event produced before wire-order normalization
+    // deployed: the newest version, computed over the legacy (crash-first)
+    // frame order.
+    let mut legacy_list = extract_exception_list(&body);
+    for exc in legacy_list.iter_mut() {
+        if let Some(Stacktrace::Resolved { frames }) = &mut exc.stack {
+            frames.reverse();
+        }
+    }
+    let legacy_value = FingerprintVersion::V2.compute(&legacy_list).value;
+    assert_ne!(legacy_value, canonical_value);
+
+    // Simulate the issue having been created pre-normalization: its only
+    // fingerprint row carries the legacy-order value.
+    sqlx::query("UPDATE posthog_errortrackingissuefingerprintv2 SET fingerprint = $1 WHERE fingerprint = $2")
+        .bind(&legacy_value)
+        .bind(&canonical_value)
+        .execute(&harness.db)
+        .await
+        .expect("Should repoint fingerprint row");
+
+    let (_, body): (_, SuccessResponse) = harness.post_event(&input).await;
+    let event = body.first_event().as_ref().unwrap();
+
+    // Version selection finds the pre-flip issue through the legacy-order
+    // fingerprint, keeps the canonical value on the event, and issue linking
+    // aliases it onto the same issue instead of forking a new one.
+    assert_eq!(
+        event.properties["$exception_fingerprint"],
+        json!(canonical_value)
+    );
+    assert_eq!(
+        event.properties["$exception_fingerprint_version"],
+        json!("v2")
+    );
+    assert_eq!(event.properties["$exception_issue_id"], json!(issue_id));
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
 async fn newer_version_merges_events_the_old_algorithm_splits(db: PgPool) {
     let harness = TestHarness::new(db);
     // Same crash, cache-busted source URLs: v1 splits on the query string, v2 strips it.
