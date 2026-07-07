@@ -4,10 +4,12 @@ import { useCallback } from 'react'
 
 import { Search } from 'lib/components/Search/Search'
 import { SearchItem } from 'lib/components/Search/searchLogic'
+import { cn } from 'lib/utils/css-classes'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { HomeViewToggle } from '~/layout/scenes/HomeViewToggle'
+import { homeViewToggleLogic } from '~/layout/scenes/homeViewToggleLogic'
 
 export const scene: SceneExport = {
     component: NewTabScene,
@@ -15,6 +17,7 @@ export const scene: SceneExport = {
 
 export function NewTabScene(): JSX.Element {
     const { searchParams } = useValues(router)
+    const { expanded: homeToggleExpanded } = useValues(homeViewToggleLogic)
     const handleItemSelect = useCallback((item: SearchItem) => {
         if (item.href) {
             router.actions.push(item.href)
@@ -46,7 +49,8 @@ export function NewTabScene(): JSX.Element {
         >
             <HomeViewToggle current="search" />
             <div className="sticky top-0 w-full max-w-[640px] mx-auto">
-                <Search.Input autoFocus className="pt-8" />
+                {/* Extra top padding keeps the input clear of the expanded home view picker */}
+                <Search.Input autoFocus className={cn('transition-[padding]', homeToggleExpanded ? 'pt-14' : 'pt-8')} />
                 <Search.Status />
             </div>
             <Search.Separator className="-mx-4" />

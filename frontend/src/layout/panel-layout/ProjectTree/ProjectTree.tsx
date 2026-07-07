@@ -68,6 +68,8 @@ export interface ProjectTreeProps {
     onItemCheckedOverride?: (id: string, checked: boolean) => void
     /** True while this tree's nav panel is active — refocuses search on panel re-activation. */
     isActiveInPanel?: boolean
+    /** External ref to the underlying LemonTree, e.g. for a search field rendered outside this component */
+    treeRef?: RefObject<LemonTreeRef>
 }
 
 export const PROJECT_TREE_KEY = 'project-tree'
@@ -129,6 +131,7 @@ export function ProjectTree({
     checkedItemsOverride,
     onItemCheckedOverride,
     isActiveInPanel,
+    treeRef: treeRefOverride,
 }: ProjectTreeProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
     const { viableItems, shortcutEntryIdMap } = useValues(projectTreeDataLogic)
@@ -173,7 +176,8 @@ export function ProjectTree({
     const { resetPanelLayout } = useActions(panelLayoutLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const treeRef = useRef<LemonTreeRef>(null)
+    const internalTreeRef = useRef<LemonTreeRef>(null)
+    const treeRef = treeRefOverride ?? internalTreeRef
     const { openItemSelectModal } = useActions(itemSelectModalLogic)
 
     const { customProducts, customProductsLoading } = useValues(customProductsLogic)

@@ -1,57 +1,61 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonInput, LemonTag } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { cn } from 'lib/utils/css-classes'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import {
-    getDefaultTreeDataAndPeople,
-    getDefaultTreeProducts,
-    iconForType,
-} from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
+import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { HomeViewToggle } from '~/layout/scenes/HomeViewToggle'
-import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
+import { FileSystemIconType } from '~/queries/schema/schema-general'
+
+import { appsSceneLogic, getAppItemName } from './appsSceneLogic'
 
 export const scene: SceneExport = {
     component: AppsScene,
-}
-
-function getItemName(item: FileSystemImport): string {
-    return item.displayLabel ?? unescapePath(splitPath(item.path).pop() ?? item.path)
-}
-
-function getAppItems(featureFlags: Record<string, boolean | string | undefined>): FileSystemImport[] {
-    const seen = new Set<string>()
-    return [...getDefaultTreeProducts(), ...getDefaultTreeDataAndPeople()]
-        .filter((item) => !!item.href && (!item.flag || !!featureFlags[item.flag]))
-        .filter((item) => {
-            const name = getItemName(item)
-            if (seen.has(name)) {
-                return false
-            }
-            seen.add(name)
-            return true
-        })
-        .sort((a, b) => getItemName(a).localeCompare(getItemName(b), undefined, { sensitivity: 'accent' }))
+    logic: appsSceneLogic,
 }
 
 export function AppsScene(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const items = getAppItems(featureFlags)
+    const { searchTerm, filteredAppItems } = useValues(appsSceneLogic)
+    const { setSearchTerm } = useActions(appsSceneLogic)
+    const hasSearch = searchTerm.trim().length > 0
 
     return (
         <div className="relative h-full overflow-y-auto">
             <HomeViewToggle current="apps" />
+            <div className="absolute top-2 right-2 z-20">
+                <LemonInput
+                    type="search"
+                    size="small"
+                    className="w-60"
+                    placeholder="Search apps"
+                    value={searchTerm}
+                    onChange={setSearchTerm}
+                    onPressEnter={() => {
+                        const first = filteredAppItems[0]
+                        if (first?.href) {
+                            router.actions.push(first.href)
+                        }
+                    }}
+                    autoFocus
+                    data-attr="apps-scene-search"
+                />
+            </div>
             <div className="max-w-[1280px] mx-auto px-8 pt-14 pb-8 group/colorful-product-icons colorful-product-icons-true">
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-2">
-                    {items.map((item) => (
+                    {filteredAppItems.map((item, index) => (
                         <Link
-                            key={getItemName(item)}
+                            key={getAppItemName(item)}
                             to={item.href}
-                            className="flex flex-col items-center justify-center gap-2 rounded-lg border p-4 bg-surface-primary hover:bg-surface-secondary text-primary hover:text-primary"
+                            className={cn(
+                                'flex flex-col items-center justify-center gap-2 rounded-lg p-4 bg-surface-primary hover:bg-surface-secondary transition-colors text-primary hover:text-primary',
+                                // Enter opens the first match, so point it out while searching
+                                hasSearch && index === 0 && 'ring-1 ring-accent'
+                            )}
                             data-attr="apps-grid-item"
                         >
                             <span className="text-2xl [&_svg]:size-8">
@@ -61,7 +65,7 @@ export function AppsScene(): JSX.Element {
                                 )}
                             </span>
                             <span className="text-sm font-medium text-center">
-                                {getItemName(item)}
+                                <SearchHighlightMultiple string={getAppItemName(item)} substring={searchTerm} />
                                 {item.tags?.map((tag) => (
                                     <LemonTag
                                         key={tag}
@@ -76,6 +80,9 @@ export function AppsScene(): JSX.Element {
                         </Link>
                     ))}
                 </div>
+                {filteredAppItems.length === 0 && (
+                    <div className="text-center text-secondary pt-8">No apps match "{searchTerm}"</div>
+                )}
             </div>
         </div>
     )
