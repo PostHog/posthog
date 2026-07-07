@@ -1,4 +1,9 @@
 # CI profile: emits JUnit XML (target/nextest/ci/junit.xml) so test results can be
 # uploaded to Trunk for flaky-test detection.
+[profile.ci]
+# Run the whole suite even after a failure, so the JUnit output captures every
+# failing/flaky test for Trunk instead of stopping at the first one.
+fail-fast = false
+
 [profile.ci.junit]
 path = "junit.xml"
