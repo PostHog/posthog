@@ -24,8 +24,8 @@ import {
 } from '~/layout/scenes/SceneLayout'
 
 import { Task, TaskRun } from '../../../types/taskTypes'
-import { TaskPanelSkeleton, TaskRunMetadataSkeleton } from './taskDetailSkeletons'
 import { TaskDebugLogsMenu } from './TaskDebugLogsMenu'
+import { TaskPanelSkeleton, TaskRunMetadataSkeleton } from './taskDetailSkeletons'
 import { TaskErrorBanner } from './TaskErrorBanner'
 import { TaskRunMetadata } from './TaskRunMetadata'
 
