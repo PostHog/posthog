@@ -69,13 +69,28 @@ export interface CohortFilterApi {
 }
 
 export interface PersonFilterApi {
+    operator?: string | null
+    value?: unknown
     bytecode?: unknown[] | null
     bytecode_error?: string | null
     conditionHash?: string | null
     type: 'person'
     key: string
+    negation?: boolean
+}
+
+/**
+ * Filter on a top-level persons-table column (e.g. created_at) rather than the
+ * properties JSON. The matching key must be one of PERSON_METADATA_FIELDS.
+ */
+export interface PersonMetadataFilterApi {
     operator?: string | null
     value?: unknown
+    bytecode?: unknown[] | null
+    bytecode_error?: string | null
+    conditionHash?: string | null
+    type: 'person_metadata'
+    key: string
     negation?: boolean
 }
 
@@ -84,7 +99,7 @@ export interface PersonFilterApi {
  */
 export interface CohortFilterGroupApi {
     type: PropertyGroupOperatorApi
-    values: (BehavioralFilterApi | CohortFilterApi | PersonFilterApi | CohortFilterGroupApi)[]
+    values: (BehavioralFilterApi | CohortFilterApi | PersonFilterApi | PersonMetadataFilterApi | CohortFilterGroupApi)[]
 }
 
 export interface CohortFiltersApi {

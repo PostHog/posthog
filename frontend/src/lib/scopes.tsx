@@ -13,6 +13,18 @@ export type APIScope = {
     disabledWhenProjectScoped?: boolean
     description?: string
     warnings?: Partial<Record<'read' | 'write', string | JSX.Element>>
+    /** Mirrors `PRIVILEGED_SCOPES` in posthog/scopes.py — excluded from every unprivileged preset. */
+    unprivilegedExcluded?: boolean
+}
+
+// Scopes whose write action also writes a feature flag as a side effect (survey targeting flag,
+// early access feature linked flag), so they imply `feature_flag:write`. Single source of truth for
+// both the picker warning (attached below) and the auto-select in personalAPIKeysLogic, so the rule
+// and the copy can't drift. `ScopeAccessRow` renders warnings as plain text — no markdown formatting.
+export const SCOPES_IMPLYING_FEATURE_FLAG_WRITE: Partial<Record<APIScopeObject, string>> = {
+    survey: 'Surveys with targeting also manage a feature flag, so this key needs feature_flag:write too.',
+    early_access_feature:
+        'Early access features manage a linked feature flag, so this key needs feature_flag:write too.',
 }
 
 export const API_SCOPES: APIScope[] = [
@@ -36,12 +48,25 @@ export const API_SCOPES: APIScope[] = [
     // `clickhouse_test_cluster_perf` is omitted — see `INTERNAL_API_SCOPE_OBJECTS` in posthog/scopes.py.
     { key: 'cohort', objectName: 'Cohort', objectPlural: 'cohorts' },
     { key: 'comment', objectName: 'Comment', objectPlural: 'comments' },
+    {
+        key: 'conversation',
+        objectName: 'AI conversation',
+        objectPlural: 'AI conversations',
+        info: 'Programmatic access to the PostHog AI (Max) chat via the conversations API.',
+    },
     { key: 'customer_analytics', objectName: 'Customer analytics', objectPlural: 'customer analytics' },
     { key: 'customer_journey', objectName: 'Customer journey', objectPlural: 'customer journeys' },
     { key: 'dashboard', objectName: 'Dashboard', objectPlural: 'dashboards' },
     { key: 'dashboard_template', objectName: 'Dashboard template', objectPlural: 'dashboard templates' },
     { key: 'dataset', objectName: 'Dataset', objectPlural: 'datasets' },
-    { key: 'early_access_feature', objectName: 'Early access feature', objectPlural: 'early access features' },
+    {
+        key: 'early_access_feature',
+        objectName: 'Early access feature',
+        objectPlural: 'early access features',
+        warnings: {
+            write: SCOPES_IMPLYING_FEATURE_FLAG_WRITE.early_access_feature,
+        },
+    },
     { key: 'element', objectName: 'Element', objectPlural: 'elements' },
     { key: 'endpoint', objectName: 'Endpoint', objectPlural: 'endpoints' },
     { key: 'engineering_analytics', objectName: 'Engineering analytics', objectPlural: 'engineering analytics' },
@@ -75,7 +100,13 @@ export const API_SCOPES: APIScope[] = [
     { key: 'legal_document', objectName: 'Legal document', objectPlural: 'legal documents' },
     { key: 'live_debugger', objectName: 'Live debugger', objectPlural: 'live debugger' },
     { key: 'llm_analytics', objectName: 'AI observability', objectPlural: 'AI observability' },
-    { key: 'llm_gateway', objectName: 'LLM gateway', objectPlural: 'LLM gateway', disabledActions: ['write'] },
+    {
+        key: 'llm_gateway',
+        objectName: 'LLM gateway',
+        objectPlural: 'LLM gateway',
+        disabledActions: ['write'],
+        unprivilegedExcluded: true,
+    },
     { key: 'llm_prompt', objectName: 'LLM prompt', objectPlural: 'LLM prompts' },
     { key: 'llm_provider_key', objectName: 'LLM provider key', objectPlural: 'LLM provider keys' },
     { key: 'llm_skill', objectName: 'LLM skill', objectPlural: 'LLM skills' },
@@ -109,6 +140,12 @@ export const API_SCOPES: APIScope[] = [
     { key: 'person', objectName: 'Person', objectPlural: 'persons' },
     { key: 'customer_profile_config', objectName: 'Customer profile config', objectPlural: 'customer profile configs' },
     { key: 'plugin', objectName: 'Plugin', objectPlural: 'plugins' },
+    {
+        key: 'product_enablement',
+        objectName: 'Product enablement',
+        objectPlural: 'product enablement',
+        disabledActions: ['read'],
+    },
     { key: 'product_tour', objectName: 'Product tour', objectPlural: 'product tours' },
     {
         key: 'project',
@@ -132,7 +169,14 @@ export const API_SCOPES: APIScope[] = [
     },
     { key: 'sharing_configuration', objectName: 'Sharing configuration', objectPlural: 'sharing configurations' },
     { key: 'subscription', objectName: 'Subscription', objectPlural: 'subscriptions' },
-    { key: 'survey', objectName: 'Survey', objectPlural: 'surveys' },
+    {
+        key: 'survey',
+        objectName: 'Survey',
+        objectPlural: 'surveys',
+        warnings: {
+            write: SCOPES_IMPLYING_FEATURE_FLAG_WRITE.survey,
+        },
+    },
     { key: 'tagger', objectName: 'Tagger', objectPlural: 'taggers' },
     { key: 'ticket', objectName: 'Ticket', objectPlural: 'tickets' },
     { key: 'tracing', objectName: 'Tracing', objectPlural: 'tracing' },
@@ -230,9 +274,10 @@ export const API_KEY_SCOPE_PRESETS: {
     {
         value: 'mcp_server',
         label: 'MCP Server',
-        scopes: API_SCOPES.filter(({ key }) => !key.includes('llm_gateway') && !key.includes('file_system')).map(
-            ({ key }) => `${key}:write`
-        ),
+        // file_system is excluded because the MCP server doesn't request it, not because it's privileged.
+        scopes: API_SCOPES.filter(
+            ({ key, unprivilegedExcluded }) => !unprivilegedExcluded && key !== 'file_system'
+        ).map(({ key }) => `${key}:write`),
         access_type: 'all',
     },
     {
@@ -244,7 +289,7 @@ export const API_KEY_SCOPE_PRESETS: {
     {
         value: 'read_only_access',
         label: 'Read-only access',
-        scopes: API_SCOPES.map(({ key }) => `${key}:read`),
+        scopes: API_SCOPES.filter(({ unprivilegedExcluded }) => !unprivilegedExcluded).map(({ key }) => `${key}:read`),
     },
     { value: 'all_access', label: 'All access', scopes: ['*'] },
 ]

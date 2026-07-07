@@ -12,6 +12,8 @@ import { NotebookNodeType } from '../types'
 import {
     appendMarkdownNotebookBlock,
     buildMarkdownNotebookContent,
+    convertDroppedPostHogUrlToMarkdownNode,
+    convertDroppedRichContentNodeToMarkdownNode,
     convertNotebookContentToMarkdown,
     getMarkdownNotebookMarkdown,
     getMarkdownNotebookTitle,
@@ -87,6 +89,13 @@ describe('markdownNotebookV2', () => {
                     },
                 },
                 {
+                    type: NotebookNodeType.Recording,
+                    attrs: {
+                        id: '018b4205-f670-7fa8-928a-040abaaf596d',
+                        title: 'Session replay',
+                    },
+                },
+                {
                     type: NotebookNodeType.Image,
                     attrs: {
                         src: 'https://res.cloudinary.com/demo/image/upload/posthog.png',
@@ -100,9 +109,33 @@ describe('markdownNotebookV2', () => {
 
 A **bold** paragraph.
 
-<Query query={{"kind":"InsightVizNode","source":{"kind":"FunnelsQuery","series":[]}}} />
+<Query hideFilters query={{"kind":"InsightVizNode","source":{"kind":"FunnelsQuery","series":[]}}} />
+
+<Recording hideFilters id="018b4205-f670-7fa8-928a-040abaaf596d" title="Session replay" />
 
 ![PostHog engineering](https://res.cloudinary.com/demo/image/upload/posthog.png)`)
+    })
+
+    it('preserves explicitly open legacy widget filters', () => {
+        const content: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: NotebookNodeType.Query,
+                    attrs: {
+                        query: {
+                            kind: 'SavedInsightNode',
+                            shortId: 'open',
+                        },
+                        edit: true,
+                    },
+                },
+            ],
+        }
+
+        expect(convertNotebookContentToMarkdown(content)).toEqual(
+            '<Query query={{"kind":"SavedInsightNode","shortId":"open"}} />'
+        )
     })
 
     it('converts raw legacy content arrays without dropping top-level text nodes', () => {
@@ -152,9 +185,9 @@ Wrapped paragraph`)
         }
 
         expect(convertNotebookContentToMarkdown(content))
-            .toEqual(`<Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />
+            .toEqual(`<Query hideFilters query={{"kind":"SavedInsightNode","shortId":"abc123"}} />
 
-<Query query={{"kind":"SavedInsightNode","shortId":"def456"}} />`)
+<Query hideFilters query={{"kind":"SavedInsightNode","shortId":"def456"}} />`)
     })
 
     it('converts remaining legacy production node shapes without unknown nodes', () => {
@@ -179,7 +212,7 @@ Wrapped paragraph`)
 
 Dashboard 123
 
-<Query query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event from events limit 1"}}} />`)
+<Query hideFilters query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event from events limit 1"}}} />`)
     })
 
     it('keeps the stable id vector for markdown query blocks without nodeId props', () => {
@@ -213,7 +246,7 @@ Dashboard 123
 
         // Nested undefined must be stripped, not cause the whole query prop to be dropped.
         expect(convertNotebookContentToMarkdown(content)).toEqual(
-            '<Query query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[{"kind":"EventsNode","event":"$pageview"}]}}} isDefaultFilterApplied={false} />'
+            '<Query hideFilters query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[{"kind":"EventsNode","event":"$pageview"}]}}} isDefaultFilterApplied={false} />'
         )
     })
 
@@ -696,5 +729,90 @@ Users activated faster.
         expect(notebookArtifactContentToMarkdown(content)).toEqual(`# Existing title
 
 Body`)
+    })
+
+    describe('convertDroppedPostHogUrlToMarkdownNode', () => {
+        // Entity links drag with only their href; this mapping is what turns a dropped link
+        // into the resource's component node instead of a plain link.
+        it.each<[string, string, { tagName: string; props: Record<string, unknown> } | null]>([
+            ['feature flag', '/feature_flags/123', { tagName: 'FeatureFlag', props: { id: 123 } }],
+            [
+                'feature flag with project prefix',
+                '/project/1/feature_flags/123',
+                { tagName: 'FeatureFlag', props: { id: 123 } },
+            ],
+            ['experiment', '/experiments/42', { tagName: 'Experiment', props: { id: 42 } }],
+            ['cohort', '/cohorts/7', { tagName: 'Cohort', props: { id: 7 } }],
+            [
+                'saved insight',
+                '/insights/AbC123',
+                {
+                    tagName: 'Query',
+                    props: { query: { kind: 'SavedInsightNode', shortId: 'AbC123' }, hideFilters: true },
+                },
+            ],
+            [
+                'survey',
+                '/surveys/018f6a2b-0000-0000-0000-000000000000',
+                { tagName: 'Survey', props: { id: '018f6a2b-0000-0000-0000-000000000000' } },
+            ],
+            [
+                'recording',
+                '/replay/018f6a2b-1111-2222-3333-444444444444',
+                { tagName: 'Recording', props: { id: '018f6a2b-1111-2222-3333-444444444444' } },
+            ],
+            [
+                'person by uuid',
+                '/persons/018f6a2b-1111-2222-3333-444444444444',
+                { tagName: 'Person', props: { id: '018f6a2b-1111-2222-3333-444444444444' } },
+            ],
+            [
+                'person by distinct id',
+                '/person/user%40example.com',
+                { tagName: 'Person', props: { distinctId: 'user@example.com' } },
+            ],
+            ['new flag form (no entity yet)', '/feature_flags/new', null],
+            ['new insight form (no entity yet)', '/insights/new', null],
+            ['unrecognized path', '/settings/project', null],
+        ])('%s', (_name, path, expected) => {
+            const node = convertDroppedPostHogUrlToMarkdownNode(`${window.location.origin}${path}`)
+
+            if (expected === null) {
+                expect(node).toBeNull()
+            } else {
+                expect(node).toMatchObject({ type: 'component', ...expected })
+            }
+        })
+
+        it('ignores URLs from other origins', () => {
+            expect(convertDroppedPostHogUrlToMarkdownNode('https://example.com/feature_flags/123')).toBeNull()
+        })
+    })
+
+    describe('convertDroppedRichContentNodeToMarkdownNode', () => {
+        it('maps a dragged recording payload to its markdown component', () => {
+            const node = convertDroppedRichContentNodeToMarkdownNode(NotebookNodeType.Recording, {
+                id: 'session-1',
+                noInspector: false,
+            })
+
+            expect(node).toMatchObject({
+                type: 'component',
+                tagName: 'Recording',
+                props: { id: 'session-1', noInspector: false },
+            })
+        })
+
+        it('defaults dropped queries to hidden filters', () => {
+            const node = convertDroppedRichContentNodeToMarkdownNode(NotebookNodeType.Query, {
+                query: { kind: NodeKind.EventsQuery, select: ['event'] },
+            })
+
+            expect(node).toMatchObject({ tagName: 'Query', props: { hideFilters: true } })
+        })
+
+        it('returns null for node types without a markdown counterpart', () => {
+            expect(convertDroppedRichContentNodeToMarkdownNode('ph-not-a-real-node', { id: 1 })).toBeNull()
+        })
     })
 })

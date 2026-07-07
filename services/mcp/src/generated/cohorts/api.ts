@@ -54,6 +54,7 @@ export const cohortsCreateBodyDescriptionMax = 1000
 export const cohortsCreateBodyFiltersOnePropertiesValuesItemOneNegationDefault = false
 export const cohortsCreateBodyFiltersOnePropertiesValuesItemTwoNegationDefault = false
 export const cohortsCreateBodyFiltersOnePropertiesValuesItemThreeNegationDefault = false
+export const cohortsCreateBodyFiltersOnePropertiesValuesItemFourNegationDefault = false
 export const cohortsCreateBodyCreateStaticPersonIdsDefault = []
 
 export const CohortsCreateBody = /* @__PURE__ */ zod.object({
@@ -123,17 +124,35 @@ export const CohortsCreateBody = /* @__PURE__ */ zod.object({
                                         .default(cohortsCreateBodyFiltersOnePropertiesValuesItemTwoNegationDefault),
                                 }),
                                 zod.object({
+                                    operator: zod.union([zod.string(), zod.null()]).optional(),
+                                    value: zod.unknown().optional(),
                                     bytecode: zod.union([zod.array(zod.unknown()), zod.null()]).optional(),
                                     bytecode_error: zod.union([zod.string(), zod.null()]).optional(),
                                     conditionHash: zod.union([zod.string(), zod.null()]).optional(),
                                     type: zod.literal('person'),
                                     key: zod.string(),
-                                    operator: zod.union([zod.string(), zod.null()]).optional(),
-                                    value: zod.unknown().optional(),
                                     negation: zod
                                         .boolean()
                                         .default(cohortsCreateBodyFiltersOnePropertiesValuesItemThreeNegationDefault),
                                 }),
+                                zod
+                                    .object({
+                                        operator: zod.union([zod.string(), zod.null()]).optional(),
+                                        value: zod.unknown().optional(),
+                                        bytecode: zod.union([zod.array(zod.unknown()), zod.null()]).optional(),
+                                        bytecode_error: zod.union([zod.string(), zod.null()]).optional(),
+                                        conditionHash: zod.union([zod.string(), zod.null()]).optional(),
+                                        type: zod.literal('person_metadata'),
+                                        key: zod.string(),
+                                        negation: zod
+                                            .boolean()
+                                            .default(
+                                                cohortsCreateBodyFiltersOnePropertiesValuesItemFourNegationDefault
+                                            ),
+                                    })
+                                    .describe(
+                                        'Filter on a top-level persons-table column (e.g. created_at) rather than the\nproperties JSON. The matching key must be one of PERSON_METADATA_FIELDS.'
+                                    ),
                                 zod.unknown(),
                             ])
                         ),
@@ -190,6 +209,7 @@ export const cohortsPartialUpdateBodyDescriptionMax = 1000
 export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemOneNegationDefault = false
 export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemTwoNegationDefault = false
 export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemThreeNegationDefault = false
+export const cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemFourNegationDefault = false
 
 export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(cohortsPartialUpdateBodyNameMax).nullish(),
@@ -263,19 +283,37 @@ export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         ),
                                 }),
                                 zod.object({
+                                    operator: zod.union([zod.string(), zod.null()]).optional(),
+                                    value: zod.unknown().optional(),
                                     bytecode: zod.union([zod.array(zod.unknown()), zod.null()]).optional(),
                                     bytecode_error: zod.union([zod.string(), zod.null()]).optional(),
                                     conditionHash: zod.union([zod.string(), zod.null()]).optional(),
                                     type: zod.literal('person'),
                                     key: zod.string(),
-                                    operator: zod.union([zod.string(), zod.null()]).optional(),
-                                    value: zod.unknown().optional(),
                                     negation: zod
                                         .boolean()
                                         .default(
                                             cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemThreeNegationDefault
                                         ),
                                 }),
+                                zod
+                                    .object({
+                                        operator: zod.union([zod.string(), zod.null()]).optional(),
+                                        value: zod.unknown().optional(),
+                                        bytecode: zod.union([zod.array(zod.unknown()), zod.null()]).optional(),
+                                        bytecode_error: zod.union([zod.string(), zod.null()]).optional(),
+                                        conditionHash: zod.union([zod.string(), zod.null()]).optional(),
+                                        type: zod.literal('person_metadata'),
+                                        key: zod.string(),
+                                        negation: zod
+                                            .boolean()
+                                            .default(
+                                                cohortsPartialUpdateBodyFiltersOnePropertiesValuesItemFourNegationDefault
+                                            ),
+                                    })
+                                    .describe(
+                                        'Filter on a top-level persons-table column (e.g. created_at) rather than the\nproperties JSON. The matching key must be one of PERSON_METADATA_FIELDS.'
+                                    ),
                                 zod.unknown(),
                             ])
                         ),

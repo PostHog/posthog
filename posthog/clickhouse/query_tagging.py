@@ -51,6 +51,7 @@ class Product(StrEnum):
     BATCH_EXPORT = "batch_export"
     COHORTS = "cohorts"
     CONVERSATIONS = "conversations"
+    CUSTOMER_ANALYTICS = "customer_analytics"
     ENDPOINTS = "endpoints"
     ENGINEERING_ANALYTICS = "engineering_analytics"
     ERROR_TRACKING = "error_tracking"
@@ -68,6 +69,7 @@ class Product(StrEnum):
     MCP_ANALYTICS = "mcp_analytics"  # queries from the MCP analytics product (insights, dashboards, sessions)
     MESSAGING = "messaging"
     MOBILE_REPLAY = "mobile_replay"
+    NOTEBOOKS = "notebooks"
     PIPELINE_DESTINATIONS = "pipeline_destinations"
     PLATFORM_AND_SUPPORT = "platform_and_support"
     POSTHOG_CODE = "posthog_code"
@@ -89,6 +91,7 @@ class Product(StrEnum):
 
 
 class Feature(StrEnum):
+    ACCOUNTS = "accounts"
     ALERTING = "alerting"
     BACKFILL = "backfill"
     BEHAVIORAL_COHORTS = "behavioral_cohorts"
@@ -145,6 +148,7 @@ SCENE_TO_TAGS: dict[str, FallbackTags | None] = {
     "Cohort": {"product": Product.COHORTS, "feature": Feature.COHORT},
     "EndpointScene": {"product": Product.ENDPOINTS, "feature": Feature.QUERY},
     "EndpointsScene": {"product": Product.ENDPOINTS, "feature": Feature.QUERY},
+    "EngineeringAnalytics": {"product": Product.ENGINEERING_ANALYTICS, "feature": Feature.QUERY},
     "Logs": {"product": Product.LOGS, "feature": Feature.QUERY},
     "Metrics": {"product": Product.METRICS, "feature": Feature.QUERY},
     "EventDefinition": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
@@ -229,6 +233,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
         case (
             NodeKind.TRACE_QUERY
             | NodeKind.TRACES_QUERY
+            | NodeKind.SESSION_QUERY
             | NodeKind.TRACE_NEIGHBORS_QUERY
             | NodeKind.TRACE_SPANS_QUERY
             | NodeKind.TRACE_SPANS_AGGREGATION_QUERY
@@ -403,6 +408,11 @@ class QueryTags(BaseModel):
     scene: Optional[str] = None
 
     alert_config_id: Optional[uuid.UUID] = None
+    # Cadence and query shape of the alert that triggered this run, tagged at evaluation
+    # so query_log cost can be grouped by frequency (real_time / every_15_minutes / ...)
+    # and by config type (TrendsAlertConfig vs HogQLAlertConfig) without joining to Postgres.
+    alert_calculation_interval: Optional[str] = None
+    alert_config_type: Optional[str] = None
     batch_export_id: Optional[uuid.UUID] = None
     cache_key: Optional[str] = None
     celery_task_id: Optional[uuid.UUID] = None

@@ -7,12 +7,20 @@ import { Composer, QueuedMessageList } from 'products/posthog_ai/frontend/api/pr
 // flash. The inbox embeds keep the lazy `ReadonlyRunSurface`.
 import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
 
+import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
-import { ComposerModelEffortPickers } from './ComposerModelEffortPickers'
 
 export interface TaskRunChatProps {
     taskId: string
     runId: string
+    /**
+     * Override for the bound run-stream key. Defaults to `runId`; set to an optimistic-create client
+     * `streamKey` so this surface adopts that already-seeded/streaming instance instead of bootstrapping a
+     * fresh one. Passed to both `RunSurface.Root` and `runInteractionLogic` so they never diverge.
+     */
+    streamKey?: string
+    /** Called after a fresh run starts, in addition to the `taskDetailSceneLogic` re-pointing below. */
+    onRunStarted?: (runId: string) => void
 }
 
 /**
@@ -23,17 +31,21 @@ export interface TaskRunChatProps {
  * re-points scene selection to it. `RunSurface.Root` owns bootstrap: it reads the run status from the tasks
  * API and never opens SSE for an already-terminal run.
  */
-export function TaskRunChat({ taskId, runId }: TaskRunChatProps): JSX.Element {
+export function TaskRunChat({ taskId, runId, streamKey, onRunStarted }: TaskRunChatProps): JSX.Element {
     const { setSelectedRunId, loadTaskRuns } = useActions(taskDetailSceneLogic({ taskId }))
     const { selectedRun } = useValues(taskDetailSceneLogic({ taskId }))
     const logicProps: RunInteractionLogicProps = {
         taskId,
         runId,
+        streamKey,
         currentModel: selectedRun?.state?.model,
         currentEffort: selectedRun?.state?.reasoning_effort,
         onRunStarted: (newRunId) => {
             setSelectedRunId(newRunId, taskId)
             loadTaskRuns()
+            // The embedded panel renders from its own creation state, so it must be re-pointed
+            // when a fresh run starts.
+            onRunStarted?.(newRunId)
         },
     }
 
@@ -45,16 +57,29 @@ export function TaskRunChat({ taskId, runId }: TaskRunChatProps): JSX.Element {
 }
 
 function TaskRunChatContent({ logicProps }: { logicProps: RunInteractionLogicProps }): JSX.Element {
-    const { composerForm, isSubmitting, queuedMessages, isTerminal, selectedModel, selectedEffort } = useValues(
+    const { composerForm, isSubmitting, isBusy, queuedMessages, isTerminal, selectedModel, selectedEffort } = useValues(
         runInteractionLogic(logicProps)
     )
-    const { setComposerFormValues, submitComposerForm, updateQueuedMessage, removeQueuedMessage, setModel, setEffort } =
-        useActions(runInteractionLogic(logicProps))
+    const {
+        setComposerFormValues,
+        submitComposerForm,
+        cancelRun,
+        updateQueuedMessage,
+        removeQueuedMessage,
+        setModel,
+        setEffort,
+    } = useActions(runInteractionLogic(logicProps))
 
     return (
-        // `RunSurface.Root` binds `runStreamLogic` keyed by `runId`; `runInteractionLogic` connects to the same
-        // key, so the composer slot's gating reads the right stream. Don't introduce a diverging `streamKey`.
-        <RunSurface.Root taskId={logicProps.taskId} runId={logicProps.runId} interaction="live">
+        // `RunSurface.Root` and `runInteractionLogic` deliberately share the same stream key (`streamKey ?? runId`,
+        // resolved inside each): the composer slot's gating must read the exact stream the thread renders. The
+        // optional `streamKey` lets both adopt an optimistic-create instance — keep them aligned, never diverging.
+        <RunSurface.Root
+            taskId={logicProps.taskId}
+            runId={logicProps.runId}
+            streamKey={logicProps.streamKey}
+            interaction="live"
+        >
             <div className="@container/thread flex flex-col h-full -mx-4">
                 <RunSurface.Thread className="flex-1 min-h-0" listClassName="py-4" rowClassName="px-4" />
                 <RunSurface.Composer>
@@ -64,6 +89,8 @@ function TaskRunChatContent({ logicProps }: { logicProps: RunInteractionLogicPro
                         onChange={(value) => setComposerFormValues({ draft: value })}
                         onSubmit={submitComposerForm}
                         loading={isSubmitting}
+                        isTurnActive={isBusy}
+                        onStop={() => cancelRun()}
                     >
                         {queuedMessages.length > 0 && (
                             <Composer.Banner>
@@ -79,7 +106,7 @@ function TaskRunChatContent({ logicProps }: { logicProps: RunInteractionLogicPro
                                 <Composer.Placeholder>
                                     {isTerminal ? 'Send a message to start a new run…' : 'Send a follow-up message…'}
                                 </Composer.Placeholder>
-                                <Composer.Textarea data-attr="sandbox-composer-input" submitShortcut="cmd-enter" />
+                                <Composer.Textarea data-attr="sandbox-composer-input" />
                             </Composer.Field>
                             <Composer.Footer>
                                 {/* Model/effort picker: selection lives in the bound runInteractionLogic and is

@@ -96,6 +96,17 @@ class TestBuildInitialParams:
         assert params["filter"] == 'lastUpdated gt "2024-01-01T00:00:00.000Z"'
         assert params["limit"] == 200
 
+    def test_applications_never_sends_filter(self):
+        # Okta's Apps API `filter` does not support lastUpdated, so an incremental run must
+        # not send a server-side filter — it would 400.
+        params = _build_initial_params(
+            OKTA_ENDPOINTS["applications"],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
+            incremental_field="lastUpdated",
+        )
+        assert params == {"limit": 200}
+
     def test_filter_endpoint_no_watermark_has_no_filter(self):
         params = _build_initial_params(
             OKTA_ENDPOINTS["users"],

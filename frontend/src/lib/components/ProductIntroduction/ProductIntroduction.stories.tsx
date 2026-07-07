@@ -1,6 +1,6 @@
 import { Meta } from '@storybook/react'
 
-import { GraphsHog } from 'lib/components/hedgehogs'
+import { HedgehogChartHog } from '@posthog/brand/hoggies'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
@@ -65,7 +65,7 @@ export function notEmptyWithAction(): JSX.Element {
     )
 }
 
-/** Dashboard empty-state–style intro: matches `EmptyDashboardComponent` copy, with `GraphsHog` + responsive layout. */
+/** Dashboard empty-state-style intro: matches `EmptyDashboardComponent` copy, with `HedgehogChartHog` + responsive layout. */
 function DashboardEmptyResponsiveIntro({
     useMainContentContainerQueries,
 }: Partial<Pick<ProductIntroductionProps, 'useMainContentContainerQueries'>> = {}): JSX.Element {
@@ -78,7 +78,7 @@ function DashboardEmptyResponsiveIntro({
             docsURL="https://posthog.com/docs/product-analytics/dashboards"
             action={() => alert('CTA clicked')}
             isEmpty={true}
-            customHog={GraphsHog}
+            customHog={HedgehogChartHog}
             hogLayout="responsive"
             useMainContentContainerQueries={useMainContentContainerQueries}
         />

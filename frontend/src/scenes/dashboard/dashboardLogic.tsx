@@ -44,6 +44,7 @@ import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLo
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { clearDOMTextSelection, getJSHeapMemory, uuid } from 'lib/utils/dom'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { objectsEqual } from 'lib/utils/objects'
 import { shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
 import { BREAKPOINTS, dashboardToSaveableTemplate, getDashboardTileDisplayName } from 'scenes/dashboard/dashboardUtils'
@@ -322,7 +323,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             queued,
         }),
         setRefreshError: (shortId: InsightShortId, error?: Error) => ({ shortId, error }),
-        abortQuery: (payload: { queryId: string; queryStartTime: number }) => payload,
+        /** Number of insights enrolled in the current refresh cycle, captured up front. */
+        setRefreshTilesTotal: (total: number) => ({ total }),
+        abortQuery: (payload: { queryId: string; queryStartTime: number; shortId: InsightShortId }) => payload,
         abortAnyRunningQuery: true,
         cancelDashboardRefresh: true,
 
@@ -1078,8 +1081,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     [shortId]: { errored: true, error, timer: state[shortId]?.timer || null },
                 }),
                 refreshDashboardItems: () => ({}),
-                abortQuery: () => ({}),
+                // Drop only the aborted tile so sibling tiles still in flight stay tracked; wiping the
+                // whole map here would make them count as completed and overstate "X out of Y".
+                abortQuery: (state, { shortId }) => {
+                    const { [shortId]: _aborted, ...rest } = state
+                    return rest
+                },
                 cancelDashboardRefresh: () => ({}),
+            },
+        ],
+        // Denominator for "X out of Y", pinned up front so Y stays fixed while tiles enroll one by one.
+        // null = no batch pinned → selector falls back to the live map size (single-insight refreshes).
+        // Reset on cycle boundaries only, never on the per-tile abortQuery, so an aborted tile can't shrink Y.
+        refreshTilesTotal: [
+            null as number | null,
+            {
+                setRefreshTilesTotal: (_, { total }) => total,
+                refreshDashboardItems: () => null,
+                cancelDashboardRefresh: () => null,
             },
         ],
         columns: [
@@ -1840,7 +1859,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return size
             },
         ],
-        layouts: [(s) => [s.tiles], (tiles) => calculateLayouts(tiles)],
+        layouts: [
+            (s) => [s.tiles],
+            (tiles) => calculateLayouts(tiles),
+            // Tile refreshes replace `tiles` once per insight response without touching geometry;
+            // keeping the result reference stable stops react-grid-layout re-laying-out every tile
+            // N times per dashboard refresh cycle.
+            { resultEqualityCheck: objectsEqual },
+        ],
         layout: [
             (s) => [s.layouts, s.sizeKey],
             (layouts: ResponsiveLayouts, sizeKey: DashboardLayoutSize | undefined) =>
@@ -1861,11 +1887,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         refreshMetrics: [
-            (s) => [s.refreshStatus],
-            (refreshStatus) => {
-                const total = Object.keys(refreshStatus).length ?? 0
+            (s) => [s.refreshStatus, s.refreshTilesTotal],
+            (refreshStatus, refreshTilesTotal) => {
+                const inFlight = Object.values(refreshStatus).filter((s) => s.loading || s.queued).length
+                // Pinned batch size keeps Y fixed for the cycle; fall back to the live map for single-insight refreshes.
+                const total = refreshTilesTotal ?? Object.keys(refreshStatus).length
                 return {
-                    completed: total - (Object.values(refreshStatus).filter((s) => s.loading || s.queued).length ?? 0),
+                    completed: total - inFlight,
                     total,
                 }
             },
@@ -2519,6 +2547,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 await breakpoint()
                 actions.resetIntermittentFilters()
 
+                // Pin the progress denominator to the batch size before enrolling the insights
+                actions.setRefreshTilesTotal(tilesStaleCount)
                 // Set refresh status for all insights
                 actions.setRefreshStatuses(
                     sortedTilesToRefresh.map((tile) => tile.insight.short_id),
@@ -2589,7 +2619,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     } catch (e: any) {
                         if (shouldCancelQuery(e)) {
                             console.warn(`Insight refresh cancelled for ${insight.short_id} due to abort signal:`, e)
-                            actions.abortQuery({ queryId, queryStartTime })
+                            actions.abortQuery({ queryId, queryStartTime, shortId: insight.short_id })
                             tilesAbortedCount++
                         } else {
                             actions.setRefreshError(insight.short_id, e)

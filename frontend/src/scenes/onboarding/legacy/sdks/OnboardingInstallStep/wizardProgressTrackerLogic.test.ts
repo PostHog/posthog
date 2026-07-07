@@ -6,7 +6,7 @@ import { initKeaTests } from '~/test/init'
 import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api.schemas'
 import { wizardSessionStreamLogic } from 'products/wizard/frontend/wizardSessionStreamLogic'
 
-import { wizardActiveSessionDetectorLogic } from './wizardActiveSessionDetectorLogic'
+import { wizardActiveSessionDetectorLogic } from '../../../shared/wizard-sync/wizardActiveSessionDetectorLogic'
 import { resetWizardSyncTelemetryForTests, wizardProgressTrackerLogic } from './wizardProgressTrackerLogic'
 
 // The detector polls a REST endpoint from afterMount and the stream logic builds an SSE

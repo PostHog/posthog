@@ -23,7 +23,7 @@ import express from 'ultimate-express'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { setupExpressApp } from '~/common/api/router'
-import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '~/common/config/kafka-topics'
+import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES, KAFKA_MESSAGE_ASSETS } from '~/common/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { InternalPersonWithDistinctId, PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
@@ -68,6 +68,22 @@ import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals } from './util
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 
 const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer').KafkaProducerWrapper
+
+// DNS is mocked (like fetch) because EmailValidationService's MX lookups are a real
+// network boundary: validation is fail-open, so a CI resolver hiccup would silently
+// turn a "skipped hard bounce" assertion into a sent email — a guaranteed flake.
+// Implementations are domain-aware and set in the email-queue block's beforeEach.
+const mockDnsResolveMx = jest.fn()
+const mockDnsResolve4 = jest.fn()
+const mockDnsResolve6 = jest.fn()
+
+jest.mock('node:dns/promises', () => ({
+    Resolver: jest.fn().mockImplementation(() => ({
+        resolveMx: mockDnsResolveMx,
+        resolve4: mockDnsResolve4,
+        resolve6: mockDnsResolve6,
+    })),
+}))
 
 // Use the same env vars as config.ts (lines 221-229) so cleanup pools and hub target the same DBs
 const CYCLOTRON_NODE_DB_URL =
@@ -287,8 +303,8 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
 
     /**
      * Construct and enqueue a batch-shaped CyclotronJobInvocation directly, mimicking what
-     * CdpBatchHogFlowRequestsConsumer.createHogFlowInvocation would produce. Skips the
-     * blast-radius API call so tests don't need to stand up the Django side.
+     * the batch resolver's buildHogFlowInvocation would produce. Skips the blast-radius API
+     * call so tests don't need to stand up the Django side.
      */
     async function triggerBatchWorkflow(hogFlow: HogFlow, personUuid: string): Promise<void> {
         const invocationGlobals = convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
@@ -360,6 +376,13 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
     // bytecode (op 29). Unlike an events entry, the executor evaluates the condition on entry, so
     // without the guard this fires the wait immediately. Mirrors the serializer's compiled shape.
     const emptyConditionFilters = () => ({ bytecode: ['_H', 1, 29], properties: [] })
+    // A wait CONDITION on a person property: `person.properties[key] == value`. Mirrors the bytecode
+    // Django compiles for a single person-property equality filter. Used to prove that a person
+    // mutation (no analytics event) can satisfy a parked condition wait.
+    const personPropertyConditionFilters = (key: string, value: string): any => ({
+        bytecode: ['_H', 1, 32, value, 32, key, 32, 'properties', 32, 'person', 1, 3, 11],
+        properties: [{ key, value, type: 'person', operator: 'exact' }],
+    })
 
     describe('simple workflow: trigger → function → exit', () => {
         beforeEach(async () => {
@@ -1009,6 +1032,103 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             expect(mockFetch).not.toHaveBeenCalled()
         })
 
+        it('wakes a parked condition wait on a person-property change with no analytics event', async () => {
+            // The core of removing the 10-minute poll: a property change that produces no analytics
+            // event (only a clickhouse_person mutation) must still wake the wait. The matcher's
+            // person stream synthesizes a $person_updated globals carrying the new person.properties,
+            // which the wait's property condition then matches.
+            await createWaitUntilWorkflow({
+                // Person-property condition only — never satisfied by the trigger event, so it parks.
+                condition: { filters: personPropertyConditionFilters('plan', 'enterprise') },
+                max_wait_duration: '5m',
+            })
+            // person is not persisted in the job state — the worker re-resolves it from the person store
+            // on dequeue (CyclotronPerson.id = person.uuid). Without a resolvable person the re-parked job
+            // stores person_id = null and the person-stream matcher can never find it. Production resolves
+            // person_id during ingestion before the job parks; mirror that so the parked job carries
+            // person_id = 'uuid' — the same id the clickhouse_person mutation below targets. The resolved
+            // person has no `plan`, so the condition still fails on entry and the job parks as expected.
+            mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([
+                {
+                    id: '1',
+                    uuid: 'uuid',
+                    team_id: team.id,
+                    properties: { email: 'test@posthog.com' },
+                    properties_last_updated_at: {},
+                    properties_last_operation: null,
+                    created_at: DateTime.utc(),
+                    version: 1,
+                    is_identified: true,
+                    is_user_id: null,
+                    last_seen_at: null,
+                    distinct_id: 'distinct_id',
+                },
+            ])
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            // A clickhouse_person mutation for that person — the person now matches `plan=enterprise`.
+            // No analytics event is involved; this comes straight off the person topic.
+            const personMessage = {
+                value: Buffer.from(
+                    JSON.stringify({
+                        id: 'uuid',
+                        team_id: team.id,
+                        properties: JSON.stringify({ email: 'test@posthog.com', plan: 'enterprise' }),
+                        is_deleted: 0,
+                        is_identified: 1,
+                        created_at: '2024-09-03 09:00:00.000',
+                        timestamp: '2024-09-03 09:00:00.000',
+                        version: 2,
+                    })
+                ),
+            }
+            const personGlobals = await matcher._parsePersonBatch([personMessage as any])
+            await matcher.processBatch(personGlobals)
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
+        it('wakes a parked wait from a cdp_internal_events signal with no analytics event', async () => {
+            // CDP-generated signals (e.g. $insight_alert_firing) arrive on cdp_internal_events and never
+            // hit the analytics events topic. The matcher parses them via _parseInternalEventsBatch and
+            // wakes parked waits whose "events to wait for" name the signal, matched by distinct_id.
+            await createWaitUntilWorkflow({
+                // Property condition never matches the trigger event, so the job parks until the signal.
+                condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                events: [eventNameFilter('$insight_alert_firing')],
+                max_wait_duration: '5m',
+            })
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            // A raw cdp_internal_events message for this person's distinct_id — no analytics event.
+            const internalEventMessage = {
+                value: Buffer.from(
+                    JSON.stringify({
+                        team_id: team.id,
+                        event: {
+                            uuid: new UUIDT().toString(),
+                            event: '$insight_alert_firing',
+                            distinct_id: 'distinct_id',
+                            properties: {},
+                            timestamp: '2024-09-03T09:00:00Z',
+                        },
+                    })
+                ),
+            }
+            const internalGlobals = await matcher._parseInternalEventsBatch([internalEventMessage as any])
+            await matcher.processBatch(internalGlobals)
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
         it('counts an event-based conversion exactly once per run even when the event fires repeatedly', async () => {
             // Regression guard for conversion over-counting on measurement-only flows. The run stays
             // parked in the delay (exit_only_at_end), and the conversion event fires across three
@@ -1610,6 +1730,21 @@ describe('Workflows E2E (email queue)', () => {
         hub = await createHub()
         hub.CDP_CYCLOTRON_BATCH_DELAY_MS = 50
 
+        // Enforce mode for the whole block: existing tests prove deliverable recipients
+        // pass validation untouched; the skip test proves dead domains never reach the queue.
+        hub.CDP_EMAIL_MX_VALIDATION_ENABLED = true
+        hub.CDP_EMAIL_MX_VALIDATION_ENFORCE_TEAMS = '*'
+
+        // `.invalid` domains are NXDOMAIN, everything else resolves as deliverable.
+        const nxdomain = () => Promise.reject(Object.assign(new Error('queryMx ENOTFOUND'), { code: 'ENOTFOUND' }))
+        mockDnsResolveMx.mockImplementation((domain: string) =>
+            domain.endsWith('.invalid') ? nxdomain() : Promise.resolve([{ exchange: 'mx.example.com', priority: 10 }])
+        )
+        mockDnsResolve4.mockImplementation((domain: string) =>
+            domain.endsWith('.invalid') ? nxdomain() : Promise.resolve(['1.2.3.4'])
+        )
+        mockDnsResolve6.mockImplementation(() => Promise.resolve([]))
+
         kafkaProducer = await ActualKafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
         mockProducerObserver = new KafkaProducerObserver(kafkaProducer)
 
@@ -1793,6 +1928,78 @@ describe('Workflows E2E (email queue)', () => {
                 (j: any) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
             )
             expect(terminal.length).toBeGreaterThanOrEqual(1)
+        }, 10000)
+    })
+
+    it('skips a predicted hard bounce before the email queue and completes the workflow', async () => {
+        // Locks down the pipeline sequencing the unit tests can't: the MX-validation
+        // skip happens on the hogflow worker BEFORE routeEmailToQueue, so a dead-domain
+        // recipient must produce no email_queued/email_sent, no billable_invocation,
+        // exactly one email_bounce_prevented, and a workflow that still runs to exit
+        // instead of wedging on the email queue.
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withStatus('active')
+            .withExitCondition('exit_only_at_end')
+            .withWorkflow({
+                actions: {
+                    trigger: {
+                        type: 'trigger',
+                        config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                    },
+                    email_1: {
+                        type: 'function_email',
+                        config: {
+                            template_id: 'template-workflows-e2e-email',
+                            inputs: {
+                                email: {
+                                    value: {
+                                        to: { email: 'recipient@dead.invalid', name: 'Recipient' },
+                                        from: { integrationId: 1, email: 'sender@posthog.com' },
+                                        subject: 'Predicted bounce',
+                                        text: 'Should never send',
+                                        html: '<p>Should never send</p>',
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [
+                    { from: 'trigger', to: 'email_1', type: 'continue' },
+                    { from: 'email_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            .build()
+        await insertHogFlow(hub.postgres, hogFlow)
+
+        const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
+        await backgroundTask
+
+        await waitForExpect(() => {
+            const sumCounts = (filter: (m: any) => boolean) =>
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter(filter)
+                    .reduce((sum: number, m: any) => sum + m.value.count, 0)
+
+            // Wait for the two positive signals first — once the exit 'succeeded' metric
+            // has flushed, the absence of email metrics below is meaningful, since
+            // email_queued would have been emitted earlier in the pipeline.
+            expect(sumCounts((m) => m.value.metric_name === 'email_bounce_prevented')).toBe(1)
+            expect(sumCounts((m) => m.value.metric_name === 'succeeded' && m.value.instance_id === 'exit')).toBe(1)
+
+            expect(sumCounts((m) => m.value.metric_name === 'email_queued')).toBe(0)
+            expect(sumCounts((m) => m.value.metric_name === 'email_sent')).toBe(0)
+            expect(sumCounts((m) => m.value.metric_name === 'email_failed')).toBe(0)
+            expect(sumCounts((m) => m.value.metric_name === 'billable_invocation')).toBe(0)
+        }, 15000)
+
+        await waitForExpect(async () => {
+            const jobs = await queryCyclotronJobs()
+            expect(jobs.filter((j: any) => j.status === 'completed').length).toBeGreaterThanOrEqual(1)
+            expect(jobs.filter((j: any) => j.status === 'failed').length).toBe(0)
         }, 10000)
     })
 
@@ -2671,16 +2878,147 @@ describe('Workflows E2E (email queue)', () => {
         const pool = parseFloat(bucket?.pool ?? '0')
         expect(pool).toBeGreaterThanOrEqual(capacity - 1)
     })
+
+    // ---- Message-assets bulk flush at the batch boundary ----
+    //
+    // Email assets used to be produced one-at-a-time via a fire-and-forget Kafka call
+    // from `email.service.ts → MessageAssetsService.captureSentEmail`. We've moved that
+    // to a buffer-then-flush pattern that drains `result.emailAssets` at the batch
+    // boundary and bulk-produces, gated on broker ack before the consumer commits
+    // offsets. These tests pin the end-to-end behavior: one workflow → one asset row in
+    // the `message_assets` Kafka topic with the right metadata, and a single batch with
+    // multiple emails produces all rows.
+    describe('message_assets bulk capture', () => {
+        const buildEmailWorkflow = (subject: string) =>
+            new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withStatus('active')
+                .withExitCondition('exit_only_at_end')
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                        },
+                        email_1: {
+                            type: 'function_email',
+                            config: {
+                                template_id: 'template-workflows-e2e-email',
+                                inputs: {
+                                    email: {
+                                        value: {
+                                            to: { email: 'recipient@example.com', name: 'Recipient' },
+                                            from: { integrationId: 1, email: 'sender@posthog.com' },
+                                            subject,
+                                            text: 'plain text body',
+                                            html: `<p>${subject}</p>`,
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                        exit: { type: 'exit', config: {} },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'email_1', type: 'continue' },
+                        { from: 'email_1', to: 'exit', type: 'continue' },
+                    ],
+                })
+                .build()
+
+        const assetMessages = (): { key: string; value: any }[] =>
+            mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_MESSAGE_ASSETS) as any
+
+        it('produces one message_assets row per workflow email with the rendered HTML and metadata', async () => {
+            const hogFlow = buildEmailWorkflow('Asset bulk-capture single')
+            await insertHogFlow(hub.postgres, hogFlow)
+
+            const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
+            await backgroundTask
+
+            // The asset row only lands once the email worker's batch flushes — wait for
+            // the workflow to reach a terminal state, then assert against the topic.
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                const terminal = jobs.filter(
+                    (j: any) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
+                )
+                expect(terminal.length).toBeGreaterThanOrEqual(1)
+            }, 15000)
+
+            await waitForExpect(() => {
+                const rows = assetMessages()
+                expect(rows).toHaveLength(1)
+
+                const row = rows[0].value as Record<string, any>
+                expect(row.team_id).toBe(team.id)
+                expect(row.function_kind).toBe('hog_flow')
+                expect(row.kind).toBe('email')
+                expect(row.status).toBe('sent')
+                expect(row.action_id).toBe('email_1')
+                expect(row.recipient).toBe('recipient@example.com')
+                expect(row.subject).toBe('Asset bulk-capture single')
+                expect(row.html).toBe('<p>Asset bulk-capture single</p>')
+                // Partition key must match invocation_id so retries collapse via the
+                // destination ReplacingMergeTree(version).
+                expect(rows[0].key).toBe(row.invocation_id)
+            }, 15000)
+        })
+
+        it('bulk-captures every asset when multiple workflow runs share a batch', async () => {
+            // Use distinct subjects so we can assert on row content regardless of the
+            // partition-level ordering the Kafka producer chooses.
+            const hogFlow = buildEmailWorkflow('Bulk asset capture')
+            await insertHogFlow(hub.postgres, hogFlow)
+
+            // Three globals dispatched in one `processBatch` call — they go through the
+            // events consumer together. Each fires its own workflow run, each emits one
+            // asset; the bulk-flush is what we're exercising.
+            const { backgroundTask } = await eventsConsumer.processBatch([
+                createGlobals({ uuid: 'aaaaaaaa-0000-0000-0000-000000000001' as any }),
+                createGlobals({ uuid: 'aaaaaaaa-0000-0000-0000-000000000002' as any }),
+                createGlobals({ uuid: 'aaaaaaaa-0000-0000-0000-000000000003' as any }),
+            ])
+            await backgroundTask
+
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                const terminal = jobs.filter(
+                    (j: any) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
+                )
+                expect(terminal.length).toBeGreaterThanOrEqual(3)
+            }, 20000)
+
+            await waitForExpect(() => {
+                const rows = assetMessages()
+                expect(rows.length).toBeGreaterThanOrEqual(3)
+
+                // Every produced row must carry distinct invocation_id values (one per
+                // workflow run) — otherwise the buffer is dropping or aliasing rows.
+                const invocationIds = new Set(rows.map((r) => (r.value as any).invocation_id))
+                expect(invocationIds.size).toBeGreaterThanOrEqual(3)
+
+                // Subject and HTML are constant across the three runs (same flow), so we
+                // just sanity-check that every row carries the expected shape.
+                for (const row of rows) {
+                    const value = row.value as Record<string, any>
+                    expect(value.subject).toBe('Bulk asset capture')
+                    expect(value.html).toBe('<p>Bulk asset capture</p>')
+                    expect(value.kind).toBe('email')
+                    expect(value.status).toBe('sent')
+                    expect(row.key).toBe(value.invocation_id)
+                }
+            }, 20000)
+        })
+    })
 })
 
 /**
  * E2E for the batch resolver dispatch path through the cdp-api HTTP boundary.
  *
  * Goes through real express + supertest, real CdpApi, real cyclotron-node
- * Postgres. Verifies that POST `/batch_invocations/<id>` with the
- * `CDP_BATCH_RESOLVER_ROUTING` matching the team creates a resolver
- * cyclotron job pointing at the right queue with the right state. When the
- * routing matcher excludes the team, the legacy Kafka path takes over.
+ * Postgres. Verifies that POST `/batch_invocations/<id>` creates a resolver
+ * cyclotron job pointing at the right queue with the right state.
  *
  * The deep state-machine paths (page execution, terminal write, truncation,
  * Django down → resolver parks) are covered by the integration tests in
@@ -2723,7 +3061,6 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
 
         hub = await createHub({
             SITE_URL: 'http://localhost:8000',
-            CDP_BATCH_RESOLVER_ROUTING: '*',
         })
 
         const { createMockJobQueue } = require('../../tests/helpers/mocks/job-queue.mock')
@@ -2753,7 +3090,6 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         await resetTestDatabase()
         await cyclotronPool.query(`DELETE FROM cyclotron_jobs`)
         team = await getFirstTeam(hub.postgres)
-        api['batchResolverRoutingMatcher'] = () => true
         resolverWorker = undefined
     })
 
@@ -2854,26 +3190,6 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             pagesProcessed: 0,
         })
         expect(state.pendingTerminal).toBeUndefined()
-    })
-
-    it('POST /batch_invocations with no routing match falls back to the legacy Kafka path', async () => {
-        api['batchResolverRoutingMatcher'] = () => false
-
-        const flow = await insertActiveBatchFlow()
-        const parentRunId = new UUIDT().toString()
-
-        const response = await supertest(app)
-            .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
-            .send({ filters: { filter_test_accounts: false } })
-            .expect(200)
-
-        expect(response.body).toEqual({ status: 'queued' })
-
-        const rows = await cyclotronPool.query(
-            `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow_batch_resolve' AND parent_run_id = $1`,
-            [parentRunId]
-        )
-        expect(rows.rows).toHaveLength(0)
     })
 
     it('rejects with 400 when the workflow is not a batch trigger', async () => {

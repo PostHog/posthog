@@ -6,12 +6,21 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
+import type { ActivityRun } from '../components/RunActivityChart'
 import {
+    engineeringAnalyticsJobAggregates,
     engineeringAnalyticsWorkflowJobs,
+    engineeringAnalyticsWorkflowRunActivity,
     engineeringAnalyticsWorkflowRunnerCosts,
     engineeringAnalyticsWorkflowRuns,
 } from '../generated/api'
-import type { WorkflowJobApi, WorkflowRunDetailApi, WorkflowRunnerCostApi } from '../generated/api.schemas'
+import type {
+    WorkflowJobAggregateApi,
+    WorkflowJobApi,
+    WorkflowRunActivityApi,
+    WorkflowRunDetailApi,
+    WorkflowRunnerCostApi,
+} from '../generated/api.schemas'
 import { jobCacheKey } from '../lib/jobs'
 import { type CostSummary, type HealthSummary, computeHealthSummary } from '../lib/runHealth'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
@@ -19,12 +28,10 @@ import type { workflowRunsLogicType } from './workflowRunsLogicType'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
-// Mirrors the backend runs-list cap (`workflow_run_list.py` `_LIMIT`). A full list is likely truncated, so
-// the header labels run rollups "recent" rather than full-window.
+// Mirrors the backend runs-list cap (`workflow_run_list.py` `_LIMIT`).
 const RUN_LIST_LIMIT = 200
 
-/** A workflow run mapped to the shared RunsTable shape: the RunRowBase fields the table needs, plus the
- *  lead-column data this page shows (run id, branch, attributed PR). */
+/** RunRowBase fields plus this page's lead-column data (run id, branch, attributed PR). */
 export interface WorkflowRunRow {
     runId: number | null
     runAttempt: number | null
@@ -33,6 +40,7 @@ export interface WorkflowRunRow {
     startedAt: string | null
     id: number
     headBranch: string | null
+    headSha: string
     prNumber: number
     repoOwner: string
     repoName: string
@@ -51,10 +59,10 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
     props({} as WorkflowRunsLogicProps),
     key((props) => `${props.repoOwner}/${props.repoName}/${props.workflowName}@${props.sourceId ?? ''}`),
 
-    // The shared CI-analytics window scopes both the runs list and the runner-cost breakdown — one window,
-    // never all-time, and the same one the Workflows tab and author page use.
+    // Same window and branch scope as the Workflows tab, so drilling in keeps the scope instead of
+    // silently widening back to all branches.
     connect(() => ({
-        values: [engineeringAnalyticsFiltersLogic, ['dateFrom', 'dateTo']],
+        values: [engineeringAnalyticsFiltersLogic, ['dateFrom', 'dateTo', 'appliedBranch']],
     })),
 
     actions({
@@ -77,11 +85,28 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                         repo: `${props.repoOwner}/${props.repoName}`,
                         date_from: values.dateFrom ?? undefined,
                         date_to: values.dateTo ?? undefined,
+                        branch: values.appliedBranch || undefined,
                         source_id: props.sourceId ?? undefined,
                     }),
             },
         ],
-        // Cost split by runner tier over the window — "where this workflow's spend goes"; [] when jobs aren't synced.
+        // Activity-chart points at a higher cap than the runs table, so the chart spans the full window
+        // on busy workflows where 200 runs collapse to a sub-day slice.
+        runActivity: [
+            { points: [], truncated: false, limit: 0 } as WorkflowRunActivityApi,
+            {
+                loadRunActivity: async (): Promise<WorkflowRunActivityApi> =>
+                    await engineeringAnalyticsWorkflowRunActivity(projectId(), {
+                        workflow_name: props.workflowName,
+                        repo: `${props.repoOwner}/${props.repoName}`,
+                        date_from: values.dateFrom ?? undefined,
+                        date_to: values.dateTo ?? undefined,
+                        branch: values.appliedBranch || undefined,
+                        source_id: props.sourceId ?? undefined,
+                    }),
+            },
+        ],
+        // Cost split by runner tier; [] when the job-level source isn't synced.
         runnerCosts: [
             [] as WorkflowRunnerCostApi[],
             {
@@ -91,6 +116,21 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                         repo: `${props.repoOwner}/${props.repoName}`,
                         date_from: values.dateFrom ?? undefined,
                         date_to: values.dateTo ?? undefined,
+                        branch: values.appliedBranch || undefined,
+                        source_id: props.sourceId ?? undefined,
+                    }),
+            },
+        ],
+        // Per-job rollups; [] when the job-level source isn't synced.
+        jobAggregates: [
+            [] as WorkflowJobAggregateApi[],
+            {
+                loadJobAggregates: async (): Promise<WorkflowJobAggregateApi[]> =>
+                    await engineeringAnalyticsJobAggregates(projectId(), {
+                        workflow_name: props.workflowName,
+                        date_from: values.dateFrom ?? undefined,
+                        date_to: values.dateTo ?? undefined,
+                        branch: values.appliedBranch || undefined,
                         source_id: props.sourceId ?? undefined,
                     }),
             },
@@ -98,8 +138,7 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
         runJobs: [
             {} as Record<string, WorkflowJobApi[]>,
             {
-                // Lazy: fetched only on first expand. Keyed by run+attempt; reads the post-await
-                // values.runJobs so two near-simultaneous first-expands don't clobber each other.
+                // Reads the post-await values.runJobs so near-simultaneous first-expands don't clobber.
                 loadJobs: async ({
                     runId,
                     runAttempt,
@@ -137,8 +176,6 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
     }),
 
     selectors({
-        // Pass props through as values so the scene reads repo/workflow identity (title, links) without
-        // reaching into logic internals, and can preserve `?source=` on outbound links.
         sourceId: [() => [(_, p: WorkflowRunsLogicProps) => p.sourceId], (sourceId): string | null => sourceId],
         repoOwner: [() => [(_, p: WorkflowRunsLogicProps) => p.repoOwner], (repoOwner): string => repoOwner],
         repoName: [() => [(_, p: WorkflowRunsLogicProps) => p.repoName], (repoName): string => repoName],
@@ -146,7 +183,6 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
             () => [(_, p: WorkflowRunsLogicProps) => p.workflowName],
             (workflowName): string => workflowName,
         ],
-        // Runs mapped to the shared RunsTable row shape, reusing the same runs → jobs table the PR detail uses.
         runRows: [
             (s) => [s.runs],
             (runs: WorkflowRunDetailApi[]): WorkflowRunRow[] =>
@@ -158,25 +194,75 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                     startedAt: run.run_started_at,
                     id: run.id,
                     headBranch: run.head_branch,
+                    headSha: run.head_sha,
                     prNumber: run.pr_number,
                     repoOwner: run.repo.owner,
                     repoName: run.repo.name,
                 })),
         ],
-        // Verdict + headline stats for the health strip above the chart.
+        activityRuns: [
+            (s) => [s.runActivity],
+            (runActivity: WorkflowRunActivityApi): ActivityRun[] =>
+                runActivity.points.map((point) => ({
+                    runId: point.run_id,
+                    conclusion: point.conclusion,
+                    startedAt: point.run_started_at,
+                    durationSeconds: point.duration_seconds,
+                    headBranch: point.head_branch,
+                    prNumber: point.pr_number,
+                })),
+        ],
+        // The chart's own cap, distinct from `runsTruncated` (the table's smaller cap).
+        activityTruncated: [
+            (s) => [s.runActivity],
+            (runActivity: WorkflowRunActivityApi): boolean => runActivity.truncated,
+        ],
         healthSummary: [(s) => [s.runRows], (runRows): HealthSummary => computeHealthSummary(runRows)],
-        // Runs list is capped server-side; when hit, run rollups cover only the most recent runs (cost
-        // still comes from the full-window aggregate), so the header labels them as such.
+        // Latest completed master/main run's conclusion; null when the window has none (PR-only workflow).
+        masterConclusion: [
+            (s) => [s.runRows],
+            (runRows): string | null => {
+                const masterRuns = runRows
+                    .filter(
+                        (run) =>
+                            (run.headBranch === 'master' || run.headBranch === 'main') &&
+                            run.conclusion != null &&
+                            run.startedAt != null
+                    )
+                    .sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''))
+                return masterRuns[0]?.conclusion ?? null
+            },
+        ],
+        // Median queue wait across jobs, weighted by how often each job runs. Null until jobs are synced.
+        queueP50Seconds: [
+            (s) => [s.jobAggregates],
+            (jobAggregates): number | null => {
+                const weighted: { value: number; weight: number }[] = jobAggregates
+                    .filter((row) => row.queue_p50_seconds != null)
+                    .map((row) => ({ value: row.queue_p50_seconds as number, weight: row.job_count }))
+                    .sort((a, b) => a.value - b.value)
+                const total = weighted.reduce((sum, entry) => sum + entry.weight, 0)
+                if (!total) {
+                    return null
+                }
+                let acc = 0
+                for (const entry of weighted) {
+                    acc += entry.weight
+                    if (acc >= total / 2) {
+                        return entry.value
+                    }
+                }
+                return weighted[weighted.length - 1].value
+            },
+        ],
         runsTruncated: [(s) => [s.runRows], (runRows): boolean => runRows.length >= RUN_LIST_LIMIT],
-        // Billable minutes + estimated cost summed across runner tiers, for the strip's cost rollup.
         costSummary: [
             (s) => [s.runnerCosts],
             (runnerCosts): CostSummary | null => {
                 if (runnerCosts.length === 0) {
                     return null
                 }
-                // Free (GitHub-hosted) runners report null cost; gate each field so an all-free workflow
-                // shows no cost rather than a misleading $0.00 / 0 min from summing nulls as zero.
+                // Free runners report null — a bare sum would turn "no cost data" into a misleading $0.00.
                 const hasBillable = runnerCosts.some((cost) => cost.billable_minutes != null)
                 const hasEstimatedCost = runnerCosts.some((cost) => cost.estimated_cost_usd != null)
                 return {
@@ -199,12 +285,6 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                     iconType: 'health',
                 },
                 {
-                    key: 'EngineeringAnalyticsWorkflowsTab',
-                    name: 'Workflows',
-                    path: urls.engineeringAnalyticsWorkflows(),
-                    iconType: 'health',
-                },
-                {
                     key: ['EngineeringAnalyticsWorkflowRuns', `${repoOwner}/${repoName}/${workflowName}`],
                     name: `${repoOwner}/${repoName} · ${workflowName}`,
                     iconType: 'health',
@@ -215,20 +295,28 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
 
     listeners(({ actions, values }) => ({
         setRunExpanded: ({ expanded, runId, runAttempt }) => {
-            // Fetch a run+attempt's jobs once, on first expand.
             if (expanded && runId != null && !(jobCacheKey(runId, runAttempt) in values.runJobs)) {
                 actions.loadJobs({ runId, runAttempt })
             }
         },
-        // The shared window scopes both lists — reload them together when it changes.
         [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {
             actions.loadRuns()
+            actions.loadRunActivity()
             actions.loadRunnerCosts()
+            actions.loadJobAggregates()
+        },
+        [engineeringAnalyticsFiltersLogic.actionTypes.setAppliedBranch]: () => {
+            actions.loadRuns()
+            actions.loadRunActivity()
+            actions.loadRunnerCosts()
+            actions.loadJobAggregates()
         },
     })),
 
     afterMount(({ actions }) => {
         actions.loadRuns()
+        actions.loadRunActivity()
         actions.loadRunnerCosts()
+        actions.loadJobAggregates()
     }),
 ])

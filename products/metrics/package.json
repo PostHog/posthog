@@ -12,6 +12,7 @@
         "posthog-js": "catalog:"
     },
     "peerDependencies": {
+        "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
         "@posthog/products-error-tracking": "workspace:*",
         "@types/react": "*",

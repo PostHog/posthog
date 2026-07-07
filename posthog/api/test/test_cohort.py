@@ -1838,6 +1838,7 @@ email@example.org,
                 filters={"properties": {"type": "OR", "values": values}},
                 cohort_type=CohortType.REALTIME if realtime_backfilled else None,
                 last_backfill_person_properties_at=timezone.now() if realtime_backfilled else None,
+                last_backfill_events_at=timezone.now() if realtime_backfilled else None,
             )
 
         cohorts = {
@@ -2064,6 +2065,7 @@ email@example.org,
             },
             cohort_type=cohort_type,
             last_backfill_person_properties_at=datetime.now() if is_backfilled else None,
+            last_backfill_events_at=datetime.now() if is_backfilled else None,
         )
 
         regular_cohort = Cohort.objects.create(
@@ -2119,6 +2121,7 @@ email@example.org,
             },
             cohort_type=CohortType.REALTIME,
             last_backfill_person_properties_at=datetime.now(),
+            last_backfill_events_at=datetime.now(),
         )
 
         # Parent: non-behavioral cohort that references the leaf
@@ -6406,6 +6409,36 @@ class TestCohortTypeIntegration(APIBaseTest):
         # cohort_type is auto-computed for realtime-capable filters
         self.assertEqual(cohort.cohort_type, "realtime")
         self.assertEqual(response.data["cohort_type"], "realtime")
+
+    def test_person_metadata_cohort_not_classified_realtime(self):
+        """person_metadata cohorts must route to the non-realtime path: the realtime
+        precalculated_person_properties table only carries JSON-blob values, not top-level
+        persons-table columns, so HogQLRealtimeCohortQuery raises for them."""
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {
+                "name": "First seen after 2024",
+                "filters": {
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "person_metadata",
+                                "key": "created_at",
+                                "operator": "is_date_after",
+                                "value": "2024-01-01",
+                            }
+                        ],
+                    }
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        cohort = Cohort.objects.get(id=response.data["id"])
+        self.assertNotEqual(cohort.cohort_type, CohortType.REALTIME)
 
     def test_api_response_includes_cohort_type(self):
         """API responses should include the cohort_type field"""

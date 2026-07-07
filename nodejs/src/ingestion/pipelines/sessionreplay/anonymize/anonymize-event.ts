@@ -1,11 +1,13 @@
 /** Routes each parsed rrweb event to the right scrubber by type/source. */
 import { logger } from '~/common/utils/logger'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
+import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
 import { RRWebEventSource, RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
 
 import { runBlurJobs } from './blur'
 import { scrubCanvasMutation } from './canvas'
-import { BlurJob, ScrubContext, isObject } from './config'
+import { BlurCache, BlurJob, ScrubContext, ScrubTiming, isObject } from './config'
+import { scrubAdoptedStyleSheet, scrubStyleDeclaration, scrubStyleSheetRule } from './css'
 import { scrubCompressedFullSnapshot, scrubCompressedMutation } from './cv'
 import { scrubFullSnapshot, scrubMutation } from './dom'
 import { scrubText } from './text'
@@ -14,6 +16,11 @@ import { scrubConsolePlugin, scrubGenericField, scrubNetworkPlugin } from './val
 
 const NETWORK_PLUGIN = 'rrweb/network@1'
 const CONSOLE_PLUGIN = 'rrweb/console@1'
+
+const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+
+// Diagnostic: log the per-message time breakdown when a message takes longer than this to anonymize.
+const ANON_SLOW_LOG_THRESHOLD_MS = 5000
 
 /**
  * Anonymizes every event in a parsed message in place, then awaits its blur jobs.
@@ -25,8 +32,13 @@ export async function anonymizeParsedMessage(
     parsedMessage: ParsedMessageData
 ): Promise<{ failed: boolean }> {
     const blurJobs: BlurJob[] = []
-    const ctx: ScrubContext = { ...scrubContext, blurJobs }
+    // One memo per Kafka message: identical images across its rrweb events share a single sharp call.
+    const blurCache: BlurCache = new Map()
+    const timing: ScrubTiming = { decompressMs: 0, recompressMs: 0 }
+    const ctx: ScrubContext = { ...scrubContext, blurJobs, blurCache, timing }
 
+    const scrubStart = performance.now()
+    let eventCount = 0
     for (const events of Object.values(parsedMessage.eventsByWindowId)) {
         for (const event of events) {
             try {
@@ -36,12 +48,42 @@ export async function anonymizeParsedMessage(
                     error: String(error),
                     type: isObject(event) ? event.type : undefined,
                 })
+                SessionRecordingIngesterMetrics.incrementMlAnonymizeFailed('ts')
                 return { failed: true }
             }
+            eventCount++
         }
     }
+    // scrubMs is synchronous (on the event loop); blurMs is the off-thread sharp work we await.
+    const scrubMs = performance.now() - scrubStart
 
+    const blurStart = performance.now()
     await runBlurJobs(blurJobs)
+    const blurMs = performance.now() - blurStart
+
+    SessionRecordingIngesterMetrics.observeMlAnonymizeDuration('ts', scrubMs + blurMs)
+
+    if (scrubMs + blurMs > ANON_SLOW_LOG_THRESHOLD_MS) {
+        logger.warn('🕒', 'anonymize_slow_breakdown', {
+            totalMs: Math.round(scrubMs + blurMs),
+            scrubMs: Math.round(scrubMs),
+            blurMs: Math.round(blurMs),
+            decompressMs: Math.round(timing.decompressMs),
+            recompressMs: Math.round(timing.recompressMs),
+            walkMs: Math.round(scrubMs - timing.decompressMs - timing.recompressMs),
+            events: eventCount,
+            blurJobs: blurJobs.length,
+            sessionId: parsedMessage.session_id,
+            topic: parsedMessage.metadata.topic,
+            partition: parsedMessage.metadata.partition,
+            offset: parsedMessage.metadata.offset,
+            kafkaTimestamp: parsedMessage.metadata.timestamp,
+            rawSize: parsedMessage.metadata.rawSize,
+        })
+    }
+
+    // Macrotask break so a batch of messages doesn't scrub fully synchronously and starve the loop.
+    await yieldToEventLoop()
     return { failed: false }
 }
 
@@ -78,6 +120,15 @@ function routeEvent(ctx: ScrubContext, event: Record<string, unknown>): boolean 
             if (data.source === RRWebEventSource.CanvasMutation) {
                 return scrubCanvasMutation(ctx, data)
             }
+            if (data.source === RRWebEventSource.StyleSheetRule) {
+                return scrubStyleSheetRule(ctx, data)
+            }
+            if (data.source === RRWebEventSource.StyleDeclaration) {
+                return scrubStyleDeclaration(ctx, data)
+            }
+            if (data.source === RRWebEventSource.AdoptedStyleSheet) {
+                return scrubAdoptedStyleSheet(ctx, data)
+            }
             return false
         }
 
@@ -87,7 +138,7 @@ function routeEvent(ctx: ScrubContext, event: Record<string, unknown>): boolean 
             if (!isObject(data) || typeof data.href !== 'string') {
                 return false
             }
-            const r = scrubUrl(ctx, data.href, { scrubAuthority: true })
+            const r = scrubUrl(ctx, data.href, { collapseHost: true })
             if (r.changed) {
                 data.href = r.value
                 return true
