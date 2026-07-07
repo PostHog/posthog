@@ -1468,6 +1468,7 @@ describe('dashboardLogic', () => {
 
             // The logic re-fetches the dashboard on mount; without this the unhandled-request
             // floor returns a shape without tiles
+            // oxlint-disable-next-line react-hooks/rules-of-hooks
             useMocks({
                 get: {
                     '/api/environments/:team_id/dashboards/12/': () => [200, dashboardWithVariableOverride],
