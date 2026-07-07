@@ -332,7 +332,6 @@ class TestPrepareAlert:
         assert check.state == AlertState.ERRORED
         assert check.error is not None
 
-        # With the feature restored, an identical alert evaluates normally.
         @sync_to_async
         def _grant_feature() -> None:
             aorganization.available_product_features = [{"key": required_feature, "name": required_feature}]

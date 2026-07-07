@@ -725,6 +725,54 @@ class TestGetRunActivitySummary:
         assert summary.has_non_terminal is False
         assert summary.is_stale is True
 
+    @pytest.mark.asyncio
+    async def test_recent_producer_inserts_do_not_reset_staleness(self, conn, sync_conn):
+        # A streaming producer kept dead-loader runs "active" for a whole outage:
+        # only loader progress may reset the staleness clock.
+        old = await _insert_batch(conn, batch_index=0, metadata={"workflow_run_id": self.WF_RUN_ID})
+        await conn.execute(
+            f"UPDATE {BATCH_TABLE} SET created_at = now() - interval '7 hours' WHERE id = %s",
+            (old,),
+        )
+        await _insert_batch(conn, batch_index=1, metadata={"workflow_run_id": self.WF_RUN_ID})
+
+        summary = self._summary(sync_conn)
+
+        assert summary.has_non_terminal is True
+        assert summary.is_stale is True
+
+    @pytest.mark.asyncio
+    async def test_old_status_write_is_stale_despite_new_batches(self, conn, sync_conn):
+        # The loader last made progress hours ago; fresh producer inserts must not hide that.
+        claimed = await _insert_batch(conn, batch_index=0, metadata={"workflow_run_id": self.WF_RUN_ID})
+        await BatchQueue.update_status(conn, batch_id=claimed, job_state="executing", attempt=1)
+        await conn.execute(
+            f"UPDATE {STATUS_TABLE} SET created_at = now() - interval '7 hours' WHERE batch_id = %s",
+            (claimed,),
+        )
+        await _insert_batch(conn, batch_index=1, metadata={"workflow_run_id": self.WF_RUN_ID})
+
+        summary = self._summary(sync_conn)
+
+        assert summary.has_non_terminal is True
+        assert summary.is_stale is True
+
+    @pytest.mark.asyncio
+    async def test_recent_status_write_keeps_old_backlog_active(self, conn, sync_conn):
+        # A slow-but-alive loader (old unclaimed backlog, fresh status writes) must not be stolen from.
+        old = await _insert_batch(conn, batch_index=0, metadata={"workflow_run_id": self.WF_RUN_ID})
+        await conn.execute(
+            f"UPDATE {BATCH_TABLE} SET created_at = now() - interval '7 hours' WHERE id = %s",
+            (old,),
+        )
+        claimed = await _insert_batch(conn, batch_index=1, metadata={"workflow_run_id": self.WF_RUN_ID})
+        await BatchQueue.update_status(conn, batch_id=claimed, job_state="executing", attempt=1)
+
+        summary = self._summary(sync_conn)
+
+        assert summary.has_non_terminal is True
+        assert summary.is_stale is False
+
 
 @pytest.mark.django_db(transaction=True)
 class TestClaimWindowSkipsForeignLeasedGroups:

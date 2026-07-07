@@ -423,6 +423,55 @@ class CIFailureLogs:
     truncated: bool
 
 
+# The one caveat that governs every flaky figure — defined once here (the canonical-types home)
+# so the API/MCP description and any other consumer-facing copy read from it instead of drifting.
+FLAKY_TEST_SIGNAL_CAVEAT = (
+    "All figures are absolute counts, never rates: fast passing runs are not emitted, so denominators "
+    "are biased. Pass-on-retry counts only flow from CI lanes running with reruns enabled; in other "
+    "lanes a flake surfaces as a plain failure, which the distinct-PR count catches."
+)
+
+
+@dataclass(frozen=True)
+class FlakyTestItem:
+    """One flaky-test leaderboard row, aggregated from the per-test CI spans in the Traces store.
+
+    See ``FLAKY_TEST_SIGNAL_CAVEAT`` for why these are absolute counts and how the two signals
+    (pass-on-retry vs distinct-PR failures) divide the rerun-enabled and no-rerun lanes.
+    """
+
+    # Reconstructed pytest nodeid (the span name), e.g. 'posthog/api/test/test_x/TestX::test_y'.
+    nodeid: str
+    # Runnable pytest selector ('posthog/api/test/test_x.py::TestX::test_y'). Exact when the CI
+    # reporter stamped it; reconstructed from the nodeid (file/class boundary guessed) for older spans.
+    selector: str
+    # Spans where the test failed first, then passed on an automatic retry.
+    rerun_passed_count: int
+    # Spans with outcome 'failed' or 'error' (the final outcome after any retries).
+    failed_count: int
+    # Distinct PRs among the failed/error spans; master/branch failures carry no PR and don't count.
+    failed_pr_count: int
+    # Distinct git branches across all of the test's signal spans in the window.
+    branch_count: int
+    # Spans where the test failed while quarantined (xfail) — already masked, still flaky.
+    xfailed_count: int
+    # Most recent signal span for this test in the window.
+    last_seen_at: datetime
+
+
+@dataclass(frozen=True)
+class FlakyTestList:
+    """The flaky-test leaderboard for a window: qualifying tests ranked by flakiness signal,
+    capped at ``limit`` with an explicit truncation flag (same shape as ``PullRequestList``).
+    A test qualifies when it passed on retry at least ``min_rerun_passes`` times OR failed on
+    at least ``min_failed_prs`` distinct PRs in the window.
+    """
+
+    items: list[FlakyTestItem]
+    truncated: bool
+    limit: int
+
+
 @dataclass(frozen=True)
 class CIStatusRollup:
     """A PR's CI, collapsed from the latest workflow run per workflow on its head

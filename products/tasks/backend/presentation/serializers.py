@@ -21,6 +21,7 @@ from products.tasks.backend.facade.contracts import (
     SandboxEnvironmentDTO,
     TaskAutomationDTO,
     TaskDetailDTO,
+    TaskMentionDTO,
     TaskRunDetailDTO,
     TaskSummaryDTO,
     TaskThreadMessageDTO,
@@ -465,6 +466,31 @@ class TaskWriteSerializer(serializers.Serializer):
         allow_null=True,
         write_only=True,
         help_text="Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.",
+    )
+    pending_user_message = serializers.CharField(
+        required=False,
+        default=None,
+        allow_null=True,
+        allow_blank=True,
+        write_only=True,
+        help_text=(
+            "First user message to forward when creation reuses a pre-warmed Run. Write-only and not "
+            "persisted on the task: lets clients deliver a message that differs from `description` "
+            "(e.g. a resolved skill invocation with channel context folded in). Ignored when no warm "
+            "Run is reused — cold creation takes the first message via the run start endpoint instead."
+        ),
+    )
+    pending_user_artifact_ids = serializers.ListField(
+        required=False,
+        default=list,
+        child=serializers.CharField(max_length=128),
+        write_only=True,
+        help_text=(
+            "Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded "
+            "first message when creation reuses that warm Run, e.g. skill bundles or file attachments. "
+            "If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is "
+            "created cold. Ignored when no warm Run is matched."
+        ),
     )
     channel = TeamScopedPrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
         queryset=Integration.objects.none(),
@@ -1043,6 +1069,41 @@ class TaskThreadMessageWriteSerializer(serializers.Serializer):
     """Request body for posting a thread message."""
 
     content = serializers.CharField(help_text="Message text.")
+
+
+class TaskMentionQuerySerializer(serializers.Serializer):
+    """Query parameters for listing mentions."""
+
+    since = serializers.DateTimeField(
+        required=False, help_text="Only return mentions created after this ISO 8601 timestamp."
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=500,
+        help_text="Maximum number of mentions to return (newest first).",
+    )
+
+
+class TaskMentionSerializer(DataclassSerializer):
+    """Response shape for one @-mention of the requester in a task's thread."""
+
+    author = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+
+    class Meta:
+        dataclass = TaskMentionDTO
+        fields = [
+            "id",
+            "message_id",
+            "task_id",
+            "task_title",
+            "channel_id",
+            "channel_name",
+            "author",
+            "content",
+            "created_at",
+        ]
 
 
 class TaskRepositoriesResponseSerializer(serializers.Serializer):

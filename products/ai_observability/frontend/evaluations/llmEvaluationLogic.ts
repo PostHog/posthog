@@ -653,8 +653,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             const configs: SignalSourceConfig[] = values.sourceConfigs ?? []
             const existing = configs.find(
                 (c) =>
-                    c.source_product === SignalSourceProduct.LLM_ANALYTICS &&
-                    c.source_type === SignalSourceType.EVALUATION
+                    c.source_product === SignalSourceProduct.LlmAnalytics &&
+                    c.source_type === SignalSourceType.Evaluation
             )
 
             const currentIds: string[] = existing?.config?.evaluation_ids ?? []
@@ -663,8 +663,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 : currentIds.filter((id: string) => id !== props.evaluationId)
 
             actions.toggleSignalSource({
-                sourceProduct: SignalSourceProduct.LLM_ANALYTICS,
-                sourceType: SignalSourceType.EVALUATION,
+                sourceProduct: SignalSourceProduct.LlmAnalytics,
+                sourceType: SignalSourceType.Evaluation,
                 enabled: true,
                 config: { ...existing?.config, evaluation_ids: newIds },
             })
@@ -762,8 +762,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 }
                 const llmEvalConfig = sourceConfigs.find(
                     (c) =>
-                        c.source_product === SignalSourceProduct.LLM_ANALYTICS &&
-                        c.source_type === SignalSourceType.EVALUATION
+                        c.source_product === SignalSourceProduct.LlmAnalytics &&
+                        c.source_type === SignalSourceType.Evaluation
                 )
                 const ids: string[] = llmEvalConfig?.config?.evaluation_ids ?? []
                 return !!llmEvalConfig?.enabled && ids.includes(evaluationId)

@@ -47,9 +47,10 @@ export const manifest: ProductManifest = {
                 return urls.sqlEditor({ query: query.query })
             }
 
-            // Redirect DataNode and DataViz queries with HogQL source to SQL editor
+            // Redirect DataNode and DataViz queries with HogQL source to SQL editor,
+            // passing the whole node so display/chartSettings/filters survive the trip
             if ((isDataVisualizationNode(query) || isDataTableNode(query)) && isHogQLQuery(query.source)) {
-                return urls.sqlEditor({ query: query.source.query })
+                return urls.sqlEditor({ query })
             }
 
             return combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
