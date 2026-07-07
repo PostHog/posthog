@@ -174,6 +174,31 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_reset_password.assert_called_once_with(self.team.organization_id)
 
+    @patch("products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.delete_org")
+    def test_delete_org_blocked_for_project_editor_who_is_not_org_admin(self, mock_delete_org):
+        mock_delete_org.return_value = Response({"status": "deleted"})
+        self._create_access_control(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+
+        response = self.client.delete(self._path("delete-org/"))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_delete_org.assert_not_called()
+
+    @patch("products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.delete_org")
+    def test_delete_org_allowed_for_org_admin_with_project_editor_access(self, mock_delete_org):
+        mock_delete_org.return_value = Response({"status": "deleted"})
+        membership = OrganizationMembership.objects.get(user=self.editor_user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+        self._create_access_control(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+
+        response = self.client.delete(self._path("delete-org/"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_delete_org.assert_called_once_with(self.team.organization_id)
+
 
 @pytest.mark.ee
 class TestModelPathViewSetAccessControl(WarehouseAccessControlTestMixin):

@@ -1,18 +1,19 @@
 # Dedupe and memory conventions
 
 How a scout decides what to do with a candidate observation, how it writes durable scratchpad entries, and the noise patterns common across PostHog projects.
-Author your scout's **Decide** and **Save-memory** sections around these — they're how the fleet avoids re-emitting and gets smarter every run.
+Author your scout's **Decide** and **Save-memory** sections around these — they're how the fleet avoids re-filing and gets smarter every run.
 This mirrors `signals-scout-general/references/conventions.md`.
 
 ## The four states
 
-Every scout classifies each candidate finding against prior runs and the scratchpad before emitting.
+Every scout classifies each candidate finding against prior runs, the inbox, and the scratchpad before authoring a report.
 Bake this classifier into the scout's Decide section:
 
-1. **Net new** — no prior run mentions the topic, no scratchpad entry covers it. → Emit if it clears the confidence bar (≥ 0.65).
-2. **Material update on a prior run** — a prior run covered it, but there's new evidence (a different corroborating source, a fresh deploy correlation, contradicting data, a meaningful escalation in scope). → **Emit fresh, citing the prior `finding_id`** in the description and the evidence list (`source_product: signals_scout`, `entity_id: <prior>`).
-   The inbox groups by dedupe key.
-3. **Same fact already covered** — a prior run emitted with the same evidence shape. → Skip.
+1. **Net new** — no prior run mentions the topic, no inbox report and no scratchpad entry covers it. → Author a report via `emit_report` if it clears the report bar (see [`report-contract.md`](report-contract.md)).
+2. **Material update on an existing live report** — a live report already covers the topic (one this scout authored last run, or a pipeline report), but there's new evidence (a different corroborating source, a fresh deploy correlation, contradicting data, a meaningful escalation in scope). → **`edit_report` it** — `append_note` with the fresh evidence, or rewrite `title`/`summary` on a report the scout authored.
+   Don't mint a near-duplicate.
+   **Live reports only:** `edit_report` never changes a report's status, so if the prior report is suppressed or resolved and the issue is genuinely back, author a **fresh** report (citing the prior `report_id` in the summary) rather than editing a closed one nobody will see.
+3. **Same fact already covered** — an existing report already captures the same evidence shape, nothing has changed. → Skip.
    Optionally rewrite a scratchpad entry confirming the topic stayed quiet.
 4. **Already-addressed or noise** — a scratchpad entry with an `addressed:` / `noise:` / `dedupe:` prefix names the entity with a "team aware" note. → Skip; note it in the run summary.
 
@@ -22,30 +23,32 @@ The scratchpad is durable, per-team prose keyed by string.
 It has no tags or TTLs — **the category is encoded in the key prefix** so a future run finds an entry with a single `text=` search.
 Re-using a key rewrites the entry in place (the idempotent refresh — use it to confirm a quiet observation without duplicating entries).
 
-| Prefix        | Use for                                                                                                                                                                                    |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `pattern:`    | Durable observation about how this team's data normally shapes (baselines).                                                                                                                |
-| `noise:`      | Patterns to ignore (single-user, dev-only, recurring with no fix path).                                                                                                                    |
-| `addressed:`  | Team-confirmed fix shipped, or topic the team has moved on from.                                                                                                                           |
-| `dedupe:`     | Gates future emits on a specific issue / fingerprint / finding id.                                                                                                                         |
-| `allowlist:`  | Vetted entities the scout should never re-surface.                                                                                                                                         |
-| `not-in-use:` | Close-out memo for "product/surface not in use on this team".                                                                                                                              |
-| `mcp-gap:`    | Scout-noticed gap in the MCP surface worth raising later.                                                                                                                                  |
-| `report:`     | A report this scout authored via the report channel — stores the `report_id` so the next run edits/dedups against it instead of re-filing. See [`report-contract.md`](report-contract.md). |
+| Prefix        | Use for                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pattern:`    | Durable observation about how this team's data normally shapes (baselines).                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `noise:`      | Patterns to ignore (single-user, dev-only, recurring with no fix path).                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `addressed:`  | Team-confirmed fix shipped, or topic the team has moved on from.                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `dedupe:`     | Gates future runs on a specific issue / fingerprint so the scout doesn't re-file it.                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `allowlist:`  | Vetted entities the scout should never re-surface.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `not-in-use:` | Close-out memo for "product/surface not in use on this team".                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `mcp-gap:`    | Scout-noticed gap in the MCP surface worth raising later.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `improve:`    | Custom scouts only: an evidence-backed suggested change to this scout's own skill body, written for the scout's owner to review and apply (or reject). Keyed `improve:<skill-name>:<topic>` — skill name, not domain, since scratchpad keys are team-wide and two scouts sharing a domain would clobber each other. The harness prompt invites these on custom scouts; canonical scouts never write them (applying one would diverge the seeded row). The scout clears its own entry once a later run confirms the suggestion was addressed. |
+| `report:`     | A report this scout authored — stores the `report_id`, keyed `report:<domain>:<entity>`, so the next run edits/dedups against it instead of re-filing. See [`report-contract.md`](report-contract.md).                                                                                                                                                                                                                                                                                                                                       |
+| `reviewer:`   | A resolved owner (bare lowercase GitHub login), keyed `reviewer:<domain>:<area>`, so the next run sets `suggested_reviewers` without re-resolving.                                                                                                                                                                                                                                                                                                                                                                                           |
 
 Format: `<prefix>:<domain>:<entity>` — e.g. `pattern:error_tracking:baseline`, `noise:logs:rabbitmq-deploy-window`, `dedupe:csp_violations:a1b2c3d4`.
 Each canonical specialist has its own `<domain>` label (`error_tracking`, `logs`, `llm_analytics`, `experiments`, `feature-flags`, `session-replay`, `web-analytics`, `pipelines`, `health`, …) — not a closed set.
 A new scout introduces its own domain label and reuses the prefixes; match the label a surface's existing entries already use.
 
-## When to write memory vs. emit
+## When to author a report vs. write memory
 
 | Situation                                                          | Action                                                                    |
 | ------------------------------------------------------------------ | ------------------------------------------------------------------------- |
-| Confirmed real signal, not yet emitted by anyone.                  | Emit (new).                                                               |
-| Confirmed real signal, prior run covered it, new evidence.         | Emit (cite prior `finding_id`).                                           |
-| Pattern observed but `confidence < 0.65`.                          | Scratchpad `pattern:` entry.                                              |
+| Confirmed, well-formed finding no existing report covers.          | Author a report (`emit_report`).                                          |
+| Existing report covers it and there's new evidence.                | `edit_report` (append a note, or rewrite a report the scout authored).    |
+| Pattern observed but not yet defensible as a standalone report.    | Scratchpad `pattern:` entry; keep investigating.                          |
 | Investigated and ruled out; would waste a future run if rechecked. | Scratchpad `noise:` / `addressed:` entry.                                 |
-| Scratchpad already covers it; no change.                           | Skip; note in summary.                                                    |
+| Scratchpad or inbox already covers it; no change.                  | Skip; note in summary.                                                    |
 | Issue currently quiet but worth re-checking later.                 | Rewrite the existing entry (same key) with a fresh timestamp + condition. |
 
 ## What a good entry looks like
@@ -77,6 +80,6 @@ These are noise across essentially all PostHog projects — list the relevant on
   Internal harness operations, not user-facing.
 - **Single-session frontend state quirks** — e.g. KEA store-path errors; not user-impacting unless distinct-user counts climb.
 - **Known upstream provider errors** — Anthropic / OpenAI rate limits, third-party outages already covered by past memory.
-  Don't re-emit unless volume or shape changes meaningfully.
+  Don't re-file unless volume or shape changes meaningfully.
 
 The team's scratchpad extends this list per-project as the scout learns — which is exactly why the save-memory discipline matters.

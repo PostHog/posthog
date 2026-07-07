@@ -38,6 +38,7 @@ members = [
   "cyclotron-core",
   "cyclotron-node",
   "cyclotron-janitor",
+  "replay-anonymizer-node",
   "cymbal",
   "cymbal-proto",
   "embedding-worker",
@@ -73,6 +74,9 @@ unit_bindings = "deny"
 [workspace.lints.clippy]
 # See https://rust-lang.github.io/rust-clippy/, we might want to add more
 enum_glob_use = "deny"
+# Inert for every crate that ships no `clippy.toml` `disallowed-methods` list (all of them but
+# `cohort-stream-processor`, whose list confines async code to the `StoreHandle` facade).
+disallowed_methods = "deny"
 
 # this is needed until getsentry/symbolic update the js-source-scopes to >0.6.0
 # I made a PR for the upstream fix here https://github.com/getsentry/symbolic/pull/945
@@ -129,6 +133,7 @@ mockito = "1"
 hyper = { version = "1.9.0", features = ["server", "http1", "http2"] }
 hyper-util = { version = "0.1.20", features = ["server", "server-graceful", "tokio", "http1", "http2"] }
 itoa = "1.0.15"
+libdeflater = "1"
 lru = "0.12"
 metrics = "0.22.0"
 metrics-exporter-prometheus = "0.14.0"
@@ -172,6 +177,7 @@ tracing-opentelemetry = "0.23.0"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 url = "2.5.0"
 uuid = { version = "1.23.0", features = ["v4", "v5", "v7", "serde"] }
+zstd = "0.13"
 neon = "1"
 quick_cache = "0.6.21"
 ahash = "0.8.11"

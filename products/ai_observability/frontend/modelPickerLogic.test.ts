@@ -114,6 +114,7 @@ describe('modelPickerLogic', () => {
         it('should return empty array when no valid keys exist', async () => {
             useMocks({
                 get: {
+                    '/api/llm_proxy/models/': () => [200, []],
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [{ id: 'key-1', provider: 'openai', state: 'invalid' }],
                     },
@@ -235,6 +236,7 @@ describe('modelPickerLogic', () => {
         it('should return false when all keys are non-ok', async () => {
             useMocks({
                 get: {
+                    '/api/llm_proxy/models/': () => [200, []],
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [
                             { id: 'key-1', provider: 'openai', state: 'invalid' },
@@ -257,6 +259,7 @@ describe('modelPickerLogic', () => {
         it('should return false when no keys exist', async () => {
             useMocks({
                 get: {
+                    '/api/llm_proxy/models/': () => [200, []],
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [],
                     },

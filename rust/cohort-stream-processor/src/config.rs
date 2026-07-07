@@ -12,7 +12,7 @@ use rdkafka::ClientConfig;
 use tracing::warn;
 
 use crate::store::durability::DurabilityConfig;
-use crate::store::StoreConfig;
+use crate::store::{OffloadConfig, OffloadMode, StoreConfig};
 use crate::workers::{CascadeConfig, EventNameGating, PersonMemoConfig, TransferRetryPolicy};
 
 const POOL_NAME: &str = "posthog_cohort";
@@ -76,6 +76,13 @@ pub struct Config {
     #[envconfig(default = "128")]
     pub partition_channel_buffer: usize,
 
+    /// Per-partition ceiling on un-drained events in a worker's channel — the binding intake bound
+    /// (the 128-slot buffer counts sub-batches, not the events inside them). Worst case in channels
+    /// ≈ `cap × owned_partitions × avg_event_bytes`. Tune down if soak RSS runs hot; too low churns
+    /// pause/resume.
+    #[envconfig(from = "PARTITION_INTAKE_MAX_EVENTS", default = "1024")]
+    pub partition_intake_max_events: usize,
+
     #[envconfig(default = "localhost:9092")]
     pub kafka_hosts: String,
 
@@ -103,6 +110,16 @@ pub struct Config {
     /// membership, a restart within this window reclaims partitions with no rebalance.
     #[envconfig(default = "60000")]
     pub kafka_session_timeout_ms: u64,
+
+    /// `queued.max.messages.kbytes` (KB). For a `subscribe()` consumer this is an *aggregate* cap
+    /// across all partitions — the ceiling on librdkafka's fetch buffer. 128 MB.
+    #[envconfig(from = "COHORT_KAFKA_QUEUED_MAX_MESSAGES_KBYTES", default = "131072")]
+    pub kafka_queued_max_messages_kbytes: u32,
+
+    /// `queued.min.messages` — per-partition prefetch floor. Low so a paused partition hoards fewer
+    /// stragglers; too low risks `fetch.queue.backoff.ms` inter-fetch gaps.
+    #[envconfig(from = "COHORT_KAFKA_QUEUED_MIN_MESSAGES", default = "2000")]
+    pub kafka_queued_min_messages: u32,
 
     /// The person-merge trigger topic, keyed by `hash(team_id, old_person_uuid)` so a merge lands on
     /// P_old's worker.
@@ -254,6 +271,12 @@ pub struct Config {
     #[envconfig(default = "30000")]
     pub sweep_interval_ms: u64,
 
+    /// Startup delay before the *first* eviction sweep, so its overdue-eviction read burst doesn't
+    /// compete with backlog catch-up on a cold, idle store at boot. Counts from sweep-task spawn
+    /// (≈ process boot), not "backlog drained", so raise it if the burst still lands on catch-up.
+    #[envconfig(from = "COHORT_FIRST_EVICTION_SWEEP_DELAY_MS", default = "120000")]
+    pub first_eviction_sweep_delay_ms: u64,
+
     /// Grace period added to every eviction deadline before the sweep acts. The sweep evicts a key
     /// only once `deadline + safety_margin < now`, absorbing consumer-lag spikes.
     #[envconfig(default = "300000")]
@@ -303,6 +326,24 @@ pub struct Config {
     /// Cap on RocksDB background compaction/flush jobs. Non-positive leaves RocksDB's default.
     #[envconfig(from = "COHORT_MAX_BACKGROUND_JOBS", default = "0")]
     pub cohort_max_background_jobs: i32,
+
+    /// Where store I/O runs relative to the runtime worker threads: `off` (inline on the caller — the
+    /// operator kill switch), `maintenance` (only maintenance-lane reads, the WAL fsync, and sections
+    /// offload; the event path stays inline), or `all` (every op offloads to the blocking pool).
+    /// Default `all`.
+    #[envconfig(from = "COHORT_STORE_OFFLOAD_MODE", default = "all")]
+    pub cohort_store_offload_mode: OffloadMode,
+
+    /// Bound on event-path store reads executing concurrently on the blocking pool. Keeps a burst of
+    /// event reads from saturating the disk queue; `0` disables the bound (unbounded lane).
+    #[envconfig(from = "COHORT_STORE_EVENT_READ_PERMITS", default = "16")]
+    pub cohort_store_event_read_permits: usize,
+
+    /// Bound on maintenance-lane store reads and sections executing concurrently on the blocking
+    /// pool (sweep prefetch, boot rebuild scans, GC). Held lower than the event lane so a
+    /// maintenance storm leaves disk headroom for the event path; `0` disables the bound.
+    #[envconfig(from = "COHORT_STORE_MAINTENANCE_PERMITS", default = "6")]
+    pub cohort_store_maintenance_permits: usize,
 
     /// When on, reopen the existing store on restart instead of wiping it: recent Stage 1 state is
     /// restored and only the gap since the last committed offset is replayed (idempotent via per-key
@@ -413,6 +454,14 @@ pub struct Config {
     pub checkpoint_import_timeout_secs: u64,
 }
 
+/// librdkafka consumer fetch-queue bounds: an aggregate byte cap across all partitions and a
+/// per-partition prefetch floor.
+#[derive(Clone, Copy, Debug)]
+pub struct FetchQueueConfig {
+    pub queued_max_messages_kbytes: u32,
+    pub queued_min_messages: u32,
+}
+
 impl Config {
     pub fn bind_address(&self) -> String {
         format!("{}:{}", self.bind_host, self.bind_port)
@@ -452,6 +501,17 @@ impl Config {
 
     pub fn sweep_interval(&self) -> Duration {
         Duration::from_millis(self.sweep_interval_ms)
+    }
+
+    pub fn first_eviction_sweep_delay(&self) -> Duration {
+        Duration::from_millis(self.first_eviction_sweep_delay_ms)
+    }
+
+    pub fn fetch_queue_config(&self) -> FetchQueueConfig {
+        FetchQueueConfig {
+            queued_max_messages_kbytes: self.kafka_queued_max_messages_kbytes,
+            queued_min_messages: self.kafka_queued_min_messages,
+        }
     }
 
     pub fn sweep_safety_margin(&self) -> Duration {
@@ -594,6 +654,16 @@ impl Config {
         }
     }
 
+    /// Resolve the store-offload strategy and per-lane concurrency bounds handed to the
+    /// [`StoreHandle`](crate::store::StoreHandle).
+    pub fn offload_config(&self) -> OffloadConfig {
+        OffloadConfig {
+            mode: self.cohort_store_offload_mode,
+            event_read_permits: self.cohort_store_event_read_permits,
+            maintenance_permits: self.cohort_store_maintenance_permits,
+        }
+    }
+
     /// Stable per-pod identity for static group membership, `POD_NAME` preferred over `HOSTNAME`.
     /// `None` leaves static membership off.
     pub fn pod_identity(&self) -> Option<&str> {
@@ -624,6 +694,15 @@ impl Config {
             )
             .set("heartbeat.interval.ms", "5000")
             .set("max.poll.interval.ms", "300000");
+
+        // Bound librdkafka's fetch buffer: an aggregate byte ceiling plus a per-partition prefetch floor.
+        let fetch = self.fetch_queue_config();
+        config
+            .set(
+                "queued.max.messages.kbytes",
+                fetch.queued_max_messages_kbytes.to_string(),
+            )
+            .set("queued.min.messages", fetch.queued_min_messages.to_string());
 
         // Static membership; an explicit `kafka_client_id` overrides `client.id` below.
         if let Some(id) = self.pod_identity() {
@@ -734,6 +813,7 @@ mod tests {
             cohort_person_memo_capacity: 20000,
             cohort_event_name_gating_enabled: true,
             partition_channel_buffer: 128,
+            partition_intake_max_events: 1024,
             kafka_hosts: "localhost:9092".to_string(),
             kafka_tls: false,
             kafka_client_id: String::new(),
@@ -741,6 +821,8 @@ mod tests {
             cohort_stream_events_topic: "cohort_stream_events".to_string(),
             kafka_consumer_group: "cohort-stream-processor".to_string(),
             kafka_consumer_offset_reset: "latest".to_string(),
+            kafka_queued_max_messages_kbytes: 131_072,
+            kafka_queued_min_messages: 2000,
             person_merge_events_topic: "person_merge_events".to_string(),
             cohort_merge_state_transfer_topic: "cohort_merge_state_transfer".to_string(),
             kafka_merge_consumer_group: "cohort-stream-merges".to_string(),
@@ -772,6 +854,7 @@ mod tests {
             offset_commit_interval_ms: 5000,
             tokio_worker_threads: 0,
             sweep_interval_ms: 30000,
+            first_eviction_sweep_delay_ms: 120_000,
             sweep_safety_margin_ms: 300000,
             stats_publish_interval_secs: 15,
             store_path: "cohort-store".to_string(),
@@ -783,6 +866,9 @@ mod tests {
             cohort_compact_on_deletion_enabled: true,
             cohort_periodic_compaction_seconds: 0,
             cohort_max_background_jobs: 0,
+            cohort_store_offload_mode: OffloadMode::All,
+            cohort_store_event_read_permits: 16,
+            cohort_store_maintenance_permits: 6,
             durable_restore_enabled: false,
             durable_restore_single_pod: false,
             checkpoint_enabled: false,
@@ -866,6 +952,47 @@ mod tests {
     }
 
     #[test]
+    fn consumer_config_sets_the_fetch_queue_bounds() {
+        let config = test_config();
+        let client = config.consumer_client_config();
+        assert_eq!(client.get("queued.max.messages.kbytes"), Some("131072"));
+        assert_eq!(client.get("queued.min.messages"), Some("2000"));
+    }
+
+    #[test]
+    fn intake_and_boot_ordering_knobs_default_and_override_from_env() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert_eq!(defaults.partition_intake_max_events, 1024);
+        assert_eq!(defaults.kafka_queued_max_messages_kbytes, 131_072);
+        assert_eq!(defaults.kafka_queued_min_messages, 2000);
+        assert_eq!(
+            defaults.first_eviction_sweep_delay(),
+            Duration::from_millis(120_000),
+        );
+
+        let env: std::collections::HashMap<String, String> = [
+            ("PARTITION_INTAKE_MAX_EVENTS", "512"),
+            ("COHORT_KAFKA_QUEUED_MAX_MESSAGES_KBYTES", "65536"),
+            ("COHORT_KAFKA_QUEUED_MIN_MESSAGES", "1000"),
+            ("COHORT_FIRST_EVICTION_SWEEP_DELAY_MS", "30000"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+        assert_eq!(config.partition_intake_max_events, 512);
+        assert_eq!(
+            config.fetch_queue_config().queued_max_messages_kbytes,
+            65536
+        );
+        assert_eq!(config.fetch_queue_config().queued_min_messages, 1000);
+        assert_eq!(
+            config.first_eviction_sweep_delay(),
+            Duration::from_millis(30_000),
+        );
+    }
+
+    #[test]
     fn consumer_config_sets_static_membership_only_when_pod_identity_is_present() {
         let mut config = test_config();
         assert_eq!(
@@ -945,6 +1072,52 @@ mod tests {
             config.store_config().read_sample_ratio,
             8,
             "the sample ratio reaches StoreConfig",
+        );
+    }
+
+    #[test]
+    fn offload_knobs_default_and_override_from_env() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        let offload = defaults.offload_config();
+        assert_eq!(offload.mode, OffloadMode::All, "offload defaults to All");
+        assert_eq!(offload.event_read_permits, 16);
+        assert_eq!(offload.maintenance_permits, 6);
+
+        let env: std::collections::HashMap<String, String> = [
+            ("COHORT_STORE_OFFLOAD_MODE", "maintenance"),
+            ("COHORT_STORE_EVENT_READ_PERMITS", "8"),
+            ("COHORT_STORE_MAINTENANCE_PERMITS", "0"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+        let offload = config.offload_config();
+        assert_eq!(offload.mode, OffloadMode::Maintenance);
+        assert_eq!(offload.event_read_permits, 8);
+        assert_eq!(offload.maintenance_permits, 0, "0 = unbounded lane");
+
+        let off_env: std::collections::HashMap<String, String> =
+            [("COHORT_STORE_OFFLOAD_MODE", "off")]
+                .into_iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect();
+        assert_eq!(
+            Config::init_from_hashmap(&off_env)
+                .unwrap()
+                .offload_config()
+                .mode,
+            OffloadMode::Off,
+        );
+
+        let bad_env: std::collections::HashMap<String, String> =
+            [("COHORT_STORE_OFFLOAD_MODE", "occasionally")]
+                .into_iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect();
+        assert!(
+            Config::init_from_hashmap(&bad_env).is_err(),
+            "an invalid offload mode must fail config init",
         );
     }
 

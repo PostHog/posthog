@@ -1092,6 +1092,12 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 sandbox_id=sandbox_id,
             )
             self._sandbox_gone = True
+        elif exit_reason == CredentialRefreshExitReason.CREDENTIALS_UNAVAILABLE:
+            workflow.logger.warning(
+                "execute_sandbox_credential_refresh_stopped_credentials_unavailable",
+                run_id=self.context.run_id,
+                sandbox_id=sandbox_id,
+            )
 
     def _mark_sandbox_gone(self) -> None:
         self._task_completed = True
@@ -1157,7 +1163,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 use_directory_snapshot=self.context.use_modal_directory_resume_snapshots,
             ),
             start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=1),
+            retry_policy=RetryPolicy(maximum_attempts=3),
         )
         if result.external_id:
             workflow.logger.info(f"Resume snapshot created: {result.external_id} for sandbox {sandbox_id}")

@@ -4,6 +4,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { AggregatedSpanRow } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
@@ -60,6 +61,7 @@ function mountWithSpans(spans: Span[] = mockSpans): ReturnType<typeof tracingDat
 }
 
 describe('tracingDataLogic', () => {
+    afterEach(resumeKeaLoadersErrors)
     let logic: ReturnType<typeof tracingDataLogic.build>
 
     beforeEach(() => {
@@ -274,6 +276,7 @@ describe('tracingDataLogic', () => {
         })
 
         it('toasts on a real count failure', async () => {
+            silenceKeaLoadersErrors()
             const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
             jest.spyOn(api.tracing, 'count').mockRejectedValue(new Error('boom'))
             logic = mountWithSpans([])
@@ -304,6 +307,25 @@ describe('tracingDataLogic', () => {
             await logic.asyncActions.fetchSparkline()
             expect(sparklineSpy).toHaveBeenCalledTimes(2)
             sparklineSpy.mockRestore()
+        })
+    })
+
+    describe('keyed instances', () => {
+        it('reads filters from its own instance, not the scene default', () => {
+            const isolatedFilters = tracingFiltersLogic({ id: 'isolated' })
+            const isolatedData = tracingDataLogic({ id: 'isolated' })
+            isolatedFilters.mount()
+            isolatedData.mount()
+            const defaultData = mountWithSpans([])
+            try {
+                isolatedFilters.actions.setServiceNames(['isolated-svc'])
+
+                expect(isolatedData.values.filters.serviceNames).toEqual(['isolated-svc'])
+                expect(defaultData.values.filters.serviceNames).toEqual([])
+            } finally {
+                isolatedData.unmount()
+                isolatedFilters.unmount()
+            }
         })
     })
 })

@@ -122,6 +122,10 @@ function ScheduleSection(): JSX.Element {
             </div>
 
             <span className="text-xs text-muted">{humanizeCadence(cadence)}</span>
+            <span className="text-xs text-muted">
+                Each run summarizes up to 100 observations from the period. Busier periods are sampled down to that
+                limit.
+            </span>
         </div>
     )
 }
@@ -220,6 +224,11 @@ export function VisionActionForm({ scannerId }: { scannerId: string }): JSX.Elem
                 <div>
                     <h4 className="mb-1">Deliver to Slack</h4>
                     <DeliverySection />
+                </div>
+
+                <div className="text-xs text-muted">
+                    Each scheduled run generates an AI summary using your PostHog AI credits. Runs are skipped while
+                    you're over your AI-credit budget.
                 </div>
             </Form>
         </LemonModal>

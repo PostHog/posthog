@@ -147,7 +147,7 @@ export function NotebookHistory(): JSX.Element {
 }
 
 export function NotebookHistoryWarning(): JSX.Element | null {
-    const { previewContent } = useValues(notebookLogic)
+    const { previewContent, content } = useValues(notebookLogic)
     const { setLocalContent, clearPreviewContent, duplicateNotebook, setShowHistory } = useActions(notebookLogic)
 
     if (!previewContent) {
@@ -161,7 +161,6 @@ export function NotebookHistoryWarning(): JSX.Element | null {
         // updateEditor=true puts the historical doc into the editor so prosemirror-collab
         // produces real steps for the delta. Without it, sendableSteps stays empty and the
         // collab save is a no-op — revert would silently do nothing.
-        const content = previewContent
         clearPreviewContent()
         setLocalContent(content, true)
         setShowHistory(false)

@@ -442,12 +442,14 @@ Two more things to keep in mind:
 ## Known long-tail divergences
 
 The PBT for `expr` and `select` exposes adversarial grammar surface
-that the production corpora never see: deep nested
-`BETWEEN low AND high` chains with embedded aliases and ternaries,
-extreme `WITHIN GROUP (ORDER BY …)` shapes, multi-token-`AND`-merged
+that the production corpora never see: extreme
+`WITHIN GROUP (ORDER BY …)` shapes and multi-token-`AND`-merged
 operands. These take focused per-shape investigation; the
 [PR description](https://github.com/PostHog/posthog/pull/58949) has
-the current numbers.
+the current numbers. (Deep `BETWEEN low AND high` chains with embedded
+aliases and ternaries used to be on this list; the two-tier grammar
+made BETWEEN bounds value-tier, so those shapes are now either
+unambiguous or rejected by both backends.)
 
 The production corpora (`log_corpus_diagnostic`,
 `hog_corpus_diagnostic`) stay above 90%, so anything the PBT surfaces

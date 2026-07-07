@@ -180,6 +180,7 @@ describe('session recording encryption integration', () => {
             teamId,
             consoleLogIngestionEnabled: false,
             aiTrainingOptedIn: true,
+            firstPartyHosts: [],
         },
         message: {
             distinct_id: 'distinct_id',
@@ -231,7 +232,7 @@ describe('session recording encryption integration', () => {
         ]
 
         const message = createMessage(sessionId, teamId, originalEvents)
-        await recorder.record(message)
+        await recorder.record(message, '30d')
         const metadata = await recorder.flush()
 
         expect(metadata).toHaveLength(1)
@@ -269,7 +270,7 @@ describe('session recording encryption integration', () => {
         const message1 = createMessage(sessionId, teamId, [
             { type: EventType.FullSnapshot, data: { source: 1, snapshot: { html: '<div>Block 1</div>' } } },
         ])
-        await recorder.record(message1)
+        await recorder.record(message1, '30d')
         const metadata1 = await recorder.flush()
 
         const encryptedBlock1 = readEncryptedBlockFromBatch(metadata1[0])
@@ -294,7 +295,7 @@ describe('session recording encryption integration', () => {
         const message2 = createMessage(sessionId, teamId, [
             { type: EventType.IncrementalSnapshot, data: { source: 2, mutations: [{ id: 2 }] } },
         ])
-        await recorder.record(message2)
+        await recorder.record(message2, '30d')
         const metadata2 = await recorder.flush()
 
         const encryptedBlock2 = readEncryptedBlockFromBatch(metadata2[0])
@@ -319,7 +320,7 @@ describe('session recording encryption integration', () => {
         const message = createMessage(sessionId, teamId, [
             { type: EventType.FullSnapshot, data: { source: 1, snapshot: { html: '<div>Secret</div>' } } },
         ])
-        await recorder.record(message)
+        await recorder.record(message, '30d')
         const metadata = await recorder.flush()
 
         const encryptedBlock = readEncryptedBlockFromBatch(metadata[0])
@@ -344,7 +345,7 @@ describe('session recording encryption integration', () => {
             const message = createMessage(sessionId, teamId, [
                 { type: EventType.FullSnapshot, data: { source: 1, snapshot: { html: `<div>${sessionId}</div>` } } },
             ])
-            await recorder.record(message)
+            await recorder.record(message, '30d')
         }
 
         const metadata = await recorder.flush()

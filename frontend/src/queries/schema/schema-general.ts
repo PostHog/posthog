@@ -5039,6 +5039,10 @@ export interface DashboardFilter {
     properties?: AnyPropertyFilter[] | null
     breakdown_filter?: BreakdownFilter | null
     explicitDate?: boolean
+    /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
+    interval?: IntervalType | null
+    /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
+    filterTestAccounts?: boolean | null
 }
 
 export interface TileFilters {
@@ -5047,6 +5051,8 @@ export interface TileFilters {
     properties?: AnyPropertyFilter[] | null | undefined
     breakdown_filter?: BreakdownFilter | null | undefined
     explicitDate?: boolean | undefined
+    interval?: IntervalType | null | undefined
+    filterTestAccounts?: boolean | null | undefined
 }
 
 export interface InsightsThresholdBounds {
@@ -5087,6 +5093,7 @@ export enum AlertState {
 }
 
 export enum AlertCalculationInterval {
+    REAL_TIME = 'real_time',
     EVERY_15_MINUTES = 'every_15_minutes',
     HOURLY = 'hourly',
     DAILY = 'daily',
@@ -7206,6 +7213,9 @@ export const externalDataSources = [
     'Podium',
     'Loops',
     'Redis',
+    'Mercury',
+    'Gojiberry',
+    'Teachable',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

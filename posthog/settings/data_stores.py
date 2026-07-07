@@ -532,6 +532,8 @@ if not CDP_API_URL:
 # internal API requests fail closed at request time (InternalAPIAuthentication) rather than silently
 # running on a known-public value. Stripped at load so a mounted secret's trailing newline can't
 # cause a spurious mismatch; get_list already strips the fallbacks.
+# Do not add new callers or protected endpoints to this shared secret — mint a scoped JWT (see
+# RECORDING_API_JWT_SECRET) or add a dedicated per-purpose secret. See .agents/security.md.
 LOCAL_DEV_INTERNAL_API_SECRET = "posthog123"
 INTERNAL_API_SECRET = get_from_env(
     "INTERNAL_API_SECRET", LOCAL_DEV_INTERNAL_API_SECRET if DEBUG or TEST else ""

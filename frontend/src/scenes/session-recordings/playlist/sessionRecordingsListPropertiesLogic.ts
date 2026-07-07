@@ -91,8 +91,10 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                     const startTime = performance.now()
                     const sessionIds = sessions.map((x) => x.id)
 
-                    const oldestTimestamp = sessions.map((x) => x.start_time).sort()[0]
-                    const newestTimestamp = sessions.map((x) => x.end_time).sort()[sessions.length - 1]
+                    const chronological = (a: string, b: string): number =>
+                        new Date(a).getTime() - new Date(b).getTime()
+                    const oldestTimestamp = sessions.map((x) => x.start_time).sort(chronological)[0]
+                    const newestTimestamp = sessions.map((x) => x.end_time).sort(chronological)[sessions.length - 1]
 
                     const extraSessionProperties = values.extraSessionProperties
                     let response
