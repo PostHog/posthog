@@ -41,11 +41,19 @@ use crate::producer::{CohortStreamProducer, EnqueueError};
 /// at least this often on a quiet topic.
 const RECV_TIMEOUT: Duration = Duration::from_millis(500);
 const QUEUE_FULL_BACKOFF_CAP: Duration = Duration::from_secs(2);
+/// Intake pause after a kafka-level recv error, so a persistently erroring consumer doesn't
+/// hot-loop.
+const RECV_ERROR_BACKOFF: Duration = Duration::from_secs(1);
 /// No successful commit for this many intervals while committable work exists ⇒ stop
 /// heartbeating so the stall detector restarts the pod.
 const COMMIT_STALENESS_FACTOR: u32 = 3;
+/// Every step of the shutdown drain shares this one budget, sized inside the consumer's 15s
+/// graceful window with slack for process-exit overhead.
+const SHUTDOWN_DRAIN_BUDGET: Duration = Duration::from_secs(14);
+/// librdkafka-internal bound on the shutdown flush; the shared budget applies on top.
 const SHUTDOWN_FLUSH_TIMEOUT: Duration = Duration::from_secs(5);
-const SHUTDOWN_ACK_DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
+/// Slice of the shared budget reserved for the final Sync commit — the step that turns drained
+/// work into committed progress must not be starved by a slow flush or ack drain.
 const SHUTDOWN_COMMIT_TIMEOUT: Duration = Duration::from_secs(4);
 
 /// Only the fields the team gate needs. Every undeclared field (notably the large
@@ -91,8 +99,10 @@ enum Decoded {
     SkipTeamGate,
     /// Serde failure at either phase — counted and settled, never an `Err`. Infallibility matters:
     /// `recv_with` auto-stores offsets on decode errors, and a stored poison-pill offset could be
-    /// committed past unacked forwards by an auto-commit path. With this variant the auto-store
-    /// branch is unreachable, and the ledger owns every observed offset.
+    /// committed past unacked forwards by an auto-commit path. With this variant the decode-error
+    /// auto-store is unreachable; only the empty-payload branch still auto-stores, and stored
+    /// offsets stay inert because auto-commit is off (see `Config::build_consumer_config`). The
+    /// ledger owns every observed offset.
     Unparseable,
 }
 
@@ -146,6 +156,48 @@ pub struct ShufflerSettings {
     pub queue_full_backoff: Duration,
 }
 
+/// A gate survivor whose enqueue hit `QueueFull`, parked until the producer queue drains. Its
+/// offset is not observed by the ledger until the enqueue lands, so a crash while parked simply
+/// replays it.
+struct PendingForward {
+    event: CohortStreamEvent,
+    partition: SourcePartition,
+    offset: SourceOffset,
+}
+
+/// Whether the recv arm may consume. Pausing is a hard ordering gate — a parked survivor must
+/// reach the producer before any newer event for the same `(team, person)` — but only intake
+/// stops: acks, commits, shutdown, and the liveness heartbeat keep flowing because the loop
+/// itself never sleeps.
+enum Intake {
+    Open,
+    /// `QueueFull`: re-enqueue the parked forward at `resume_at`, doubling `backoff` (capped)
+    /// on each further failure. Boxed to keep the always-carried `Open` variant word-sized.
+    RetryForward {
+        forward: Box<PendingForward>,
+        resume_at: tokio::time::Instant,
+        backoff: Duration,
+    },
+    /// Transient kafka-level recv error; resume consuming at `resume_at`.
+    Backoff {
+        resume_at: tokio::time::Instant,
+    },
+}
+
+impl Intake {
+    fn is_open(&self) -> bool {
+        matches!(self, Intake::Open)
+    }
+
+    /// Only meaningful when paused; the select arm awaiting this is guarded on `!is_open()`.
+    fn resume_at(&self) -> tokio::time::Instant {
+        match self {
+            Intake::Open => tokio::time::Instant::now(),
+            Intake::RetryForward { resume_at, .. } | Intake::Backoff { resume_at } => *resume_at,
+        }
+    }
+}
+
 pub struct EventShuffler {
     consumer: SingleTopicConsumer,
     producer: CohortStreamProducer,
@@ -171,11 +223,11 @@ impl EventShuffler {
         }
     }
 
-    /// The single pipeline task: owns the consumer, producer, [`Ledger`], pending ack futures,
-    /// and the one-slot commit task. Backpressure is the recv guard — at the in-flight cap the
-    /// intake arm is disabled while acks and commits keep draining, and every `DeliveryFuture`
-    /// resolves within `message.timeout.ms` regardless of broker state, so the loop cannot
-    /// deadlock.
+    /// The single pipeline task: owns the consumer, producer, [`Ledger`], [`Intake`] gate,
+    /// pending ack futures, and the one-slot commit task. Backpressure is the recv guard — at
+    /// the in-flight cap or while intake is paused the recv arm is disabled but acks and commits
+    /// keep draining, and every `DeliveryFuture` resolves within `message.timeout.ms` regardless
+    /// of broker state, so the loop cannot deadlock and never stops heartbeating on its own.
     pub async fn process(self) {
         let _guard = self.handle.process_scope();
         info!("shuffler pipeline starting");
@@ -183,6 +235,7 @@ impl EventShuffler {
         let mut ledger = Ledger::default();
         let mut pending_acks: FuturesUnordered<AckFuture> = FuturesUnordered::new();
         let mut pending_commit: FuturesUnordered<CommitFuture> = FuturesUnordered::new();
+        let mut intake = Intake::Open;
         let mut commit_in_flight = false;
         let mut commit_tick = tokio::time::interval(self.settings.commit_interval);
         commit_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -216,17 +269,27 @@ impl EventShuffler {
                     }
                 }
 
+                _ = tokio::time::sleep_until(intake.resume_at()), if !intake.is_open() => {
+                    intake = match std::mem::replace(&mut intake, Intake::Open) {
+                        Intake::RetryForward { forward, backoff, .. } => {
+                            self.try_enqueue(forward, backoff, &mut ledger, &mut pending_acks)
+                        }
+                        Intake::Open | Intake::Backoff { .. } => Intake::Open,
+                    };
+                }
+
                 // Fail-closed until the team index loads once: don't consume — and advance
                 // offsets past — events while the gate would forward nothing.
                 recv = tokio::time::timeout(
                     RECV_TIMEOUT,
                     self.consumer.recv_with(|payload| Ok(decode_gated(payload, &self.team_index))),
-                ), if ledger.in_flight() < self.settings.max_inflight_forwards
+                ), if intake.is_open()
+                    && ledger.in_flight() < self.settings.max_inflight_forwards
                     && self.team_index.is_loaded() =>
                 {
                     match recv {
                         Ok(Ok((decoded, offset))) => {
-                            self.intake(&mut ledger, &mut pending_acks, decoded, &offset).await;
+                            intake = self.intake(&mut ledger, &mut pending_acks, decoded, &offset);
                         }
                         Ok(Err(err)) => match err {
                             // Auto-stored by recv_with, but inert: this loop never commits
@@ -238,8 +301,10 @@ impl EventShuffler {
                                 warn!(error = %e, "unreachable: infallible decode reported serde error");
                             }
                             RecvErr::Kafka(e) => {
-                                warn!(error = %e, "kafka recv error; backing off");
-                                tokio::time::sleep(Duration::from_secs(1)).await;
+                                warn!(error = %e, "kafka recv error; pausing intake");
+                                intake = Intake::Backoff {
+                                    resume_at: tokio::time::Instant::now() + RECV_ERROR_BACKOFF,
+                                };
                             }
                         },
                         Err(_elapsed) => {} // idle poll; heartbeat below keeps liveness fresh
@@ -255,18 +320,18 @@ impl EventShuffler {
             }
         }
 
-        self.drain_and_commit(ledger, pending_acks, pending_commit)
+        self.drain_and_commit(ledger, pending_acks, pending_commit, intake)
             .await;
         info!("shuffler pipeline stopped");
     }
 
-    async fn intake(
+    fn intake(
         &self,
         ledger: &mut Ledger,
         pending_acks: &mut FuturesUnordered<AckFuture>,
         decoded: Decoded,
         offset: &Offset,
-    ) {
+    ) -> Intake {
         counter!(EVENTS_CONSUMED).increment(1);
         let partition = SourcePartition(offset.partition());
         let source_offset = SourceOffset(offset.get_value());
@@ -276,26 +341,55 @@ impl EventShuffler {
             Decoded::DropNoPersonId => {
                 counter!(EVENTS_DROPPED_NO_PERSON_ID).increment(1);
                 ledger.observe(partition, source_offset, Observation::Settled);
-                return;
+                return Intake::Open;
             }
             Decoded::SkipTeamGate => {
                 counter!(EVENTS_SKIPPED_TEAM_GATE).increment(1);
                 ledger.observe(partition, source_offset, Observation::Settled);
-                return;
+                return Intake::Open;
             }
             Decoded::Unparseable => {
                 counter!(EVENTS_UNPARSEABLE).increment(1);
                 ledger.observe(partition, source_offset, Observation::Settled);
-                return;
+                return Intake::Open;
             }
         };
 
-        let stream_event =
-            CohortStreamEvent::from_clickhouse(*event, person_id, partition.0, source_offset.0);
-        match self.enqueue_with_retry(&stream_event).await {
+        let forward = Box::new(PendingForward {
+            event: CohortStreamEvent::from_clickhouse(
+                *event,
+                person_id,
+                partition.0,
+                source_offset.0,
+            ),
+            partition,
+            offset: source_offset,
+        });
+        self.try_enqueue(
+            forward,
+            self.settings.queue_full_backoff,
+            ledger,
+            pending_acks,
+        )
+    }
+
+    /// One non-blocking enqueue attempt. `QueueFull` parks the forward for a timer-arm retry
+    /// after `backoff`: the queue drains independently via librdkafka's delivery thread, and
+    /// `message.timeout.ms` bounds how long it can stay full even with a dead broker.
+    fn try_enqueue(
+        &self,
+        forward: Box<PendingForward>,
+        backoff: Duration,
+        ledger: &mut Ledger,
+        pending_acks: &mut FuturesUnordered<AckFuture>,
+    ) -> Intake {
+        match self.producer.enqueue(&forward.event) {
             Ok(delivery) => {
                 counter!(FORWARDS_ENQUEUED).increment(1);
-                ledger.observe(partition, source_offset, Observation::InFlight);
+                let PendingForward {
+                    partition, offset, ..
+                } = *forward;
+                ledger.observe(partition, offset, Observation::InFlight);
                 let sent_at = Instant::now();
                 pending_acks.push(Box::pin(async move {
                     let result = match delivery.await {
@@ -303,35 +397,24 @@ impl EventShuffler {
                         Ok(Err((err, _message))) => Err(err),
                         Err(_canceled) => Err(KafkaError::Canceled),
                     };
-                    (partition, source_offset, sent_at, result)
+                    (partition, offset, sent_at, result)
                 }));
+                Intake::Open
             }
-            Err(err) => {
+            Err(EnqueueError::QueueFull) => {
+                counter!(PRODUCE_QUEUE_FULL).increment(1);
+                Intake::RetryForward {
+                    resume_at: tokio::time::Instant::now() + backoff,
+                    backoff: (backoff * 2).min(QUEUE_FULL_BACKOFF_CAP),
+                    forward,
+                }
+            }
+            Err(EnqueueError::Fatal(err)) => {
                 counter!(PRODUCE_ERRORS).increment(1);
                 counter!(EVENTS_ABANDONED).increment(1);
                 warn!(error = %err, "fatal enqueue error; abandoning event");
-                ledger.observe(partition, source_offset, Observation::Settled);
-            }
-        }
-    }
-
-    /// `QueueFull` is retried inline with capped-exponential backoff: the queue drains
-    /// independently via librdkafka's delivery thread, and `message.timeout.ms` bounds how long
-    /// it can stay full, so the wait is bounded even with a dead broker.
-    async fn enqueue_with_retry(
-        &self,
-        event: &CohortStreamEvent,
-    ) -> Result<rdkafka::producer::DeliveryFuture, KafkaError> {
-        let mut backoff = self.settings.queue_full_backoff;
-        loop {
-            match self.producer.enqueue(event) {
-                Ok(delivery) => return Ok(delivery),
-                Err(EnqueueError::QueueFull) => {
-                    counter!(PRODUCE_QUEUE_FULL).increment(1);
-                    tokio::time::sleep(backoff).await;
-                    backoff = (backoff * 2).min(QUEUE_FULL_BACKOFF_CAP);
-                }
-                Err(EnqueueError::Fatal(err)) => return Err(err),
+                ledger.observe(forward.partition, forward.offset, Observation::Settled);
+                Intake::Open
             }
         }
     }
@@ -366,18 +449,24 @@ impl EventShuffler {
         Some(Box::pin(async move { (plan.offsets, task.await) }))
     }
 
-    /// Sequential shutdown: flush the producer, drain remaining acks, then one final Sync
-    /// commit — all deadline-bounded to fit the 15s graceful window. Anything unresolved at the
-    /// deadlines simply replays under the new consumer (at-least-once).
+    /// Sequential shutdown: settle the in-flight commit, flush the producer, drain remaining
+    /// acks, then one final Sync commit. Every step runs under one shared
+    /// [`SHUTDOWN_DRAIN_BUDGET`] deadline with the final commit's slice reserved, so the drain
+    /// provably fits the 15s graceful window. Anything unresolved at a deadline simply replays
+    /// under the new consumer (at-least-once).
     async fn drain_and_commit(
         &self,
         mut ledger: Ledger,
         mut pending_acks: FuturesUnordered<AckFuture>,
         mut pending_commit: FuturesUnordered<CommitFuture>,
+        intake: Intake,
     ) {
+        let deadline = tokio::time::Instant::now() + SHUTDOWN_DRAIN_BUDGET;
+        let pre_commit_deadline = deadline - SHUTDOWN_COMMIT_TIMEOUT;
+
         // Settle the in-flight commit first so the final plan is a real delta.
         if !pending_commit.is_empty() {
-            match tokio::time::timeout(SHUTDOWN_COMMIT_TIMEOUT, pending_commit.next()).await {
+            match tokio::time::timeout_at(pre_commit_deadline, pending_commit.next()).await {
                 Ok(Some((offsets, result))) => {
                     apply_commit_result(&mut ledger, offsets, result);
                 }
@@ -386,16 +475,34 @@ impl EventShuffler {
             }
         }
 
-        let producer = self.producer.clone();
-        match tokio::task::spawn_blocking(move || producer.flush(SHUTDOWN_FLUSH_TIMEOUT)).await {
-            Ok(Ok(())) => {}
-            Ok(Err(err)) => warn!(error = %err, "producer flush failed during shutdown"),
-            Err(err) => error!(error = %err, "producer flush task panicked"),
+        // A forward parked on QueueFull gets one last attempt; if the queue is still full its
+        // offset was never observed, so the commit stops short of it and the new owner replays.
+        if let Intake::RetryForward {
+            forward, backoff, ..
+        } = intake
+        {
+            if let Intake::RetryForward { forward, .. } =
+                self.try_enqueue(forward, backoff, &mut ledger, &mut pending_acks)
+            {
+                warn!(
+                    partition = forward.partition.0,
+                    offset = forward.offset.0,
+                    "producer queue still full at shutdown; parked forward will replay"
+                );
+            }
         }
 
-        let deadline = tokio::time::Instant::now() + SHUTDOWN_ACK_DRAIN_TIMEOUT;
+        let producer = self.producer.clone();
+        let flush = tokio::task::spawn_blocking(move || producer.flush(SHUTDOWN_FLUSH_TIMEOUT));
+        match tokio::time::timeout_at(pre_commit_deadline, flush).await {
+            Ok(Ok(Ok(()))) => {}
+            Ok(Ok(Err(err))) => warn!(error = %err, "producer flush failed during shutdown"),
+            Ok(Err(err)) => error!(error = %err, "producer flush task panicked"),
+            Err(_) => warn!("producer flush exceeded the shutdown budget"),
+        }
+
         while !pending_acks.is_empty() {
-            match tokio::time::timeout_at(deadline, pending_acks.next()).await {
+            match tokio::time::timeout_at(pre_commit_deadline, pending_acks.next()).await {
                 Ok(Some((partition, offset, sent_at, result))) => {
                     record_delivery(&mut ledger, partition, offset, sent_at, result);
                 }
@@ -411,7 +518,7 @@ impl EventShuffler {
         }
 
         if let Some(commit) = self.start_commit(&mut ledger) {
-            match tokio::time::timeout(SHUTDOWN_COMMIT_TIMEOUT, commit).await {
+            match tokio::time::timeout_at(deadline, commit).await {
                 Ok((offsets, result)) => {
                     apply_commit_result(&mut ledger, offsets, result);
                 }

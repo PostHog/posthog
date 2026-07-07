@@ -172,6 +172,9 @@ impl Config {
 
     /// Auto-commit is disabled: the pipeline commits explicit per-partition next-offsets computed
     /// by its [`crate::ledger::Ledger`] (at-least-once; only ack-covered offsets are committed).
+    /// Load-bearing: `recv_with` still auto-STORES offsets for empty payloads, so enabling
+    /// auto-commit would commit those stores past unacked forwards and silently break
+    /// at-least-once. A unit test pins the flag.
     pub fn build_consumer_config(&self) -> ConsumerConfig {
         ConsumerConfig {
             kafka_consumer_group: self.kafka_consumer_group.clone(),
