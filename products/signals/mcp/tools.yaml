@@ -344,6 +344,12 @@ tools:
     signals-report-artefacts-diff:
         operation: signals_report_artefacts_diff
         enabled: false
+    signals-reports-refund-create:
+        operation: signals_reports_refund_create
+        enabled: false
+    signals-reports-refund-summary-retrieve:
+        operation: signals_reports_refund_summary_retrieve
+        enabled: false
     signals-reports-signals-retrieve:
         operation: signals_reports_signals_retrieve
         enabled: false
