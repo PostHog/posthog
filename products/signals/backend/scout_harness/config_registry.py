@@ -23,11 +23,11 @@ from products.skills.backend.models.skills import LLMSkill
 
 logger = structlog.get_logger(__name__)
 
-# Mirror the `SignalScoutConfig.run_interval_minutes` model + serializer bounds (10–43200). A
+# Mirror the `SignalScoutConfig.run_interval_minutes` model + serializer bounds (30–43200). A
 # seed interval comes from arbitrary flag JSON and is written via `get_or_create`, which bypasses
 # model validators — so an out-of-range value is validated here and treated as absent rather than
 # persisted (a large enough int would otherwise raise a DB error and abort the coordinator tick).
-MIN_RUN_INTERVAL_MINUTES = 10
+MIN_RUN_INTERVAL_MINUTES = 30
 MAX_RUN_INTERVAL_MINUTES = 43200
 
 
@@ -73,7 +73,7 @@ def _resolve_seed_posture(seed_config_layers: list[dict] | None) -> tuple[set[st
     - `enabled_skills`: allowlist of canonical scouts that auto-enable on seed; the rest register
       disabled. `None` (no valid layer) means "no allowlist" — every scout enables, historical.
     - `enabled_interval_minutes`: cadence stamped on the auto-enabled rows, validated against the
-      model's 10–43200 bounds; `None` keeps the model default.
+      model's 30–43200 bounds; `None` keeps the model default.
     """
     layers = [layer for layer in (seed_config_layers or []) if isinstance(layer, dict)]
 

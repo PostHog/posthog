@@ -1,5 +1,6 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
-import { UUIDT } from '../../utils/utils'
+import { UUIDT } from '~/common/utils/utils'
+
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
@@ -66,7 +67,14 @@ export function createInvocationResult<T extends CyclotronJobInvocation>(
     > = {},
     resultParams: Pick<
         Partial<CyclotronJobInvocationResult>,
-        'finished' | 'capturedPostHogEvents' | 'warehouseWebhookPayloads' | 'logs' | 'metrics' | 'error' | 'execResult'
+        | 'finished'
+        | 'capturedPostHogEvents'
+        | 'warehouseWebhookPayloads'
+        | 'emailAssets'
+        | 'logs'
+        | 'metrics'
+        | 'error'
+        | 'execResult'
     > = {}
 ): CyclotronJobInvocationResult<T> {
     return {
@@ -74,6 +82,7 @@ export function createInvocationResult<T extends CyclotronJobInvocation>(
         finished: true,
         capturedPostHogEvents: [],
         warehouseWebhookPayloads: [],
+        emailAssets: [],
         logs: [],
         metrics: [],
         ...resultParams,

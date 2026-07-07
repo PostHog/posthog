@@ -23,7 +23,7 @@ const SELECT_COLS = `id, session_id, application_id, team_id, revision_id, turn,
                      tool_call_id, tool_name, proposed_args, args_hash,
                      assistant_message, approver_scope, state,
                      decision_by, decision_at, decision_reason, decided_args,
-                     dispatch_outcome, is_preview, created_at, expires_at`
+                     dispatch_outcome, created_at, expires_at`
 
 export class PgApprovalStore implements ApprovalStore {
     constructor(private readonly pool: Pool) {}
@@ -38,10 +38,10 @@ export class PgApprovalStore implements ApprovalStore {
             `INSERT INTO agent_tool_approval_request
                 (id, session_id, application_id, team_id, revision_id, turn,
                  tool_call_id, tool_name, proposed_args, args_hash,
-                 assistant_message, approver_scope, state, is_preview,
+                 assistant_message, approver_scope, state,
                  created_at, expires_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11::jsonb,
-                     $12::jsonb, 'queued', $13, NOW(), $14)
+                     $12::jsonb, 'queued', NOW(), $13)
              ON CONFLICT (session_id, tool_name, args_hash) WHERE state = 'queued'
                  DO UPDATE SET tool_call_id = agent_tool_approval_request.tool_call_id
              RETURNING ${SELECT_COLS}, (xmax = 0) AS _inserted`,
@@ -58,7 +58,6 @@ export class PgApprovalStore implements ApprovalStore {
                 argsHash,
                 JSON.stringify(input.assistant_message),
                 JSON.stringify(input.approver_scope),
-                input.is_preview,
                 input.expires_at,
             ]
         )
@@ -188,6 +187,16 @@ export class PgApprovalStore implements ApprovalStore {
         return Number(r.rows[0]?.count ?? 0)
     }
 
+    async countQueuedBySession(sessionId: string): Promise<number> {
+        const r = await this.pool.query<{ count: string }>(
+            `SELECT COUNT(*)::text AS count
+             FROM agent_tool_approval_request
+             WHERE session_id = $1 AND state = 'queued'`,
+            [sessionId]
+        )
+        return Number(r.rows[0]?.count ?? 0)
+    }
+
     private async runList(
         whereSeed: string,
         seedParams: unknown[],
@@ -238,7 +247,6 @@ interface DbRow {
     decision_reason: string | null
     decided_args: unknown | null
     dispatch_outcome: unknown | null
-    is_preview: boolean
     created_at: Date
     expires_at: Date
 }
@@ -263,7 +271,6 @@ function rowToRequest(row: DbRow): ApprovalRequest {
         decision_reason: row.decision_reason,
         decided_args: (row.decided_args as Record<string, unknown>) ?? null,
         dispatch_outcome: (row.dispatch_outcome as ApprovalRequest['dispatch_outcome']) ?? null,
-        is_preview: row.is_preview === true,
         created_at: row.created_at.toISOString(),
         expires_at: row.expires_at.toISOString(),
     }

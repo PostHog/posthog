@@ -2,6 +2,7 @@ import { DESTINATION_PLUGINS, TRANSFORMATION_PLUGINS } from '../legacy-plugins'
 import { SEGMENT_DESTINATIONS } from '../segment/segment-templates'
 import { HogFunctionTemplate, NativeTemplate } from '../types'
 import { template as accoilTemplate } from './_destinations/accoil/accoil.template'
+import { template as appcuesTemplate } from './_destinations/appcues/appcues.template'
 import { template as clickupTemplate } from './_destinations/clickup/clickup.template'
 import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
 import { template as emailTemplate } from './_destinations/email/email.template'
@@ -22,6 +23,7 @@ import { template as posthogUpdatePersonPropertiesTemplate } from './_destinatio
 import { template as posthogGetTicketTemplate } from './_destinations/posthog_conversations/posthog-get-ticket.template'
 import { template as posthogUpdateTicketTemplate } from './_destinations/posthog_conversations/posthog-update-ticket.template'
 import { template as posthogGetAccountTemplate } from './_destinations/posthog_customer_analytics/posthog-get-account.template'
+import { template as posthogUpdateAccountPropertyTemplate } from './_destinations/posthog_customer_analytics/posthog-update-account-property.template'
 import { template as posthogUpdateAccountTemplate } from './_destinations/posthog_customer_analytics/posthog-update-account.template'
 import { template as posthogSetHogflowVariableTemplate } from './_destinations/posthog_workflows/posthog-set-variable.template'
 import { template as pushTemplate } from './_destinations/push/push.template'
@@ -76,8 +78,10 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     posthogUpdateTicketTemplate,
     posthogGetAccountTemplate,
     posthogUpdateAccountTemplate,
+    posthogUpdateAccountPropertyTemplate,
     hubspotCompanyTemplate,
     accoilTemplate,
+    appcuesTemplate,
     klimeTemplate,
     unifyTemplate,
 ]

@@ -1,7 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
-import { LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
@@ -18,7 +17,6 @@ export type PanelLayoutNavIdentifier =
     | 'Chat'
     | 'Notifications'
 export type NavExperimentTab = 'home' | 'chat'
-export type PanelLayoutTreeRef = React.RefObject<LemonTreeRef> | null
 export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
 export const PANEL_LAYOUT_DEFAULT_WIDTH: number = 245
 export const PANEL_LAYOUT_MIN_WIDTH: number = 160
@@ -41,7 +39,6 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         // We should remove this once we have a proper way to handle the navbar item
         setActivePanelIdentifier: (identifier: PanelLayoutNavIdentifier) => ({ identifier }),
         clearActivePanelIdentifier: true,
-        setPanelTreeRef: (ref: PanelLayoutTreeRef) => ({ ref }),
         setMainContentRef: (ref: PanelLayoutMainContentRef) => ({ ref }),
         toggleLayoutNavCollapsed: (override?: boolean) => ({ override }),
         setVisibleSideAction: (sideAction: string) => ({ sideAction }),
@@ -99,10 +96,24 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                 clearActivePanelIdentifier: () => '',
             },
         ],
-        panelTreeRef: [
-            null as PanelLayoutTreeRef,
+        // Panels opened at least once this session. PanelLayoutPanels keeps these mounted (hidden)
+        // so switching panels doesn't tear down and rebuild whole trees on every toggle.
+        // Notifications is excluded: its logic drives unread/read semantics that must only run
+        // while the panel is active, so keeping it mounted would be incorrect.
+        visitedPanels: [
+            [] as PanelLayoutNavIdentifier[],
             {
-                setPanelTreeRef: (_, { ref }) => ref,
+                setActivePanelIdentifier: (state, { identifier }) =>
+                    identifier === 'Notifications' || state.includes(identifier) ? state : [...state, identifier],
+            },
+        ],
+        // Nav tabs activated at least once this session. Nav renders the chat tab's keepMounted
+        // panel only after first activation, so collapsed-nav users who never open chat don't
+        // download and mount the lazy chat chunk on every app load.
+        visitedNavTabs: [
+            [] as NavExperimentTab[],
+            {
+                setNavExperimentTab: (state, { tab }) => (state.includes(tab) ? state : [...state, tab]),
             },
         ],
         mainContentRef: [
@@ -172,8 +183,8 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             },
         ],
         expandedNavSections: [
-            { ai: true, project: true, files: true, favorites: false, apps: true } as Record<string, boolean>,
-            { persist: true },
+            { ai: true, project: true, files: true, favorites: false, tools: true } as Record<string, boolean>,
+            { persist: true, prefix: 'v2.' },
             {
                 toggleNavSection: (state, { section }) => ({
                     ...state,
@@ -286,6 +297,16 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         },
     })),
     afterMount(({ actions, cache, values }) => {
+        // visitedPanels is not persisted, but activePanelIdentifier is. Seed visitedPanels from
+        // the rehydrated identifier so the panel that was open on the previous session starts
+        // keep-mounted — without this, the first switch after reload tears the panel down once.
+        if (values.activePanelIdentifier) {
+            actions.setActivePanelIdentifier(values.activePanelIdentifier as PanelLayoutNavIdentifier)
+        }
+        // Same for the persisted nav tab: a user who was on the chat tab last session gets its
+        // panel mounted from the start.
+        actions.setNavExperimentTab(values.navExperimentActiveTab)
+
         // Watch for window resize
         if (typeof window !== 'undefined') {
             cache.disposables.add(() => {

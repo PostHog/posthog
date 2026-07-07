@@ -304,7 +304,7 @@ async fn v1_cookieless_mode_partition_key() -> Result<()> {
     let mut wrapped = test_utils::realistic_pageview("integ-user-cookieless");
     wrapped.uuid = uuid;
     wrapped.event.uuid = uuid.to_string();
-    wrapped.event.options.cookieless_mode = Some(true);
+    wrapped.options.cookieless_mode = Some(true);
 
     let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
     let results = sink.publish_batch(&ctx, &prepared(&events, &ctx)).await;
@@ -335,7 +335,7 @@ async fn v1_all_options_property_injection() -> Result<()> {
     let mut wrapped = test_utils::realistic_pageview("integ-user-all-opts");
     wrapped.uuid = uuid;
     wrapped.event.uuid = uuid.to_string();
-    wrapped.event.options = capture::v1::analytics::types::Options {
+    wrapped.options = capture::v1::analytics::types::Options {
         cookieless_mode: Some(true),
         disable_skew_correction: Some(true),
         product_tour_id: Some("tour_abc123".to_string()),
@@ -378,7 +378,7 @@ async fn v1_empty_options_no_injection() -> Result<()> {
     let mut wrapped = test_utils::realistic_pageview("integ-user-no-opts");
     wrapped.uuid = uuid;
     wrapped.event.uuid = uuid.to_string();
-    wrapped.event.options = capture::v1::analytics::types::Options {
+    wrapped.options = capture::v1::analytics::types::Options {
         cookieless_mode: None,
         disable_skew_correction: None,
         product_tour_id: None,

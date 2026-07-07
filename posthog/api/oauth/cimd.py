@@ -38,7 +38,7 @@ from posthog.rate_limit import IPThrottle
 from posthog.scopes import filter_to_unprivileged_scopes
 from posthog.security.url_validation import is_url_allowed
 
-from .dcr import validate_client_name
+from .client_name import sanitize_client_name, validate_client_name
 
 logger = structlog.get_logger(__name__)
 
@@ -395,6 +395,8 @@ def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthA
         validate_client_name(client_name)
     except Exception:
         client_name = "CIMD Client"
+    # Escape the partner-controlled name so the stored value is HTML-safe in any sink.
+    client_name = sanitize_client_name(client_name)
 
     redirect_uris = " ".join(metadata.get("redirect_uris", []))
     logo_uri = metadata.get("logo_uri") or None
@@ -449,7 +451,7 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
     if client_name:
         try:
             validate_client_name(client_name)
-            app.name = client_name
+            app.name = sanitize_client_name(client_name)
         except Exception:
             pass  # Keep existing name if new one is invalid
 
@@ -610,7 +612,10 @@ def refresh_cimd_metadata_task(url: str) -> None:
     try:
         with ph_scoped_capture() as capture_ph_event:
             fetch_and_upsert_cimd_application(url, capture_ph_event=capture_ph_event)
-    except (CIMDFetchError, CIMDValidationError) as e:
+    except CIMDValidationError as e:
+        # Expected rejection of a non-compliant partner document — log for observability, don't surface as an error.
+        logger.warning("cimd_background_refresh_failed", url=url, error=str(e))
+    except CIMDFetchError as e:
         logger.warning("cimd_background_refresh_failed", url=url, error=str(e))
         capture_exception(e)
 
@@ -637,7 +642,10 @@ def register_cimd_provisioning_application_task(url: str) -> None:
                         "organization_id": str(app.organization_id) if app.organization_id else None,
                     },
                 )
-    except (CIMDFetchError, CIMDValidationError) as e:
+    except CIMDValidationError as e:
+        # Expected rejection of a non-compliant partner document — log for observability, don't surface as an error.
+        logger.warning("cimd_background_registration_failed", url=url, error=str(e))
+    except CIMDFetchError as e:
         logger.warning("cimd_background_registration_failed", url=url, error=str(e))
         capture_exception(e)
 
@@ -657,8 +665,7 @@ def get_or_create_cimd_application(url: str) -> OAuthApplication:
     """
     # Existing client: check cache freshness and if not fresh, fire refresh in the background, returning existing app immediately
     if app := OAuthApplication.objects.filter(cimd_metadata_url=url).first():
-        if not cache.get(_cache_key(url)):
-            refresh_cimd_metadata_task.delay(url)
+        enqueue_cimd_refresh_if_stale(url)
         return app
 
     # New client: synchronous fetch
@@ -674,6 +681,18 @@ def get_or_create_cimd_application(url: str) -> OAuthApplication:
             return app
 
     raise CIMDFetchError(f"Another request is already registering this client ({url}). Please try again.")
+
+
+def enqueue_cimd_refresh_if_stale(url: str) -> None:
+    """Fire a background metadata refresh if the cached document has gone stale.
+
+    Single source of the freshness check, used both by get_or_create_cimd_application
+    and by callers that resolve an existing CIMD app via a direct lookup (the agentic
+    provisioning auth path) so document changes are picked up on the same TTL, instead
+    of freezing the app's scopes and config at first registration.
+    """
+    if not cache.get(_cache_key(url)):
+        refresh_cimd_metadata_task.delay(url)
 
 
 def get_application_by_client_id(client_id: str) -> OAuthApplication:

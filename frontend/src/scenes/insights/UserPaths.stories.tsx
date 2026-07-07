@@ -7,6 +7,8 @@ import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene
 
 import { mswDecorator } from '~/mocks/browser'
 
+import __userPaths from '../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'
+
 type Story = StoryObj<{}>
 const meta: Meta = {
     title: 'Scenes-App/Insights/User Paths',
@@ -41,9 +43,7 @@ export default meta
 
 // User Paths
 
-export const UserPaths: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/userPaths.json')
-)
+export const UserPaths: Story = createInsightStory(__userPaths as any)
 UserPaths.parameters = {
     testOptions: {
         waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '[data-attr=paths-viz][data-stable]'],
@@ -91,10 +91,7 @@ const waitForPathsCanvasToStabilize: NonNullable<Story['play']> = async ({ canva
 }
 UserPaths.play = waitForPathsCanvasToStabilize
 
-export const UserPathsEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'),
-    'edit'
-)
+export const UserPathsEdit: Story = createInsightStory(__userPaths as any, 'edit')
 UserPathsEdit.parameters = {
     testOptions: {
         waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '[data-attr=paths-viz][data-stable]'],
@@ -102,10 +99,7 @@ UserPathsEdit.parameters = {
 }
 UserPathsEdit.play = waitForPathsCanvasToStabilize
 
-export const UserPathsEditViewports: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'),
-    'edit'
-)
+export const UserPathsEditViewports: Story = createInsightStory(__userPaths as any, 'edit')
 UserPathsEditViewports.parameters = {
     testOptions: {
         waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '[data-attr=paths-viz][data-stable]'],

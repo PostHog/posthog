@@ -8,15 +8,13 @@
             "type": "string"
         },
         "key": {
-            "description": "Agent-chosen semantic key. Re-using a key updates the existing entry in place.",
+            "description": "Agent-chosen semantic key, unique per team; re-using a key overwrites the entry in place. Key off the *stable identity* of what you're tracking — never embed a date, timestamp, or run id (that mints a new row every run and breaks dedupe). For run state/cursors, use one fixed key and keep the timestamp in `content`.",
             "maxLength": 300,
             "type": "string"
         },
         "run_id": {
             "anyOf": [
                 {
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
                     "type": "string"
                 },
                 {

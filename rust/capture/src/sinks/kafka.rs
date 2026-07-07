@@ -36,7 +36,11 @@ use tracing::{info_span, instrument, Instrument};
 use super::producer::RdKafkaProducer;
 
 pub struct KafkaContext {
-    liveness: lifecycle::Handle,
+    /// Lifecycle handle this producer reports liveness to. `None` for a producer
+    /// whose health must not gate the pod (e.g. the non-critical side of a
+    /// `SplitKafkaSink`) — it still produces and emits metrics, it just doesn't
+    /// drive a manager component.
+    liveness: Option<lifecycle::Handle>,
 }
 
 /// Emit min/avg/max/stddev plus p50/p90/p95/p99 for an rdkafka window stat
@@ -72,7 +76,9 @@ impl rdkafka::ClientContext for KafkaContext {
         // Signal liveness when brokers are up
         let brokers_up = stats.brokers.values().any(|broker| broker.state == "UP");
         if brokers_up {
-            self.liveness.report_healthy();
+            if let Some(liveness) = &self.liveness {
+                liveness.report_healthy();
+            }
         }
 
         let total_brokers = stats.brokers.len();
@@ -224,7 +230,7 @@ pub type KafkaSink = KafkaSinkBase<RdKafkaProducer<KafkaContext>>;
 impl KafkaSink {
     pub async fn new(
         config: KafkaConfig,
-        liveness: lifecycle::Handle,
+        liveness: Option<lifecycle::Handle>,
     ) -> anyhow::Result<KafkaSink> {
         info!("connecting to Kafka brokers at {}...", config.kafka_hosts);
 
@@ -337,7 +343,9 @@ impl KafkaSink {
             )
             .is_ok()
         {
-            liveness.report_healthy();
+            if let Some(liveness) = &liveness {
+                liveness.report_healthy();
+            }
             info!("connected to Kafka brokers");
         };
 
@@ -794,7 +802,7 @@ mod tests {
     use crate::config::{self, EnvelopeCompression};
     use crate::sinks::kafka::KafkaSink;
     use crate::sinks::Event;
-    use crate::utils::uuid_v7;
+    use crate::utils::uuid_v7_from_datetime;
     use crate::v0_request::{DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata};
     use common_types::CapturedEvent;
     use rand::distributions::Alphanumeric;
@@ -882,7 +890,7 @@ mod tests {
             kafka_metrics_metadata_max_age_ms: None,
             kafka_replay_envelope_compression: EnvelopeCompression::None,
         };
-        let sink = KafkaSink::new(config, handle)
+        let sink = KafkaSink::new(config, Some(handle))
             .await
             .expect("failed to create sink");
         (cluster, sink)
@@ -895,8 +903,9 @@ mod tests {
 
         let (cluster, sink) = start_on_mocked_sink(Some(3000000)).await;
         let distinct_id = "test_distinct_id_123".to_string();
+        let timestamp = chrono::Utc::now();
         let event: CapturedEvent = CapturedEvent {
-            uuid: uuid_v7(),
+            uuid: uuid_v7_from_datetime(timestamp),
             distinct_id: distinct_id.clone(),
             session_id: None,
             ip: "".to_string(),
@@ -905,7 +914,7 @@ mod tests {
             sent_at: None,
             token: "token1".to_string(),
             event: "test_event".to_string(),
-            timestamp: chrono::Utc::now(),
+            timestamp,
             is_cookieless_mode: false,
             historical_migration: false,
         };
@@ -949,8 +958,9 @@ mod tests {
             .take(2_000_000)
             .map(char::from)
             .collect();
+        let timestamp = chrono::Utc::now();
         let captured = CapturedEvent {
-            uuid: uuid_v7(),
+            uuid: uuid_v7_from_datetime(timestamp),
             distinct_id: "id1".to_string(),
             session_id: None,
             ip: "".to_string(),
@@ -959,7 +969,7 @@ mod tests {
             sent_at: None,
             token: "token1".to_string(),
             event: "test_event".to_string(),
-            timestamp: chrono::Utc::now(),
+            timestamp,
             is_cookieless_mode: false,
             historical_migration: false,
         };
@@ -980,9 +990,10 @@ mod tests {
             .map(char::from)
             .collect();
 
+        let timestamp = chrono::Utc::now();
         let big_event = ProcessedEvent {
             event: CapturedEvent {
-                uuid: uuid_v7(),
+                uuid: uuid_v7_from_datetime(timestamp),
                 distinct_id: "id1".to_string(),
                 session_id: None,
                 ip: "".to_string(),
@@ -991,7 +1002,7 @@ mod tests {
                 sent_at: None,
                 token: "token1".to_string(),
                 event: "test_event".to_string(),
-                timestamp: chrono::Utc::now(),
+                timestamp,
                 is_cookieless_mode: false,
                 historical_migration: false,
             },
@@ -1210,8 +1221,9 @@ mod tests {
         }
 
         fn create_test_event(input: &EventInput) -> ProcessedEvent {
+            let timestamp = chrono::Utc::now();
             let event = CapturedEvent {
-                uuid: uuid_v7(),
+                uuid: uuid_v7_from_datetime(timestamp),
                 distinct_id: "test_user".to_string(),
                 session_id: Some("session123".to_string()),
                 ip: "127.0.0.1".to_string(),
@@ -1220,7 +1232,7 @@ mod tests {
                 sent_at: None,
                 token: "test_token".to_string(),
                 event: "test_event".to_string(),
-                timestamp: chrono::Utc::now(),
+                timestamp,
                 is_cookieless_mode: false,
                 historical_migration: false,
             };

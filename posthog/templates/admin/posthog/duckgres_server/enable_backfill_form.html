@@ -3,8 +3,8 @@
 
 {% block content %}
 <p>Add another team to this organization's existing managed warehouse. Runs the same flow as the
-in-product enable-backfill API: records the team's <code>DuckgresServerTeam</code> membership and a
-<code>DuckLakeBackfill</code> with its own per-environment table suffix. The organization's feature
+in-product enable-backfill API: records the team's <code>DuckgresServerTeam</code> membership with its
+own per-environment table suffix. The organization's feature
 flag is not required here.</p>
 
 <p>Organization: <code>{{ server.organization_id }}</code> &mdash; server <code>{{ server.host }}</code></p>

@@ -69,6 +69,10 @@ describe('example: posthog-ai bundle', () => {
 
     it('runs on an OpenAI model the local gateway supports', async () => {
         const { spec } = await loadBundle()
-        expect(AgentSpecSchema.parse(spec).model).toBe('openai/gpt-5.5')
+        expect(AgentSpecSchema.parse(spec).models).toEqual({
+            mode: 'manual',
+            models: [{ model: 'openai/gpt-5.5' }],
+            optimize_for: 'cost',
+        })
     })
 })

@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { InternalPerson, PersonDistinctId, PersonUpdateFields, RawPerson, Team } from '~/types'
-import { PostgresRouter, PostgresUse } from '~/utils/db/postgres'
 
 export const TEST_TIMESTAMP = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
 

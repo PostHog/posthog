@@ -1,6 +1,6 @@
 import { createHash, createHmac } from 'node:crypto'
 
-import { CyclotronInvocationQueueParametersFetchAwsSigV4Type } from '~/schema/cyclotron'
+import { CyclotronInvocationQueueParametersFetchAwsSigV4Type } from '~/cdp/schema/cyclotron'
 
 import { HogFunctionType } from '../types'
 

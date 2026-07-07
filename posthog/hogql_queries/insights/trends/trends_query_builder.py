@@ -1,7 +1,5 @@
 from typing import cast
 
-import posthoganalytics
-
 from posthog.schema import (
     ActionsNode,
     Breakdown as BreakdownSchema,
@@ -28,6 +26,7 @@ from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRIN
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
+from posthog.ph_client import feature_enabled_or_false
 
 from products.actions.backend.models.action import Action
 
@@ -1012,7 +1011,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         )
 
     def _team_flag_fewer_array_ops(self) -> bool:
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             "trends-breakdown-fewer-array-ops",
             str(self.team.uuid),
             groups={

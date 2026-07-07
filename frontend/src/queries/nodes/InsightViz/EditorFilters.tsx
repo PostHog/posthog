@@ -339,7 +339,10 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     key: 'paths-exclusions',
                     label: 'Exclusions',
                     tooltip: (
-                        <>Exclude events from Paths visualisation. You can use wildcard groups in exclusions as well.</>
+                        <>
+                            Exclude events from Paths visualization. You can also use wildcard groups in exclusions if
+                            you are on a paid plan.
+                        </>
                     ),
                     component: PathsExclusions,
                     show: isPaths,

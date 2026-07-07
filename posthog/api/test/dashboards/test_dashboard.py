@@ -22,7 +22,12 @@ from posthog.helpers.dashboard_templates import create_group_type_mapping_detail
 from posthog.models import Filter, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
-from posthog.models.group_type_mapping import GROUP_TYPES_CACHE_KEY_PREFIX, GROUP_TYPES_STALE_CACHE_KEY_PREFIX
+from posthog.models.group_type_mapping import (
+    GROUP_TYPES_CACHE_KEY_PREFIX,
+    GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
+    get_group_type_mapping_instance,
+    update_group_type_mapping_fields,
+)
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project import Project
 from posthog.models.quick_filter import QuickFilter
@@ -997,8 +1002,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
 
         dashboard = create_group_type_mapping_detail_dashboard(group_type, self.user)
-        group_type.detail_dashboard_id = dashboard.id
-        group_type.save()
+        update_group_type_mapping_fields(group_type, fields={"detail_dashboard_id": dashboard.id}, caller_tag="test")
 
         cache_key = f"{GROUP_TYPES_CACHE_KEY_PREFIX}{self.team.project_id}"
         stale_cache_key = f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{self.team.project_id}"
@@ -1006,10 +1010,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         cache.set(stale_cache_key, [{"stale": True}], 300)
 
         self.dashboard_api.soft_delete(dashboard.id, "dashboards", {"delete_insights": True})
-        group_type.refresh_from_db()
-        self.assertIsNone(group_type.detail_dashboard_id)
         self.assertIsNone(cache.get(cache_key))
         self.assertIsNone(cache.get(stale_cache_key))
+        # Strong consistency bypasses the cache so this read doesn't re-populate the keys asserted above.
+        group_type = get_group_type_mapping_instance(
+            project_id=self.team.project_id, group_type_index=group_type.group_type_index, consistency="strong"
+        )
+        self.assertIsNone(group_type.detail_dashboard_id)
 
     def test_dashboard_items(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
@@ -1357,6 +1364,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 }
             ],
         )
+
+    def test_dashboard_interval_and_test_account_overrides_round_trip(self):
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-24h"}})
+
+        _, response = self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {"filters": {"date_from": "-24h", "interval": "week", "filterTestAccounts": True}},
+        )
+
+        self.assertEqual(response["filters"]["interval"], "week")
+        self.assertEqual(response["filters"]["filterTestAccounts"], True)
+
+        read_back = self.dashboard_api.get_dashboard(dashboard_id)
+        self.assertEqual(read_back["filters"]["interval"], "week")
+        self.assertEqual(read_back["filters"]["filterTestAccounts"], True)
 
     def test_dashboard_filter_is_applied_even_if_insight_is_created_before_dashboard(self):
         insight_id, _ = self.dashboard_api.create_insight(

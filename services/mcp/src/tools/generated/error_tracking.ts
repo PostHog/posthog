@@ -5,6 +5,11 @@ import type { Schemas } from '@/api/generated'
 import {
     ErrorTrackingAssignmentRulesCreateBody,
     ErrorTrackingAssignmentRulesListQueryParams,
+    ErrorTrackingBypassRulesCreateBody,
+    ErrorTrackingBypassRulesListQueryParams,
+    ErrorTrackingBypassRulesUpdateBody,
+    ErrorTrackingBypassRulesUpdateParams,
+    ErrorTrackingExternalReferencesCreateBody,
     ErrorTrackingGroupingRulesCreateBody,
     ErrorTrackingGroupingRulesUpdateBody,
     ErrorTrackingGroupingRulesUpdateParams,
@@ -48,6 +53,9 @@ const errorTrackingAssignmentRulesCreate = (): ToolBase<
         if (params.assignee !== undefined) {
             body['assignee'] = params.assignee
         }
+        if (params.order_key !== undefined) {
+            body['order_key'] = params.order_key
+        }
         const result = await context.api.request<Schemas.ErrorTrackingAssignmentRule>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/assignment_rules/`,
@@ -74,6 +82,102 @@ const errorTrackingAssignmentRulesList = (): ToolBase<
                 limit: params.limit,
                 offset: params.offset,
             },
+        })
+        return result
+    },
+})
+
+const ErrorTrackingBypassRulesCreateSchema = ErrorTrackingBypassRulesCreateBody
+
+const errorTrackingBypassRulesCreate = (): ToolBase<
+    typeof ErrorTrackingBypassRulesCreateSchema,
+    Schemas.ErrorTrackingBypassRule
+> => ({
+    name: 'error-tracking-bypass-rules-create',
+    schema: ErrorTrackingBypassRulesCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ErrorTrackingBypassRulesCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.filters !== undefined) {
+            body['filters'] = params.filters
+        }
+        const result = await context.api.request<Schemas.ErrorTrackingBypassRule>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/bypass_rules/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ErrorTrackingBypassRulesListSchema = ErrorTrackingBypassRulesListQueryParams
+
+const errorTrackingBypassRulesList = (): ToolBase<
+    typeof ErrorTrackingBypassRulesListSchema,
+    Schemas.PaginatedErrorTrackingBypassRuleList
+> => ({
+    name: 'error-tracking-bypass-rules-list',
+    schema: ErrorTrackingBypassRulesListSchema,
+    handler: async (context: Context, params: z.infer<typeof ErrorTrackingBypassRulesListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedErrorTrackingBypassRuleList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/bypass_rules/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return result
+    },
+})
+
+const ErrorTrackingBypassRulesUpdateSchema = ErrorTrackingBypassRulesUpdateParams.omit({ project_id: true }).extend(
+    ErrorTrackingBypassRulesUpdateBody.shape
+)
+
+const errorTrackingBypassRulesUpdate = (): ToolBase<typeof ErrorTrackingBypassRulesUpdateSchema, unknown> => ({
+    name: 'error-tracking-bypass-rules-update',
+    schema: ErrorTrackingBypassRulesUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof ErrorTrackingBypassRulesUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.filters !== undefined) {
+            body['filters'] = params.filters
+        }
+        const result = await context.api.request<unknown>({
+            method: 'PUT',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/bypass_rules/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ErrorTrackingExternalReferencesCreateSchema = ErrorTrackingExternalReferencesCreateBody
+
+const errorTrackingExternalReferencesCreate = (): ToolBase<
+    typeof ErrorTrackingExternalReferencesCreateSchema,
+    Schemas.ErrorTrackingExternalReferenceResult
+> => ({
+    name: 'error-tracking-external-references-create',
+    schema: ErrorTrackingExternalReferencesCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ErrorTrackingExternalReferencesCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.integration_id !== undefined) {
+            body['integration_id'] = params.integration_id
+        }
+        if (params.config !== undefined) {
+            body['config'] = params.config
+        }
+        if (params.issue !== undefined) {
+            body['issue'] = params.issue
+        }
+        const result = await context.api.request<Schemas.ErrorTrackingExternalReferenceResult>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/external_references/`,
+            body,
         })
         return result
     },
@@ -660,6 +764,10 @@ const queryErrorTrackingIssuesList = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'error-tracking-assignment-rules-create': errorTrackingAssignmentRulesCreate,
     'error-tracking-assignment-rules-list': errorTrackingAssignmentRulesList,
+    'error-tracking-bypass-rules-create': errorTrackingBypassRulesCreate,
+    'error-tracking-bypass-rules-list': errorTrackingBypassRulesList,
+    'error-tracking-bypass-rules-update': errorTrackingBypassRulesUpdate,
+    'error-tracking-external-references-create': errorTrackingExternalReferencesCreate,
     'error-tracking-grouping-rules-create': errorTrackingGroupingRulesCreate,
     'error-tracking-grouping-rules-list': errorTrackingGroupingRulesList,
     'error-tracking-grouping-rules-update': errorTrackingGroupingRulesUpdate,

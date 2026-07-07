@@ -6,6 +6,7 @@ import { beforeUnload, router } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { urls } from 'scenes/urls'
 
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
@@ -17,9 +18,14 @@ import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import type { CommentType, PersonType } from '~/types'
 import { PropertyFilterType, PropertyOperator, Region } from '~/types'
 
+import {
+    businessKnowledgeGapSuggestionsDismissCreate,
+    businessKnowledgeGapSuggestionsList,
+} from 'products/business_knowledge/frontend/generated/api'
+
 import type { TicketAssignee } from '../../components/Assignee'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
-import type { ChatMessage, Ticket, TicketPriority, TicketStatus } from '../../types'
+import type { ChatMessage, KnowledgeGapSuggestion, Ticket, TicketPriority, TicketStatus } from '../../types'
 import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
 import type { supportTicketSceneLogicType } from './supportTicketSceneLogicType'
 
@@ -153,6 +159,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         loadPerson: true,
         loadPreviousTickets: true,
 
+        // Knowledge gap suggestions
+        loadKnowledgeGaps: true,
+        dismissKnowledgeGap: (suggestionId: string) => ({ suggestionId }),
+
         // Draft message state (persists across tab switches)
         setDraftContent: (content: JSONContent | null) => ({ content }),
         setDraftIsPrivate: (isPrivate: boolean) => ({ isPrivate }),
@@ -211,6 +221,26 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         )
                     } catch (error) {
                         console.error('Failed to load previous tickets:', error)
+                        return []
+                    }
+                },
+            },
+        ],
+        knowledgeGaps: [
+            [] as KnowledgeGapSuggestion[],
+            {
+                loadKnowledgeGaps: async (): Promise<KnowledgeGapSuggestion[]> => {
+                    const ticket = values.ticket
+                    if (!ticket) {
+                        return []
+                    }
+                    try {
+                        const response = await businessKnowledgeGapSuggestionsList(String(getCurrentTeamId()), {
+                            ticket_id: ticket.id,
+                        })
+                        const data = Array.isArray(response) ? response : (response.results ?? [])
+                        return data as unknown as KnowledgeGapSuggestion[]
+                    } catch {
                         return []
                     }
                 },
@@ -362,20 +392,27 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                             'Support'
                     } else if (authorType === 'AI') {
                         displayName = 'PostHog Assistant'
-                    } else if (authorType === 'customer') {
-                        const slackAuthorName = message.item_context?.slack_author_name
-                        const emailAuthorName = message.item_context?.email_from_name
-                        if (slackAuthorName) {
-                            displayName = slackAuthorName
-                        } else if (emailAuthorName) {
-                            displayName = emailAuthorName
-                        } else {
+                    } else {
+                        // Per-message author identity (e.g. Zendesk import stores each comment's own
+                        // author) takes precedence over the ticket-level requester, so a reply from a
+                        // second requester or an agent shows the real name instead of the ticket owner.
+                        const messageAuthorName =
+                            message.item_context?.author_name ||
+                            message.item_context?.author_email ||
+                            message.item_context?.slack_author_name ||
+                            message.item_context?.email_from_name
+                        if (messageAuthorName) {
+                            displayName = messageAuthorName
+                        } else if (authorType === 'customer') {
                             displayName =
                                 ticket?.person?.properties?.name ||
                                 ticket?.person?.properties?.email ||
                                 ticket?.anonymous_traits?.name ||
                                 ticket?.anonymous_traits?.email ||
                                 'Anonymous user'
+                        } else {
+                            // Staff message with no resolvable author (e.g. deleted ex-agent).
+                            displayName = 'Support'
                         }
                     }
 
@@ -389,6 +426,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         createdAt: message.created_at,
                         isPrivate: message.item_context?.is_private || false,
                         emailDeliveryStatus: message.item_context?.email_delivery_status,
+                        fromZendesk: message.item_context?.from_zendesk === true,
                     }
                 }),
         ],
@@ -439,6 +477,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
 
                 // Load session context data
                 actions.loadPerson()
+                actions.loadKnowledgeGaps()
 
                 // Refresh the unread count since viewing a ticket marks it as read
                 supportTicketCounterLogic.findMounted()?.actions.refreshCount()
@@ -570,6 +609,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setMessageSending(false)
             }
         },
+        dismissKnowledgeGap: async ({ suggestionId }) => {
+            try {
+                await businessKnowledgeGapSuggestionsDismissCreate(String(getCurrentTeamId()), suggestionId)
+                actions.loadKnowledgeGaps()
+            } catch {
+                lemonToast.error('Failed to dismiss suggestion')
+            }
+        },
     })),
     afterMount(({ actions, props }) => {
         if (props.id !== 'new') {
@@ -580,8 +627,24 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         cache.disposables.disposeAll()
         impersonationNoticeLogic.findMounted()?.actions.setTicketContext(null)
     }),
-    beforeUnload(({ values }) => ({
-        enabled: () => values.hasPendingWork,
+    beforeUnload(({ values, actions }) => ({
+        enabled: (newLocation) => {
+            if (!values.hasPendingWork) {
+                return false
+            }
+            // Ignore in-page navigations (e.g. opening a side panel) that keep the same path
+            if (newLocation && newLocation.pathname === router.values.location.pathname) {
+                return false
+            }
+            return true
+        },
         message: 'You have unsaved changes. Are you sure you want to leave?',
+        onConfirm: () => {
+            // Re-sync local form reducers to the last-known server ticket so hasUnsavedChanges
+            // recomputes to false and the prompt does not re-fire on the next navigation.
+            if (values.ticket) {
+                actions.setTicket(values.ticket)
+            }
+        },
     })),
 ])

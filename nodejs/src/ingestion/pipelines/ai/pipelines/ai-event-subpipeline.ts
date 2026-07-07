@@ -1,5 +1,4 @@
 import { AsyncOutput, EVENTS_OUTPUT } from '~/common/outputs'
-import type { AiEventSubpipelineConfig, AiEventSubpipelineInput } from '~/ingestion/common/ai-subpipeline.contract'
 import { createCreateEventStep } from '~/ingestion/common/steps/event-processing/create-event-step'
 import { EmitEventStepOutput, createEmitEventStep } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import { createHogTransformEventStep } from '~/ingestion/common/steps/event-processing/hog-transform-event-step'
@@ -11,19 +10,26 @@ import { createProcessPersonlessStep } from '~/ingestion/common/steps/event-proc
 import { createProcessPersonsStep } from '~/ingestion/common/steps/event-processing/process-persons-step'
 import { createSplitAiEventsStep } from '~/ingestion/common/steps/event-processing/split-ai-events-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
+import type {
+    AiEventSubpipelineConfig,
+    AiEventSubpipelineInput,
+} from '~/ingestion/common/subpipelines/ai-subpipeline.contract'
 import { PipelineBuilder, StartPipelineBuilder } from '~/ingestion/framework/builders/pipeline-builders'
 import { sum, sumOk, sumResult, timer } from '~/ingestion/framework/extensions/tophog'
 import { isDropResult } from '~/ingestion/framework/results'
 
 import { createProcessAiEventStep } from './steps/process-ai-event-step'
 
-export type { AiEventSubpipelineConfig, AiEventSubpipelineInput } from '~/ingestion/common/ai-subpipeline.contract'
+export type {
+    AiEventSubpipelineConfig,
+    AiEventSubpipelineInput,
+} from '~/ingestion/common/subpipelines/ai-subpipeline.contract'
 
 export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,
     config: AiEventSubpipelineConfig
 ): PipelineBuilder<TInput, EmitEventStepOutput, TContext, AsyncOutput> {
-    const { options, outputs, teamManager, groupTypeManager, hogTransformer, splitAiEventsConfig, topHog } = config
+    const { options, outputs, teamManager, groupTypeManager, hogTransformer, topHog } = config
 
     return builder
         .pipe(createNormalizeProcessPersonFlagStep())
@@ -71,7 +77,7 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
         .pipe(createPrepareEventStep())
         .pipe(createProcessGroupsStep(teamManager, groupTypeManager, options))
         .pipe(createCreateEventStep(EVENTS_OUTPUT))
-        .pipe(createSplitAiEventsStep(splitAiEventsConfig))
+        .pipe(createSplitAiEventsStep())
         .pipe(
             topHog(
                 createEmitEventStep({

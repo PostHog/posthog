@@ -289,10 +289,8 @@ class TestEndpointViewSetPSAKAuth(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertIn("does not have access to the requested project", response.json().get("detail", ""))
 
-    def test_psak_does_not_authenticate_legacy_team_token_surfaces(self):
-        # remote_config is the remaining Django surface for the legacy per-team
-        # Team.secret_api_token (local_evaluation now lives in the Rust flags service).
-        # A PSAK is also phs_-prefixed but must not be accepted there.
+    def test_psak_without_feature_flag_read_scope_returns_403_on_remote_config(self):
+        # remote_config accepts PSAK but requires feature_flag:read — endpoint-scoped keys must not pass.
         token, _ = _make_psak(self.team, label="remote-config-key")
 
         response = self.client.get(
@@ -300,7 +298,8 @@ class TestEndpointViewSetPSAKAuth(ClickhouseTestMixin, APIBaseTest):
             **self._auth_headers(token),
         )
 
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.content)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertIn("feature_flag:read", response.json().get("detail", ""))
 
     def test_session_auth_still_works_on_endpoint_viewset(self):
         # Regression: wiring PSAK into authentication_classes must not break session auth.
@@ -313,7 +312,7 @@ class TestEndpointViewSetPSAKAuth(ClickhouseTestMixin, APIBaseTest):
 
 
 @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
-@patch("products.endpoints.backend.rate_limit.EndpointBurstThrottle.rate", new="2/minute")
+@patch("products.endpoints.backend.presentation.throttles.EndpointBurstThrottle.rate", new="2/minute")
 class TestEndpointPSAKRateLimit(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -353,7 +352,10 @@ class TestEndpointPSAKRateLimit(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(self._run(token_a).status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertEqual(self._run(token_b).status_code, status.HTTP_200_OK)
 
-    @patch("products.endpoints.backend.rate_limit.EndpointProjectSecretApiKeyTeamBurstThrottle.rate", new="3/minute")
+    @patch(
+        "products.endpoints.backend.presentation.throttles.EndpointProjectSecretApiKeyTeamBurstThrottle.rate",
+        new="3/minute",
+    )
     def test_distinct_psak_keys_share_project_bucket(self, *_args):
         token_a, _a = _make_psak(self.team, label="team-key-a")
         token_b, _b = _make_psak(self.team, label="team-key-b")

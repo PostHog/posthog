@@ -8,12 +8,13 @@ import {
     INBOX_PRIORITY_OPTIONS,
     INBOX_SORT_OPTIONS,
     INBOX_SOURCE_OPTIONS,
+    PRIORITY_ACCENT,
+    PRIORITY_MEANING,
     inboxPriorityFilterLabel,
     inboxSortOptionKey,
     inboxSourceFilterLabel,
 } from '../../filterOptions'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
-import { SignalReportPriority } from '../../types'
 
 /** A single filter trigger + dropdown overlay, matching desktop's `InboxFilterPopover`. */
 function FilterPopover({
@@ -43,11 +44,17 @@ function FilterPopover({
             <button
                 type="button"
                 aria-label={`${label}: ${value}`}
-                className="flex h-8 shrink-0 items-center gap-1.5 rounded border border-primary bg-surface-primary px-2.5 text-sm text-default transition-colors hover:border-secondary hover:bg-surface-secondary"
+                // Quiet at rest: an unused filter is a muted, borderless chip showing its category
+                // (e.g. "Source"). Once active it gains a solid border and its selected value — so
+                // the bar only draws attention to filters actually in use.
+                className={`flex h-8 shrink-0 items-center gap-1.5 rounded border px-2.5 text-sm transition-colors ${
+                    active
+                        ? 'border-primary bg-surface-primary text-default hover:border-secondary hover:bg-surface-secondary'
+                        : 'border-transparent text-muted hover:border-primary hover:bg-surface-secondary hover:text-default'
+                }`}
             >
                 <span className="flex shrink-0 items-center text-tertiary [&>svg]:size-3.5">{icon}</span>
-                <span className="max-w-[150px] truncate">{value}</span>
-                {active && <span className="size-1.5 shrink-0 rounded-full bg-accent" />}
+                <span className="max-w-[150px] truncate">{active ? value : label}</span>
                 <IconChevronDown className="shrink-0 text-sm text-tertiary" />
             </button>
         </LemonDropdown>
@@ -89,9 +96,10 @@ interface InboxSearchFilterBarProps {
 }
 
 /**
- * Search input + Source / Sort / Priority filter popovers + refresh. One-to-one
- * port of desktop `InboxSearchFilterBar`. There is no status filter (desktop
- * dropped it; status is a fixed request constant). Filter state is persisted via
+ * Search input + Sort / Source / Priority filter popovers + refresh. There is no
+ * status filter (desktop dropped it; status is a fixed request constant). Each
+ * popover stays a quiet, muted chip until its filter is in use, then gains a
+ * solid border and shows its value. Filter state is persisted via
  * `inboxFiltersLogic`; the central scene reloads on change.
  */
 export function InboxSearchFilterBar({
@@ -118,23 +126,6 @@ export function InboxSearchFilterBar({
             />
 
             <FilterPopover
-                label="Source"
-                value={inboxSourceFilterLabel(sourceProductFilter)}
-                icon={<IconTarget />}
-                active={sourceProductFilter.length > 0}
-            >
-                {INBOX_SOURCE_OPTIONS.map((option) => (
-                    <FilterItem
-                        key={option.value}
-                        icon={option.icon}
-                        label={option.label}
-                        active={sourceProductFilter.includes(option.value)}
-                        onClick={() => toggleSourceProduct(option.value)}
-                    />
-                ))}
-            </FilterPopover>
-
-            <FilterPopover
                 label="Sort"
                 value={activeSort?.label ?? 'Priority first'}
                 icon={<IconSort />}
@@ -152,24 +143,46 @@ export function InboxSearchFilterBar({
             </FilterPopover>
 
             <FilterPopover
+                label="Source"
+                value={inboxSourceFilterLabel(sourceProductFilter)}
+                icon={<IconTarget />}
+                active={sourceProductFilter.length > 0}
+            >
+                {INBOX_SOURCE_OPTIONS.map((option) => (
+                    <FilterItem
+                        key={option.value}
+                        icon={option.icon}
+                        label={option.label}
+                        active={sourceProductFilter.includes(option.value)}
+                        onClick={() => toggleSourceProduct(option.value)}
+                    />
+                ))}
+            </FilterPopover>
+
+            <FilterPopover
                 label="Priority"
                 value={inboxPriorityFilterLabel(priorityFilter)}
                 icon={<IconFlag />}
                 active={priorityFilter.length > 0}
             >
-                {INBOX_PRIORITY_OPTIONS.map((option) => (
+                {INBOX_PRIORITY_OPTIONS.map((priority) => (
                     <FilterItem
-                        key={option.value}
+                        key={priority}
                         icon={
                             <span
-                                className="inline-block size-2 shrink-0 rounded-full"
+                                className="size-2 rounded-full"
                                 // eslint-disable-next-line react/forbid-dom-props
-                                style={{ backgroundColor: option.accent }}
+                                style={{ backgroundColor: PRIORITY_ACCENT[priority] }}
                             />
                         }
-                        label={option.value}
-                        active={priorityFilter.includes(option.value)}
-                        onClick={() => togglePriority(option.value as SignalReportPriority)}
+                        label={
+                            <span>
+                                {priority}
+                                <span className="text-muted"> · {PRIORITY_MEANING[priority].label}</span>
+                            </span>
+                        }
+                        active={priorityFilter.includes(priority)}
+                        onClick={() => togglePriority(priority)}
                     />
                 ))}
             </FilterPopover>

@@ -44,6 +44,10 @@ pub struct KafkaConfig {
     pub kafka_producer_message_max_bytes: Option<u32>,
 
     pub kafka_producer_sticky_partitioning_linger_ms: Option<u32>,
+
+    // Set to "murmur2_random" to co-partition a keyed topic with Kafka-Java/python-kafka/Node
+    // producers; `None` uses librdkafka's CRC32-based default, which routes keys differently.
+    pub kafka_producer_partitioner: Option<String>,
 }
 
 #[derive(Envconfig, Clone)]

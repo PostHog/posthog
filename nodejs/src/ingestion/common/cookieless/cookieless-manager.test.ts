@@ -3,16 +3,16 @@ import { Message } from 'node-rdkafka'
 import path from 'path'
 
 import { cookielessRedisErrorCounter } from '~/common/metrics'
+import { RedisOperationError } from '~/common/utils/db/error'
+import { PostgresUse } from '~/common/utils/db/postgres'
+import { parseJSON } from '~/common/utils/json-parse'
+import { UUID7 } from '~/common/utils/utils'
 import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
 import type { PluginEvent } from '~/plugin-scaffold'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 import { createOrganization, createTeam, getTeam } from '~/tests/helpers/sql'
 import { CookielessServerHashMode, EventHeaders, PipelineEvent, Team } from '~/types'
-import { RedisOperationError } from '~/utils/db/error'
-import { PostgresUse } from '~/utils/db/postgres'
-import { parseJSON } from '~/utils/json-parse'
-import { UUID7 } from '~/utils/utils'
 
 import {
     COOKIELESS_MODE_FLAG_PROPERTY,

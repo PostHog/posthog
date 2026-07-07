@@ -7,6 +7,7 @@ from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
+from uuid import UUID
 
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
@@ -129,6 +130,10 @@ TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS = 60 * 60
 TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
 
 
+SESSION_LOG_PAGE_MAX_BYTES = 2 * 1024 * 1024
+SESSION_LOG_PAGE_ENVELOPE_BYTES = 2
+
+
 def _is_internal_debug_team(team_id: int | None) -> bool:
     if settings.DEBUG and not settings.TEST:
         return team_id == 1
@@ -216,19 +221,16 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, and created_by.",
     )
     def list(self, request, *args, **kwargs):
-        # Flatten the query-param multidict to single values, matching the original `params.get(...)`.
         filters = {key: request.query_params.get(key) for key in request.query_params}
-        # internal/archived come from the validated query serializer (typed bool / choice).
         filters["internal"] = getattr(request, "validated_query_data", {}).get("internal")
         filters["archived"] = getattr(request, "validated_query_data", {}).get("archived")
-        is_debug_or_staff = settings.DEBUG or request.user.is_staff
-        tasks = tasks_facade.list_tasks(
-            self.team_id, self._user_id(), filters=filters, is_debug_or_staff=is_debug_or_staff
-        )
+        filters["channel"] = getattr(request, "validated_query_data", {}).get("channel")
+        tasks = tasks_facade._list_tasks_queryset(self.team_id, self._user_id(), filters=filters)
         page = self.paginate_queryset(tasks)
-        if page is not None:
-            return self.get_paginated_response(TaskSerializer(page, many=True).data)
-        return Response(TaskSerializer(tasks, many=True).data)
+        assert page is not None, "TaskViewSet list requires an active paginator"
+        return self.get_paginated_response(
+            TaskSerializer(tasks_facade._tasks_to_dtos(page, self.team_id), many=True).data
+        )
 
     @extend_schema(
         responses={200: OpenApiResponse(response=TaskSerializer, description="Task")},
@@ -510,11 +512,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Run task",
         description="Create a new task run and kick off the workflow.",
+        include_serializer_context=True,
     )
     @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
     def run(self, request, pk=None, **kwargs):
         # Original order: 404 if the task isn't visible, then gate (always cloud) before the run.
-        if not tasks_facade.task_visible(pk, self.team_id, self._user_id()):
+        if not tasks_facade.task_visible(pk, self.team_id, self._user_id(), for_control=True):
             raise NotFound()
 
         if (limit_response := cloud_usage_limit_response(request.user, self.team_id)) is not None:
@@ -586,6 +589,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             repository=request.validated_data["repository"],
             github_integration_id=github_integration_id,
             branch=request.validated_data.get("branch"),
+            runtime_adapter=request.validated_data.get("runtime_adapter"),
+            model=request.validated_data.get("model"),
+            reasoning_effort=request.validated_data.get("reasoning_effort"),
         )
         if result is None:
             return Response(status=status.HTTP_200_OK)
@@ -740,25 +746,49 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         task_id = self.kwargs.get("parent_lookup_task_id")
         if not task_id:
             raise NotFound("Task ID is required")
+        try:
+            UUID(task_id)
+        except (ValueError, TypeError):
+            raise NotFound("Task not found")
         return task_id
 
     def _user_id(self) -> int | None:
         return getattr(self.request.user, "id", None)
 
+    # Actions that only read run state. Everything else mutates or drives the
+    # run, so it requires task control (not just visibility): public-channel
+    # visibility lets teammates watch a run, never command it. connection_token
+    # is a GET but mints a write-capable token, so it is deliberately absent.
+    _READ_ONLY_ACTIONS = (
+        "list",
+        "retrieve",
+        "logs",
+        "session_logs",
+        "stream",
+        "stream_token",
+        "artifacts_presign",
+        "artifacts_download",
+    )
+
     def _ensure_task_accessible(self) -> str:
         """Gate access to the parent task, mirroring the old ``safely_get_queryset``.
 
         ``?ph_debug=true`` lets internal-debug teams read other members' runs through read-only
-        actions; connection_token is a GET but mints a write-capable token, so it stays gated.
+        actions.
         """
         task_id = self._task_id()
+        is_read_only = self.action in self._READ_ONLY_ACTIONS
         is_internal_debug_read = (
             _is_internal_debug_team(self.team_id)
             and self.action in ("list", "retrieve", "logs", "session_logs", "stream", "stream_token")
             and self.request.query_params.get("ph_debug") == "true"
         )
         if not tasks_facade.task_accessible_for_run_view(
-            task_id, self.team_id, self._user_id(), bypass_visibility=is_internal_debug_read
+            task_id,
+            self.team_id,
+            self._user_id(),
+            bypass_visibility=is_internal_debug_read,
+            for_control=not is_read_only,
         ):
             raise NotFound("Task not found")
         return task_id
@@ -815,6 +845,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Create task run",
         description="Create a new run for a specific task without starting execution.",
+        include_serializer_context=True,
     )
     def create(self, request, *args, **kwargs):
         task_id = self._task_id()
@@ -1014,7 +1045,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def relay_message(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
         relay_status, relay_id = tasks_facade.relay_task_run_message(
-            pk, task_id, self.team_id, text=request.validated_data["text"]
+            pk,
+            task_id,
+            self.team_id,
+            text=request.validated_data["text"],
+            text_parts=request.validated_data.get("text_parts"),
         )
         if relay_status == "failed":
             return Response(
@@ -1557,7 +1592,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         timer = ServerTimingsGathered()
 
         with timer("s3_read"):
-            log_content = tasks_facade.read_task_run_session_log_content(pk, task_id, self.team_id)
+            log_content = tasks_facade.read_task_run_logs(pk, task_id, self.team_id)
         if log_content is None:
             raise NotFound()
 
@@ -1621,7 +1656,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 filtered.append(entry)
 
         matching_count = len(filtered)
-        page = filtered[offset : offset + limit]
+
+        page: list = []
+        page_bytes = SESSION_LOG_PAGE_ENVELOPE_BYTES
+        for entry in filtered[offset : offset + limit]:
+            entry_bytes = len(json.dumps(entry)) + SESSION_LOG_PAGE_ENVELOPE_BYTES
+            if page and page_bytes + entry_bytes > SESSION_LOG_PAGE_MAX_BYTES:
+                break
+            page.append(entry)
+            page_bytes += entry_bytes
+
         has_more = offset + len(page) < matching_count
 
         response = JsonResponse(page, safe=False)
@@ -1856,7 +1900,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # long-lived stream begins — see sse_streaming_response. The stream body is
         # Redis-only, so it never re-acquires one.
         return sse_streaming_response(
-            async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_to_sync(lambda: async_stream())
+            async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_to_sync(lambda: async_stream()),
+            endpoint="task_run_log",
         )
 
     @staticmethod

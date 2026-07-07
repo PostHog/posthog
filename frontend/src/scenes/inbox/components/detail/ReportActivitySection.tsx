@@ -5,7 +5,7 @@ import { IconClockRewind } from '@posthog/icons'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
 import { ArtefactLogList } from './ArtefactLogList'
-import { RightColumnSection } from './DetailSection'
+import { DetailSection } from './DetailSection'
 
 /**
  * The report's chronological work-log: every artefact (judgments, findings, code references, diffs,
@@ -26,9 +26,11 @@ export function ReportActivitySection({ report }: { report: SignalReport }): JSX
     const knownTasks = new Map((reportTasks ?? []).map((entry) => [entry.task.id, entry.task]))
 
     return (
-        <RightColumnSection
+        <DetailSection
             icon={<IconClockRewind />}
             title="Activity"
+            collapsible
+            defaultCollapsed
             rightSlot={
                 <span className="text-[0.6875rem] text-tertiary tabular-nums">
                     {reportArtefacts.length} {reportArtefacts.length === 1 ? 'entry' : 'entries'}
@@ -36,6 +38,6 @@ export function ReportActivitySection({ report }: { report: SignalReport }): JSX
             }
         >
             <ArtefactLogList reportId={report.id} artefacts={reportArtefacts} knownTasks={knownTasks} />
-        </RightColumnSection>
+        </DetailSection>
     )
 }

@@ -1,6 +1,6 @@
+import type { FetchResponse } from '~/common/utils/request'
 import { ProcessedPluginEvent, RetryError } from '~/plugin-scaffold'
 
-import type { FetchResponse } from '../../../../utils/request'
 import { LegacyDestinationPluginMeta } from '../../types'
 
 const DEFAULT_HOST = 'track.customer.io'

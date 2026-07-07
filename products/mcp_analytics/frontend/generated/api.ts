@@ -16,6 +16,7 @@ import type {
     MCPSessionIntentApi,
     McpAnalyticsFeedbackListParams,
     McpAnalyticsMissingCapabilitiesListParams,
+    McpAnalyticsSessionsGenerateIntentParams,
     McpAnalyticsSessionsListParams,
     McpAnalyticsSessionsToolCallsParams,
     PaginatedMCPAnalyticsSubmissionListApi,
@@ -193,8 +194,24 @@ export const mcpAnalyticsSessionsList = async (
     })
 }
 
-export const getMcpAnalyticsSessionsGenerateIntentUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/mcp_analytics/sessions/${id}/generate_intent/`
+export const getMcpAnalyticsSessionsGenerateIntentUrl = (
+    projectId: string,
+    id: string,
+    params?: McpAnalyticsSessionsGenerateIntentParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/mcp_analytics/sessions/${id}/generate_intent/?${stringifiedParams}`
+        : `/api/projects/${projectId}/mcp_analytics/sessions/${id}/generate_intent/`
 }
 
 /**
@@ -203,9 +220,10 @@ export const getMcpAnalyticsSessionsGenerateIntentUrl = (projectId: string, id: 
 export const mcpAnalyticsSessionsGenerateIntent = async (
     projectId: string,
     id: string,
+    params?: McpAnalyticsSessionsGenerateIntentParams,
     options?: RequestInit
 ): Promise<MCPSessionIntentApi> => {
-    return apiMutator<MCPSessionIntentApi>(getMcpAnalyticsSessionsGenerateIntentUrl(projectId, id), {
+    return apiMutator<MCPSessionIntentApi>(getMcpAnalyticsSessionsGenerateIntentUrl(projectId, id, params), {
         ...options,
         method: 'POST',
     })
@@ -232,7 +250,7 @@ export const getMcpAnalyticsSessionsToolCallsUrl = (
 }
 
 /**
- * List all $mcp_tool_call events that belong to a given $session_id, in chronological order.
+ * List a page of the $mcp_tool_call events that belong to a given $session_id, in chronological order.
  */
 export const mcpAnalyticsSessionsToolCalls = async (
     projectId: string,

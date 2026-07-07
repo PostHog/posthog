@@ -1,6 +1,7 @@
 RUST_HOGVM_STL = [
     "toString",
     "typeof",
+    "isNull",
     "values",
     "length",
     "arrayPushBack",
@@ -17,6 +18,8 @@ RUST_HOGVM_STL = [
     "match",
     "extractRegex",
     "JSONExtract",
+    "toDateTime",
+    "toDate",
     "multiSearchAnyCaseInsensitive",
     "randomFloat",
     "arrayCount",

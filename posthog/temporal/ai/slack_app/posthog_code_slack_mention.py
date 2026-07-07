@@ -18,9 +18,11 @@ from posthog.temporal.ai.slack_app import (
     discover_posthog_code_repository_via_agent_activity,
     enforce_posthog_code_billing_quota_activity,
     forward_posthog_code_followup_activity,
+    post_posthog_code_authorship_timeout_activity,
     post_posthog_code_internal_error_activity,
     post_posthog_code_picker_timeout_activity,
     post_posthog_code_repo_picker_activity,
+    resolve_posthog_code_authorship_activity,
     resolve_posthog_code_slack_user_activity,
 )
 from posthog.temporal.common.base import PostHogWorkflow
@@ -34,6 +36,7 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
     def __init__(self) -> None:
         self._selected_repo: str | None = None
         self._repo_selection_resolved = False
+        self._authorship_resolved = False
 
     @workflow.signal
     async def repo_selected(self, repository: str) -> None:
@@ -47,10 +50,50 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             self._repo_selection_resolved = True
             self._selected_repo = None
 
+    @workflow.signal
+    async def authorship_confirmed(self) -> None:
+        self._authorship_resolved = True
+
     @staticmethod
     def parse_inputs(inputs: list[str]) -> PostHogCodeSlackMentionWorkflowInputs:
         loaded = json.loads(inputs[0])
         return PostHogCodeSlackMentionWorkflowInputs(**loaded)
+
+    async def _resolve_authorship(
+        self,
+        inputs: PostHogCodeSlackMentionWorkflowInputs,
+        channel: str,
+        thread_ts: str,
+        slack_user_id: str,
+        user_id: int,
+        repository: str,
+    ) -> bool:
+        """Return True if the workflow must stop (blocked or timed out); False to proceed."""
+        status = await _execute_posthog_code_activity(
+            resolve_posthog_code_authorship_activity,
+            inputs,
+            channel,
+            thread_ts,
+            slack_user_id,
+            user_id,
+            workflow.info().workflow_id,
+            repository,
+        )
+        if status == "proceed":
+            return False
+        if status == "awaiting_confirmation":
+            try:
+                await workflow.wait_condition(
+                    lambda: self._authorship_resolved,
+                    timeout=timedelta(minutes=POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES),
+                )
+            except TimeoutError:
+                await _execute_posthog_code_activity(
+                    post_posthog_code_authorship_timeout_activity, inputs, channel, thread_ts
+                )
+                return True
+            return False
+        return True
 
     @workflow.run
     async def run(self, inputs: PostHogCodeSlackMentionWorkflowInputs) -> None:
@@ -240,8 +283,12 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                             )
                             return
                         repository = self._selected_repo
-            if repository and await _gate_on_personal_github(inputs, channel, thread_ts, user_id):
-                return
+            if repository:
+                if workflow.patched("posthog-code-authorship-confirm-2026-06"):
+                    if await self._resolve_authorship(inputs, channel, thread_ts, slack_user_id, user_id, repository):
+                        return
+                elif await _gate_on_personal_github(inputs, channel, thread_ts, user_id):
+                    return
             await _execute_posthog_code_activity(
                 create_posthog_code_task_for_repo_activity,
                 inputs,

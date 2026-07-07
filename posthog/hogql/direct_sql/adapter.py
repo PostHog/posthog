@@ -7,7 +7,7 @@ from posthog.hogql.timings import HogQLTimings
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
-    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+    from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 
 @dataclasses.dataclass

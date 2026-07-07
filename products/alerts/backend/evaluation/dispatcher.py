@@ -1,12 +1,14 @@
-from posthog.schema import AlertCondition, InsightThreshold, NodeKind
+from posthog.schema import AlertCondition, InsightThreshold, IntervalType, NodeKind
 
+from posthog.api.services.query import ExecutionMode
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
 from posthog.utils import get_from_dict_or_attr
 
 from products.alerts.backend.evaluation.comparator import evaluate_threshold
-from products.alerts.backend.evaluation.contract import DetectorExtractor, Extractor
+from products.alerts.backend.evaluation.contract import DetectorExtractor, Extractor, execution_mode_for_alert
 from products.alerts.backend.evaluation.detector import TrendsDetectorExtractor, evaluate_with_detector
+from products.alerts.backend.evaluation.funnels import FunnelsExtractor
 from products.alerts.backend.evaluation.hogql import HogQLDetectorExtractor, HogQLExtractor
 from products.alerts.backend.evaluation.trends import TrendsExtractor
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -16,6 +18,7 @@ from products.product_analytics.backend.models.insight import Insight
 EXTRACTORS: dict[NodeKind, Extractor] = {
     NodeKind.TRENDS_QUERY: TrendsExtractor(),
     NodeKind.HOG_QL_QUERY: HogQLExtractor(),
+    NodeKind.FUNNELS_QUERY: FunnelsExtractor(),
 }
 
 # The anomaly-detector path mirrors EXTRACTORS: one detector extractor per kind, scored by the shared
@@ -26,6 +29,15 @@ DETECTOR_EXTRACTORS: dict[NodeKind, DetectorExtractor] = {
     NodeKind.TRENDS_QUERY: TrendsDetectorExtractor(),
     NodeKind.HOG_QL_QUERY: HogQLDetectorExtractor(),
 }
+
+
+def _resolve_execution_mode(alert: AlertConfiguration, kind: NodeKind, query: object) -> ExecutionMode:
+    # Compute the cache/recompute decision once for every kind. Only time-axis kinds (trends/detector)
+    # escalate to a fresh recompute on hourly buckets; SQL/funnels have no hourly axis, so for them
+    # only the alert cadence (every-15-minutes) forces fresh.
+    raw_interval = get_from_dict_or_attr(query, "interval") if kind == NodeKind.TRENDS_QUERY else None
+    interval = IntervalType(raw_interval) if raw_interval is not None else None
+    return execution_mode_for_alert(interval, high_frequency=alert.is_high_frequency_interval)
 
 
 def check_detector_alert(alert: AlertConfiguration, insight: Insight, query: object) -> AlertEvaluationResult:
@@ -41,7 +53,7 @@ def check_detector_alert(alert: AlertConfiguration, insight: Insight, query: obj
     detector_extractor = DETECTOR_EXTRACTORS.get(kind)
     if detector_extractor is None:
         raise NotImplementedError(f"AlertCheckError: Detector alerts for {kind} are not supported yet")
-    result = detector_extractor.extract(alert, insight, query)
+    result = detector_extractor.extract(alert, insight, query, _resolve_execution_mode(alert, kind, query))
     return evaluate_with_detector(result, detector_config)
 
 
@@ -76,5 +88,5 @@ def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
             return AlertEvaluationResult(value=0, breaches=[])
 
         condition = AlertCondition.model_validate(alert.condition)
-        result = extractor.extract(alert, insight, query)
+        result = extractor.extract(alert, insight, query, _resolve_execution_mode(alert, kind, query))
         return evaluate_threshold(result, condition, threshold)

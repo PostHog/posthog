@@ -29,8 +29,6 @@ from posthog.api.webauthn import (
     WEBAUTHN_SIGNUP_EMAIL_KEY,
     WEBAUTHN_SIGNUP_USER_UUID_KEY,
 )
-from posthog.demo.matrix import MatrixManager
-from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.email import is_email_available
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.exceptions_capture import capture_exception
@@ -42,6 +40,8 @@ from posthog.permissions import CanCreateOrg
 from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle, SignupResendInviteThrottle
 from posthog.utils import get_can_create_org, is_relative_url
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
+
+from products.demo.backend.facade.api import HedgeboxMatrix, MatrixManager
 
 logger = structlog.get_logger(__name__)
 
@@ -853,7 +853,7 @@ def process_social_domain_jit_provisioning_signup(
             domain=domain,
             is_verified=domain_instance.is_verified,
             jit_provisioning_enabled=domain_instance.jit_provisioning_enabled,
-            scim_enabled=domain_instance.scim_enabled,
+            scim_enabled=domain_instance.idp_config.scim_enabled,
         )
         if domain_instance.is_verified and domain_instance.jit_provisioning_enabled:
             if not user:
@@ -904,7 +904,7 @@ def process_social_domain_jit_provisioning_signup(
                     domain=domain,
                     user=user.email,
                     organization=domain_instance.organization_id,
-                    scim_enabled=domain_instance.scim_enabled,
+                    scim_enabled=domain_instance.idp_config.scim_enabled,
                 )
 
     return user

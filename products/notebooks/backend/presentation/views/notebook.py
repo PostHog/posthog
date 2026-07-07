@@ -3,9 +3,11 @@ import hashlib
 from datetime import timedelta
 from typing import Any, cast
 
+from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Q, QuerySet
-from django.http import JsonResponse, StreamingHttpResponse
+from django.http import Http404, JsonResponse
 from django.utils.timezone import now
 
 import structlog
@@ -18,8 +20,8 @@ from drf_spectacular.utils import (
     extend_schema_field,
     extend_schema_view,
 )
-from loginas.utils import is_impersonated_session
 from rest_framework import serializers, viewsets
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -29,8 +31,10 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import action
 from posthog.exceptions import Conflict
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, changes_between, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
@@ -45,9 +49,13 @@ from products.notebooks.backend import collab_stream, markdown_collab, presence
 from products.notebooks.backend.activity_logging import log_notebook_activity
 from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
-from products.notebooks.backend.models import KernelRuntime, Notebook
+from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
 from products.notebooks.backend.query_validation import InvalidNotebookQueryError, normalize_notebook_query_nodes
+from products.notebooks.backend.sql_v2 import is_sql_v2_enabled
+from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2RunRequestSerializer
+from products.notebooks.backend.temporal.client import start_sql_v2_run_workflow
+from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput
 from products.tasks.backend.facade.exceptions import SandboxProvisionError
 from products.tasks.backend.facade.sandbox import SandboxStatus
 
@@ -199,7 +207,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             organization_id=self.context["request"].user.current_organization_id,
             team_id=team.id,
             user=self.context["request"].user,
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
         )
 
         return notebook
@@ -258,7 +266,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             organization_id=self.context["request"].user.current_organization_id,
             team_id=self.context["team_id"],
             user=self.context["request"].user,
-            was_impersonated=is_impersonated_session(self.context["request"]),
+            was_impersonated=is_impersonated(self.context["request"]),
             changes=changes,
         )
 
@@ -271,6 +279,15 @@ class NotebookSerializer(NotebookMinimalSerializer):
             return normalize_notebook_query_nodes(value)
         except InvalidNotebookQueryError as err:
             raise serializers.ValidationError(str(err))
+
+
+class NotebookMarkdownSerializer(serializers.Serializer):
+    markdown = serializers.CharField(
+        allow_blank=True,
+        allow_null=True,
+        read_only=True,
+        help_text="Markdown source for markdown notebooks, or `null` for legacy rich-text notebooks.",
+    )
 
 
 class NotebookKernelExecuteSerializer(serializers.Serializer):
@@ -509,8 +526,25 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         return self.get_object()
 
+    def _require_query_access(self) -> None:
+        # SQLV2 runs arbitrary HogQL and returns analytics rows, so notebook access alone is not
+        # enough — a notebook editor whose query access is denied must not read data through it.
+        # Mirrors ee/api/subscription.py: the query:read scope gates tokens, this gates sessions
+        # (which carry no scopes) and enforces real RBAC for tokens too.
+        if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+            raise PermissionDenied("You need query access to run SQL in a notebook.")
+
     def _current_user(self) -> User | None:
         return self.request.user if isinstance(self.request.user, User) else None
+
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], url_path="markdown", detail=True, required_scopes=["notebook:read"])
+    def markdown(self, request: Request, **kwargs) -> Response:
+        notebook = self.get_object()
+        serializer = NotebookMarkdownSerializer(
+            {"markdown": markdown_collab.get_markdown_notebook_markdown(notebook.content)}
+        )
+        return Response(serializer.data)
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         if not self.action.endswith("update"):
@@ -521,6 +555,10 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         if self.action == "list":
             queryset = queryset.filter(deleted=False, visibility=Notebook.Visibility.DEFAULT)
             queryset = self._filter_list_request(self.request, queryset)
+            # The list serializer omits content/text_content, but both are large columns
+            # (ProseMirror JSON + full plaintext) that we'd otherwise load and JSON-decode per row.
+            # search/contains filters run as WHERE-clause predicates, so they don't need the columns in Python.
+            queryset = queryset.defer("content", "text_content")
 
         order = self.request.GET.get("order", None)
         if order:
@@ -776,7 +814,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         notebook = self._get_notebook_for_kernel()
 
         try:
-            response = execute_hogql_query(query=serializer.validated_data["query"], team=self.team)
+            response = execute_hogql_query(
+                query=serializer.validated_data["query"], team=self.team, user=self._current_user()
+            )
         except Exception as err:
             logger.exception("notebook_hogql_execute_failed", notebook_short_id=notebook.short_id)
             return Response({"error": str(err)}, status=400)
@@ -824,12 +864,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 yield f"event: error\ndata: {payload_json}\n\n".encode()
 
         streaming_content = SyncIterableToAsync(stream()) if SERVER_GATEWAY_INTERFACE == "ASGI" else stream()
-        response = StreamingHttpResponse(
-            streaming_content=streaming_content, content_type=ServerSentEventRenderer.media_type
-        )
-        response["Cache-Control"] = "no-cache"
-        response["X-Accel-Buffering"] = "no"
-        return response
+        return sse_streaming_response(streaming_content, endpoint="notebook_stream")
 
     @action(methods=["GET"], url_path="kernel/dataframe", detail=True)
     def kernel_dataframe(self, request: Request, **kwargs):
@@ -858,6 +893,81 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return Response({"detail": "Failed to fetch dataframe data."}, status=503)
 
         return Response(data)
+
+    # Experimental, flag-gated slice — kept out of the public OpenAPI schema (no generated FE/MCP types yet).
+    @extend_schema(exclude=True)
+    @action(methods=["POST"], url_path="sql_v2/run", detail=True, required_scopes=["notebook:write", "query:read"])
+    def sql_v2_run(self, request: Request, **kwargs):
+        user = self._current_user()
+        # Server-side gate is permissive in local dev (frontend still gates the UI); prod is flag-gated.
+        if not (settings.DEBUG or is_sql_v2_enabled(user)):
+            raise Http404()
+
+        serializer = NotebookSQLV2RunRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        notebook = self._get_notebook_for_kernel()
+        self._require_query_access()
+
+        run = NotebookNodeRun.objects.create(
+            team_id=self.team_id,
+            notebook=notebook,
+            node_id=serializer.validated_data["node_id"],
+            status=NotebookNodeRun.Status.RUNNING,
+        )
+
+        try:
+            start_sql_v2_run_workflow(
+                SQLV2RunInput(
+                    run_id=str(run.id),
+                    notebook_short_id=notebook.short_id,
+                    team_id=self.team_id,
+                    user_id=user.id if isinstance(user, User) else None,
+                    code=serializer.validated_data["code"],
+                )
+            )
+        except Exception:
+            logger.exception("notebook_sql_v2_run_start_failed", notebook_short_id=notebook.short_id)
+            run.status = NotebookNodeRun.Status.FAILED
+            run.error = "Failed to start run."
+            run.save(update_fields=["status", "error", "updated_at"])
+            return Response({"detail": "Failed to start run."}, status=503)
+
+        return Response({"run_id": str(run.id)})
+
+    @extend_schema(exclude=True)
+    @action(
+        methods=["GET"],
+        url_path="sql_v2/runs/(?P<run_id>[^/.]+)",
+        detail=True,
+        required_scopes=["notebook:read", "query:read"],
+    )
+    def sql_v2_run_result(self, request: Request, run_id: str | None = None, **kwargs):
+        # The node short-polls this durable read to learn when its run finishes. One indexed
+        # query, no held connection — resilient to reloads/remounts (see sql_v2_result_delivery.md).
+        user = self._current_user()
+        if not (settings.DEBUG or is_sql_v2_enabled(user)) or run_id is None:
+            raise Http404()
+
+        # Scope to the notebook (via get_object → per-notebook access control), not just the
+        # team: a team-only lookup lets a user read a run from a notebook they can't access.
+        notebook = self._get_notebook_for_kernel()
+        # The result envelope is analytics rows, so gate reads on query access too — a
+        # notebook-reader whose query access is denied must not read the rows back.
+        self._require_query_access()
+        try:
+            run = NotebookNodeRun.objects.for_team(self.team_id).filter(id=run_id, notebook=notebook).first()
+        except DjangoValidationError:  # malformed run_id (not a UUID)
+            raise Http404()
+        if run is None:
+            raise Http404()
+
+        return Response(
+            {
+                "status": run.status,
+                "result": run.envelope if run.status == NotebookNodeRun.Status.DONE else None,
+                "error": run.error or None,
+            }
+        )
 
     @extend_schema(request=NotebookCollabSaveSerializer)
     @action(methods=["POST"], url_path="collab/save", detail=True, required_scopes=["notebook:write"])
@@ -905,7 +1015,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 organization_id=cast(UUIDT, user.current_organization_id),
                 team_id=notebook.team_id,
                 user=user,
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
                 changes=changes,
             )
 
@@ -918,7 +1028,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             organization_id=cast(UUIDT, user.current_organization_id),
             team_id=notebook.team_id,
             user=user,
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             changes=[
                 Change(
                     type="Notebook",
@@ -1013,7 +1123,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 organization_id=cast(UUIDT, user.current_organization_id),
                 team_id=locked_notebook.team_id,
                 user=user,
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
                 changes=changes,
             )
             return Response(NotebookSerializer(locked_notebook, context=self.get_serializer_context()).data)
@@ -1025,7 +1135,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             organization_id=cast(UUIDT, user.current_organization_id),
             team_id=locked_notebook.team_id,
             user=user,
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             changes=[
                 Change(
                     type="Notebook",
@@ -1096,19 +1206,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         # On ASGI (Granian in prod) the async generator runs as one cheap task per connection.
         # On WSGI (tests, fallback) async_to_sync bridges it via a worker thread + queue.
-        response = StreamingHttpResponse(
-            streaming_content=(
-                collab_stream.stream_collab_sse(team_id, notebook_id, last_event_id=last_event_id)
-                if SERVER_GATEWAY_INTERFACE == "ASGI"
-                else async_to_sync(
-                    lambda: collab_stream.stream_collab_sse(team_id, notebook_id, last_event_id=last_event_id)
-                )
+        return sse_streaming_response(
+            collab_stream.stream_collab_sse(team_id, notebook_id, last_event_id=last_event_id)
+            if SERVER_GATEWAY_INTERFACE == "ASGI"
+            else async_to_sync(
+                lambda: collab_stream.stream_collab_sse(team_id, notebook_id, last_event_id=last_event_id)
             ),
-            content_type=ServerSentEventRenderer.media_type,
+            endpoint="notebook_collab",
         )
-        response["Cache-Control"] = "no-cache"
-        response["X-Accel-Buffering"] = "no"
-        return response
 
     @action(methods=["GET"], detail=False)
     def recording_comments(self, request: Request, **kwargs):

@@ -5,8 +5,8 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.models import Team
-from posthog.models.group_type_mapping import GroupTypeMapping, invalidate_group_types_cache
-from posthog.person_db_router import PERSONS_DB_FOR_WRITE
+from posthog.models.group_type_mapping import invalidate_group_types_cache
+from posthog.persons_db import persons_db_connection
 from posthog.sync import database_sync_to_async
 from posthog.temporal.backfill_group_type_created_at.types import (
     ApplyBackfillInput,
@@ -48,11 +48,17 @@ async def plan_group_type_created_at_backfill(input: PlanBackfillInput) -> dict:
         # Group types are project-scoped, but events carry team_id, so the earliest
         # event must be found across every environment in the project.
         team_ids = list(Team.objects.filter(project_id=project_id).values_list("id", flat=True))
-        mappings = list(
-            GroupTypeMapping.objects.using(PERSONS_DB_FOR_WRITE)  # nosemgrep: no-direct-persons-db-orm
-            .filter(project_id=project_id)
-            .values("group_type", "group_type_index", "created_at")
-        )
+        # Read from the writer (matching the original PERSONS_DB_FOR_WRITE) so the plan sees the
+        # current created_at, consistent with the writer-side guard in the apply step.
+        with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT group_type, group_type_index, created_at FROM posthog_grouptypemapping WHERE project_id = %s",
+                [project_id],
+            )
+            mappings = [
+                {"group_type": group_type, "group_type_index": index, "created_at": created_at}
+                for group_type, index, created_at in cursor.fetchall()
+            ]
         return {"project_id": project_id, "team_ids": team_ids, "mappings": mappings}
 
     pg = await fetch_mappings()
@@ -173,9 +179,9 @@ async def apply_group_type_created_at_backfill(input: ApplyBackfillInput) -> dic
     """Write the planned created_at values to Postgres and invalidate the cache.
 
     The group type mapping table is personhog-owned (managed=False) but its created_at
-    has no personhog RPC, so we write directly to the persons DB — mirroring the ORM
-    fallback used elsewhere in group_type_mapping.py — then bust the group-types cache
-    so HogQL reads the new value instead of the stale masked one.
+    has no personhog RPC, so we write directly to the persons DB through the off-ORM
+    connection util — then bust the group-types cache so HogQL reads the new value
+    instead of the stale masked one.
     """
     bind_contextvars(project_id=input.project_id)
     logger = LOGGER.bind()
@@ -183,20 +189,19 @@ async def apply_group_type_created_at_backfill(input: ApplyBackfillInput) -> dic
     @database_sync_to_async
     def apply() -> int:
         updated = 0
-        for update in input.updates:
-            new_created_at = datetime.fromisoformat(update["new_created_at"])
-            # created_at__gt enforces the "only lower" invariant at the DB level, so a
-            # re-run — or the ingestion fix landing between plan and apply — can never
-            # raise created_at back up.
-            updated += (
-                GroupTypeMapping.objects.using(PERSONS_DB_FOR_WRITE)  # nosemgrep: no-direct-persons-db-orm
-                .filter(
-                    project_id=input.project_id,
-                    group_type_index=update["group_type_index"],
-                    created_at__gt=new_created_at,
-                )
-                .update(created_at=new_created_at)
-            )
+        with persons_db_connection(writer=True, autocommit=True) as conn:
+            for update in input.updates:
+                new_created_at = datetime.fromisoformat(update["new_created_at"])
+                # created_at > %s enforces the "only lower" invariant at the DB level, so a
+                # re-run — or the ingestion fix landing between plan and apply — can never
+                # raise created_at back up.
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        "UPDATE posthog_grouptypemapping SET created_at = %s "
+                        "WHERE project_id = %s AND group_type_index = %s AND created_at > %s",
+                        [new_created_at, input.project_id, update["group_type_index"], new_created_at],
+                    )
+                    updated += cursor.rowcount
         invalidate_group_types_cache(input.project_id)
         return updated
 

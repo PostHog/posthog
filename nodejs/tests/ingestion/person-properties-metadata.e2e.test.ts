@@ -12,18 +12,18 @@ import { v4 } from 'uuid'
 
 import { createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { UUIDT } from '~/common/utils/utils'
 import { IngestionConsumer } from '~/ingestion/ingestion-consumer'
 import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
-import { KafkaProducerWrapper } from '~/kafka/producer'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { createUserTeamAndOrganization, fetchPostgresPersons, resetTestDatabase } from '~/tests/helpers/sql'
 import { PipelineEvent, PluginsServerConfig, ProjectId, Team } from '~/types'
-import { UUIDT } from '~/utils/utils'
 
-jest.mock('~/utils/token-bucket', () => {
+jest.mock('~/common/utils/token-bucket', () => {
     const mockConsume = jest.fn().mockReturnValue(true)
     return {
         IngestionWarningLimiter: {
@@ -32,7 +32,7 @@ jest.mock('~/utils/token-bucket', () => {
     }
 })
 
-jest.mock('~/utils/logger')
+jest.mock('~/common/utils/logger')
 
 const waitForKafkaMessages = async (kafkaProducer: KafkaProducerWrapper) => {
     await kafkaProducer.flush()

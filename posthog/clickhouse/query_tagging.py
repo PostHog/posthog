@@ -51,6 +51,7 @@ class Product(StrEnum):
     BATCH_EXPORT = "batch_export"
     COHORTS = "cohorts"
     CONVERSATIONS = "conversations"
+    CUSTOMER_ANALYTICS = "customer_analytics"
     ENDPOINTS = "endpoints"
     ENGINEERING_ANALYTICS = "engineering_analytics"
     ERROR_TRACKING = "error_tracking"
@@ -68,6 +69,7 @@ class Product(StrEnum):
     MCP_ANALYTICS = "mcp_analytics"  # queries from the MCP analytics product (insights, dashboards, sessions)
     MESSAGING = "messaging"
     MOBILE_REPLAY = "mobile_replay"
+    NOTEBOOKS = "notebooks"
     PIPELINE_DESTINATIONS = "pipeline_destinations"
     PLATFORM_AND_SUPPORT = "platform_and_support"
     POSTHOG_CODE = "posthog_code"
@@ -89,6 +91,7 @@ class Product(StrEnum):
 
 
 class Feature(StrEnum):
+    ACCOUNTS = "accounts"
     ALERTING = "alerting"
     BACKFILL = "backfill"
     BEHAVIORAL_COHORTS = "behavioral_cohorts"
@@ -145,6 +148,7 @@ SCENE_TO_TAGS: dict[str, FallbackTags | None] = {
     "Cohort": {"product": Product.COHORTS, "feature": Feature.COHORT},
     "EndpointScene": {"product": Product.ENDPOINTS, "feature": Feature.QUERY},
     "EndpointsScene": {"product": Product.ENDPOINTS, "feature": Feature.QUERY},
+    "EngineeringAnalytics": {"product": Product.ENGINEERING_ANALYTICS, "feature": Feature.QUERY},
     "Logs": {"product": Product.LOGS, "feature": Feature.QUERY},
     "Metrics": {"product": Product.METRICS, "feature": Feature.QUERY},
     "EventDefinition": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
@@ -229,6 +233,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
         case (
             NodeKind.TRACE_QUERY
             | NodeKind.TRACES_QUERY
+            | NodeKind.SESSION_QUERY
             | NodeKind.TRACE_NEIGHBORS_QUERY
             | NodeKind.TRACE_SPANS_QUERY
             | NodeKind.TRACE_SPANS_AGGREGATION_QUERY
@@ -262,7 +267,16 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.NON_INTEGRATED_CONVERSIONS_TABLE_QUERY
         ):
             return {"product": Product.MARKETING_ANALYTICS}
-        case NodeKind.MCP_HARNESS_BREAKDOWN_QUERY:
+        case (
+            NodeKind.MCP_HARNESS_BREAKDOWN_QUERY
+            | NodeKind.MCP_TOOL_TOP_USERS_QUERY
+            | NodeKind.MCP_TOOL_FAILURES_QUERY
+            | NodeKind.MCP_TOOL_STATS_QUERY
+            | NodeKind.MCP_TOOL_DAILY_STATS_QUERY
+            | NodeKind.MCP_TOOL_DESCRIPTIONS_QUERY
+            | NodeKind.MCP_TOOL_SAMPLE_INTENTS_QUERY
+            | NodeKind.MCP_TOOL_NEIGHBORS_QUERY
+        ):
             return {"product": Product.MCP_ANALYTICS}
         case (
             # not attributable on their own
@@ -394,12 +408,21 @@ class QueryTags(BaseModel):
     scene: Optional[str] = None
 
     alert_config_id: Optional[uuid.UUID] = None
+    # Cadence and query shape of the alert that triggered this run, tagged at evaluation
+    # so query_log cost can be grouped by frequency (real_time / every_15_minutes / ...)
+    # and by config type (TrendsAlertConfig vs HogQLAlertConfig) without joining to Postgres.
+    alert_calculation_interval: Optional[str] = None
+    alert_config_type: Optional[str] = None
     batch_export_id: Optional[uuid.UUID] = None
     cache_key: Optional[str] = None
     celery_task_id: Optional[uuid.UUID] = None
     clickhouse_exception_type: Optional[str] = None
     client_query_id: Optional[str] = None
     cohort_id: Optional[int] = None
+    # lazy-computation / preaggregation builds: the time window a single build INSERT covers (ISO).
+    # Generic across products (experiments, marketing, web analytics) since they share the executor.
+    precompute_window_start: Optional[str] = None
+    precompute_window_end: Optional[str] = None
     entity_math: Optional[list[str]] = None
 
     # replays
@@ -425,6 +448,18 @@ class QueryTags(BaseModel):
     experiment_metric_events_path: Optional[str] = None  # "direct_scan", "precomputed", or "not_applicable"
     experiment_query_surface: Optional[str] = None  # "metric", "exposures_timeseries", "actors", "precompute_build"
     experiment_precompute_table: Optional[str] = None  # on precompute_build rows: "exposures" or "metric_events"
+    # Why precompute was not used (set on the metric read). One of "override_direct", "team_disabled",
+    # "min_runtime", "data_warehouse"; None/absent when precompute was attempted (so a direct path then
+    # means the build failed or wasn't ready — derivable from the precompute_build sub-queries).
+    experiment_precompute_skip_reason: Optional[str] = None
+    # Analysis window of the read (ISO), for the query-performance UI. The build sub-queries carry their
+    # own per-chunk window in the generic precompute_window_start/end fields above.
+    experiment_scan_date_from: Optional[str] = None
+    experiment_scan_date_to: Optional[str] = None
+    # Shared id linking a top-level query to its precompute-build sub-queries. Generated once per
+    # top-level evaluation; sub-queries inherit it through the tag context. Lets the query-performance
+    # UI group the (synchronous) build INSERTs under the read that triggered them.
+    experiment_query_group_id: Optional[uuid.UUID] = None
     experiment_actors_query_step: Optional[int] = None  # funnel step for actors query
     experiment_actors_query_variant: Optional[str] = None  # variant filter for actors query
     experiment_actors_query_includes_recordings: Optional[bool] = None  # whether recordings are included

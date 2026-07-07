@@ -275,6 +275,10 @@
                                         "enum": ["html", "text"],
                                         "type": "string"
                                     },
+                                    "id": {
+                                        "description": "Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.",
+                                        "type": "string"
+                                    },
                                     "optional": {
                                         "description": "Whether respondents may skip this question.",
                                         "type": "boolean"
@@ -305,6 +309,10 @@
                                     "descriptionContentType": {
                                         "description": "Format for the description field.\n\n* `text` - text\n* `html` - html",
                                         "enum": ["html", "text"],
+                                        "type": "string"
+                                    },
+                                    "id": {
+                                        "description": "Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.",
                                         "type": "string"
                                     },
                                     "link": {
@@ -425,6 +433,10 @@
                                     "display": {
                                         "description": "Display format: 'number' shows numeric scale, 'emoji' shows emoji scale.\n\n* `number` - number\n* `emoji` - emoji",
                                         "enum": ["number", "emoji"],
+                                        "type": "string"
+                                    },
+                                    "id": {
+                                        "description": "Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.",
                                         "type": "string"
                                     },
                                     "lowerBoundLabel": {
@@ -564,6 +576,10 @@
                                         "description": "Whether the final option should be an open-text choice (for example, 'Other').",
                                         "type": "boolean"
                                     },
+                                    "id": {
+                                        "description": "Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.",
+                                        "type": "string"
+                                    },
                                     "optional": {
                                         "description": "Whether respondents may skip this question.",
                                         "type": "boolean"
@@ -612,6 +628,10 @@
                                     "hasOpenChoice": {
                                         "description": "Whether the final option should be an open-text choice (for example, 'Other').",
                                         "type": "boolean"
+                                    },
+                                    "id": {
+                                        "description": "Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.",
+                                        "type": "string"
                                     },
                                     "optional": {
                                         "description": "Whether respondents may skip this question.",

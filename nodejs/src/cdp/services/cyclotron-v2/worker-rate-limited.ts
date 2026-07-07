@@ -1,4 +1,5 @@
-import { logger } from '../../../utils/logger'
+import { logger } from '~/common/utils/logger'
+
 import { CyclotronV2BatchLimit, CyclotronV2WorkerConfig } from './types'
 import { CyclotronV2DequeuedJob } from './types'
 import { CyclotronV2Worker, sleep } from './worker'

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import type { DashboardWidgetTileFiltersProps } from '../registry'
 import { useWidgetTileConfigPersist } from '../widgetTileFiltersHooks'
@@ -45,10 +45,21 @@ export function ExperimentResultsWidgetTileFilters({
     configRef.current = config
     const { persistConfigNow } = useWidgetTileConfigPersist(onUpdateConfig)
 
+    // Reflect the pick immediately rather than waiting for the persist round-trip to update `config`.
+    const [optimisticExperimentId, setOptimisticExperimentId] = useState<number | null | undefined>(undefined)
+    const selectedExperimentId = optimisticExperimentId !== undefined ? optimisticExperimentId : experimentId
+
     const applyExperimentId = async (value: number | null): Promise<void> => {
+        setOptimisticExperimentId(value)
         const nextConfig = patchExperimentResultsWidgetConfig(configRef.current, value)
         configRef.current = nextConfig
-        await persistConfigNow(nextConfig)
+        try {
+            // persist resolves only after `config` reflects the pick, so clearing here never flickers.
+            await persistConfigNow(nextConfig)
+        } finally {
+            // Only clear if a newer pick hasn't superseded this one.
+            setOptimisticExperimentId((current) => (current === value ? undefined : current))
+        }
     }
 
     if (!onUpdateConfig) {
@@ -70,7 +81,7 @@ export function ExperimentResultsWidgetTileFilters({
             <div className="w-64 max-w-full">
                 <ExperimentPickerSelect
                     pickerKey={`results-tile-${tileId}`}
-                    value={experimentId}
+                    value={selectedExperimentId}
                     disabled={!!disabledReason}
                     fullWidth
                     onChange={(value) => {

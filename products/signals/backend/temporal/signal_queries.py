@@ -43,8 +43,24 @@ def _ensure_tz_aware(value: Union[datetime, str]) -> datetime:
 # ---------------------------------------------------------------------------
 
 
-def _deduped_signals_subquery(*, include_embedding: bool = False, extra_where: str | None = None) -> str:
-    """Build the shared signal dedup subquery with an optional extra document_embeddings filter."""
+def _deduped_signals_subquery(
+    *, include_embedding: bool = False, extra_where: str | None = None, candidate_document_filter: str | None = None
+) -> str:
+    """Build the shared signal dedup subquery with an optional extra document_embeddings filter.
+
+    `candidate_document_filter` bounds the dedup to documents that ever matched the filter, via a
+    `document_id IN (SELECT DISTINCT ... WHERE <filter>)` prefilter — so the argMax aggregation runs
+    over that slice instead of the team's whole signal history (its memory otherwise scales with the
+    team's total signal count). Unlike `extra_where`, the filter selects candidate documents but does
+    NOT restrict which versions feed the argMax, so "latest version wins" is preserved and the caller's
+    own outer filter stays authoritative. Use it for re-groupable fields like `report_id`; use
+    `extra_where` only for fields that are stable across a document's versions (e.g. `source_id`).
+
+    Raises ValueError if both extra_where and candidate_document_filter are supplied — they are
+    mutually exclusive (the extra_where branch returns early and silently drops candidate_document_filter).
+    """
+    if extra_where and candidate_document_filter:
+        raise ValueError("_deduped_signals_subquery: extra_where and candidate_document_filter are mutually exclusive")
     selected_columns = [
         "document_id",
         "argMax(content, inserted_at) as content",
@@ -83,13 +99,25 @@ def _deduped_signals_subquery(*, include_embedding: bool = False, extra_where: s
         GROUP BY document_id
     """
 
+    candidate_bound = ""
+    if candidate_document_filter:
+        candidate_bound = f"""
+          AND document_id IN (
+              SELECT DISTINCT document_id
+              FROM document_embeddings
+              WHERE model_name = {{model_name}}
+                AND product = 'signals'
+                AND document_type = 'signal'
+                AND {candidate_document_filter}
+          )"""
+
     return f"""
         SELECT
             {selected_columns_sql}
         FROM document_embeddings
         WHERE model_name = {{model_name}}
           AND product = 'signals'
-          AND document_type = 'signal'
+          AND document_type = 'signal'{candidate_bound}
         GROUP BY document_id
     """
 
@@ -115,7 +143,7 @@ def _signals_for_report_query(*, include_deleted: bool = False, limit: int | Non
             content,
             metadata,
             timestamp
-        FROM ({_deduped_signals_subquery()})
+        FROM ({_deduped_signals_subquery(candidate_document_filter="JSONExtractString(metadata, 'report_id') = {report_id}")})
         WHERE JSONExtractString(metadata, 'report_id') = {{report_id}}{deleted_filter}
         ORDER BY timestamp ASC{limit_clause}
     """
@@ -580,10 +608,23 @@ def fetch_report_ids_for_source_products(team: Team, source_products: list[str])
 # ---------------------------------------------------------------------------
 
 
-def fetch_source_products_for_reports(team: Team, report_ids: list[str]) -> dict[str, list[str]]:
-    """Return a mapping of report_id -> distinct source_products for those reports.
+@dataclass(frozen=True)
+class ReportSignalMeta:
+    """Per-report signal metadata read off ClickHouse for the inbox list/detail views."""
 
-    Only includes non-deleted signals. Source products are returned in sorted order.
+    source_products: list[str]
+    # Raw skill_name slug of the authoring scout (e.g. "signals-scout-error-tracking"), when the
+    # report's backing signals carry one. None for pipeline reports and reports emitted before the
+    # scout stamped skill_name onto its signals.
+    scout_name: str | None
+
+
+def fetch_source_products_for_reports(team: Team, report_ids: list[str]) -> dict[str, ReportSignalMeta]:
+    """Return a mapping of report_id -> `ReportSignalMeta` (distinct source_products + authoring scout).
+
+    Only includes non-deleted signals. Source products are returned in sorted order. `scout_name` is
+    any non-empty `extra.skill_name` on the report's signals (all scout-authored signals of a report
+    share one), or None.
 
     Bounds the argMax dedup to documents that ever carried one of these report_ids, instead
     of deduping the team's whole signal history. The unbounded dedup's memory grows with the
@@ -598,12 +639,16 @@ def fetch_source_products_for_reports(team: Team, report_ids: list[str]) -> dict
         return {}
 
     ch_query = """
-        SELECT report_id, arraySort(groupUniqArray(source_product)) as source_products
+        SELECT
+            report_id,
+            arraySort(groupUniqArray(source_product)) as source_products,
+            anyIf(skill_name, skill_name != '') as scout_name
         FROM (
             SELECT
                 JSONExtractString(metadata, 'report_id') as report_id,
                 JSONExtractBool(metadata, 'deleted') as is_deleted,
-                JSONExtractString(metadata, 'source_product') as source_product
+                JSONExtractString(metadata, 'source_product') as source_product,
+                JSONExtractString(metadata, 'extra', 'skill_name') as skill_name
             FROM (
                 SELECT argMax(metadata, inserted_at) as metadata
                 FROM document_embeddings
@@ -639,7 +684,11 @@ def fetch_source_products_for_reports(team: Team, report_ids: list[str]) -> dict
         },
     )
 
-    return {row[0]: row[1] for row in (result.results or []) if row[0]}
+    return {
+        row[0]: ReportSignalMeta(source_products=row[1], scout_name=(row[2] or None))
+        for row in (result.results or [])
+        if row[0]
+    }
 
 
 # ---------------------------------------------------------------------------

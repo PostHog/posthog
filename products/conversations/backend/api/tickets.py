@@ -14,7 +14,6 @@ from django.utils import timezone
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
-from loginas.utils import is_impersonated_session
 from rest_framework import (
     pagination,
     serializers,
@@ -30,8 +29,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
 from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
@@ -236,8 +236,10 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "priority",
             "assignee",
             "anonymous_traits",
+            "identity_verified",
             "ai_resolved",
             "escalation_reason",
+            "ai_triage",
             "created_at",
             "updated_at",
             "message_count",
@@ -258,6 +260,8 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "cc_participants",
             "github_repo",
             "github_issue_number",
+            "zendesk_ticket_id",
+            "organization_id",
             "person",
             "tags",
         ]
@@ -285,13 +289,31 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "cc_participants",
             "github_repo",
             "github_issue_number",
+            "zendesk_ticket_id",
+            "organization_id",
             "person",
+            "ai_triage",
+            "identity_verified",
         ]
         extra_kwargs = {
+            "identity_verified": {
+                "help_text": (
+                    "Trust signal indicating whether the ticket's claimed identity was attested by the server "
+                    "(widget HMAC, SPF-authenticated email, or a signature-validated platform webhook). "
+                    "True when verified, false when assessed but not attested, null when unknown "
+                    "(e.g. created before this signal existed)."
+                )
+            },
             "status": {"help_text": "Ticket status: new, open, pending, on_hold, or resolved"},
             "priority": {"help_text": "Ticket priority: low, medium, or high. Null if unset."},
             "sla_due_at": {"help_text": "SLA deadline set via workflows. Null means no SLA."},
             "anonymous_traits": {"help_text": "Customer-provided traits such as name and email"},
+            "organization_id": {
+                "help_text": "Customer's PostHog organization group key, resolved at ticket creation. Null when unknown."
+            },
+            "ai_triage": {
+                "help_text": "AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.)."
+            },
         }
 
     def get_email_to(self, obj: Ticket) -> str | None:
@@ -463,6 +485,27 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                     queryset = queryset.exclude(tagged_items__tag__name__in=tags_exclude_list[:MAX_TAG_FILTER_VALUES])
             except json.JSONDecodeError:
                 pass
+
+        ai_triage_result_param = self.request.query_params.get("ai_triage_result")
+        if ai_triage_result_param:
+            valid_results = {
+                "persisted",
+                "escalated_with_best",
+                "escalated_no_reply",
+                "skipped_unactionable",
+                "blocked_unsafe",
+                "blocked_unsafe_reply",
+                "in_progress",
+            }
+            results = {r.strip() for r in ai_triage_result_param.split(",") if r.strip() in valid_results}
+            if results:
+                q = Q()
+                normal_results = results - {"in_progress"}
+                if normal_results:
+                    q |= Q(ai_triage__result__in=normal_results)
+                if "in_progress" in results:
+                    q |= Q(ai_triage__status="in_progress")
+                queryset = queryset.filter(q)
 
         allowed_orderings = {
             "updated_at",
@@ -760,7 +803,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 self.organization,
                 request.user,
                 self.team_id,
-                is_impersonated_session(request),
+                is_impersonated(request),
             )
             # Refresh instance to get updated assignment
             instance.refresh_from_db()
@@ -838,7 +881,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                     organization_id=self.organization.id,
                     team_id=self.team_id,
                     user=request.user,
-                    was_impersonated=is_impersonated_session(request),
+                    was_impersonated=is_impersonated(request),
                     item_id=str(instance.id),
                     scope="Ticket",
                     activity="updated",
@@ -887,7 +930,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 organization_id=self.organization.id,
                 team_id=self.team_id,
                 user=request.user,
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
                 item_id=str(ticket.id),
                 scope="Ticket",
                 activity="updated",
@@ -1170,6 +1213,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 email_config=email_config,
                 email_from=data["recipient_email"],
                 email_subject=data.get("email_subject", ""),
+                # The recipient hasn't proven control of this address — a team member just typed it —
+                # so leave identity unknown. It's promoted to verified if/when they reply and authenticate.
+                identity_verified=None,
             )
 
             Comment.objects.create(
@@ -1233,7 +1279,9 @@ def validate_assignee_membership(assignee, organization) -> None:
             raise serializers.ValidationError({"assignee": "role does not belong to this organization"})
 
 
-def assign_ticket(ticket: Ticket, assignee, organization, user, team_id, was_impersonated):
+def assign_ticket(
+    ticket: Ticket, assignee, organization, user, team_id, was_impersonated, trigger: Trigger | None = None
+):
     """
     Assign a ticket to a user or role.
 
@@ -1244,6 +1292,7 @@ def assign_ticket(ticket: Ticket, assignee, organization, user, team_id, was_imp
         user: The user making the change
         team_id: The team ID
         was_impersonated: Whether the session is impersonated
+        trigger: Optional Trigger identifying an automated source (e.g. a workflow) that made the change
     """
     validate_assignee(assignee)
     validate_assignee_membership(assignee, organization)
@@ -1287,6 +1336,7 @@ def assign_ticket(ticket: Ticket, assignee, organization, user, team_id, was_imp
                         action="changed",
                     )
                 ],
+                trigger=trigger,
             ),
         )
 

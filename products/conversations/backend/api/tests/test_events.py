@@ -69,6 +69,11 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["actor_type"] == "user"
         assert call_kwargs["properties"]["actor_id"] == self.user.id
         assert call_kwargs["properties"]["actor_email"] == self.user.email
+        # Customer identity travels alongside the actor so workflows can email the customer,
+        # not the team member the event's distinct_id is attributed to.
+        assert call_kwargs["properties"]["customer_name"] == "Test Customer"
+        assert call_kwargs["properties"]["customer_email"] == "test@example.com"
+        assert call_kwargs["properties"]["customer_distinct_id"] == self.ticket.distinct_id
 
     @patch("products.conversations.backend.events.capture_internal")
     def test_capture_ticket_priority_changed_uses_team_token(self, mock_capture):
@@ -85,6 +90,8 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["actor_type"] == "user"
         assert call_kwargs["properties"]["actor_id"] == self.user.id
         assert call_kwargs["properties"]["actor_email"] == self.user.email
+        assert call_kwargs["properties"]["customer_email"] == "test@example.com"
+        assert call_kwargs["properties"]["customer_distinct_id"] == self.ticket.distinct_id
 
     @patch("products.conversations.backend.events.capture_internal")
     def test_capture_ticket_assigned_uses_team_token(self, mock_capture):
@@ -101,6 +108,8 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["actor_type"] == "user"
         assert call_kwargs["properties"]["actor_id"] == self.user.id
         assert call_kwargs["properties"]["actor_email"] == self.user.email
+        assert call_kwargs["properties"]["customer_email"] == "test@example.com"
+        assert call_kwargs["properties"]["customer_distinct_id"] == self.ticket.distinct_id
 
     @patch("products.conversations.backend.events.capture_internal")
     def test_capture_message_sent_uses_team_token(self, mock_capture):
@@ -127,6 +136,9 @@ class TestConversationEvents(BaseTest):
             ("capture_ticket_created", capture_ticket_created, []),
             ("capture_message_received", capture_message_received, ["msg-id", "content"]),
             ("capture_message_sent", capture_message_sent, ["msg-id", "content"]),
+            ("capture_ticket_status_changed", capture_ticket_status_changed, ["new", "pending"]),
+            ("capture_ticket_priority_changed", capture_ticket_priority_changed, [None, "high"]),
+            ("capture_ticket_assigned", capture_ticket_assigned, ["user", "123"]),
         ]
     )
     @patch("products.conversations.backend.events.capture_internal")
@@ -718,6 +730,39 @@ class TestConversationEvents(BaseTest):
                 assert call.kwargs["properties"]["$groups"]["organization"] == "org-eu-123"
             else:
                 assert "$groups" not in call.kwargs["properties"]
+
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_capture_ticket_created_persists_organization_id(self, mock_get_persons, mock_capture):
+        from posthog.models.person.person import Person
+
+        person_org = Organization.objects.create(name="Persist Org")
+        person_user = User.objects.create(email="persist@example.com", distinct_id="customer-123")
+        OrganizationMembership.objects.create(user=person_user, organization=person_org)
+
+        mock_get_persons.return_value = [Person(team_id=self.team.id, is_identified=True)]
+
+        assert self.ticket.organization_id is None
+        capture_ticket_created(self.ticket)
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.organization_id == str(person_org.id)
+
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events._resolve_org_groups")
+    def test_capture_message_received_uses_stored_organization_id(self, mock_resolve, mock_capture):
+        self.ticket.organization_id = "stored-org-123"
+        self.ticket.save(update_fields=["organization_id"])
+
+        capture_message_received(self.ticket, "msg-456", "Hello support")
+
+        mock_resolve.assert_not_called()
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is True
+        groups = call_kwargs["properties"]["$groups"]
+        assert groups["organization"] == "stored-org-123"
+        assert groups["project"] == str(self.team.uuid)
+        assert groups["instance"] == SITE_URL
 
     @patch("products.conversations.backend.events.capture_internal")
     def test_capture_ticket_status_changed_system_actor_uses_customer_distinct_id(self, mock_capture):

@@ -188,7 +188,35 @@ describe('notebookAI', () => {
                 '## Browsers in use\n\n<insight>uONk</insight>\n\nThe chart shows browser usage.'
             )
         ).toEqual(
-            '# Notebook\n\n## Browsers in use\n\n<Query query={{"kind":"SavedInsightNode","shortId":"uONk"}} />\n\nThe chart shows browser usage.'
+            '# Notebook\n\n## Browsers in use\n\n<Query hideFilters query={{"kind":"SavedInsightNode","shortId":"uONk"}} />\n\nThe chart shows browser usage.'
+        )
+    })
+
+    it('defaults AI-inserted query components to results only', () => {
+        const markdown = '# Notebook\n\nThinking...'
+
+        expect(
+            replaceMarkdown(
+                markdown,
+                1,
+                '<Query query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[]}}} />'
+            )
+        ).toEqual(
+            '# Notebook\n\n<Query hideFilters query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[]}}} />'
+        )
+    })
+
+    it('defaults AI-inserted query components with edit props to results only', () => {
+        const markdown = '# Notebook\n\nThinking...'
+
+        expect(
+            replaceMarkdown(
+                markdown,
+                1,
+                '<Query edit={false} query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[]}}} />'
+            )
+        ).toEqual(
+            '# Notebook\n\n<Query hideFilters query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[]}}} />'
         )
     })
 

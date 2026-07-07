@@ -58,8 +58,8 @@ import { AccessLevelIndicator } from '~/layout/navigation/AccessLevelIndicator'
 import { getTreeItemsGames } from '~/products'
 import { UserTheme } from '~/types'
 
-import { appShortcutLogic } from '../AppShortcuts/appShortcutLogic'
-import { openCHQueriesDebugModal } from '../AppShortcuts/utils/DebugCHQueries'
+import { shortcutLogic } from '../Shortcuts/shortcutLogic'
+import { openCHQueriesDebugModal } from '../Shortcuts/utils/DebugCHQueries'
 import { OrgCombobox } from './OrgCombobox'
 
 interface AccountMenuProps extends DropdownMenuContentProps {
@@ -146,7 +146,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
     const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
     const { reportAccountOwnerClicked } = useActions(eventUsageLogic)
     const { logout } = useActions(userLogic)
-    const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
+    const { setShortcutMenuOpen } = useActions(shortcutLogic)
     const { toggleZenMode } = useActions(navigation3000Logic)
 
     return (
@@ -315,7 +315,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                         <ButtonPrimitive
                             tooltip="Hide navigation and focus on content"
                             tooltipPlacement="right"
-                            onClick={toggleZenMode}
+                            onClick={() => toggleZenMode('account_menu')}
                             menuItem
                         >
                             <IconExpand45 />
@@ -328,7 +328,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                         <ButtonPrimitive
                             tooltip="Open shortcut menu"
                             tooltipPlacement="right"
-                            onClick={() => setAppShortcutMenuOpen(true)}
+                            onClick={() => setShortcutMenuOpen(true)}
                             menuItem
                         >
                             <span className="size-4 flex items-center justify-center">⌘</span>

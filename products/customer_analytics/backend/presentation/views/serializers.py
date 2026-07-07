@@ -27,11 +27,23 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import OrganizationMembership
 
+from products.customer_analytics.backend.facade.constants import (
+    CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES,
+    CUSTOM_PROPERTY_OPTION_COLORS,
+)
 from products.customer_analytics.backend.facade.contracts import (
+    AccountAssignment,
     AccountNotebookView,
+    AccountNoteView,
+    AccountRelationship,
+    AccountRelationshipDefinition,
     AccountView,
     CustomerJourneyView,
     CustomerProfileConfigView,
+    CustomPropertyDefinitionView,
+    CustomPropertyOption,
+    CustomPropertyReference,
+    CustomPropertySourceView,
 )
 
 # Scope (value, label) pairs, kept in sync with ``CustomerProfileConfig.Scope``. Declared
@@ -261,3 +273,303 @@ class AccountNotebookSerializer(DataclassSerializer):
             "last_modified_at",
             "last_modified_by",
         ]
+
+
+class AccountNoteSerializer(DataclassSerializer):
+    """A team-wide account note — an internal notebook linked to a Customer analytics account."""
+
+    short_id = serializers.CharField(read_only=True, help_text="URL-safe short ID of the notebook.")
+    title = serializers.CharField(read_only=True, allow_null=True, help_text="Title of the note.")
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the note was created.")
+    last_modified_at = serializers.DateTimeField(read_only=True, help_text="When the note was last modified.")
+    account_id = serializers.UUIDField(read_only=True, help_text="UUID of the account this note is linked to.")
+    account_name = serializers.CharField(read_only=True, help_text="Name of the account this note is linked to.")
+    created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="User who created the note, if known.")
+
+    class Meta:
+        dataclass = AccountNoteView
+        ref_name = "AccountNote"
+        fields = ["short_id", "title", "created_at", "last_modified_at", "account_id", "account_name", "created_by"]
+
+
+class CustomPropertyReferenceSerializer(DataclassSerializer):
+    """A place that uses a custom property definition (read-only)."""
+
+    id = serializers.CharField(read_only=True, help_text="Id of the referring entity (e.g. the workflow id).")
+    name = serializers.CharField(read_only=True, help_text="Display name of the referring entity.")
+    status = serializers.CharField(read_only=True, help_text="Status of the referring entity (e.g. workflow status).")
+    type = serializers.CharField(read_only=True, help_text="Kind of reference. Currently always 'workflow'.")
+
+    class Meta:
+        dataclass = CustomPropertyReference
+        ref_name = "CustomPropertyReference"
+        fields = ["id", "name", "status", "type"]
+
+
+class CustomPropertySourceSerializer(DataclassSerializer):
+    """Binds a materialized data-warehouse view column to a custom property definition; the view's
+    values are synced onto matching accounts on each materialization."""
+
+    id = serializers.UUIDField(read_only=True)
+    definition = serializers.UUIDField(
+        help_text="UUID of the custom property definition this source feeds. One source per definition."
+    )
+    saved_query = serializers.UUIDField(
+        help_text="UUID of the data-warehouse saved query (materialized view) to read values from."
+    )
+    source_column = serializers.CharField(
+        max_length=400, help_text="Column in the view whose value is written to the property."
+    )
+    key_column = serializers.CharField(
+        max_length=400, help_text="Column in the view whose value matches an account's external_id."
+    )
+    is_enabled = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Whether the source syncs. Auto-disabled after repeated failures or a missing view; "
+            "re-enabling resets the failure count."
+        ),
+    )
+    consecutive_failures = serializers.IntegerField(
+        read_only=True, help_text="Consecutive failed sync runs; the source auto-disables at the cap."
+    )
+    last_synced_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When the most recent sync run finished."
+    )
+    last_sync_error = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Error summary from the last run, or null if it succeeded."
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+    created_by = serializers.IntegerField(read_only=True, allow_null=True)
+    updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
+
+    class Meta:
+        dataclass = CustomPropertySourceView
+        ref_name = "CustomPropertySource"
+        fields = [
+            "id",
+            "definition",
+            "saved_query",
+            "source_column",
+            "key_column",
+            "is_enabled",
+            "consecutive_failures",
+            "last_synced_at",
+            "last_sync_error",
+            "created_at",
+            "created_by",
+            "updated_at",
+        ]
+
+
+class CustomPropertyOptionSerializer(DataclassSerializer):
+    """An allowed value of a select custom property."""
+
+    id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Server-assigned stable id of the option. Omit for new options; send it back unchanged "
+            "when editing so renames and removals can be told apart."
+        ),
+    )
+    label = serializers.CharField(  # type: ignore[assignment]
+        max_length=400,
+        help_text="Display label of the option. Stored as the account's value when picked.",
+    )
+    color = serializers.ChoiceField(
+        choices=CUSTOM_PROPERTY_OPTION_COLORS,
+        help_text="Preset color token used to render the option ('preset-1' through 'preset-10').",
+    )
+
+    class Meta:
+        dataclass = CustomPropertyOption
+        ref_name = "CustomPropertyOption"
+        fields = ["id", "label", "color"]
+
+
+class CustomPropertyDefinitionSerializer(DataclassSerializer):
+    """A team-scoped definition of a custom account property — the attribute side of the model.
+
+    Holds only the property's shape (name, display type, big-number flag). Per-account values are
+    stored separately, so this serializer never reads or writes account values.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(
+        max_length=400,
+        help_text="Human-readable name of the custom property. Unique within the team.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Optional description of what the property represents.",
+    )
+    display_type = serializers.ChoiceField(
+        choices=CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES,
+        help_text=(
+            "How the property is interpreted and rendered: 'text', 'number', 'currency', "
+            "'percent', 'date', 'datetime', 'boolean', or 'select'."
+        ),
+    )
+    is_big_number = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties.",
+    )
+    options = CustomPropertyOptionSerializer(
+        many=True,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "For select properties: the allowed options. Required (non-empty) when display_type is "
+            "'select'; cleared server-side for other types."
+        ),
+    )
+    source = CustomPropertySourceSerializer(  # type: ignore[assignment]
+        read_only=True,
+        allow_null=True,
+        help_text="The data-warehouse view-sync binding feeding this property, or null when values are set manually.",
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+    created_by = serializers.IntegerField(read_only=True, allow_null=True)
+    updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    references = CustomPropertyReferenceSerializer(
+        many=True,
+        read_only=True,
+        help_text="Workflows that use this property, resolved by definition id.",
+    )
+
+    class Meta:
+        dataclass = CustomPropertyDefinitionView
+        ref_name = "CustomPropertyDefinition"
+        fields = [
+            "id",
+            "name",
+            "description",
+            "display_type",
+            "is_big_number",
+            "options",
+            "source",
+            "created_at",
+            "created_by",
+            "updated_at",
+            "references",
+        ]
+
+
+class CustomPropertySourceUpdateSerializer(serializers.Serializer):
+    """Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so
+    they are intentionally absent — only these reach the facade's update."""
+
+    source_column = serializers.CharField(
+        max_length=400, required=False, help_text="Column in the view whose value is written to the property."
+    )
+    key_column = serializers.CharField(
+        max_length=400, required=False, help_text="Column in the view whose value matches an account's external_id."
+    )
+    is_enabled = serializers.BooleanField(
+        required=False, help_text="Whether the source syncs; re-enabling it resets the failure count."
+    )
+
+
+@extend_schema_field({"oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}]})
+class CustomPropertyValueField(serializers.Field):
+    """A custom property value — a JSON scalar (string, number, or boolean).
+
+    Datetimes are sent and returned as ISO-8601 strings. The concrete type a property accepts is
+    set by its definition and validated server-side.
+    """
+
+    def to_internal_value(self, data):
+        if data is None or isinstance(data, dict | list):
+            raise serializers.ValidationError("Value must be a string, number, or boolean.")
+        return data
+
+    def to_representation(self, value):
+        return value
+
+
+class CustomPropertyValueWriteSerializer(serializers.Serializer):
+    definition = serializers.UUIDField(
+        help_text="UUID of the custom property definition whose value to set for this account."
+    )
+    value = CustomPropertyValueField(
+        help_text=(
+            "Value to store, matching the definition's type: a number for number/currency/percent, a "
+            "boolean for boolean, an ISO-8601 string for date/datetime, or text for text properties."
+        )
+    )
+
+
+class CustomPropertyValueSerializer(serializers.Serializer):
+    """An account's current value for a custom property (read shape)."""
+
+    id = serializers.UUIDField(read_only=True, help_text="Unique id of this value record.")
+    account_id = serializers.UUIDField(read_only=True, help_text="Account the value belongs to.")
+    definition_id = serializers.UUIDField(read_only=True, help_text="Custom property definition the value is for.")
+    value = CustomPropertyValueField(read_only=True, help_text="The stored value, typed per the property's data type.")
+    created_at = serializers.DateTimeField(read_only=True, help_text="When this value was set.")
+    created_by_id = serializers.IntegerField(
+        read_only=True, allow_null=True, help_text="Id of the user who set this value, if known."
+    )
+
+
+class AccountRelationshipDefinitionSerializer(DataclassSerializer):
+    """A team-defined account relationship type (CSM, Onboarding manager, ...)."""
+
+    id = serializers.UUIDField(read_only=True, help_text="Relationship definition UUID.")
+    name = serializers.CharField(
+        max_length=400, help_text="Human-readable name of the relationship. Unique within the team."
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="What this relationship means, e.g. 'The customer success manager responsible for this account'.",
+    )
+    is_single_holder = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text="Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.",
+    )
+
+    class Meta:
+        dataclass = AccountRelationshipDefinition
+        ref_name = "AccountRelationshipDefinition"
+        fields = ["id", "name", "description", "is_single_holder"]
+
+
+class AccountAssignmentSerializer(DataclassSerializer):
+    """A user assigned to an account relationship (read shape)."""
+
+    id = serializers.IntegerField(read_only=True, help_text="PostHog user id of the assignee.")
+    email = serializers.EmailField(read_only=True, help_text="Email of the assignee.")
+
+    class Meta:
+        dataclass = AccountAssignment
+        ref_name = "AccountAssignment"
+        fields = ["id", "email"]
+
+
+class AccountRelationshipSerializer(DataclassSerializer):
+    """One assignment of a user to an account relationship, with its effective range."""
+
+    id = serializers.UUIDField(read_only=True, help_text="Unique id of this assignment row.")
+    definition = AccountRelationshipDefinitionSerializer(
+        read_only=True, help_text="The relationship type this assignment belongs to."
+    )
+    user = AccountAssignmentSerializer(
+        read_only=True, allow_null=True, help_text="The assigned user; null when their account was deleted."
+    )
+    started_at = serializers.DateTimeField(read_only=True, help_text="When this assignment became effective.")
+    ended_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When this assignment ended; null while it is active."
+    )
+
+    class Meta:
+        dataclass = AccountRelationship
+        ref_name = "AccountRelationship"
+        fields = ["id", "definition", "user", "started_at", "ended_at"]

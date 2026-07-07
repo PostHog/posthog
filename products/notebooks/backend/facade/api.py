@@ -12,15 +12,19 @@ Content-tree helpers live in ``facade.content``; collaborative-edit publishing
 lives in ``facade.collab``.
 """
 
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from .. import logic
-from ..models import Notebook
+from .. import logic, markdown_migration
+from ..models import Notebook, ResourceNotebook
 from . import contracts
 
 if TYPE_CHECKING:
+    from posthog.models import User
     from posthog.rbac.user_access_control import UserAccessControl
+
+MAX_NOTEBOOK_MIGRATION_BATCH_SIZE = markdown_migration.MAX_NOTEBOOK_MIGRATION_BATCH_SIZE
 
 
 def _to_notebook_data(notebook: Notebook) -> contracts.NotebookData:
@@ -80,6 +84,12 @@ def get_notebook_activity_summary(team_id: int, limit: int) -> contracts.Noteboo
     )
 
 
+def get_markdown_notebook_migration_stats(
+    team_id: int | None = None,
+) -> contracts.MarkdownNotebookMigrationStats:
+    return markdown_migration.get_markdown_notebook_migration_stats(team_id)
+
+
 # --- Access control ---
 
 
@@ -118,6 +128,7 @@ async def aupsert_notebook(
     last_modified_by_id: int | None,
     title: str,
     content: dict[str, Any],
+    text_content: str | None = None,
 ) -> tuple[contracts.NotebookData, bool]:
     notebook, created = await logic.aupsert_notebook(
         team_id,
@@ -126,6 +137,7 @@ async def aupsert_notebook(
         last_modified_by_id=last_modified_by_id,
         title=title,
         content=content,
+        text_content=text_content,
     )
     return _to_notebook_data(notebook), created
 
@@ -150,6 +162,23 @@ def create_notebook(
         visibility=visibility,
     )
     return _to_notebook_data(notebook)
+
+
+def migrate_notebooks_to_markdown(
+    *,
+    user: "User",
+    team_id: int | None = None,
+    dry_run: bool = True,
+    batch_size: int | None = None,
+    max_previews: int = 5,
+) -> contracts.MarkdownNotebookMigrationResult:
+    return markdown_migration.migrate_notebooks_to_markdown(
+        user=user,
+        team_id=team_id,
+        dry_run=dry_run,
+        batch_size=batch_size,
+        max_previews=max_previews,
+    )
 
 
 # --- Resource links (groups, accounts) ---
@@ -226,8 +255,13 @@ def _to_account_notebook(notebook: Notebook) -> contracts.AccountNotebook:
     )
 
 
-def list_account_notebooks(account_id: str | UUID) -> list[contracts.AccountNotebook]:
-    return [_to_account_notebook(notebook) for notebook in logic.list_account_notebooks(account_id)]
+def list_account_notebooks(
+    account_id: str | UUID, *, search: str | None = None, order: str | None = None
+) -> list[contracts.AccountNotebook]:
+    return [
+        _to_account_notebook(notebook)
+        for notebook in logic.list_account_notebooks(account_id, search=search, order=order)
+    ]
 
 
 def get_account_notebook(account_id: str | UUID, short_id: str) -> contracts.AccountNotebook | None:
@@ -237,3 +271,40 @@ def get_account_notebook(account_id: str | UUID, short_id: str) -> contracts.Acc
 
 def delete_account_notebook(account_id: str | UUID, short_id: str) -> bool:
     return logic.delete_account_notebook(account_id, short_id)
+
+
+def _to_team_account_note(link: ResourceNotebook) -> contracts.TeamAccountNote:
+    # The account FK is nullable on the model; the team-notes queryset filters
+    # `account__isnull=False`, so narrow for the type checker.
+    assert link.account is not None
+    return contracts.TeamAccountNote(
+        short_id=link.notebook.short_id,
+        title=link.notebook.title,
+        created_at=link.notebook.created_at,
+        last_modified_at=link.notebook.last_modified_at,
+        account_id=link.account.id,
+        account_name=link.account.name,
+        created_by=_to_notebook_user(link.notebook.created_by),
+    )
+
+
+def list_team_account_notes(
+    team_id: int,
+    *,
+    account_ids: Iterable[UUID | str] | None = None,
+    account_id: UUID | str | None = None,
+    created_by_ids: Iterable[int] | None = None,
+    search: str | None = None,
+    offset: int = 0,
+    limit: int = 100,
+) -> tuple[list[contracts.TeamAccountNote], int]:
+    links, count = logic.list_team_account_notes(
+        team_id,
+        account_ids=account_ids,
+        account_id=account_id,
+        created_by_ids=created_by_ids,
+        search=search,
+        offset=offset,
+        limit=limit,
+    )
+    return [_to_team_account_note(link) for link in links], count

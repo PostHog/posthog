@@ -87,6 +87,9 @@ def sync_current_session_metadata(request: HttpRequest, force: bool = False) -> 
         "location": _location_from_ip(ip),
         "login_method": _login_method(request),
     }
+    # Note: the risk baseline columns (latitude/longitude/country_code/ua_signature/baseline_at) are
+    # NOT written here. They are owned by evaluate_session_risk, which advances them only on low-risk
+    # requests so a suspicious request can't overwrite the known-good reference (posthog/session/risk.py).
 
     # Defer the write to commit. This metadata is best-effort display data, so the write must never
     # add a query to the caller's transaction (which would break assertNumQueries assertions across
@@ -107,6 +110,15 @@ def revoke_other_sessions(user: User, keep_session_key: Optional[str]) -> int:
         queryset = queryset.exclude(session_key=keep_session_key)
     count, _ = queryset.delete()
     return count
+
+
+def revoke_other_sessions_for_request(request: HttpRequest, user: User) -> int:
+    """Revoke the user's other login sessions on a credential change, keeping the request's own
+    session. No-op while impersonating so staff support never mass-logs-out a customer. Returns the
+    count revoked."""
+    if is_impersonated_session(request):
+        return 0
+    return revoke_other_sessions(user, request.session.session_key)
 
 
 def revoke_user_auth_session(user: User, public_id: str) -> bool:

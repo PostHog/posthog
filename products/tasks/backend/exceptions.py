@@ -6,14 +6,20 @@ from posthog.exceptions_capture import capture_exception
 
 
 class ProcessTaskError(ApplicationError):
-    def __init__(self, message: str, context: dict[str, Any], cause: Optional[Exception], **kwargs):
+    def __init__(
+        self, message: str, context: dict[str, Any], cause: Optional[BaseException], capture: bool = True, **kwargs
+    ):
         self.context = context or {}
         if "team" not in self.context:
             self.context["team"] = "array"
 
-        if cause is not None:
+        # `capture=False` skips error-tracking capture for expected, recoverable failures
+        # (e.g. transient infra timeouts that Temporal retries) so they don't create noisy issues.
+        if cause is not None and capture:
             capture_exception(cause, self.context)
 
+        # Retry policies match non_retryable_error_types against this type; the SDK omits it unless set.
+        kwargs.setdefault("type", type(self).__name__)
         super().__init__(message, self.context, **kwargs)
 
 
@@ -27,12 +33,28 @@ class ProcessTaskFatalError(ProcessTaskError):
 class ProcessTaskTransientError(ProcessTaskError):
     """Transient errors that may succeed on retry."""
 
-    def __init__(self, message: str, context: dict[str, Any], cause: Exception, **kwargs):
+    def __init__(self, message: str, context: dict[str, Any], cause: BaseException, **kwargs):
         super().__init__(message, context, cause, non_retryable=False, **kwargs)
 
 
 class TaskNotFoundError(ProcessTaskFatalError):
     pass
+
+
+class TaskRunNotReadyError(ProcessTaskTransientError):
+    """The TaskRun row is not yet visible to this activity.
+
+    Typically the creating transaction has not committed by the time the activity's
+    first read runs (the run was created inside an enclosing transaction.atomic block).
+    Retryable so the activity's existing retry policy recovers once the row is visible.
+    Intentionally does not capture to error tracking — this is an expected transient
+    window the retry absorbs, not a fault worth an issue.
+    """
+
+    def __init__(self, message: str, context: dict[str, Any]):
+        # Bypass ProcessTaskTransientError.__init__ to pass cause=None, which skips the
+        # capture_exception() call in ProcessTaskError — avoiding error-tracking noise.
+        ProcessTaskError.__init__(self, message, context, None, non_retryable=False)
 
 
 class TaskInvalidStateError(ProcessTaskFatalError):
@@ -53,6 +75,18 @@ class SandboxNotFoundError(ProcessTaskFatalError):
 
 class SandboxExecutionError(ProcessTaskTransientError):
     """Error during sandbox command execution."""
+
+    pass
+
+
+class SandboxMissingRepositoryError(ProcessTaskFatalError):
+    """The repository directory the agent-server needs as its cwd is absent from the sandbox.
+
+    Happens when a run reaches agent-server start without a clone — no snapshot restored and no
+    usable GitHub credentials. Retrying cannot make the directory appear, so fail immediately
+    with the real reason instead of burning health-check timeouts on a server that can never
+    open a session.
+    """
 
     pass
 
@@ -93,6 +127,12 @@ class SnapshotCreationError(ProcessTaskTransientError):
     pass
 
 
+class SnapshotTimeoutError(ProcessTaskTransientError):
+    """Transient timeout/connection error while creating a snapshot; safe to retry."""
+
+    pass
+
+
 class RepositoryCloneError(ProcessTaskTransientError):
     """Failed to clone repository."""
 
@@ -115,6 +155,18 @@ class GitHubAuthenticationError(ProcessTaskFatalError):
     """Failed to authenticate with GitHub."""
 
     pass
+
+
+class CredentialUnavailableError(ProcessTaskFatalError):
+    """A sandbox credential can never be resolved again for this run — the backing
+    integration row was deleted mid-run or the user must re-authorize.
+
+    Not retriable, and an expected customer-initiated state rather than a systemic
+    failure, so it is not captured to error tracking.
+    """
+
+    def __init__(self, message: str, context: dict[str, Any], cause: Exception | None = None):
+        ProcessTaskError.__init__(self, message, context, cause, capture=False, non_retryable=True)
 
 
 class PersonalAPIKeyError(ProcessTaskTransientError):

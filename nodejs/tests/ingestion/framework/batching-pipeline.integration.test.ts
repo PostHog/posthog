@@ -1,6 +1,8 @@
 import { Message } from 'node-rdkafka'
 
 import { DlqOutput, IngestionWarningsOutput } from '~/common/outputs'
+import { parseJSON } from '~/common/utils/json-parse'
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
 import { PersonOutputs } from '~/ingestion/common/persons/person-context'
 import { FlushResult, PersonsStore } from '~/ingestion/common/persons/persons-store'
@@ -13,8 +15,6 @@ import { OkResultWithContext } from '~/ingestion/framework/pipeline.interface'
 import { PipelineResult, drop, ok } from '~/ingestion/framework/results'
 import { PERSONS_OUTPUT } from '~/ingestion/pipelines/analytics/outputs'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
-import { parseJSON } from '~/utils/json-parse'
-import { PromiseScheduler } from '~/utils/promise-scheduler'
 
 /**
  * Integration tests for BatchingPipeline + groupBy + sequential group processing,

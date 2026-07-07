@@ -21,6 +21,11 @@ import {
 import { TZLabel } from 'lib/components/TZLabel'
 
 import type { DeliveryFeedback } from '../subscriptionSceneLogic'
+import {
+    deliveryRowHasExpandableContent,
+    ExpandedDeliveryRow,
+    partialDeliveryTag,
+} from './SubscriptionAiReportDelivery'
 import { SubscriptionDeliveryDestinationCell } from './SubscriptionDestinationCell'
 import { TARGET_TYPE_LABEL } from './subscriptionLabels'
 
@@ -66,7 +71,8 @@ function deliveryStatusTag(row: SubscriptionDeliveryApi): JSX.Element {
             </Tooltip>
         )
     }
-    return <LemonTag type={tagType}>{label}</LemonTag>
+    // A completed-but-degraded delivery reads as "Partial" rather than a clean "Completed".
+    return partialDeliveryTag(row) ?? <LemonTag type={tagType}>{label}</LemonTag>
 }
 
 /** Matches `SubscriptionTriggerType` in Temporal (`scheduled`, `manual`, `target_change`). */
@@ -91,20 +97,11 @@ function deliveryTriggerLabel(triggerType: string): string {
 /** LemonTag and text cells share a row height; middle-align `td` so badges line up with copy. */
 const DELIVERY_TABLE_CELL_CLASS = 'align-middle'
 
-function ExpandedSummaryRow({ summary }: { summary: string }): JSX.Element {
-    return (
-        <div className="px-4 py-3 text-sm whitespace-pre-wrap">
-            <div className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1">AI summary</div>
-            {summary}
-        </div>
-    )
-}
-
-// Module-scope const keeps the reference stable across parent re-renders.
+// Module-scope const keeps the reference stable across parent re-renders. The expanded-row view and its
+// per-query helpers live in SubscriptionAiReportDelivery — this table just wires them into the row.
 const DELIVERY_TABLE_EXPANDABLE = {
-    rowExpandable: (row: SubscriptionDeliveryApi) => Boolean(row.change_summary),
-    expandedRowRender: (row: SubscriptionDeliveryApi) =>
-        row.change_summary ? <ExpandedSummaryRow summary={row.change_summary} /> : <></>,
+    rowExpandable: deliveryRowHasExpandableContent,
+    expandedRowRender: (row: SubscriptionDeliveryApi) => <ExpandedDeliveryRow row={row} />,
 }
 
 // Only called from storybook visual tests — production use ignores the optional set.
@@ -362,32 +359,18 @@ export function SubscriptionDeliveryHistory({
             <div className="flex flex-col gap-2">
                 <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
                     <h2 className="text-lg font-semibold">Delivery history</h2>
-                    {showTable && (showStatusFilter || onTestDelivery) ? (
+                    {showTable && showStatusFilter ? (
                         <div className="flex flex-wrap items-center gap-3 shrink-0">
-                            {onTestDelivery ? (
-                                <LemonButton
-                                    type="tertiary"
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm text-secondary">Status</span>
+                                <LemonSelect<DeliveryListStatusFilter | null>
                                     size="small"
-                                    onClick={onTestDelivery}
-                                    loading={testDeliveryLoading}
-                                    disabledReason={testDeliveryLoading ? 'Sending test delivery…' : null}
-                                    data-attr="subscription-detail-manual-deliver"
-                                >
-                                    Test delivery
-                                </LemonButton>
-                            ) : null}
-                            {showStatusFilter ? (
-                                <div className="flex items-center gap-2">
-                                    <span className="text-sm text-secondary">Status</span>
-                                    <LemonSelect<DeliveryListStatusFilter | null>
-                                        size="small"
-                                        options={DELIVERY_STATUS_FILTER_OPTIONS}
-                                        value={deliveryStatusFilter}
-                                        onChange={onDeliveryStatusFilterChange}
-                                        data-attr="subscription-deliveries-status-filter"
-                                    />
-                                </div>
-                            ) : null}
+                                    options={DELIVERY_STATUS_FILTER_OPTIONS}
+                                    value={deliveryStatusFilter}
+                                    onChange={onDeliveryStatusFilterChange}
+                                    data-attr="subscription-deliveries-status-filter"
+                                />
+                            </div>
                         </div>
                     ) : null}
                 </div>

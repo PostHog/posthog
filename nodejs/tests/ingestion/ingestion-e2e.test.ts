@@ -3,6 +3,8 @@ import { DateTime } from 'luxon'
 import { createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
 import { fetchDistinctIds } from '~/common/persons/repositories/test-helpers'
+import { parseJSON } from '~/common/utils/json-parse'
+import { UUIDT } from '~/common/utils/utils'
 import { IngestionConsumer } from '~/ingestion/ingestion-consumer'
 import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
@@ -20,11 +22,9 @@ import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { createUserTeamAndOrganization, fetchPostgresPersons, resetTestDatabase } from '~/tests/helpers/sql'
 import { InternalPerson } from '~/types'
-import { parseJSON } from '~/utils/json-parse'
-import { UUIDT } from '~/utils/utils'
 
 // Mock the limiter so it always returns true
-jest.mock('~/utils/token-bucket', () => {
+jest.mock('~/common/utils/token-bucket', () => {
     const mockConsume = jest.fn().mockReturnValue(true)
     return {
         IngestionWarningLimiter: {
@@ -33,7 +33,7 @@ jest.mock('~/utils/token-bucket', () => {
     }
 })
 
-jest.mock('~/utils/logger')
+jest.mock('~/common/utils/logger')
 
 describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: true }])(
     'Event Pipeline E2E tests (prefetch=$PERSONS_PREFETCH_ENABLED)',

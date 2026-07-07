@@ -306,6 +306,24 @@ describe('dashboardLogic', () => {
             logic.mount()
         })
 
+        it('keeps the layouts reference stable when a tile refresh changes results but not geometry', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const initialLayouts = logic.values.layouts
+            const firstTile = logic.values.dashboard!.tiles[0]
+
+            await expectLogic(logic, () => {
+                // A refresh response: same insight, new object identity and results, untouched layouts.
+                dashboardsModel.actions.updateDashboardInsight({
+                    ...firstTile.insight!,
+                    result: [{ count: 42 }],
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.tiles[0].insight!.result).toEqual([{ count: 42 }])
+            expect(logic.values.layouts).toBe(initialLayouts)
+        })
+
         it('saving without changes does not call api', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
@@ -430,6 +448,43 @@ describe('dashboardLogic', () => {
                     data_color_theme_id: 123,
                 })
             )
+        })
+
+        it('confirms a real save with a success toast', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const firstTile = logic.values.dashboard!.tiles[0]
+            const currentLayouts = logic.values.layouts
+            const modifiedLayouts: any = {
+                ...currentLayouts,
+                sm: currentLayouts.sm?.map((layout) =>
+                    layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                ),
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateLayouts(modifiedLayouts)
+            }).toFinishAllListeners()
+
+            const successToast = jest.spyOn(lemonToast, 'success')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveEditModeChanges()
+            }).toFinishAllListeners()
+
+            expect(successToast).toHaveBeenCalledWith('Dashboard saved')
+        })
+
+        it('does not show a success toast when exiting edit mode with no changes', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const successToast = jest.spyOn(lemonToast, 'success')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveEditModeChanges()
+            }).toFinishAllListeners()
+
+            expect(successToast).not.toHaveBeenCalled()
         })
 
         it('discarding edit mode restores original layouts', async () => {
@@ -1028,6 +1083,9 @@ describe('dashboardLogic', () => {
                                 timer: null,
                             },
                         },
+                        // Y is captured up front when the batch is enrolled, so it stays fixed
+                        // for the whole cycle rather than tracking the still-populating map.
+                        refreshTilesTotal: 2,
                         refreshMetrics: {
                             completed: 0,
                             total: 2,
@@ -1061,6 +1119,78 @@ describe('dashboardLogic', () => {
                             total: 2,
                         },
                     })
+            })
+
+            it('pins the "X out of Y" denominator when a tile aborts mid-cycle and keeps siblings tracked', async () => {
+                const dashboard = dashboards[5]
+                const insight1 = dashboard.tiles[0].insight!
+                const insight2 = dashboard.tiles[1].insight!
+
+                // Hold both insight fetches in flight so we can observe a mid-cycle abort while the batch is live.
+                const gates: Record<string, { barrier: Promise<void>; release: () => void }> = {}
+                for (const shortId of [insight1.short_id, insight2.short_id]) {
+                    let release!: () => void
+                    const barrier = new Promise<void>((resolve): void => {
+                        release = resolve
+                    })
+                    gates[shortId] = { barrier, release }
+                }
+
+                const realGetInsightWithRetry =
+                    jest.requireActual<typeof dashboardUtils>('./dashboardUtils').getInsightWithRetry
+
+                const getInsightWithRetrySpy = jest
+                    .spyOn(dashboardUtils, 'getInsightWithRetry')
+                    .mockImplementation(
+                        async (
+                            ...args: Parameters<typeof realGetInsightWithRetry>
+                        ): ReturnType<typeof realGetInsightWithRetry> => {
+                            await gates[args[1].short_id].barrier
+                            return realGetInsightWithRetry(...args)
+                        }
+                    )
+                const cancelQuerySpy = jest.spyOn(api.insights, 'cancelQuery').mockResolvedValue(undefined as any)
+
+                const poll = async (cond: () => boolean, message: string): Promise<void> => {
+                    const deadline = Date.now() + 5000
+                    while (!cond()) {
+                        if (Date.now() > deadline) {
+                            throw new Error(message)
+                        }
+                        await new Promise((r) => setTimeout(r, 0))
+                    }
+                }
+
+                try {
+                    // forceRefresh: true so both tiles enter the refresh loop
+                    const refreshDone = expectLogic(logic, () => {
+                        logic.actions.triggerDashboardRefresh()
+                    }).toFinishAllListeners()
+
+                    // Both tiles enrolled up front and in flight: Y is the fixed batch size, X is 0.
+                    await poll(
+                        () => getInsightWithRetrySpy.mock.calls.length >= 2,
+                        'Timed out waiting for insight fetches to start'
+                    )
+                    expect(logic.values.refreshMetrics).toEqual({ completed: 0, total: 2 })
+
+                    // One tile's query aborts mid-cycle (e.g. a 504). Y must stay pinned at 2 — the pre-fix
+                    // selector derived Y from the live map, so it collapsed as the map shrank — and only the
+                    // aborted tile leaves the status map, so the sibling still in flight keeps being counted
+                    // (a whole-map wipe would drop it and overstate X as "done").
+                    logic.actions.abortQuery({ queryId: 'q1', queryStartTime: 0, shortId: insight1.short_id })
+                    expect(logic.values.refreshStatus).not.toHaveProperty(insight1.short_id)
+                    expect(logic.values.refreshStatus[insight2.short_id]?.loading).toBe(true)
+                    expect(logic.values.refreshMetrics).toEqual({ completed: 1, total: 2 })
+
+                    gates[insight1.short_id].release()
+                    gates[insight2.short_id].release()
+                    await refreshDone
+                } finally {
+                    Object.values(gates).forEach(({ release }) => release())
+                    getInsightWithRetrySpy.mockRestore()
+                    cancelQuerySpy.mockRestore()
+                }
             })
 
             it('save during in-flight dashboard refresh does not abort insight fetches', async () => {

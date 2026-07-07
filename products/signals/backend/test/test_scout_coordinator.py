@@ -906,13 +906,13 @@ async def test_seed_posture_enabled_map(ateam, default_cfg, team_cfg, skills, ex
     "interval,expected",
     [
         (1440, 1440),  # in-bounds cadence is stamped on the auto-enabled scout
-        (5, None),  # below the 10-min model floor → ignored, model default kept
+        (20, None),  # below the 30-min model floor → ignored, model default kept
         (99999, None),  # above the 43200-min ceiling → ignored, model default kept
     ],
 )
 async def test_seed_enabled_interval_validates_bounds(ateam, interval, expected):
     # enabled_interval_minutes sets the cadence on allowlisted scouts, but only within the model's
-    # 10–43200 bounds (get_or_create bypasses validators); out-of-range falls back to the default.
+    # 30–43200 bounds (get_or_create bypasses validators); out-of-range falls back to the default.
     await database_sync_to_async(_create_skill)(ateam, "signals-scout-general")
 
     def _payload(*_a, **_k):

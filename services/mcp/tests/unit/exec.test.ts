@@ -204,7 +204,8 @@ describe('exec tool', () => {
             expect(result.__execBuiltPayload).toBe(true)
         })
 
-        it.each([[undefined], ['cline'], ['claude-code'], ['slack'], ['posthog_code']])(
+        // posthog_ai is sent as its own consumer for attribution but is NOT a UI-apps host.
+        it.each([[undefined], ['cline'], ['claude-code'], ['slack'], ['posthog_code'], ['posthog_ai']])(
             'returns plain text (no UI payload) when consumer is %s even if the inner tool has a UI app',
             async (consumer) => {
                 const tool = makeMockTool({
@@ -229,14 +230,14 @@ describe('exec tool', () => {
                 calls.push({ toolName, properties })
             }
             const exec = createExecTool(
-                [makeMockTool()],
+                [makeMockTool({ schema: z.object({ query: z.string() }) })],
                 mockContext,
                 'test description',
                 'test command reference',
                 undefined,
                 tracker
             )
-            await exec.handler(mockContext, { command: 'call --json mock-tool' })
+            await exec.handler(mockContext, { command: 'call --json mock-tool {"query":"SELECT 1"}' })
             expect(calls).toHaveLength(1)
             expect(calls[0]!.toolName).toBe('mock-tool')
             expect(calls[0]!.properties.success).toBe(true)
@@ -244,6 +245,7 @@ describe('exec tool', () => {
             expect(typeof calls[0]!.properties.duration_ms).toBe('number')
             expect(calls[0]!.properties.input_tokens).toBeGreaterThan(0)
             expect(calls[0]!.properties.output_tokens).toBeGreaterThan(0)
+            expect(calls[0]!.properties.input).toEqual({ query: 'SELECT 1' })
         })
 
         it('estimates inner output tokens from the serialized output (TOON vs JSON)', async () => {
@@ -780,10 +782,63 @@ describe('exec tool', () => {
             const result = await exec.handler(mockContext, { command: 'search feature-flag' })
             expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
         })
+
+        it('ranks tools for a multi-word plain-language query that a single regex would miss', async () => {
+            // /create dashboard insight/i matches no tool literally; routing to
+            // ranked search is the whole point of this command.
+            const tools = [
+                makeMockTool({ name: 'dashboard-create', title: 'Create dashboard' }),
+                makeMockTool({ name: 'insight-create', title: 'Create insight' }),
+                makeMockTool({ name: 'feature-flag-get-all', title: 'List feature flags' }),
+            ]
+            const exec = createExec(tools)
+            const result = JSON.parse(
+                (await exec.handler(mockContext, { command: 'search create dashboard insight' })) as string
+            )
+            expect(Array.isArray(result)).toBe(true)
+            expect(result.slice(0, 2)).toEqual(['dashboard-create', 'insight-create'])
+        })
+
+        it('surfaces scope-gated tools for a plain-language query', async () => {
+            const exec = createExecTool([makeMockTool()], mockContext, 'desc', 'cmd', undefined, undefined, [
+                {
+                    name: 'experiment-create',
+                    title: 'Create experiment',
+                    description: 'Create a new experiment',
+                    missingScopes: ['experiment:write'],
+                },
+            ])
+            const result = JSON.parse(
+                (await exec.handler(mockContext, { command: 'search create experiment' })) as string
+            )
+            expect(result.scope_gated_matches).toEqual([
+                { name: 'experiment-create', missing_scopes: ['experiment:write'] },
+            ])
+            expect(result.hint).toContain('experiment:write')
+        })
+
+        it('caps ranked results and notes truncation', async () => {
+            const tools = Array.from({ length: 30 }, (_, i) =>
+                makeMockTool({ name: `dashboard-tool-${i}`, title: `Dashboard tool ${i}` })
+            )
+            const exec = createExec(tools)
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search dashboard' })) as string)
+            expect(result.truncated).toBe(true)
+            expect(result.matches).toHaveLength(25)
+            expect(result.hint).toContain('30')
+        })
+
+        it('reports an invalid regex gracefully', async () => {
+            const exec = createExec([makeMockTool()])
+            await expect(exec.handler(mockContext, { command: 'search [invalid' })).rejects.toThrow(
+                /invalid regex pattern/i
+            )
+        })
     })
 
     describe('deprecated tool redirects', () => {
         it.each([
+            ['read-data-warehouse-schema', 'execute-sql'],
             ['entity-search', 'execute-sql'],
             ['event-definitions-list', 'read-data-schema'],
             ['properties-list', 'read-data-schema'],

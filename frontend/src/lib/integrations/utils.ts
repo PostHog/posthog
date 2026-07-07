@@ -3,6 +3,7 @@ import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { IntegrationKind } from '~/types'
 
 import IconApple from 'public/services/apple_search_ads.png'
+import IconAwsS3 from 'public/services/aws-s3.png'
 import IconAzureBlob from 'public/services/azure-blob-storage.png'
 import IconBingAds from 'public/services/bing-ads.svg'
 import IconClickUp from 'public/services/clickup.svg'
@@ -27,6 +28,7 @@ import IconMetaAds from 'public/services/meta-ads.png'
 import IconPinterest from 'public/services/pinterest_ads.png'
 import IconPostgres from 'public/services/postgres.png'
 import IconReddit from 'public/services/reddit.png'
+import IconS3Compatible from 'public/services/s3-compatible.png'
 import IconSalesforce from 'public/services/salesforce.png'
 import IconSlack from 'public/services/slack.png'
 import IconSnapchat from 'public/services/snapchat.png'
@@ -71,6 +73,8 @@ export const ICONS: Record<IntegrationKind, any> = {
     'customerio-track': IconCustomerIO,
     apns: IconApple,
     postgresql: IconPostgres,
+    'aws-s3': IconAwsS3,
+    's3-compatible': IconS3Compatible,
 }
 
 export const getIntegrationNameFromKind = (kind: string): string => {
@@ -109,6 +113,10 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'Apple Push Notification Service'
         case 'postgresql':
             return 'PostgreSQL'
+        case 'aws-s3':
+            return 'AWS S3'
+        case 's3-compatible':
+            return 'S3-compatible storage'
         default:
             return capitalizeFirstLetter(kind)
     }

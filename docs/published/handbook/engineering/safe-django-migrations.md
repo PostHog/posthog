@@ -208,6 +208,25 @@ class Migration(migrations.Migration):
     ]
 ```
 
+### Removing a whole product or app
+
+Removing a product (`products/<name>/`) is the phased table drop above — once per model — plus app teardown. It is **not** a folder delete.
+
+**Do not "remove" a table by deleting its migration file.** The deleted-migration check in the `repo-checks` CI job (the `hogli lint:migration-deletions` command) blocks deleting any migration that exists on master; genuinely intentional, reviewed deletions (a product move, a revert, a squash) are acknowledged in `.github/scripts/migration-deletion-allowlist.txt`. Deleting the file drops nothing:
+
+- The table and its FK constraints stay in every database where the migration already ran.
+- The `django_migrations` rows linger as orphans — harmless (Django ignores migrations for apps not in `INSTALLED_APPS`) but never cleaned up.
+- Fresh databases never create the table, so production and CI diverge.
+- The migration risk analyzer rebuilds master's schema, then checks out each open PR's tree, so any in-flight branch that predates the deletion still carries the file and gets it re-analyzed as a brand-new migration — a phantom "blocked" flag that only clears once that branch merges master.
+
+Safe order:
+
+1. Strip all usage and the model classes, and drop the tables via the [phased approach](#dropping-tables) (state-only `DeleteModel`, wait a deploy cycle, then `DROP TABLE`). Keep the app in `INSTALLED_APPS` so its migrations still run.
+2. Only after the drop migration has deployed everywhere, remove the app from `INSTALLED_APPS` and delete the `products/<name>/` folder.
+3. Optionally `DELETE FROM django_migrations WHERE app = '<app_label>'` to clear the orphan rows.
+
+Leaving the table in place — code gone, table dropped in a follow-up — is a legitimate shortcut for a small retired product: it dodges the rolling-deploy window where in-flight requests hit a dropped table. Just make the leftover table a tracked follow-up, not an accident.
+
 ## Dropping Columns
 
 **Problem:** `RemoveField` operations drop columns immediately. This breaks backwards compatibility during deployment and **cannot be rolled back** - once data is deleted, any rollback deployment will fail because the column no longer exists.

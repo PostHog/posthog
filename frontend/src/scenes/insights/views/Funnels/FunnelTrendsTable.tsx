@@ -17,8 +17,9 @@ import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { FunnelsActorsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { BreakdownKeyType, FunnelStepWithConversionMetrics } from '~/types'
+
+import { buildFunnelTrendsActorsQuery } from './funnelTrendsTableUtils'
 
 /** Runtime shape of a `funnelDataLogic.indexedSteps` row when the funnel is in trends mode. */
 type FunnelTrendSeries = {
@@ -78,9 +79,8 @@ export function FunnelTrendsTable(): JSX.Element | null {
     const openModalForCell = (row: FunnelTrendSeries, index: number): void => {
         const day = row.days?.[index] ?? ''
         const breakdownValue = row.breakdown_value
-        const breakdownLabel = hasBreakdown(breakdownValue)
-            ? formatBreakdownLabel(breakdownValue, breakdownFilter, allCohorts.results, formatPropertyValueForDisplay)
-            : null
+        // No breakdown value in the title: the modal's breakdown dropdown communicates (and can
+        // change) the selected value, so a static title would go stale.
         const title = (
             <>
                 {capitalizeFirstLetter(aggregationTargetLabel.plural)} converted on{' '}
@@ -91,17 +91,14 @@ export function FunnelTrendsTable(): JSX.Element | null {
                     weekStartDay={weekStartDay}
                     date={day.toString()}
                 />
-                {breakdownLabel ? <> • {breakdownLabel}</> : null}
             </>
         )
-        const query: FunnelsActorsQuery = {
-            kind: NodeKind.FunnelsActorsQuery,
+        const query = buildFunnelTrendsActorsQuery({
             source: querySource!,
-            funnelTrendsDropOff: false,
-            includeRecordings: true,
-            funnelTrendsEntrancePeriodStart: dayjs(day).format('YYYY-MM-DD HH:mm:ss'),
-            ...(hasBreakdown(breakdownValue) ? { funnelStepBreakdown: breakdownValue } : {}),
-        }
+            entrancePeriodStart: dayjs(day).format('YYYY-MM-DD HH:mm:ss'),
+            breakdownValue,
+            compare: row.compare_label,
+        })
         openPersonsModal({ title, query })
     }
 

@@ -1,8 +1,15 @@
+import os
+import json
 from typing import Any
 
 import pytest
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from parameterized import parameterized
+from rest_framework import status
+
+from posthog.clickhouse.client import sync_execute
 
 from products.logs.backend.services_query_runner import rule_could_apply_to_service
 
@@ -151,6 +158,54 @@ class TestRuleCouldApplyToService:
         # Conservative default: anything we can't parse keeps the rule visible.
         assert rule_could_apply_to_service({"type": "AND", "values": ["oops"]}, "api") is True
         assert rule_could_apply_to_service({"not_a_group": True}, "api") is True
+
+
+class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = True
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        with open(os.path.join(os.path.dirname(__file__), "test_logs.jsonnd")) as f:
+            sql = ""
+            for line in f:
+                log_item = json.loads(line)
+                log_item["team_id"] = cls.team.id
+                sql += json.dumps(log_item) + "\n"
+            sync_execute(f"""
+                INSERT INTO logs
+                FORMAT JSONEachRow
+                {sql}
+            """)
+
+    def _services(self, date_from: str, date_to: str) -> list[dict]:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/services",
+            data={
+                "query": {
+                    "dateRange": {"date_from": date_from, "date_to": date_to},
+                    "severityLevels": [],
+                    "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+                    "serviceNames": [],
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return response.json()["services"]
+
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_services_honors_sub_day_date_range(self):
+        # The fixture has 1003 logs on 2025-12-16 across 12 services, but only the
+        # 10:32 batch (100 logs from cdp-legacy-events-consumer) falls in this
+        # 9-minute window. The day-level partition filter alone would return the
+        # whole day; the precise timestamp bound must narrow it to the window.
+        full_day = self._services("2025-12-16T00:00:00Z", "2025-12-16T23:59:59Z")
+        windowed = self._services("2025-12-16T10:24:00Z", "2025-12-16T10:33:00Z")
+
+        self.assertEqual(sum(s["log_count"] for s in full_day), 1003)
+        self.assertEqual(len(windowed), 1)
+        self.assertEqual(windowed[0]["service_name"], "cdp-legacy-events-consumer")
+        self.assertEqual(windowed[0]["log_count"], 100)
 
 
 if __name__ == "__main__":

@@ -38,11 +38,11 @@ export interface ResolvedAgent {
      * `live_revision_id` — i.e. the request reached us through the preview
      * path (Django preview-proxy or a direct ingress call carrying a valid
      * `aud=agent-ingress.preview` JWT). `assertPreviewGate` has already run
-     * by the time this is set on a non-live resolution, so the field
-     * doubles as "request was authenticated for preview." Triggers forward
-     * it to `enqueueOrResume` as `isPreview` so it lands on
-     * `agent_session.is_preview` and the runner's output adapters can
-     * noop external publishes for the session.
+     * by the time this is set on a non-live resolution, so the field also
+     * means "the request was authenticated for preview." Purely a routing /
+     * auth classification: a preview run against a draft executes exactly
+     * like a live one — real tool calls, real side effects, real session
+     * state — the only difference is which revision handles the request.
      */
     isPreview: boolean
     /**

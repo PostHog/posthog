@@ -1,8 +1,8 @@
 import { ASYNC_OUTPUT, AsyncOutput } from '~/common/outputs'
+import { logger } from '~/common/utils/logger'
 import { PipelineResult, dlq, ok, redirect } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
 import { InternalPerson, Person } from '~/types'
-import { logger } from '~/utils/logger'
 
 import { PersonContext } from './person-context'
 import { PersonMergeService } from './person-merge-service'

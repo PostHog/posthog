@@ -24,7 +24,7 @@ import { cleanSourceId } from 'products/data_warehouse/frontend/utils'
 
 import type { schemaSceneLogicType } from './schemaSceneLogicType'
 
-export const SCHEMA_SCENE_TABS = ['configuration', 'metrics'] as const
+export const SCHEMA_SCENE_TABS = ['configuration', 'metrics', 'history'] as const
 export type SchemaSceneTab = (typeof SCHEMA_SCENE_TABS)[number]
 
 export const SCHEMA_CONFIGURATION_SECTIONS = [
@@ -162,6 +162,10 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
         supportsColumnSelection: [
             (s) => [s.schemaData],
             (schemaData): boolean => !!schemaData?.source?.supports_column_selection,
+        ],
+        supportsRowFilters: [
+            (s) => [s.schemaData],
+            (schemaData): boolean => !!schemaData?.source?.supports_row_filters,
         ],
         breadcrumbs: [
             (s) => [s.schemaData, (_, props) => props.sourceId],

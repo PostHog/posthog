@@ -9,15 +9,12 @@ import { dateStringToComponents, dateStringToDayJs, getDefaultInterval } from 'l
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { HogQLFilters, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { HogQLFilters, HogQLQueryResponse, MCPHarnessBreakdownItem, NodeKind } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, IntervalType, TeamType } from '~/types'
 
 import { mcpClusteringLogic } from './clustering/mcpClusteringLogic'
-import { categorizeHarness } from './dashboard/harnessRegistry'
 import type { MCPIntentClusterApi } from './generated/api.schemas'
 import type { mcpDashboardOverviewLogicType } from './mcpDashboardOverviewLogicType'
-
-export { categorizeHarness }
 
 export interface DateFilter {
     dateFrom: string | null
@@ -31,8 +28,7 @@ const DEFAULT_DATE_FILTER: DateFilter = { dateFrom: '-7d', dateTo: null }
 // the time buckets, so the query only needs the doubled date range. `__BUCKET__`
 // is replaced with a dateTrunc at the active interval at call time.
 //
-// Queries key on the canonical, $-prefixed event — PostHog's MCP server dual-emits a
-// legacy `mcp_tool_call` alias, so matching both names would double-count it.
+// Key on the canonical event only — also matching the legacy `mcp_tool_call` alias would double-count.
 const KPI_QUERY = `
 SELECT
     __BUCKET__ AS bucket,
@@ -47,6 +43,23 @@ WHERE event = '$mcp_tool_call'
     AND {filters}
 GROUP BY bucket
 ORDER BY bucket
+`
+
+// Distinct MCP users for the "Users" tile — how many distinct people made tool calls.
+// Counted over the doubled window like the KPI query, then split into the selected period
+// and its equal-length predecessor with a single conditional uniq so the comparison is a
+// true distinct-person count (summing per-bucket distinct users would over-count anyone
+// active on more than one day). `__CUR_START__` is the selected-period boundary, injected
+// as a timezone-aware toDateTime at call time.
+const USERS_QUERY = `
+SELECT
+    uniqIf(person_id, timestamp >= __CUR_START__) AS current_users,
+    uniqIf(person_id, timestamp < __CUR_START__) AS prior_users
+FROM events
+WHERE event = '$mcp_tool_call'
+    AND properties.$mcp_tool_name IS NOT NULL
+    AND properties.$mcp_tool_name != ''
+    AND {filters}
 `
 
 // Per-session rollup powering the Notable sessions block. The selector
@@ -91,66 +104,10 @@ ORDER BY total_calls DESC
 LIMIT 50
 `
 
-// Resolve an effective client per tool call from the strongest identity signal
-// available. The order matters and each step exists for a measured reason:
-//
-//   1. x-anthropic-client header (mcp_vendor_client). Anthropic pools every UI
-//      surface behind one transport that self-reports the generic clientInfo.name
-//      "Anthropic/ClaudeAI", so this header is the only thing that separates
-//      Cowork / Claude.ai / Claude Design. It is absent for every non-Anthropic
-//      client and for Claude Code's CLI/SDK/IDE builds (whose surface rides in the
-//      User-Agent instead), so resolving it first never masks a finer signal.
-//   2. Claude Code's User-Agent surface. Every Claude Code build reports the same
-//      clientInfo.name ("claude-code"); the build (cli / sdk-ts / claude-vscode /
-//      claude-desktop) lives only in the User-Agent parenthetical. Lift it out so
-//      the SDK/IDE/Desktop split survives. Gated on the claude-code product token
-//      because other clients' User-Agents are often bare HTTP libraries (node,
-//      undici) that must not win over a real clientInfo.name.
-//   3. The session-pinned clientInfo.name (mcp_session_client_name). The per-request
-//      $mcp_client_name is stamped only on $mcp_initialize, never on $mcp_tool_call,
-//      so reading it here bucketed every self-identifying client — Codex, Cursor,
-//      opencode, … — as "Other". The generic "mcp" SDK default is dropped so those
-//      rows fall through to the User-Agent.
-//   4. The User-Agent product token + first parenthetical, for hosted clients that
-//      send a product User-Agent but no clientInfo.name (e.g. "openai-mcp/1.0.0").
-//   5. The OAuth client_name from token introspection, the only identity an
-//      OAuth-registered client (vibe-coding platforms, ChatGPT) carries per request.
-//
-// The version segment is dropped so claude-code/2.1.x folds to one token;
-// categorizeHarness then buckets surface-specific tokens and folds the rest.
-//
-// The User-Agent token is the leading product name plus the first parenthetical
-// (the surface, e.g. "cli"); steps 2 and 4 both need it, so it lives here once.
-// HogQL has no scalar WITH alias, but this is a JS template literal — interpolating
-// a const keeps the source DRY while the generated SQL stays identical.
-const UA_PRODUCT = `extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')`
-const UA_TOKEN = `trim(concat(${UA_PRODUCT}, ' ', extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)')))`
-const HARNESS_ROWS_QUERY = `
-SELECT
-    coalesce(
-        multiIf(
-            lower(toString(properties.mcp_vendor_client)) = 'claudecode', 'claude-code',
-            lower(toString(properties.mcp_vendor_client)) = 'claudeai', 'claude-ai',
-            lower(toString(properties.mcp_vendor_client)) = 'cowork', 'cowork',
-            lower(toString(properties.mcp_vendor_client)) = 'claudedesign', 'claude-design',
-            NULL
-        ),
-        if(lower(${UA_PRODUCT}) = 'claude-code', ${UA_TOKEN}, NULL),
-        nullIf(nullIf(toString(properties.mcp_session_client_name), ''), 'mcp'),
-        nullIf(${UA_TOKEN}, ''),
-        nullIf(toString(properties.$mcp_oauth_client_name), ''),
-        ''
-    ) AS client,
-    count() AS total_calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    countDistinctIf($session_id, $session_id != '') AS sessions
-FROM events
-WHERE event = '$mcp_tool_call'
-    AND {filters}
-GROUP BY client
-ORDER BY total_calls DESC
-LIMIT 200
-`
+// The harness breakdown is resolved server-side by the MCPHarnessBreakdownQuery
+// runner (products/mcp_analytics/backend/hogql_queries/harness_breakdown.py) — the
+// single source of truth for client → harness labelling — so the tile reads typed,
+// already-bucketed rows rather than re-deriving the labels in the browser.
 
 // Daily success/error split powering the activity time-series bar chart.
 const ACTIVITY_QUERY = `
@@ -214,13 +171,6 @@ export interface ToolRow {
     p95_duration_ms: number
 }
 
-export interface HarnessRawRow {
-    client: string
-    total_calls: number
-    errors: number
-    sessions: number
-}
-
 export interface ActivityRow {
     day: string
     successes: number
@@ -250,7 +200,6 @@ export interface HarnessRow {
     errors: number
     error_rate_pct: number
     sessions: number
-    raw_clients: string[]
 }
 
 export interface SessionRow {
@@ -280,35 +229,6 @@ const EMPTY_KPIS: KPIData = {
     toolCalls: { ...EMPTY_METRIC, goodDirection: 'up' },
     errorRatePct: { ...EMPTY_METRIC, goodDirection: 'down' },
     p95LatencyMs: { ...EMPTY_METRIC, goodDirection: 'down' },
-}
-
-export function aggregateHarnessRows(raw: HarnessRawRow[]): HarnessRow[] {
-    const byCategory = new Map<string, HarnessRow>()
-    for (const row of raw) {
-        const category = categorizeHarness(row.client)
-        const existing = byCategory.get(category)
-        if (existing) {
-            existing.total_calls += row.total_calls
-            existing.errors += row.errors
-            existing.sessions += row.sessions
-            existing.raw_clients.push(row.client)
-        } else {
-            byCategory.set(category, {
-                category,
-                total_calls: row.total_calls,
-                errors: row.errors,
-                error_rate_pct: 0,
-                sessions: row.sessions,
-                raw_clients: [row.client],
-            })
-        }
-    }
-    const result = [...byCategory.values()]
-    for (const r of result) {
-        r.error_rate_pct = r.total_calls ? Math.round((r.errors / r.total_calls) * 1000) / 10 : 0
-    }
-    result.sort((a, b) => b.total_calls - a.total_calls)
-    return result
 }
 
 // Keep the stacked bar legible: only the busiest tools get their own segment; the long tail is
@@ -377,6 +297,10 @@ function startOfBucket(d: dayjs.Dayjs, interval: IntervalType): dayjs.Dayjs {
     return d.startOf(interval)
 }
 
+// The one format for bucket keys — must match ClickHouse dateTrunc's DateTime output so the
+// zero-fill join and the in-progress-tail comparison line up. Change it here, nowhere else.
+const BUCKET_FORMAT = 'YYYY-MM-DD HH:mm:ss'
+
 // Every bucket key across the resolved window [start, end] at the active interval, formatted to
 // match dateTrunc's DateTime output ('YYYY-MM-DD HH:mm:ss'). The activity and tool-usage series are
 // zero-filled against these so the x-axis spans the whole selected range instead of clipping to the
@@ -388,15 +312,31 @@ export function buildBucketKeys(dateFilter: DateFilter, timezone: string, interv
     let cursor = startOfBucket(start, interval)
     // Bounded dashboard windows keep this small; the cap is just a guard against a pathological range.
     for (let i = 0; cursor.valueOf() <= last && i < 100000; i++) {
-        keys.push(cursor.format('YYYY-MM-DD HH:mm:ss'))
+        keys.push(cursor.format(BUCKET_FORMAT))
         cursor = cursor.add(1, interval)
     }
     return keys
 }
 
+// True when the final bucket is the current, still-running interval (open-ended window), so the
+// chart can dash that segment as "in progress" rather than letting the partial period read as data
+// loss. Needs ≥2 buckets to have a segment to dash; `now` is injectable so the logic stays testable.
+export function lastBucketIsInProgress(
+    bucketKeys: string[],
+    timezone: string,
+    interval: IntervalType,
+    now: dayjs.Dayjs = dayjs()
+): boolean {
+    if (bucketKeys.length < 2) {
+        return false
+    }
+    const currentBucket = startOfBucket(now.tz(timezone), interval).format(BUCKET_FORMAT)
+    return bucketKeys[bucketKeys.length - 1] === currentBucket
+}
+
 export function normalizeBucket(raw: unknown, timezone: string): string {
     const s = String(raw ?? '')
-    return s ? dayjs(s).tz(timezone).format('YYYY-MM-DD HH:mm:ss') : ''
+    return s ? dayjs(s).tz(timezone).format(BUCKET_FORMAT) : ''
 }
 
 // Project the daily success/error rows onto the full set of buckets, defaulting empty buckets to 0.
@@ -429,8 +369,16 @@ export function buildKpiWindow(dateFilter: DateFilter, timezone: string, interva
     return {
         dateFrom: priorStart.toISOString(),
         dateTo: end.toISOString(),
-        currentStartBucket: start.startOf(interval).format('YYYY-MM-DD HH:mm:ss'),
+        currentStartBucket: start.startOf(interval).format(BUCKET_FORMAT),
     }
+}
+
+// Merge the dashboard's active filters with a doubled comparison window's date range.
+// Shared by the KPI and Users loaders so both tiles are scoped to the exact same window —
+// the tile-parity the reload test asserts. Keep the two loaders reading from here so the
+// window/filter plumbing can't drift between them.
+function kpiWindowFilters(queryFilters: HogQLFilters, kpiWindow: KpiWindow): HogQLFilters {
+    return { ...queryFilters, dateRange: { date_from: kpiWindow.dateFrom, date_to: kpiWindow.dateTo } }
 }
 
 function parseRows(rawRows: unknown[][]): BucketRow[] {
@@ -537,14 +485,45 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: KPI_QUERY.replace('__BUCKET__', `dateTrunc('${interval}', timestamp)`),
-                        filters: {
-                            ...values.queryFilters,
-                            dateRange: { date_from: kpiWindow.dateFrom, date_to: kpiWindow.dateTo },
-                        },
+                        filters: kpiWindowFilters(values.queryFilters, kpiWindow),
                     })) as HogQLQueryResponse
                     breakpoint()
                     const rows = parseRows((response?.results as unknown[][]) ?? [])
                     return buildKPIs(rows, kpiWindow.currentStartBucket)
+                },
+            },
+        ],
+        users: [
+            EMPTY_METRIC,
+            {
+                loadUsers: async (_: void, breakpoint): Promise<KPIMetric> => {
+                    const { interval, timezone } = values
+                    const kpiWindow = buildKpiWindow(values.dateFilter, timezone, interval)
+                    // Split the doubled window at the selected period's start. currentStartBucket is
+                    // interval-aligned (buildKpiWindow → start.startOf(interval)), so comparing the raw
+                    // `timestamp` against toDateTime(bucket, tz) lands on the same instant as the KPI
+                    // tiles' dateTrunc bucket-string split — keeping this count consistent with them.
+                    // (For rolling sub-day ranges the two halves can differ by up to one interval, the
+                    // same bounded skew the KPI tiles already carry; splitting on the raw start instead
+                    // would equalize the halves but desync Users from the other tiles, so don't.)
+                    const curStart = `toDateTime('${kpiWindow.currentStartBucket}', '${timezone}')`
+                    const response = (await api.query({
+                        kind: NodeKind.HogQLQuery,
+                        query: USERS_QUERY.replace(/__CUR_START__/g, curStart),
+                        filters: kpiWindowFilters(values.queryFilters, kpiWindow),
+                    })) as HogQLQueryResponse
+                    breakpoint()
+                    const row = (response?.results as unknown[][])?.[0] ?? []
+                    const value = Number(row[0] ?? 0)
+                    const previousValue = Number(row[1] ?? 0)
+                    return {
+                        value,
+                        previousValue,
+                        deltaPct: deltaPct(value, previousValue),
+                        // No sparkline: the headline is a window-level distinct count, not a per-bucket series.
+                        sparkline: [],
+                        goodDirection: 'up',
+                    }
                 },
             },
         ],
@@ -592,22 +571,24 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                 },
             },
         ],
-        harnessRawRows: [
-            [] as HarnessRawRow[],
+        harnessRows: [
+            [] as HarnessRow[],
             {
                 loadHarnessRows: async (_: void, breakpoint) => {
+                    const { dateRange, properties, filterTestAccounts } = values.queryFilters
                     const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: HARNESS_ROWS_QUERY,
-                        filters: values.queryFilters,
-                    })) as HogQLQueryResponse
+                        kind: NodeKind.MCPHarnessBreakdownQuery,
+                        dateRange,
+                        properties,
+                        filterTestAccounts,
+                    })) as { results?: MCPHarnessBreakdownItem[] }
                     breakpoint()
-                    const raw = (response?.results as unknown[][]) ?? []
-                    return raw.map((r) => ({
-                        client: String(r[0] ?? ''),
-                        total_calls: Number(r[1] ?? 0),
-                        errors: Number(r[2] ?? 0),
-                        sessions: Number(r[3] ?? 0),
+                    return (response?.results ?? []).map((r) => ({
+                        category: r.harness,
+                        total_calls: r.total_calls,
+                        errors: r.errors,
+                        error_rate_pct: r.error_rate_pct,
+                        sessions: r.sessions,
                     }))
                 },
             },
@@ -680,7 +661,13 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             (dateFilter: DateFilter, timezone: string, interval: IntervalType): string[] =>
                 buildBucketKeys(dateFilter, timezone, interval),
         ],
-        harnessRows: [(s) => [s.harnessRawRows], (raw: HarnessRawRow[]): HarnessRow[] => aggregateHarnessRows(raw)],
+        // Whether the activity chart's final bucket is the current, still-running interval — the
+        // chart dashes that segment so a partial period doesn't read as a drop in tool calls.
+        activityIncompleteTail: [
+            (s) => [s.bucketKeys, s.timezone, s.interval],
+            (bucketKeys: string[], timezone: string, interval: IntervalType): boolean =>
+                lastBucketIsInProgress(bucketKeys, timezone, interval),
+        ],
         dailyActivity: [
             (s) => [s.activityRows, s.bucketKeys],
             (rows: ActivityRow[], bucketKeys: string[]): DailyActivity => buildDailyActivity(rows, bucketKeys),
@@ -716,6 +703,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         },
         reloadAll: () => {
             actions.loadKPIs()
+            actions.loadUsers()
             actions.loadToolRows()
             actions.loadSessionRows()
             actions.loadHarnessRows()

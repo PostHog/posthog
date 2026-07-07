@@ -62,7 +62,7 @@ async function seedDraft(store: PgRevisionStore, slug: string): Promise<{ appId:
         parent_revision_id: null,
         created_by_id: null,
         bundle_uri: 's3://x/',
-        spec: AgentSpecSchema.parse({ model: 'x' }),
+        spec: AgentSpecSchema.parse({ model: 'test/x' }),
     })
     await store.setRevisionState(live.id, 'live')
     await store.setLiveRevision(app.id, live.id)
@@ -71,7 +71,7 @@ async function seedDraft(store: PgRevisionStore, slug: string): Promise<{ appId:
         parent_revision_id: null,
         created_by_id: null,
         bundle_uri: 's3://x/',
-        spec: AgentSpecSchema.parse({ model: 'x' }),
+        spec: AgentSpecSchema.parse({ model: 'test/x' }),
     })
     await rebrandRevisionPg(draft.id, DRAFT_UUID)
     return { appId: app.id }

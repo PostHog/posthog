@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 
 import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
+import { OutputTab, outputPaneLogic } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { SQLEditor, SQLEditorPanel } from 'scenes/data-warehouse/editor/SQLEditor'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
@@ -64,6 +65,8 @@ const buildSourceQuery = (query: string): DataVisualizationNode => ({
     display: ChartDisplayType.ActionsTable,
 })
 
+const locallyPushedSqlEditorSourceQueryByTabId = new Map<string, DataVisualizationNode>()
+
 export function getEmbeddedSqlEditorStyle(
     height: string | number | undefined,
     defaultHeight: string | number = EMBEDDED_SQL_EDITOR_DEFAULT_HEIGHT,
@@ -97,7 +100,8 @@ export function useNotebookQuerySQLEditorSync<T extends { query: QuerySchema }>(
     attributes,
     updateAttributes,
     tabId,
-}: NotebookNodeAttributeProperties<T> & { tabId: string }): DataVisualizationNode | null {
+    autoRunOnFirstSeed = true,
+}: NotebookNodeAttributeProperties<T> & { tabId: string; autoRunOnFirstSeed?: boolean }): DataVisualizationNode | null {
     const editorSourceQuery = useMemo(() => getSqlEditorSourceQuery(attributes.query), [attributes.query])
     const logic = sqlEditorLogic({ tabId, mode: SQLEditorMode.Embedded })
     const { queryInput, sourceQuery, lastRunQuery } = useValues(logic)
@@ -143,7 +147,11 @@ export function useNotebookQuerySQLEditorSync<T extends { query: QuerySchema }>(
             lastLocalRef.current = editorSourceQuery
             setQueryInput(editorSourceQuery.source.query)
             setSourceQuery(editorSourceQuery)
-            if (isFirstSeed && !hasAlreadyRunSqlEditorSourceQuery(editorSourceQuery, lastRunQuery)) {
+            if (
+                autoRunOnFirstSeed &&
+                isFirstSeed &&
+                !hasAlreadyRunSqlEditorSourceQuery(editorSourceQuery, lastRunQuery)
+            ) {
                 runQuery(editorSourceQuery.source.query)
             }
             return
@@ -152,6 +160,7 @@ export function useNotebookQuerySQLEditorSync<T extends { query: QuerySchema }>(
         if (!equal(localQuery, lastLocalRef.current)) {
             // Editor moved — push to Tiptap.
             lastLocalRef.current = localQuery
+            locallyPushedSqlEditorSourceQueryByTabId.set(tabId, localQuery)
             updateAttributes({ query: localQuery } as Partial<NotebookNodeAttributes<T>>)
             return
         }
@@ -159,14 +168,51 @@ export function useNotebookQuerySQLEditorSync<T extends { query: QuerySchema }>(
         // Tiptap hasn't propagated a push we already made — wait for the next render.
     }, [
         editorSourceQuery,
+        autoRunOnFirstSeed,
         lastRunQuery,
         queryInput,
         sourceQuery,
         runQuery,
         setQueryInput,
         setSourceQuery,
+        tabId,
         updateAttributes,
     ])
+
+    return editorSourceQuery
+}
+
+function useNotebookQuerySQLEditorOutputSync<T extends { query: QuerySchema }>({
+    attributes,
+    tabId,
+}: Pick<NotebookNodeAttributeProperties<T>, 'attributes'> & { tabId: string }): DataVisualizationNode | null {
+    const editorSourceQuery = useMemo(() => getSqlEditorSourceQuery(attributes.query), [attributes.query])
+    const logic = sqlEditorLogic({ tabId, mode: SQLEditorMode.Embedded })
+    const { lastRunQuery } = useValues(logic)
+    const { initialize, runQuery, setQueryInput, setSourceQuery } = useActions(logic)
+    const lastAttrRef = useRef<DataVisualizationNode | null>(null)
+
+    useEffect(() => {
+        initialize()
+    }, [initialize])
+
+    useEffect(() => {
+        if (!editorSourceQuery || equal(editorSourceQuery, lastAttrRef.current)) {
+            return
+        }
+
+        const isFirstSeed = lastAttrRef.current === null
+        lastAttrRef.current = editorSourceQuery
+        if (!isFirstSeed && equal(editorSourceQuery, locallyPushedSqlEditorSourceQueryByTabId.get(tabId))) {
+            return
+        }
+
+        setQueryInput(editorSourceQuery.source.query)
+        setSourceQuery(editorSourceQuery)
+        if (isFirstSeed && !hasAlreadyRunSqlEditorSourceQuery(editorSourceQuery, lastRunQuery)) {
+            runQuery(editorSourceQuery.source.query)
+        }
+    }, [editorSourceQuery, lastRunQuery, runQuery, setQueryInput, setSourceQuery, tabId])
 
     return editorSourceQuery
 }
@@ -227,13 +273,56 @@ export function useNotebookCodeSQLEditorSync<T extends { code: string }>({
     }, [code, queryInput, setQueryInput, setSourceQuery, updateAttributes])
 }
 
-export function NotebookSQLEditorOutput<T extends { query: QuerySchema }>({
+export const getNotebookSqlEditorOutputTab = (outputTab: unknown): OutputTab => {
+    if (Object.values(OutputTab).includes(outputTab as OutputTab)) {
+        return outputTab as OutputTab
+    }
+
+    return OutputTab.Results
+}
+
+export function useNotebookSQLOutputTabSync<T extends { outputTab?: OutputTab | null }>({
+    attributes,
+    updateAttributes,
+    tabId,
+}: NotebookNodeAttributeProperties<T> & { tabId: string }): void {
+    const attributeOutputTab = getNotebookSqlEditorOutputTab(attributes.outputTab)
+    const logic = outputPaneLogic({ tabId })
+    const { activeTab } = useValues(logic)
+    const { setActiveTab } = useActions(logic)
+
+    const lastAttrRef = useRef<OutputTab | null>(null)
+    const lastLocalRef = useRef<OutputTab | null>(null)
+
+    useEffect(() => {
+        if (activeTab === attributeOutputTab) {
+            lastAttrRef.current = attributeOutputTab
+            lastLocalRef.current = activeTab
+            return
+        }
+
+        if (attributeOutputTab !== lastAttrRef.current) {
+            lastAttrRef.current = attributeOutputTab
+            lastLocalRef.current = attributeOutputTab
+            setActiveTab(attributeOutputTab)
+            return
+        }
+
+        if (activeTab !== lastLocalRef.current) {
+            lastLocalRef.current = activeTab
+            updateAttributes({ outputTab: activeTab } as Partial<NotebookNodeAttributes<T>>)
+        }
+    }, [activeTab, attributeOutputTab, setActiveTab, updateAttributes])
+}
+
+export function NotebookSQLEditorOutput<T extends { query: QuerySchema; outputTab?: OutputTab | null }>({
     attributes,
     updateAttributes,
     showOutputToolbar,
 }: NotebookNodeProps<T> & { showOutputToolbar: boolean }): JSX.Element | null {
     const tabId = useMemo(() => getNotebookSqlEditorTabId(attributes.nodeId), [attributes.nodeId])
-    const editorSourceQuery = useNotebookQuerySQLEditorSync({ attributes, updateAttributes, tabId })
+    const editorSourceQuery = useNotebookQuerySQLEditorOutputSync({ attributes, tabId })
+    useNotebookSQLOutputTabSync({ attributes, updateAttributes, tabId })
 
     if (!editorSourceQuery) {
         return null
@@ -263,7 +352,12 @@ export function NotebookSQLEditorSettings<T extends { query: QuerySchema }>({
     updateAttributes,
 }: NotebookNodeAttributeProperties<T>): JSX.Element {
     const tabId = useMemo(() => getNotebookSqlEditorTabId(attributes.nodeId), [attributes.nodeId])
-    const editorSourceQuery = useNotebookQuerySQLEditorSync({ attributes, updateAttributes, tabId })
+    const editorSourceQuery = useNotebookQuerySQLEditorSync({
+        attributes,
+        updateAttributes,
+        tabId,
+        autoRunOnFirstSeed: false,
+    })
     // Focus the editor only when this user just inserted the node - a node mounting on
     // notebook load or after a structural re-render must never steal the caret.
     const [autoFocusQueryPane] = useState(() => wasNotebookNodeJustInserted(attributes.nodeId))
@@ -306,7 +400,8 @@ export function NotebookCodeSQLEditorSettings<T extends { code: string }>({
     runQueryTooltip,
 }: NotebookNodeAttributeProperties<T> & {
     tabIdSuffix: string
-    onRunQuery?: () => void
+    /** Called with the live editor text — `attributes.code` can lag it by a Tiptap round-trip. */
+    onRunQuery?: (code: string) => void
     runQueryLoading?: boolean
     runQueryDisabledReason?: string
     runQueryTooltip?: string
@@ -316,6 +411,9 @@ export function NotebookCodeSQLEditorSettings<T extends { code: string }>({
         [attributes.nodeId, tabIdSuffix]
     )
     useNotebookCodeSQLEditorSync({ attributes, updateAttributes, tabId })
+    const { queryInput } = useValues(sqlEditorLogic({ tabId, mode: SQLEditorMode.Embedded }))
+    // Prefer what the user sees in the editor; fall back to the attribute before the first sync.
+    const liveCode = queryInput ?? (typeof attributes.code === 'string' ? attributes.code : '')
     // Focus the editor only when this user just inserted the node - a node mounting on
     // notebook load or after a structural re-render must never steal the caret.
     const [autoFocusQueryPane] = useState(() => wasNotebookNodeJustInserted(attributes.nodeId))
@@ -338,7 +436,7 @@ export function NotebookCodeSQLEditorSettings<T extends { code: string }>({
                 panel={SQLEditorPanel.Query}
                 defaultShowDatabaseTree={false}
                 autoFocusQueryPane={autoFocusQueryPane}
-                onRunQuery={onRunQuery}
+                onRunQuery={onRunQuery ? () => onRunQuery(liveCode) : undefined}
                 runQueryLoading={runQueryLoading}
                 runQueryDisabledReason={runQueryDisabledReason}
                 runQueryTooltip={runQueryTooltip}

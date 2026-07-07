@@ -2,11 +2,55 @@ import { actions, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 
-import { NodeKind, TraceQuery } from '~/queries/schema/schema-general'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { hogql } from '~/queries/utils'
 
 import type { aiObservabilityAIDataLogicType } from './aiObservabilityAIDataLogicType'
-import { readAiInput, readAiOutput } from './utils'
+import { parsePartialJSON } from './utils'
+
+const AI_DATA_QUERY_TAGS = {
+    productKey: ProductKey.AI_OBSERVABILITY,
+    scene: 'ai_observability_trace',
+}
+
+const EVENT_TIMESTAMP_WINDOW_MINUTES = 10
+
+type AIDataQueryRow = [unknown, unknown, unknown, unknown, unknown, unknown]
+
+interface AIDataQuerySource {
+    from: string
+    traceIdExpression: string
+    inputExpression: string
+    outputExpression: string
+    outputChoicesExpression: string
+    inputStateExpression: string
+    outputStateExpression: string
+    toolsExpression: string
+}
+
+const AI_EVENTS_SOURCE: AIDataQuerySource = {
+    from: 'posthog.ai_events AS ai_events',
+    traceIdExpression: 'trace_id',
+    inputExpression: 'input',
+    outputExpression: 'output',
+    outputChoicesExpression: 'output_choices',
+    inputStateExpression: 'input_state',
+    outputStateExpression: 'output_state',
+    toolsExpression: 'tools',
+}
+
+const EVENTS_SOURCE: AIDataQuerySource = {
+    from: 'events',
+    traceIdExpression: 'properties.$ai_trace_id',
+    inputExpression: 'properties.$ai_input',
+    outputExpression: 'properties.$ai_output',
+    outputChoicesExpression: 'properties.$ai_output_choices',
+    inputStateExpression: 'properties.$ai_input_state',
+    outputStateExpression: 'properties.$ai_output_state',
+    toolsExpression: 'properties.$ai_tools',
+}
 
 export interface AIData {
     input: unknown
@@ -21,14 +65,123 @@ export interface LoadAIDataParams {
     tools: unknown
     traceId?: string
     timestamp?: string
-    /** True when the team is rolled out to read from `ai_events`. When false, the new path
-     *  can't help — TraceQuery would just fall back to the shared `events` table, which
-     *  post-strip-heavy has NULL heavy props. */
-    aiEventsRolloutEnabled?: boolean
+}
+
+function isUsableValue(value: unknown): boolean {
+    return value !== null && value !== undefined && value !== '' && value !== 'null'
+}
+
+function parseHeavyValue(value: unknown): unknown {
+    if (!isUsableValue(value)) {
+        return undefined
+    }
+    if (typeof value !== 'string') {
+        return value
+    }
+    try {
+        return JSON.parse(value)
+    } catch {
+        try {
+            return parsePartialJSON(value)
+        } catch {
+            return value
+        }
+    }
+}
+
+function firstUsableValue(...values: unknown[]): unknown {
+    for (const value of values) {
+        const parsed = parseHeavyValue(value)
+        if (isUsableValue(parsed)) {
+            return parsed
+        }
+    }
+    return undefined
+}
+
+function mapAIDataQueryRow(row: AIDataQueryRow): AIData {
+    const [input, output, outputChoices, inputState, outputState, tools] = row
+    return {
+        input: firstUsableValue(input, inputState),
+        output: firstUsableValue(outputChoices, outputState, output),
+        tools: parseHeavyValue(tools),
+    }
+}
+
+function hasLoadedAIData(data: AIData): boolean {
+    return isUsableValue(data.input) || isUsableValue(data.output) || isUsableValue(data.tools)
+}
+
+function hasInputAndOutput(data: AIData): boolean {
+    return data.input != null && data.output != null
+}
+
+function mergeAIData(base: AIData, loaded: AIData | null): AIData {
+    if (!loaded) {
+        return base
+    }
+    return {
+        input: loaded.input ?? base.input,
+        output: loaded.output ?? base.output,
+        tools: loaded.tools ?? base.tools,
+    }
+}
+
+async function queryAIDataForEvent(params: LoadAIDataParams, source: AIDataQuerySource): Promise<AIData | null> {
+    if (!params.traceId || !params.timestamp) {
+        return null
+    }
+
+    const eventTimestamp = dayjs(params.timestamp)
+    if (!eventTimestamp.isValid()) {
+        return null
+    }
+
+    const dateFrom = eventTimestamp.subtract(EVENT_TIMESTAMP_WINDOW_MINUTES, 'minute').toISOString()
+    const dateTo = eventTimestamp.add(EVENT_TIMESTAMP_WINDOW_MINUTES, 'minute').toISOString()
+    const response = await api.queryHogQL<AIDataQueryRow[]>(
+        hogql`
+            SELECT
+                argMax(ai_input, timestamp) AS ai_input,
+                argMax(ai_output, timestamp) AS ai_output,
+                argMax(ai_output_choices, timestamp) AS ai_output_choices,
+                argMax(ai_input_state, timestamp) AS ai_input_state,
+                argMax(ai_output_state, timestamp) AS ai_output_state,
+                argMax(ai_tools, timestamp) AS ai_tools
+            FROM (
+                SELECT
+                    toString(uuid) AS uuid,
+                    timestamp,
+                    ${hogql.raw(source.inputExpression)} AS ai_input,
+                    ${hogql.raw(source.outputExpression)} AS ai_output,
+                    ${hogql.raw(source.outputChoicesExpression)} AS ai_output_choices,
+                    ${hogql.raw(source.inputStateExpression)} AS ai_input_state,
+                    ${hogql.raw(source.outputStateExpression)} AS ai_output_state,
+                    ${hogql.raw(source.toolsExpression)} AS ai_tools
+                FROM ${hogql.raw(source.from)}
+                WHERE ${hogql.raw(source.traceIdExpression)} = ${params.traceId}
+                  AND toString(uuid) = ${params.eventId}
+                  AND timestamp >= toDateTime(${dateFrom})
+                  AND timestamp <= toDateTime(${dateTo})
+            )
+            GROUP BY uuid
+            LIMIT 1
+        `,
+        { ...AI_DATA_QUERY_TAGS, name: 'ai_observability_event_heavy_props_lookup' }
+    )
+
+    const row = response.results?.[0]
+    if (!row) {
+        return null
+    }
+
+    const data = mapAIDataQueryRow(row)
+    return hasLoadedAIData(data) ? data : null
 }
 
 async function loadAIDataAsync(params: LoadAIDataParams): Promise<AIData> {
-    const { eventId, input, output, tools, traceId, timestamp, aiEventsRolloutEnabled } = params
+    const { input, output, tools, traceId, timestamp } = params
+    let loadedData: AIData = { input, output, tools }
 
     // Passthrough: caller already has both sides of the conversation (e.g. the trace page
     // hydrates rows from the TraceQuery that has heavy props merged back). No fetch needed.
@@ -42,36 +195,24 @@ async function loadAIDataAsync(params: LoadAIDataParams): Promise<AIData> {
         return { input, output, tools }
     }
 
-    // The ai_events read path is the only one that can recover heavy props for a stripped
-    // event. If the team isn't rolled out, skip the fetch.
-    if (!aiEventsRolloutEnabled) {
-        return { input, output, tools }
-    }
-
-    // Post-strip events have NULL heavy props on the shared `events` table. Reuse the
-    // existing TraceQuery pipeline (ai_events first, shared `events` on zero rows) to
-    // fetch the event's heavy columns by (trace_id, event uuid). TraceQueryDateRange
-    // auto-widens the window by ±10 minutes, so a single timestamp is sufficient.
+    // Query the dedicated table directly first. TraceQuery still has a rollout gate, so
+    // using it here can repeat the original `events` read and miss stripped heavy props.
     try {
-        const traceQuery: TraceQuery = {
-            kind: NodeKind.TraceQuery,
-            traceId,
-            dateRange: { date_from: timestamp, date_to: timestamp },
-        }
-        const response = await api.query(traceQuery)
-        const event = response.results?.[0]?.events?.find((e) => e.id === eventId)
-        if (!event) {
-            return { input, output, tools }
-        }
-        const props = event.properties ?? {}
-        return {
-            input: readAiInput(props) ?? input,
-            output: readAiOutput(props) ?? output,
-            tools: props.$ai_tools ?? tools,
+        const aiEventsData = await queryAIDataForEvent(params, AI_EVENTS_SOURCE)
+        loadedData = mergeAIData(loadedData, aiEventsData)
+        if (hasInputAndOutput(loadedData)) {
+            return loadedData
         }
     } catch (error) {
-        console.warn('[aiObservabilityAIDataLogic] failed to load heavy AI props via TraceQuery', error)
-        return { input, output, tools }
+        console.warn('[aiObservabilityAIDataLogic] failed to load heavy AI props from ai_events', error)
+    }
+
+    try {
+        const eventsData = await queryAIDataForEvent(params, EVENTS_SOURCE)
+        return mergeAIData(loadedData, eventsData)
+    } catch (error) {
+        console.warn('[aiObservabilityAIDataLogic] failed to load heavy AI props from events', error)
+        return loadedData
     }
 }
 

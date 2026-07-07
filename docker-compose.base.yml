@@ -197,7 +197,7 @@ services:
         restart: on-failure
 
     kafka:
-        image: docker.redpanda.com/redpandadata/redpanda:v25.1.9
+        image: docker.io/redpandadata/redpanda:v25.1.9
         restart: on-failure
         command:
             - redpanda
@@ -347,6 +347,10 @@ services:
             DEPLOYMENT: hobby
             CDP_API_URL: 'http://plugins:6738'
             FLAGS_REDIS_ENABLED: false
+            # Off-ORM persons_db util (posthog/persons_db.py). Hobby keeps persons in
+            # the main posthog DB, so both point there.
+            PERSONS_DB_WRITER_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            PERSONS_DB_READER_URL: 'postgres://posthog:posthog@db:5432/posthog'
 
     web:
         <<: *worker
@@ -788,6 +792,18 @@ services:
             - jaeger
         networks:
             - otel_network
+        # Cap the footprint: the collector parses every container's logs, so one
+        # log-flooding container could otherwise peg many cores and balloon RAM.
+        cpus: 2
+        mem_limit: 2g
+        environment:
+            # Keep Go's GC under mem_limit so pressure triggers collection, not an OOM kill.
+            GOMEMLIMIT: 1750MiB
+        logging:
+            driver: json-file
+            options:
+                max-size: '50m'
+                max-file: '3'
 
     jaeger:
         image: jaegertracing/all-in-one:1.76.0

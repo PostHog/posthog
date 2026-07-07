@@ -1,8 +1,13 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+
+import api from '~/lib/api'
+import { ApiError } from '~/lib/api-error'
 import { EventsQuery, NodeKind, TracesQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { PropertyFilterType, PropertyOperator } from '~/types'
+import { LLMPrompt, LLMPromptResolveResponse, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { PromptAnalyticsScope, PromptMode, llmPromptLogic } from './llmPromptLogic'
 
@@ -247,6 +252,136 @@ describe('llmPromptLogic', () => {
         logic.actions.setPrompt(mockPrompt)
 
         expect(logic.values.breadcrumbs[1].name).toBe('my-test-prompt v2')
+
+        logic.unmount()
+    })
+
+    it('preserves form edits and advances the base version on a publish conflict', async () => {
+        const { versions, has_more, ...promptFields } = mockPrompt
+        const conflictingLatest = {
+            ...promptFields,
+            id: 'prompt-version-3',
+            prompt: 'Someone else edited this prompt.',
+            version: 3,
+            latest_version: 3,
+            version_count: 3,
+        }
+
+        jest.spyOn(api.llmPrompts, 'resolveByName')
+            .mockResolvedValueOnce({ prompt: promptFields, versions, has_more } as unknown as LLMPromptResolveResponse)
+            .mockResolvedValue({ prompt: conflictingLatest, versions, has_more } as unknown as LLMPromptResolveResponse)
+        jest.spyOn(api.llmPrompts, 'update').mockRejectedValue(
+            new ApiError('conflict', 409, undefined, { detail: 'The prompt changed since you opened it.' })
+        )
+
+        const logic = llmPromptLogic({ promptName: 'my-test-prompt' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPromptSuccess'])
+
+        logic.actions.setMode(PromptMode.Edit)
+        logic.actions.setPromptFormValues({ name: 'my-test-prompt', prompt: 'My in-progress edit.' })
+
+        logic.actions.submitPromptForm()
+        await expectLogic(logic).toDispatchActions(['submitPromptFormFailure'])
+
+        expect(logic.values.promptForm.prompt).toBe('My in-progress edit.')
+        expect(logic.values.publishConflict).toEqual({ latestVersion: 3 })
+        expect(logic.values.prompt).toMatchObject({ latest_version: 3 })
+        expect(logic.values.mode).toBe(PromptMode.Edit)
+
+        logic.unmount()
+    })
+
+    it('guards cancel behind a confirmation only when the form is dirty', async () => {
+        const { versions, has_more, ...promptFields } = mockPrompt
+        jest.spyOn(api.llmPrompts, 'resolveByName').mockResolvedValue({
+            prompt: promptFields,
+            versions,
+            has_more,
+        } as unknown as LLMPromptResolveResponse)
+        const dialogSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+
+        const logic = llmPromptLogic({ promptName: 'my-test-prompt' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPromptSuccess'])
+
+        // Clean form: cancel exits edit mode directly, no dialog
+        logic.actions.setMode(PromptMode.Edit)
+        logic.actions.cancelEditing()
+        expect(logic.values.mode).toBe(PromptMode.View)
+        expect(dialogSpy).not.toHaveBeenCalled()
+
+        // Dirty form: cancel keeps edit mode until the dialog's discard is confirmed
+        logic.actions.setMode(PromptMode.Edit)
+        logic.actions.setPromptFormValues({ prompt: 'My in-progress edit.' })
+        logic.actions.cancelEditing()
+        expect(logic.values.mode).toBe(PromptMode.Edit)
+        expect(dialogSpy).toHaveBeenCalledTimes(1)
+
+        dialogSpy.mock.calls[0][0].primaryButton?.onClick?.(undefined as any)
+        expect(logic.values.mode).toBe(PromptMode.View)
+        expect(logic.values.promptForm.prompt).toBe(mockPrompt.prompt)
+
+        logic.unmount()
+    })
+
+    it('reflects edit mode in the url', async () => {
+        const { versions, has_more, ...promptFields } = mockPrompt
+        jest.spyOn(api.llmPrompts, 'resolveByName').mockResolvedValue({
+            prompt: promptFields,
+            versions,
+            has_more,
+        } as unknown as LLMPromptResolveResponse)
+
+        const logic = llmPromptLogic({ promptName: 'my-test-prompt' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPromptSuccess'])
+
+        logic.actions.setMode(PromptMode.Edit)
+        expect(router.values.searchParams.edit).toBe(true)
+
+        logic.actions.setMode(PromptMode.View)
+        expect(router.values.searchParams.edit).toBeUndefined()
+
+        logic.unmount()
+    })
+
+    it('routes publish through the review step for existing prompts', async () => {
+        const { versions, has_more, ...promptFields } = mockPrompt
+        jest.spyOn(api.llmPrompts, 'resolveByName').mockResolvedValue({
+            prompt: promptFields,
+            versions,
+            has_more,
+        } as unknown as LLMPromptResolveResponse)
+        const updateSpy = jest.spyOn(api.llmPrompts, 'update').mockResolvedValue({
+            ...promptFields,
+            id: 'prompt-version-3',
+            version: 3,
+            latest_version: 3,
+        } as unknown as LLMPrompt)
+
+        const logic = llmPromptLogic({ promptName: 'my-test-prompt' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPromptSuccess'])
+        logic.actions.setMode(PromptMode.Edit)
+
+        // Empty content skips the review and goes to submit, surfacing validation errors
+        logic.actions.setPromptFormValues({ prompt: '   ' })
+        logic.actions.requestPublish()
+        expect(logic.values.isPublishReviewOpen).toBe(false)
+        expect(updateSpy).not.toHaveBeenCalled()
+
+        // Real edits open the review without hitting the API
+        logic.actions.setPromptFormValues({ prompt: 'My edited prompt.' })
+        logic.actions.requestPublish()
+        expect(logic.values.isPublishReviewOpen).toBe(true)
+        expect(updateSpy).not.toHaveBeenCalled()
+
+        // Confirming from the review publishes and closes it
+        logic.actions.submitPromptForm()
+        await expectLogic(logic).toDispatchActions(['submitPromptFormSuccess'])
+        expect(updateSpy).toHaveBeenCalledTimes(1)
+        expect(logic.values.isPublishReviewOpen).toBe(false)
 
         logic.unmount()
     })

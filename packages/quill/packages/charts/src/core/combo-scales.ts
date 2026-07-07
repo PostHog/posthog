@@ -30,7 +30,7 @@ export interface ComboChartPrivate {
 
 export interface CreateComboScalesOptions {
     scaleType?: 'linear' | 'log'
-    barLayout?: 'stacked' | 'grouped'
+    barLayout?: 'stacked' | 'grouped' | 'percent'
     bandPadding?: number
     groupPadding?: number
     seriesTypeOf: (series: Series) => SeriesType
@@ -39,6 +39,9 @@ export interface CreateComboScalesOptions {
     /** Applied to the primary (default/left) axis only — goal lines (`{ include }`) render against
      *  the primary axis, so secondary axes keep their own data-derived scale. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
+    /** Per-axis overrides — explicit values win over the alternating-side default and
+     *  `options.scaleType`. `startAtZero: false` is ignored for axes carrying bar series. */
+    axes?: { id: string; position?: 'left' | 'right'; scaleType?: 'linear' | 'log'; startAtZero?: boolean }[]
 }
 
 export function resolveSeriesType(series: Pick<Series, 'type'>, defaultType: SeriesType): SeriesType {
@@ -63,6 +66,7 @@ export function createComboScales(
         seriesTypeOf,
         barStackedData,
         valueDomain,
+        axes,
     } = options
 
     const band = scaleBand<string>()
@@ -80,7 +84,11 @@ export function createComboScales(
     }
 
     // Empty chart still needs an axis to draw against.
-    const axisPositions = orderedAxisPositions(series)
+    const axisOverrides = new Map((axes ?? []).map((a) => [a.id, a]))
+    const axisPositions = orderedAxisPositions(series).map(({ axisId, position }) => ({
+        axisId,
+        position: axisOverrides.get(axisId)?.position ?? position,
+    }))
     if (axisPositions.length === 0) {
         axisPositions.push({ axisId: DEFAULT_Y_AXIS_ID, position: 'left' })
     }
@@ -96,16 +104,22 @@ export function createComboScales(
         // otherwise; lines/areas always contribute raw. The value scale spans the union.
         const axisValueSeries: Series[] = axisSeries.map((s) => {
             const stacked = barStackedData?.get(s.key)
-            if (seriesTypeOf(s) === 'bar' && barLayout === 'stacked' && stacked) {
+            if (seriesTypeOf(s) === 'bar' && (barLayout === 'stacked' || barLayout === 'percent') && stacked) {
                 return { ...s, data: stacked.top }
             }
             return s
         })
         // `createYScale` applies the shared overlay baseline clamp, degenerate `min === max`
         // guard, log fallback, and `{ include }` goal-line domain extension — primary axis only.
+        // Percent-clamp only axes that actually carry bar series — a line/area-only axis (e.g. a
+        // series explicitly routed to the right axis) keeps its own data-derived scale instead of
+        // being forced onto [0, 1].
+        const hasBarSeries = axisSeries.some((s) => seriesTypeOf(s) === 'bar')
         const scale = createYScale(axisValueSeries, dimensions, {
-            scaleType,
+            scaleType: axisOverrides.get(axisId)?.scaleType ?? scaleType,
+            percentStack: barLayout === 'percent' && hasBarSeries,
             valueDomain: axisId === primaryAxisId ? valueDomain : undefined,
+            floatBaseline: !hasBarSeries && axisOverrides.get(axisId)?.startAtZero === false,
         })
         yAxes[axisId] = { scale, position }
     }

@@ -36,7 +36,7 @@ CSRF_TRUSTED_ORIGINS += get_list(os.getenv("EXTRA_CSRF_TRUSTED_ORIGINS", ""))
 # Proxy settings
 IS_BEHIND_PROXY = get_from_env("IS_BEHIND_PROXY", False, type_cast=str_to_bool)
 TRUSTED_PROXIES = os.getenv("TRUSTED_PROXIES", None)
-TRUST_ALL_PROXIES = os.getenv("TRUST_ALL_PROXIES", False)
+TRUST_ALL_PROXIES = get_from_env("TRUST_ALL_PROXIES", False, type_cast=str_to_bool)
 
 
 if IS_BEHIND_PROXY:
@@ -150,3 +150,8 @@ else:
     CORS_ORIGIN_ALLOW_ALL = True
 
 BLOCKED_GEOIP_REGIONS = get_list(os.getenv("BLOCKED_GEOIP_REGIONS", ""))
+
+# SSRF protection: in dev/DEBUG, is_url_allowed() short-circuits and allows every URL so local
+# development can reach localhost services. Set this to run the production validation path in dev —
+# e.g. to reproduce or test SSRF fixes — without flipping DEBUG globally.
+FORCE_URL_VALIDATION: bool = get_from_env("POSTHOG_FORCE_URL_VALIDATION", False, type_cast=str_to_bool)

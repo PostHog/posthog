@@ -11,12 +11,20 @@ from posthog.hogql import ast
 from posthog.clickhouse.client import sync_execute
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
+from posthog.test.persons import create_person
 
 from products.replay_vision.backend.queries.scanner_candidate_query import (
+    BALANCED_SURFACING_THRESHOLD,
     DEFAULT_CANDIDATE_LIMIT,
-    SAMPLE_RATE_PRECISION,
+    FOCUSED_SURFACING_THRESHOLD,
+    NULL_SURFACING_SCORE_FALLBACK,
     SETTLE_INTERVAL,
     ScannerCandidateQuery,
+    surfacing_score_predicate,
+)
+from products.replay_vision.backend.queries.scanner_volume_estimate import (
+    ESTIMATE_WINDOW_DAYS,
+    estimate_scanner_session_volume,
 )
 
 _NOW = dt.datetime(2026, 5, 1, 12, 0, 0, tzinfo=dt.UTC)
@@ -32,6 +40,7 @@ def _make_query(**kwargs) -> ScannerCandidateQuery:
         query=kwargs.pop("query", RecordingsQuery()),
         last_swept_at=kwargs.pop("last_swept_at", _NOW - dt.timedelta(hours=1)),
         sampling_rate=kwargs.pop("sampling_rate", 1.0),
+        sampling_salt=kwargs.pop("sampling_salt", "scanner-1"),
         **kwargs,
     )
 
@@ -107,23 +116,64 @@ def test_sampling_predicate_passthrough_at_full_rate():
     assert q._sampling_predicate() is None
 
 
-def test_sampling_predicate_emits_false_at_zero():
-    q = _make_query(sampling_rate=0.0)
+@pytest.mark.parametrize("rate", [0.0, 0.00004])
+def test_sampling_predicate_emits_false_below_one_bucket(rate):
+    q = _make_query(sampling_rate=rate)
     expr = q._sampling_predicate()
     assert isinstance(expr, ast.Constant) and expr.value is False
 
 
-def test_sampling_predicate_emits_modulo_compare_at_partial_rate():
-    q = _make_query(sampling_rate=0.25)
+@pytest.mark.parametrize(
+    "rate, expected_threshold",
+    [
+        (0.25, 2500),
+        # 0.29 * 10_000 is 2899.999… in floats; truncation used to shave a bucket.
+        (0.29, 2900),
+        (0.0001, 1),
+    ],
+)
+def test_sampling_predicate_emits_modulo_compare_at_partial_rate(rate, expected_threshold):
+    q = _make_query(sampling_rate=rate)
     expr = q._sampling_predicate()
     assert isinstance(expr, ast.CompareOperation)
     assert expr.op == ast.CompareOperationOp.Lt
     assert isinstance(expr.right, ast.Constant)
-    assert expr.right.value == int(0.25 * SAMPLE_RATE_PRECISION)
+    assert expr.right.value == expected_threshold
     modulo = expr.left
     assert isinstance(modulo, ast.Call) and modulo.name == "modulo"
     city = modulo.args[0]
     assert isinstance(city, ast.Call) and city.name == "cityHash64"
+    concat = city.args[0]
+    assert isinstance(concat, ast.Call) and concat.name == "concat"
+    # The per-scanner salt makes scanners draw independent samples instead of the identical session subset.
+    assert isinstance(concat.args[1], ast.Constant) and concat.args[1].value == "scanner-1"
+
+
+def test_surfacing_score_predicate_passthrough_in_comprehensive():
+    assert surfacing_score_predicate("comprehensive") is None
+
+
+def test_surfacing_score_predicate_rejects_unknown_mode():
+    with pytest.raises(ValueError):
+        surfacing_score_predicate("focussed")
+
+
+def test_null_fallback_stays_below_balanced_threshold():
+    assert NULL_SURFACING_SCORE_FALLBACK < BALANCED_SURFACING_THRESHOLD
+
+
+@pytest.mark.parametrize(
+    "mode,expected_threshold",
+    [
+        ("focused", FOCUSED_SURFACING_THRESHOLD),
+        ("balanced", BALANCED_SURFACING_THRESHOLD),
+    ],
+)
+def test_surfacing_score_predicate_emits_threshold(mode, expected_threshold):
+    expr = surfacing_score_predicate(mode)
+    assert isinstance(expr, ast.CompareOperation)
+    assert expr.op == ast.CompareOperationOp.GtEq
+    assert isinstance(expr.right, ast.Constant) and expr.right.value == expected_threshold
 
 
 # Integration: actual ClickHouse query.
@@ -136,6 +186,9 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
 
     @staticmethod
     def _produce(team_id: int, session_id: str, first: dt.datetime, last: dt.datetime, **kwargs) -> None:
+        # Default to an eligibility-passing recording (>= MIN_ACTIVE active seconds) so tests exercising the watermark /
+        # settle / sampling dimensions aren't incidentally dropped by the eligibility filter; override per-test as needed.
+        kwargs.setdefault("active_milliseconds", 30_000)
         produce_replay_summary(
             team_id=team_id,
             session_id=session_id,
@@ -170,7 +223,8 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         self._produce(
             team.id,
             "just-after-watermark",
-            last_swept_at,
+            # >= 15s long so it clears the duration eligibility bound; session_end is still just past the watermark.
+            last_swept_at - dt.timedelta(seconds=14),
             last_swept_at + dt.timedelta(seconds=1),
         )
 
@@ -344,6 +398,71 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         assert [r.session_id for r in results] == ["long"]
 
     @pytest.mark.django_db
+    def test_excludes_recordings_the_scan_would_mark_ineligible(self, team) -> None:
+        # Recordings the scan rejects as too short / too idle / too long are dropped before becoming candidates (the
+        # scan re-checks them authoritatively). All four end before the settle bound, so settle isn't the reason.
+        sb = _NOW - SETTLE_INTERVAL
+
+        def produce(session_id: str, start: dt.datetime, duration_s: int, active_ms: int) -> None:
+            self._produce(
+                team.id, session_id, start, start + dt.timedelta(seconds=duration_s), active_milliseconds=active_ms
+            )
+
+        produce("too-short", sb - dt.timedelta(minutes=10), 10, 10_000)  # 10s wall < 15s min duration
+        produce("too-idle", sb - dt.timedelta(minutes=12), 60, 5_000)  # 5s active < 10s min active
+        produce("too-long", sb - dt.timedelta(minutes=80), 4200, 3_700_000)  # 3700s active > 3600s max active
+        produce("eligible", sb - dt.timedelta(minutes=20), 60, 30_000)  # 60s wall, 30s active
+
+        results = {r.session_id for r in self._run(team=team, last_swept_at=_NOW - dt.timedelta(hours=2))}
+        assert results == {"eligible"}
+
+    @pytest.mark.django_db
+    def test_volume_estimate_counts_only_eligible_recordings(self, team) -> None:
+        # The estimate shares eligibility_predicates() with the candidate query, so the forecast counts the same
+        # eligible set the sweep selects instead of over-counting recordings the scan would reject.
+        recent = _NOW - dt.timedelta(days=2)
+        self._produce(team.id, "too-short", recent, recent + dt.timedelta(seconds=10), active_milliseconds=10_000)
+        self._produce(team.id, "eligible", recent, recent + dt.timedelta(seconds=60), active_milliseconds=30_000)
+
+        estimate = estimate_scanner_session_volume(team=team, query=RecordingsQuery())
+
+        assert estimate.matched_sessions == 1
+
+    @pytest.mark.django_db
+    def test_volume_estimate_window_is_exactly_30_days(self, team) -> None:
+        # A relative "-30d" date_from truncates to start-of-day, counting up to 31 days against the /30 divisor.
+        bound = _NOW - dt.timedelta(days=ESTIMATE_WINDOW_DAYS)
+        self._produce(
+            team.id,
+            "same-day-but-outside",
+            bound - dt.timedelta(hours=6, seconds=60),
+            bound - dt.timedelta(hours=6),
+            active_milliseconds=30_000,
+        )
+        self._produce(
+            team.id,
+            "inside",
+            _NOW - dt.timedelta(days=2),
+            _NOW - dt.timedelta(days=2) + dt.timedelta(seconds=60),
+            active_milliseconds=30_000,
+        )
+
+        estimate = estimate_scanner_session_volume(team=team, query=RecordingsQuery())
+
+        assert estimate.matched_sessions == 1
+
+    @pytest.mark.django_db
+    def test_volume_estimate_divisor_stays_full_for_old_but_quiet_teams(self, team) -> None:
+        # The bounded earliest-recording probe must not shrink the divisor for teams older than the window.
+        old = _NOW - dt.timedelta(days=40)
+        self._produce(team.id, "old-session", old, old + dt.timedelta(seconds=60), active_milliseconds=30_000)
+
+        estimate = estimate_scanner_session_volume(team=team, query=RecordingsQuery())
+
+        assert estimate.matched_sessions == 0
+        assert estimate.effective_window_days == ESTIMATE_WINDOW_DAYS
+
+    @pytest.mark.django_db
     def test_filter_test_accounts_excludes_internal_users(self, team) -> None:
         # test_account_filters are exclusion-style — the operator picks the accounts to drop.
         team.test_account_filters = [
@@ -355,10 +474,8 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
             }
         ]
         team.save(update_fields=["test_account_filters"])
-        from posthog.models.person import Person
-
-        Person.objects.create(team=team, distinct_ids=["internal"], properties={"email": "hi@posthog.com"})
-        Person.objects.create(team=team, distinct_ids=["external"], properties={"email": "hi@example.com"})
+        create_person(team=team, distinct_ids=["internal"], properties={"email": "hi@posthog.com"})
+        create_person(team=team, distinct_ids=["external"], properties={"email": "hi@example.com"})
 
         self._produce(
             team.id,
@@ -519,6 +636,7 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         last_swept_at: dt.datetime,
         query: RecordingsQuery | None = None,
         sampling_rate: float = 1.0,
+        sampling_salt: str = "scanner-1",
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         last_seen_session_id: str | None = None,
     ):
@@ -527,6 +645,7 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
             query=query if query is not None else RecordingsQuery(),
             last_swept_at=last_swept_at,
             sampling_rate=sampling_rate,
+            sampling_salt=sampling_salt,
             candidate_limit=candidate_limit,
             last_seen_session_id=last_seen_session_id,
         ).run()
