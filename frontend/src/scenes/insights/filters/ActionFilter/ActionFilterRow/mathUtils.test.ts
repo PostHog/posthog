@@ -15,6 +15,20 @@ describe('getDefaultPropertyMathType', () => {
             false,
             PropertyMathType.Sum,
         ],
+        [
+            'skips allowed types unsupported for histogram breakdowns',
+            undefined,
+            [PropertyMathType.Median, PropertyMathType.Sum],
+            true,
+            PropertyMathType.Sum,
+        ],
+        [
+            'falls back to average when no allowed type supports histogram breakdowns',
+            undefined,
+            [PropertyMathType.Median, PropertyMathType.P90],
+            true,
+            PropertyMathType.Average,
+        ],
     ])('%s', (_name, math, allowedMathTypes, isHistogramBreakdown, expected) => {
         expect(getDefaultPropertyMathType(math, allowedMathTypes, isHistogramBreakdown)).toBe(expected)
     })

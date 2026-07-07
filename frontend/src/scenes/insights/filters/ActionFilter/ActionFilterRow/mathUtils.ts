@@ -30,8 +30,13 @@ export function getDefaultPropertyMathType(
         return math
     }
     if (allowedMathTypes?.length) {
-        const propertyMathTypes = allowedMathTypes.filter(isPropertyValueMath)
-        return (propertyMathTypes[0] as PropertyMathType) || defaultMathType
+        let propertyMathTypes = allowedMathTypes.filter(isPropertyValueMath)
+        if (isHistogramBreakdown) {
+            propertyMathTypes = propertyMathTypes.filter((mathType) =>
+                SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN.has(mathType)
+            )
+        }
+        return propertyMathTypes[0] || defaultMathType
     }
     return defaultMathType
 }
