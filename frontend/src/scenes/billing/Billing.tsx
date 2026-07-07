@@ -54,7 +54,8 @@ export function Billing(): JSX.Element {
         showBillingSummary,
         showCreditCTAHero,
         showBillingHero,
-        minimumBillingAccessLevel,
+        minimumBillingViewLevel,
+        isBillingReadOnly,
         hasSupportAddonPlan,
     } = useValues(billingLogic)
     const { reportBillingShown } = useActions(billingLogic)
@@ -66,7 +67,7 @@ export function Billing(): JSX.Element {
     const { memberCount } = useValues(membersLogic)
 
     const restrictionReason = useRestrictedArea({
-        minimumAccessLevel: minimumBillingAccessLevel,
+        minimumAccessLevel: minimumBillingViewLevel,
         scope: RestrictionScope.Organization,
     })
 
@@ -124,7 +125,13 @@ export function Billing(): JSX.Element {
 
     return (
         <div className="@container">
-            {showLicenseDirectInput && (
+            {isBillingReadOnly && (
+                <LemonBanner type="info" className="mb-2">
+                    You have read-only access to billing. Contact an organization admin to make changes.
+                </LemonBanner>
+            )}
+
+            {!isBillingReadOnly && showLicenseDirectInput && (
                 <>
                     <Form
                         logic={billingLogic}
@@ -196,7 +203,7 @@ export function Billing(): JSX.Element {
                 </div>
             )}
 
-            {!showBillingSummary && <StripePortalButton />}
+            {!showBillingSummary && !isBillingReadOnly && <StripePortalButton />}
 
             {!couponsOverviewLoading && activeCoupons.length > 0 && (
                 <div className="mt-6 max-w-300">
@@ -282,7 +289,7 @@ export function Billing(): JSX.Element {
                 </div>
             )}
             <div>
-                {billing?.subscription_level == 'paid' && !!platformAndSupportProduct ? (
+                {billing?.subscription_level == 'paid' && !!platformAndSupportProduct && !isBillingReadOnly ? (
                     <>
                         <LemonDivider />
                         <UnsubscribeCard product={platformAndSupportProduct} />

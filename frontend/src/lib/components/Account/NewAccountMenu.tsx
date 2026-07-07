@@ -63,7 +63,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
     const hasPendingInvites = pendingInvites.length > 0
     const { preflight } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { canAccessBilling } = useValues(billingLogic)
+    const { canViewBilling } = useValues(billingLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
@@ -303,7 +303,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     </Menu.Portal>
                                 </Menu.SubmenuRoot>
 
-                                {isCloudOrDev && canAccessBilling ? (
+                                {isCloudOrDev && canViewBilling ? (
                                     <Menu.Item
                                         render={(props) => (
                                             <Link

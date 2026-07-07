@@ -14,7 +14,7 @@ import { billingProductLogic } from './billingProductLogic'
 
 export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const limitInputRef = useRef<HTMLInputElement | null>(null)
-    const { billing, billingLoading } = useValues(billingLogic)
+    const { billing, billingLoading, isBillingReadOnly } = useValues(billingLogic)
     const { isEditingBillingLimit, customLimitUsd, hasCustomLimitSet, currentAndUpgradePlans, billingLimitNextPeriod } =
         useValues(billingProductLogic({ product, billingLimitInputRef: limitInputRef }))
     const { setIsEditingBillingLimit, setBillingLimitInput, submitBillingLimitInput, removeBillingLimitNextPeriod } =
@@ -62,26 +62,30 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                                             </Tooltip>
                                         )}
 
-                                        <LemonButton
-                                            onClick={() => setIsEditingBillingLimit(true)}
-                                            status="danger"
-                                            size="small"
-                                        >
-                                            Edit limit
-                                        </LemonButton>
+                                        {!isBillingReadOnly && (
+                                            <LemonButton
+                                                onClick={() => setIsEditingBillingLimit(true)}
+                                                status="danger"
+                                                size="small"
+                                            >
+                                                Edit limit
+                                            </LemonButton>
+                                        )}
                                     </>
                                 ) : (
                                     <>
                                         <span className="text-sm" data-attr={`billing-limit-not-set-${product.type}`}>
                                             You do not have a billing limit set for {product?.name?.toLowerCase()}.
                                         </span>
-                                        <LemonButton
-                                            onClick={() => setIsEditingBillingLimit(true)}
-                                            status="danger"
-                                            size="small"
-                                        >
-                                            Set a billing limit
-                                        </LemonButton>
+                                        {!isBillingReadOnly && (
+                                            <LemonButton
+                                                onClick={() => setIsEditingBillingLimit(true)}
+                                                status="danger"
+                                                size="small"
+                                            >
+                                                Set a billing limit
+                                            </LemonButton>
+                                        )}
                                     </>
                                 )}
                             </>
@@ -148,14 +152,16 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                             <span className="text-sm xl:text-right">
                                 Your limit for next period: <b>${billingLimitNextPeriod.toLocaleString()}</b>.
                             </span>
-                            <LemonButton
-                                size="small"
-                                status="danger"
-                                onClick={() => removeBillingLimitNextPeriod(product.type)}
-                                data-attr={`remove-billing-limit-next-period-${product.type}`}
-                            >
-                                Remove limit for next period
-                            </LemonButton>
+                            {!isBillingReadOnly && (
+                                <LemonButton
+                                    size="small"
+                                    status="danger"
+                                    onClick={() => removeBillingLimitNextPeriod(product.type)}
+                                    data-attr={`remove-billing-limit-next-period-${product.type}`}
+                                >
+                                    Remove limit for next period
+                                </LemonButton>
+                            )}
                         </div>
                     ) : null}
                 </div>

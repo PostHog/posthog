@@ -26,9 +26,9 @@ import { billingUsageLogic } from './billingUsageLogic'
 import { USAGE_TYPES } from './constants'
 
 export function BillingUsage(): JSX.Element {
-    const { minimumBillingAccessLevel } = useValues(billingLogic)
+    const { minimumBillingViewLevel } = useValues(billingLogic)
     const restrictionReason = useRestrictedArea({
-        minimumAccessLevel: minimumBillingAccessLevel,
+        minimumAccessLevel: minimumBillingViewLevel,
         scope: RestrictionScope.Organization,
     })
     const logic = billingUsageLogic({ syncWithUrl: true })

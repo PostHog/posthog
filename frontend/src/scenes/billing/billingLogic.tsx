@@ -34,7 +34,9 @@ import {
     buildUsageLimitApproachingMessage,
     buildUsageLimitExceededMessage,
     canAccessBilling as canAccessBillingUtil,
+    canViewBilling as canViewBillingUtil,
     getMinimumBillingAccessLevel,
+    getMinimumBillingViewLevel,
 } from './billing-utils'
 import type { billingLogicType } from './billingLogicType'
 import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
@@ -522,6 +524,14 @@ export const billingLogic = kea<billingLogicType>([
             (featureFlags): OrganizationMembershipLevel =>
                 getMinimumBillingAccessLevel(!!featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]),
         ],
+        minimumBillingViewLevel: [
+            (s) => [s.featureFlags],
+            (featureFlags): OrganizationMembershipLevel =>
+                getMinimumBillingViewLevel(
+                    !!featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING],
+                    !!featureFlags[FEATURE_FLAGS.READ_ONLY_BILLING_ACCESS]
+                ),
+        ],
         canAccessBilling: [
             (s) => [s.currentOrganization, s.featureFlags],
             (currentOrganization, featureFlags): boolean =>
@@ -529,6 +539,19 @@ export const billingLogic = kea<billingLogicType>([
                     currentOrganization?.membership_level,
                     !!featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]
                 ),
+        ],
+        canViewBilling: [
+            (s) => [s.currentOrganization, s.featureFlags],
+            (currentOrganization, featureFlags): boolean =>
+                canViewBillingUtil(
+                    currentOrganization?.membership_level,
+                    !!featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING],
+                    !!featureFlags[FEATURE_FLAGS.READ_ONLY_BILLING_ACCESS]
+                ),
+        ],
+        isBillingReadOnly: [
+            (s) => [s.canViewBilling, s.canAccessBilling],
+            (canViewBilling, canAccessBilling): boolean => canViewBilling && !canAccessBilling,
         ],
         upgradeLink: [(s) => [s.preflight], (): string => '/organization/billing'],
         isUnlicensedDebug: [

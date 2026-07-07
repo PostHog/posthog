@@ -1195,6 +1195,26 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         response = self.client.get("/api/billing/spend/")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    def test_get_usage_allowed_for_member_with_read_only_flag(self, mock_get_usage_data, _mock_feature_enabled):
+        mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        response = self.client.get("/api/billing/usage/?start_date=2025-01-01")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), self.MOCK_USAGE_DATA)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("ee.billing.billing_manager.BillingManager.get_spend_data")
+    def test_get_spend_allowed_for_member_with_read_only_flag(self, mock_get_spend_data, _mock_feature_enabled):
+        mock_get_spend_data.return_value = self.MOCK_SPEND_DATA
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        response = self.client.get("/api/billing/spend/?start_date=2025-01-01")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), self.MOCK_SPEND_DATA)
+
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
     @patch("ee.api.billing.BillingViewset._get_teams_map")
     def test_get_usage_empty_teams_map_graceful_handling(self, mock_get_teams_map, mock_get_usage_data):

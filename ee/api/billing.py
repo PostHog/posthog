@@ -31,6 +31,8 @@ logger = structlog.get_logger(__name__)
 
 BILLING_SERVICE_JWT_AUD = "posthog:license-key"
 
+READ_ONLY_BILLING_ACCESS_FLAG = "read-only-billing-access"
+
 
 class IsOrganizationAdmin(permissions.BasePermission):
     """
@@ -45,6 +47,35 @@ class IsOrganizationAdmin(permissions.BasePermission):
         return OrganizationMembership.objects.filter(
             user=request.user, organization=org, level__gte=OrganizationMembership.Level.ADMIN
         ).exists()
+
+
+class IsOrganizationAdminOrReadOnlyBillingMember(permissions.BasePermission):
+    """
+    Permission for read-only billing data endpoints (usage, spend).
+
+    Allows organization admins (level >= ADMIN) as usual, and additionally allows any organization member
+    when the organization has the read-only-billing-access feature flag enabled. Mutating billing endpoints
+    remain guarded by IsOrganizationAdmin.
+    """
+
+    def has_permission(self, request, view):
+        try:
+            org = view._get_org_required()
+        except Exception:
+            return False
+        membership = OrganizationMembership.objects.filter(user=request.user, organization=org).first()
+        if not membership:
+            return False
+        if membership.level >= OrganizationMembership.Level.ADMIN:
+            return True
+        return bool(
+            posthoganalytics.feature_enabled(
+                READ_ONLY_BILLING_ACCESS_FLAG,
+                str(org.id),
+                groups={"organization": str(org.id)},
+                group_properties={"organization": {"id": str(org.id)}},
+            )
+        )
 
 
 class BillingSerializer(serializers.Serializer):
@@ -535,7 +566,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["GET"],
         detail=False,
         url_path="usage",
-        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdminOrReadOnlyBillingMember],
     )
     def usage(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         organization = self._get_org_required()
@@ -571,7 +602,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["GET"],
         detail=False,
         url_path="spend",
-        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdminOrReadOnlyBillingMember],
     )
     def spend(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         """Endpoint to fetch spend data (proxy to billing service)."""

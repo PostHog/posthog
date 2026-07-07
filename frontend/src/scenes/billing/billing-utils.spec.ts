@@ -10,6 +10,7 @@ import {
     buildUsageLimitApproachingMessage,
     buildUsageLimitExceededMessage,
     canAccessBilling,
+    canViewBilling,
     convertAmountToUsage,
     convertLargeNumberToWords,
     convertUsageToAmount,
@@ -17,6 +18,7 @@ import {
     formatProductNames,
     formatWithDecimals,
     getMinimumBillingAccessLevel,
+    getMinimumBillingViewLevel,
     getProration,
     getUsageLimitConsequence,
     projectUsage,
@@ -666,4 +668,33 @@ describe('canAccessBilling', () => {
     ])('returns $expected for level=$level, ownerOnly=$ownerOnly', ({ level, ownerOnly, expected }) => {
         expect(canAccessBilling(level, ownerOnly)).toBe(expected)
     })
+})
+
+describe('getMinimumBillingViewLevel', () => {
+    it.each([
+        { ownerOnly: false, readOnly: false, expected: OrganizationMembershipLevel.Admin },
+        { ownerOnly: true, readOnly: false, expected: OrganizationMembershipLevel.Owner },
+        // read-only access lowers the view threshold to Member regardless of ownerOnly
+        { ownerOnly: false, readOnly: true, expected: OrganizationMembershipLevel.Member },
+        { ownerOnly: true, readOnly: true, expected: OrganizationMembershipLevel.Member },
+    ])('returns $expected for ownerOnly=$ownerOnly, readOnly=$readOnly', ({ ownerOnly, readOnly, expected }) => {
+        expect(getMinimumBillingViewLevel(ownerOnly, readOnly)).toBe(expected)
+    })
+})
+
+describe('canViewBilling', () => {
+    it.each([
+        // Without the read-only flag, viewing requires the same level as managing
+        { level: OrganizationMembershipLevel.Member, ownerOnly: false, readOnly: false, expected: false },
+        { level: OrganizationMembershipLevel.Admin, ownerOnly: false, readOnly: false, expected: true },
+        // With the read-only flag, any member can view
+        { level: OrganizationMembershipLevel.Member, ownerOnly: false, readOnly: true, expected: true },
+        { level: OrganizationMembershipLevel.Member, ownerOnly: true, readOnly: true, expected: true },
+        { level: null, ownerOnly: false, readOnly: true, expected: false },
+    ])(
+        'returns $expected for level=$level, ownerOnly=$ownerOnly, readOnly=$readOnly',
+        ({ level, ownerOnly, readOnly, expected }) => {
+            expect(canViewBilling(level, ownerOnly, readOnly)).toBe(expected)
+        }
+    )
 })

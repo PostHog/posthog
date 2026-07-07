@@ -94,7 +94,7 @@ export const settingsLogic = kea<settingsLogicType>([
             organizationIntegrationsLogic,
             ['organizationIntegrations'],
             billingLogic,
-            ['canAccessBilling'],
+            ['canViewBilling'],
         ],
     })),
 
@@ -264,7 +264,7 @@ export const settingsLogic = kea<settingsLogicType>([
                 s.currentOrganization,
                 s.organizationIntegrations,
                 s.preflight,
-                s.canAccessBilling,
+                s.canViewBilling,
                 s.isAdminOrOwner,
             ],
             (
@@ -274,7 +274,7 @@ export const settingsLogic = kea<settingsLogicType>([
                 currentOrganization,
                 organizationIntegrations,
                 preflight,
-                canAccessBilling,
+                canViewBilling,
                 isAdminOrOwner
             ): SettingSection[] => {
                 const isSettingVisible = (setting: Setting): boolean => {
@@ -302,7 +302,7 @@ export const settingsLogic = kea<settingsLogicType>([
                     }
 
                     // Explicit gates to avoid showing this in the sidebar when the use doesn't have access to it
-                    if (section.id === 'organization-billing' && !canAccessBilling) {
+                    if (section.id === 'organization-billing' && !canViewBilling) {
                         return false
                     }
                     if (section.id === 'organization-legal-documents' && !isAdminOrOwner) {

@@ -425,21 +425,50 @@ export const currencyFormatter = (value: number): string => {
 }
 
 /**
- * Returns the minimum membership level required to access billing.
- * When ownerOnlyBilling is true (via the owner-only-billing feature flag), only org owners can access billing.
+ * Returns the minimum membership level required to *manage* billing (edit limits, subscribe, change plans).
+ * When ownerOnlyBilling is true (via the owner-only-billing feature flag), only org owners can manage billing.
  */
 export function getMinimumBillingAccessLevel(ownerOnlyBilling: boolean): OrganizationMembershipLevel {
     return ownerOnlyBilling ? OrganizationMembershipLevel.Owner : OrganizationMembershipLevel.Admin
 }
 
 /**
- * Determines if the user has sufficient permissions to access billing based on their org membership level.
+ * Returns the minimum membership level required to *view* billing.
+ * When readOnlyBillingAccess is true (via the read-only-billing-access feature flag), any member can view billing
+ * read-only. Otherwise viewing requires the same level as managing.
+ */
+export function getMinimumBillingViewLevel(
+    ownerOnlyBilling: boolean,
+    readOnlyBillingAccess: boolean
+): OrganizationMembershipLevel {
+    if (readOnlyBillingAccess) {
+        return OrganizationMembershipLevel.Member
+    }
+    return getMinimumBillingAccessLevel(ownerOnlyBilling)
+}
+
+/**
+ * Determines if the user has sufficient permissions to *manage* billing based on their org membership level.
  */
 export function canAccessBilling(membershipLevel: number | null | undefined, ownerOnlyBilling: boolean): boolean {
     if (!membershipLevel) {
         return false
     }
     return membershipLevel >= getMinimumBillingAccessLevel(ownerOnlyBilling)
+}
+
+/**
+ * Determines if the user can *view* billing (read-only or full) based on their org membership level.
+ */
+export function canViewBilling(
+    membershipLevel: number | null | undefined,
+    ownerOnlyBilling: boolean,
+    readOnlyBillingAccess: boolean
+): boolean {
+    if (!membershipLevel) {
+        return false
+    }
+    return membershipLevel >= getMinimumBillingViewLevel(ownerOnlyBilling, readOnlyBillingAccess)
 }
 
 /**

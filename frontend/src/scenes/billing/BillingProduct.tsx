@@ -58,7 +58,7 @@ export const getTierDescription = (
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const productRef = useRef<HTMLDivElement | null>(null)
-    const { billing, isUnlicensedDebug } = useValues(billingLogic)
+    const { billing, isUnlicensedDebug, isBillingReadOnly } = useValues(billingLogic)
     const {
         hasCustomLimitSet,
         showTierBreakdown,
@@ -178,7 +178,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     </LemonButton>
                                 </>
                             ) : (
-                                product.subscribed && (
+                                product.subscribed &&
+                                !isBillingReadOnly && (
                                     <More
                                         overlay={
                                             <>
@@ -547,16 +548,18 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             {addonSectionLabel} are only available on paid plans. Upgrade to access
                                             these features.
                                         </div>
-                                        <BillingUpgradeCTA
-                                            type="primary"
-                                            status="alt"
-                                            data-attr="billing-page-addon-cta-upgrade-cta"
-                                            disableClientSideRouting
-                                            loading={!!billingProductLoading}
-                                            onClick={() => startPaymentEntryFlow(product)}
-                                        >
-                                            Upgrade now
-                                        </BillingUpgradeCTA>
+                                        {!isBillingReadOnly && (
+                                            <BillingUpgradeCTA
+                                                type="primary"
+                                                status="alt"
+                                                data-attr="billing-page-addon-cta-upgrade-cta"
+                                                disableClientSideRouting
+                                                loading={!!billingProductLoading}
+                                                onClick={() => startPaymentEntryFlow(product)}
+                                            >
+                                                Upgrade now
+                                            </BillingUpgradeCTA>
+                                        )}
                                     </div>
                                 </LemonBanner>
                             )}

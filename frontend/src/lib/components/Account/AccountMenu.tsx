@@ -141,7 +141,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
     const { currentOrganization } = useValues(organizationLogic)
     const { isCloudOrDev, isCloud, preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { billing, canAccessBilling } = useValues(billingLogic)
+    const { billing, canViewBilling } = useValues(billingLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
     const { reportAccountOwnerClicked } = useActions(eventUsageLogic)
@@ -185,7 +185,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                             </div>
                         </Link>
                     </DropdownMenuItem>
-                    {isCloudOrDev && canAccessBilling ? (
+                    {isCloudOrDev && canViewBilling ? (
                         <DropdownMenuItem asChild>
                             <Link
                                 to={

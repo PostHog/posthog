@@ -404,6 +404,7 @@ export const FEATURE_FLAGS = {
     ONBOARDING_WIZARD_SYNC: 'onboarding-wizard-sync', // owner: @fercgomes #team-growth multivariate=control,test — gates the live wizard sync progress panel
     ONBOARDING_WIZARD_SYNC_MODE: 'onboarding-wizard-sync-mode', // owner: @fercgomes #team-growth multivariate=sse,polling — how the wizard sync panel pulls run updates (SSE stream vs REST polling); payload carries polling_interval_secs
     OWNER_ONLY_BILLING: 'owner-only-billing', // owner: @pawelcebula #team-billing
+    READ_ONLY_BILLING_ACCESS: 'read-only-billing-access', // owner: @pawelcebula #team-billing — lets non-admin members view billing read-only
     PAGE_REPORTS_AVERAGE_PAGE_VIEW: 'page-reports-average-page-view', // owner: @jordanm-posthog #team-web-analytics
     PAGE_REPORTS_RANKED_URL_SEARCH: 'page-reports-ranked-url-search', // owner: @jordanm-posthog #team-web-analytics
     PASSKEY_SIGNUP_ENABLED: 'passkey-signup-enabled', // owner: @reecejones #team-platform-features
