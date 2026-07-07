@@ -188,7 +188,10 @@ def post_slack_permission_request_for_task_run(
             logger.info("slack_permission_prompt_no_mapping", run_id=run_id, request_id=request_id)
             return
 
-        target_slack_user_id = mapping.latest_actor_slack_user_id or mapping.mentioning_slack_user_id
+        # Approvals authorize actions executed with the task creator's sandbox token,
+        # so only the creator (the original mentioner) may answer them — never
+        # whichever teammate happened to post the latest follow-up in the thread.
+        target_slack_user_id = mapping.mentioning_slack_user_id
         if not target_slack_user_id:
             logger.info("slack_permission_prompt_no_target_user", run_id=run_id, request_id=request_id)
             return

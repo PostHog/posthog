@@ -87,7 +87,8 @@ class TestSlackAgentPermissionPrompt(TestCase):
         call_kwargs = mock_chat.call_args.kwargs
         assert call_kwargs["channel"] == "C123"
         assert call_kwargs["thread_ts"] == "1700000000.000001"
-        assert "<@U_ACTOR>" in call_kwargs["text"]
+        # Routed to the task creator (original mentioner), not the latest follow-up actor.
+        assert "<@U_ORIGINAL>" in call_kwargs["text"]
 
         blocks = call_kwargs["blocks"]
         assert blocks[0]["type"] == "card"
@@ -116,7 +117,7 @@ class TestSlackAgentPermissionPrompt(TestCase):
         assert context["kind"] == SLACK_PERMISSION_CONTEXT_KIND
         assert context["run_id"] == str(self.task_run.id)
         assert context["request_id"] == "perm-1"
-        assert context["expected_slack_user_id"] == "U_ACTOR"
+        assert context["expected_slack_user_id"] == "U_ORIGINAL"
         assert context["default_option_id"] == "allow"
         assert context["reject_option_id"] == "reject"
         assert [option["label"] for option in context["options"]] == [
