@@ -1,6 +1,6 @@
 name: Turbo CI
 
-# Reusable workflow — called by pr-housekeeping.yml on every PR push.
+# Reusable workflow, called by pr-housekeeping.yml on every PR push.
 # Push-cancels-previous-push comes from the caller's concurrency group.
 
 on:

@@ -1,6 +1,6 @@
 name: Resolve outdated bot comments
 
-# Reusable workflow — called by pr-housekeeping.yml on PR synchronize.
+# Reusable workflow, called by pr-housekeeping.yml on PR synchronize.
 # Push-cancels-previous-push comes from the caller's concurrency group.
 
 on:

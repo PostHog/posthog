@@ -1,6 +1,6 @@
 name: Opened PR
 
-# Reusable workflow — called by pr-housekeeping.yml on PR opened/ready_for_review.
+# Reusable workflow, called by pr-housekeeping.yml on PR opened/ready_for_review.
 
 on:
     workflow_call:

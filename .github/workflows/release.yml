@@ -16,7 +16,7 @@ env:
     CARGO_DIST_INSTALLER_SHA256: b657cf8c04a8b7bc28f39d220f7e6dd11bbd2bdb072c552262bd9ccf597261b5
 
 # Publishing is handled by the Release CLI workflow after Release environment approval.
-# Reusable workflow — called by pr-housekeeping.yml on every PR push.
+# Reusable workflow, called by pr-housekeeping.yml on every PR push.
 on:
     workflow_call:
         secrets:

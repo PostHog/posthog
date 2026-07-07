@@ -1,6 +1,6 @@
 name: Migration & Service Separation Check
 
-# Reusable workflow — called by pr-housekeeping.yml on every PR push.
+# Reusable workflow, called by pr-housekeeping.yml on every PR push.
 # merge_group stays as a direct trigger for the merge queue.
 
 on:

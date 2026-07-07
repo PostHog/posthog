@@ -1,6 +1,6 @@
 name: Updated PR
 
-# Reusable workflow — called by pr-housekeeping.yml on PR open/edit/push.
+# Reusable workflow, called by pr-housekeeping.yml on PR open/edit/push.
 
 on:
     workflow_call:
