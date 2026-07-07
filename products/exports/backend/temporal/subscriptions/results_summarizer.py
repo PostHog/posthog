@@ -37,18 +37,16 @@ def build_results_summary(
 
     if query_kind in _TREND_SUMMARY_KINDS:
         text = _summarize_trends(results, value_format)
+    elif summarizer := _SUMMARIZERS.get(query_kind):
+        text = summarizer(results)
     else:
-        summarizer = _SUMMARIZERS.get(query_kind)
-        if summarizer is not None:
-            text = summarizer(results)
-        else:
-            text = _summarize_generic(results, columns)
+        text = _summarize_generic(results, columns)
     if len(text) > MAX_SUMMARY_LENGTH:
         text = text[:MAX_SUMMARY_LENGTH] + "\n... (truncated)"
     return text
 
 
-def _summarize_trends(results: list[dict[str, Any]], value_format: dict[str, Any] | None = None) -> str:
+def _summarize_trends(results: list[dict[str, Any]], value_format: dict[str, Any] | None) -> str:
     if _looks_like_boxplot_trend(results):
         return _summarize_boxplot_trend(results, value_format)
 
@@ -90,7 +88,7 @@ def _looks_like_boxplot_trend(results: list[dict[str, Any]]) -> bool:
     return "median" in first and "data" not in first
 
 
-def _summarize_boxplot_trend(results: list[dict[str, Any]], value_format: dict[str, Any] | None = None) -> str:
+def _summarize_boxplot_trend(results: list[dict[str, Any]], value_format: dict[str, Any] | None) -> str:
     by_series: dict[str, list[dict[str, Any]]] = {}
     for row in results:
         label = _safe_label(row.get("series_label") or row.get("label"), "Unknown")
@@ -241,12 +239,14 @@ def _format_duration(seconds: float | int) -> str:
     if seconds < 1:
         return f"{round(seconds * 1000)}ms" if seconds else "0s"
     if seconds < 60:
-        return f"{round(seconds)}s"
+        return f"{int(seconds)}s"
 
+    # Floor every unit to match the chart's humanFriendlyDuration; rounding the
+    # seconds component would roll 59.6s up to "60s" (i.e. "1m 60s").
     days = int(seconds // 86400)
     hours = int((seconds % 86400) // 3600)
     minutes = int((seconds % 3600) // 60)
-    secs = round((seconds % 3600) % 60)
+    secs = int((seconds % 3600) % 60)
 
     if days > 0:
         units = [f"{days}d"] + ([f"{hours}h"] if hours else [])
