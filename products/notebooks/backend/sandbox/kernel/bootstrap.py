@@ -18,7 +18,8 @@ kernel-server hands it a single call, `_ph.run_node(payload)`, per run.
 
 Heavy deps (duckdb/pandas/pyarrow/IPython) are imported at module load — this module only
 ever runs inside the kernel, where they are present, never on the kernel-server startup
-path (which stays stdlib + pyarrow). matplotlib is deferred to first use.
+path (which stays stdlib + pyarrow). matplotlib loads eagerly at session construction so
+the Agg backend is forced before any user code can import pyplot itself.
 """
 
 import io
@@ -26,6 +27,7 @@ import os
 import json
 import uuid
 import base64
+import logging
 from typing import Any
 
 import duckdb
@@ -35,6 +37,8 @@ from IPython.core.interactiveshell import InteractiveShell
 from IPython.utils.capture import capture_output
 
 from . import envelope
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_PREVIEW_ROWS = 50
 
@@ -94,10 +98,9 @@ class KernelSession:
             )
 
         result_df = self._result_frame(node.get("output_name"), execution.result)
-        result_id = str(uuid.uuid4())
         columns, types, rows, row_count, has_more = self._preview(result_df, preview_rows)
-        if result_df is not None:
-            self._write_result_frame(result_id, result_df)
+        # result_id keys the on-disk frame for paging — only advertise one that actually exists.
+        result_id = self._write_result_frame(result_df) if result_df is not None else None
         return envelope.from_python_execution(
             status="ok",
             stdout=captured.stdout,
@@ -161,11 +164,15 @@ class KernelSession:
         self._plt.close("all")
         return media
 
-    def _write_result_frame(self, result_id: str, df: "pd.DataFrame") -> None:
+    def _write_result_frame(self, df: "pd.DataFrame") -> str | None:
+        """Write the frame for later paging; return its result_id, or None if the write failed."""
+        result_id = str(uuid.uuid4())
         try:
             table = pa.Table.from_pandas(df, preserve_index=False)
             with pa.OSFile(os.path.join(self._results_dir, f"{result_id}.arrow"), "wb") as sink:
                 with pa.ipc.new_file(sink, table.schema) as writer:
                     writer.write_table(table)
         except Exception:  # noqa: BLE001 — paging is best-effort; a write failure must not fail the run
-            pass
+            logger.exception("nb_kernel result frame write failed")
+            return None
+        return result_id

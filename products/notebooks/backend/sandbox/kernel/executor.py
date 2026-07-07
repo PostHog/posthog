@@ -18,6 +18,7 @@ import os
 import json
 import time
 import queue
+import shutil
 import threading
 from typing import Any
 
@@ -71,6 +72,14 @@ class KernelExecutor:
     def _ensure_kernel(self) -> None:
         if self._km is not None and self._km.is_alive():
             return
+        if self._kc is not None:
+            # A crashed kernel leaves the old client's ZMQ sockets open — jupyter_client
+            # only closes them on an explicit stop_channels(), not on GC.
+            try:
+                self._kc.stop_channels()
+            except Exception:  # noqa: BLE001 — best-effort teardown of a dead kernel's client
+                pass
+            self._kc = None
         # sys.executable is the notebook venv python (the server runs under it), so the kernel
         # inherits pandas/duckdb/pyarrow and the nb_kernel package on PYTHONPATH.
         self._km = KernelManager(kernel_name="python3")
@@ -117,23 +126,28 @@ class KernelExecutor:
         kernel_payload = {"run_id": run_id, "node": payload.get("node") or {}, "inputs": inputs}
         if payload.get("page_limit"):
             kernel_payload["page_limit"] = payload["page_limit"]
-        with open(payload_path, "w") as handle:
-            json.dump(kernel_payload, handle)
-        if os.path.exists(envelope_path):
-            os.remove(envelope_path)
+        try:
+            with open(payload_path, "w") as handle:
+                json.dump(kernel_payload, handle)
+            if os.path.exists(envelope_path):
+                os.remove(envelope_path)
 
-        status = self._execute(
-            "import json as __j\n"
-            f"with open({payload_path!r}) as __f:\n    __payload = __j.load(__f)\n"
-            "__envelope = _ph.run_node(__payload)\n"
-            f"with open({envelope_path!r}, 'w') as __f:\n    __j.dump(__envelope, __f)\n"
-        )
-        if status != "ok" or not os.path.exists(envelope_path):
-            return envelope.from_python_execution(
-                status="error", error="The kernel did not return a result (it may have crashed — try re-running)."
+            status = self._execute(
+                "import json as __j\n"
+                f"with open({payload_path!r}) as __f:\n    __payload = __j.load(__f)\n"
+                "__envelope = _ph.run_node(__payload)\n"
+                f"with open({envelope_path!r}, 'w') as __f:\n    __j.dump(__envelope, __f)\n"
             )
-        with open(envelope_path) as handle:
-            return json.load(handle)
+            if status != "ok" or not os.path.exists(envelope_path):
+                return envelope.from_python_execution(
+                    status="error", error="The kernel did not return a result (it may have crashed — try re-running)."
+                )
+            with open(envelope_path) as handle:
+                return json.load(handle)
+        finally:
+            # The payload/envelope files only matter within this call; result frames for
+            # paging live under /data/results, so the per-run dir must not accumulate.
+            shutil.rmtree(run_dir, ignore_errors=True)
 
     def _execute(self, code: str) -> str:
         """Run code in the kernel; return the execute_reply status ('ok'/'error').
