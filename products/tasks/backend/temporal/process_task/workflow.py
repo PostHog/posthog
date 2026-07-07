@@ -1167,6 +1167,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 extra={"run_id": self.context.run_id, "sandbox_id": sandbox_id},
             )
             self._sandbox_gone = True
+        elif exit_reason == CredentialRefreshExitReason.CREDENTIALS_UNAVAILABLE:
+            workflow.logger.warning(
+                "credential_refresh_stopped_credentials_unavailable",
+                extra={"run_id": self.context.run_id, "sandbox_id": sandbox_id},
+            )
 
     def _mark_sandbox_gone(self) -> None:
         self._completion_status = "completed"

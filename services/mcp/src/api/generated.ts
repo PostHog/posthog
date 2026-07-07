@@ -31,6 +31,25 @@ export namespace Schemas {
       AiGenerationClusters: '$ai_generation_clusters',
     } as const;
 
+    export interface AIReportQueryDiagnostic {
+      /** What this query step was meant to compute. */
+      description: string;
+      /** The HogQL the assistant generated for this step. */
+      hogql: string;
+      /** Whether the query ran successfully. */
+      ok: boolean;
+      /**
+         * Exception class name when the query failed; null on success.
+         * @nullable
+         */
+      error_type: string | null;
+      /**
+         * Human-readable failure reason, present only for query errors safe to surface to the subscription owner (e.g. an unresolved field name); null on success and for internal errors, which expose error_type only.
+         * @nullable
+         */
+      human_readable_error?: string | null;
+    }
+
     export type AccessControlLevel = typeof AccessControlLevel[keyof typeof AccessControlLevel];
 
 
@@ -237,6 +256,26 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly last_modified_at: string;
       readonly last_modified_by: UserBasic;
+    }
+
+    /**
+     * A team-defined account relationship type (CSM, Onboarding manager, ...).
+     */
+    export interface AccountRelationshipDefinition {
+      /** Relationship definition UUID. */
+      readonly id: string;
+      /**
+         * Human-readable name of the relationship. Unique within the team.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * What this relationship means, e.g. 'The customer success manager responsible for this account'.
+         * @nullable
+         */
+      description?: string | null;
+      /** Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account. */
+      is_single_holder?: boolean;
     }
 
     export type BounceRatePageViewMode = typeof BounceRatePageViewMode[keyof typeof BounceRatePageViewMode];
@@ -17682,6 +17721,13 @@ export namespace Schemas {
       tile_id: number;
     }
 
+    export interface DeleteWarehouseOrgResponse {
+      /** Deletion lifecycle message from the provisioner */
+      status?: string;
+      /** duckgres org identifier (the PostHog organization id) */
+      org?: string;
+    }
+
     /**
      * * `pending` - Pending
      * * `delivered` - Delivered
@@ -20606,6 +20652,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `focused` - Focused
+     * * `balanced` - Balanced
+     * * `comprehensive` - Comprehensive
+     */
+    export type SamplingModeEnum = typeof SamplingModeEnum[keyof typeof SamplingModeEnum];
+
+
+    export const SamplingModeEnum = {
+      Focused: 'focused',
+      Balanced: 'balanced',
+      Comprehensive: 'comprehensive',
+    } as const;
+
+    /**
      * Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.
      */
     export interface EstimateRequest {
@@ -20617,6 +20677,12 @@ export namespace Schemas {
          * @maximum 1
          */
       sampling_rate?: number;
+      /** Quality pre-filter applied to the matched-session count, mirroring the sweep's candidate query. Defaults to comprehensive (no filter).
+       *
+       * * `focused` - Focused
+       * * `balanced` - Balanced
+       * * `comprehensive` - Comprehensive */
+      sampling_mode?: SamplingModeEnum;
       /**
          * The scanner being edited, excluded from `other_enabled_scanners_monthly` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner.
          * @nullable
@@ -20628,11 +20694,11 @@ export namespace Schemas {
      * Forward-looking observation-volume estimate for a proposed scanner. Pricing-agnostic.
      */
     export interface EstimateResponse {
-      /** Distinct sessions matching the query within the 30-day lookback, before sampling. */
+      /** Distinct sessions matching the query within the 30-day lookback, after the sampling_mode quality filter but before random sampling. */
       matched_sessions_in_window: number;
       /** Lookback window the estimate is based on. Normally 30; smaller when the team has fewer days of recordings. */
       window_days: number;
-      /** Projected monthly observations: matched sessions scaled to 30 days, times sampling_rate. */
+      /** Projected monthly observations: quality-filtered matched sessions scaled to 30 days, times sampling_rate. */
       estimated_observations_per_month: number;
       /** Summed projected monthly observations of the org's other enabled scanners (excluding `scanner_id`), from their cached estimates. Read from the same snapshot as this estimate so the forecast can't double-count the edited scanner. */
       other_enabled_scanners_monthly: number;
@@ -27805,6 +27871,46 @@ export namespace Schemas {
       id_jag_allowed_clients?: string[];
     }
 
+    export interface InsightBulkDeleteRequest {
+      /**
+         * Insight IDs to soft-delete (or restore). At most 1000 ids per request. Soft-deleted insights can be brought back via the bulk_restore endpoint.
+         * @maxItems 1000
+         * @items.minimum 1
+         */
+      ids: number[];
+    }
+
+    export interface InsightBulkOperationResult {
+      /** ID of the insight that was soft-deleted or restored. */
+      id: number;
+      /**
+         * The insight's name (or derived name) at the time of the operation; null when it has neither.
+         * @nullable
+         */
+      name: string | null;
+    }
+
+    export interface InsightBulkOperationSkipped {
+      /** ID of the insight that was skipped. */
+      id: number;
+      /** Human-readable reason the insight was skipped (for example, not found or no edit permission). */
+      reason: string;
+    }
+
+    export interface InsightBulkDeleteResponse {
+      /** Insights that were successfully soft-deleted. */
+      deleted: InsightBulkOperationResult[];
+      /** Insights that were not deleted, with the reason for each. */
+      skipped: InsightBulkOperationSkipped[];
+    }
+
+    export interface InsightBulkRestoreResponse {
+      /** Insights that were successfully restored. */
+      restored: InsightBulkOperationResult[];
+      /** Insights that were not restored, with the reason for each. */
+      skipped: InsightBulkOperationSkipped[];
+    }
+
     /**
      * * `trends` - trends
      * * `funnel` - funnel
@@ -31641,6 +31747,15 @@ export namespace Schemas {
       results: AccountNotebook[];
     }
 
+    export interface PaginatedAccountRelationshipDefinitionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AccountRelationshipDefinition[];
+    }
+
     export interface PaginatedActionList {
       count: number;
       /** @nullable */
@@ -33264,6 +33379,12 @@ export namespace Schemas {
          * @maximum 1
          */
       sampling_rate?: number;
+      /** Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).
+       *
+       * * `focused` - Focused
+       * * `balanced` - Balanced
+       * * `comprehensive` - Comprehensive */
+      sampling_mode?: SamplingModeEnum;
       /** LLM provider. v1 is Google-only.
        *
        * * `google` - Google */
@@ -34252,6 +34373,21 @@ export namespace Schemas {
          * @nullable
          */
       readonly change_summary: string | null;
+      /**
+         * AI-generated report markdown delivered by this run. Null for non-AI deliveries or runs without a persisted report.
+         * @nullable
+         */
+      readonly ai_report: string | null;
+      /**
+         * Per-step query diagnostics (generated HogQL + failure type) for this report. Null for non-AI deliveries or runs without persisted diagnostics.
+         * @nullable
+         */
+      readonly ai_report_diagnostics: readonly AIReportQueryDiagnostic[] | null;
+      /**
+         * The subscription's prompt as it was when this report was generated. Null for older deliveries and non-AI deliveries.
+         * @nullable
+         */
+      readonly ai_report_prompt: string | null;
     }
 
     export interface PaginatedSubscriptionDeliveryList {
@@ -34904,6 +35040,32 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: TaskDetailDTO[];
+    }
+
+    /**
+     * Response shape for one @-mention of the requester in a task's thread.
+     */
+    export interface TaskMentionDTO {
+      id: string;
+      message_id: string;
+      task_id: string;
+      task_title: string;
+      /** @nullable */
+      channel_id: string | null;
+      /** @nullable */
+      channel_name: string | null;
+      author?: TaskUserBasicInfo | null;
+      content: string;
+      created_at: string;
+    }
+
+    export interface PaginatedTaskMentionDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TaskMentionDTO[];
     }
 
     /**
@@ -36388,6 +36550,26 @@ export namespace Schemas {
       readonly created_by?: number | null;
       /** @nullable */
       readonly updated_at?: string | null;
+    }
+
+    /**
+     * A team-defined account relationship type (CSM, Onboarding manager, ...).
+     */
+    export interface PatchedAccountRelationshipDefinition {
+      /** Relationship definition UUID. */
+      readonly id?: string;
+      /**
+         * Human-readable name of the relationship. Unique within the team.
+         * @maxLength 400
+         */
+      name?: string;
+      /**
+         * What this relationship means, e.g. 'The customer success manager responsible for this account'.
+         * @nullable
+         */
+      description?: string | null;
+      /** Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account. */
+      is_single_holder?: boolean;
     }
 
     /**
@@ -40951,6 +41133,12 @@ export namespace Schemas {
          * @maximum 1
          */
       sampling_rate?: number;
+      /** Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).
+       *
+       * * `focused` - Focused
+       * * `balanced` - Balanced
+       * * `comprehensive` - Comprehensive */
+      sampling_mode?: SamplingModeEnum;
       /** LLM provider. v1 is Google-only.
        *
        * * `google` - Google */
@@ -55207,6 +55395,16 @@ export namespace Schemas {
       sparkline: number[];
       /** Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample counts, not extrapolated — severity dominance is a proportion, so scaling would not change it. */
       severity_counts: _LogPatternSeverityCounts;
+      /**
+         * RE2-safe regex over raw log bodies that matches lines of this pattern, compiled from the template and validated against the pattern's own examples before being offered. Null when the template lacks literal content or validation failed — never trust an unvalidated predicate. Use with the message/regex log property filter.
+         * @nullable
+         */
+      match_regex: string | null;
+      /**
+         * Longest literal run in the template, for plain-text (icontains) filtering when `match_regex` is null. Null when the template has no usable literal content.
+         * @nullable
+         */
+      match_literal: string | null;
     }
 
     /**
@@ -58920,6 +59118,30 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
+    export type EnvironmentsInsightsBulkDeleteCreateParams = {
+    format?: EnvironmentsInsightsBulkDeleteCreateFormat;
+    };
+
+    export type EnvironmentsInsightsBulkDeleteCreateFormat = typeof EnvironmentsInsightsBulkDeleteCreateFormat[keyof typeof EnvironmentsInsightsBulkDeleteCreateFormat];
+
+
+    export const EnvironmentsInsightsBulkDeleteCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type EnvironmentsInsightsBulkRestoreCreateParams = {
+    format?: EnvironmentsInsightsBulkRestoreCreateFormat;
+    };
+
+    export type EnvironmentsInsightsBulkRestoreCreateFormat = typeof EnvironmentsInsightsBulkRestoreCreateFormat[keyof typeof EnvironmentsInsightsBulkRestoreCreateFormat];
+
+
+    export const EnvironmentsInsightsBulkRestoreCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
     export type EnvironmentsInsightsBulkUpdateTagsCreateParams = {
     format?: EnvironmentsInsightsBulkUpdateTagsCreateFormat;
     };
@@ -61411,6 +61633,17 @@ export namespace Schemas {
      * Full-text search across note title and content, plus substring match on account name.
      */
     search?: string;
+    };
+
+    export type AccountRelationshipDefinitionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type AccountsListParams = {
@@ -65802,6 +66035,30 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
+    export type InsightsBulkDeleteCreateParams = {
+    format?: InsightsBulkDeleteCreateFormat;
+    };
+
+    export type InsightsBulkDeleteCreateFormat = typeof InsightsBulkDeleteCreateFormat[keyof typeof InsightsBulkDeleteCreateFormat];
+
+
+    export const InsightsBulkDeleteCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type InsightsBulkRestoreCreateParams = {
+    format?: InsightsBulkRestoreCreateFormat;
+    };
+
+    export type InsightsBulkRestoreCreateFormat = typeof InsightsBulkRestoreCreateFormat[keyof typeof InsightsBulkRestoreCreateFormat];
+
+
+    export const InsightsBulkRestoreCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
     export type InsightsBulkUpdateTagsCreateParams = {
     format?: InsightsBulkUpdateTagsCreateFormat;
     };
@@ -68229,6 +68486,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type TaskMentionsListParams = {
+    /**
+     * Maximum number of mentions to return (newest first).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Only return mentions created after this ISO 8601 timestamp.
+     */
+    since?: string;
     };
 
     export type TasksListParams = {
