@@ -183,8 +183,14 @@ describe('queueApprovalResult: model-facing envelope', () => {
     })
 
     // Per-session cap (`spec.limits.max_open_approvals`): a model looping on
-    // a gated tool with distinct args must not flood approvers.
-    it('returns approval_budget_exhausted and writes no row at the cap', async () => {
+    // a gated tool with distinct args must not flood approvers. The exhausted
+    // message must name the right decider per policy type (same hint the
+    // queued path uses) — an `agent` policy is decided by an owner/admin, not
+    // the session user, so the model must not tell the user to decide.
+    it.each<['principal' | 'agent', RegExp]>([
+        ['principal', /started this session/i],
+        ['agent', /owner or admin/i],
+    ])('returns approval_budget_exhausted with a %s-aware hint and writes no row at the cap', async (type, hint) => {
         const store = makeStubStore({ queuedCount: 10 })
         const out = await queueApprovalResult({
             approvals: store,
@@ -194,7 +200,7 @@ describe('queueApprovalResult: model-facing envelope', () => {
             toolName: '@posthog/memory-write',
             toolCallId: 'tc-cap',
             args: { note: 'one too many' },
-            policy: POLICY,
+            policy: { ...POLICY, type },
             maxOpenApprovals: 10,
         })
         const body = JSON.parse((out.content[0] as { text: string }).text) as {
@@ -202,6 +208,7 @@ describe('queueApprovalResult: model-facing envelope', () => {
         }
         expect(body.error?.code).toBe('approval_budget_exhausted')
         expect(body.error?.message).toContain('10')
+        expect(body.error?.message).toMatch(hint)
         // No row written, and no `queued` details → the driver skips the
         // approval card + Slack buttons for this result.
         expect(store.upserts).toHaveLength(0)
