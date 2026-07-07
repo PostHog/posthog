@@ -37,6 +37,8 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
     editingContent?: JSX.Element
     /** Called when the user clicks the card body to edit the markdown inline. */
     onStartInlineEdit?: () => void
+    /** Called when the user clicks the hover pencil button to open the full editor. */
+    onOpenFullEditor?: () => void
 }
 
 interface TextCardBodyProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'className'> {
@@ -91,6 +93,7 @@ function TextCardInternal(
         showEditingControls,
         editingContent,
         onStartInlineEdit,
+        onOpenFullEditor,
         ...divProps
     }: TextCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -129,14 +132,14 @@ function TextCardInternal(
         >
             {!shouldHideMoreButton && !editingContent && (
                 <div className="absolute right-4 top-4 flex items-center gap-1">
-                    {onStartInlineEdit && (
+                    {onOpenFullEditor && (
                         <LemonButton
                             size="small"
                             icon={<IconPencil />}
-                            onClick={onStartInlineEdit}
-                            tooltip="Click to edit"
+                            onClick={onOpenFullEditor}
+                            tooltip="Open editor"
                             className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
-                            data-attr="text-card-inline-edit-pencil"
+                            data-attr="text-card-open-full-editor"
                             aria-label="Edit text"
                         />
                     )}

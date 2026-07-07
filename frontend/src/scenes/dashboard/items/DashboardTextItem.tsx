@@ -66,6 +66,7 @@ function DashboardTextItemInternal(
             textTile={tile}
             placement={placement}
             onStartInlineEdit={startEditing}
+            onOpenFullEditor={canEditDashboard ? onEdit : undefined}
             editingContent={
                 isEditingInline && dashboard ? (
                     <TextCardInlineEditor dashboard={dashboard} tile={tile} onClose={() => setIsEditingInline(false)} />
