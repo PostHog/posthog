@@ -120,7 +120,7 @@ export function StaffCacheToolsTab(): JSX.Element {
                     disabledReason={disabledReason}
                     loading={clearResultLoading}
                 >
-                    Clear
+                    Clear caches
                 </LemonButton>
                 <LemonButton
                     type="tertiary"

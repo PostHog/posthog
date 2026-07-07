@@ -33,7 +33,7 @@ export function StaffCacheEntryModal(): JSX.Element {
             onClose={closeCacheEntryModal}
             width={720}
         >
-            {cacheEntry?.data ? (
+            {!cacheEntryLoading && cacheEntry?.data ? (
                 <div className="flex items-center gap-2 mb-2">
                     <LemonInput
                         placeholder="Search…"

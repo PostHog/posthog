@@ -25,7 +25,7 @@ export function FeatureFlagsStaffToolsScene(): JSX.Element {
     }
 
     return (
-        <SceneContent className="pt-4">
+        <SceneContent>
             <div className="flex items-start justify-between gap-4">
                 <div>
                     <h1 className="text-xl font-bold">Flags staff tools</h1>
