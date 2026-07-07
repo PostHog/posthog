@@ -1,4 +1,4 @@
-import { afterMount, beforeUnmount, connect, kea, key, path, props, selectors } from 'kea'
+import { afterMount, beforeUnmount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 
 import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api.schemas'
 import { wizardSessionStreamLogic } from 'products/wizard/frontend/wizardSessionStreamLogic'
@@ -193,7 +193,11 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
         ],
         actions: [
             taskRunStreamLogic({ runId: props.runId ?? '', taskId: props.taskId ?? '' }),
-            ['connect as connectTaskRun', 'disconnect as disconnectTaskRun'],
+            [
+                'connect as connectTaskRun',
+                'disconnect as disconnectTaskRun',
+                'streamCompleted as taskRunStreamCompleted',
+            ],
             wizardSessionStreamLogic({ workflowId: WORKFLOW_ID }),
             ['connect as connectSession', 'disconnect as disconnectSession'],
         ],
@@ -223,6 +227,16 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
                     : localProgress(latestSession, sessionConnectionStatus),
         ],
     }),
+    listeners(({ actions, props }) => ({
+        // Once the cloud run is terminal there is nothing left for the session source to enrich, and
+        // it has no terminal state of its own to stop on — without this, an undismissed finished run
+        // keeps a session stream/poll alive app-wide until the user clicks "Dismiss this run".
+        taskRunStreamCompleted: () => {
+            if (props.mode === 'cloud') {
+                actions.disconnectSession()
+            }
+        },
+    })),
     afterMount(({ actions }) => {
         actions.connectTaskRun()
         actions.connectSession()

@@ -37,16 +37,6 @@ export function partialDeliveryTag(row: SubscriptionDeliveryApi): JSX.Element | 
     )
 }
 
-/**
- * All per-query diagnostics for an AI-prompt delivery (succeeded and failed). The backend scrubs
- * this to `null` for callers without `query:viewer` access, so it is empty unless the viewer may see
- * query content. Surfacing the successful queries — not just the failed ones — lets a subscription
- * owner see exactly what the prompt generated and self-recover by tightening it.
- */
-function reportDiagnostics(row: SubscriptionDeliveryApi): readonly AIReportQueryDiagnosticApi[] {
-    return row.ai_report_diagnostics ?? []
-}
-
 /** Header label for a query outcome. A failed query shows its specific error type only when we can also
  * explain it (a message is present, i.e. a resolution/exposed HogQL error); a generic/internal exception
  * collapses to a plain "Failed" so a cryptic class name like "Exception" never leaks into the header. */
@@ -82,30 +72,15 @@ function diagnosticsSummary(diagnostics: readonly AIReportQueryDiagnosticApi[]):
 const failedIndexes = (diagnostics: readonly AIReportQueryDiagnosticApi[]): number[] =>
     diagnostics.map((d, i) => (d.ok === false ? i : -1)).filter((i) => i >= 0)
 
-/** The delivered report markdown, when present, rendered verbatim so the in-app view matches exactly what
- * recipients received (including the leading degraded-report notice). Scrubbed to `null` for callers without
- * `query:viewer` access just like the diagnostics. */
-function reportMarkdown(row: SubscriptionDeliveryApi): string | null {
-    const report = row.ai_report
-    return typeof report === 'string' && report ? report : null
-}
-
-/** The subscription prompt captured when this report was generated. User-authored (not query-derived),
- * so it stays readable even for callers without query access. */
-function reportPrompt(row: SubscriptionDeliveryApi): string | null {
-    const prompt = row.ai_report_prompt
-    return typeof prompt === 'string' && prompt ? prompt : null
-}
-
 /** Whether a delivery row has any AI-generated detail to expand: an AI summary, the generating prompt,
  * the delivered report, or per-query diagnostics. Single source of truth for the table's `rowExpandable`
  * and `ExpandedDeliveryRow`'s early return, so the two can't disagree on which rows are expandable. */
 export function deliveryRowHasExpandableContent(row: SubscriptionDeliveryApi): boolean {
     return (
         Boolean(row.change_summary) ||
-        Boolean(reportMarkdown(row)) ||
-        Boolean(reportPrompt(row)) ||
-        reportDiagnostics(row).length > 0
+        Boolean(row.ai_report) ||
+        Boolean(row.ai_report_prompt) ||
+        (row.ai_report_diagnostics ?? []).length > 0
     )
 }
 
@@ -154,9 +129,9 @@ function GeneratedQueries({ diagnostics }: { diagnostics: readonly AIReportQuery
 /** Expanded detail for a delivery row: the AI summary, the prompt at generation time, the delivered report,
  * and the per-query accordion. Returns null when there's nothing AI-generated to show. */
 export function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): JSX.Element | null {
-    const diagnostics = reportDiagnostics(row)
-    const report = reportMarkdown(row)
-    const prompt = reportPrompt(row)
+    const diagnostics = row.ai_report_diagnostics ?? []
+    const report = row.ai_report
+    const prompt = row.ai_report_prompt
     if (!deliveryRowHasExpandableContent(row)) {
         return null
     }

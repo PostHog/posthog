@@ -1,5 +1,5 @@
-import { ExceptionAttributes } from './types'
-import { getExceptionAttributes, getExceptionList } from './utils'
+import { ErrorEventProperties, ExceptionAttributes } from './types'
+import { getExceptionAttributes, getExceptionList, getSessionId } from './utils'
 
 describe('Error Display', () => {
     it('can read sentry stack trace when $exception_list is not present', () => {
@@ -169,5 +169,17 @@ describe('Error Display', () => {
             ingestionErrors: undefined,
             handled: true,
         })
+    })
+
+    // A non-string $session_id (e.g. a numeric timestamp from a misbehaving SDK) must not leak
+    // through as a number — it used to crash the issue scene via a ts-pattern exhaustive match.
+    it.each([
+        ['valid string session id', { $session_id: 'the-session-id' }, 'the-session-id'],
+        ['numeric session id', { $session_id: 1783346787081 }, undefined],
+        ['empty string session id', { $session_id: '' }, undefined],
+        ['missing session id', {}, undefined],
+        ['null session id', { $session_id: null }, undefined],
+    ])('getSessionId normalizes %s', (_name, properties, expected) => {
+        expect(getSessionId(properties as ErrorEventProperties)).toEqual(expected)
     })
 })

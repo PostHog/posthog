@@ -136,8 +136,7 @@ class QueryStepDiagnostic:
     hogql: str
     ok: bool
     error_type: Optional[str]
-    # Human-readable failure reason, populated only for the query-structure error classes whose messages
-    # are safe to surface (see _safe_error_message). None on success and for internal errors (type-only).
+    # Safe-to-surface failure reason; set only for query-structure errors (see _safe_error_message), else None.
     human_readable_error: Optional[str] = None
 
 
