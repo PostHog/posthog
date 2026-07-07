@@ -11,6 +11,7 @@ import uuid
 from typing import Any
 
 import psycopg
+import structlog
 
 from products.warehouse_sources.backend.models import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill_snapshot import (
@@ -25,6 +26,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     PARTITION_PRUNING_INTERVAL,
     STATUS_TABLE as DELTA_STATUS_TABLE,
 )
+
+logger = structlog.get_logger(__name__)
 
 BACKFILL_JOB_ID = "duckgres-backfill"
 
@@ -147,10 +150,22 @@ def enqueue_chunks(
     the later pod reads a complete ``existing`` set and inserts nothing.
     """
     inserted = 0
-    conn.execute(
-        "SELECT pg_advisory_lock(%s, hashtext(%s))",
-        [BACKFILL_ENQUEUE_LOCK_NAMESPACE, run_uuid],
-    )
+    # The advisory lock is session-scoped and previously unbounded: a pod dying
+    # without FIN leaves the server session (and the lock) alive for hours, and
+    # every other pod's reconciler replay then blocks here — inline in the
+    # consumer's fetch path — halting all duckgres claiming fleet-wide. Bound
+    # the wait; a timeout skips the replay for this tick and the next tick
+    # retries after the dead session is reaped.
+    conn.execute("SET lock_timeout = '10s'")
+    try:
+        conn.execute(
+            "SELECT pg_advisory_lock(%s, hashtext(%s))",
+            [BACKFILL_ENQUEUE_LOCK_NAMESPACE, run_uuid],
+        )
+    except psycopg.errors.LockNotAvailable:
+        conn.execute("RESET lock_timeout")
+        logger.warning("duckgres_backfill_enqueue_lock_timeout", run_uuid=run_uuid)
+        return 0
     try:
         existing = {
             row[0]
@@ -203,6 +218,7 @@ def enqueue_chunks(
             "SELECT pg_advisory_unlock(%s, hashtext(%s))",
             [BACKFILL_ENQUEUE_LOCK_NAMESPACE, run_uuid],
         )
+        conn.execute("RESET lock_timeout")
     return inserted
 
 
