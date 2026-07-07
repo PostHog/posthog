@@ -133,7 +133,6 @@ frontend/dist-report/
 frontend/eager-graph-report*.json
 frontend/pnpm-error.log
 frontend/public/Matter*.woff*
-frontend/public/RoundHog*.woff2
 frontend/tmp
 frontend/types/
 

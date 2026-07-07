@@ -1,12 +1,13 @@
-{% load posthog_assets %}
 <style type="text/css">
-    /* Brand font. The @font-face survives CSS inlining via keep_at_rules=True (see posthog/email.py);
-       mail clients that strip @font-face fall back to the stack declared on `body` below. */
+    /* Brand font, served from Cloudinary so mail clients don't depend on the instance's SITE_URL
+       being publicly reachable. The @font-face survives CSS inlining via keep_at_rules=True (see
+       posthog/email.py); mail clients that strip @font-face fall back to the stack declared on
+       `body` below. */
     @font-face {
         font-family: 'RoundHog';
         font-style: normal;
         font-weight: 800;
-        src: url("{% absolute_asset_url 'RoundHog-Bold.woff2' %}") format('woff2');
+        src: url('https://res.cloudinary.com/dmukukwp6/raw/upload/fonts/RoundHog-Bold.woff2') format('woff2');
         font-display: swap;
     }
 
@@ -14,7 +15,7 @@
         font-family: 'RoundHog';
         font-style: normal;
         font-weight: 700;
-        src: url("{% absolute_asset_url 'RoundHog-SemiBold.woff2' %}") format('woff2');
+        src: url('https://res.cloudinary.com/dmukukwp6/raw/upload/fonts/RoundHog-SemiBold.woff2') format('woff2');
         font-display: swap;
     }
 
@@ -22,7 +23,7 @@
         font-family: 'RoundHog';
         font-style: normal;
         font-weight: 500;
-        src: url("{% absolute_asset_url 'RoundHog-Medium.woff2' %}") format('woff2');
+        src: url('https://res.cloudinary.com/dmukukwp6/raw/upload/fonts/RoundHog-Medium.woff2') format('woff2');
         font-display: swap;
     }
 
@@ -30,7 +31,7 @@
         font-family: 'RoundHog';
         font-style: normal;
         font-weight: 400;
-        src: url("{% absolute_asset_url 'RoundHog.woff2' %}") format('woff2');
+        src: url('https://res.cloudinary.com/dmukukwp6/raw/upload/fonts/RoundHog.woff2') format('woff2');
         font-display: swap;
     }
 

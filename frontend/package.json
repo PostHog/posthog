@@ -16,8 +16,7 @@
         "path": "path-browserify"
     },
     "scripts": {
-        "copy-scripts": "mkdir -p dist/ && ./bin/copy-posthog-js && sh ./bin/copy-brand-fonts",
-        "postinstall": "sh ./bin/copy-brand-fonts",
+        "copy-scripts": "mkdir -p dist/ && ./bin/copy-posthog-js",
         "clean": "rm -rf dist && mkdir dist",
         "build": "pnpm copy-scripts && pnpm build:esbuild",
         "build:with-report": "pnpm build && node ./bin/build-bundle-report.mjs && node ./bin/build-bundle-size-report.mjs && node ./bin/check-eager-graph.mjs --report-only",
