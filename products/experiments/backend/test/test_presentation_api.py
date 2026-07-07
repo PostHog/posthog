@@ -5645,7 +5645,15 @@ class TestExperimentCRUD(APILicensedTest):
             )
             self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
 
+        # With Code access, opting in succeeds on both actions ("end first, ship later" flow).
         with patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=True):
+            resp = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/{exp_ship}/end/",
+                {"conclusion": "won", "open_cleanup_pr": True},
+                format="json",
+            )
+            self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+
             resp = self.client.post(
                 f"/api/projects/{self.team.id}/experiments/{exp_ship}/ship_variant/",
                 {"variant_key": "test", "conclusion": "won", "open_cleanup_pr": True},
