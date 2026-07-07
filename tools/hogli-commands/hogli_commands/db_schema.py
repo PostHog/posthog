@@ -154,14 +154,7 @@ def _psql_admin(sql: str) -> None:
 
 
 def _recreate_database(target_db: str) -> None:
-    # Terminate any active sessions on target_db first; otherwise DROP DATABASE
-    # fails with "is being accessed by other users" when an idle connection
-    # remains open from an earlier step (e.g. on CI runners).
-    _psql_admin(
-        f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-        f"WHERE datname = '{target_db}' AND pid <> pg_backend_pid();"
-    )
-    _psql_admin(f"DROP DATABASE IF EXISTS {target_db};")
+    _psql_admin(f"DROP DATABASE IF EXISTS {target_db} WITH (FORCE);")
     _psql_admin(f"CREATE DATABASE {target_db};")
 
 

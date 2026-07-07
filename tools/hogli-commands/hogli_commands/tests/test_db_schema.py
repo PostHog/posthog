@@ -240,7 +240,7 @@ def test_restore_schema_dump_recreate_drops_and_creates(tmp_path: Path, monkeypa
 
     db_schema.restore_schema_dump(target_db="test_posthog", recreate=True, schema_path=schema_path)
 
-    assert any("DROP DATABASE IF EXISTS test_posthog;" in command for call in commands for command in call)
+    assert any("DROP DATABASE IF EXISTS test_posthog WITH (FORCE);" in command for call in commands for command in call)
     assert any("CREATE DATABASE test_posthog;" in command for call in commands for command in call)
     assert restored == [(schema_path, "test_posthog")]
     assert defaults == ["test_posthog"]
@@ -267,16 +267,10 @@ def test_restore_schema_dump_recreate_cleans_up_after_failure(tmp_path: Path, mo
         db_schema.restore_schema_dump(target_db="test_posthog", recreate=True, schema_path=schema_path)
 
     admin_sql = [command[-1] for command in commands]
-    terminate_sql = (
-        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-        "WHERE datname = 'test_posthog' AND pid <> pg_backend_pid();"
-    )
     assert admin_sql == [
-        terminate_sql,
-        "DROP DATABASE IF EXISTS test_posthog;",
+        "DROP DATABASE IF EXISTS test_posthog WITH (FORCE);",
         "CREATE DATABASE test_posthog;",
-        terminate_sql,
-        "DROP DATABASE IF EXISTS test_posthog;",
+        "DROP DATABASE IF EXISTS test_posthog WITH (FORCE);",
         "CREATE DATABASE test_posthog;",
     ]
 
