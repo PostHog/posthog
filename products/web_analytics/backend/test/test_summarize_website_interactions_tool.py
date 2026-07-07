@@ -62,6 +62,7 @@ class TestResolvePageSessionIds(APIBaseTest):
     def _resolve(self) -> list[str]:
         return _resolve_page_session_ids(
             self.team,
+            self.user,
             page_url="https://posthog.com/pricing",
             date_from="-7d",
             date_to=None,
