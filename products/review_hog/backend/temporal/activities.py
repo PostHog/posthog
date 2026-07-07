@@ -35,6 +35,7 @@ from products.review_hog.backend.reviewer.constants import (
     REVIEW_REASONING_EFFORT,
     REVIEW_RUNTIME_ADAPTER,
     VALIDATION_INITIAL_PERMISSION_MODE,
+    VALIDATION_MAX_ATTEMPTS,
     VALIDATION_MODEL,
     VALIDATION_REASONING_EFFORT,
     VALIDATION_RUNTIME_ADAPTER,
@@ -858,8 +859,10 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
 
     The warm session shares the chunk context across turns while each issue keeps its own independent
     verdict (one per turn, never a single batched output). Resume-aware: issues already judged this
-    turn are skipped, so a retry re-researches only what's left. Verdicts are the durable output —
-    body + publish read them from the DB, not this return value.
+    turn are skipped, so a retry re-researches only what's left. A failed turn therefore fails the
+    activity to get that cheap retry; only the final attempt skips the issue (continuing on a fresh
+    session) so one bad issue can't sink the chunk. Verdicts are the durable output — body + publish
+    read them from the DB, not this return value.
     """
     issues = [Issue.model_validate_json(j) for j in input.issues_json]
     done = await database_sync_to_async(load_run_validations, thread_sensitive=False)(
@@ -877,6 +880,7 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
     chunk, pr_metadata, pr_files = context
 
     validated = len(done)
+    final_attempt = activity.info().attempt >= VALIDATION_MAX_ATTEMPTS
     session: MultiTurnSession | None = None
     try:
         async with Heartbeater():
@@ -917,9 +921,15 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
                         # Session never opened (sandbox-level) — raise so Temporal retries the chunk
                         # and the failure floor catches a real outage, not just one bad issue.
                         raise
-                    # Live session, one issue's turn failed — best-effort skip it (no verdict → not
-                    # posted) and keep going; a re-run re-attempts it (it never got a verdict).
-                    logger.exception("Validation turn failed for issue %s; skipping it", issue.id)
+                    if not final_attempt:
+                        # Fail the chunk so Temporal retries it; skip-resume keeps the retry cheap.
+                        logger.exception("Validation turn failed for issue %s; failing the chunk to retry it", issue.id)
+                        raise
+                    # Out of retries — skip this issue (no verdict → not posted) and give the rest
+                    # a fresh session; this one may be wedged after the failed turn.
+                    logger.exception("Validation turn failed for issue %s on the final attempt; skipping it", issue.id)
+                    await end_sandbox_session(session)
+                    session = None
                     continue
                 wrote = await database_sync_to_async(persist_verdict, thread_sensitive=False)(
                     team_id=input.team_id,

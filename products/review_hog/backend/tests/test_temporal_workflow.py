@@ -17,7 +17,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
-from products.review_hog.backend.reviewer.constants import BLIND_SPOT_PASS_NUMBER
+from products.review_hog.backend.reviewer.constants import BLIND_SPOT_PASS_NUMBER, VALIDATION_MAX_ATTEMPTS
 from products.review_hog.backend.temporal.activities import (
     AppendCodeReviewArtefactInput,
     BuildBodyInput,
@@ -455,8 +455,8 @@ def test_review_pr_workflow_inputs_deserialize_old_payloads():
     assert inputs.head_branch is None
 
 
-async def _run_validate_workflow(*, issues_json: list[str], validate_chunk) -> tuple[int, list]:
-    """Run `ValidateIssuesWorkflow` with a stand-in chunk validator; return (result, recorded calls)."""
+async def _run_validate_workflow(*, issues_json: list[str], validate_chunk) -> int:
+    """Run `ValidateIssuesWorkflow` with a stand-in chunk validator; return the validated count."""
 
     @activity.defn(name="load_validation_skill_activity")
     async def load_validation(input) -> LoadedValidationSkillDTO:
@@ -503,6 +503,25 @@ async def test_validate_issues_workflow_fans_out_one_session_per_chunk():
     assert set(by_chunk) == {1, 2}
     assert by_chunk[1] == {json.dumps({"id": "1-1-1"}), json.dumps({"id": "2-1-2"})}
     assert by_chunk[2] == {json.dumps({"id": "1-2-1"})}
+
+
+@pytest.mark.asyncio
+async def test_validate_issues_workflow_retries_a_failed_chunk_validation():
+    # A transiently failing chunk validation must be re-attempted up to VALIDATION_MAX_ATTEMPTS, not
+    # dropped — and the retry count must track the constant the activity's final-attempt check uses.
+    attempts: list[int] = []
+
+    @activity.defn(name="validate_chunk_activity")
+    async def validate_chunk(input: ValidateChunkInput) -> ValidateChunkResult:
+        attempts.append(activity.info().attempt)
+        if activity.info().attempt < VALIDATION_MAX_ATTEMPTS:
+            raise RuntimeError("transient turn failure")
+        return ValidateChunkResult(chunk_id=input.chunk_id, validated_count=1)
+
+    issues = [json.dumps({"id": "1-1-1"})]
+    validated = await _run_validate_workflow(issues_json=issues, validate_chunk=validate_chunk)
+    assert validated == 1
+    assert attempts == list(range(1, VALIDATION_MAX_ATTEMPTS + 1))
 
 
 @pytest.mark.asyncio

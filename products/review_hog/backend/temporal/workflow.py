@@ -28,6 +28,7 @@ from products.review_hog.backend.reviewer.constants import (
     BLIND_SPOT_PASS_NUMBER,
     FAN_OUT_FAILURE_FLOOR,
     MAX_CONCURRENT_SANDBOXES,
+    VALIDATION_MAX_ATTEMPTS,
 )
 from products.review_hog.backend.temporal.activities import (
     AppendCodeReviewArtefactInput,
@@ -80,6 +81,8 @@ _SANDBOX_HEARTBEAT = timedelta(minutes=5)
 _QUICK_TIMEOUT = timedelta(minutes=2)
 _FETCH_TIMEOUT = timedelta(minutes=5)
 _RETRY = RetryPolicy(maximum_attempts=2)
+# The validate activity's final-attempt fallback keys off the same constant — don't let them drift.
+_VALIDATE_RETRY = RetryPolicy(maximum_attempts=VALIDATION_MAX_ATTEMPTS)
 
 
 def _enforce_failure_floor(stage: str, failed: int, total: int) -> None:
@@ -262,7 +265,7 @@ class ValidateIssuesWorkflow:
                     ),
                     start_to_close_timeout=_SANDBOX_TIMEOUT,
                     heartbeat_timeout=_SANDBOX_HEARTBEAT,
-                    retry_policy=_RETRY,
+                    retry_policy=_VALIDATE_RETRY,
                 )
 
         results = await asyncio.gather(
