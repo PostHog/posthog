@@ -2347,6 +2347,8 @@ export namespace Schemas {
     export interface ChartStyle {
       /** Line interpolation: straight segments or a smoothed curve through the points. */
       curve?: Curve | null;
+      /** Fill the area under line series with a vertical gradient of the series color. */
+      gradientFill?: boolean | null;
       /** Dash style applied to all line series. */
       lineStyle?: LineStyle | null;
       /** Show horizontal gridlines. */

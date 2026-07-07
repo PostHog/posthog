@@ -1498,6 +1498,8 @@ export const LineStyleApi = {
 export interface ChartStyleApi {
     /** Line interpolation: straight segments or a smoothed curve through the points. */
     curve?: CurveApi | null
+    /** Fill the area under line series with a vertical gradient of the series color. */
+    gradientFill?: boolean | null
     /** Dash style applied to all line series. */
     lineStyle?: LineStyleApi | null
     /** Show horizontal gridlines. */
