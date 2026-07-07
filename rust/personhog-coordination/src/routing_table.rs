@@ -223,6 +223,7 @@ impl RoutingTable {
                         router_name: self.config.router_name.clone(),
                         partition: handoff.partition,
                         acked_at: util::now_seconds(),
+                        handoff_id: handoff.handoff_id.clone(),
                     };
                     self.store.put_freeze_ack(&ack).await?;
                 }
@@ -340,6 +341,7 @@ impl RoutingTable {
                         router_name: router_name.to_string(),
                         partition: handoff.partition,
                         acked_at: util::now_seconds(),
+                        handoff_id: handoff.handoff_id.clone(),
                     };
                     store.put_freeze_ack(&ack).await?;
                 }

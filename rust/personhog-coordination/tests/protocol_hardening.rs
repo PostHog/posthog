@@ -1,7 +1,8 @@
 //! Regression tests for the handoff-protocol hardening pass: self-fencing
 //! on lease loss, post-drain write fencing, identity-based freeze quorum,
-//! pod startup catch-up, the coordinator's reconcile tick,
-//! revision-anchored watches, and cleanup scoped to dead new owners.
+//! pod state convergence (startup reconcile + event-driven re-derivation),
+//! the coordinator's reconcile tick, revision-anchored watches,
+//! ack-to-handoff correlation, and cleanup scoped to dead new owners.
 //!
 //! All tests run against a real etcd at localhost:2379 with per-test key
 //! prefixes, matching the conventions in `integration.rs`.
@@ -46,6 +47,7 @@ async fn put_handoff(
         new_owner: new_owner.to_string(),
         phase,
         started_at: 0,
+        handoff_id: format!("test-handoff-{partition}"),
     };
     store
         .create_assignments_and_handoffs(&[], &[handoff])
@@ -159,19 +161,20 @@ async fn router_exits_when_lease_revoked() {
 }
 
 // ============================================================
-// Fix 2 (pod side): cancelled handoffs resume the partition
+// Cancelled handoffs converge on the durable state
 // ============================================================
 //
 // Draining fences the partition against writes on the old owner. When a
 // handoff is cancelled (`cleanup_stale_handoffs` deletes the record — e.g.
-// the new owner died mid-warm), the old owner keeps the partition and
-// routers drain their stashes back to it — so the pod must observe the
-// deletion and resume the partition, or it stays write-fenced forever.
+// the new owner died mid-warm), the pod re-derives its state from what
+// etcd still says: if the assignment names it, it resumes serving (routers
+// drain their stashes back to it); if nothing assigns it the partition, it
+// releases whatever half-acquired state it holds.
 
 /// A handoff deleted mid-flight (after this pod drained as old owner)
-/// must trigger `resume_partition` on the still-owning pod.
+/// must trigger `resume_partition` on the pod the assignment still names.
 #[tokio::test]
-async fn pod_resumes_partition_when_handoff_cancelled() {
+async fn pod_resumes_partition_when_cancelled_handoff_leaves_it_assigned() {
     let store = test_store("handoff-cancel-resume").await;
     let cancel = CancellationToken::new();
 
@@ -190,9 +193,16 @@ async fn pod_resumes_partition_when_handoff_cancelled() {
     })
     .await;
 
-    // Give the pod ownership of partition 0 through a normal warm.
+    // Give the pod ownership of partition 0 through the real acquisition
+    // path: warm via an initial-assignment handoff, then complete it
+    // (which writes the assignment atomically) and clean up the record.
     put_handoff(&store, 0, None, "resume-pod-a", HandoffPhase::Warming).await;
     wait_for_event(&pod.events, HandoffEvent::Warmed(0)).await;
+    assert!(
+        store.complete_handoff(0).await.expect("complete"),
+        "complete_handoff must succeed"
+    );
+    store.delete_handoff(0).await.expect("cleanup");
 
     // A later handoff moves the partition away; the pod drains (and, on
     // the real leader, fences writes).
@@ -206,10 +216,50 @@ async fn pod_resumes_partition_when_handoff_cancelled() {
     .await;
     wait_for_event(&pod.events, HandoffEvent::Drained(0)).await;
 
-    // The handoff is cancelled (new owner gone). The pod still owns the
-    // partition and must resume it.
+    // The handoff is cancelled (new owner gone). The assignment still
+    // names this pod, so it must resume the partition.
     store.delete_handoff(0).await.expect("delete handoff");
     wait_for_event(&pod.events, HandoffEvent::Resumed(0)).await;
+
+    cancel.cancel();
+}
+
+/// A cancelled acquisition converges the other way: the pod warmed as new
+/// owner, but the assignment never flipped to it (that happens only at
+/// Complete), so on cancellation it must release the half-acquired
+/// partition rather than serve a partition nothing routes to.
+#[tokio::test]
+async fn pod_releases_partition_when_cancelled_handoff_leaves_it_unassigned() {
+    let store = test_store("handoff-cancel-release").await;
+    let cancel = CancellationToken::new();
+
+    let pod = start_pod(Arc::clone(&store), "release-pod-a", cancel.clone());
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            store
+                .list_pods()
+                .await
+                .map(|pods| pods.iter().any(|p| p.pod_name == "release-pod-a"))
+                .unwrap_or(false)
+        }
+    })
+    .await;
+
+    // Mid-acquisition: warmed as new owner, no assignment written yet.
+    put_handoff(&store, 0, None, "release-pod-a", HandoffPhase::Warming).await;
+    wait_for_event(&pod.events, HandoffEvent::Warmed(0)).await;
+
+    // Cancellation deletes the record; nothing assigns the partition to
+    // this pod, so it must drop what it warmed.
+    store.delete_handoff(0).await.expect("delete handoff");
+    wait_for_event(&pod.events, HandoffEvent::Released(0)).await;
+    assert!(
+        !pod.events.lock().await.contains(&HandoffEvent::Resumed(0)),
+        "an unassigned partition must not be resumed"
+    );
 
     cancel.cancel();
 }
@@ -258,6 +308,311 @@ async fn handoff_cleanup_after_complete_does_not_resume() {
         !pod.events.lock().await.contains(&HandoffEvent::Resumed(0)),
         "post-Complete cleanup must not resume a released partition"
     );
+
+    cancel.cancel();
+}
+
+// ============================================================
+// Pod state convergence: local state is derived from etcd
+// ============================================================
+//
+// A crash-restart inside the lease TTL preserves a pod's registration and
+// assignments but wipes its memory (cache, fences), and — because nothing
+// in etcd changed — no event ever arrives to repair the divergence. The
+// pod therefore re-derives its per-partition state from the durable state
+// at startup and on every handoff event, instead of accumulating it from
+// remembered events.
+
+/// A pod that crash-restarts within its lease TTL must re-warm the
+/// partitions etcd assigns it. Without the startup reconcile, the same-name
+/// re-registration changes nothing in etcd, so no handoff is ever created
+/// and the pod would serve errors for its own partitions forever.
+#[tokio::test]
+async fn restarted_pod_rewarms_assigned_partitions() {
+    let store = test_store("restart-rewarm").await;
+    let cancel = CancellationToken::new();
+
+    store
+        .put_assignments(&[
+            PartitionAssignment {
+                partition: 0,
+                owner: "phoenix-pod".to_string(),
+                status: AssignmentStatus::Active,
+            },
+            PartitionAssignment {
+                partition: 1,
+                owner: "phoenix-pod".to_string(),
+                status: AssignmentStatus::Active,
+            },
+        ])
+        .await
+        .expect("write assignments");
+
+    // First incarnation warms its assigned partitions at startup.
+    let mut pod = start_pod(Arc::clone(&store), "phoenix-pod", cancel.clone());
+    wait_for_event(&pod.events, HandoffEvent::Warmed(0)).await;
+    wait_for_event(&pod.events, HandoffEvent::Warmed(1)).await;
+
+    // Crash: abort the run loop — no graceful drain, no lease revoke, so
+    // the registration and assignments survive untouched.
+    pod.join_handle.take().expect("join handle").abort();
+
+    // Second incarnation, same name, empty memory. It must converge back
+    // to warm on both partitions from the durable state alone.
+    let pod2 = start_pod(Arc::clone(&store), "phoenix-pod", cancel.clone());
+    wait_for_event(&pod2.events, HandoffEvent::Warmed(0)).await;
+    wait_for_event(&pod2.events, HandoffEvent::Warmed(1)).await;
+
+    cancel.cancel();
+}
+
+/// The full comment-2 scenario: a pod crash-restarts while its outbound
+/// handoff is Draining, participates in the drain from cold (fence + ack,
+/// deliberately without warming), and when the handoff is cancelled it
+/// converges back to Serving — warming the partition it never held in
+/// this process lifetime.
+#[tokio::test]
+async fn restarted_old_owner_serves_again_after_handoff_cancelled() {
+    let store = test_store("restart-cancel-serve").await;
+    let cancel = CancellationToken::new();
+
+    store
+        .put_assignments(&[PartitionAssignment {
+            partition: 0,
+            owner: "victim-pod".to_string(),
+            status: AssignmentStatus::Active,
+        }])
+        .await
+        .expect("write assignment");
+    put_handoff(
+        &store,
+        0,
+        Some("victim-pod"),
+        "other-pod",
+        HandoffPhase::Draining,
+    )
+    .await;
+
+    // The pod boots cold with the handoff already Draining: it must fence
+    // and ack — but not warm, since the partition is on its way out.
+    let pod = start_pod(Arc::clone(&store), "victim-pod", cancel.clone());
+    wait_for_event(&pod.events, HandoffEvent::Drained(0)).await;
+    assert!(
+        !pod.events.lock().await.contains(&HandoffEvent::Warmed(0)),
+        "a draining partition must not be warmed on the way out"
+    );
+    let acks = store.list_drained_acks(0).await.expect("list acks");
+    assert!(
+        acks.iter()
+            .any(|a| a.pod_name == "victim-pod" && a.handoff_id == "test-handoff-0"),
+        "drained ack must be written and correlated to the handoff"
+    );
+
+    // Cancellation: the assignment still names this pod, so it converges
+    // to Serving — which from cold means warming.
+    store.delete_handoff(0).await.expect("delete handoff");
+    wait_for_event(&pod.events, HandoffEvent::Warmed(0)).await;
+
+    cancel.cancel();
+}
+
+/// A pod restarting while its outbound handoff is already in Warming must
+/// re-fence (its predecessor's fence died with it) without re-acking — the
+/// coordinator consumed the DrainedAck to reach Warming, and a late re-ack
+/// could outlive the handoff's cleanup and orphan into a future handoff.
+#[tokio::test]
+async fn restarted_old_owner_refences_when_handoff_in_warming() {
+    let store = test_store("restart-refence").await;
+    let cancel = CancellationToken::new();
+
+    store
+        .put_assignments(&[PartitionAssignment {
+            partition: 0,
+            owner: "frozen-pod".to_string(),
+            status: AssignmentStatus::Active,
+        }])
+        .await
+        .expect("write assignment");
+    put_handoff(
+        &store,
+        0,
+        Some("frozen-pod"),
+        "other-pod",
+        HandoffPhase::Warming,
+    )
+    .await;
+
+    let pod = start_pod(Arc::clone(&store), "frozen-pod", cancel.clone());
+    wait_for_event(&pod.events, HandoffEvent::Drained(0)).await;
+
+    let acks = store.list_drained_acks(0).await.expect("list acks");
+    assert!(
+        acks.is_empty(),
+        "no DrainedAck may be written once the phase has advanced past Draining"
+    );
+
+    cancel.cancel();
+}
+
+// ============================================================
+// Cleanup deletes are guarded against recreation
+// ============================================================
+
+/// A cleanup delete acting on a stale snapshot must not destroy a
+/// successor handoff recreated at the same key (cancellation followed by
+/// an immediate rebalance). The guard must be etcd `mod_revision`, not
+/// the per-key `version`: version resets to 1 on recreation, so both
+/// incarnations of a once-written key look identical to a version guard.
+#[tokio::test]
+async fn guarded_handoff_delete_skips_recreated_handoff() {
+    let store = test_store("guarded-delete").await;
+
+    // First incarnation, snapshotted by a would-be deleter.
+    put_handoff(&store, 0, Some("pod-a"), "pod-dead", HandoffPhase::Freezing).await;
+    let (_, stale_revision) = store
+        .get_handoff_with_mod_revision(0)
+        .await
+        .expect("read")
+        .expect("handoff exists");
+
+    // Concurrent cancel + recreate at the same key, with an ack belonging
+    // to the successor.
+    store.delete_handoff(0).await.expect("cancel");
+    put_handoff(&store, 0, Some("pod-a"), "pod-live", HandoffPhase::Freezing).await;
+    store
+        .put_freeze_ack(&RouterFreezeAck {
+            router_name: "router-0".to_string(),
+            partition: 0,
+            acked_at: 0,
+            handoff_id: "test-handoff-0".to_string(),
+        })
+        .await
+        .expect("successor ack");
+
+    // The stale deleter must skip: the successor and its acks survive.
+    let deleted = store
+        .delete_handoff_and_acks_if_unchanged(0, stale_revision)
+        .await
+        .expect("guarded delete");
+    assert!(!deleted, "stale snapshot must not delete the successor");
+    let survivor = store
+        .get_handoff(0)
+        .await
+        .expect("read")
+        .expect("successor must survive");
+    assert_eq!(survivor.new_owner, "pod-live");
+    assert_eq!(
+        store.list_freeze_acks(0).await.expect("acks").len(),
+        1,
+        "successor's acks must survive"
+    );
+
+    // A fresh read deletes record and acks atomically.
+    let (_, fresh_revision) = store
+        .get_handoff_with_mod_revision(0)
+        .await
+        .expect("read")
+        .expect("handoff exists");
+    assert!(store
+        .delete_handoff_and_acks_if_unchanged(0, fresh_revision)
+        .await
+        .expect("guarded delete"));
+    assert!(store.get_handoff(0).await.expect("read").is_none());
+    assert!(store.list_freeze_acks(0).await.expect("acks").is_empty());
+}
+
+// ============================================================
+// Acks correlate to their handoff
+// ============================================================
+
+/// An ack from the right participant but a previous handoff attempt must
+/// not satisfy the quorum: acks race the coordinator's cleanup, so an
+/// orphaned ack for the same partition can survive into the next handoff
+/// and would otherwise skip a drain or warm that never happened.
+#[tokio::test]
+async fn ack_for_previous_handoff_does_not_satisfy_quorum() {
+    let store = test_store("ack-correlation").await;
+    let cancel = CancellationToken::new();
+
+    // A live, registered router (registered directly so no watch loop
+    // acks on its behalf).
+    let lease_id = store.grant_lease(30).await.expect("lease");
+    store
+        .register_router(
+            &RegisteredRouter {
+                router_name: "r-live".to_string(),
+                registered_at: 0,
+                last_heartbeat: 0,
+            },
+            lease_id,
+        )
+        .await
+        .expect("register router");
+
+    // An ack from this same router, but echoing a previous handoff's id —
+    // the orphan a cleanup race can leave behind.
+    store
+        .put_freeze_ack(&RouterFreezeAck {
+            router_name: "r-live".to_string(),
+            partition: 0,
+            acked_at: 0,
+            handoff_id: "a-previous-handoff".to_string(),
+        })
+        .await
+        .expect("write stale ack");
+
+    let _coord = start_coordinator(
+        Arc::clone(&store),
+        Arc::new(StickyBalancedStrategy),
+        cancel.clone(),
+    );
+
+    put_handoff(
+        &store,
+        0,
+        Some("pod-old"),
+        "pod-new",
+        HandoffPhase::Freezing,
+    )
+    .await;
+
+    // Identity matches, id doesn't: the quorum must not be satisfied.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let handoff = store
+        .get_handoff(0)
+        .await
+        .expect("get handoff")
+        .expect("handoff exists");
+    assert_eq!(
+        handoff.phase,
+        HandoffPhase::Freezing,
+        "an ack from a previous handoff attempt must not satisfy this one's quorum"
+    );
+
+    // The correlated ack clears the quorum.
+    store
+        .put_freeze_ack(&RouterFreezeAck {
+            router_name: "r-live".to_string(),
+            partition: 0,
+            acked_at: 0,
+            handoff_id: "test-handoff-0".to_string(),
+        })
+        .await
+        .expect("write correlated ack");
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            store
+                .get_handoff(0)
+                .await
+                .ok()
+                .flatten()
+                .is_some_and(|h| h.phase != HandoffPhase::Freezing)
+        }
+    })
+    .await;
 
     cancel.cancel();
 }
@@ -499,6 +854,7 @@ async fn freezing_handoff_advances_when_unacked_router_departs() {
             router_name: "router-acked".to_string(),
             partition: 0,
             acked_at: 0,
+            handoff_id: "test-handoff-0".to_string(),
         })
         .await
         .expect("ack");
@@ -640,6 +996,7 @@ async fn stale_freeze_ack_does_not_satisfy_quorum_for_live_router() {
             router_name: "router-departed".to_string(),
             partition: 0,
             acked_at: 0,
+            handoff_id: "test-handoff-0".to_string(),
         })
         .await
         .expect("write stale ack");
@@ -696,6 +1053,7 @@ async fn stale_freeze_ack_does_not_satisfy_quorum_for_live_router() {
             router_name: "router-silent".to_string(),
             partition: 0,
             acked_at: 0,
+            handoff_id: "test-handoff-0".to_string(),
         })
         .await
         .expect("write live ack");

@@ -1415,6 +1415,7 @@ async fn handoff_delete_drains_stash_to_current_owner() {
         new_owner: "phantom-pod".to_string(),
         phase: HandoffPhase::Freezing,
         started_at: 0,
+        handoff_id: String::new(),
     };
     store.put_handoff(&stuck_handoff).await.unwrap();
 
@@ -1587,6 +1588,7 @@ async fn late_joining_router_during_warming_begins_stash() {
         new_owner: "writer-1".to_string(),
         phase: HandoffPhase::Warming,
         started_at: 0,
+        handoff_id: String::new(),
     };
     store.put_handoff(&warming_handoff).await.unwrap();
 
@@ -1649,6 +1651,7 @@ async fn dead_old_owner_in_freezing_advances_to_completion() {
         new_owner: "writer-0".to_string(),
         phase: HandoffPhase::Freezing,
         started_at: 0,
+        handoff_id: String::new(),
     };
     store.put_handoff(&stale).await.unwrap();
 
@@ -1699,6 +1702,7 @@ async fn late_joining_router_during_freezing_acks_and_stashes() {
         new_owner: "writer-1".to_string(),
         phase: HandoffPhase::Freezing,
         started_at: 0,
+        handoff_id: String::new(),
     };
     store.put_handoff(&freezing_handoff).await.unwrap();
 
@@ -1776,6 +1780,7 @@ async fn handoff_delete_during_warming_drains_to_current_owner() {
         new_owner: "phantom-pod".to_string(),
         phase: HandoffPhase::Warming,
         started_at: 0,
+        handoff_id: String::new(),
     };
     store.put_handoff(&stuck).await.unwrap();
 
@@ -1872,6 +1877,7 @@ async fn reconcile_advances_warming_with_pre_staged_warmed_ack() {
         new_owner: "writer-1".to_string(),
         phase: HandoffPhase::Warming,
         started_at: 0,
+        handoff_id: String::new(),
     };
     store.put_handoff(&warming).await.unwrap();
     store
@@ -1879,6 +1885,7 @@ async fn reconcile_advances_warming_with_pre_staged_warmed_ack() {
             pod_name: "writer-1".to_string(),
             partition: 6,
             acked_at: 0,
+            handoff_id: String::new(),
         })
         .await
         .unwrap();
@@ -1947,6 +1954,7 @@ async fn draining_old_owner_blocks_phase_advance() {
         new_owner: "writer-new".to_string(),
         phase: HandoffPhase::Freezing,
         started_at: 0,
+        handoff_id: String::new(),
     };
     store.put_handoff(&handoff).await.unwrap();
 
@@ -1991,6 +1999,7 @@ async fn draining_old_owner_blocks_phase_advance() {
             pod_name: "writer-draining".to_string(),
             partition: 7,
             acked_at: 0,
+            handoff_id: String::new(),
         })
         .await
         .unwrap();
@@ -2044,6 +2053,7 @@ async fn draining_old_owner_does_not_trigger_cleanup() {
         new_owner: "writer-new".to_string(),
         phase: HandoffPhase::Freezing,
         started_at: 0,
+        handoff_id: String::new(),
     };
     store.put_handoff(&handoff).await.unwrap();
 
@@ -2131,6 +2141,7 @@ async fn freezing_blocks_until_routers_ack_before_draining() {
         new_owner: "writer-new".to_string(),
         phase: HandoffPhase::Freezing,
         started_at: 0,
+        handoff_id: String::new(),
     };
     store.put_handoff(&handoff).await.unwrap();
 
@@ -2154,6 +2165,7 @@ async fn freezing_blocks_until_routers_ack_before_draining() {
             router_name: "slow-router".to_string(),
             partition: 1,
             acked_at: 0,
+            handoff_id: String::new(),
         })
         .await
         .unwrap();
@@ -2214,6 +2226,7 @@ async fn initial_assignment_skips_draining_phase() {
         new_owner: "writer-new".to_string(),
         phase: HandoffPhase::Freezing,
         started_at: 0,
+        handoff_id: String::new(),
     };
     store.put_handoff(&handoff).await.unwrap();
 
@@ -2270,6 +2283,7 @@ async fn dead_old_owner_in_draining_recovers() {
         new_owner: "writer-new".to_string(),
         phase: HandoffPhase::Draining,
         started_at: 0,
+        handoff_id: String::new(),
     };
     store.put_handoff(&handoff).await.unwrap();
 
@@ -2366,6 +2380,7 @@ async fn reconcile_advances_draining_with_pre_staged_drained_ack() {
         new_owner: "writer-new".to_string(),
         phase: HandoffPhase::Draining,
         started_at: 0,
+        handoff_id: String::new(),
     };
     store.put_handoff(&handoff).await.unwrap();
 
@@ -2374,6 +2389,7 @@ async fn reconcile_advances_draining_with_pre_staged_drained_ack() {
             pod_name: "writer-old".to_string(),
             partition: 5,
             acked_at: 0,
+            handoff_id: String::new(),
         })
         .await
         .unwrap();
@@ -2422,6 +2438,7 @@ async fn late_joining_router_during_draining_begins_stash_no_ack() {
         new_owner: "writer-1".to_string(),
         phase: HandoffPhase::Draining,
         started_at: 0,
+        handoff_id: String::new(),
     };
     store.put_handoff(&draining_handoff).await.unwrap();
 
@@ -2504,6 +2521,7 @@ async fn handoff_delete_during_draining_drains_to_current_owner() {
         new_owner: "phantom-pod".to_string(),
         phase: HandoffPhase::Draining,
         started_at: 0,
+        handoff_id: String::new(),
     };
     store.put_handoff(&stuck).await.unwrap();
 

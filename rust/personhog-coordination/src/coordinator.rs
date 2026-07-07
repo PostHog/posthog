@@ -414,13 +414,19 @@ impl Coordinator {
                 // (acks are not lease-bound) stand in for a live router
                 // that hasn't stashed yet — advancing to Draining while
                 // that router still forwards writes to the old owner.
+                // Only acks echoing this handoff's id count: an ack left
+                // over from a previous handoff of the same partition
+                // proves nothing about this one.
                 //
                 // With zero routers there is no traffic to stash, so the
                 // freeze quorum is vacuously met. This keeps bootstrap and
                 // router-less configurations (e.g. tests exercising only
                 // the coordinator+pod) unblocked.
-                let acked: HashSet<&str> =
-                    freeze_acks.iter().map(|a| a.router_name.as_str()).collect();
+                let acked: HashSet<&str> = freeze_acks
+                    .iter()
+                    .filter(|a| a.handoff_id == handoff.handoff_id)
+                    .map(|a| a.router_name.as_str())
+                    .collect();
                 let all_routers_frozen = routers
                     .iter()
                     .all(|r| acked.contains(r.router_name.as_str()));
@@ -473,7 +479,9 @@ impl Coordinator {
                             true
                         } else {
                             let drained_acks = store.list_drained_acks(partition).await?;
-                            drained_acks.iter().any(|a| a.pod_name == *name)
+                            drained_acks
+                                .iter()
+                                .any(|a| a.pod_name == *name && a.handoff_id == handoff.handoff_id)
                         }
                     }
                 };
@@ -493,7 +501,9 @@ impl Coordinator {
             }
             HandoffPhase::Warming => {
                 let warmed = store.list_warmed_acks(partition).await?;
-                let new_owner_warmed = warmed.iter().any(|a| a.pod_name == handoff.new_owner);
+                let new_owner_warmed = warmed
+                    .iter()
+                    .any(|a| a.pod_name == handoff.new_owner && a.handoff_id == handoff.handoff_id);
 
                 if new_owner_warmed {
                     tracing::info!(
@@ -644,6 +654,7 @@ impl Coordinator {
                 new_owner: new_owner.clone(),
                 phase: HandoffPhase::Freezing,
                 started_at: now,
+                handoff_id: util::new_handoff_id(),
             });
         }
 
@@ -656,6 +667,7 @@ impl Coordinator {
                 new_owner: new_owner.clone(),
                 phase: HandoffPhase::Freezing,
                 started_at: now,
+                handoff_id: util::new_handoff_id(),
             });
         }
 
@@ -721,16 +733,39 @@ impl Coordinator {
         let registered_set: HashSet<&str> = pods.iter().map(|p| p.pod_name.as_str()).collect();
 
         for handoff in &handoffs {
-            if !registered_set.contains(handoff.new_owner.as_str()) {
-                tracing::warn!(
-                    partition = handoff.partition,
-                    new_owner = %handoff.new_owner,
-                    old_owner = ?handoff.old_owner,
-                    phase = ?handoff.phase,
-                    "cleaning up handoff targeting a dead new owner"
+            if registered_set.contains(handoff.new_owner.as_str()) {
+                continue;
+            }
+            // Re-read under mod_revision and re-verify before deleting.
+            // This function runs concurrently from the pod watch, the
+            // handoff watch, and the reconcile tick (and briefly from an
+            // outgoing coordinator during failover): an unguarded delete
+            // acting on this loop's snapshot could destroy a successor
+            // handoff recreated at the same key, along with its acks.
+            let Some((current, mod_revision)) = store
+                .get_handoff_with_mod_revision(handoff.partition)
+                .await?
+            else {
+                continue;
+            };
+            if registered_set.contains(current.new_owner.as_str()) {
+                continue;
+            }
+            tracing::warn!(
+                partition = current.partition,
+                new_owner = %current.new_owner,
+                old_owner = ?current.old_owner,
+                phase = ?current.phase,
+                "cleaning up handoff targeting a dead new owner"
+            );
+            if !store
+                .delete_handoff_and_acks_if_unchanged(current.partition, mod_revision)
+                .await?
+            {
+                tracing::info!(
+                    partition = current.partition,
+                    "handoff changed concurrently, skipping cleanup"
                 );
-                store.delete_all_handoff_acks(handoff.partition).await?;
-                store.delete_handoff(handoff.partition).await?;
             }
         }
 
@@ -742,12 +777,32 @@ impl Coordinator {
         handoff: &HandoffState,
     ) -> Result<()> {
         if handoff.phase == HandoffPhase::Complete {
+            // Same guarded-delete discipline as `cleanup_stale_handoffs`:
+            // the Complete observation may be stale by the time we act on
+            // it, and the record at this key may already be a successor
+            // handoff.
+            let Some((current, mod_revision)) = store
+                .get_handoff_with_mod_revision(handoff.partition)
+                .await?
+            else {
+                return Ok(());
+            };
+            if current.phase != HandoffPhase::Complete {
+                return Ok(());
+            }
             tracing::info!(
-                partition = handoff.partition,
+                partition = current.partition,
                 "handoff complete, cleaning up"
             );
-            store.delete_all_handoff_acks(handoff.partition).await?;
-            store.delete_handoff(handoff.partition).await?;
+            if !store
+                .delete_handoff_and_acks_if_unchanged(current.partition, mod_revision)
+                .await?
+            {
+                tracing::info!(
+                    partition = current.partition,
+                    "handoff changed concurrently, skipping cleanup"
+                );
+            }
         }
         Ok(())
     }

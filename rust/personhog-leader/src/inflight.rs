@@ -44,6 +44,26 @@ impl InflightTracker {
         InflightGuard { counter }
     }
 
+    /// Admit a write for the partition unless it is fenced. The increment
+    /// happens *before* the fence check: at every interleaving with the
+    /// drain path (which fences, then waits for the count to reach zero),
+    /// either this write's increment is visible to the drain's wait, or
+    /// this write observes the fence and is refused. Checking the fence
+    /// before incrementing would leave a window where a write passes the
+    /// check, the drain fences and observes a zero count, and the write
+    /// then increments — producing past the HWM the new owner's warming
+    /// snapshots.
+    pub fn try_begin(self: &Arc<Self>, partition: u32) -> Option<InflightGuard> {
+        let guard = self.begin(partition);
+        if self.is_fenced(partition) {
+            // Dropping the guard decrements the transient count the
+            // drain's wait may have observed.
+            drop(guard);
+            return None;
+        }
+        Some(guard)
+    }
+
     /// Block until no inflight handlers remain for the partition. Polls at
     /// `poll_interval`; intended for handoff-time drain, not hot paths.
     pub async fn wait_until_empty(&self, partition: u32, poll_interval: Duration) {
@@ -154,6 +174,38 @@ mod tests {
         let _g = tracker.begin(1);
         tracker.wait_until_empty(2, Duration::from_millis(10)).await;
         assert_eq!(tracker.count(1), 1);
+    }
+
+    /// A write admitted before the fence is visible to the drain's wait;
+    /// a write arriving after the fence is refused and leaves no residual
+    /// count. Together these are the two halves of the drain invariant.
+    #[tokio::test]
+    async fn try_begin_admits_before_fence_and_refuses_after() {
+        let tracker = Arc::new(InflightTracker::new());
+
+        let admitted = tracker.try_begin(9).expect("unfenced partition admits");
+        assert_eq!(tracker.count(9), 1, "admitted write counts as inflight");
+
+        tracker.fence(9);
+        assert!(
+            tracker.try_begin(9).is_none(),
+            "fenced partition refuses new writes"
+        );
+        assert_eq!(
+            tracker.count(9),
+            1,
+            "refused write must not leave a residual count"
+        );
+
+        // The drain's wait blocks on the pre-fence write until it completes.
+        let t = Arc::clone(&tracker);
+        let wait = tokio::spawn(async move {
+            t.wait_until_empty(9, Duration::from_millis(10)).await;
+        });
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        assert!(!wait.is_finished(), "drain waits for the admitted write");
+        drop(admitted);
+        wait.await.unwrap();
     }
 
     /// Fences are per-partition, idempotent, and reversible — the exact

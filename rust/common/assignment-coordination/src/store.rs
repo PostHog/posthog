@@ -78,6 +78,26 @@ impl EtcdStore {
         }
     }
 
+    /// Like `get_versioned`, but returns the key's `mod_revision` instead
+    /// of its per-key `version` counter. Compare-and-swap guards that must
+    /// not match across a delete-and-recreate of the same key MUST use
+    /// this: `version` resets to 1 when a key is recreated, so a guard on
+    /// `version` can accept a different incarnation of the key, while
+    /// `mod_revision` is globally monotonic and never repeats.
+    pub async fn get_with_mod_revision<T: DeserializeOwned>(
+        &self,
+        key: &str,
+    ) -> Result<Option<(T, i64)>> {
+        let resp = self.client.clone().get(key, None).await?;
+        match resp.kvs().first() {
+            Some(kv) => {
+                let value = serde_json::from_slice(kv.value())?;
+                Ok(Some((value, kv.mod_revision())))
+            }
+            None => Ok(None),
+        }
+    }
+
     pub async fn list<T: DeserializeOwned>(&self, prefix: &str) -> Result<Vec<T>> {
         Ok(self.list_with_revision(prefix).await?.0)
     }

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use etcd_client::{Event, EventType, WatchStream};
+use etcd_client::{EventType, WatchStream};
 use tokio::sync::{Mutex, Notify};
 use tokio_util::sync::CancellationToken;
 
@@ -14,9 +14,79 @@ use k8s_awareness::{DepartureReason, K8sAwareness};
 use crate::error::{Error, Result};
 use crate::store::{self, PersonhogStore};
 use crate::types::{
-    HandoffPhase, HandoffState, PodDrainedAck, PodStatus, PodWarmedAck, RegisteredPod,
+    HandoffPhase, HandoffState, PartitionAssignment, PodDrainedAck, PodStatus, PodWarmedAck,
+    RegisteredPod,
 };
 use crate::util;
+
+/// The state this pod should hold for one partition, derived purely from
+/// the durable coordination state — the partition's assignment and any
+/// in-flight handoff. `PodHandle::converge` drives local state to match,
+/// so a pod whose memory has diverged from etcd (most notably after a
+/// crash-restart inside its lease TTL, which preserves its registration
+/// and assignments but wipes its cache and fences) is repaired by
+/// re-deriving rather than by replaying remembered events.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DesiredState {
+    /// This pod owns the partition and no handoff constrains it: cache
+    /// warm, writes admitted. Also the old owner's state during Freezing
+    /// (routers are still collecting the freeze quorum; writes keep
+    /// flowing until every router has stashed).
+    Serving,
+    /// This pod is the old owner of a handoff past the freeze quorum:
+    /// writes fenced, inflight drained. `ack` is true while the protocol
+    /// is waiting on this pod's DrainedAck (phase Draining) and false once
+    /// the ack has been consumed (phase Warming) — re-acking after the
+    /// phase advanced would risk orphaning an ack past the coordinator's
+    /// cleanup. The cache is deliberately not warmed here: a cold restart
+    /// mid-handoff serves read errors until cutover (or until a
+    /// cancellation converges back to Serving, which warms).
+    Drained { ack: bool },
+    /// This pod is the new owner of a handoff in Warming: populate the
+    /// cache from Kafka and write a WarmedAck.
+    Acquiring,
+    /// This pod must not hold the partition: it isn't assigned to it, its
+    /// outbound handoff completed, or it is a new owner whose handoff
+    /// hasn't reached Warming (warming early would snapshot an HWM the old
+    /// owner is still advancing).
+    Released,
+}
+
+/// Pure derivation of a pod's desired state for a partition. The handoff,
+/// when it involves this pod, takes precedence over the assignment: the
+/// assignment names the *old* owner (or nobody) for the whole life of a
+/// handoff and only flips to the new owner atomically at Complete.
+fn desired_state(
+    pod: &str,
+    assignment: Option<&PartitionAssignment>,
+    handoff: Option<&HandoffState>,
+) -> DesiredState {
+    if let Some(h) = handoff {
+        if h.old_owner.as_deref() == Some(pod) {
+            return match h.phase {
+                HandoffPhase::Freezing => DesiredState::Serving,
+                HandoffPhase::Draining => DesiredState::Drained { ack: true },
+                HandoffPhase::Warming => DesiredState::Drained { ack: false },
+                HandoffPhase::Complete => DesiredState::Released,
+            };
+        }
+        if h.new_owner == pod {
+            return match h.phase {
+                HandoffPhase::Freezing | HandoffPhase::Draining => DesiredState::Released,
+                HandoffPhase::Warming => DesiredState::Acquiring,
+                // The assignment flips to this pod in the same txn that
+                // writes Complete.
+                HandoffPhase::Complete => DesiredState::Serving,
+            };
+        }
+        // A handoff between two other pods constrains nothing for this
+        // one; fall through to the assignment.
+    }
+    match assignment {
+        Some(a) if a.owner == pod => DesiredState::Serving,
+        _ => DesiredState::Released,
+    }
+}
 
 /// Trait for the application-layer handoff handler on writer pods.
 ///
@@ -91,8 +161,14 @@ pub struct PodHandle {
     store: Arc<PersonhogStore>,
     config: PodConfig,
     handler: Arc<dyn HandoffHandler>,
-    /// Partitions this pod has warmed. Used to avoid re-warming on assignment watches.
-    owned_partitions: Mutex<HashSet<u32>>,
+    /// Partitions warmed by this process — local, dies with the process.
+    /// `converge` consults it to decide whether a Serving/Acquiring
+    /// partition still needs a warm, and `drain()` waits for it to empty.
+    warmed_partitions: Mutex<HashSet<u32>>,
+    /// Partitions this process has write-fenced via a drain — local,
+    /// consulted so convergence to Serving only issues a resume when a
+    /// fence actually exists.
+    fenced_partitions: Mutex<HashSet<u32>>,
     /// Signalled when a partition is released, waking `drain()` without polling.
     drain_notify: Notify,
     /// Optional K8s awareness for departure classification during shutdown.
@@ -110,7 +186,8 @@ impl PodHandle {
             store,
             config,
             handler,
-            owned_partitions: Mutex::new(HashSet::new()),
+            warmed_partitions: Mutex::new(HashSet::new()),
+            fenced_partitions: Mutex::new(HashSet::new()),
             drain_notify: Notify::new(),
             k8s_awareness,
         }
@@ -166,16 +243,19 @@ impl PodHandle {
         let mut lease_lost = false;
         let result = tokio::select! {
             r = async {
-                // Catch up on handoffs that already exist before watching
-                // for new ones. A pod that crash-restarts within its lease
-                // TTL keeps its registration, so the coordinator never
-                // cleans up its in-flight handoffs and no further Put
-                // arrives — without this scan the restarted pod never
-                // plays its part and the handoff stalls forever. The watch
-                // is anchored to the scan's revision, so an event landing
-                // between the scan and the watch attaching is replayed
+                // Converge every partition this pod is involved in before
+                // watching for new events. A pod that crash-restarts within
+                // its lease TTL keeps its registration and assignments but
+                // loses all in-memory state (cache, fences) — and because
+                // nothing about etcd changed, no event will ever arrive to
+                // repair the divergence. Re-deriving local state from the
+                // durable state at startup closes that structurally: cold
+                // assigned partitions re-warm, in-flight handoffs get their
+                // drain/warm/ack, completed ones release. The watch is
+                // anchored to the snapshot's revision, so an event landing
+                // between the snapshot and the watch attaching is replayed
                 // rather than lost.
-                let snapshot_revision = self.catch_up_on_handoffs().await?;
+                let snapshot_revision = self.reconcile_all().await?;
                 let stream = self.store.watch_handoffs_from(snapshot_revision + 1).await?;
                 self.watch_handoff_loop(stream, cancel.clone()).await
             } => r,
@@ -283,17 +363,18 @@ impl PodHandle {
             "set status to Draining, waiting for partition handoffs"
         );
 
-        if self.owned_partitions.lock().await.is_empty() {
+        if self.held_partition_count().await == 0 {
             tracing::info!(pod = %self.config.pod_name, "no partitions to drain");
             return Ok(());
         }
 
-        // Keep watching handoffs during drain so we can release partitions
-        // when the coordinator completes them. Catch up first — a Complete
-        // written while the main loop was winding down would otherwise be
-        // missed — and anchor the fresh watch to the snapshot's revision.
+        // Keep converging during drain so partitions release as the
+        // coordinator completes their handoffs. Reconcile first — a
+        // Complete written while the main loop was winding down would
+        // otherwise be missed — and anchor the fresh watch to the
+        // snapshot's revision.
         let drain_cancel = CancellationToken::new();
-        let snapshot_revision = self.catch_up_on_handoffs().await?;
+        let snapshot_revision = self.reconcile_all().await?;
         let stream = self
             .store
             .watch_handoffs_from(snapshot_revision + 1)
@@ -307,7 +388,7 @@ impl PodHandle {
                 tracing::info!(pod = %self.config.pod_name, "all partitions drained successfully");
             },
             _ = tokio::time::sleep(self.config.drain_timeout) => {
-                let remaining = self.owned_partitions.lock().await.len();
+                let remaining = self.held_partition_count().await;
                 tracing::warn!(
                     pod = %self.config.pod_name,
                     remaining_partitions = remaining,
@@ -320,29 +401,165 @@ impl PodHandle {
         Ok(())
     }
 
-    /// Wait until all owned partitions have been released via handoffs.
+    /// Number of partitions this process still holds state for — warmed
+    /// or write-fenced. `drain()` waits for this to reach zero: a fenced
+    /// partition's outbound handoff is still in flight, and the pod must
+    /// stay alive to release it at Complete.
+    async fn held_partition_count(&self) -> usize {
+        let warmed = self.warmed_partitions.lock().await;
+        let fenced = self.fenced_partitions.lock().await;
+        warmed.union(&fenced).count()
+    }
+
+    /// Wait until all held partitions have been released via handoffs.
     /// Woken reactively by `drain_notify` each time a partition is released.
     async fn wait_for_drain(&self) {
         loop {
-            if self.owned_partitions.lock().await.is_empty() {
+            if self.held_partition_count().await == 0 {
                 return;
             }
             self.drain_notify.notified().await;
         }
     }
 
-    /// Replay handoffs that already exist in etcd through the normal
-    /// event dispatch. `handle_handoff_event` is phase- and role-aware,
-    /// so this is a no-op for handoffs that don't involve this pod, and
-    /// its actions (drain, warm, release) are idempotent for ones it
-    /// already acted on before a restart. Returns the etcd revision of
-    /// the snapshot so the caller can anchor the handoff watch to it.
-    async fn catch_up_on_handoffs(&self) -> Result<i64> {
-        let (handoffs, snapshot_revision) = self.store.list_handoffs_with_revision().await?;
-        for handoff in handoffs {
-            self.handle_handoff_event(&handoff).await?;
+    /// Converge every partition this pod is involved in — assigned to it,
+    /// or named in a handoff as old or new owner — from a consistent
+    /// snapshot of the durable state. Returns the smaller of the two
+    /// snapshot revisions so the caller can anchor the handoff watch: any
+    /// change landing between the two reads (or between them and the watch
+    /// attaching) is redelivered as an event and re-converged with fresh
+    /// reads.
+    async fn reconcile_all(&self) -> Result<i64> {
+        let (assignments, rev_a) = self.store.list_assignments_with_revision().await?;
+        let (handoffs, rev_h) = self.store.list_handoffs_with_revision().await?;
+        let pod = &self.config.pod_name;
+
+        let assignment_map: std::collections::HashMap<u32, &PartitionAssignment> =
+            assignments.iter().map(|a| (a.partition, a)).collect();
+        let handoff_map: std::collections::HashMap<u32, &HandoffState> =
+            handoffs.iter().map(|h| (h.partition, h)).collect();
+
+        let mut partitions: HashSet<u32> = HashSet::new();
+        for a in &assignments {
+            if a.owner == *pod {
+                partitions.insert(a.partition);
+            }
         }
-        Ok(snapshot_revision)
+        for h in &handoffs {
+            if h.old_owner.as_deref() == Some(pod.as_str()) || h.new_owner == *pod {
+                partitions.insert(h.partition);
+            }
+        }
+
+        tracing::info!(
+            pod,
+            partitions = partitions.len(),
+            "reconciling local state against durable state"
+        );
+        for partition in partitions {
+            self.apply(
+                partition,
+                assignment_map.get(&partition).copied(),
+                handoff_map.get(&partition).copied(),
+            )
+            .await?;
+        }
+
+        Ok(rev_a.min(rev_h))
+    }
+
+    /// Re-derive and apply the desired state for one partition from fresh
+    /// point reads. Every watch event is just a signal to look again —
+    /// convergence acts on observed durable state, never on remembered
+    /// event payloads, so missed, reordered, or replayed events cannot
+    /// corrupt local state.
+    async fn converge(&self, partition: u32) -> Result<()> {
+        let handoff = self.store.get_handoff(partition).await?;
+        let assignment = self.store.get_assignment(partition).await?;
+        self.apply(partition, assignment.as_ref(), handoff.as_ref())
+            .await
+    }
+
+    /// Drive local state (cache warmth, write fence, acks, held set) to
+    /// the desired state. Every transition is idempotent; callers are
+    /// serialized (startup reconcile, then the single watch loop), so no
+    /// two applications for the same partition ever interleave.
+    async fn apply(
+        &self,
+        partition: u32,
+        assignment: Option<&PartitionAssignment>,
+        handoff: Option<&HandoffState>,
+    ) -> Result<()> {
+        let pod = &self.config.pod_name;
+        let desired = desired_state(pod, assignment, handoff);
+
+        match desired {
+            DesiredState::Serving => {
+                if !self.warmed_partitions.lock().await.contains(&partition) {
+                    tracing::info!(pod, partition, "converging to Serving: warming");
+                    self.handler.warm_partition(partition).await?;
+                    self.warmed_partitions.lock().await.insert(partition);
+                } else if self.fenced_partitions.lock().await.contains(&partition) {
+                    tracing::info!(pod, partition, "converging to Serving: resuming writes");
+                    self.handler.resume_partition(partition).await?;
+                }
+                self.fenced_partitions.lock().await.remove(&partition);
+            }
+            DesiredState::Drained { ack } => {
+                // The coordinator only advances Freezing → Draining once
+                // every router has FreezeAcked, so no new request can flow
+                // from any router to this pod and the inflight==0 the drain
+                // waits for is meaningful. The produce path awaits Kafka
+                // delivery before returning, so "no inflight handlers"
+                // implies "every acked write is durable in Kafka."
+                if !self.fenced_partitions.lock().await.contains(&partition) {
+                    tracing::info!(pod, partition, "converging to Drained: fencing + draining");
+                }
+                self.handler.drain_partition_inflight(partition).await?;
+                self.fenced_partitions.lock().await.insert(partition);
+                if ack {
+                    let handoff = handoff.expect("Drained state only derives from a handoff");
+                    self.store
+                        .put_drained_ack(&PodDrainedAck {
+                            pod_name: pod.clone(),
+                            partition,
+                            acked_at: util::now_seconds(),
+                            handoff_id: handoff.handoff_id.clone(),
+                        })
+                        .await?;
+                    tracing::info!(pod, partition, "drained ack written");
+                }
+            }
+            DesiredState::Acquiring => {
+                if !self.warmed_partitions.lock().await.contains(&partition) {
+                    tracing::info!(pod, partition, "converging to Acquiring: warming");
+                    self.handler.warm_partition(partition).await?;
+                    self.warmed_partitions.lock().await.insert(partition);
+                }
+                self.fenced_partitions.lock().await.remove(&partition);
+                let handoff = handoff.expect("Acquiring state only derives from a handoff");
+                self.store
+                    .put_warmed_ack(&PodWarmedAck {
+                        pod_name: pod.clone(),
+                        partition,
+                        acked_at: util::now_seconds(),
+                        handoff_id: handoff.handoff_id.clone(),
+                    })
+                    .await?;
+                tracing::info!(pod, partition, "warmed ack written");
+            }
+            DesiredState::Released => {
+                let was_warmed = self.warmed_partitions.lock().await.remove(&partition);
+                let was_fenced = self.fenced_partitions.lock().await.remove(&partition);
+                if was_warmed || was_fenced {
+                    tracing::info!(pod, partition, "converging to Released: releasing");
+                    self.handler.release_partition(partition).await?;
+                    self.drain_notify.notify_one();
+                }
+            }
+        }
+
+        Ok(())
     }
 
     async fn watch_handoff_loop(
@@ -356,116 +573,25 @@ impl PodHandle {
                 msg = stream.message() => {
                     let resp = msg?.ok_or_else(|| Error::invalid_state("handoff watch stream ended".to_string()))?;
                     for event in resp.events() {
-                        match event.event_type() {
-                            EventType::Put => {
-                                match parse_watch_value::<HandoffState>(event) {
-                                    Ok(handoff) => {
-                                        self.handle_handoff_event(&handoff).await?;
-                                    }
-                                    Err(e) => {
-                                        tracing::error!(pod = %self.config.pod_name, error = %e, "failed to parse handoff");
-                                    }
+                        let partition = match event.event_type() {
+                            EventType::Put => match parse_watch_value::<HandoffState>(event) {
+                                Ok(handoff) => Some(handoff.partition),
+                                Err(e) => {
+                                    tracing::error!(pod = %self.config.pod_name, error = %e, "failed to parse handoff");
+                                    None
                                 }
-                            }
-                            EventType::Delete => {
-                                self.handle_handoff_delete(event).await?;
-                            }
+                            },
+                            EventType::Delete => event
+                                .kv()
+                                .and_then(|kv| std::str::from_utf8(kv.key()).ok())
+                                .and_then(store::extract_partition_from_key),
+                        };
+                        if let Some(partition) = partition {
+                            self.converge(partition).await?;
                         }
                     }
                 }
             }
         }
-    }
-
-    /// A handoff record was deleted. After `Complete` this is normal
-    /// cleanup — the release already ran and the partition is no longer
-    /// owned. A delete while this pod still holds the partition means the
-    /// handoff was cancelled (`cleanup_stale_handoffs`); the pod stays the
-    /// owner and must resume normal service for the partition.
-    async fn handle_handoff_delete(&self, event: &Event) -> Result<()> {
-        let Some(kv) = event.kv() else {
-            return Ok(());
-        };
-        let key = std::str::from_utf8(kv.key()).unwrap_or("");
-        let Some(partition) = store::extract_partition_from_key(key) else {
-            return Ok(());
-        };
-
-        if self.owned_partitions.lock().await.contains(&partition) {
-            tracing::warn!(
-                pod = %self.config.pod_name,
-                partition,
-                "handoff cancelled while still owning partition; resuming"
-            );
-            self.handler.resume_partition(partition).await?;
-        }
-        Ok(())
-    }
-
-    async fn handle_handoff_event(&self, handoff: &HandoffState) -> Result<()> {
-        let pod = &self.config.pod_name;
-        let is_old_owner = handoff.old_owner.as_deref() == Some(pod.as_str());
-
-        // Old owner: on Draining, drain inflight and write a DrainedAck.
-        // The produce path awaits Kafka delivery before returning, so "no
-        // inflight handlers" implies "every acked write is durable in Kafka."
-        // The coordinator only advances Freezing → Draining once every
-        // router has FreezeAcked, so by the time we observe Draining no
-        // new request can flow from any router to this pod and the
-        // inflight==0 check is meaningful.
-        if is_old_owner && handoff.phase == HandoffPhase::Draining {
-            tracing::info!(
-                pod,
-                partition = handoff.partition,
-                "draining inflight for partition"
-            );
-            self.handler
-                .drain_partition_inflight(handoff.partition)
-                .await?;
-
-            let ack = PodDrainedAck {
-                pod_name: pod.clone(),
-                partition: handoff.partition,
-                acked_at: util::now_seconds(),
-            };
-            self.store.put_drained_ack(&ack).await?;
-
-            tracing::info!(pod, partition = handoff.partition, "drained ack written");
-        }
-
-        // New owner: on Warming, populate cache from Kafka to current HWM,
-        // then write a WarmedAck so the coordinator can advance to Complete.
-        if handoff.new_owner == *pod && handoff.phase == HandoffPhase::Warming {
-            tracing::info!(
-                pod,
-                partition = handoff.partition,
-                "warming cache for partition"
-            );
-            self.handler.warm_partition(handoff.partition).await?;
-            self.owned_partitions.lock().await.insert(handoff.partition);
-
-            let ack = PodWarmedAck {
-                pod_name: pod.clone(),
-                partition: handoff.partition,
-                acked_at: util::now_seconds(),
-            };
-            self.store.put_warmed_ack(&ack).await?;
-
-            tracing::info!(pod, partition = handoff.partition, "warmed ack written");
-        }
-
-        // Old owner: release on Complete. Skipped when old_owner is None
-        // (initial assignment) — there is nothing to release.
-        if is_old_owner && handoff.phase == HandoffPhase::Complete {
-            tracing::info!(pod, partition = handoff.partition, "releasing partition");
-            self.handler.release_partition(handoff.partition).await?;
-            self.owned_partitions
-                .lock()
-                .await
-                .remove(&handoff.partition);
-            self.drain_notify.notify_one();
-        }
-
-        Ok(())
     }
 }

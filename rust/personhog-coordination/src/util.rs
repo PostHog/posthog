@@ -1,5 +1,6 @@
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio_util::sync::CancellationToken;
 
@@ -7,6 +8,20 @@ pub use assignment_coordination::util::now_seconds;
 
 use crate::error::{Error, Result};
 use crate::store::PersonhogStore;
+
+/// Generate a handoff id unique across handoff attempts. Milliseconds
+/// alone can collide when a handoff is cancelled and recreated within the
+/// same instant, so a process-local sequence number disambiguates; across
+/// coordinator failovers the leader election guarantees non-overlapping
+/// creation windows.
+pub fn new_handoff_id() -> String {
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    format!("{}-{}", millis, SEQ.fetch_add(1, Ordering::Relaxed))
+}
 
 pub async fn run_lease_keepalive(
     store: Arc<PersonhogStore>,

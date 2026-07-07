@@ -80,10 +80,11 @@ impl RouterStashHandler {
 /// the request has been waiting longer than `max_stash_wait`, send back
 /// `UNAVAILABLE` without forwarding so the client retries with a fresh
 /// request. Otherwise forward via the unified routing path and pipe the
-/// result through the oneshot. Tracks metrics for the four observable
-/// outcomes (expired, success, error, dropped) so operators can see
-/// stash-driven latency, leader failures during drain, and cases where
-/// the original caller disconnected before the reply.
+/// result through the oneshot. Tracks metrics for the five observable
+/// outcomes (expired, success, fenced, error, dropped) so operators can
+/// see stash-driven latency, drains racing a leader's fence or cutover,
+/// leader failures during drain, and cases where the original caller
+/// disconnected before the reply.
 async fn forward_one(
     leader_backend: &LeaderBackend,
     max_stash_wait: Duration,
@@ -119,7 +120,29 @@ async fn forward_one(
     let result = leader_backend
         .update_person_properties_no_stash(stashed_req.request)
         .await;
-    let outcome = if result.is_ok() { "success" } else { "error" };
+    // A FailedPrecondition during drain means the target's fence or
+    // ownership is still settling: a cancellation's drain-back races the
+    // old owner's resume, and a completion's drain races the new owner's
+    // cutover. The condition clears in watch-propagation time, but
+    // FailedPrecondition reads as "do not retry" to clients — remap it to
+    // the same definitive retry contract as the deadline path above.
+    // Never silent: the write was never acked.
+    let was_fenced = matches!(&result, Err(s) if s.code() == tonic::Code::FailedPrecondition);
+    let result = result.map_err(|status| {
+        if status.code() == tonic::Code::FailedPrecondition {
+            Status::unavailable(format!(
+                "leader transitioning during stash drain; retry: {}",
+                status.message()
+            ))
+        } else {
+            status
+        }
+    });
+    let outcome = match (&result, was_fenced) {
+        (Ok(_), _) => "success",
+        (Err(_), true) => "fenced",
+        (Err(_), false) => "error",
+    };
     metrics::counter!(
         "personhog_router_stash_drained_total",
         "outcome" => outcome

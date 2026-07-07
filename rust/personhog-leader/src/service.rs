@@ -179,26 +179,26 @@ impl PersonHogLeader for PersonHogLeaderService {
     ) -> Result<Response<UpdatePersonPropertiesResponse>, Status> {
         let req = request.into_inner();
 
-        // A fenced partition has drained for handoff: every router acked
-        // the freeze, so this write can only come from a router with a
-        // stale view. Accepting it would produce past the Kafka HWM that
-        // the new owner's warming snapshots, silently losing the write.
-        // Reads are unaffected — the frozen state stays the latest until
-        // cutover.
-        if self.inflight.is_fenced(req.partition) {
+        // Admit the write as inflight, unless the partition is fenced. A
+        // fenced partition has drained for handoff: every router acked the
+        // freeze, so this write can only come from a router with a stale
+        // view — accepting it would produce past the Kafka HWM that the new
+        // owner's warming snapshots, silently losing the write. Admission
+        // and the fence check are one atomic operation (`try_begin`): the
+        // inflight increment precedes the check, so the drain either waits
+        // for this write or this write sees the fence. Reads are unaffected
+        // — the frozen state stays the latest until cutover. The handoff
+        // protocol waits for the per-partition inflight count to drop to
+        // zero before advancing; combined with sync-acked produces, a zero
+        // count implies every acked write is durable in Kafka. Using a
+        // non-`_` prefixed binding so the RAII guard is held for the full
+        // handler lifetime (see the `let_underscore_drop` lint).
+        let Some(_inflight_guard) = self.inflight.try_begin(req.partition) else {
             return Err(Status::failed_precondition(format!(
                 "partition {} is fenced for handoff; writes are rejected",
                 req.partition
             )));
-        }
-
-        // Track this write as inflight for its partition. The handoff protocol
-        // waits for the per-partition inflight count to drop to zero before
-        // advancing Freezing -> Warming. Combined with sync-acked produces, a
-        // zero count implies every acked write is durable in Kafka. Using a
-        // non-`_` prefixed binding so the RAII guard is held for the full
-        // handler lifetime (see the `let_underscore_drop` lint).
-        let _inflight_guard = self.inflight.begin(req.partition);
+        };
 
         let cache_key = PersonCacheKey {
             team_id: req.team_id,
