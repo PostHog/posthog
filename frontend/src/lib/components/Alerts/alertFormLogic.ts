@@ -22,10 +22,9 @@ import {
 import { AvailableFeature, InsightLogicProps, IntervalType, QueryBasedInsightModel } from '~/types'
 
 import {
-    blockSubmitWithoutHighFrequencyAlertsEntitlement,
+    blockSubmitWithoutEntitlement,
     getDefaultSimulationRange,
-    HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE,
-    isHighFrequencyAlertInterval,
+    isSubDailyAlertInterval,
 } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 
 import type { alertFormLogicType } from './alertFormLogicType'
@@ -290,7 +289,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
         ],
     })),
 
-    forms(({ props, values }) => ({
+    forms(({ props, values, actions }) => ({
         alertForm: {
             defaults: props.alert
                 ? alertToFormType(props.alert, props.insightId)
@@ -324,14 +323,18 @@ export const alertFormLogic = kea<alertFormLogicType>([
                   } as AlertFormType),
             errors: (alert: AlertFormType) => getAlertFormValidationErrors(alert),
             submit: async (alert) => {
-                if (
-                    blockSubmitWithoutHighFrequencyAlertsEntitlement(
-                        alert.calculation_interval,
-                        userLogic.values.hasAvailableFeature(AvailableFeature.HIGH_FREQUENCY_ALERTS)
-                    )
-                ) {
-                    lemonToast.error(HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE)
-                    throw new Error(HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE)
+                const entitlementCheck = blockSubmitWithoutEntitlement(alert.calculation_interval, {
+                    hasHighFrequencyAlertsEntitlement: userLogic.values.hasAvailableFeature(
+                        AvailableFeature.HIGH_FREQUENCY_ALERTS
+                    ),
+                    hasRealTimeAlertsEntitlement: userLogic.values.hasAvailableFeature(
+                        AvailableFeature.REAL_TIME_ALERTS
+                    ),
+                })
+                if (entitlementCheck.blocked) {
+                    lemonToast.error(entitlementCheck.message)
+                    actions.setAlertFormManualErrors({ calculation_interval: entitlementCheck.message })
+                    throw new Error(entitlementCheck.message)
                 }
 
                 const payload: AlertTypeWrite = {
@@ -341,7 +344,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     // can only skip weekends for sub-daily alerts
                     skip_weekend:
                         (alert.calculation_interval === AlertCalculationInterval.DAILY ||
-                            isHighFrequencyAlertInterval(alert.calculation_interval)) &&
+                            isSubDailyAlertInterval(alert.calculation_interval)) &&
                         alert.skip_weekend,
                     // can only check ongoing interval for absolute value/increase alerts with upper threshold
                     config: isTrendsAlertConfig(alert.config)

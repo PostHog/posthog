@@ -400,7 +400,8 @@ export function NotebookCodeSQLEditorSettings<T extends { code: string }>({
     runQueryTooltip,
 }: NotebookNodeAttributeProperties<T> & {
     tabIdSuffix: string
-    onRunQuery?: () => void
+    /** Called with the live editor text — `attributes.code` can lag it by a Tiptap round-trip. */
+    onRunQuery?: (code: string) => void
     runQueryLoading?: boolean
     runQueryDisabledReason?: string
     runQueryTooltip?: string
@@ -410,6 +411,9 @@ export function NotebookCodeSQLEditorSettings<T extends { code: string }>({
         [attributes.nodeId, tabIdSuffix]
     )
     useNotebookCodeSQLEditorSync({ attributes, updateAttributes, tabId })
+    const { queryInput } = useValues(sqlEditorLogic({ tabId, mode: SQLEditorMode.Embedded }))
+    // Prefer what the user sees in the editor; fall back to the attribute before the first sync.
+    const liveCode = queryInput ?? (typeof attributes.code === 'string' ? attributes.code : '')
     // Focus the editor only when this user just inserted the node - a node mounting on
     // notebook load or after a structural re-render must never steal the caret.
     const [autoFocusQueryPane] = useState(() => wasNotebookNodeJustInserted(attributes.nodeId))
@@ -432,7 +436,7 @@ export function NotebookCodeSQLEditorSettings<T extends { code: string }>({
                 panel={SQLEditorPanel.Query}
                 defaultShowDatabaseTree={false}
                 autoFocusQueryPane={autoFocusQueryPane}
-                onRunQuery={onRunQuery}
+                onRunQuery={onRunQuery ? () => onRunQuery(liveCode) : undefined}
                 runQueryLoading={runQueryLoading}
                 runQueryDisabledReason={runQueryDisabledReason}
                 runQueryTooltip={runQueryTooltip}

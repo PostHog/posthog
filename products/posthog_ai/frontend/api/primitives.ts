@@ -19,6 +19,10 @@ export type {
     ComposerSubmitProps,
 } from '../components/composer/Composer'
 
+// Controlled model + reasoning-effort pickers for a composer footer.
+export { ComposerModelEffortPickers } from '../components/composer/ComposerModelEffortPickers'
+export type { ComposerModelEffortPickersProps } from '../components/composer/ComposerModelEffortPickers'
+
 // Welcome header (logomark + headline + subheadline) and its overridable default headlines.
 export { Welcome } from '../components/welcome/Welcome'
 export type { WelcomeProps } from '../components/welcome/Welcome'

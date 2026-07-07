@@ -30,6 +30,7 @@ class TestView(APIBaseTest):
                     "fields": None,
                     "table": None,
                     "chain": None,
+                    "description": None,
                 }
             ],
         )
@@ -85,6 +86,7 @@ class TestView(APIBaseTest):
                     "fields": None,
                     "table": None,
                     "chain": None,
+                    "description": None,
                 }
             ],
         )

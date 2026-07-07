@@ -34,7 +34,8 @@ export const scene: SceneExport<PromptLogicProps> = {
     productKey: ProductKey.AI_OBSERVABILITY,
     paramsToProps: ({ params: { name }, searchParams }) => ({
         promptName: name && name !== 'new' ? name : 'new',
-        mode: searchParams?.edit === 'true' ? PromptMode.Edit : PromptMode.View,
+        // kea-router JSON-decodes query values, so ?edit=true arrives as boolean true
+        mode: String(searchParams?.edit) === 'true' ? PromptMode.Edit : PromptMode.View,
         selectedVersion: searchParams?.version ? Number(searchParams.version) || null : null,
     }),
 }
@@ -53,13 +54,15 @@ export function LLMPromptScene(): JSX.Element {
         isHistoricalVersion,
         versions,
         canLoadMoreVersions,
+        nextVersion,
+        isPromptFormDirty,
     } = useValues(llmPromptLogic)
     const { searchParams } = useValues(router)
     const currentSearchParams = searchParams ?? {}
     const activeViewTab =
         searchParams?.tab === 'usage' ? 'usage' : searchParams?.tab === 'experiments' ? 'experiments' : 'overview'
 
-    const { submitPromptForm, deletePrompt, setMode, setPromptFormValues, loadMoreVersions } =
+    const { submitPromptForm, deletePrompt, setMode, setPromptFormValues, loadMoreVersions, cancelEditing } =
         useActions(llmPromptLogic)
     const sourcePromptName = !isNewPrompt && prompt && isPrompt(prompt) ? prompt.name : null
     const sourcePromptVersion = isHistoricalVersion && isPrompt(prompt) ? prompt.version : null
@@ -103,41 +106,28 @@ export function LLMPromptScene(): JSX.Element {
                                 Open in Playground
                             </LemonButton>
                         ) : null}
-                        {isPrompt(prompt) && prompt.is_latest ? (
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.LlmAnalytics}
-                                minAccessLevel={AccessControlLevel.Editor}
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton
+                                type="primary"
+                                icon={<IconPencil />}
+                                onClick={() => {
+                                    if (isPrompt(prompt)) {
+                                        setPromptFormValues({ name: prompt.name, prompt: prompt.prompt })
+                                        setMode(PromptMode.Edit)
+                                    }
+                                }}
+                                size="small"
+                                tooltip={
+                                    isHistoricalVersion ? 'Start a new version from this historical version' : undefined
+                                }
+                                data-attr="llma-prompt-new-version-button"
                             >
-                                <LemonButton
-                                    type="primary"
-                                    icon={<IconPencil />}
-                                    onClick={() => setMode(PromptMode.Edit)}
-                                    size="small"
-                                    data-attr="llma-prompt-edit-button"
-                                >
-                                    Edit latest
-                                </LemonButton>
-                            </AccessControlAction>
-                        ) : (
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.LlmAnalytics}
-                                minAccessLevel={AccessControlLevel.Editor}
-                            >
-                                <LemonButton
-                                    type="primary"
-                                    onClick={() => {
-                                        if (isPrompt(prompt)) {
-                                            setPromptFormValues({ name: prompt.name, prompt: prompt.prompt })
-                                            setMode(PromptMode.Edit)
-                                        }
-                                    }}
-                                    size="small"
-                                    data-attr="llma-prompt-use-as-latest-button"
-                                >
-                                    Use as latest
-                                </LemonButton>
-                            </AccessControlAction>
-                        )}
+                                New version
+                            </LemonButton>
+                        </AccessControlAction>
 
                         <AccessControlAction
                             resourceType={AccessControlResourceType.LlmAnalytics}
@@ -230,7 +220,13 @@ export function LLMPromptScene(): JSX.Element {
                                     type="secondary"
                                     icon={<IconPlay />}
                                     to={openInPlaygroundUrl}
-                                    disabledReason={isPromptFormSubmitting ? 'Saving…' : undefined}
+                                    disabledReason={
+                                        isPromptFormSubmitting
+                                            ? 'Saving…'
+                                            : isPromptFormDirty
+                                              ? 'You have unsaved edits — publish or cancel first'
+                                              : undefined
+                                    }
                                     size="small"
                                     data-attr="llma-playground-open-from-prompt"
                                 >
@@ -239,15 +235,7 @@ export function LLMPromptScene(): JSX.Element {
                             ) : null}
                             <LemonButton
                                 type="secondary"
-                                onClick={() => {
-                                    if (isNewPrompt) {
-                                        router.actions.push(
-                                            combineUrl(urls.aiObservabilityPrompts(), currentSearchParams).url
-                                        )
-                                    } else {
-                                        setMode(PromptMode.View)
-                                    }
-                                }}
+                                onClick={() => cancelEditing()}
                                 disabledReason={isPromptFormSubmitting ? 'Saving…' : undefined}
                                 size="small"
                                 data-attr="llma-prompt-cancel-button"
@@ -266,7 +254,11 @@ export function LLMPromptScene(): JSX.Element {
                                     size="small"
                                     data-attr={isNewPrompt ? 'prompt-create-button' : 'prompt-save-button'}
                                 >
-                                    {isNewPrompt ? 'Create prompt' : 'Publish version'}
+                                    {isNewPrompt
+                                        ? 'Create prompt'
+                                        : nextVersion
+                                          ? `Publish v${nextVersion}`
+                                          : 'Publish version'}
                                 </LemonButton>
                             </AccessControlAction>
 
@@ -308,6 +300,7 @@ export function LLMPromptScene(): JSX.Element {
                             canLoadMoreVersions={canLoadMoreVersions}
                             loadMoreVersions={loadMoreVersions}
                             searchParams={currentSearchParams}
+                            readOnly
                         />
                     )}
                 </div>

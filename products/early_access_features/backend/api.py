@@ -279,7 +279,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
             except FeatureFlag.DoesNotExist:
                 raise serializers.ValidationError("Feature Flag with this ID does not exist")
 
-            if feature_flag.features.count() > 0:
+            if feature_flag.features.exists():
                 raise serializers.ValidationError(
                     f"Linked feature flag {feature_flag.key} already has a feature attached to it."
                 )

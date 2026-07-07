@@ -2,8 +2,14 @@ import pytest
 from unittest.mock import AsyncMock, patch
 
 import temporalio.workflow
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from posthog.temporal.data_modeling.activities import FailMaterializationInputs, fail_materialization_activity
+from posthog.temporal.data_modeling.activities import (
+    FailMaterializationInputs,
+    SucceedMaterializationResult,
+    fail_materialization_activity,
+)
+from posthog.temporal.data_modeling.activities.enrich_view_semantics import EnrichViewSemanticsInputs
 from posthog.temporal.data_modeling.workflows.materialize_view import (
     MaterializeViewWorkflow,
     MaterializeViewWorkflowInputs,
@@ -48,6 +54,50 @@ class TestFinalizeOrphanedDuckgresJob:
         ):
             # a failure to finalize must never propagate out of the shadow path
             await workflow._finalize_orphaned_duckgres_job("job-123", _inputs(), "activity died")
+
+
+class TestMaybeEnrichViewSemantics:
+    async def test_starts_child_when_enrichment_needed(self):
+        workflow = MaterializeViewWorkflow()
+        result = SucceedMaterializationResult(enrichment_needed=True, saved_query_id="sq-1")
+        with patch.object(temporalio.workflow, "start_child_workflow", new=AsyncMock()) as start_child:
+            await workflow._maybe_enrich_view_semantics(_inputs(), result)
+
+        start_child.assert_awaited_once()
+        assert start_child.await_args is not None
+        _wf_run, payload = start_child.await_args.args
+        assert isinstance(payload, EnrichViewSemanticsInputs)
+        assert payload.saved_query_id == "sq-1"
+        assert payload.team_id == 7
+        assert start_child.await_args.kwargs["id"] == "enrich-view-semantics-sq-1"
+
+    @pytest.mark.parametrize(
+        "result",
+        [
+            None,  # in-flight run on the pre-deploy activity version
+            SucceedMaterializationResult(enrichment_needed=False, saved_query_id="sq-1"),
+            SucceedMaterializationResult(enrichment_needed=True, saved_query_id=None),
+        ],
+    )
+    async def test_no_child_when_not_needed(self, result):
+        workflow = MaterializeViewWorkflow()
+        with patch.object(temporalio.workflow, "start_child_workflow", new=AsyncMock()) as start_child:
+            await workflow._maybe_enrich_view_semantics(_inputs(), result)
+        start_child.assert_not_awaited()
+
+    async def test_already_started_is_swallowed(self):
+        # A concurrent trigger colliding on the shared workflow id must never fail the materialization.
+        workflow = MaterializeViewWorkflow()
+        result = SucceedMaterializationResult(enrichment_needed=True, saved_query_id="sq-1")
+        with (
+            patch.object(
+                temporalio.workflow,
+                "start_child_workflow",
+                new=AsyncMock(side_effect=WorkflowAlreadyStartedError("enrich-view-semantics-sq-1", "type")),
+            ),
+            patch.object(temporalio.workflow, "logger"),
+        ):
+            await workflow._maybe_enrich_view_semantics(_inputs(), result)
 
 
 class TestCollectShadowComparison:

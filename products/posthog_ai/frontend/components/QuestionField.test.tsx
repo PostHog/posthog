@@ -104,7 +104,7 @@ describe('QuestionField', () => {
             />
         )
         expect(screen.getByPlaceholderText('Add your own option...')).toBeInTheDocument()
-        expect(screen.getByRole('button', { name: /Add/ })).toBeInTheDocument()
+        expect(screen.getByText('Add')).toBeInTheDocument()
     })
 
     it('multi_select hides custom entry input when allow_custom_answer is false', () => {
@@ -147,7 +147,7 @@ describe('QuestionField', () => {
 
         const input = screen.getByPlaceholderText('Add your own option...')
         fireEvent.change(input, { target: { value: 'Custom value' } })
-        fireEvent.click(screen.getByRole('button', { name: /Add/ }))
+        fireEvent.click(screen.getByText('Add'))
 
         // onChange should be called with the new selection
         expect(onChange).toHaveBeenCalledWith(['Custom value'])
@@ -192,7 +192,7 @@ describe('QuestionField', () => {
 
         const input = screen.getByPlaceholderText('Add your own option...')
         fireEvent.change(input, { target: { value: '   ' } })
-        fireEvent.click(screen.getByRole('button', { name: /Add/ }))
+        fireEvent.click(screen.getByText('Add'))
 
         // Should still only have the 2 predefined checkboxes
         expect(screen.getAllByRole('checkbox')).toHaveLength(2)
@@ -217,7 +217,7 @@ describe('QuestionField', () => {
 
         const input = screen.getByPlaceholderText('Add your own option...')
         fireEvent.change(input, { target: { value: 'alpha' } })
-        fireEvent.click(screen.getByRole('button', { name: /Add/ }))
+        fireEvent.click(screen.getByText('Add'))
 
         // Should call onChange with the matched predefined option
         expect(onChange).toHaveBeenCalledWith(['Alpha'])
@@ -295,7 +295,7 @@ describe('QuestionField', () => {
             />
         )
 
-        fireEvent.click(screen.getByRole('button', { name: 'Skip question' }))
+        fireEvent.click(screen.getByText('Skip question'))
 
         expect(onSkip).toHaveBeenCalledTimes(1)
     })
@@ -373,7 +373,7 @@ describe('QuestionField', () => {
                 />
             )
 
-            fireEvent.click(screen.getAllByRole('button', { name: 'Skip question' }).at(-1)!)
+            fireEvent.click(screen.getAllByText('Skip question').at(-1)!)
 
             expect(onSkip).toHaveBeenCalledTimes(1)
         })

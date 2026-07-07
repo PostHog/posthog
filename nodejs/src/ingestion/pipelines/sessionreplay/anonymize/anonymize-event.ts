@@ -1,6 +1,7 @@
 /** Routes each parsed rrweb event to the right scrubber by type/source. */
 import { logger } from '~/common/utils/logger'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
+import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
 import { RRWebEventSource, RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
 
 import { runBlurJobs } from './blur'
@@ -46,6 +47,7 @@ export async function anonymizeParsedMessage(
                     error: String(error),
                     type: isObject(event) ? event.type : undefined,
                 })
+                SessionRecordingIngesterMetrics.incrementMlAnonymizeFailed('ts')
                 return { failed: true }
             }
             eventCount++
@@ -57,6 +59,8 @@ export async function anonymizeParsedMessage(
     const blurStart = performance.now()
     await runBlurJobs(blurJobs)
     const blurMs = performance.now() - blurStart
+
+    SessionRecordingIngesterMetrics.observeMlAnonymizeDuration('ts', scrubMs + blurMs)
 
     if (scrubMs + blurMs > ANON_SLOW_LOG_THRESHOLD_MS) {
         logger.warn('🕒', 'anonymize_slow_breakdown', {
@@ -124,7 +128,7 @@ function routeEvent(ctx: ScrubContext, event: Record<string, unknown>): boolean 
             if (!isObject(data) || typeof data.href !== 'string') {
                 return false
             }
-            const r = scrubUrl(ctx, data.href, { scrubAuthority: true })
+            const r = scrubUrl(ctx, data.href, { collapseHost: true })
             if (r.changed) {
                 data.href = r.value
                 return true
