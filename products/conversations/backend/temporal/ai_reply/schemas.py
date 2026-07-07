@@ -38,6 +38,8 @@ class BuildContextOutput:
 class ClassifyInput:
     team_id: int
     ticket_context: str
+    trace_id: str = ""
+    ticket_id: str = ""
 
 
 @dataclass
@@ -54,6 +56,8 @@ class RefineQueriesInput:
     missing: list[str] = field(default_factory=list)
     ticket_type: str = "how_to"
     seed_queries: list[str] = field(default_factory=list)
+    trace_id: str = ""
+    ticket_id: str = ""
 
 
 @dataclass
@@ -106,6 +110,8 @@ class DraftOutput:
     # Evidence the agent actually relied on (BK chunk or doc URL + supporting excerpt).
     # Lets validation ground against sources gathered via MCP tools, not just seed chunks.
     sources: list[dict[str, str]] = field(default_factory=list)
+    # The Tasks TaskRun id for this draft session -- join key to LLMA cost data.
+    task_run_id: str = ""
 
 
 @dataclass
@@ -117,6 +123,8 @@ class ValidateInput:
     chunk_ids: list[str]
     sources: list[dict[str, str]] = field(default_factory=list)
     ticket_type: str = "how_to"
+    trace_id: str = ""
+    ticket_id: str = ""
 
 
 @dataclass
@@ -149,6 +157,8 @@ class RecordTriageInput:
 class SafetyFilterInput:
     team_id: int
     ticket_context: str
+    trace_id: str = ""
+    ticket_id: str = ""
 
 
 @dataclass
@@ -165,6 +175,8 @@ class ReviewReplyInput:
     reply: str
     sources: list[dict[str, str]] = field(default_factory=list)
     ticket_type: str = "how_to"
+    trace_id: str = ""
+    ticket_id: str = ""
 
 
 @dataclass

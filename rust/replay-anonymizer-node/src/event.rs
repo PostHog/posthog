@@ -139,7 +139,7 @@ pub fn route_data(
             let Some(href) = data.get("href").and_then(as_str) else {
                 return Ok(false);
             };
-            match scrub_url_opts(ctx.allow, href, true) {
+            match scrub_url_opts(ctx, href, true) {
                 Some(v) => {
                     data.insert(key("href"), string_value(v));
                     Ok(true)
@@ -148,7 +148,7 @@ pub fn route_data(
             }
         }
         Some(TYPE_CUSTOM) => match as_object_mut(data) {
-            Some(data) => Ok(scrub_generic_field(ctx.allow, data, "payload")),
+            Some(data) => Ok(scrub_generic_field(ctx, data, "payload")),
             None => Ok(false),
         },
         Some(TYPE_PLUGIN) => {
@@ -157,9 +157,9 @@ pub fn route_data(
             };
             let plugin = data.get("plugin").and_then(as_str).map(str::to_string);
             Ok(match plugin.as_deref() {
-                Some(NETWORK_PLUGIN) => scrub_network_plugin(ctx.allow, data, "payload"),
-                Some(CONSOLE_PLUGIN) => scrub_console_plugin(ctx.allow, data, "payload"),
-                _ => scrub_generic_field(ctx.allow, data, "payload"),
+                Some(NETWORK_PLUGIN) => scrub_network_plugin(ctx, data, "payload"),
+                Some(CONSOLE_PLUGIN) => scrub_console_plugin(ctx, data, "payload"),
+                _ => scrub_generic_field(ctx, data, "payload"),
             })
         }
         // DomContentLoaded, Load, unknown types: pass-through.
