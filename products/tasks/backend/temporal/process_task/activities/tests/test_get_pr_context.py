@@ -27,18 +27,23 @@ class TestComputePrFingerprint:
 
     def test_stable_when_only_updated_at_or_comments_change(self):
         # The bug: GitHub bumps updated_at on any activity (comments, labels, the bot's
-        # own pushes), so hashing it re-poked the agent as noise. Actionable state is
-        # unchanged here, so the fingerprint must not move.
+        # own pushes), so hashing it re-poked the agent as noise. unresolved_threads is
+        # in the same bucket — a review comment resolving or reopening a thread is noise,
+        # not a reason to re-fire the follow-up. Actionable state is unchanged here, so
+        # the fingerprint must not move.
         base = {"url": "https://github.com/org/repo/pull/1", "state": "open", "ci_status": "pending"}
-        earlier = compute_pr_fingerprint({**base, "updated_at": "2026-04-23T10:00:00Z", "comments": 0})
-        later = compute_pr_fingerprint({**base, "updated_at": "2026-04-23T10:05:00Z", "comments": 3})
+        earlier = compute_pr_fingerprint(
+            {**base, "updated_at": "2026-04-23T10:00:00Z", "comments": 0, "unresolved_threads": 0}
+        )
+        later = compute_pr_fingerprint(
+            {**base, "updated_at": "2026-04-23T10:05:00Z", "comments": 3, "unresolved_threads": 2}
+        )
         assert earlier == later
 
     @parameterized.expand(
         [
             ("ci_status", "pending", "failing"),
             ("review_decision", None, "changes_requested"),
-            ("unresolved_threads", 0, 2),
             ("state", "open", "closed"),
         ]
     )
