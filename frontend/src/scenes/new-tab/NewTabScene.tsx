@@ -7,6 +7,8 @@ import { SearchItem } from 'lib/components/Search/searchLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { HomeViewToggle } from '~/layout/scenes/HomeViewToggle'
+
 export const scene: SceneExport = {
     component: NewTabScene,
 }
@@ -39,9 +41,10 @@ export function NewTabScene(): JSX.Element {
             isActive
             onItemSelect={handleItemSelect}
             showAskAiLink
-            className="size-full grow"
+            className="size-full grow relative"
             suggestedItems={suggestedItems}
         >
+            <HomeViewToggle current="search" />
             <div className="sticky top-0 w-full max-w-[640px] mx-auto">
                 <Search.Input autoFocus className="pt-8" />
                 <Search.Status />

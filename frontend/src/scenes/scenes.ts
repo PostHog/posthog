@@ -66,6 +66,20 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Approval',
         description: 'Review and approve a change request',
     },
+    [Scene.Apps]: {
+        projectBased: true,
+        name: 'Apps',
+        iconType: 'tools',
+        hideProjectNotice: true,
+        layout: 'app-raw-no-header',
+    },
+    [Scene.Files]: {
+        projectBased: true,
+        name: 'Files',
+        iconType: 'folder',
+        hideProjectNotice: true,
+        layout: 'app-raw-no-header',
+    },
     [Scene.WebScripts]: {
         projectBased: true,
         name: 'Web scripts',
@@ -768,6 +782,8 @@ export const redirects: Record<
 
 export const routes: Record<string, [Scene | string, string]> = {
     [urls.newTab()]: [Scene.NewTab, 'newTab'],
+    [urls.apps()]: [Scene.Apps, 'apps'],
+    [urls.files()]: [Scene.Files, 'files'],
     [urls.dashboards()]: [Scene.Dashboards, 'dashboards'],
     [urls.dashboardTemplateCopyToProject(':sourceTemplateId')]: [Scene.DashboardTemplateCopy, 'dashboardTemplateCopy'],
     [urls.dashboard(':id')]: [Scene.Dashboard, 'dashboard'],

@@ -7,6 +7,7 @@ import { maxLogic } from 'scenes/max/maxLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
+import { HomeViewToggle } from '~/layout/scenes/HomeViewToggle'
 
 import { aiFirstHomepageLogic } from './aiFirstHomepageLogic'
 import { HOMEPAGE_TAB_ID } from './constants'
@@ -38,6 +39,9 @@ export function AiFirstHomepage(): JSX.Element {
                 defaultSearchValue={isSearch ? query : ''}
                 className="grow overflow-hidden h-full relative"
             >
+                {/* Hidden in AI mode so it doesn't collide with the chat header's back button */}
+                {!isAi && <HomeViewToggle current="launchpad" />}
+
                 {/* Chat header — fixed at top, fades in independently */}
                 <div
                     className={cn(

@@ -37,6 +37,9 @@ export const urls = {
     project: (id: string | number, path = ''): string => `/project/${id}` + path,
     currentProject: (path = ''): string => urls.project(getCurrentTeamId(), path),
     newTab: () => '/search',
+    // Home variants configurable via the homepage toggle, hence nested under /home
+    apps: (): string => '/home/apps',
+    files: (): string => '/home/files',
     eventDefinitions: (): string => '/data-management/events',
     eventDefinition: (id: string | number): string => `/data-management/events/${id}`,
     eventDefinitionEdit: (id: string | number): string => `/data-management/events/${id}/edit`,
