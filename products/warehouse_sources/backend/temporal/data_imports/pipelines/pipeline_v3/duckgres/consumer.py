@@ -19,14 +19,19 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     BatchConsumer as SharedBatchConsumer,
     BatchConsumerConfig,
     OwnershipLostError,
+    PermanentBatchApplyError,
     ProcessBatchFn,
     _group_by_key,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill import (
     blocked_schema_ids as compute_blocked_schema_ids,
     failing_schema_ids as compute_failing_schema_ids,
+    mark_schema_diverged,
     run_backfill_planner,
     sink_eligible_schema_ids as compute_eligible_schema_ids,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.batch_kind import (
+    is_backfill_metadata,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.enablement import (
     duckgres_sink_team_ids,
@@ -505,6 +510,17 @@ class DuckgresBatchConsumer(SharedBatchConsumer):
             )
             raise
         await super()._handle_batch_failure(batch, attempt, err, lock_conn=lock_conn, status_conn=status_conn)
+        if (attempt >= self._config.max_attempts or isinstance(err, PermanentBatchApplyError)) and not (
+            is_backfill_metadata(batch.metadata)
+        ):
+            # Terminal failure of a LIVE run: earlier batches applied, the rest
+            # never will — the duckgres table is durably behind Delta. Park the
+            # schema so the gap stops compounding and shows up as failing
+            # instead of silently diverging. Backfill chunks are excluded: the
+            # reconciler escalates those against the BACKFILLING state.
+            await sync_to_async(mark_schema_diverged, thread_sensitive=False)(
+                batch.schema_id, run_uuid=batch.run_uuid, error=str(err)
+            )
 
     async def _recovery_sweep(self) -> None:
         conn = await self._ensure_recovery_conn()

@@ -130,6 +130,7 @@ __all__ = [
     "blocked_schema_ids",
     "failing_schema_ids",
     "mark_primed",
+    "mark_schema_diverged",
     "replan_backfill",
     "run_backfill_planner",
     "sink_eligible_schema_ids",
@@ -264,6 +265,40 @@ def mark_primed(schema_id: str, *, chunks_applied: int | None = None) -> None:
     DuckgresSinkSchemaState.objects.filter(schema_id=schema_id, state=DuckgresSinkSchemaState.State.BACKFILLING).update(
         **updates
     )
+
+
+def mark_schema_diverged(schema_id: str, *, run_uuid: str, error: str) -> None:
+    """A LIVE run hard-failed in the sink: some of its batches applied and the
+    rest never will, so the duckgres table is durably behind Delta. Park the
+    schema in NEEDS_RESYNC — that blocks further live batches from compounding
+    the gap, classifies the schema failing (streak jumped to threshold: a
+    terminally failed run has no retry loop to ride out), and routes healing
+    through the existing path: the next fully-applied replace-head run
+    (full-refresh resync, or the schema's own next full_refresh sync) flips it
+    back to PRIMED.
+
+    CAS from PRIMED only: a BACKFILLING schema's failures are the reconciler's
+    to escalate, and an already-parked schema must not have its streak anchor
+    or error overwritten.
+    """
+    close_old_connections()
+    now = timezone.now()
+    flipped = DuckgresSinkSchemaState.objects.filter(
+        schema_id=schema_id, state=DuckgresSinkSchemaState.State.PRIMED
+    ).update(
+        state=DuckgresSinkSchemaState.State.NEEDS_RESYNC,
+        last_error=f"live run {run_uuid} failed in the duckgres sink: {error}"[:2000],
+        updated_at=now,
+        consecutive_failures=Greatest(F("consecutive_failures"), Value(FAILING_THRESHOLD)),
+        first_failed_at=Coalesce(F("first_failed_at"), Value(now)),
+    )
+    if flipped:
+        logger.warning(
+            "duckgres_sink_schema_diverged",
+            schema_id=schema_id,
+            run_uuid=run_uuid,
+            error=error[:500],
+        )
 
 
 def replan_backfill(schema_id: str) -> None:
