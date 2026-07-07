@@ -1,6 +1,10 @@
 from typing import Literal
+from uuid import UUID
 
 MAX_ATTEMPTS = 5
+
+# Stable namespace for deterministic per-ticket trace ids (uuid5).
+AI_REPLY_TRACE_NAMESPACE = UUID("a1b2c3d4-5678-4e9f-ab12-cd34ef567890")
 SCORE_THRESHOLD = 0.5
 RERANK_TOP_K = 5
 # Ticket types whose replies may ever be published to the (untrusted) ticket author.

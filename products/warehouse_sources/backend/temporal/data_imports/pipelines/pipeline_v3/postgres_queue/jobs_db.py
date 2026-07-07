@@ -49,7 +49,8 @@ TAKEOVER_STALE_THRESHOLD_SECONDS = 6 * 60 * 60
 # Lookback for the queue-freshness probe. Bounds both the probe's cost and the
 # reported age: an unclaimed batch older than this saturates the gauge at the
 # window, which is already far past any sane alert threshold.
-FRESHNESS_WINDOW = "48 hours"
+FRESHNESS_WINDOW_SECONDS = 48 * 60 * 60
+FRESHNESS_WINDOW = f"{FRESHNESS_WINDOW_SECONDS} seconds"
 
 
 def pending_batch_select_columns(status_alias: str) -> str:
@@ -223,6 +224,9 @@ class RunActivitySummary:
     has_batches: bool
     has_non_terminal: bool
     is_stale: bool
+    # Ages behind the staleness verdict, surfaced so takeover logs are diagnosable.
+    last_status_write_age_seconds: float | None = None
+    oldest_unclaimed_age_seconds: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -617,6 +621,37 @@ class BatchQueue:
         return cursor.rowcount or 0
 
     @staticmethod
+    def fail_batches_for_job_sync(
+        conn: psycopg.Connection[Any],
+        *,
+        job_id: str,
+        reason: str,
+    ) -> int:
+        """Mark every non-terminal batch of a job as failed, across all its runs.
+
+        Takeover uses this before force-failing the job: leftover claimable
+        batches would otherwise load after the takeover and stale-overwrite
+        newer data or flip the FAILED job back to COMPLETED via the final batch.
+        """
+        cursor = conn.execute(
+            f"""
+            INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
+            SELECT b.id, 'failed', 0, now(), %(error_response)s, now()
+            FROM {BATCH_TABLE} b
+            {latest_status_lateral("b", "s")}
+            WHERE
+                b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                AND b.job_id = %(job_id)s
+                AND (s.batch_id IS NULL OR s.job_state IN ('waiting', 'waiting_retry', 'executing'))
+            """,
+            {
+                "job_id": job_id,
+                "error_response": json.dumps({"error": reason}),
+            },
+        )
+        return cursor.rowcount or 0
+
+    @staticmethod
     def supersede_other_runs(
         conn: psycopg.Connection[Any],
         *,
@@ -777,8 +812,11 @@ class BatchQueue:
 
         Used by the lock takeover decision matrix to distinguish genuinely stale
         RUNNING jobs from ones the loader still has work for. Unclaimed batches
-        (no status row yet — hence the LEFT JOIN) count as non-terminal, and both
-        batch inserts and status writes count as activity.
+        (no status row yet — hence the LEFT JOIN) count as non-terminal.
+        Staleness reflects loader progress only: status writes, or — when the
+        loader has never claimed anything — how long the oldest batch has sat
+        unclaimed. Batch inserts are producer activity and must not reset the
+        clock, or a streaming producer keeps a dead loader "active" forever.
         """
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
@@ -789,7 +827,8 @@ class BatchQueue:
                         WHERE s.batch_id IS NULL
                             OR s.job_state NOT IN ('succeeded', 'failed')
                     ) AS non_terminal_count,
-                    GREATEST(MAX(s.created_at), MAX(b.created_at)) AS latest_activity_at
+                    MAX(s.created_at) AS last_status_write_at,
+                    MIN(b.created_at) FILTER (WHERE s.batch_id IS NULL) AS oldest_unclaimed_at
                 FROM {BATCH_TABLE} b
                 {latest_status_lateral("b", "s")}
                 WHERE
@@ -801,17 +840,24 @@ class BatchQueue:
             )
             row = cur.fetchone()
 
-        if row is None or row["batch_count"] == 0 or row["latest_activity_at"] is None:
+        if row is None or row["batch_count"] == 0:
             return RunActivitySummary(has_batches=False, has_non_terminal=False, is_stale=True)
 
-        non_terminal_count: int = row["non_terminal_count"]
-        latest_activity_at: datetime = row["latest_activity_at"]
-        age_seconds = (datetime.now(latest_activity_at.tzinfo) - latest_activity_at).total_seconds()
+        def _age(moment: datetime | None) -> float | None:
+            if moment is None:
+                return None
+            return (datetime.now(moment.tzinfo) - moment).total_seconds()
+
+        last_status_write_age = _age(row["last_status_write_at"])
+        oldest_unclaimed_age = _age(row["oldest_unclaimed_at"])
+        loader_progress_age = last_status_write_age if last_status_write_age is not None else oldest_unclaimed_age
 
         return RunActivitySummary(
             has_batches=True,
-            has_non_terminal=non_terminal_count > 0,
-            is_stale=age_seconds > TAKEOVER_STALE_THRESHOLD_SECONDS,
+            has_non_terminal=row["non_terminal_count"] > 0,
+            is_stale=loader_progress_age is None or loader_progress_age > TAKEOVER_STALE_THRESHOLD_SECONDS,
+            last_status_write_age_seconds=last_status_write_age,
+            oldest_unclaimed_age_seconds=oldest_unclaimed_age,
         )
 
     @staticmethod

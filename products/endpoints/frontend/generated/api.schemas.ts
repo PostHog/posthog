@@ -176,6 +176,8 @@ export interface EndpointResponseApi {
     columns: EndpointColumnApi[]
     /** Tag names associated with this endpoint. */
     tags: string[]
+    /** Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of that breakdown. */
+    optional_breakdown_properties: string[]
 }
 
 export interface PaginatedEndpointResponseListApi {
@@ -249,6 +251,11 @@ export interface EndpointRequestApi {
      * @nullable
      */
     tags?: string[] | null
+    /**
+     * Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of that breakdown. Defaults to [] — every breakdown variable is required.
+     * @nullable
+     */
+    optional_breakdown_properties?: string[] | null
 }
 
 /**
@@ -326,6 +333,8 @@ export interface EndpointVersionResponseApi {
     columns: EndpointColumnApi[]
     /** Tag names associated with this endpoint. */
     tags: string[]
+    /** Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of that breakdown. */
+    optional_breakdown_properties: string[]
     /** Version number. */
     version: number
     /** Version unique identifier (UUID). */
@@ -405,6 +414,11 @@ export interface PatchedEndpointRequestApi {
      * @nullable
      */
     tags?: string[] | null
+    /**
+     * Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of that breakdown. Defaults to [] — every breakdown variable is required.
+     * @nullable
+     */
+    optional_breakdown_properties?: string[] | null
 }
 
 /**
@@ -420,6 +434,64 @@ export interface MaterializationPreviewRequestApi {
      * @nullable
      */
     bucket_overrides?: MaterializationPreviewRequestApiBucketOverrides
+}
+
+/**
+ * Request body for the AI materialization-fix suggestion action.
+ */
+export interface EndpointMaterializationSuggestionRequestApi {
+    /**
+     * Endpoint version to suggest a fix for. Defaults to the latest version.
+     * @nullable
+     */
+    version?: number | null
+}
+
+/**
+ * * `ok` - ok
+ * * `cannot_fix` - cannot_fix
+ * * `invalid` - invalid
+ * * `model_error` - model_error
+ */
+export type SuggestionStatusEnumApi = (typeof SuggestionStatusEnumApi)[keyof typeof SuggestionStatusEnumApi]
+
+export const SuggestionStatusEnumApi = {
+    Ok: 'ok',
+    CannotFix: 'cannot_fix',
+    Invalid: 'invalid',
+    ModelError: 'model_error',
+} as const
+
+/**
+ * AI-suggested query rewrite that would make the endpoint materializable.
+ */
+export interface EndpointMaterializationSuggestionApi {
+    /** Outcome of the suggestion run: 'ok' — the suggested query passes the live materialization checks; 'cannot_fix' — no semantically equivalent rewrite exists; 'invalid' — a suggestion was produced but never passed validation (suggested_query carries the last attempt); 'model_error' — the model returned no usable response.
+     *
+     * * `ok` - ok
+     * * `cannot_fix` - cannot_fix
+     * * `invalid` - invalid
+     * * `model_error` - model_error */
+    suggestion_status: SuggestionStatusEnumApi
+    /**
+     * The complete rewritten SQL query, or null when no rewrite was produced.
+     * @nullable
+     */
+    suggested_query: string | null
+    /**
+     * User-facing explanation of what was changed and why, or why no fix exists.
+     * @nullable
+     */
+    explanation: string | null
+    /** How many suggest→validate rounds were used. */
+    attempts: number
+    /**
+     * Last validation failure when the suggestion did not pass the checks.
+     * @nullable
+     */
+    error: string | null
+    /** The materialization blocker that triggered the suggestion. */
+    original_reason: string
 }
 
 /**
@@ -880,6 +952,16 @@ export interface QueryStatusApi {
 
 export interface QueryStatusResponseApi {
     query_status: QueryStatusApi
+}
+
+/**
+ * The live materialization rules, for agents that want to rewrite a rejected query themselves.
+ */
+export interface EndpointMaterializationConditionsApi {
+    /** Python source code of the checks that decide whether an endpoint query can be materialized, read from the running system — always matches what this instance enforces. Reason from it to rewrite a rejected query into a form that passes every check. */
+    conditions_source: string
+    /** Hard rules a rewrite must obey so it stays semantically equivalent to the original query (same results for all variable values, keep every variable placeholder unchanged). */
+    rewrite_contract: string
 }
 
 export type EndpointsListParams = {

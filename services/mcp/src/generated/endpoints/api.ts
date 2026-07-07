@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 12 enabled ops
+ * PostHog API - MCP 14 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -77,6 +77,12 @@ export const EndpointsCreateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .nullish()
             .describe('List of tag names to associate with this endpoint. Replaces any existing tags.'),
+        optional_breakdown_properties: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of that breakdown. Defaults to [] — every breakdown variable is required.'
+            ),
     })
     .describe('Schema for creating/updating endpoints. OpenAPI docs only — validation uses Pydantic.')
 
@@ -144,6 +150,12 @@ export const EndpointsPartialUpdateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .nullish()
             .describe('List of tag names to associate with this endpoint. Replaces any existing tags.'),
+        optional_breakdown_properties: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of that breakdown. Defaults to [] — every breakdown variable is required.'
+            ),
     })
     .describe('Schema for creating/updating endpoints. OpenAPI docs only — validation uses Pydantic.')
 
@@ -225,6 +237,27 @@ export const EndpointsMaterializationStatusRetrieveParams = /* @__PURE__ */ zod.
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
+
+/**
+ * Ask AI to rewrite the endpoint's query into a semantically equivalent form that can be materialized. Only applicable to SQL (HogQL) endpoints that currently fail the materialization checks. The suggestion is validated against the live checks before being returned; nothing is saved. Requires the organization's AI data processing approval.
+ */
+export const EndpointsMaterializationSuggestionCreateParams = /* @__PURE__ */ zod.object({
+    name: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const EndpointsMaterializationSuggestionCreateBody = /* @__PURE__ */ zod
+    .object({
+        version: zod
+            .number()
+            .nullish()
+            .describe('Endpoint version to suggest a fix for. Defaults to the latest version.'),
+    })
+    .describe('Request body for the AI materialization-fix suggestion action.')
 
 /**
  * Get OpenAPI 3.0 specification for this endpoint. Use this to generate typed SDK clients.
@@ -1485,4 +1518,15 @@ export const EndpointsLastExecutionTimesCreateParams = /* @__PURE__ */ zod.objec
 
 export const EndpointsLastExecutionTimesCreateBody = /* @__PURE__ */ zod.object({
     names: zod.array(zod.string()),
+})
+
+/**
+ * Get the source code of the live materialization checks, plus the rewrite contract. Lets an agent rewrite a rejected endpoint query itself: fetch these conditions, produce a semantically equivalent query that passes every check, update the endpoint with it, then confirm via materialization_status. The source is read from the running system, so it always matches the checks this instance enforces.
+ */
+export const EndpointsMaterializationConditionsRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
 })
