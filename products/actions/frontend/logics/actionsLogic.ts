@@ -63,7 +63,7 @@ export const actionsLogic = kea<actionsLogicType>([
             },
         ],
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         actionsResponse: [
             { count: 0, results: [] } as ActionsResponse,
             {
@@ -76,6 +76,9 @@ export const actionsLogic = kea<actionsLogicType>([
                         name: action.name,
                         pinned_at: new Date().toISOString(),
                     })
+                    // Patch the row for instant icon feedback, then reload so server-side
+                    // ordering (e.g. by pinned_at) reflects the change.
+                    actions.loadActions()
                     return {
                         ...values.actionsResponse,
                         results: values.actionsResponse.results.map((a) => (a.id === updated.id ? updated : a)),
@@ -86,6 +89,7 @@ export const actionsLogic = kea<actionsLogicType>([
                         name: action.name,
                         pinned_at: null,
                     })
+                    actions.loadActions()
                     return {
                         ...values.actionsResponse,
                         results: values.actionsResponse.results.map((a) => (a.id === updated.id ? updated : a)),
