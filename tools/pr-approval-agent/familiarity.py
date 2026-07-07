@@ -366,33 +366,40 @@ def _prior_prs_in_paths(paths: list[str], author_prs: set[int], repo_root: Path,
     return len(prs_recent), days_since
 
 
-def _files_previously_modified(paths: list[str], author_prs: set[int], repo_root: Path) -> tuple[int, int]:
+def _files_previously_modified(considered: list[_FileDiff], author_prs: set[int], repo_root: Path) -> tuple[int, int]:
     """(changed files the author previously modified, total changed files considered).
 
     One batched `git log --name-only` over all paths instead of a subprocess
     per file; the author "previously modified" a file when any of their merged
-    PRs touched it within the log window.
+    PRs touched it within the log window. Matches on both the old and new path
+    of a renamed file, since `git log --name-only -- <new_path>` alone misses
+    commits recorded under the pre-rename name - the file itself still counts
+    once towards the total either way.
     """
-    if not paths:
+    if not considered:
         return 0, 0
-    cmd = ["git", "log", f"--since={_LOG_SINCE}", "--format=%x01%s", "--name-only", "--", *paths]
+    all_paths = sorted({p for f in considered for p in (f.old_path, f.new_path) if p})
+    if not all_paths:
+        return 0, len(considered)
+    cmd = ["git", "log", f"--since={_LOG_SINCE}", "--format=%x01%s", "--name-only", "--", *all_paths]
     try:
         result = subprocess.run(cmd, cwd=repo_root, capture_output=True, text=True, timeout=_GIT_TIMEOUT_SECONDS)
     except (OSError, subprocess.SubprocessError):
-        return 0, len(paths)
+        return 0, len(considered)
     if result.returncode != 0:
-        return 0, len(paths)
+        return 0, len(considered)
 
-    wanted = set(paths)
-    owned_files: set[str] = set()
+    wanted = set(all_paths)
+    touched: set[str] = set()
     current_is_authors = False
     for line in result.stdout.splitlines():
         if line.startswith("\x01"):
             pr_number = _extract_pr_number(line[1:])
             current_is_authors = pr_number is not None and pr_number in author_prs
         elif line and current_is_authors and line in wanted:
-            owned_files.add(line)
-    return len(owned_files), len(paths)
+            touched.add(line)
+    owned_count = sum(1 for f in considered if (f.old_path in touched) or (f.new_path in touched))
+    return owned_count, len(considered)
 
 
 # ── Band ─────────────────────────────────────────────────────────
@@ -462,7 +469,7 @@ def compute_familiarity(
     blame_overlap_pct = (100.0 * owned / total) if total else 0.0
 
     prior_prs, days_since = _prior_prs_in_paths(considered_paths, author_prs, repo_root, now)
-    files_prev_count, files_total = _files_previously_modified(considered_paths, author_prs, repo_root)
+    files_prev_count, files_total = _files_previously_modified(considered, author_prs, repo_root)
 
     band = _band(blame_overlap_pct, prior_prs, days_since, thresholds)
 

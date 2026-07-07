@@ -200,6 +200,37 @@ def test_capped_flag_set_when_file_exceeds_line_bound(tmp_path: Path, monkeypatc
     assert fam.modified_lines_total == 0
 
 
+def test_files_previously_modified_counts_renamed_file_by_old_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    original = _numbered_lines("line", 6)
+    _commit(repo, "src/foo.py", original, "feat: add foo (#1)", "authora")
+    base_sha = _head(repo)
+
+    _git(repo, "mv", "src/foo.py", "src/bar.py")
+    (repo / "src/bar.py").write_text(original.replace("line 2\n", "line 2 changed\n"))
+    diff_path = tmp_path / "pr.diff"
+    diff_path.write_text(_git(repo, "diff", base_sha).stdout)
+
+    _patch_gh(monkeypatch, pr_numbers={1})
+    fam = compute_familiarity(
+        author_login="authora",
+        diff_path=diff_path,
+        base_sha=base_sha,
+        head_sha="HEAD",
+        repo="PostHog/posthog",
+        repo_root=repo,
+        thresholds=_THRESHOLDS,
+    )
+
+    assert fam is not None
+    # git log -- src/bar.py alone would miss authora's PR #1, recorded under src/foo.py.
+    assert fam.files_prev_count == 1
+    assert fam.files_total == 1
+
+
 # ── Band thresholds (pure) ───────────────────────────────────────
 
 
@@ -345,3 +376,19 @@ def test_none_band_withholds_negative_facts_but_keeps_routing_hint() -> None:
     cl["familiarity"] = _fam("NONE", ())
     prompt_no_hint = rev._build_review_prompt(pr, cl, gate_context, Path("/x.diff"))
     assert "familiar" not in prompt_no_hint
+
+
+@pytest.mark.parametrize("band", ["NONE", "MODERATE"])
+def test_top_prior_authors_are_sanitized_in_prompt(band: str) -> None:
+    # top_prior_authors comes from git blame - a contributor-controlled Git
+    # author name - rendered into the TRUSTED section of the prompt; a
+    # dropped sanitizer wrapper would let a bidi-override name through raw.
+    rev = reviewer.Reviewer(Path("/tmp"))
+    pr, cl, gate_context = _prompt_fixture()
+
+    malicious_name = "Eve\u202e" + "x" * 100
+    cl["familiarity"] = _fam(band, (malicious_name,))
+    prompt = rev._build_review_prompt(pr, cl, gate_context, Path("/x.diff"))
+
+    assert "\u202e" not in prompt
+    assert malicious_name not in prompt
