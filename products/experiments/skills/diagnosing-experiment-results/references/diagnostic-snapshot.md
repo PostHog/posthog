@@ -77,6 +77,41 @@ response. PostHog's experiment query filters these out via `in(properties.$featu
 not bias signals; don't pull them into the variant-balance discussion. The exception is when _every_
 exposure is `None`/`false` — that's a B-series symptom, not an A-series one.
 
+## Reading metric result rows (`data: null`)
+
+Powers any diagnostic that reads `experiment-results-get`, and the "results won't load" complaint.
+
+Each row in `metrics.primary.results` / `metrics.secondary.results` is kept positionally even when its
+query produced no output; a failed or not-yet-computed row has `data: null`. **A single cached snapshot
+showing `data: null` rows is not, by itself, evidence that metric queries are failing.** PostHog
+precomputes experiment results on a schedule (gated behind a minimum runtime — see B0 in
+`empty-experiment.md`); until precompute lands, recently launched or recently edited experiments return
+`data: null` placeholders that fill in on their own. Transient query load (e.g. rate-limiting at the
+moment you pulled the snapshot) produces the same shape.
+
+**Disambiguate transient from a real failure before reporting it:**
+
+- **Re-pull** `experiment-results-get` (cached) a while later — if the previously-null rows now carry
+  data, they were transient, not failing.
+- **Force one recompute** with `experiment-results-get { refresh: true }` — this triggers an on-demand
+  compute of every metric. If it returns the rows populated (no `data: null`), the backend compute path
+  is healthy and the earlier nulls were transient. If a row stays `null` after a successful
+  force-refresh, that metric genuinely fails to compute — then inspect its definition (e.g. a `mean`
+  metric over a property that doesn't exist, a baseline of zero, or a malformed funnel).
+
+Two cautions:
+
+- **Don't conflate the _count_ of null rows with severity.** Experiments with very large metric sets
+  (dozens of secondary metrics) show the most warming placeholders simply because there's more to
+  precompute — alarming on first pull, but it clears. Verify persistence per the steps above before
+  reporting "many metrics failing"; jumping straight to "prune metrics / overloaded refresh" from one
+  snapshot is a known false positive.
+- **Backend results health ≠ the user's in-app loading experience.** `experiment-results-get` computing
+  cleanly (even on force-refresh) does not prove the results _page_ loads for the user — a browser
+  rendering many metrics on demand can still time out client-side. If the complaint is "results won't
+  load" but the API computes fine, the issue is front-end / on-demand-render, not the metric queries;
+  don't report it as a query failure.
+
 ## Recent flag mutations
 
 Powers A6, E7; E5 lives on the experiment, not the flag.

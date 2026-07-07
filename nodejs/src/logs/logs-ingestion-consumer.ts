@@ -4,6 +4,7 @@ import pLimit from 'p-limit'
 import { Counter, Histogram } from 'prom-client'
 
 import { KafkaConsumerInterface, createKafkaConsumer, parseKafkaHeaders } from '~/common/kafka/consumer'
+import { recordPiiReplacements } from '~/common/metrics/otel-metrics'
 import { AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
@@ -330,7 +331,8 @@ export class LogsIngestionConsumer {
                 message.message.value!,
                 logsSettings,
                 ruleSet,
-                message.teamId
+                message.teamId,
+                message.bytesUncompressed
             )
             if (sampled.recordsDropped > 0) {
                 logsSamplingRecordsDroppedCounter.inc({ team_id: message.teamId.toString() }, sampled.recordsDropped)
@@ -476,6 +478,7 @@ export class LogsIngestionConsumer {
         if (delta.piiReplacements === 0) {
             return
         }
+        recordPiiReplacements(this.appSource, delta.piiReplacements)
         const row = usage.get(teamId) || { ...DEFAULT_USAGE_STATS }
         row.piiReplacements += delta.piiReplacements
         usage.set(teamId, row)

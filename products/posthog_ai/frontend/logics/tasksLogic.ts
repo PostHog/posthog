@@ -65,7 +65,6 @@ export const tasksLogic = kea<tasksLogicType>([
                 },
                 createTask: async ({ data }: { data: TaskUpsertProps }) => {
                     const newTask = await api.tasks.create(data)
-                    lemonToast.success('Task created successfully')
                     void addProductIntent({
                         product_type: ProductKey.TASKS,
                         intent_context: ProductIntentContext.TASK_CREATED,
@@ -74,7 +73,6 @@ export const tasksLogic = kea<tasksLogicType>([
                 },
                 deleteTask: async ({ taskId }: { taskId: string }) => {
                     await api.tasks.delete(taskId)
-                    lemonToast.success('Task deleted')
                     return values.tasks.filter((t) => t.id !== taskId)
                 },
             },

@@ -66,9 +66,9 @@ versa). Fix the migration to match the HCL, or — if the change is intended —
 **enforced** (drift fails the smoke); export `VERIFY_LIVE_WARN=1` to make it informational while
 reconciling a new role.
 
-LOGS is compared against `golden/local-<role>.hcl`; until a `local-logs` golden is seeded (introspect
-the live local logs node, then curate), the script skips LOGS with a notice. OPS is enforced via the
-existing `golden/local-ops.hcl`.
+Each managed role is compared against its `golden/local-<role>.hcl`. The local LOGS node runs a
+partial/newer schema than the cloud logs nodes, so `local logs` composes a self-contained
+`roles/logs/local` (extracted from the live node) rather than the shared cloud layers.
 
 `node_roles` is **derived**: an object in `roles/shared/` appears in every node's composition →
 `node_roles` = every managed role (currently `[LOGS, OPS]`); an object under `roles/ops/` appears
@@ -90,7 +90,7 @@ HCL=posthog/clickhouse/hcl
 $HCL/bin/hclexp -help
 # it is equivalent to:
 docker run --rm -v "$PWD:/work" -v "${TMPDIR:-/tmp}:${TMPDIR:-/tmp}" -w /work \
-  ghcr.io/posthog/chschema:sha-c0affa0 -help
+  ghcr.io/posthog/chschema:sha-bf84186 -help
 ```
 
 (For faster local iteration you can build the binary — `go build -o hclexp ./cmd/hclexp` in

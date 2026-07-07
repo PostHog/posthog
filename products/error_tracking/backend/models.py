@@ -434,6 +434,30 @@ class ErrorTrackingSuppressionRule(UUIDTModel):
         # ]
 
 
+class ErrorTrackingBypassRule(UUIDTModel):
+    # Bypass rules exempt matching exception events from rate limiting. When an incoming event
+    # matches an enabled rule, Cymbal keeps it and charges no rate-limit tokens (neither the
+    # per-issue nor the project bucket), recording a "bypassed" status instead of
+    # "allowed"/"rate_limited". They are evaluated only inside the rate-limiting stage and never
+    # affect suppression, which runs earlier.
+    # db_constraint=False keeps the create lock-free on posthog_team (a hot table); team scoping
+    # is enforced at the ORM layer and Cymbal reads by team_id via raw SQL.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    filters = models.JSONField(null=False, blank=False)  # The json object describing the filter rule
+    bytecode = models.JSONField(null=True, blank=True)
+    disabled_data = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    # Bypass rules are ordered, and greedily evaluated
+    order_key = models.IntegerField(null=False, blank=False)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["team_id"]),
+        ]
+        db_table = "posthog_errortrackingbypassrule"
+
+
 class ErrorTrackingAutoCaptureControls(UUIDTModel):
     """
     Controls for error tracking autocapture behavior.

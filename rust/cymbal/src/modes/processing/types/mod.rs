@@ -1,4 +1,3 @@
-use common_types::embedding::{EmbeddingModel, EmbeddingRequest};
 use common_types::error_tracking::RawFrameId;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -7,13 +6,13 @@ use std::hash::Hash;
 use std::ops::{Deref, DerefMut};
 use uuid::Uuid;
 
-use crate::fingerprinting::{FingerprintBuilder, FingerprintComponent, FingerprintRecordPart};
+use crate::fingerprinting::{
+    FingerprintBuilder, FingerprintComponent, FingerprintRecordPart, FingerprintVersion,
+};
 use crate::frames::releases::{ReleaseInfo, ReleaseRecord};
 use crate::frames::{Frame, RawFrame};
-use crate::issue_resolution::Issue;
 use crate::langs::native::DebugImage;
 use crate::metric_consts::POSTHOG_SDK_EXCEPTION_RESOLVED;
-use crate::tokenizer::CL100K_BPE;
 
 pub mod batch;
 pub mod event;
@@ -154,8 +153,11 @@ pub struct OutputErrProps {
     pub exception_list: ExceptionList,
     #[serde(rename = "$exception_fingerprint")]
     pub fingerprint: String,
-    #[serde(rename = "$exception_proposed_fingerprint")]
-    pub proposed_fingerprint: String,
+    #[serde(
+        rename = "$exception_fingerprint_version",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub fingerprint_version: Option<FingerprintVersion>,
     #[serde(rename = "$exception_fingerprint_record")]
     pub fingerprint_record: Vec<FingerprintRecordPart>,
     #[serde(rename = "$exception_issue_id")]
@@ -263,128 +265,6 @@ impl OutputErrProps {
                 frames.iter_mut().for_each(|frame| frame.junk_drawer = None);
             }
         });
-    }
-
-    /// Render exception types, messages, and stack frames as a human-readable string.
-    ///
-    /// If `max_tokens` is `Some(limit)`, the output is measured against `limit`
-    /// tokens (using the cl100k_base tiktoken encoding). When the full output
-    /// would exceed the limit, only the first and last frame of each exception
-    /// are kept with a `...` marker between them. If the truncated output is
-    /// still over the limit, the string is hard-truncated to exactly `limit`
-    /// tokens.
-    pub fn print_stacktrace(&self, max_tokens: Option<usize>) -> String {
-        let full = self.render_stacktrace(false);
-
-        let Some(limit) = max_tokens else {
-            return full;
-        };
-
-        let bpe = &*CL100K_BPE;
-        let tokens = bpe.encode_with_special_tokens(&full);
-
-        if tokens.len() <= limit {
-            return full;
-        }
-
-        let truncated = self.render_stacktrace(true);
-        let tokens = bpe.encode_with_special_tokens(&truncated);
-
-        if tokens.len() <= limit {
-            return truncated;
-        }
-
-        // Hard-truncate to `limit` tokens. Truncation can split a multi-byte
-        // character's token sequence, producing bytes that aren't valid UTF-8
-        // on decode. Drop trailing tokens until we land on a clean boundary.
-        let mut tokens: Vec<_> = tokens.into_iter().take(limit).collect();
-        loop {
-            match bpe.decode(tokens.clone()) {
-                Ok(text) => break text,
-                Err(_) => {
-                    tokens.pop();
-                }
-            }
-        }
-    }
-
-    fn render_stacktrace(&self, truncate: bool) -> String {
-        let mut content = String::with_capacity(2048);
-
-        for exception in &self.exception_list.0 {
-            // Add exception type and value
-            let type_and_value = format!(
-                "{}: {}\n",
-                exception.exception_type,
-                exception
-                    .exception_message
-                    .chars()
-                    .take(300)
-                    .collect::<String>()
-            );
-
-            content.push_str(&type_and_value);
-
-            let Some(stack) = &exception.stack else {
-                continue;
-            };
-
-            let frames = stack.get_frames();
-
-            if truncate && frames.len() > 2 {
-                content.push_str(&Self::render_frame(&frames[0]));
-                content.push_str("...\n");
-                content.push_str(&Self::render_frame(frames.last().unwrap()));
-            } else {
-                for frame in frames {
-                    content.push_str(&Self::render_frame(frame));
-                }
-            }
-        }
-
-        content
-    }
-
-    fn render_frame(frame: &Frame) -> String {
-        let mut output = String::new();
-
-        if let Some(resolved_name) = &frame.resolved_name {
-            output.push_str(resolved_name);
-        } else {
-            output.push_str(&frame.mangled_name);
-        }
-
-        if let Some(source) = &frame.source {
-            output.push_str(&format!(" in {source}"));
-        }
-
-        if let Some(line) = frame.line {
-            output.push_str(&format!(" line {line}"));
-        }
-
-        if let Some(column) = frame.column {
-            output.push_str(&format!(" column {column}"));
-        }
-
-        output.push('\n');
-        output
-    }
-
-    pub fn to_fingerprint_embedding_request(&self, issue: &Issue) -> EmbeddingRequest {
-        EmbeddingRequest {
-            team_id: issue.team_id,
-            product: "error_tracking".to_string(),
-            document_type: "fingerprint".to_string(),
-            rendering: "type_message_and_stack".to_string(),
-            document_id: self.fingerprint.clone(),
-            timestamp: issue.created_at,
-            content: self.print_stacktrace(Some(7000)),
-            models: vec![
-                EmbeddingModel::OpenAITextEmbeddingLarge,
-                EmbeddingModel::OpenAITextEmbeddingSmall,
-            ],
-            metadata: Default::default(),
-        }
     }
 }
 

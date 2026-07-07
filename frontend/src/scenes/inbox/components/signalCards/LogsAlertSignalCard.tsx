@@ -4,15 +4,19 @@ import { LemonTag, Link } from '@posthog/lemon-ui'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { urls } from 'scenes/urls'
 
-import type { LogsAlertStateChangeSignalExtra } from '~/queries/schema/schema-signals'
+import type { LogsAlertStateChangeSignalExtraApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalCardShell } from './SignalCardShell'
 import type { SignalCardEntry, SignalCardProps } from './types'
 
 /** Narrows a signal's `extra` to the logs alert state-change shape. */
 export function isLogsAlertStateChangeExtra(
-    extra: Record<string, unknown>
-): extra is Record<string, unknown> & LogsAlertStateChangeSignalExtra {
+    value: unknown
+): value is Record<string, unknown> & LogsAlertStateChangeSignalExtraApi {
+    if (typeof value !== 'object' || value === null) {
+        return false
+    }
+    const extra = value as Record<string, unknown>
     return (
         typeof extra.alert_id === 'string' &&
         (extra.action === 'firing' || extra.action === 'broken') &&
@@ -78,7 +82,7 @@ function FiltersBlock({ filters }: { filters: Record<string, unknown> }): JSX.El
 }
 
 /** Firing body: threshold sentence plus a compact observed / threshold pair. */
-function FiringBody({ extra }: { extra: LogsAlertStateChangeSignalExtra }): JSX.Element {
+function FiringBody({ extra }: { extra: LogsAlertStateChangeSignalExtraApi }): JSX.Element {
     const observed = extra.result_count === null ? 'No result' : extra.result_count
 
     return (
@@ -100,7 +104,7 @@ function FiringBody({ extra }: { extra: LogsAlertStateChangeSignalExtra }): JSX.
 }
 
 /** Broken body: auto-disable sentence plus a muted line describing what was being checked. */
-function BrokenBody({ extra }: { extra: LogsAlertStateChangeSignalExtra }): JSX.Element {
+function BrokenBody({ extra }: { extra: LogsAlertStateChangeSignalExtraApi }): JSX.Element {
     return (
         <div className="flex flex-col gap-1">
             <p className="text-sm m-0">

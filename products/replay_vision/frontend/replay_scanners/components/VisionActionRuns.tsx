@@ -1,25 +1,17 @@
 import { useValues } from 'kea'
 
-import { LemonCard, LemonTag } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { SleepingHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { urls } from 'scenes/urls'
 
-import type { VisionActionRunApi, VisionActionRunStatusEnumApi } from '../../generated/api.schemas'
+import type { VisionActionRunListApi } from '../../generated/api.schemas'
 import { visionActionRunsLogic } from '../visionActionRunsLogic'
-
-const STATUS_TAG: Record<
-    VisionActionRunStatusEnumApi,
-    { type: 'success' | 'danger' | 'warning' | 'primary'; label: string }
-> = {
-    completed: { type: 'success', label: 'Completed' },
-    failed: { type: 'danger', label: 'Failed' },
-    skipped: { type: 'warning', label: 'Skipped' },
-    running: { type: 'primary', label: 'Running' },
-}
+import { RunStatusTag } from '../visionActionRunStatus'
+import { visionActionSceneLogic } from '../visionActionSceneLogic'
 
 function StatCell({
     title,
@@ -72,34 +64,6 @@ function RunStats(): JSX.Element {
     )
 }
 
-function RunMeta({ run }: { run: VisionActionRunApi }): JSX.Element {
-    const tag = STATUS_TAG[run.status]
-    const count = run.observation_count
-    return (
-        <div className="flex items-center gap-2 text-xs text-secondary">
-            <LemonTag type={tag.type} size="small">
-                {tag.label}
-            </LemonTag>
-            <TZLabel time={run.scheduled_at ?? run.created_at} formatDate="MMM D, YYYY" formatTime="HH:mm" />
-            {count > 0 && <span>· Summarized {count === 1 ? '1 observation' : `${count} observations`}</span>}
-        </div>
-    )
-}
-
-function RunCard({ run }: { run: VisionActionRunApi }): JSX.Element {
-    return (
-        <LemonCard hoverEffect={false} className="flex flex-col gap-3">
-            <RunMeta run={run} />
-            {run.synthesized_markdown ? (
-                // The summary is the point of the run — give it the room.
-                <LemonMarkdown className="text-base">{run.synthesized_markdown}</LemonMarkdown>
-            ) : (
-                <div className="text-muted italic">{run.error_reason || 'No summary was produced for this run.'}</div>
-            )}
-        </LemonCard>
-    )
-}
-
 function EmptyRuns(): JSX.Element {
     return (
         <div className="flex flex-col items-center text-center gap-3 py-10">
@@ -115,6 +79,29 @@ function EmptyRuns(): JSX.Element {
 
 export function VisionActionRuns(): JSX.Element {
     const { runs, runsLoading } = useValues(visionActionRunsLogic)
+    const { actionId } = useValues(visionActionSceneLogic)
+
+    const columns: LemonTableColumns<VisionActionRunListApi> = [
+        {
+            title: 'When',
+            key: 'when',
+            render: (_, run) => (
+                <Link className="font-semibold" to={urls.replayVisionActionRun(actionId, run.id)}>
+                    <TZLabel time={run.scheduled_at ?? run.created_at} formatDate="MMM D, YYYY" formatTime="HH:mm" />
+                </Link>
+            ),
+        },
+        {
+            title: 'Status',
+            key: 'status',
+            render: (_, run) => <RunStatusTag status={run.status} reason={run.error_reason} />,
+        },
+        {
+            title: 'Observations',
+            key: 'observations',
+            render: (_, run) => <span className="text-sm">{run.observation_count}</span>,
+        },
+    ]
 
     return (
         <div className="flex flex-col gap-4">
@@ -126,11 +113,7 @@ export function VisionActionRuns(): JSX.Element {
             ) : runs.length === 0 ? (
                 <EmptyRuns />
             ) : (
-                <div className="flex flex-col gap-3">
-                    {runs.map((run) => (
-                        <RunCard key={run.id} run={run} />
-                    ))}
-                </div>
+                <LemonTable columns={columns} dataSource={runs} rowKey="id" data-attr="vision-action-runs-table" />
             )}
         </div>
     )

@@ -5,7 +5,7 @@ from ipaddress import IPv4Address, IPv6Address
 from typing import Any, cast
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pyarrow as pa
 import deltalake
@@ -19,9 +19,14 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _get_max_decimal_type,
     _to_list_array,
     append_partition_key_to_table,
+    apply_enabled_columns_projection,
     evolve_pyarrow_schema,
+    merge_observed_columns_into_schema_metadata,
     normalize_table_column_names,
+    observe_and_project_table,
+    observed_schema_metadata_columns,
     setup_partitioning,
+    source_uses_delta_write_column_selection,
     table_from_py_list,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.test_mocks import mock_delta_table
@@ -1018,3 +1023,161 @@ async def test_setup_partitioning_mode_override_forces_datetime_on_non_standard_
     assert applied_mode == "datetime"
     assert applied_keys == ["action_date"]
     assert applied_format == "month"
+
+
+def _projection_input_table() -> pa.Table:
+    return pa.table(
+        {
+            "id": [1, 2],
+            "name": ["a", "b"],
+            "amount": [10, 20],
+            "updated_at": ["2026-01-01", "2026-01-02"],
+            "_ph_debug": ["{}", "{}"],
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "enabled_columns,primary_keys,incremental_field,partition_keys,expected_columns",
+    [
+        # None syncs everything untouched
+        (None, ["id"], "updated_at", None, ["id", "name", "amount", "updated_at", "_ph_debug"]),
+        # plain selection drops the rest, internals survive
+        (["name"], None, None, None, ["name", "_ph_debug"]),
+        # PK + incremental field retained even when not selected
+        (["name"], ["id"], "updated_at", None, ["id", "name", "updated_at", "_ph_debug"]),
+        # source-namespace names (e.g. Snowflake uppercase) fold onto normalized table columns
+        (["NAME"], ["ID"], None, None, ["id", "name", "_ph_debug"]),
+        # stale enabled names are ignored, not fatal
+        (["name", "dropped_upstream"], None, None, None, ["name", "_ph_debug"]),
+        # a projection that would empty the table falls back to all columns
+        (["dropped_upstream"], None, None, None, ["id", "name", "amount", "updated_at", "_ph_debug"]),
+        # [] keeps only the always-retained set
+        ([], ["id"], "updated_at", None, ["id", "updated_at", "_ph_debug"]),
+        # partition-key source columns retained
+        (["name"], None, None, ["amount"], ["name", "amount", "_ph_debug"]),
+    ],
+)
+def test_apply_enabled_columns_projection(
+    enabled_columns, primary_keys, incremental_field, partition_keys, expected_columns
+):
+    table, dropped = apply_enabled_columns_projection(
+        _projection_input_table(), enabled_columns, primary_keys, incremental_field, partition_keys
+    )
+
+    assert table.column_names == expected_columns
+    assert sorted(dropped) == sorted(set(_projection_input_table().column_names) - set(expected_columns))
+
+
+def test_apply_enabled_columns_projection_drops_spoofed_internal_lookalikes():
+    # A source can't smuggle a deselected column past the projection by giving it a name that
+    # merely looks internal (_ph_*/_dlt_*) — only the pipeline's own exact internal columns survive.
+    table = pa.table(
+        {
+            "name": ["a", "b"],
+            "_ph_debug": ["{}", "{}"],
+            "_ph_secret": ["s1", "s2"],
+            "_dlt_secret": ["d1", "d2"],
+        }
+    )
+
+    result, dropped = apply_enabled_columns_projection(table, ["name"], None, None, None)
+
+    assert result.column_names == ["name", "_ph_debug"]
+    assert sorted(dropped) == ["_dlt_secret", "_ph_secret"]
+
+
+@pytest.mark.asyncio
+async def test_observe_and_project_table_observes_then_projects_and_logs():
+    logger: FilteringBoundLogger = structlog.get_logger()
+    observed_columns: dict[str, Any] = {}
+    table = _projection_input_table()
+
+    with patch.object(logger, "adebug", new=AsyncMock()) as mock_adebug:
+        result = await observe_and_project_table(
+            table,
+            ["name"],
+            None,
+            None,
+            None,
+            observed_columns,
+            logger,
+            "Dropped non-enabled columns",
+        )
+
+    assert result.column_names == ["name", "_ph_debug"]
+    # Observed before projection, so deselected columns stay visible to the column picker.
+    assert set(observed_columns) == {"id", "name", "amount", "updated_at"}
+    mock_adebug.assert_called_once()
+    assert "Dropped non-enabled columns" in mock_adebug.call_args.args[0]
+
+
+def test_observed_schema_metadata_columns_excludes_internal_columns():
+    fields: list[pa.Field] = [
+        pa.field("id", pa.int64(), nullable=False),
+        pa.field("name", pa.string()),
+        pa.field("_ph_debug", pa.string()),
+        pa.field("_dlt_id", pa.string()),
+    ]
+    schema = pa.schema(fields)
+
+    assert observed_schema_metadata_columns(schema) == [
+        {"name": "id", "data_type": "int64", "is_nullable": False},
+        {"name": "name", "data_type": "string", "is_nullable": True},
+    ]
+
+
+def test_merge_observed_columns_creates_schema_metadata_from_empty_config():
+    config: dict[str, Any] = {}
+
+    merge_observed_columns_into_schema_metadata(config, [{"name": "id", "data_type": "int64", "is_nullable": False}])
+
+    assert config["schema_metadata"]["columns"] == [{"name": "id", "data_type": "int64", "is_nullable": False}]
+
+
+def test_merge_observed_columns_unions_and_refreshes():
+    # Deselected columns must stay listed (union) or the picker could never re-enable them,
+    # while re-observed columns pick up type changes.
+    config: dict[str, Any] = {
+        "schema_metadata": {
+            "columns": [
+                {"name": "id", "data_type": "int32", "is_nullable": False},
+                {"name": "deselected", "data_type": "string", "is_nullable": True},
+            ],
+            "source_table_name": "customers",
+        }
+    }
+
+    merge_observed_columns_into_schema_metadata(
+        config,
+        [
+            {"name": "id", "data_type": "int64", "is_nullable": False},
+            {"name": "brand_new", "data_type": "string", "is_nullable": True},
+        ],
+    )
+
+    assert config["schema_metadata"]["columns"] == [
+        {"name": "id", "data_type": "int64", "is_nullable": False},
+        {"name": "deselected", "data_type": "string", "is_nullable": True},
+        {"name": "brand_new", "data_type": "string", "is_nullable": True},
+    ]
+    assert config["schema_metadata"]["source_table_name"] == "customers"
+
+
+@pytest.mark.parametrize(
+    "source_type,expected",
+    [
+        # SQL sources project enabled_columns in their SELECT — no Delta-write drop.
+        ("Postgres", False),
+        # Managed-schema sources must never drop columns (canonical HogQL schema needs them all),
+        # even if a stale enabled_columns is still persisted.
+        ("Stripe", False),
+        ("Zendesk", False),
+        # Generic API sources get the generic Delta-write drop.
+        ("Hubspot", True),
+        # Unknown source types fail closed.
+        ("NotARealSource", False),
+    ],
+)
+def test_source_uses_delta_write_column_selection(source_type, expected):
+    assert source_uses_delta_write_column_selection(source_type) is expected

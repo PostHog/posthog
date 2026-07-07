@@ -20,7 +20,7 @@ import type { Redis } from 'ioredis'
 
 import type { Config } from '../lib/config.js'
 import { validateStreamReadToken } from '../lib/jwt.js'
-import { logger } from '../lib/logging.js'
+import { logger, type RequestLogger } from '../lib/logging.js'
 import { getStreamKey } from '../lib/redis-stream.js'
 import { StreamCapacity } from '../lib/stream-capacity.js'
 import type { StreamReadTokenPayload } from '../lib/types.js'
@@ -29,14 +29,14 @@ import { observeStreamConnectionRejected } from './metrics.js'
 import { corsHeaders, corsPreflightHandler, httpMetrics, requestLog, securityHeaders } from './middleware.js'
 import { registerPublicRoutes } from './public-routes.js'
 import { streamTaskRunEvents } from './sse-handler.js'
-import type { Lifecycle } from './types.js'
+import type { HonoVariables, Lifecycle } from './types.js'
 
 // ---------------------------------------------------------------------------
 // Exported types
 // ---------------------------------------------------------------------------
 
 export interface App {
-    app: Hono
+    app: Hono<{ Variables: HonoVariables }>
     lifecycle: Lifecycle
 }
 
@@ -45,9 +45,22 @@ export interface App {
 // ---------------------------------------------------------------------------
 
 export function createApp(redis: Redis, config: Config, publicKeys: CryptoKey[]): App {
-    const app = new Hono()
+    const app = new Hono<{ Variables: HonoVariables }>()
     const lifecycle: Lifecycle = { shuttingDown: false }
     const streamCapacity = new StreamCapacity(config.maxConcurrentStreams, config.maxStreamsPerRun)
+
+    app.onError((err, c) => {
+        const requestLogger: RequestLogger | undefined = c.get('requestLogger')
+        requestLogger?.extend({ error: err.message })
+        logger.error('http.unhandled_error', {
+            requestId: requestLogger?.id,
+            method: c.req.method,
+            path: new URL(c.req.url).pathname,
+            error: err.message,
+            stack: err.stack,
+        })
+        return c.json({ error: 'Internal server error' }, 500)
+    })
 
     app.use('*', securityHeaders)
     app.use('*', corsHeaders(config))

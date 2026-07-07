@@ -17,18 +17,18 @@ from posthog.hogql.database.models import (
     UUIDDatabaseField,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
-from posthog.hogql.database.schema.account_aggregates import (
-    _account_custom_property_values,
-    _account_resource_notebooks,
-    _account_tagged_items,
-    account_custom_properties_lazy_join,
-    account_notebooks_lazy_join,
-    account_tags_lazy_join,
-)
 from posthog.hogql.database.schema.information_schema import information_schema_node
 from posthog.hogql.parser import parse_expr
 
 from posthog.scopes import APIScopeObject
+
+from products.customer_analytics.backend.facade.hogql import (
+    account_custom_property_values,
+    account_resource_notebooks,
+    account_tagged_items,
+    accounts,
+    custom_property_definitions,
+)
 
 
 class IngestionWarningsTable(Table):
@@ -208,74 +208,6 @@ cohort_calculation_history: PostgresTable = PostgresTable(
     },
 )
 
-accounts: PostgresTable = PostgresTable(
-    name="accounts",
-    postgres_table_name="customer_analytics_account",
-    # Object-level access control filters out ids directly off access_scope, so we use
-    # `account` here (where the per-object grants are stored) instead of the
-    # `customer_analytics` umbrella. Resource-level gating still works via RESOURCE_INHERITANCE_MAP.
-    access_scope="account",
-    description="Customer analytics accounts (companies/organizations being tracked); one row per account, with CRM identifiers extracted from properties.",
-    fields={
-        "id": UUIDDatabaseField(name="id", description="Account UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
-        "external_id": StringDatabaseField(
-            name="external_id", nullable=True, description="Identifier of the account in the source system."
-        ),
-        "name": StringDatabaseField(name="name", description="Display name of the account."),
-        "properties": StringJSONDatabaseField(
-            name="properties",
-            description="JSON map of account properties; the CRM id columns below are extracted from this.",
-        ),
-        "stripe_customer_id": ExpressionField(
-            name="stripe_customer_id",
-            expr=parse_expr("JSONExtractString(properties, 'stripe_customer_id')"),
-        ),
-        "hubspot_deal_id": ExpressionField(
-            name="hubspot_deal_id",
-            expr=parse_expr("JSONExtractString(properties, 'hubspot_deal_id')"),
-        ),
-        "billing_id": ExpressionField(
-            name="billing_id",
-            expr=parse_expr("JSONExtractString(properties, 'billing_id')"),
-        ),
-        "sfdc_id": ExpressionField(
-            name="sfdc_id",
-            expr=parse_expr("JSONExtractString(properties, 'sfdc_id')"),
-        ),
-        "zendesk_id": ExpressionField(
-            name="zendesk_id",
-            expr=parse_expr("JSONExtractString(properties, 'zendesk_id')"),
-        ),
-        "csm": ExpressionField(
-            name="csm",
-            expr=parse_expr("JSONExtract(properties, 'csm', 'Tuple(id Nullable(Int64), email Nullable(String))')"),
-        ),
-        "account_executive": ExpressionField(
-            name="account_executive",
-            expr=parse_expr(
-                "JSONExtract(properties, 'account_executive', 'Tuple(id Nullable(Int64), email Nullable(String))')"
-            ),
-        ),
-        "account_owner": ExpressionField(
-            name="account_owner",
-            expr=parse_expr(
-                "JSONExtract(properties, 'account_owner', 'Tuple(id Nullable(Int64), email Nullable(String))')"
-            ),
-        ),
-        "created_by_id": IntegerDatabaseField(
-            name="created_by_id", nullable=True, description="User who created the account record."
-        ),
-        "created_at": DateTimeDatabaseField(name="created_at", description="When the account record was created."),
-        "updated_at": DateTimeDatabaseField(
-            name="updated_at", nullable=True, description="When the account record was last updated."
-        ),
-        "tags": account_tags_lazy_join,
-        "notebooks": account_notebooks_lazy_join,
-        "custom_properties": account_custom_properties_lazy_join,
-    },
-)
-
 cohorts: PostgresTable = PostgresTable(
     name="cohorts",
     postgres_table_name="posthog_cohort",
@@ -311,41 +243,6 @@ cohorts: PostgresTable = PostgresTable(
             name="is_static",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_is_static"])]),
             description="1 if the cohort is a fixed static list, 0 if dynamically calculated from filters.",
-        ),
-    },
-)
-
-custom_property_definitions: PostgresTable = PostgresTable(
-    name="custom_property_definitions",
-    postgres_table_name="customer_analytics_custompropertydefinition",
-    # Sub-resource of accounts; gated at the account resource level (see customer_analytics backend CLAUDE.md).
-    access_scope="account",
-    description="Customer analytics custom property definitions: team-scoped attribute shapes (the property's name and type), one row per definition. Per-account values are exposed via the system.accounts.custom_properties lazy join.",
-    fields={
-        "id": UUIDDatabaseField(name="id", description="Custom property definition UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
-        "name": StringDatabaseField(
-            name="name", description="Human-readable name of the custom property; unique within the team."
-        ),
-        "description": StringDatabaseField(
-            name="description", nullable=True, description="Optional description of what the property represents."
-        ),
-        "display_type": StringDatabaseField(
-            name="display_type",
-            description="How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.",
-        ),
-        "_is_big_number": BooleanDatabaseField(name="is_big_number", hidden=True),
-        "is_big_number": ExpressionField(
-            name="is_big_number",
-            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_is_big_number"])]),
-            description="1 if large numeric values are abbreviated (e.g. 10,000 -> 10K), 0 otherwise.",
-        ),
-        "created_by_id": IntegerDatabaseField(
-            name="created_by_id", nullable=True, description="User who created the definition."
-        ),
-        "created_at": DateTimeDatabaseField(name="created_at", description="When the definition was created."),
-        "updated_at": DateTimeDatabaseField(
-            name="updated_at", nullable=True, description="When the definition was last updated."
         ),
     },
 )
@@ -1222,6 +1119,46 @@ hog_functions: PostgresTable = PostgresTable(
     },
 )
 
+
+def _notebook_content_or_empty_object_expr() -> ast.Expr:
+    return ast.Call(name="ifNull", args=[ast.Field(chain=["content"]), ast.Constant(value="{}")])
+
+
+def _first_notebook_content_node_expr() -> ast.Expr:
+    return ast.ArrayAccess(
+        array=ast.Call(
+            name="JSONExtractArrayRaw",
+            args=[_notebook_content_or_empty_object_expr(), ast.Constant(value="content")],
+        ),
+        property=ast.Constant(value=1),
+    )
+
+
+def _notebook_markdown_expr() -> ast.Expr:
+    return ast.Call(
+        name="if",
+        args=[
+            ast.CompareOperation(
+                left=ast.Call(
+                    name="JSONExtractString",
+                    args=[_first_notebook_content_node_expr(), ast.Constant(value="type")],
+                ),
+                right=ast.Constant(value="ph-markdown-notebook"),
+                op=ast.CompareOperationOp.Eq,
+            ),
+            ast.Call(
+                name="JSONExtractString",
+                args=[
+                    _first_notebook_content_node_expr(),
+                    ast.Constant(value="attrs"),
+                    ast.Constant(value="markdown"),
+                ],
+            ),
+            ast.Constant(value=None),
+        ],
+    )
+
+
 notebooks: PostgresTable = PostgresTable(
     name="notebooks",
     postgres_table_name="posthog_notebook",
@@ -1234,6 +1171,12 @@ notebooks: PostgresTable = PostgresTable(
         "title": StringDatabaseField(name="title", description="Notebook title."),
         "content": StringJSONDatabaseField(
             name="content", description="JSON rich-text document (ProseMirror) content."
+        ),
+        "markdown": ExpressionField(
+            name="markdown",
+            nullable=True,
+            expr=_notebook_markdown_expr(),
+            description="Markdown source for markdown notebooks; NULL for legacy rich-text notebooks.",
         ),
         "text_content": StringDatabaseField(
             name="text_content", description="Plain-text rendering of the notebook, for search."
@@ -1354,6 +1297,29 @@ error_tracking_assignment_rules: PostgresTable = PostgresTable(
             name="filters", description="JSON conditions an issue must match for the rule to apply."
         ),
         "bytecode": StringJSONDatabaseField(name="bytecode", description="Compiled Hog bytecode for the filters."),
+        "disabled_data": StringJSONDatabaseField(
+            name="disabled_data", nullable=True, description="JSON state when the rule is disabled; NULL when active."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the rule was created."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the rule was last updated."),
+    },
+)
+
+error_tracking_bypass_rules: PostgresTable = PostgresTable(
+    name="error_tracking_bypass_rules",
+    postgres_table_name="posthog_errortrackingbypassrule",
+    access_scope="error_tracking",
+    description="Rules that exempt matching exceptions from error tracking rate limits; one row per rule.",
+    fields={
+        "id": StringDatabaseField(name="id", description="Rule UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "order_key": IntegerDatabaseField(name="order_key", description="Evaluation order; lower runs first."),
+        "filters": StringJSONDatabaseField(
+            name="filters", description="JSON conditions an exception must match for the rule to apply."
+        ),
+        "bytecode": StringJSONDatabaseField(
+            name="bytecode", nullable=True, description="Compiled Hog bytecode for the filters."
+        ),
         "disabled_data": StringJSONDatabaseField(
             name="disabled_data", nullable=True, description="JSON state when the rule is disabled; NULL when active."
         ),
@@ -2042,12 +2008,12 @@ class SystemTables(TableNode):
     name: str = "system"
     children: dict[str, TableNode] = {
         "accounts": TableNode(name="accounts", table=accounts),
-        "_account_tagged_items": TableNode(name="_account_tagged_items", table=_account_tagged_items, hidden=True),
+        "_account_tagged_items": TableNode(name="_account_tagged_items", table=account_tagged_items, hidden=True),
         "_account_resource_notebooks": TableNode(
-            name="_account_resource_notebooks", table=_account_resource_notebooks, hidden=True
+            name="_account_resource_notebooks", table=account_resource_notebooks, hidden=True
         ),
         "_account_custom_property_values": TableNode(
-            name="_account_custom_property_values", table=_account_custom_property_values, hidden=True
+            name="_account_custom_property_values", table=account_custom_property_values, hidden=True
         ),
         "activity_logs": TableNode(name="activity_logs", table=activity_logs),
         "actions": TableNode(name="actions", table=actions),
@@ -2074,6 +2040,7 @@ class SystemTables(TableNode):
         "error_tracking_assignment_rules": TableNode(
             name="error_tracking_assignment_rules", table=error_tracking_assignment_rules
         ),
+        "error_tracking_bypass_rules": TableNode(name="error_tracking_bypass_rules", table=error_tracking_bypass_rules),
         "error_tracking_issue_assignments": TableNode(
             name="error_tracking_issue_assignments", table=error_tracking_issue_assignments
         ),

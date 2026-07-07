@@ -4,7 +4,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { visionActionsRetrieve, visionActionsRunsList } from '../generated/api'
-import type { VisionActionApi, VisionActionRunApi } from '../generated/api.schemas'
+import type { VisionActionApi, VisionActionRunListApi } from '../generated/api.schemas'
 import type { visionActionRunsLogicType } from './visionActionRunsLogicType'
 import { visionActionSceneLogic } from './visionActionSceneLogic'
 
@@ -19,7 +19,7 @@ export const visionActionRunsLogic = kea<visionActionRunsLogicType>([
 
     actions({
         loadRuns: true,
-        loadRunsSuccess: (runs: VisionActionRunApi[], count: number) => ({ runs, count }),
+        loadRunsSuccess: (runs: VisionActionRunListApi[], count: number) => ({ runs, count }),
         loadRunsFailure: true,
         loadAction: true,
         loadActionSuccess: (action: VisionActionApi) => ({ action }),
@@ -28,7 +28,7 @@ export const visionActionRunsLogic = kea<visionActionRunsLogicType>([
 
     reducers({
         runs: [
-            [] as VisionActionRunApi[],
+            [] as VisionActionRunListApi[],
             {
                 loadRunsSuccess: (_, { runs }) => runs,
             },

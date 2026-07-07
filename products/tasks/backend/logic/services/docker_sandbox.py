@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
 from products.tasks.backend.constants import SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS
 from products.tasks.backend.exceptions import (
+    ProcessTaskError,
     SandboxCleanupError,
     SandboxExecutionError,
     SandboxNotFoundError,
@@ -340,6 +341,29 @@ class DockerSandbox(SandboxBase):
         return DockerSandbox._ensure_image_exists(config.template)
 
     @staticmethod
+    def _verify_image_available(image: str, config: SandboxConfig) -> None:
+        """Fail loudly if the resolved image isn't present locally.
+
+        Sandbox images (posthog-sandbox-base and friends) are built on the host, never
+        published to a registry. If one is missing, `docker run` falls through to an
+        implicit registry pull that can only fail with a cryptic exit-125. `docker image
+        inspect` resolves the same reference `docker run` would (including the implicit
+        :latest), so a non-zero result means the build-on-demand guard didn't produce a
+        usable image — surface that plainly instead of an unpullable pull attempt.
+        """
+        result = DockerSandbox._run(["docker", "image", "inspect", image])
+        if result.returncode == 0:
+            return
+        raise SandboxProvisionError(
+            f"Sandbox image '{image}' is not available locally and cannot be pulled — "
+            "sandbox images are built on the host, not published to a registry. The "
+            "on-demand build did not produce it; check the temporal-worker logs for a "
+            "failed `docker build` from products/tasks/backend/sandbox/images/.",
+            {"config_name": config.name, "image": image},
+            cause=RuntimeError(f"Docker image '{image}' not found locally"),
+        )
+
+    @staticmethod
     def _transform_url_for_docker(url: str) -> str:
         """Transform localhost URLs to be accessible from inside Docker container."""
         url = url.replace("localhost", "host.docker.internal").replace("127.0.0.1", "host.docker.internal")
@@ -351,6 +375,7 @@ class DockerSandbox(SandboxBase):
     def create(config: SandboxConfig) -> DockerSandbox:
         try:
             image = DockerSandbox._get_image(config)
+            DockerSandbox._verify_image_available(image, config)
             container_name = f"{config.name}-{uuid.uuid4().hex[:6]}"
 
             env_args = []
@@ -401,6 +426,9 @@ class DockerSandbox(SandboxBase):
                 "docker",
                 "run",
                 "-d",
+                # Sandbox images are built locally and never published, so an implicit
+                # registry pull can only fail cryptically — never attempt one.
+                "--pull=never",
                 "--name",
                 container_name,
                 "--add-host",
@@ -427,6 +455,10 @@ class DockerSandbox(SandboxBase):
 
             return sandbox
 
+        except ProcessTaskError:
+            # Already a clear, classified error (e.g. the missing-image guard) — don't
+            # re-wrap it as a generic provision failure.
+            raise
         except subprocess.CalledProcessError as e:
             logger.exception(f"Failed to create Docker sandbox: {e.stderr}")
             raise SandboxProvisionError(
@@ -724,6 +756,7 @@ class DockerSandbox(SandboxBase):
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,
+        event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
     ) -> str:
         # The host proxy URL (e.g. localhost:8003) is unreachable from inside the container;
@@ -738,6 +771,7 @@ class DockerSandbox(SandboxBase):
             reasoning_effort=reasoning_effort,
             event_ingest_token=event_ingest_token,
             event_ingest_url=event_ingest_url,
+            event_ingest_keep_stream_open=event_ingest_keep_stream_open,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
@@ -803,6 +837,7 @@ class DockerSandbox(SandboxBase):
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,
+        event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
     ) -> None:
@@ -852,6 +887,7 @@ class DockerSandbox(SandboxBase):
             allowed_domains=allowed_domains,
             event_ingest_token=event_ingest_token,
             event_ingest_url=event_ingest_url,
+            event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
         )
 
@@ -897,6 +933,7 @@ class DockerSandbox(SandboxBase):
                 allowed_domains=allowed_domains,
                 event_ingest_token=event_ingest_token,
                 event_ingest_url=event_ingest_url,
+                event_ingest_keep_stream_open=event_ingest_keep_stream_open,
                 repo_ready_file=repo_ready_file,
             )
             if self._launch_and_check(command):
@@ -906,10 +943,12 @@ class DockerSandbox(SandboxBase):
         log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
         logger.warning(f"Agent-server health check failed for sandbox {self.id}. Log output:\n{log_result.stdout}")
 
+        # Transient timeout Temporal retries — skip error-tracking capture to avoid noisy issues.
         raise SandboxExecutionError(
             "Agent-server failed to start",
             {"sandbox_id": self.id, "log": log_result.stdout},
             cause=RuntimeError("Health check failed after retries"),
+            capture=False,
         )
 
     def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None:
@@ -918,10 +957,12 @@ class DockerSandbox(SandboxBase):
             return
         log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
         logger.warning(f"Agent-server health check failed for sandbox {self.id}. Log output:\n{log_result.stdout}")
+        # Transient timeout Temporal retries — skip error-tracking capture to avoid noisy issues.
         raise SandboxExecutionError(
             "Agent-server failed to start",
             {"sandbox_id": self.id, "log": log_result.stdout},
             cause=RuntimeError("Health check failed after retries"),
+            capture=False,
         )
 
     def mark_repo_ready(self, repo_ready_file: str) -> None:
