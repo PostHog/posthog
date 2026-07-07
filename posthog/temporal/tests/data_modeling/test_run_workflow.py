@@ -36,6 +36,7 @@ from posthog.temporal.data_modeling.run_workflow import (
     CleanupRunningJobsActivityInputs,
     CreateJobModelInputs,
     ModelNode,
+    ModelStatus,
     RunDagActivityInputs,
     RunWorkflow,
     RunWorkflowInputs,
@@ -45,6 +46,7 @@ from posthog.temporal.data_modeling.run_workflow import (
     create_job_model_activity,
     fail_jobs_activity,
     finish_run_activity,
+    handle_model_ready,
     hogql_table,
     materialize_model,
     run_dag_activity,
@@ -1817,6 +1819,46 @@ async def test_materialize_model_empty_results(ateam, bucket_name, minio_client)
         assert job.status == DataModelingJob.Status.COMPLETED
         assert job.error is not None
         assert "returned no results" in job.error
+
+
+async def test_handle_model_ready_invalid_query_is_user_error(ateam, bucket_name, minio_client):
+    # A malformed HogQL query (here `if()` with 5 args instead of 3) fails at print time with an
+    # ExposedHogQLError. It must be classified as a user query error - the job fails with a
+    # user-visible message and it is NOT reported to error tracking as an unexpected exception.
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="invalid_query_model",
+        query={"query": "SELECT if(1, 2, 3, 4, 5) AS col", "kind": "HogQLQuery"},
+    )
+    job = await database_sync_to_async(DataModelingJob.objects.create)(
+        team=ateam,
+        saved_query=saved_query,
+        status=DataModelingJob.Status.RUNNING,
+        workflow_id="test_workflow",
+    )
+    queue: asyncio.Queue = asyncio.Queue()
+    model = ModelNode(label=saved_query.id.hex, selected=True)
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{bucket_name}",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        unittest.mock.patch.object(run_workflow_module, "capture_exception") as mock_capture,
+    ):
+        await handle_model_ready(model, ateam.pk, queue, str(job.id), unittest.mock.AsyncMock())
+
+    mock_capture.assert_not_called()
+
+    message = queue.get_nowait()
+    assert message.status == ModelStatus.FAILED
+
+    await database_sync_to_async(job.refresh_from_db)()
+    assert job.status == DataModelingJob.Status.FAILED
+    assert job.error
 
 
 child_ducklake_workflow_runs: list[dict] = []

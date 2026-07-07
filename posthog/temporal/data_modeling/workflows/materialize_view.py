@@ -48,6 +48,10 @@ NON_RETRYABLE_ERRORS = [
     "InvalidNodeTypeException",
     "NodeNotFoundException",
     "EmptyHogQLResponseColumnsError",
+    # HogQL validation failures (e.g. wrong argument count) come from a malformed user query,
+    # so retrying is pointless — fail immediately and surface it as a user query error.
+    "QueryError",
+    "SyntaxError",
 ]
 
 
