@@ -5,7 +5,6 @@ import { useCallback, useMemo } from 'react'
 import { IconCalendar, IconChevronLeft } from '@posthog/icons'
 import { LemonCheckbox, LemonInput, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 
-import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -18,17 +17,16 @@ import { getDisplayNameFromEntityNode } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { AlertCalculationInterval, AlertState } from '~/queries/schema/schema-general'
 import { containsHogQLQuery, isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
-import { AvailableFeature, FunnelVizType, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { FunnelVizType, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/editAlertModal/AlertAdvancedOptionsSection'
 import { AlertDefinitionSection } from 'products/alerts/frontend/components/editAlertModal/AlertDefinitionSection'
 import { AlertIntervalRow } from 'products/alerts/frontend/components/editAlertModal/AlertIntervalRow'
 import { AlertNotificationSection } from 'products/alerts/frontend/components/editAlertModal/AlertNotificationSection'
-import { isHighFrequencyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+import { isSubDailyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 
 import { alertFormLogic, canCheckOngoingInterval } from '../alertFormLogic'
 import { alertLogic } from '../alertLogic'
@@ -137,10 +135,6 @@ export function EditAlertModal({
     const inlineNotificationsEnabled = useFeatureFlag('ALERTS_INLINE_NOTIFICATIONS')
     const investigationAgentEnabled = useFeatureFlag('ALERTS_INVESTIGATION_AGENT')
 
-    const { hasAvailableFeature } = useValues(userLogic)
-    const { guardAvailableFeature } = useValues(upgradeModalLogic)
-    const hasHighFrequencyAlertsEntitlement = hasAvailableFeature(AvailableFeature.HIGH_FREQUENCY_ALERTS)
-
     const { pendingNotifications } = useValues(alertNotificationLogic({ alertId: alertId }))
     const hasPendingNotifications = inlineNotificationsEnabled && pendingNotifications.length > 0
 
@@ -205,7 +199,7 @@ export function EditAlertModal({
         }
         if (
             (alertForm.calculation_interval === AlertCalculationInterval.DAILY ||
-                isHighFrequencyAlertInterval(alertForm.calculation_interval)) &&
+                isSubDailyAlertInterval(alertForm.calculation_interval)) &&
             alertForm.skip_weekend
         ) {
             n += 1
@@ -305,9 +299,9 @@ export function EditAlertModal({
                                         creatingNewAlert={creatingNewAlert}
                                         alert={alert}
                                         trendInterval={trendInterval}
-                                        hasHighFrequencyAlertsEntitlement={hasHighFrequencyAlertsEntitlement}
-                                        guardAvailableFeature={guardAvailableFeature}
                                         nextPlannedEvaluationStale={nextPlannedEvaluationStale}
+                                        canCheckOngoingInterval={can_check_ongoing_interval}
+                                        onSetAlertFormValue={setAlertFormValue}
                                     />
                                 </div>
                             </div>

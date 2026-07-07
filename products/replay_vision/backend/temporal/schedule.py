@@ -50,6 +50,7 @@ logger = structlog.get_logger(__name__)
 _FINGERPRINT_FIELDS = (
     "scanner_version",
     "sampling_rate",
+    "sampling_mode",
     "model",
     "provider",
     "query",

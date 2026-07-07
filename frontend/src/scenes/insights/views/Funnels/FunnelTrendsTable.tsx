@@ -79,9 +79,8 @@ export function FunnelTrendsTable(): JSX.Element | null {
     const openModalForCell = (row: FunnelTrendSeries, index: number): void => {
         const day = row.days?.[index] ?? ''
         const breakdownValue = row.breakdown_value
-        const breakdownLabel = hasBreakdown(breakdownValue)
-            ? formatBreakdownLabel(breakdownValue, breakdownFilter, allCohorts.results, formatPropertyValueForDisplay)
-            : null
+        // No breakdown value in the title: the modal's breakdown dropdown communicates (and can
+        // change) the selected value, so a static title would go stale.
         const title = (
             <>
                 {capitalizeFirstLetter(aggregationTargetLabel.plural)} converted on{' '}
@@ -92,7 +91,6 @@ export function FunnelTrendsTable(): JSX.Element | null {
                     weekStartDay={weekStartDay}
                     date={day.toString()}
                 />
-                {breakdownLabel ? <> • {breakdownLabel}</> : null}
             </>
         )
         const query = buildFunnelTrendsActorsQuery({

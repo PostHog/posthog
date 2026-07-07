@@ -320,6 +320,12 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                         </Link>
                                     </div>
                                 )}
+                            {ticket?.zendesk_ticket_id && (
+                                <div className="flex justify-between items-center">
+                                    <span className="text-muted-alt">Zendesk ID</span>
+                                    <LemonTag type="highlight">#{ticket.zendesk_ticket_id}</LemonTag>
+                                </div>
+                            )}
                             {ticket?.session_context?.current_url && (
                                 <div className="flex justify-between items-start gap-2">
                                     <span className="text-muted-alt shrink-0">Page URL</span>
