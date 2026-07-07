@@ -40,6 +40,7 @@ from posthog.exceptions import (
 )
 from posthog.models.activity_logging.utils import get_changed_fields_local
 from posthog.models.filters.filter import Filter
+from posthog.models.person.util import validate_person_uuids_exist
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
@@ -114,6 +115,11 @@ DEFAULT_VARIANTS = [
 # populate path).
 FREEZE_EXPOSURE_QUERY_TIMEOUT_SECONDS = 20
 FREEZE_EXPOSURE_MAX_EXPOSED_USERS = 100_000
+# Cohort membership is person-keyed, so exposed users without a person profile (anonymous
+# "personless" traffic, or since-deleted persons) can never match the snapshot cohort and would
+# silently lose their variant at freeze time. A small unresolvable share is tolerated as
+# deletion/merge noise; beyond this share the freeze is rejected as unable to keep its promise.
+FREEZE_EXPOSURE_MAX_UNRESOLVED_SHARE = 0.05
 # Shared by snapshot creation and cleanup: cleanup only touches cohorts carrying this prefix, so a
 # cohort id stamped into the (user-editable) flag filters can't point it at an arbitrary cohort.
 FREEZE_EXPOSURE_SNAPSHOT_NAME_PREFIX = "Exposure snapshot for experiment "
@@ -1737,7 +1743,10 @@ class ExperimentService:
         are rejected rather than frozen in-request.
 
         Group-aggregated experiments are rejected: their flags target groups, not
-        persons, so a person cohort cannot freeze the exposed set.
+        persons, so a person cohort cannot freeze the exposed set. Experiments whose
+        exposed set contains a material share of anonymous (personless) users are
+        rejected too, since cohort membership is person-keyed and freezing would drop
+        those users' variants (see _assert_exposed_persons_resolvable).
 
         Runs in two phases because the snapshot build can take tens of seconds — plenty of
         time for a concurrent freeze, pause, end, or flag edit to land. Phase 1 (unlocked)
@@ -1763,7 +1772,11 @@ class ExperimentService:
                 "Wait until the experiment has recorded exposures."
             )
 
-        # 2. Materialize it into a static cohort synchronously, so the flag never points at an unpopulated cohort.
+        # 2. Fail closed if a material share of the exposed set has no person profile: cohort
+        # membership is person-keyed, so those users would silently lose their variant.
+        self._assert_exposed_persons_resolvable(exposed_person_uuids)
+
+        # 3. Materialize it into a static cohort synchronously, so the flag never points at an unpopulated cohort.
         exposure_snapshot = self._create_exposure_snapshot_cohort(experiment, exposed_person_uuids)
 
         # Phase 2 — locked: any failure here drops the snapshot cohort, which is referenced only by
@@ -1787,7 +1800,7 @@ class ExperimentService:
                 experiment.feature_flag = locked_flag
                 self._validate_freeze_exposure_state(experiment)
 
-                # 3. Narrow every release group to that cohort and stamp the marker.
+                # 4. Narrow every release group to that cohort and stamp the marker.
                 #
                 # Design note (local evaluation): the narrowed flag now references a static cohort, whose
                 # per-person membership can't be shipped to SDKs that evaluate flags locally — static cohorts
@@ -1799,7 +1812,7 @@ class ExperimentService:
                 # rather than locally.
                 new_filters = self._transform_filters_for_frozen_exposure(locked_flag.filters, exposure_snapshot.id)
 
-                # 4. Persist the narrowed filters via FeatureFlagSerializer.
+                # 5. Persist the narrowed filters via FeatureFlagSerializer.
                 #
                 # Design note (approvals): FeatureFlagSerializer.update is decorated with @approval_gate,
                 # but flag approval policies are intentionally field-level and scoped to `active`
@@ -1963,6 +1976,38 @@ class ExperimentService:
             )
 
         return [str(row[0]) for row in response.results]
+
+    def _assert_exposed_persons_resolvable(self, person_uuids: list[str]) -> None:
+        """Fail closed when a material share of the exposed set has no person profile.
+
+        Cohort membership is person-keyed, and flag evaluation resolves distinct_id to person
+        before checking it, so an exposed user without a person row (anonymous "personless"
+        traffic, or a since-deleted person) can never match the snapshot cohort. The cohort
+        insert silently skips such users, and post-freeze the narrowed flag stops serving them:
+        freezing would break "everyone already enrolled keeps their variant" for exactly that
+        share of the population. Typical for experiments exposed on logged-out surfaces, where
+        the share can be the majority. A small unresolved share is tolerated as deletion/merge
+        noise; beyond FREEZE_EXPOSURE_MAX_UNRESOLVED_SHARE the freeze is rejected, before any
+        cohort is created.
+        """
+        resolved_count = len(validate_person_uuids_exist(self.team.id, person_uuids))
+        unresolved_count = len(person_uuids) - resolved_count
+        if unresolved_count == 0:
+            return
+        unresolved_share = unresolved_count / len(person_uuids)
+        logger.warning(
+            "experiment_freeze_exposure_unresolved_persons",
+            team_id=self.team.pk,
+            exposed_count=len(person_uuids),
+            unresolved_count=unresolved_count,
+        )
+        if unresolved_share > FREEZE_EXPOSURE_MAX_UNRESOLVED_SHARE:
+            raise ValidationError(
+                f"{unresolved_count:,} of this experiment's {len(person_uuids):,} exposed users "
+                f"({unresolved_share:.0%}) are anonymous or deleted, so they have no person profile and "
+                "cannot be held in a cohort. Freezing would remove their variant. Freezing exposure "
+                "requires an experiment whose exposed users are identified."
+            )
 
     def _create_exposure_snapshot_cohort(self, experiment: Experiment, person_uuids: list[str]) -> Cohort:
         """Create a static cohort frozen to the given already-exposed persons (synchronous, no Celery).

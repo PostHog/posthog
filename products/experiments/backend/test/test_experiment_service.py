@@ -3086,6 +3086,12 @@ class TestExperimentService(APIBaseTest):
         uuids = exposed_uuids if exposed_uuids is not None else ["00000000-0000-0000-0000-000000000001"]
         with (
             patch.object(ExperimentService, "_fetch_exposed_person_uuids", return_value=uuids),
+            # The stubbed uuids have no real persons behind them; treat them all as resolvable so
+            # the personless guard doesn't reject these unrelated scenarios.
+            patch(
+                "products.experiments.backend.experiment_service.validate_person_uuids_exist",
+                new=lambda team_id, uuids: uuids,
+            ),
             patch(
                 "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid", return_value=0
             ) as mock_insert,
@@ -3373,6 +3379,43 @@ class TestExperimentService(APIBaseTest):
         assert experiment.feature_flag.filters == original_filters
         assert experiment.is_exposure_frozen is False
 
+    @parameterized.expand(
+        [
+            # 4 of 100 unresolvable: within the deletion-noise tolerance, the freeze proceeds.
+            ("under_threshold", 4, False),
+            # 6 of 100 unresolvable: a material personless share, the freeze must fail closed.
+            ("over_threshold", 6, True),
+        ]
+    )
+    def test_freeze_exposure_personless_share_guard(self, _name: str, unresolved: int, expect_rejection: bool):
+        experiment = self._create_running_experiment(
+            name=f"Freeze Personless {_name}", feature_flag_key=f"freeze-personless-{_name}"
+        )
+        uuids = [f"00000000-0000-0000-0000-{i:012d}" for i in range(100)]
+
+        # Anonymous (personless) users have exposure events with a person_id but no person row, so
+        # they can never match the snapshot cohort: a freeze whose exposed set is materially
+        # personless would silently drop those users' variants and must be rejected instead.
+        with (
+            patch.object(ExperimentService, "_fetch_exposed_person_uuids", return_value=uuids),
+            patch(
+                "products.experiments.backend.experiment_service.validate_person_uuids_exist",
+                new=lambda team_id, batch: batch[unresolved:],
+            ),
+            patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid", return_value=0),
+        ):
+            if expect_rejection:
+                with self.assertRaises(ValidationError) as ctx:
+                    self._service().freeze_exposure(experiment, request=self._make_request())
+                assert "anonymous or deleted" in str(ctx.exception)
+                # Rejected before any snapshot was built: no cohort to clean up, flag untouched.
+                assert not Cohort.objects.filter(team=self.team, is_static=True).exists()
+                experiment.feature_flag.refresh_from_db()
+                assert experiment.is_exposure_frozen is False
+            else:
+                frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+                assert frozen.is_exposure_frozen is True
+
     def test_freeze_exposure_fails_and_cleans_up_when_cohort_population_fails(self):
         experiment = self._create_running_experiment(name="Freeze Insert Fail", feature_flag_key="freeze-insert-flag")
         original_filters = deepcopy(experiment.feature_flag.filters)
@@ -3386,6 +3429,10 @@ class TestExperimentService(APIBaseTest):
                 ExperimentService,
                 "_fetch_exposed_person_uuids",
                 return_value=["00000000-0000-0000-0000-000000000001"],
+            ),
+            patch(
+                "products.experiments.backend.experiment_service.validate_person_uuids_exist",
+                new=lambda team_id, uuids: uuids,
             ),
             patch(
                 "products.cohorts.backend.models.cohort.Cohort._insert_batch_via_personhog",
@@ -3497,6 +3544,10 @@ class TestExperimentService(APIBaseTest):
 
         with (
             patch.object(ExperimentService, "_fetch_exposed_person_uuids", side_effect=concurrent_change_then_return),
+            patch(
+                "products.experiments.backend.experiment_service.validate_person_uuids_exist",
+                new=lambda team_id, uuids: uuids,
+            ),
             patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid", return_value=0),
         ):
             with self.assertRaises(ValidationError) as ctx:
@@ -3528,6 +3579,10 @@ class TestExperimentService(APIBaseTest):
 
         with (
             patch.object(ExperimentService, "_fetch_exposed_person_uuids", side_effect=concurrent_edit_then_return),
+            patch(
+                "products.experiments.backend.experiment_service.validate_person_uuids_exist",
+                new=lambda team_id, uuids: uuids,
+            ),
             patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid", return_value=0),
         ):
             frozen = self._service().freeze_exposure(experiment, request=self._make_request())

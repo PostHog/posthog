@@ -5017,6 +5017,10 @@ class TestExperimentCRUD(APILicensedTest):
 
     @patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid", return_value=0)
     @patch(
+        "products.experiments.backend.experiment_service.validate_person_uuids_exist",
+        new=lambda team_id, uuids: uuids,
+    )
+    @patch(
         "products.experiments.backend.experiment_service.ExperimentService._fetch_exposed_person_uuids",
         return_value=["00000000-0000-0000-0000-000000000001"],
     )
@@ -5041,6 +5045,10 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(get_response.json()["status"], "exposure_frozen")
 
     @patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid", return_value=0)
+    @patch(
+        "products.experiments.backend.experiment_service.validate_person_uuids_exist",
+        new=lambda team_id, uuids: uuids,
+    )
     @patch(
         "products.experiments.backend.experiment_service.ExperimentService._fetch_exposed_person_uuids",
         return_value=["00000000-0000-0000-0000-000000000001"],
