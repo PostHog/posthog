@@ -15,6 +15,15 @@ from github import PRData  # noqa: E402
 from review_pr import GateResult, Pipeline  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _no_live_team_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Ownership resolves against the real repo tree, so fixture paths can match
+    # a real owning team and _summarize_ownership would then shell out to
+    # `gh api` mid-test - slow, network-dependent, and it trips tests that
+    # assert the pipeline never sleeps (subprocess waits sleep internally).
+    monkeypatch.setattr(review_pr, "check_team_membership", lambda *_a, **_k: False)
+
+
 def _fake_pr(head_sha: str) -> PRData:
     return PRData(
         number=1,
