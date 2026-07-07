@@ -351,8 +351,11 @@ urlpatterns = [
     # ee
     *ee_urlpatterns,
     # api
+    # nosemgrep: no-environments-url-path -- defunct query-progress stub, pending removal
     path("api/environments/<int:team_id>/progress/", progress),
+    # nosemgrep: no-environments-url-path -- defunct query-progress stub, pending removal
     path("api/environments/<int:team_id>/query/<str:query_uuid>/progress/", progress),
+    # nosemgrep: no-environments-url-path -- defunct query-progress stub, pending removal
     path("api/environments/<int:team_id>/query/<str:query_uuid>/progress", progress),
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),
@@ -368,6 +371,7 @@ urlpatterns = [
     ),
     # Dual-served on both prefixes while the Customer.io dispatcher is repointed from the
     # legacy /api/environments/ URL to the canonical /api/projects/ one.
+    # nosemgrep: no-environments-url-path -- customerio posts to this fixed env URL; dispatcher migrating to projects
     path("api/environments/<int:team_id>/messaging/customerio/webhook/", csrf_exempt(CustomerIOWebhookView.as_view())),
     path("api/projects/<int:team_id>/messaging/customerio/webhook/", csrf_exempt(CustomerIOWebhookView.as_view())),
     path(
@@ -383,6 +387,7 @@ urlpatterns = [
     path("api/sdk_health/", sdk_health),
     path("api/conversations/", include("products.conversations.backend.api.urls")),
     path("api/customer_analytics/", include("products.customer_analytics.backend.presentation.views.urls")),
+    # nosemgrep: no-environments-url-path -- legacy dual-route env alias, pending env-prefix retirement
     path(
         "api/environments/<int:parent_lookup_team_id>/mcp_analytics/",
         include("products.mcp_analytics.backend.presentation.urls"),
@@ -391,6 +396,7 @@ urlpatterns = [
         "api/projects/<int:parent_lookup_team_id>/mcp_analytics/",
         include("products.mcp_analytics.backend.presentation.urls"),
     ),
+    # nosemgrep: no-environments-url-path -- legacy dual-route env alias, pending env-prefix retirement
     path(
         "api/environments/<int:parent_lookup_team_id>/property_access_controls/",
         include("products.access_control.backend.presentation.urls"),

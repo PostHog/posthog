@@ -67,7 +67,7 @@ describe('QuickSurveyForm API payloads', () => {
 
         render(<QuickSurveyForm context={{ type: QuickSurveyType.FEATURE_FLAG, flag: mockFlag }} />)
 
-        await userEvent.click(screen.getByRole('button', { name: /create & launch/i }))
+        await userEvent.click(screen.getByText(/create & launch/i))
 
         await waitFor(() => {
             expect(capturedRequest).not.toBeUndefined()
@@ -92,7 +92,7 @@ describe('QuickSurveyForm API payloads', () => {
 
         render(<QuickSurveyForm context={{ type: QuickSurveyType.FUNNEL, funnel: mockFunnel }} />)
 
-        await userEvent.click(screen.getByRole('button', { name: /create & launch/i }))
+        await userEvent.click(screen.getByText(/create & launch/i))
 
         await waitFor(() => {
             expect(capturedRequest).not.toBeUndefined()
