@@ -24,7 +24,7 @@ from products.replay_vision.backend.temporal.vision_actions.types import (
     ValidateVisionActionInputs,
 )
 
-# `activities` + the synthesis activity pull in Django/ee, which the workflow sandbox can't re-import.
+# `activities` + the synthesis/alert activities pull in Django/ee, which the workflow sandbox can't re-import.
 with wf.unsafe.imports_passed_through():
     from products.replay_vision.backend.models.vision_action import VisionActionRunStatus
     from products.replay_vision.backend.temporal.vision_actions.activities import (

@@ -24,9 +24,11 @@ from products.replay_vision.backend.feature_flag import (
     ReplayVisionEnabledPermission,
 )
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.vision_action import (
     ActionMode,
+    AlertMetric,
+    AlertOperator,
     TriggerType,
     VisionAction,
     VisionActionRun,
@@ -87,6 +89,26 @@ class SelectionSerializer(serializers.Serializer):
         if min_score is not None and max_score is not None and min_score > max_score:
             raise serializers.ValidationError({"min_score": "min_score cannot exceed max_score."})
         return attrs
+
+
+class AlertConfigSerializer(serializers.Serializer):
+    """The alert condition for mode='alert', evaluated over each run's observation window after
+    `selection` targeting is applied. The action delivers only when the condition holds."""
+
+    metric = serializers.ChoiceField(
+        choices=AlertMetric.choices,
+        help_text=(
+            "What to measure over the window: 'count' of targeted observations, or 'avg_score' "
+            "(the mean scorer score; scorer scanners only)."
+        ),
+    )
+    operator = serializers.ChoiceField(
+        choices=AlertOperator.choices,
+        help_text="Comparison between the measured metric and the threshold, e.g. 'gte' fires when metric >= threshold.",
+    )
+    threshold = serializers.FloatField(
+        help_text="The value the metric is compared against.",
+    )
 
 
 class SynthesisConfigSerializer(serializers.Serializer):
@@ -157,6 +179,10 @@ class VisionActionSerializer(serializers.ModelSerializer):
         required=False,
         help_text="Synthesis options for the group summary, e.g. {prompt_guide}.",
     )
+    alert_config = AlertConfigSerializer(
+        required=False,
+        help_text="Alert condition; required when mode is 'alert', ignored otherwise.",
+    )
     delivery_config = DeliveryTargetSerializer(
         many=True,
         required=False,
@@ -197,6 +223,7 @@ class VisionActionSerializer(serializers.ModelSerializer):
             "trigger_config",
             "selection",
             "synthesis_config",
+            "alert_config",
             "delivery_config",
             "next_run_at",
             "last_run_at",
@@ -222,7 +249,9 @@ class VisionActionSerializer(serializers.ModelSerializer):
 
     def validate_mode(self, value: str) -> str:
         if value == ActionMode.PER_OBSERVATION:
-            raise serializers.ValidationError("Per-observation mode is not supported yet. Use 'group_summary'.")
+            raise serializers.ValidationError(
+                "Per-observation mode is not supported yet. Use 'group_summary' or 'alert'."
+            )
         return value
 
     def validate_delivery_config(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -242,7 +271,22 @@ class VisionActionSerializer(serializers.ModelSerializer):
         self._validate_schedule(attrs)
         self._validate_unique_name(attrs)
         self._validate_unique_digest(attrs)
+        self._validate_alert(attrs)
         return attrs
+
+    def _validate_alert(self, attrs: dict[str, Any]) -> None:
+        mode = attrs.get("mode", getattr(self.instance, "mode", ActionMode.GROUP_SUMMARY))
+        if mode != ActionMode.ALERT:
+            return
+        alert_config = attrs.get("alert_config", getattr(self.instance, "alert_config", None)) or {}
+        if not alert_config:
+            raise serializers.ValidationError({"alert_config": "Alert actions require an alert_config."})
+        if alert_config.get("metric") == AlertMetric.AVG_SCORE:
+            scanner = attrs.get("scanner", getattr(self.instance, "scanner", None))
+            if scanner is not None and scanner.scanner_type != ScannerType.SCORER:
+                raise serializers.ValidationError(
+                    {"alert_config": "The avg_score metric only applies to scorer scanners."}
+                )
 
     def _validate_schedule(self, attrs: dict[str, Any]) -> None:
         trigger_type = attrs.get("trigger_type", getattr(self.instance, "trigger_type", TriggerType.SCHEDULE))
@@ -398,6 +442,7 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 # so the abort reasons read correctly under the "failed" banner they actually carry.
 _RUN_REASON_LABELS = {
     "skipped_empty": "No new observations in this window to summarize.",
+    "skipped_not_breached": "The alert condition wasn't met in this window.",
     "skipped_over_budget": "The team is over its AI-credit budget.",
     # Legacy: the engine no longer skips actions with no delivery_config (digest runs are in-app only).
     # Keep both keys so historical run rows still display a readable reason rather than the raw enum.

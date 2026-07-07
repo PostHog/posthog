@@ -22,7 +22,21 @@ class TriggerType(models.TextChoices):
 
 class ActionMode(models.TextChoices):
     GROUP_SUMMARY = "group_summary", "Group summary"  # one summary synthesized from a group of observations
+    ALERT = "alert", "Alert"  # deliver only when the alert condition holds over the window
     PER_OBSERVATION = "per_observation", "Per observation"  # reserved; rejected at the API for now
+
+
+class AlertMetric(models.TextChoices):
+    COUNT = "count", "Count of matching observations"
+    AVG_SCORE = "avg_score", "Average score"  # scorer scanners only
+
+
+class AlertOperator(models.TextChoices):
+    GT = "gt", "Greater than"
+    GTE = "gte", "Greater than or equal"
+    LT = "lt", "Less than"
+    LTE = "lte", "Less than or equal"
+    EQ = "eq", "Equal"
 
 
 class VisionAction(TeamScopedRootMixin, UUIDModel):
@@ -58,7 +72,7 @@ class VisionAction(TeamScopedRootMixin, UUIDModel):
         max_length=20,
         choices=ActionMode.choices,
         default=ActionMode.GROUP_SUMMARY,
-        help_text="What the action produces. MVP supports 'group_summary' only.",
+        help_text="What the action produces: a scheduled group summary, or an alert that only delivers when its condition holds.",
     )
 
     next_run_at = models.DateTimeField(
@@ -81,6 +95,14 @@ class VisionAction(TeamScopedRootMixin, UUIDModel):
         ),
     )
     synthesis_config = models.JSONField(default=dict, help_text="Synthesis options, e.g. {prompt_guide}.")
+    alert_config = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Alert condition for mode='alert': {metric: count|avg_score, operator: gt|gte|lt|lte|eq, "
+            "threshold: number}, evaluated over the run's observation window after `selection` targeting."
+        ),
+    )
     # How many observations may feed one group summary. When the window holds more, they're sampled
     # evenly across it (not just the newest). Not exposed in the API/UI yet — tune via Django admin.
     max_observations = models.PositiveIntegerField(
