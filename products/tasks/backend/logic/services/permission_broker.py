@@ -35,25 +35,32 @@ AUTO_RESPONSE_DEDUPE_SECONDS = 24 * 60 * 60
 
 MCP_TOOL_DEFINITIONS_PATH = Path(settings.BASE_DIR) / "services/mcp/schema/generated-tool-definitions.json"
 
-SAFE_NATIVE_PERMISSION_TOOLS = frozenset(
+# Auto-allow only tools with no workspace mutation and no arbitrary network egress.
+# WebFetch stays off the list: an injected agent could exfiltrate anything it has
+# read by encoding it into an attacker-controlled URL. WebSearch queries only reach
+# the search provider, not attacker-chosen endpoints. Agent/Task subagents are safe
+# to spawn — each of their tool calls raises its own permission request.
+READ_ONLY_NATIVE_PERMISSION_TOOLS = frozenset(
     {
         "Agent",
         "BashOutput",
-        "Edit",
         "Glob",
         "Grep",
         "LS",
-        "MultiEdit",
-        "NotebookEdit",
         "NotebookRead",
         "Read",
         "Task",
         "TodoWrite",
-        "WebFetch",
         "WebSearch",
-        "Write",
     }
 )
+# Workspace file edits stay sandbox-local until an approved externalization (push,
+# PR, artifact delivery), so they're auto-allowed under ask_before_write/full_auto
+# but must go to a human when the run promised to be read-only.
+WORKSPACE_MUTATION_PERMISSION_TOOLS = frozenset({"Edit", "MultiEdit", "NotebookEdit", "Write"})
+# Mirrors products.slack_app.backend.models.SlackPermissionMode.READ_ONLY; the
+# broker can't import across the product boundary.
+PERMISSION_MODE_READ_ONLY = "read_only"
 POSTHOG_EXEC_READ_ONLY_COMMANDS = frozenset({"info", "schema", "search", "tools"})
 DESTRUCTIVE_SHELL_PATTERNS = (
     re.compile(r"(^|[;&|])\s*(?:sudo\s+)?(?:rm|rmdir|unlink|shred)\b", re.IGNORECASE),
@@ -126,7 +133,6 @@ GIT_READ_ONLY_SUBCOMMANDS = frozenset(
         "grep",
         "log",
         "ls-files",
-        "ls-remote",
         "ls-tree",
         "rev-parse",
         "shortlog",
@@ -134,15 +140,17 @@ GIT_READ_ONLY_SUBCOMMANDS = frozenset(
         "status",
     }
 )
-# Command substitution, process substitution, and bash network redirection can
-# smuggle arbitrary execution into an otherwise read-only command line.
-SHELL_COMMAND_SUBSTITUTION_RE = re.compile(r"\$\(|`|<\(|>\(|/dev/(?:tcp|udp)/")
-# Flags that make an allowlisted read-only binary execute another program
-# (find -exec/-delete, rg --pre, sort --compress-program, ...).
+# Command substitution, environment expansion, process substitution, and bash
+# network redirection can smuggle arbitrary execution or secrets (e.g.
+# $POSTHOG_PERSONAL_API_KEY) into an otherwise read-only command line.
+SHELL_COMMAND_SUBSTITUTION_RE = re.compile(r"\$\(|\$\{|\$[A-Za-z0-9_]|`|<\(|>\(|/dev/(?:tcp|udp)/")
+# Flags that make an allowlisted read-only binary execute another program or
+# write files (find -exec/-delete/-fprintf, rg --pre, sort --compress-program, ...).
 SHELL_UNSAFE_FLAG_RE = re.compile(
-    r"(?:^|\s)-{1,2}(?:delete|exec(?:dir)?|exec-batch|ok(?:dir)?|pre|hostname-bin|compress-program)\b"
+    r"(?:^|\s)-{1,2}(?:delete|exec(?:dir)?|exec-batch|ok(?:dir)?|pre|hostname-bin|compress-program|fls|fprint(?:0|f)?)\b"
 )
-SHELL_FD_REDIRECT_RE = re.compile(r"\d*>&\d*|&>>?")
+# fd duplication (2>&1, >&2) is harmless; any other `>` can create or truncate a file.
+SHELL_FD_DUP_RE = re.compile(r"\d*>&\d+")
 SHELL_SEGMENT_SPLIT_RE = re.compile(r"[;\n]|\|\|?|&&?")
 
 
@@ -257,7 +265,11 @@ def _shell_command_is_read_only(command: str) -> bool:
         return False
     if SHELL_COMMAND_SUBSTITUTION_RE.search(command) or SHELL_UNSAFE_FLAG_RE.search(command):
         return False
-    stripped = SHELL_FD_REDIRECT_RE.sub(" ", command)
+    stripped = SHELL_FD_DUP_RE.sub(" ", command)
+    # Any remaining redirect (>, >>, &>, >&file — even a quoted `>`) fails closed
+    # to the approval path rather than risking a file write.
+    if ">" in stripped:
+        return False
     return all(
         _shell_segment_is_read_only(segment) for segment in SHELL_SEGMENT_SPLIT_RE.split(stripped) if segment.strip()
     )
@@ -349,8 +361,10 @@ def _should_auto_allow(task_run: "TaskRun", permission_request: dict[str, Any]) 
         return isinstance(command, str) and _posthog_exec_command_should_auto_allow(command)
     if posthog_tool_name is not None:
         return _posthog_tool_is_read_only(posthog_tool_name)
-    if tool_name in SAFE_NATIVE_PERMISSION_TOOLS:
+    if tool_name in READ_ONLY_NATIVE_PERMISSION_TOOLS:
         return True
+    if tool_name in WORKSPACE_MUTATION_PERMISSION_TOOLS:
+        return _broker_permission_mode(task_run) != PERMISSION_MODE_READ_ONLY
     if tool_name == "Bash":
         command = _tool_call_raw_input(tool_call).get("command")
         return isinstance(command, str) and _shell_command_is_read_only(command)
