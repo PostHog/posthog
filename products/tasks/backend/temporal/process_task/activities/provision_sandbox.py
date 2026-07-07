@@ -244,6 +244,12 @@ def _build_environment_variables(
     if settings.SANDBOX_LLM_GATEWAY_URL:
         environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
+    if settings.DEBUG:
+        # Local eval runs pin models per unit; the agent's overload rescue would silently switch a
+        # session to the fallback model mid-run, breaking prompt-cache sharing (model is part of
+        # the cache key) and cost attribution. Rely on Temporal retries instead.
+        environment_variables["POSTHOG_DISABLE_MODEL_FALLBACK"] = "1"
+
     if ctx.allowed_domains is not None:
         environment_variables.update(NETWORK_RESTRICTED_AGENT_ENV)
 
