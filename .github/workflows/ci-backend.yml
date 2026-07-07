@@ -196,7 +196,7 @@ jobs:
                         # These excludes are load-bearing: an over-broad exclude silently
                         # skips the suite rather than over-running it, so only exclude
                         # patterns that truly never affect backend. They also drop matched
-                        # files from `backend_files` (consumed by the sources step below).
+                        # files from `backend_files`.
                         - '!**/*.md'
                         - '!**/*.mdx'
                       legacy:
