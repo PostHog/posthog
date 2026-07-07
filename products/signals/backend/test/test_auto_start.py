@@ -14,6 +14,7 @@ from products.signals.backend.auto_start import (
     ReviewerContent,
     _create_implementation_task_if_absent,
     _resolve_autostart_assignee,
+    _resolve_autostart_fallback_user,
     _resolve_triggering_user,
 )
 from products.signals.backend.models import (
@@ -82,6 +83,59 @@ def test_resolve_autostart_assignee(
         assert assignee.id == user.id
     else:
         assert assignee is None
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("member_autostart_priority", "report_priority", "expect_match"),
+    [
+        (Priority.P2, Priority.P0, True),  # opted in at P2, report is higher priority → match
+        (Priority.P2, Priority.P2, True),  # report at the member's threshold → match
+        (Priority.P2, Priority.P3, False),  # report below the member's threshold → no match
+        (None, Priority.P4, False),  # a config row without an autostart opt-in is not eligible
+    ],
+)
+def test_resolve_autostart_fallback_user(organization, team, member_autostart_priority, report_priority, expect_match):
+    # The fallback runs an actionable report under a member who explicitly opted into autostart
+    # (an autostart_priority is set), even though they aren't a suggested reviewer and have no
+    # connected GitHub account. A bare config row is not an opt-in, and a report below the
+    # member's threshold must not run.
+    user = User.objects.create(email="opted-in@example.com")
+    OrganizationMembership.objects.create(user=user, organization=organization)
+    SignalUserAutonomyConfig.objects.create(
+        user=user,
+        autostart_priority=member_autostart_priority.value if member_autostart_priority else None,
+    )
+
+    resolved = _resolve_autostart_fallback_user(team_id=team.id, report_priority=report_priority)
+
+    if expect_match:
+        assert resolved is not None
+        assert resolved.id == user.id
+    else:
+        assert resolved is None
+
+
+@pytest.mark.django_db
+def test_resolve_autostart_fallback_user_picks_lowest_id_and_ignores_other_orgs(organization, team):
+    # Concurrent evaluations must agree on one runner, so ties resolve to the lowest user id; and a
+    # member of a different organization must never be picked to run this team's report.
+    outsider_org = Organization.objects.create(name="outsider-org")
+    outsider = User.objects.create(email="outsider@example.com")
+    OrganizationMembership.objects.create(user=outsider, organization=outsider_org)
+    SignalUserAutonomyConfig.objects.create(user=outsider, autostart_priority=Priority.P4.value)
+
+    first = User.objects.create(email="first@example.com")
+    second = User.objects.create(email="second@example.com")
+    for member in (first, second):
+        OrganizationMembership.objects.create(user=member, organization=organization)
+        SignalUserAutonomyConfig.objects.create(user=member, autostart_priority=Priority.P4.value)
+
+    resolved = _resolve_autostart_fallback_user(team_id=team.id, report_priority=Priority.P4)
+
+    assert resolved is not None
+    assert resolved.id == min(first.id, second.id)
+    outsider_org.delete()
 
 
 @pytest.mark.django_db

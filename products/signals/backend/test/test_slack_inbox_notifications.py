@@ -450,27 +450,21 @@ def test_dispatch_posts_to_team_channel_without_per_user_config(org_and_team):
 
 
 @pytest.mark.django_db
-def test_dispatch_falls_back_to_team_channel_when_no_reviewer_has_connected_github(org_and_team):
-    # Suggested reviewers exist but none resolve to an org member with a connected GitHub account.
-    # The actionable report should still reach the team default channel (with no reviewer mention)
-    # rather than notifying nobody.
+def test_dispatch_posts_nothing_without_suggested_reviewers(org_and_team):
     org, team = org_and_team
     creator = _make_reviewer_user(org, "creator@example.com", "creator-bot")
     _make_slack_integration(team, creator)
     _set_team_channel(team, "CTEAM|#posthog-signals")
-    # "ghost-bot" matches no org member, so it resolves to no connected user.
-    report = _make_ready_report(team, priority=AutonomyPriority.P2, suggested_logins=["ghost-bot"])
+    report = _make_ready_report(team, priority=AutonomyPriority.P2)  # no suggested reviewers
 
     fake_client = MagicMock()
     with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
         slack_cls.return_value.client = fake_client
         sent = dispatch_inbox_item_notifications(str(report.id), team.id)
 
-    assert sent == 1
-    call_kwargs = fake_client.chat_postMessage.call_args.kwargs
-    assert call_kwargs["channel"] == "CTEAM"
-    # No reviewer resolved, so the message carries no "Suggested reviewers" mention line.
-    assert "Suggested reviewers" not in json.dumps(call_kwargs["blocks"])
+    # No suggested reviewer → nothing sent, even with a team channel configured (no fallback).
+    assert sent == 0
+    assert fake_client.chat_postMessage.call_count == 0
 
 
 @pytest.mark.django_db

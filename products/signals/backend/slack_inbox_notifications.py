@@ -2,13 +2,11 @@
 
 Mirrors the inbox Reports tab's actionability gate: a report notifies only if it's actionable
 (its latest actionability judgment is immediately_actionable or requires_human_input) — READY is
-enforced upstream. Each resolvable suggested reviewer is routed to one channel: their own
-configured channel if set (filtered by their min-priority), otherwise the team-default channel.
-Reviewers sharing a channel get a single post mentioning only the reviewers routed there. A
-report whose suggested reviewers don't resolve to a connected-GitHub user still notifies the
-team-default channel (with no mention) when one is configured, so an actionable report isn't
-dropped just because nobody has linked their GitHub account; with no team channel there is no
-destination, so nothing is sent. All sends are best-effort.
+enforced upstream — and has at least one suggested reviewer that resolves to a destination.
+Each reviewer is routed to one channel: their own configured channel if set (filtered by their
+min-priority), otherwise the team-default channel. Reviewers sharing a channel get a single post
+mentioning only the reviewers routed there. A report with no resolvable reviewer sends nothing.
+All sends are best-effort.
 """
 
 from __future__ import annotations
@@ -615,19 +613,11 @@ def _build_reviewer_routes(
     Own channel (filtered by the reviewer's min-priority) if set, else the team default,
     else nowhere. A reviewer filtered out of their own channel does not fall back to the
     team channel — that was their choice. Reviewers sharing a destination are grouped so
-    each channel is posted to once, mentioning only its own reviewers.
-
-    When no suggested reviewer resolves to a connected-GitHub user, the report still routes
-    to the team default channel (with no mention) when one is configured, so an actionable
-    report isn't dropped just because nobody has linked their GitHub account. With no team
-    channel there is no destination, so nothing is sent.
+    each channel is posted to once, mentioning only its own reviewers. A report whose
+    reviewers don't resolve to a channel sends nothing.
     """
     reviewer_user_ids = _resolve_suggested_reviewer_user_ids(report)
     if not reviewer_user_ids:
-        # No suggested reviewer resolved to a connected-GitHub user. Fall back to the team default
-        # channel (no mention) so the actionable report still surfaces rather than notifying nobody.
-        if team_integration is not None and team_channel:
-            return [_ChannelRoute(team_integration, team_channel, is_team_channel=True)]
         return []
 
     reviewer_users = {user.id: user for user in User.objects.filter(id__in=reviewer_user_ids)}
