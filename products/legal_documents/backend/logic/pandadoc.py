@@ -36,6 +36,14 @@ DEFAULT_TIMEOUT_SECONDS = 30
 # See https://developers.pandadoc.com/reference/change-document-status-manually
 _PANDADOC_STATUS_VOIDED = 11
 
+# PandaDoc tags 403 responses with a machine-readable `type` in the JSON body.
+# `permissions_error` means the API key's user isn't allowed to act on the
+# document (e.g. the envelope is owned by a different PandaDoc user, or it's in
+# a terminal state we don't own). For a void-on-delete that's effectively a
+# no-op — the envelope is unreachable to us anyway — so we swallow it like 404.
+# See https://developers.pandadoc.com/reference/errors
+_PANDADOC_PERMISSIONS_ERROR_TYPE = "permissions_error"
+
 
 class PandaDocError(Exception):
     """Raised when the PandaDoc API returns a non-2xx response or we fail to reach it."""
@@ -106,8 +114,9 @@ class PandaDocClient:
     def _patch(self, path: str, json: dict[str, Any]) -> int:
         """
         PATCH the given path with a JSON body. Returns the HTTP status code so
-        callers can distinguish a successful change (204) from a "no-op,
-        already gone" (404) without inspecting an exception.
+        callers can distinguish a successful change (204) from a "no-op, nothing
+        to do" (404 already gone, or 403 permissions_error) without inspecting
+        an exception.
         """
         url = f"{self._base_url}{path}"
         try:
@@ -115,6 +124,16 @@ class PandaDocClient:
         except requests.RequestException as exc:
             raise PandaDocError(f"Network error calling PandaDoc {path}: {exc}") from exc
         if response.status_code == 404:
+            return response.status_code
+        if response.status_code == 403 and _is_permissions_error(response):
+            # We're not allowed to act on this document (owner/API-key mismatch,
+            # or a terminal state we don't own). Log without capturing — for a
+            # void-on-delete it's a no-op, not something a human needs to chase.
+            logger.info(
+                "pandadoc_patch_permission_denied",
+                path=path,
+                body=response.text[:500],
+            )
             return response.status_code
         if response.status_code >= 400:
             raise PandaDocError(f"PandaDoc {path} returned {response.status_code}: {response.text[:500]}")
@@ -214,9 +233,13 @@ class PandaDocClient:
         wondering why the link from earlier no longer works.
 
         404 is treated as success — the envelope is already gone, which is
-        the state we wanted anyway. Any other non-2xx (e.g., 423 if PandaDoc
-        has the document locked for editing) surfaces as PandaDocError so
-        the caller can decide whether to retry or log + move on.
+        the state we wanted anyway. A 403 `permissions_error` is likewise a
+        no-op: the envelope belongs to a different PandaDoc user (owner is
+        `privacy@posthog.com`) or is in a terminal state our DB hasn't caught
+        up on, so this API key can't void it — nothing to do for a delete.
+        Any other non-2xx (e.g., 423 if PandaDoc has the document locked for
+        editing) surfaces as PandaDocError so the caller can decide whether
+        to retry or log + move on.
         """
         self._patch(
             f"/public/v1/documents/{document_id}/status",
@@ -233,6 +256,18 @@ class PandaDocClient:
         """
         with self._get_stream(f"/public/v1/documents/{document_id}/download") as stream:
             yield stream
+
+
+def _is_permissions_error(response: requests.Response) -> bool:
+    """
+    True when PandaDoc's JSON body tags the response as a `permissions_error`.
+    Scoped narrowly so a generic 403 (bad/expired API key, WAF block) still
+    surfaces as an error rather than being silently swallowed.
+    """
+    try:
+        return response.json().get("type") == _PANDADOC_PERMISSIONS_ERROR_TYPE
+    except ValueError:
+        return False
 
 
 def _serialize_recipient(r: PandaDocRecipient) -> dict[str, Any]:
