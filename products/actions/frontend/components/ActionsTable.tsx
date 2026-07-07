@@ -150,11 +150,15 @@ export function ActionsTable(): JSX.Element {
                                                     return (
                                                         <>
                                                             Screen name {SCREEN_NAME_MATCHING_LABEL[operator]}{' '}
-                                                            <strong>{String(screenFilter.value)}</strong>
+                                                            <strong>
+                                                                {Array.isArray(screenFilter.value)
+                                                                    ? screenFilter.value.join(', ')
+                                                                    : String(screenFilter.value)}
+                                                            </strong>
                                                         </>
                                                     )
                                                 }
-                                                return 'Screen'
+                                                return 'Mobile screen'
                                             }
                                             case '':
                                             case null:
