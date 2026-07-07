@@ -248,9 +248,19 @@ class HoglandBackend(PreviewBackend):
         # PR-close teardown: drop the live box, then release the stable identity.
         # delete_pen does NOT cascade, so the box must go first. Each step is
         # best-effort — a half-torn-down preview shouldn't wedge cleanup.
-        box = self._resolve_box()
-        if box is not None:
-            box.delete()
+        #
+        # A box that was already TTL-reaped counts as "already gone": the pen can
+        # still point at a dead current_box_id (previews outlive their boxes — the
+        # box has a 24h idle TTL, the pen has none), so both resolving it and
+        # deleting it can raise NotFoundError. Swallow that so teardown still
+        # reaches delete_pen — otherwise the pen leaks forever, which is the exact
+        # thing this method exists to prevent.
+        try:
+            box = self._resolve_box()
+            if box is not None:
+                box.delete()
+        except NotFoundError:
+            pass
         try:
             self._client.delete_pen(self.name)
         except NotFoundError:
