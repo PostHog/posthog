@@ -1,6 +1,7 @@
 import {
     IconCheckCircle,
     IconCloud,
+    IconDashboard,
     IconExpand45,
     IconLaptop,
     IconPullRequest,
@@ -10,6 +11,7 @@ import {
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
+import { urls } from 'scenes/urls'
 
 import {
     currentTaskLabel,
@@ -21,6 +23,7 @@ import {
     toneTextClass,
 } from './helpers'
 import { InstallationProgress } from './installationProgressLogic'
+import { DetectedDashboard } from './wizardDashboardLogic'
 
 export type WizardSyncMode = 'cloud' | 'local'
 
@@ -56,14 +59,20 @@ export function WizardSyncCard({
     progress,
     elapsedSeconds,
     mode,
+    dashboard,
     onExpand,
     onDismiss,
+    dismissTooltip = 'Dismiss',
 }: {
     progress: InstallationProgress
     elapsedSeconds: number
     mode: WizardSyncMode
+    /** Dashboard the wizard built, when detected — the completed card's payoff for runs with no PR. */
+    dashboard?: DetectedDashboard | null
     onExpand: () => void
     onDismiss?: () => void
+    /** What the X actually does here — "Minimize" while the run is live, "Dismiss" once terminal. */
+    dismissTooltip?: string
 }): JSX.Element {
     const { completed, total } = stepCounts(progress.steps)
     const task = currentTaskLabel(progress)
@@ -144,6 +153,20 @@ export function WizardSyncCard({
                             <span className="truncate max-w-32">{prNameLabel(progress.prUrl)}</span>
                         </LemonButton>
                     )}
+                    {progress.phase === 'completed' && !progress.prUrl && dashboard && (
+                        // A local run's payoff: no PR to review, but the wizard built a dashboard.
+                        // "Preview" keeps it honest — it stays empty until a deploy sends data.
+                        <LemonButton
+                            size="xsmall"
+                            type="primary"
+                            to={urls.dashboard(dashboard.id)}
+                            icon={<IconDashboard />}
+                            onClick={(e) => e.stopPropagation()}
+                            tooltip="The wizard set this up for you – it fills up once you deploy"
+                        >
+                            Preview dashboard
+                        </LemonButton>
+                    )}
                     <LemonButton
                         size="xsmall"
                         icon={<IconExpand45 />}
@@ -156,8 +179,8 @@ export function WizardSyncCard({
                             size="xsmall"
                             icon={<IconX />}
                             onClick={onDismiss}
-                            tooltip="Dismiss"
-                            aria-label="Dismiss"
+                            tooltip={dismissTooltip}
+                            aria-label={dismissTooltip}
                         />
                     )}
                 </div>

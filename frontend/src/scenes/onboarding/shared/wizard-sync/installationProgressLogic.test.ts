@@ -1,9 +1,11 @@
 import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api.schemas'
 
+import type { FinishedLocalRunHandle } from './finishedLocalRunLogic'
 import {
     cloudProgress,
     isSessionFresh,
     localProgress,
+    progressFromFinishedLocalRun,
     resetWizardSyncTelemetryForTests,
     runLocalSessionBookkeeping,
 } from './installationProgressLogic'
@@ -298,6 +300,49 @@ describe('installationProgressLogic merge', () => {
             expect(localProgress(session({ run_phase: 'running' }), 'open', false).isCurrent).toBe(false)
             expect(localProgress(session({ run_phase: 'running' }), 'open', true).isCurrent).toBe(true)
         })
+
+        it('a dismissed session is not current even while fresh', () => {
+            // Dismissal must release the install-step takeover immediately — the sticky freshness
+            // flag alone would keep the completed panel pinned until the next remount.
+            expect(localProgress(session({ run_phase: 'completed' }), 'open', true, true).isCurrent).toBe(false)
+        })
+    })
+
+    describe('progressFromFinishedLocalRun', () => {
+        const handle = (overrides: Partial<FinishedLocalRunHandle> = {}): FinishedLocalRunHandle => ({
+            sessionId: 's',
+            projectId: 1,
+            startedAt: '2026-01-01T00:00:00Z',
+            finishedAt: '2026-01-01T00:05:00Z',
+            runPhase: 'completed',
+            tasks: [
+                { id: 'a', title: 'Detect framework', status: 'completed' },
+                { id: 'b', title: 'Install SDK', status: 'canceled' },
+            ],
+            error: null,
+            ...overrides,
+        })
+
+        it('renders the snapshot like the live path rendered the same terminal session', () => {
+            // The FAB switches from the live stream to this snapshot when the stream gates itself
+            // off — a mapping drift would make the card visibly rewrite itself at that moment.
+            expect(progressFromFinishedLocalRun(handle())).toEqual({
+                phase: 'completed',
+                steps: [
+                    { id: 'a', label: 'Detect framework', status: 'completed', detail: null },
+                    { id: 'b', label: 'Install SDK', status: 'failed', detail: null },
+                ],
+                error: null,
+                prUrl: null,
+                isCurrent: true,
+            })
+        })
+
+        it('surfaces the persisted error on failed runs', () => {
+            const result = progressFromFinishedLocalRun(handle({ runPhase: 'error', error: { message: 'boom' } }))
+            expect(result.phase).toBe('error')
+            expect(result.error).toEqual({ title: 'Wizard hit an error', detail: 'boom' })
+        })
     })
 
     describe('isSessionFresh', () => {
@@ -407,10 +452,14 @@ describe('installationProgressLogic merge', () => {
     describe('runLocalSessionBookkeeping', () => {
         const spyActions = (): {
             markSessionCurrent: jest.Mock
+            recordFinishedLocalRun: jest.Mock
+            supersedeFinishedLocalRun: jest.Mock
             reportWizardSyncSessionDetected: jest.Mock
             reportWizardSyncSessionFinished: jest.Mock
         } => ({
             markSessionCurrent: jest.fn(),
+            recordFinishedLocalRun: jest.fn(),
+            supersedeFinishedLocalRun: jest.fn(),
             reportWizardSyncSessionDetected: jest.fn(),
             reportWizardSyncSessionFinished: jest.fn(),
         })
@@ -444,6 +493,33 @@ describe('installationProgressLogic merge', () => {
             runLocalSessionBookkeeping(done, running, actions)
             runLocalSessionBookkeeping(done, running, actions)
             expect(actions.reportWizardSyncSessionFinished).toHaveBeenCalledTimes(1)
+        })
+
+        it.each([
+            // Recording must fire on every fresh terminal delivery (a replayed terminal state after
+            // a remount is exactly when the FAB needs its snapshot back), never on stale ones —
+            // otherwise a finished run's handoff vanishes with the stream, or a stale row from a
+            // previous run resurrects a surface the user never watched.
+            ['fresh completed session', { run_phase: 'completed' }, true, true],
+            ['fresh errored session', { run_phase: 'error' }, true, true],
+            ['fresh running session', { run_phase: 'running' }, true, false],
+            ['stale completed session', { run_phase: 'completed', updated_at: '2020-01-01T00:00:00Z' }, false, false],
+        ])('records the finished-run handle for a %s: %s', (_name, overrides, isFresh, expectRecorded) => {
+            const actions = spyActions()
+            const s = isFresh
+                ? fresh(overrides as Partial<WizardSessionDTOApi>)
+                : session(overrides as Partial<WizardSessionDTOApi>)
+            runLocalSessionBookkeeping(s, null, actions)
+            expect(actions.recordFinishedLocalRun).toHaveBeenCalledTimes(expectRecorded ? 1 : 0)
+        })
+
+        it('supersedes the previous finished run when a fresh run goes live', () => {
+            // Starting over must replace the old handoff with the live run — otherwise dismissing
+            // requires clearing two surfaces, or the old completed card reappears mid-new-run.
+            const actions = spyActions()
+            runLocalSessionBookkeeping(fresh({ session_id: 'new-run', run_phase: 'running' }), null, actions)
+            expect(actions.supersedeFinishedLocalRun).toHaveBeenCalledWith('new-run')
+            expect(actions.recordFinishedLocalRun).not.toHaveBeenCalled()
         })
 
         it('tolerates a malformed session with null tasks', () => {

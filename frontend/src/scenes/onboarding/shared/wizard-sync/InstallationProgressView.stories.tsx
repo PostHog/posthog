@@ -86,7 +86,28 @@ export const Completed: Story = {
             steps: steps(['completed', 'completed', 'completed', 'completed']),
             prUrl: 'https://github.com/acme-co/web/pull/42',
         }),
+        mode: 'cloud',
+        dashboard: { id: 1, name: 'My app analytics' },
     },
+}
+
+// The local run's final handoff: the wizard finished on the user's machine, so the review + deploy
+// steps are theirs — plus the dashboard the wizard built as the payoff CTA.
+export const CompletedLocalHandoff: Story = {
+    args: {
+        progress: progress({
+            phase: 'completed',
+            steps: [
+                { id: 'a', label: 'Detected Next.js', status: 'completed', detail: null },
+                { id: 'b', label: 'Installed the PostHog SDK', status: 'completed', detail: null },
+                { id: 'c', label: 'Wired up event capture', status: 'completed', detail: null },
+                { id: 'd', label: 'Created a dashboard', status: 'completed', detail: null },
+            ],
+        }),
+        mode: 'local',
+        dashboard: { id: 1, name: 'My app analytics' },
+    },
+    argTypes: { onDismiss: { action: 'dismissed' } },
 }
 
 // The PR is open but the run keeps going (keeping CI green): "Pull request ready" headline + the review
@@ -179,6 +200,7 @@ export const AllStates: Story = {
             { label: 'Running: wizard', args: RunningWizard.args },
             { label: 'Pull request ready', args: PullRequestReady.args },
             { label: 'Completed', args: Completed.args },
+            { label: 'Completed: local handoff', args: CompletedLocalHandoff.args },
             { label: 'Failed: provisioning', args: FailedProvisioning.args },
             { label: 'Failed: wizard', args: FailedWizard.args },
             { label: 'Failed: no detail', args: FailedNoDetail.args },
@@ -191,6 +213,7 @@ export const AllStates: Story = {
                         <InstallationProgressContent
                             progress={args!.progress!}
                             mode={args!.mode}
+                            dashboard={args!.dashboard}
                             onRetryLocally={() => {}}
                         />
                     </div>

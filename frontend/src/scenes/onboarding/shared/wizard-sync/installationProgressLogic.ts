@@ -6,9 +6,12 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api.schemas'
 import { wizardSessionStreamLogic } from 'products/wizard/frontend/wizardSessionStreamLogic'
 
+import { activeCloudRunLogic } from './activeCloudRunLogic'
+import { finishedLocalRunLogic, FinishedLocalRunHandle } from './finishedLocalRunLogic'
 import type { installationProgressLogicType } from './installationProgressLogicType'
 import { taskRunPrUrl, taskRunStreamLogic, TaskRunProgressStep, TaskRunStreamState } from './taskRunStreamLogic'
 import { isSessionActive, wizardActiveSessionDetectorLogic } from './wizardActiveSessionDetectorLogic'
+import { wizardDashboardLogic } from './wizardDashboardLogic'
 
 // The wizard session stream the local CLI publishes to — and the channel a cloud wizard reports its
 // own sub-progress on.
@@ -251,11 +254,13 @@ export function cloudProgress(
 
 // Local: the wizard session is the only source. `sessionIsCurrent` is the sticky freshness flag —
 // the SSE replays the latest session on connect even when it's a stale terminal row from a previous
-// run, and those must not read as a run in flight.
+// run, and those must not read as a run in flight. `dismissed` is the user's explicit dismissal of
+// this session — it wins over freshness, so a dismissed run releases the install-step takeover.
 export function localProgress(
     latestSession: WizardSessionDTOApi | null,
     sessionConnectionStatus: string,
-    sessionIsCurrent: boolean
+    sessionIsCurrent: boolean,
+    dismissed: boolean = false
 ): InstallationProgress {
     if (!latestSession) {
         return {
@@ -293,7 +298,22 @@ export function localProgress(
               }
             : null
 
-    return { phase, steps, error, prUrl: null, isCurrent: sessionIsCurrent }
+    return { phase, steps, error, prUrl: null, isCurrent: sessionIsCurrent && !dismissed }
+}
+
+// A finished local run rendered from its persisted snapshot, after the live session stream has
+// gated itself off — same shape the live path produces for the same terminal session.
+export function progressFromFinishedLocalRun(handle: FinishedLocalRunHandle): InstallationProgress {
+    return {
+        phase: handle.runPhase,
+        steps: handle.tasks.map((t) => ({ id: t.id, label: t.title, status: stepStatus(t.status), detail: null })),
+        error:
+            handle.runPhase === 'error'
+                ? { title: 'Wizard hit an error', detail: handle.error?.message ?? null }
+                : null,
+        prUrl: null,
+        isCurrent: true,
+    }
 }
 
 /**
@@ -316,6 +336,10 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
             ['taskRunState', 'progressSteps', 'connectionStatus as taskConnectionStatus', 'isStalled'],
             wizardSessionStreamLogic({ workflowId: WORKFLOW_ID }),
             ['latestSession', 'connectionStatus as sessionConnectionStatus'],
+            finishedLocalRunLogic,
+            ['dismissedSessionId'],
+            activeCloudRunLogic,
+            ['activeCloudRun'],
         ],
         actions: [
             taskRunStreamLogic({ runId: props.runId ?? '', taskId: props.taskId ?? '' }),
@@ -328,6 +352,10 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
             ['connect as connectSession', 'disconnect as disconnectSession', 'sessionUpdated'],
             eventUsageLogic,
             ['reportWizardSyncSessionDetected', 'reportWizardSyncSessionFinished'],
+            finishedLocalRunLogic,
+            ['recordFinishedLocalRun', 'supersedeFinishedLocalRun'],
+            wizardDashboardLogic,
+            ['detectWizardDashboard'],
         ],
     })),
     actions({
@@ -353,6 +381,7 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
                 s.sessionConnectionStatus,
                 s.sessionIsCurrent,
                 s.isStalled,
+                s.dismissedSessionId,
                 (_, props) => props.mode,
             ],
             (
@@ -363,21 +392,36 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
                 sessionConnectionStatus,
                 sessionIsCurrent,
                 isStalled,
+                dismissedSessionId,
                 mode
             ): InstallationProgress =>
                 mode === 'cloud'
                     ? cloudProgress(taskRunState, progressSteps, taskConnectionStatus, latestSession, isStalled)
-                    : localProgress(latestSession, sessionConnectionStatus, sessionIsCurrent),
+                    : localProgress(
+                          latestSession,
+                          sessionConnectionStatus,
+                          sessionIsCurrent,
+                          !!latestSession && latestSession.session_id === dismissedSessionId
+                      ),
         ],
     }),
-    listeners(({ actions, props, cache }) => ({
+    listeners(({ actions, props, cache, values }) => ({
         // Once the cloud run is terminal there is nothing left for the session source to enrich —
         // release this instance's share so an undismissed finished run doesn't keep a session
         // stream/poll alive app-wide. The share accounting protects a co-mounted local instance,
         // whose "Run it yourself" recovery flow must outlive a finishing cloud run.
         taskRunStreamCompleted: () => {
-            if (props.mode === 'cloud') {
-                releaseSessionShare(instanceKey(props), actions.disconnectSession)
+            if (props.mode !== 'cloud') {
+                return
+            }
+            releaseSessionShare(instanceKey(props), actions.disconnectSession)
+            // The cloud wizard builds a dashboard too — look it up so the completed surfaces can
+            // link to it. startedAt travels on the persisted run handle; without it there's no run
+            // window to scope the search to, so skip.
+            const startedAt =
+                values.activeCloudRun?.runId === props.runId ? values.activeCloudRun?.startedAt : undefined
+            if (values.taskRunState?.status === 'completed' && startedAt) {
+                actions.detectWizardDashboard({ startedAt })
             }
         },
         // Local-run bookkeeping, owned by the single local-mode instance so cloud instances (which
@@ -425,11 +469,15 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
 //   - reach/outcome telemetry, once per session_id (module-scoped guards survive remounts)
 //   - detector sync: keep the FAB's stream gate alive across navigation, and let a terminal
 //     session schedule its teardown grace window
+//   - finished-run handle: snapshot a fresh terminal run so its handoff surface outlives the
+//     stream, and supersede the previous run's handle once a new run goes live
 export function runLocalSessionBookkeeping(
     session: WizardSessionDTOApi,
     prev: WizardSessionDTOApi | null,
     actions: {
         markSessionCurrent: () => void
+        recordFinishedLocalRun: (session: WizardSessionDTOApi) => void
+        supersedeFinishedLocalRun: (sessionId: string) => void
         reportWizardSyncSessionDetected: (props: {
             workflowId: string
             skillId: string
@@ -450,8 +498,17 @@ export function runLocalSessionBookkeeping(
     // Tolerate a malformed delivery: reducers already stored the session, and throwing here would
     // silently skip the detector/telemetry bookkeeping for this update.
     const tasks = session.tasks ?? []
+    const isTerminalPhase = session.run_phase === 'completed' || session.run_phase === 'error'
     if (isSessionFresh(session, now)) {
         actions.markSessionCurrent()
+        // The handoff surface must outlive the stream (the detector gates it off shortly after a
+        // terminal phase): snapshot fresh terminal runs, and let a fresh run going live supersede
+        // a previous run's snapshot.
+        if (isTerminalPhase) {
+            actions.recordFinishedLocalRun(session)
+        } else {
+            actions.supersedeFinishedLocalRun(session.session_id)
+        }
         // Reach metric: count each live wizard session the sync surfaces, once per session_id.
         // Gated on freshness so stale terminal rows sitting in the DB — which never reach the
         // user — don't inflate the funnel.
@@ -485,8 +542,7 @@ export function runLocalSessionBookkeeping(
     // Terminal phases are sticky, so this transition is observed at most once per session — the
     // id guard covers any SSE redelivery.
     if (prev && session.run_phase !== prev.run_phase) {
-        const isTerminal = session.run_phase === 'completed' || session.run_phase === 'error'
-        if (isTerminal && !reportedFinishedSessions.has(session.session_id)) {
+        if (isTerminalPhase && !reportedFinishedSessions.has(session.session_id)) {
             reportedFinishedSessions.add(session.session_id)
             actions.reportWizardSyncSessionFinished({
                 workflowId: WORKFLOW_ID,

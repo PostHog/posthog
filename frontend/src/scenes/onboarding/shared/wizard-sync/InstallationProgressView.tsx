@@ -1,12 +1,23 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconCheckCircle, IconPullRequest, IconTerminal, IconX } from '@posthog/icons'
+import { HedgehogWizardHog } from '@posthog/brand/hoggies'
+import {
+    IconCheckCircle,
+    IconDashboard,
+    IconPullRequest,
+    IconRocket,
+    IconSearch,
+    IconTerminal,
+    IconX,
+} from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
+import { urls } from 'scenes/urls'
 
 import { activeCloudRunLogic } from './activeCloudRunLogic'
+import { finishedLocalRunLogic } from './finishedLocalRunLogic'
 import { prNameLabel } from './helpers'
 import {
     InstallationMode,
@@ -14,6 +25,7 @@ import {
     installationProgressLogic,
     InstallationStepStatus,
 } from './installationProgressLogic'
+import { DetectedDashboard, wizardDashboardLogic } from './wizardDashboardLogic'
 
 // Timeline dot for a single step.
 function StepIcon({ status }: { status: InstallationStepStatus }): JSX.Element {
@@ -52,12 +64,15 @@ const CONNECTING_SUBTITLE: Record<InstallationMode, string> = {
 export function InstallationProgressContent({
     progress,
     mode,
+    dashboard,
     onDismiss,
     onRetryLocally,
 }: {
     progress: InstallationProgress
     /** Tailors the connecting state (copy + upcoming-step preview) to where the run happens. */
     mode?: InstallationMode
+    /** Dashboard the wizard built, when detected — surfaced as the completed state's payoff. */
+    dashboard?: DetectedDashboard | null
     onDismiss?: () => void
     /** When set, a failed run offers a "Run it yourself" button (switches the install step to the local
      * command). Omitted where no local fallback exists (e.g. the floating FAB), which shows only docs. */
@@ -80,8 +95,10 @@ export function InstallationProgressContent({
     const subtitle =
         phase === 'completed'
             ? prUrl
-                ? 'We opened a pull request for you to review.'
-                : "You're all set."
+                ? 'Review and merge the pull request, then deploy – data starts flowing the moment it ships.'
+                : mode === 'local'
+                  ? 'The wizard finished its work on your machine.'
+                  : "You're all set."
             : phase === 'error'
               ? "We couldn't finish the setup."
               : prReady
@@ -110,20 +127,24 @@ export function InstallationProgressContent({
                         <p className="text-sm text-muted m-0">{subtitle}</p>
                     </div>
                 </div>
-                {/* Dismiss once the run is settled — mid-run, hiding the only progress surface
-                    (the FAB is suppressed while this panel is mounted) would orphan a live run.
-                    'idle' is dismissible too: it means the stream stopped permanently without ever
-                    delivering state (deleted run, revoked access), and the persisted handle would
-                    otherwise be an undismissable zombie across reloads. */}
-                {onDismiss && (phase === 'completed' || phase === 'error' || phase === 'idle') && (
-                    <LemonButton
-                        size="small"
-                        icon={<IconX />}
-                        onClick={onDismiss}
-                        tooltip="Dismiss"
-                        aria-label="Dismiss"
-                    />
-                )}
+                <div className="flex items-start gap-1 shrink-0">
+                    {/* The payoff moment deserves more than a green check. */}
+                    {phase === 'completed' && <HedgehogWizardHog className="w-14 h-14 -my-2" aria-hidden="true" />}
+                    {/* Dismiss once the run is settled — mid-run, hiding the only progress surface
+                        (the FAB is suppressed while this panel is mounted) would orphan a live run.
+                        'idle' is dismissible too: it means the stream stopped permanently without ever
+                        delivering state (deleted run, revoked access), and the persisted handle would
+                        otherwise be an undismissable zombie across reloads. */}
+                    {onDismiss && (phase === 'completed' || phase === 'error' || phase === 'idle') && (
+                        <LemonButton
+                            size="small"
+                            icon={<IconX />}
+                            onClick={onDismiss}
+                            tooltip="Dismiss"
+                            aria-label="Dismiss"
+                        />
+                    )}
+                </div>
             </div>
 
             {steps.length > 0 ? (
@@ -169,6 +190,29 @@ export function InstallationProgressContent({
                 )
             )}
 
+            {phase === 'completed' && mode === 'local' && (
+                // The local handoff: the wizard's changes sit uncommitted on the user's machine, so
+                // the payoff (live data) is one review and one deploy away — spell that out.
+                <div className="flex flex-col gap-1.5">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-muted">Over to you</span>
+                    <ul className="flex flex-col gap-1.5 m-0 p-0 list-none text-sm">
+                        <li className="flex items-start gap-2">
+                            <IconSearch className="text-muted text-base mt-0.5 shrink-0" />
+                            <span>
+                                <strong>Review the changes</strong> – the wizard edited your code, so give the diff a
+                                once-over in your editor.
+                            </span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                            <IconRocket className="text-muted text-base mt-0.5 shrink-0" />
+                            <span>
+                                <strong>Commit and deploy</strong> – data starts flowing the moment real users hit it.
+                            </span>
+                        </li>
+                    </ul>
+                </div>
+            )}
+
             {phase === 'error' && error?.detail && (
                 <div className="text-sm text-danger bg-danger-highlight rounded p-2">{error.detail}</div>
             )}
@@ -206,6 +250,26 @@ export function InstallationProgressContent({
                     <span className="truncate">{prNameLabel(prUrl)}</span>
                 </LemonButton>
             )}
+
+            {phase === 'completed' && dashboard && (
+                // The wizard's other deliverable — framed as a preview, not a destination: it was
+                // created for this run and stays empty until the deployed changes send real data.
+                <div className="flex flex-col gap-2">
+                    <p className="text-sm text-muted m-0">
+                        The wizard also set up a dashboard for you. It stays empty until your deploy starts sending data
+                        – but feel free to look around.
+                    </p>
+                    <LemonButton
+                        type={prUrl ? 'secondary' : 'primary'}
+                        to={urls.dashboard(dashboard.id)}
+                        icon={<IconDashboard />}
+                        center
+                        tooltip={dashboard.name ?? undefined}
+                    >
+                        Preview your dashboard
+                    </LemonButton>
+                </div>
+            )}
         </div>
     )
 }
@@ -234,8 +298,10 @@ export function InstallationProgressView({
     /** Forwarded to the failed-run fallback (see InstallationProgressContent). */
     onRetryLocally?: () => void
 }): JSX.Element {
-    const { installationProgress } = useValues(installationProgressLogic({ mode, runId, taskId }))
+    const { installationProgress, latestSession } = useValues(installationProgressLogic({ mode, runId, taskId }))
     const { setPanelMounted } = useActions(activeCloudRunLogic)
+    const { detectedDashboard } = useValues(wizardDashboardLogic)
+    const { dismissLocalRun } = useActions(finishedLocalRunLogic)
 
     // While shown inline on the install step, hide the floating FAB so the same run isn't in two places.
     useEffect(() => {
@@ -246,11 +312,18 @@ export function InstallationProgressView({
         return () => setPanelMounted(false)
     }, [floating, setPanelMounted])
 
+    // Local runs always get a dismissal: it releases the install-step takeover and the FAB in one
+    // move, and nothing else knows the session to clear. Cloud dismissal stays with the caller
+    // (it owns the persisted run handle).
+    const defaultLocalDismiss =
+        mode === 'local' && latestSession ? () => dismissLocalRun(latestSession.session_id) : undefined
+
     return (
         <InstallationProgressContent
             progress={installationProgress}
             mode={mode}
-            onDismiss={onDismiss}
+            dashboard={installationProgress.phase === 'completed' ? detectedDashboard : null}
+            onDismiss={onDismiss ?? defaultLocalDismiss}
             onRetryLocally={onRetryLocally}
         />
     )
