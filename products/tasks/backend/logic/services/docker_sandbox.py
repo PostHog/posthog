@@ -497,24 +497,24 @@ class DockerSandbox(SandboxBase):
         if sandbox_id in DockerSandbox._registry:
             return DockerSandbox._registry[sandbox_id]
 
-        try:
-            result = DockerSandbox._run(
-                ["docker", "inspect", "--format", "{{.Id}}", sandbox_id],
-                check=True,
-            )
-            full_id = result.stdout.strip()
-            config = SandboxConfig(name=f"sandbox-{sandbox_id}")
-            # Recover the published host port so connect_info (which runs in a different
-            # process than create()) can build the connect URL.
-            host_port = DockerSandbox._recover_published_host_port(full_id)
-            return DockerSandbox(container_id=full_id, config=config, host_port=host_port)
-
-        except subprocess.CalledProcessError as e:
+        # No check=True: a missing container is an expected lifecycle condition (reaped,
+        # timed out, or removed between provisioning and lookup), so branch on the exit
+        # code and raise without a CalledProcessError cause. That keeps it out of error
+        # tracking (capture is skipped when cause is None) instead of surfacing a raw
+        # subprocess failure that groups under CalledProcessError.
+        result = DockerSandbox._run(["docker", "inspect", "--format", "{{.Id}}", sandbox_id])
+        if result.returncode != 0:
             raise SandboxNotFoundError(
                 f"Docker sandbox {sandbox_id} not found",
-                {"sandbox_id": sandbox_id, "error": e.stderr},
-                cause=e,
+                {"sandbox_id": sandbox_id, "error": result.stderr},
             )
+
+        full_id = result.stdout.strip()
+        config = SandboxConfig(name=f"sandbox-{sandbox_id}")
+        # Recover the published host port so connect_info (which runs in a different
+        # process than create()) can build the connect URL.
+        host_port = DockerSandbox._recover_published_host_port(full_id)
+        return DockerSandbox(container_id=full_id, config=config, host_port=host_port)
 
     def get_status(self) -> SandboxStatus:
         try:
