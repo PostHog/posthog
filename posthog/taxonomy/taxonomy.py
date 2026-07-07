@@ -1596,6 +1596,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Some SDKs (like Android) send the raw user agent as $user_agent.",
             "examples": ["Dalvik/2.1.0 (Linux; U; Android 11; Pixel 3 Build/RQ2A.210505.002)"],
         },
+        "$signature_agent": {
+            "label": "Signature agent",
+            "description": "The Web Bot Auth Signature-Agent header of the request, identifying a signed bot or AI agent (e.g. ChatGPT agent). Sent by servers that forward request headers.",
+            "examples": ['"https://chatgpt.com"'],
+        },
         "$screen_height": {
             "label": "Screen height",
             "description": "The height of the user's entire screen (in pixels).",

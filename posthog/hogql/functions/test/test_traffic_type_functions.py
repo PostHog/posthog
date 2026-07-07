@@ -22,6 +22,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 from products.actions.backend.models.action import Action
 from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
 from products.web_analytics.backend.hogql_queries.bot_ip_definitions import BOT_IP_DEFINITIONS
+from products.web_analytics.backend.hogql_queries.bot_signature_agents import SIGNATURE_AGENT_DEFINITIONS
 
 
 class TestTrafficTypeFunctions:
@@ -420,6 +421,82 @@ class TestBotIPClassification:
         assert len(ip_index_comparison.left.args) == 2 * len(BOT_IP_DEFINITIONS) + 1
 
 
+class TestSignatureAgentClassification:
+    def test_is_bot_with_signature_agent_checks_it_between_ua_and_ip(self):
+        node = ast.Call(name="isLikelyBot", args=[])
+        args: list[ast.Expr] = [
+            ast.Field(chain=["properties", "$user_agent"]),
+            ast.Field(chain=["properties", "$ip"]),
+            ast.Field(chain=["properties", "$signature_agent"]),
+        ]
+
+        result = is_bot(node=node, args=args)
+
+        assert isinstance(result, ast.Call)
+        or_expr = result.args[0]
+        assert isinstance(or_expr, ast.Or)
+        assert len(or_expr.exprs) == 3
+        # Signature-Agent branch sits between the UA and IP branches (precedence order)
+        signature_match = or_expr.exprs[1]
+        assert isinstance(signature_match, ast.CompareOperation)
+        assert isinstance(signature_match.left, ast.Call)
+        assert signature_match.left.name == "indexOf"
+        assert isinstance(or_expr.exprs[2], ast.Or)
+
+    @parameterized.expand(
+        [
+            (get_traffic_type,),
+            (get_traffic_category,),
+            (get_bot_type,),
+            (get_bot_name,),
+            (get_bot_operator,),
+        ]
+    )
+    def test_lookup_builders_check_signature_agent_before_ip(self, function_builder):
+        node = ast.Call(name="test", args=[])
+        args: list[ast.Expr] = [
+            ast.Field(chain=["properties", "$user_agent"]),
+            ast.Field(chain=["properties", "$ip"]),
+            ast.Field(chain=["properties", "$signature_agent"]),
+        ]
+
+        result = function_builder(node=node, args=args)
+
+        assert isinstance(result, ast.Call)
+        # UA-unmatched branch is the signature lookup, whose own fallback is the IP lookup
+        signature_lookup = result.args[1]
+        assert isinstance(signature_lookup, ast.Call)
+        assert signature_lookup.name == "if"
+        signature_comparison = signature_lookup.args[0]
+        assert isinstance(signature_comparison, ast.CompareOperation)
+        assert isinstance(signature_comparison.left, ast.Call)
+        assert signature_comparison.left.name == "indexOf"
+        ip_lookup = signature_lookup.args[1]
+        assert isinstance(ip_lookup, ast.Call)
+        assert ip_lookup.name == "if"
+
+    def test_definitions_have_required_fields_and_valid_vocabulary(self):
+        valid_types = {"AI Agent", "Bot", "Automation"}
+        valid_categories = {
+            "ai_crawler",
+            "ai_search",
+            "ai_assistant",
+            "search_crawler",
+            "seo_crawler",
+            "social_crawler",
+            "monitoring",
+            "http_client",
+            "headless_browser",
+        }
+        for host, sig_def in SIGNATURE_AGENT_DEFINITIONS.items():
+            assert host == host.lower().strip(chr(34)), f"Host {host} must be a normalized lowercase domain"
+            assert "://" not in host, f"Host {host} must not include a scheme"
+            assert sig_def.name, f"Signature agent definition {host} missing name"
+            assert sig_def.operator, f"Signature agent definition {host} missing operator"
+            assert sig_def.traffic_type in valid_types, f"Invalid traffic_type for {host}: {sig_def.traffic_type}"
+            assert sig_def.category in valid_categories, f"Invalid category for {host}: {sig_def.category}"
+
+
 class TestBotIPDefinitionsDataStructure:
     def test_all_definitions_have_required_fields_and_valid_vocabulary(self):
         valid_types = {"AI Agent", "Bot", "Automation"}
@@ -611,6 +688,14 @@ class TestMacroExpansionGuard(BaseTest):
         )
         assert "multiMatchAnyIndex" in printed
         assert "IPv6CIDRToRange" in printed
+
+    def test_three_arg_is_bot_expands_signature_agent_lookup(self):
+        printed = self._print(
+            "SELECT isLikelyBot(toString(properties.$user_agent), toString(properties.$ip), toString(properties.$signature_agent)) FROM events"
+        )
+        assert "multiMatchAnyIndex" in printed
+        assert "IPv6CIDRToRange" in printed
+        assert "indexOf" in printed
 
     def test_two_arg_is_bot_nested_is_rejected(self):
         # The two-arg form duplicates its IP argument across the per-prefix-length range

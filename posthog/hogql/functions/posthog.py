@@ -94,42 +94,67 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         ],
     ),
     # Bot / traffic-type classification functions. The optional second argument is the
-    # client IP, matched against operator-published bot IP ranges.
+    # client IP, matched against operator-published bot IP ranges; the optional third is
+    # the Web Bot Auth Signature-Agent value, matched against known signed agents.
     "getTrafficType": HogQLFunctionMeta(
         "getTrafficType",
         1,
-        2,
-        signatures=[((StringType(),), StringType()), ((StringType(), StringType()), StringType())],
+        3,
+        signatures=[
+            ((StringType(),), StringType()),
+            ((StringType(), StringType()), StringType()),
+            ((StringType(), StringType(), StringType()), StringType()),
+        ],
     ),
     "getTrafficCategory": HogQLFunctionMeta(
         "getTrafficCategory",
         1,
-        2,
-        signatures=[((StringType(),), StringType()), ((StringType(), StringType()), StringType())],
+        3,
+        signatures=[
+            ((StringType(),), StringType()),
+            ((StringType(), StringType()), StringType()),
+            ((StringType(), StringType(), StringType()), StringType()),
+        ],
     ),
     "isLikelyBot": HogQLFunctionMeta(
         "isLikelyBot",
         1,
-        2,
-        signatures=[((StringType(),), BooleanType()), ((StringType(), StringType()), BooleanType())],
+        3,
+        signatures=[
+            ((StringType(),), BooleanType()),
+            ((StringType(), StringType()), BooleanType()),
+            ((StringType(), StringType(), StringType()), BooleanType()),
+        ],
     ),
     "getBotType": HogQLFunctionMeta(
         "getBotType",
         1,
-        2,
-        signatures=[((StringType(),), StringType()), ((StringType(), StringType()), StringType())],
+        3,
+        signatures=[
+            ((StringType(),), StringType()),
+            ((StringType(), StringType()), StringType()),
+            ((StringType(), StringType(), StringType()), StringType()),
+        ],
     ),
     "getBotName": HogQLFunctionMeta(
         "getBotName",
         1,
-        2,
-        signatures=[((StringType(),), StringType()), ((StringType(), StringType()), StringType())],
+        3,
+        signatures=[
+            ((StringType(),), StringType()),
+            ((StringType(), StringType()), StringType()),
+            ((StringType(), StringType(), StringType()), StringType()),
+        ],
     ),
     "getBotOperator": HogQLFunctionMeta(
         "getBotOperator",
         1,
-        2,
-        signatures=[((StringType(),), StringType()), ((StringType(), StringType()), StringType())],
+        3,
+        signatures=[
+            ((StringType(),), StringType()),
+            ((StringType(), StringType()), StringType()),
+            ((StringType(), StringType(), StringType()), StringType()),
+        ],
     ),
     # Deprecated __preview_* aliases — kept so ad-hoc queries written against the preview names keep working.
     "__preview_getTrafficType": HogQLFunctionMeta(

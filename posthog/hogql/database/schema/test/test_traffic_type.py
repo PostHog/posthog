@@ -9,6 +9,7 @@ from posthog.hogql.database.schema.traffic_type import (
     create_is_bot_field,
     create_traffic_category_field,
     create_traffic_type_field,
+    signature_agent_expr,
     user_agent_expr,
 )
 
@@ -37,6 +38,14 @@ class TestClientIPExpr:
 
     def test_custom_properties_path(self):
         assert client_ip_expr(["poe", "properties"]) == ast.Field(chain=["poe", "properties", "$ip"])
+
+
+class TestSignatureAgentExpr:
+    def test_default_properties_path(self):
+        assert signature_agent_expr() == ast.Field(chain=["properties", "$signature_agent"])
+
+    def test_custom_properties_path(self):
+        assert signature_agent_expr(["poe", "properties"]) == ast.Field(chain=["poe", "properties", "$signature_agent"])
 
 
 class TestExpressionFieldFactories:
@@ -84,6 +93,7 @@ class TestFieldMarkers:
         field = factory_fn(name=field_name)
         assert isinstance(field.expr, ast.Call)
         assert field.expr.name == marker
+        # $signature_agent is deliberately absent: no materialized column yet (see _classification_args)
         assert field.expr.args == [user_agent_expr(), client_ip_expr()]
 
     @pytest.mark.parametrize("factory_fn,field_name,marker", FIELD_MARKERS)

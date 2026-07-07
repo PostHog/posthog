@@ -3184,6 +3184,13 @@
             "ignored_in_assistant": true,
             "label": "Set person properties once"
         },
+        "$signature_agent": {
+            "description": "The Web Bot Auth Signature-Agent header of the request, identifying a signed bot or AI agent (e.g. ChatGPT agent). Sent by servers that forward request headers.",
+            "examples": [
+                "\"https://chatgpt.com\""
+            ],
+            "label": "Signature agent"
+        },
         "$snapshot_bytes": {
             "description": "The size in bytes of the session recording snapshot payload.",
             "ignored_in_assistant": true,
@@ -7717,6 +7724,13 @@
             "description": "Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`.",
             "ignored_in_assistant": true,
             "label": "Set person properties once"
+        },
+        "$signature_agent": {
+            "description": "The Web Bot Auth Signature-Agent header of the request, identifying a signed bot or AI agent (e.g. ChatGPT agent). Sent by servers that forward request headers.",
+            "examples": [
+                "\"https://chatgpt.com\""
+            ],
+            "label": "Signature agent"
         },
         "$snapshot_bytes": {
             "description": "The size in bytes of the session recording snapshot payload.",

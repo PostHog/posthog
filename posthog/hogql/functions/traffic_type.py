@@ -7,9 +7,12 @@ can be used anywhere HogQL runs:
 - HogQLQuery runner for custom dashboards and insights
 - Trends and other query runners when filtering/grouping by traffic type
 
-Each function takes the user agent and an optional client IP. The IP signal exists for
-crawlers that send real browser user agents with no bot token (e.g. Google's mobile
-rendering service) and only match via the operator-published IP ranges.
+Each function takes the user agent plus optional client IP and Signature-Agent values.
+Both extra signals exist for agents that send real browser user agents with no bot token:
+the IP ranges catch operator-published crawler infrastructure (e.g. Google's mobile
+rendering service), and the Signature-Agent header (Web Bot Auth, RFC 9421) catches
+agents that cryptographically self-identify (e.g. ChatGPT agent). Signal precedence is
+user agent, then signature agent, then IP.
 
 The legacy __preview_* names still resolve as deprecated aliases.
 
@@ -28,6 +31,7 @@ from products.web_analytics.backend.hogql_queries.bot_ip_definitions import (
     bot_ip_prefix_groups_by_definition,
     merged_bot_ip_prefix_groups,
 )
+from products.web_analytics.backend.hogql_queries.bot_signature_agents import SIGNATURE_AGENT_DEFINITIONS
 
 
 def _safe_ip_expr(ip_expr: ast.Expr) -> ast.Expr:
@@ -80,7 +84,7 @@ def _build_ip_definition_index_expr(ip_expr: ast.Expr) -> ast.Expr:
     return ast.Call(name="multiIf", args=multi_if_args)
 
 
-def _ip_label_lookup(ip_expr: ast.Expr, attr: str, default: str) -> ast.Expr:
+def _ip_label_lookup(ip_expr: ast.Expr, attr: str, fallback: ast.Expr) -> ast.Expr:
     index_call = _build_ip_definition_index_expr(ip_expr)
     labels_array = ast.Array(
         exprs=[ast.Constant(value=getattr(ip_def, attr)) for ip_def in BOT_IP_DEFINITIONS.values()]
@@ -89,7 +93,45 @@ def _ip_label_lookup(ip_expr: ast.Expr, attr: str, default: str) -> ast.Expr:
         name="if",
         args=[
             ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=index_call, right=ast.Constant(value=0)),
-            ast.Constant(value=default),
+            fallback,
+            ast.ArrayAccess(array=labels_array, property=index_call, nullish=False),
+        ],
+    )
+
+
+def _normalized_signature_agent_expr(signature_agent_expr: ast.Expr) -> ast.Expr:
+    """Normalize a Signature-Agent value to its host.
+
+    The header is an RFC 8941 string item, so the raw value carries literal quotes
+    (`"https://chatgpt.com"`) — and JSON property extraction leaves those escaped
+    (`\\"https://chatgpt.com\\"`). Forwarders may also send it bare or as just the domain.
+    Stripping backslashes and quotes then domain() accepts all forms; NULL/unparsable
+    values become '' and match nothing.
+    """
+    lowered = ast.Call(
+        name="lower", args=[ast.Call(name="ifNull", args=[signature_agent_expr, ast.Constant(value="")])]
+    )
+    without_backslashes = ast.Call(name="replaceAll", args=[lowered, ast.Constant(value="\\"), ast.Constant(value="")])
+    stripped = ast.Call(name="replaceAll", args=[without_backslashes, ast.Constant(value='"'), ast.Constant(value="")])
+    return ast.Call(name="domain", args=[stripped])
+
+
+def _build_signature_agent_index_expr(signature_agent_expr: ast.Expr) -> ast.Expr:
+    """1-based index of the matching SIGNATURE_AGENT_DEFINITIONS entry, 0 when none matches."""
+    hosts_array = ast.Array(exprs=[ast.Constant(value=host) for host in SIGNATURE_AGENT_DEFINITIONS])
+    return ast.Call(name="indexOf", args=[hosts_array, _normalized_signature_agent_expr(signature_agent_expr)])
+
+
+def _signature_agent_label_lookup(signature_agent_expr: ast.Expr, attr: str, fallback: ast.Expr) -> ast.Expr:
+    index_call = _build_signature_agent_index_expr(signature_agent_expr)
+    labels_array = ast.Array(
+        exprs=[ast.Constant(value=getattr(sig_def, attr)) for sig_def in SIGNATURE_AGENT_DEFINITIONS.values()]
+    )
+    return ast.Call(
+        name="if",
+        args=[
+            ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=index_call, right=ast.Constant(value=0)),
+            fallback,
             ast.ArrayAccess(array=labels_array, property=index_call, nullish=False),
         ],
     )
@@ -101,6 +143,7 @@ def _build_bot_array_lookup(
     default: str = "",
     empty_ua_value: str = "",
     ip_expr: Optional[ast.Expr] = None,
+    signature_agent_expr: Optional[ast.Expr] = None,
 ) -> ast.Expr:
     """Build a multiMatchAnyIndex + array lookup expression for efficient bot detection.
 
@@ -110,8 +153,8 @@ def _build_bot_array_lookup(
     NULL user agents are coalesced to empty string so they match the ^$ pattern
     and get classified as empty_ua_value instead of falling through to default.
 
-    When ip_expr is given, user agents that match no pattern fall back to the IP-range
-    lookup before defaulting.
+    When signature_agent_expr / ip_expr are given, user agents that match no pattern fall
+    back to the Signature-Agent lookup, then the IP-range lookup, before defaulting.
     """
     # Coalesce NULL to empty string so NULL user agents match the ^$ pattern
     safe_user_agent = ast.Call(name="ifNull", args=[user_agent_expr, ast.Constant(value="")])
@@ -133,7 +176,9 @@ def _build_bot_array_lookup(
 
     fallback: ast.Expr = ast.Constant(value=default)
     if ip_expr is not None:
-        fallback = _ip_label_lookup(ip_expr, attr, default)
+        fallback = _ip_label_lookup(ip_expr, attr, fallback)
+    if signature_agent_expr is not None:
+        fallback = _signature_agent_label_lookup(signature_agent_expr, attr, fallback)
 
     # if(index = 0, fallback, labels[index])
     return ast.Call(
@@ -146,58 +191,82 @@ def _build_bot_array_lookup(
     )
 
 
-def _optional_ip_arg(args: list[ast.Expr]) -> Optional[ast.Expr]:
-    return args[1] if len(args) > 1 else None
+def _optional_arg(args: list[ast.Expr], index: int) -> Optional[ast.Expr]:
+    return args[index] if len(args) > index else None
 
 
 def get_bot_name(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     """
-    HogQL function: getBotName(user_agent[, ip])
+    HogQL function: getBotName(user_agent[, ip[, signature_agent]])
 
     Returns bot name: "Googlebot", "ChatGPT", etc. Empty string for regular traffic.
     """
-    return _build_bot_array_lookup(args[0], "name", default="", empty_ua_value="", ip_expr=_optional_ip_arg(args))
+    return _build_bot_array_lookup(
+        args[0],
+        "name",
+        default="",
+        empty_ua_value="",
+        ip_expr=_optional_arg(args, 1),
+        signature_agent_expr=_optional_arg(args, 2),
+    )
 
 
 def get_bot_operator(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     """
-    HogQL function: getBotOperator(user_agent[, ip])
+    HogQL function: getBotOperator(user_agent[, ip[, signature_agent]])
 
     Returns operator/company name: "Google", "OpenAI", "Anthropic", etc. Empty string for regular traffic.
     """
-    return _build_bot_array_lookup(args[0], "operator", default="", empty_ua_value="", ip_expr=_optional_ip_arg(args))
+    return _build_bot_array_lookup(
+        args[0],
+        "operator",
+        default="",
+        empty_ua_value="",
+        ip_expr=_optional_arg(args, 1),
+        signature_agent_expr=_optional_arg(args, 2),
+    )
 
 
 def get_traffic_type(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     """
-    HogQL function: getTrafficType(user_agent[, ip])
+    HogQL function: getTrafficType(user_agent[, ip[, signature_agent]])
 
     Returns one of: 'AI Agent', 'Bot', 'Automation', 'Regular'
     """
     return _build_bot_array_lookup(
-        args[0], "traffic_type", default="Regular", empty_ua_value="Automation", ip_expr=_optional_ip_arg(args)
+        args[0],
+        "traffic_type",
+        default="Regular",
+        empty_ua_value="Automation",
+        ip_expr=_optional_arg(args, 1),
+        signature_agent_expr=_optional_arg(args, 2),
     )
 
 
 def get_traffic_category(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     """
-    HogQL function: getTrafficCategory(user_agent[, ip])
+    HogQL function: getTrafficCategory(user_agent[, ip[, signature_agent]])
 
     Returns subcategory: 'ai_crawler', 'ai_search', 'ai_assistant', 'search_crawler', 'seo_crawler', etc.
     For regular traffic, returns 'regular'.
     """
     return _build_bot_array_lookup(
-        args[0], "category", default="regular", empty_ua_value="no_user_agent", ip_expr=_optional_ip_arg(args)
+        args[0],
+        "category",
+        default="regular",
+        empty_ua_value="no_user_agent",
+        ip_expr=_optional_arg(args, 1),
+        signature_agent_expr=_optional_arg(args, 2),
     )
 
 
 def is_bot(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     """
-    HogQL function: isLikelyBot(user_agent[, ip])
+    HogQL function: isLikelyBot(user_agent[, ip[, signature_agent]])
 
     Returns true if the user agent matches bot/automation patterns, or (when given) the
-    client IP falls in a known bot IP range. NULL user agents are treated as bots
-    (empty UA is considered automation).
+    Signature-Agent value names a known signed agent, or the client IP falls in a known
+    bot IP range. NULL user agents are treated as bots (empty UA is considered automation).
 
     Uses multiMatchAnyIndex for efficient single-pass matching (same as get_traffic_type etc.);
     the IP check is a handful of hash-set lookups and only evaluates for rows the UA check
@@ -217,9 +286,21 @@ def is_bot(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
         left=index_call,
         right=ast.Constant(value=0),
     )
-    ip_expr = _optional_ip_arg(args)
+    branches: list[ast.Expr] = [matched]
+    signature_agent_expr = _optional_arg(args, 2)
+    if signature_agent_expr is not None:
+        branches.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.NotEq,
+                left=_build_signature_agent_index_expr(signature_agent_expr),
+                right=ast.Constant(value=0),
+            )
+        )
+    ip_expr = _optional_arg(args, 1)
     if ip_expr is not None:
-        matched = ast.Or(exprs=[matched, _build_ip_match_expr(ip_expr)])
+        branches.append(_build_ip_match_expr(ip_expr))
+    if len(branches) > 1:
+        matched = ast.Or(exprs=branches)
 
     # Cast to Bool so results render as true/false (not 0/1) in insights breakdowns.
     return ast.Call(name="toBool", args=[matched])
@@ -227,12 +308,17 @@ def is_bot(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
 
 def get_bot_type(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     """
-    HogQL function: getBotType(user_agent[, ip])
+    HogQL function: getBotType(user_agent[, ip[, signature_agent]])
 
     Returns the bot category or empty string for regular traffic.
     Categories: 'ai_crawler', 'ai_search', 'ai_assistant', 'search_crawler', 'seo_crawler',
                 'social_crawler', 'monitoring', 'http_client', 'headless_browser', 'no_user_agent', ''
     """
     return _build_bot_array_lookup(
-        args[0], "category", default="", empty_ua_value="no_user_agent", ip_expr=_optional_ip_arg(args)
+        args[0],
+        "category",
+        default="",
+        empty_ua_value="no_user_agent",
+        ip_expr=_optional_arg(args, 1),
+        signature_agent_expr=_optional_arg(args, 2),
     )
