@@ -1510,34 +1510,44 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
             merge_semaphore = asyncio.Semaphore(1)
 
             tasks = []
-            async with asyncio.TaskGroup() as tg:
-                for index, consumer_table in enumerate(consumer_tables):
-                    if can_perform_merge:
-                        transformer = _make_parquet_pipeline_transformer(
-                            consumer_table, max_file_size_bytes_per_consumer
-                        )
-                    else:
-                        transformer = _make_jsonl_pipeline_transformer(consumer_table, max_file_size_bytes_per_consumer)
+            try:
+                async with asyncio.TaskGroup() as tg:
+                    for index, consumer_table in enumerate(consumer_tables):
+                        if can_perform_merge:
+                            transformer = _make_parquet_pipeline_transformer(
+                                consumer_table, max_file_size_bytes_per_consumer
+                            )
+                        else:
+                            transformer = _make_jsonl_pipeline_transformer(
+                                consumer_table, max_file_size_bytes_per_consumer
+                            )
 
-                    tasks.append(
-                        tg.create_task(
-                            run_consumer(
-                                client=bq_client,
-                                consumer_table=consumer_table,
-                                target_table=bigquery_target_table,
-                                model=model.name if isinstance(model, BatchExportModel) else "events",
-                                file_format=file_format,
-                                queue=queue,
-                                transformer=transformer,
-                                all_consumers_done=all_consumers_done,
-                                producer_task=producer_task,
-                                merge=can_perform_merge,
-                                merge_semaphore=merge_semaphore,
-                                records_total=inputs.records_total if max_consumers == 1 else None,
-                            ),
-                            name=f"consumer-{index}",
+                        tasks.append(
+                            tg.create_task(
+                                run_consumer(
+                                    client=bq_client,
+                                    consumer_table=consumer_table,
+                                    target_table=bigquery_target_table,
+                                    model=model.name if isinstance(model, BatchExportModel) else "events",
+                                    file_format=file_format,
+                                    queue=queue,
+                                    transformer=transformer,
+                                    all_consumers_done=all_consumers_done,
+                                    producer_task=producer_task,
+                                    merge=can_perform_merge,
+                                    merge_semaphore=merge_semaphore,
+                                    records_total=inputs.records_total if max_consumers == 1 else None,
+                                ),
+                                name=f"consumer-{index}",
+                            )
                         )
-                    )
+            except ExceptionGroup as eg:
+                has_only_one_type = len({type(exc) for exc in eg.exceptions}) == 1
+                if has_only_one_type:
+                    # If all consumers failed with the same exception, assume we can
+                    # raise one of them as a representative example.
+                    raise eg.exceptions[0] from None
+                raise
 
             await raise_on_task_failure(producer_task)
 

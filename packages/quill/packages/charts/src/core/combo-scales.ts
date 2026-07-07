@@ -39,8 +39,9 @@ export interface CreateComboScalesOptions {
     /** Applied to the primary (default/left) axis only — goal lines (`{ include }`) render against
      *  the primary axis, so secondary axes keep their own data-derived scale. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
-    /** Per-axis overrides — explicit values win over the alternating-side default and `options.scaleType`. */
-    axes?: { id: string; position?: 'left' | 'right'; scaleType?: 'linear' | 'log' }[]
+    /** Per-axis overrides — explicit values win over the alternating-side default and
+     *  `options.scaleType`. `startAtZero: false` is ignored for axes carrying bar series. */
+    axes?: { id: string; position?: 'left' | 'right'; scaleType?: 'linear' | 'log'; startAtZero?: boolean }[]
 }
 
 export function resolveSeriesType(series: Pick<Series, 'type'>, defaultType: SeriesType): SeriesType {
@@ -113,10 +114,12 @@ export function createComboScales(
         // Percent-clamp only axes that actually carry bar series — a line/area-only axis (e.g. a
         // series explicitly routed to the right axis) keeps its own data-derived scale instead of
         // being forced onto [0, 1].
+        const hasBarSeries = axisSeries.some((s) => seriesTypeOf(s) === 'bar')
         const scale = createYScale(axisValueSeries, dimensions, {
             scaleType: axisOverrides.get(axisId)?.scaleType ?? scaleType,
-            percentStack: barLayout === 'percent' && axisSeries.some((s) => seriesTypeOf(s) === 'bar'),
+            percentStack: barLayout === 'percent' && hasBarSeries,
             valueDomain: axisId === primaryAxisId ? valueDomain : undefined,
+            floatBaseline: !hasBarSeries && axisOverrides.get(axisId)?.startAtZero === false,
         })
         yAxes[axisId] = { scale, position }
     }
