@@ -74,7 +74,7 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
                 "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
             ),
         pulse_brief_config_id: zod
-            .uuid()
+            .string()
             .nullish()
             .describe(
                 "ID of the Pulse brief config this subscription delivers briefs for. Required when resource_type is 'pulse_brief'; must reference an enabled config in your team."
@@ -212,7 +212,7 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
                 "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
             ),
         pulse_brief_config_id: zod
-            .uuid()
+            .string()
             .nullish()
             .describe(
                 "ID of the Pulse brief config this subscription delivers briefs for. Required when resource_type is 'pulse_brief'; must reference an enabled config in your team."
