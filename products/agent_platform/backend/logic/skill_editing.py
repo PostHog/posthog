@@ -43,7 +43,6 @@ class SkillStoreConflict(APIException):
 
 
 def assert_skills_writable(
-    team: Team,
     names: list[str],
     *,
     scopes: list[str] | None,
@@ -53,40 +52,32 @@ def assert_skills_writable(
 
     The write-side mirror of ``assert_skill_refs_readable``: these edits mutate
     ``llm_skill`` rows shared across every agent that references them, so they
-    must honour the same boundary ``LLMSkillViewSet`` enforces on PATCH — the
-    ``llm_skill:write`` API scope for token callers, plus editor-level object
-    access for everyone. Without this an ``agents:write`` token could rewrite a
-    shared skill through the agent authoring surface. ``scopes`` is ``None`` for
-    session auth, which carries no API scopes and is governed solely by
-    object-level access control.
+    must honour the same boundary ``LLMSkillViewSet`` enforces on PATCH and
+    create — the ``llm_skill:write`` API scope for token callers, plus
+    editor-level access to the skills resource for everyone. Without this an
+    ``agents:write`` caller could rewrite or mint shared skills through the
+    agent authoring surface. ``scopes`` is ``None`` for session auth, which
+    carries no API scopes.
+
+    Skill access is governed at the RESOURCE level, for creates and updates
+    alike: ``LLMSkill`` has no model→resource mapping (``model_to_resource``
+    returns ``None`` for it), so ``check_access_level_for_object`` passes
+    unconditionally and must not be mistaken for a boundary. The resource-level
+    check is what ``LLMSkillViewSet`` actually enforces — it honours both
+    team-wide lockdowns and member-specific grants on the inherited
+    ``llm_analytics`` resource.
     """
-    unique_names: list[str] = []
-    for name in names:
-        if name not in unique_names:
-            unique_names.append(name)
-    if not unique_names:
+    if not names:
         return
     if scopes is not None and not ({"*", "llm_skill:write"} & set(scopes)):
         raise PermissionDenied(
             "Editing store-backed skills requires the `llm_skill:write` scope in addition to `agents:write`."
         )
-    for name in unique_names:
-        skill = get_skill_by_name_from_db(team, name)
-        if skill is None:
-            # A missing name means the import will CREATE a shared store skill.
-            # Mirror LLMSkillViewSet's create gate (resource-level editor access)
-            # so an agent editor without llm_skill create rights can't mint
-            # team-wide skills through the agent surface.
-            if not user_access_control.check_access_level_for_resource("llm_skill", "editor"):
-                raise PermissionDenied(
-                    f"You do not have access to create the skill '{name}' in the skill store. Ask a skill "
-                    "admin for editor access to skills, or import only skills that already exist."
-                )
-        elif not user_access_control.check_access_level_for_object(skill, "editor"):
-            raise PermissionDenied(
-                f"You do not have edit access to the skill '{name}' in the skill store. Ask a skill admin to "
-                "grant you editor access, or remove it from the agent's skill references."
-            )
+    if not user_access_control.check_access_level_for_resource("llm_skill", "editor"):
+        raise PermissionDenied(
+            "You do not have editor access to skills in the skill store, so you cannot publish or create "
+            "store-backed skills through the agent surface. Ask a skill admin for editor access to skills."
+        )
 
 
 def store_skill_exists(team: Team, name: str) -> bool:

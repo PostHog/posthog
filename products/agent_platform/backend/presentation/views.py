@@ -2325,7 +2325,6 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "endpoint or bundle/import/ first."
             )
         assert_skills_writable(
-            self.team,
             [name],
             scopes=get_authenticator_scopes(getattr(request, "successful_authenticator", None)),
             user_access_control=self.user_access_control,
@@ -2457,7 +2456,6 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if plan:
             assert_skills_writable(
-                self.team,
                 [name for _, name, _ in plan],
                 scopes=get_authenticator_scopes(getattr(request, "successful_authenticator", None)),
                 user_access_control=self.user_access_control,

@@ -554,10 +554,10 @@ class TestBundleEditing(APIBaseTest):
         self.assertEqual(res.status_code, 403, res.content)
         self.assertEqual(self._latest().version, 1)
 
-    def test_import_of_new_skill_denied_without_resource_level_editor_access(self) -> None:
-        # A brand-new id means the import CREATES a shared store skill, so it
-        # must honour the same resource-level gate as LLMSkillViewSet's create —
-        # not slip past because there's no object to check yet.
+    def _lock_down_skills(self) -> None:
+        # Grant-based skill access: demote the user to member and restrict the
+        # skills resource (llm_skill inherits its access-control resource from
+        # llm_analytics) to viewer team-wide, so only explicit grants can edit.
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -565,8 +565,13 @@ class TestBundleEditing(APIBaseTest):
         self.organization.save()
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        # llm_skill inherits its access-control resource from llm_analytics.
         AccessControl.objects.create(team=self.team, resource="llm_analytics", resource_id=None, access_level="viewer")
+
+    def test_import_of_new_skill_denied_without_resource_level_editor_access(self) -> None:
+        # A brand-new id means the import CREATES a shared store skill, so it
+        # must honour the same resource-level gate as LLMSkillViewSet's create —
+        # not slip past because there's no object to check yet.
+        self._lock_down_skills()
         revision = self._revision("draft")
 
         res = self.client.post(
@@ -577,3 +582,42 @@ class TestBundleEditing(APIBaseTest):
 
         self.assertEqual(res.status_code, 403, res.content)
         self.assertFalse(LLMSkill.objects.filter(team=self.team, name="brand-new-skill").exists())
+
+    def test_import_of_existing_skill_denied_without_resource_level_editor_access(self) -> None:
+        # An EXISTING skill with no object-specific rules must not slip past on
+        # the object check's default ("editor") — the resource-level lockdown
+        # applies to updates too, same as LLMSkillViewSet's PATCH.
+        self._lock_down_skills()
+        revision = self._revision("draft")
+
+        res = self.client.post(
+            self._import_url(revision),
+            {"skills": [{"id": "growth-review", "body": "sneaky update"}]},
+            format="json",
+        )
+
+        self.assertEqual(res.status_code, 403, res.content)
+        self.assertEqual(self._latest().version, 1)
+
+    def test_import_of_existing_skill_allowed_via_member_grant(self) -> None:
+        # A member locked out by the team-wide rule but holding a member-specific
+        # editor grant (the shape skill access is actually granted in) can still
+        # publish — the gate must not deny everyone in locked-down teams.
+        self._lock_down_skills()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_analytics",
+            resource_id=None,
+            access_level="editor",
+            organization_member=self.organization_membership,
+        )
+        revision = self._revision("draft")
+
+        res = self.client.post(
+            self._import_url(revision),
+            {"skills": [{"id": "growth-review", "body": "granted update"}]},
+            format="json",
+        )
+
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(self._latest().version, 2)
