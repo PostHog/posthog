@@ -463,14 +463,26 @@ class TestGenerateIntentDigest(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestM
         self._seed_intent_event("check the signups funnel")
         self._seed_intent_event("compare to last week")
 
-        with patch.object(
-            intent_generation, "summarize_project_intents", return_value="Signup funnel investigation."
-        ) as mock_summarize:
+        parsed = intent_generation.IntentThemesSchema(
+            summary="Signup funnel investigation.",
+            themes=[
+                intent_generation.IntentThemeSchema(
+                    name="Funnel checks",
+                    description="Checking signup funnel conversion.",
+                    intent_count=2,
+                    example_intent="check the signups funnel",
+                    tools=["query_run"],
+                )
+            ],
+        )
+        with patch.object(intent_generation, "summarize_project_intents", return_value=parsed) as mock_summarize:
             first = api.generate_intent_digest(self.team)
             again = api.generate_intent_digest(self.team)
 
         assert first.digest == "Signup funnel investigation."
         assert first.intent_count == 2
+        assert first.themes[0].name == "Funnel checks"
+        assert first.themes[0].tools == ["query_run"]
         assert again == first
         mock_summarize.assert_called_once()
 

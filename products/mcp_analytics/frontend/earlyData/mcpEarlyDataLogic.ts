@@ -26,14 +26,25 @@ export interface EarlyRecentCall {
     clientName: string | null
 }
 
-export interface IntentTheme {
+// Frequency-grouped verbatim intents — the fallback shown when no AI digest is available.
+export interface IntentFrequency {
     intent: string
     count: number
+}
+
+// One AI-generated semantic theme, mirrors MCPIntentThemeApi.
+export interface DigestTheme {
+    name: string
+    description: string
+    intentCount: number
+    exampleIntent: string
+    tools: string[]
 }
 
 export interface IntentDigest {
     digest: string | null
     intentCount: number
+    themes: DigestTheme[]
 }
 
 export interface EarlyToolRow {
@@ -164,7 +175,17 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
                 try {
                     const response = await mcpAnalyticsSessionsIntentDigest(String(values.currentProjectId))
                     breakpoint()
-                    return { digest: response.digest, intentCount: response.intent_count }
+                    return {
+                        digest: response.digest,
+                        intentCount: response.intent_count,
+                        themes: (response.themes ?? []).map((theme) => ({
+                            name: theme.name,
+                            description: theme.description,
+                            intentCount: theme.intent_count,
+                            exampleIntent: theme.example_intent,
+                            tools: [...theme.tools],
+                        })),
+                    }
                 } catch {
                     // LLM unconfigured (503) or transient failure — the card falls back
                     // to the verbatim intent list.
@@ -252,9 +273,9 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
         // Verbatim agent intents grouped by frequency — the fallback when no AI
         // digest is available. At low volume, reading what agents actually tried
         // beats any lossy aggregation of it.
-        intentThemes: [
+        intentFrequencies: [
             (s) => [s.recentCalls],
-            (recentCalls): IntentTheme[] => {
+            (recentCalls): IntentFrequency[] => {
                 const counts = new Map<string, number>()
                 for (const call of recentCalls) {
                     if (call.intent) {

@@ -13,7 +13,7 @@ import { Card } from '../dashboard/Card'
 import { formatMs, formatNumber } from '../dashboard/formatters'
 import { HarnessLogo } from '../dashboard/harness'
 import { METRICS_UNLOCK_LIFETIME_CALLS, mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
-import type { ChecklistItem, EarlyRecentCall } from './mcpEarlyDataLogic'
+import type { ChecklistItem, DigestTheme, EarlyRecentCall } from './mcpEarlyDataLogic'
 import { mcpEarlyDataLogic } from './mcpEarlyDataLogic'
 
 // Raw `$mcp_client_name` values don't match the backend-resolved harness labels the
@@ -195,18 +195,45 @@ function LiveActivityCard(): JSX.Element {
 }
 
 // The AI digest is the product here: real intents are all worded differently, so
-// verbatim grouping can't answer "what are agents trying to do". The raw list is
-// strictly the degraded state for when generation is unavailable (no LLM key).
+// verbatim grouping can't answer "what are agents trying to do". We ask the LLM to
+// group them into themes and render those as structured cards; the raw frequency
+// list is strictly the degraded state for when generation is unavailable (no LLM key).
+function IntentThemeRow({ theme, maxCount }: { theme: DigestTheme; maxCount: number }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-1">
+            <div className="flex items-baseline justify-between gap-2">
+                <span className="text-base font-medium">{theme.name}</span>
+                <span className="text-muted text-sm shrink-0">{formatNumber(theme.intentCount)}</span>
+            </div>
+            <LemonProgress percent={maxCount > 0 ? (theme.intentCount / maxCount) * 100 : 0} />
+            <p className="text-muted text-sm m-0">{theme.description}</p>
+            {theme.tools.length > 0 ? (
+                <div className="flex gap-1 flex-wrap">
+                    {theme.tools.slice(0, 4).map((tool) => (
+                        <LemonTag key={tool} size="small">
+                            {tool}
+                        </LemonTag>
+                    ))}
+                </div>
+            ) : null}
+        </div>
+    )
+}
+
 function IntentsCard(): JSX.Element {
-    const { intentDigest, intentDigestLoading, intentThemes } = useValues(mcpEarlyDataLogic)
+    const { intentDigest, intentDigestLoading, intentFrequencies } = useValues(mcpEarlyDataLogic)
+    const maxThemeCount = intentDigest?.themes[0]?.intentCount ?? 0
 
     return (
         <Card title="What agents are trying to do">
-            {intentDigest?.digest ? (
-                <div className="flex flex-col gap-2">
-                    <p className="text-base m-0">{intentDigest.digest}</p>
+            {intentDigest?.themes.length ? (
+                <div className="flex flex-col gap-3">
+                    {intentDigest.digest ? <p className="text-base m-0">{intentDigest.digest}</p> : null}
+                    {intentDigest.themes.map((theme) => (
+                        <IntentThemeRow key={theme.name} theme={theme} maxCount={maxThemeCount} />
+                    ))}
                     <span className="text-muted text-sm">
-                        AI summary of the last {formatNumber(intentDigest.intentCount)} agent intents
+                        AI grouping of the last {formatNumber(intentDigest.intentCount)} agent intents
                     </span>
                 </div>
             ) : intentDigestLoading ? (
@@ -216,14 +243,14 @@ function IntentsCard(): JSX.Element {
                     <LemonSkeleton className="h-4 w-2/3" />
                     <span className="text-muted text-sm">Summarizing recent agent intents…</span>
                 </div>
-            ) : intentThemes.length === 0 ? (
+            ) : intentFrequencies.length === 0 ? (
                 <span className="text-muted text-base">
                     No agent intents captured yet — they show up here as agents explain what they're doing.
                 </span>
             ) : (
                 <div className="flex flex-col gap-2">
                     <ul className="flex flex-col gap-2 m-0 pl-4">
-                        {intentThemes.map(({ intent, count }) => (
+                        {intentFrequencies.map(({ intent, count }) => (
                             <li key={intent} className="text-base">
                                 {intent}
                                 {count > 1 ? <span className="text-muted text-sm"> ×{count}</span> : null}

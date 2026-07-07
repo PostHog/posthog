@@ -337,27 +337,45 @@ INTENT_DIGEST_CACHE_TTL = 60 * 60
 
 
 def generate_intent_digest(team: Team) -> contracts.IntentDigest:
-    """Return a project-level LLM digest of what agents are trying to do, for the activity stage.
+    """Return a project-level LLM digest of what agents are trying to do, for the activity tab.
 
-    Content-addressed cache: the digest is keyed by the current intent corpus, so it only
-    regenerates when new intents arrive (and at most refreshes hourly via the TTL). A project
-    with no recorded intents returns a null digest without an LLM call, so the frontend can
-    fall back to its verbatim list. Raises ``contracts.IntentGenerationUnavailable`` if the
-    LLM is unreachable.
+    Structured output: a one-sentence summary plus 2-5 semantic themes (name, description,
+    count, verbatim example, tools). Content-addressed cache: keyed by the current intent
+    corpus, so it only regenerates when new intents arrive (and at most refreshes hourly via
+    the TTL). A project with no recorded intents returns a null digest without an LLM call.
+    Raises ``contracts.IntentGenerationUnavailable`` if the LLM is unreachable.
     """
     intents = intent_generation.fetch_recent_project_intents(team)
     if not intents:
-        return contracts.IntentDigest(digest=None, intent_count=0)
+        return contracts.IntentDigest(digest=None, intent_count=0, themes=[])
 
-    corpus_hash = hashlib.sha256("\n".join(intents).encode()).hexdigest()
-    cache_key = generate_cache_key(team.pk, f"mcp_intent_digest/{corpus_hash}")
+    corpus_hash = hashlib.sha256("\n".join(intent for intent, _ in intents).encode()).hexdigest()
+    cache_key = generate_cache_key(team.pk, f"mcp_intent_digest_v2/{corpus_hash}")
     cached = cache.get(cache_key)
-    if cached:
-        return contracts.IntentDigest(digest=cached, intent_count=len(intents))
+    if isinstance(cached, dict):
+        return contracts.IntentDigest(
+            digest=cached.get("summary"),
+            intent_count=len(intents),
+            themes=[contracts.IntentTheme(**theme) for theme in cached.get("themes", [])],
+        )
 
-    digest = intent_generation.summarize_project_intents(intents, team)
-    cache.set(cache_key, digest, INTENT_DIGEST_CACHE_TTL)
-    return contracts.IntentDigest(digest=digest, intent_count=len(intents))
+    parsed = intent_generation.summarize_project_intents(intents, team)
+    themes = [
+        contracts.IntentTheme(
+            name=theme.name,
+            description=theme.description,
+            intent_count=theme.intent_count,
+            example_intent=theme.example_intent,
+            tools=theme.tools,
+        )
+        for theme in parsed.themes
+    ]
+    cache.set(
+        cache_key,
+        {"summary": parsed.summary, "themes": [vars(theme) | {"tools": list(theme.tools)} for theme in themes]},
+        INTENT_DIGEST_CACHE_TTL,
+    )
+    return contracts.IntentDigest(digest=parsed.summary, intent_count=len(intents), themes=themes)
 
 
 def _resolve_persons(team_id: int, distinct_ids: list[str]) -> dict[str, Person]:
