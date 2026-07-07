@@ -9,6 +9,7 @@ from unittest import mock
 from openai import OpenAI
 from rest_framework import status
 
+from products.endpoints.backend.constants import MaterializationFixStatus
 from products.endpoints.backend.logic.ai_materialization_fix import (
     MaterializationFixResult,
     suggest_materialization_fix,
@@ -210,7 +211,7 @@ class TestMaterializationSuggestionAPI(APIBaseTest):
     def test_returns_suggestion_payload(self):
         self._create_endpoint("blocked-endpoint", UNMATERIALIZABLE_QUERY)
         fix_result = MaterializationFixResult(
-            status="ok",
+            status=MaterializationFixStatus.OK,
             suggested_query=PASSING_REWRITE,
             explanation="Removed the OR by lifting the variable into a column.",
             attempts=1,
