@@ -44,8 +44,7 @@ function StepIcon({ status }: { status: InstallationStepStatus }): JSX.Element {
 
 // What's about to happen, shown as pending timeline rows while the stream connects. Same geometry
 // (and, for cloud, the same gerund phrasing) as the streamed steps that replace them, so the swap
-// reads as the plan lighting up rather than the card rewriting itself. Gerunds also make clear the
-// system is the actor — imperatives ("Clone your repository") could read as instructions to the user.
+// reads as the plan lighting up rather than the card rewriting itself.
 const UPCOMING_STEPS: Record<InstallationMode, string[]> = {
     cloud: ['Setting up sandbox', 'Cloning repository', 'Running setup wizard', 'Opening a pull request'],
     local: ['Detecting your framework', 'Installing the PostHog SDK', 'Wiring up event capture'],
@@ -132,7 +131,6 @@ export function InstallationProgressContent({
                     </div>
                 </div>
                 <div className="flex items-start gap-1 shrink-0">
-                    {/* The payoff moment deserves more than a green check. */}
                     {phase === 'completed' && <HedgehogWizardHog className="w-14 h-14 -my-2" aria-hidden="true" />}
                     {/* Dismiss once the run is settled — mid-run, hiding the only progress surface
                         (the FAB is suppressed while this panel is mounted) would orphan a live run.
@@ -195,8 +193,8 @@ export function InstallationProgressContent({
             )}
 
             {phase === 'completed' && mode === 'local' && (
-                // The local handoff: the wizard's changes sit uncommitted on the user's machine, so
-                // the payoff (live data) is one review and one deploy away — spell that out.
+                // The wizard's changes sit uncommitted on the user's machine — only the user can
+                // finish the last mile (review, deploy), so no button can carry this step.
                 <div className="flex flex-col gap-1.5">
                     <span className="text-xs font-semibold uppercase tracking-wide text-muted">Over to you</span>
                     <ul className="flex flex-col gap-1.5 m-0 p-0 list-none text-sm">
@@ -256,8 +254,6 @@ export function InstallationProgressContent({
             )}
 
             {phase === 'completed' && dashboard && (
-                // The wizard's other deliverable — framed as a preview, not a destination: it was
-                // created for this run and stays empty until the deployed changes send real data.
                 <div className="flex flex-col gap-2">
                     <p className="text-sm text-muted m-0">
                         The wizard also set up a dashboard for you. It stays empty until your deploy starts sending data

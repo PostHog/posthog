@@ -157,8 +157,6 @@ export function WizardSyncCard({
                         </LemonButton>
                     )}
                     {progress.phase === 'completed' && !progress.prUrl && dashboard && (
-                        // A local run's payoff: no PR to review, but the wizard built a dashboard.
-                        // "Preview" keeps it honest — it stays empty until a deploy sends data.
                         <LemonButton
                             size="xsmall"
                             type="primary"
