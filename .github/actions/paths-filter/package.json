@@ -28,7 +28,7 @@
         "@actions/core": "^1.10.0",
         "@actions/exec": "^1.1.1",
         "@actions/github": "^7.0.0",
-        "picomatch": "^2.3.1"
+        "picomatch": "^4.0.5"
     },
     "devDependencies": {
         "@octokit/webhooks-types": "^7.3.1",
@@ -51,5 +51,9 @@
     },
     "engines": {
         "node": ">= 24"
+    },
+    "overrides": {
+        "@actions/http-client": "^3.0.2",
+        "undici": "^6.27.0"
     }
 }
