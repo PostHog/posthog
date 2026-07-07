@@ -7,7 +7,7 @@ use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 /// Every message the pipeline received with a payload, forwardable or not (including
 /// unparseable ones).
 pub const EVENTS_CONSUMED: &str = "shuffler_events_consumed_total";
-/// Increments on delivery ack — keeps its "made it out" meaning from the pre-pipeline loop.
+/// Increments on delivery ack: the event made it out.
 pub const EVENTS_FORWARDED: &str = "shuffler_events_forwarded_total";
 pub const EVENTS_DROPPED_NO_PERSON_ID: &str = "shuffler_events_dropped_no_person_id_total";
 pub const EVENTS_SKIPPED_TEAM_GATE: &str = "shuffler_events_skipped_team_gate_total";
@@ -22,8 +22,7 @@ pub const FORWARDS_ENQUEUED: &str = "shuffler_forwards_enqueued_total";
 pub const FORWARDS_INFLIGHT: &str = "shuffler_forwards_inflight";
 /// Histogram, enqueue → delivery resolution; label `outcome` = `"acked"` | `"abandoned"`.
 pub const PRODUCE_ACK_SECONDS: &str = "shuffler_produce_ack_seconds";
-/// Forwards whose delivery failed after librdkafka's internal retries; dropped and committed
-/// over (the documented PoC policy), per-event and visible here.
+/// Forwards whose delivery failed after librdkafka's internal retries; dropped and committed over.
 pub const EVENTS_ABANDONED: &str = "shuffler_events_abandoned_total";
 pub const PRODUCE_QUEUE_FULL: &str = "shuffler_produce_queue_full_total";
 pub const COMMITS: &str = "shuffler_commits_total";

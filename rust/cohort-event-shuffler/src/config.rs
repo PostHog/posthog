@@ -96,12 +96,11 @@ pub struct Config {
     #[envconfig(default = "100")]
     pub queue_full_backoff_ms: u64,
 
-    /// WarpStream-recommended linger; fine now that acks are not awaited inline.
+    /// WarpStream-recommended linger.
     #[envconfig(default = "100")]
     pub kafka_producer_linger_ms: u32,
 
-    /// OOM guard: librdkafka's buffer must stay far below the 1Gi pod limit now that enqueue is
-    /// decoupled from delivery.
+    /// OOM guard: librdkafka's buffer must stay far below the 1Gi pod limit.
     #[envconfig(default = "64")]
     pub kafka_producer_queue_mib: u32,
 

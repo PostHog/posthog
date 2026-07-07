@@ -43,9 +43,8 @@ pub enum Observation {
     InFlight,
 }
 
-/// Why an in-flight forward stopped blocking the watermark. Both advance it: `Abandoned` IS the
-/// drop-on-produce-failure policy (parity with the pre-pipeline behavior), encoded in the type —
-/// the seam where a hold/replay policy could slot in post-PoC.
+/// Why an in-flight forward stopped blocking the watermark. Both advance it: `Abandoned` is the
+/// drop-on-produce-failure policy, encoded in the type.
 #[derive(Debug, Clone, Copy)]
 pub enum DeliveryOutcome {
     Acked,

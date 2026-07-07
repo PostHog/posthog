@@ -5,8 +5,8 @@
 //!
 //! Consume, produce-ack, and offset-commit are decoupled: the single owner task enqueues
 //! survivors without awaiting delivery, resolves acks as they arrive, and periodically commits
-//! the [`Ledger`]'s per-partition watermarks through `spawn_blocking` — so throughput is never
-//! capped at `batch_size / ack_latency` by WarpStream's ~250–500ms produce acks.
+//! the [`Ledger`]'s per-partition watermarks through `spawn_blocking`, so WarpStream's
+//! ~250–500ms produce acks never throttle consumption.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -558,7 +558,7 @@ mod tests {
     fn dropped_event_never_materializes_blobs() {
         // A JSON-object `properties` fails the full parse (the field is a stringified blob): outside
         // the index the gate ignores the blob and skips; inside it the survivor parse rejects it as
-        // unparseable instead of erroring.
+        // unparseable.
         let mut value: Value =
             serde_json::to_value(sample_clickhouse_event(99, Some("p"))).unwrap();
         value["properties"] = json!({ "a": [1, 2, 3] });
