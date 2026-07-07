@@ -1,10 +1,18 @@
+import json
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest, BaseTest
+from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
+from botocore.exceptions import ClientError
 from parameterized import parameterized
 
+from products.managed_migrations.backend.api.batch_imports import BatchImportS3SourceCreateSerializer
 from products.managed_migrations.backend.models.batch_imports import BatchImport, BatchImportConfigBuilder, ContentType
+
+TEST_ROLE_ARN = "arn:aws:iam::123456789012:role/posthog-import"
 
 
 class TestBatchImportModel(BaseTest):
@@ -94,6 +102,42 @@ class TestBatchImportConfigBuilder(BaseTest):
         )
 
         self.assertNotIn("endpoint_url", self.batch_import.import_config["source"])
+
+    @parameterized.expand([("s3", "from_s3"), ("s3_gzip", "from_s3_gzip")])
+    def test_from_s3_with_iam_role(self, _name, method):
+        getattr(self.batch_import.config, method)(
+            bucket="my-bucket",
+            prefix="data/",
+            region="us-east-1",
+            role_arn=TEST_ROLE_ARN,
+            external_id="posthog-us-some-team-uuid",
+        )
+
+        source = self.batch_import.import_config["source"]
+        self.assertEqual(source["type"], _name)
+        self.assertEqual(source["role_arn"], TEST_ROLE_ARN)
+        self.assertEqual(source["external_id"], "posthog-us-some-team-uuid")
+        self.assertNotIn("access_key_id_key", source)
+        self.assertNotIn("secret_access_key_key", source)
+        self.assertEqual(self.batch_import.secrets, {})
+
+    @parameterized.expand(
+        [
+            (
+                "role_with_endpoint_url",
+                {"role_arn": TEST_ROLE_ARN, "external_id": "eid", "endpoint_url": "http://localhost:9000"},
+            ),
+            ("role_without_external_id", {"role_arn": TEST_ROLE_ARN}),
+            (
+                "both_auth_methods",
+                {"role_arn": TEST_ROLE_ARN, "external_id": "eid", "access_key_id": "ak", "secret_access_key": "sk"},
+            ),
+            ("no_auth", {}),
+        ]
+    )
+    def test_from_s3_invalid_auth_combinations_raise(self, _name, kwargs):
+        with self.assertRaises(ValueError):
+            self.batch_import.config.from_s3(bucket="my-bucket", prefix="data/", region="us-east-1", **kwargs)
 
     def test_chained_configuration(self):
         urls = ["http://example.com/data.json"]
@@ -190,6 +234,48 @@ class TestBatchImportConfigBuilder(BaseTest):
             "generate_group_identify_events": True,
         }
         self.assertEqual(self.batch_import.import_config, expected_config)
+
+
+class TestBatchImportS3AuthValidation(SimpleTestCase):
+    BASE_PAYLOAD = {
+        "source_type": "s3",
+        "content_type": "captured",
+        "s3_bucket": "test-bucket",
+        "s3_region": "us-east-1",
+    }
+
+    @parameterized.expand(
+        [
+            ("missing_secret_key", {"access_key": "ak"}, "Both access_key and secret_key"),
+            (
+                "role_and_keys",
+                {"role_arn": TEST_ROLE_ARN, "access_key": "ak", "secret_key": "sk"},
+                "not both",
+            ),
+            ("no_auth", {}, "Authentication is required"),
+            (
+                "role_with_endpoint_url",
+                {"role_arn": TEST_ROLE_ARN, "endpoint_url": "http://localhost:9000"},
+                "only works with AWS S3",
+            ),
+        ]
+    )
+    def test_invalid_auth_combinations(self, _name, extra, expected_error):
+        serializer = BatchImportS3SourceCreateSerializer(data={**self.BASE_PAYLOAD, **extra})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn(expected_error, str(serializer.errors["non_field_errors"]))
+
+    @parameterized.expand(
+        [
+            ("not_an_arn", "not-an-arn"),
+            ("wrong_service", "arn:aws:s3:::bucket"),
+            ("short_account_id", "arn:aws:iam::123:role/foo"),
+        ]
+    )
+    def test_invalid_role_arn_rejected(self, _name, role_arn):
+        serializer = BatchImportS3SourceCreateSerializer(data={**self.BASE_PAYLOAD, "role_arn": role_arn})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("role_arn", serializer.errors)
 
 
 class TestBatchImportAPI(APIBaseTest):
@@ -636,6 +722,92 @@ class TestBatchImportAPI(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         batch_import.refresh_from_db()
         self.assertEqual(getattr(batch_import, attr), expected)
+
+    def test_s3_import_with_iam_role_creates_config_without_secrets(self):
+        setup_response = self.client.get(f"/api/projects/{self.team.id}/managed_migrations/aws_iam_setup")
+        self.assertEqual(setup_response.status_code, 200)
+        external_id = setup_response.json()["external_id"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "s3",
+                "content_type": "captured",
+                "s3_bucket": "test-bucket",
+                "s3_region": "us-east-1",
+                "s3_prefix": "data/",
+                "role_arn": TEST_ROLE_ARN,
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        batch_import = BatchImport.objects.get(id=response.json()["id"])
+        source = batch_import.import_config["source"]
+        self.assertEqual(source["role_arn"], TEST_ROLE_ARN)
+        # The external id shown during setup must be exactly what the import runs with
+        self.assertEqual(source["external_id"], external_id)
+        self.assertNotIn("access_key_id_key", source)
+        self.assertEqual(batch_import.secrets, {})
+
+    def test_s3_import_role_and_keys_rejected(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "s3",
+                "content_type": "captured",
+                "s3_bucket": "test-bucket",
+                "s3_region": "us-east-1",
+                "role_arn": TEST_ROLE_ARN,
+                "access_key": "ak",
+                "secret_key": "sk",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_aws_iam_setup_returns_stable_policy_material(self):
+        posthog_role_arn = "arn:aws:iam::999999999999:role/posthog-managed-migrations-import"
+        with self.settings(MANAGED_MIGRATIONS_IMPORT_ROLE_ARN=posthog_role_arn):
+            first = self.client.get(f"/api/projects/{self.team.id}/managed_migrations/aws_iam_setup").json()
+            second = self.client.get(f"/api/projects/{self.team.id}/managed_migrations/aws_iam_setup").json()
+
+        self.assertTrue(first["available"])
+        self.assertEqual(first["external_id"], second["external_id"])
+        self.assertIn(str(self.team.uuid), first["external_id"])
+        trust_policy = json.loads(first["trust_policy"])
+        statement = trust_policy["Statement"][0]
+        self.assertEqual(statement["Principal"]["AWS"], posthog_role_arn)
+        self.assertEqual(statement["Condition"]["StringEquals"]["sts:ExternalId"], first["external_id"])
+
+    def test_aws_iam_setup_unavailable_without_role_arn_setting(self):
+        with self.settings(MANAGED_MIGRATIONS_IMPORT_ROLE_ARN=""):
+            response = self.client.get(f"/api/projects/{self.team.id}/managed_migrations/aws_iam_setup")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["available"])
+
+    def test_create_time_role_validation_blocks_unassumable_role(self):
+        with (
+            self.settings(MANAGED_MIGRATIONS_VALIDATE_ROLE_ON_CREATE=True),
+            patch("products.managed_migrations.backend.api.batch_imports.boto3.client") as mock_client,
+        ):
+            mock_client.return_value.assume_role.side_effect = ClientError(
+                {"Error": {"Code": "AccessDenied", "Message": "Not authorized"}}, "AssumeRole"
+            )
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/managed_migrations",
+                {
+                    "source_type": "s3",
+                    "content_type": "captured",
+                    "s3_bucket": "test-bucket",
+                    "s3_region": "us-east-1",
+                    "role_arn": TEST_ROLE_ARN,
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("could not assume", response.json()["detail"])
+        self.assertEqual(BatchImport.objects.filter(team_id=self.team.id).count(), 0)
 
     @parameterized.expand([("s3",), ("s3_gzip",)])
     def test_s3_import_with_endpoint_url(self, source_type):

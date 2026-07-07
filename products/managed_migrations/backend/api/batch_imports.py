@@ -1,9 +1,14 @@
+import json
 import uuid
 from datetime import timedelta
 
+from django.conf import settings
+
+import boto3
 import posthoganalytics
+from botocore.exceptions import BotoCoreError, ClientError
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -14,7 +19,14 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.user import User
 
-from products.managed_migrations.backend.models.batch_imports import BatchImport, ContentType, DateRangeExportSource
+from products.managed_migrations.backend.models.batch_imports import (
+    BatchImport,
+    ContentType,
+    DateRangeExportSource,
+    get_aws_external_id,
+)
+
+S3_ROLE_ARN_REGEX = r"^arn:aws:iam::\d{12}:role\/[\w+=,.@\/-]+$"
 
 
 class BatchImportSerializer(serializers.ModelSerializer):
@@ -79,23 +91,56 @@ class BatchImportSerializer(serializers.ModelSerializer):
 
 
 class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
-    """Serializer for creating BatchImports with config builder methods"""
+    """Serializer for creating BatchImports reading JSONL files from S3"""
+
+    _builder_method = "from_s3"
 
     content_type = serializers.ChoiceField(
         choices=["mixpanel", "captured", "amplitude"],
         write_only=True,
         required=True,
+        help_text="Format of the events in the source files.",
     )
     source_type = serializers.ChoiceField(
         choices=["s3"],
         write_only=True,
         required=True,
+        help_text="Source storage type.",
     )
-    s3_bucket = serializers.CharField(write_only=True, required=False)
-    s3_prefix = serializers.CharField(write_only=True, required=False, allow_blank=True)
-    s3_region = serializers.CharField(write_only=True, required=False)
-    access_key = serializers.CharField(write_only=True, required=False)
-    secret_key = serializers.CharField(write_only=True, required=False)
+    s3_bucket = serializers.CharField(write_only=True, required=True, help_text="Name of the S3 bucket to import from.")
+    s3_prefix = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Key prefix limiting which objects in the bucket are imported.",
+    )
+    s3_region = serializers.CharField(
+        write_only=True, required=True, help_text="AWS region the bucket lives in, e.g. us-east-1."
+    )
+    access_key = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        help_text="AWS access key ID. Use together with secret_key; mutually exclusive with role_arn.",
+    )
+    secret_key = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        help_text="AWS secret access key. Use together with access_key; mutually exclusive with role_arn.",
+    )
+    role_arn = serializers.RegexField(
+        regex=S3_ROLE_ARN_REGEX,
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "ARN of an IAM role in your AWS account that trusts PostHog's import role. "
+            "Recommended alternative to access keys; only works with AWS S3 (no custom endpoint_url). "
+            "Fetch the trust policy to configure from the aws_iam_setup endpoint."
+        ),
+    )
     endpoint_url = serializers.CharField(
         write_only=True,
         required=False,
@@ -103,9 +148,15 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
         default=None,
         help_text="Custom endpoint URL for S3-compatible storage (e.g. Cloudflare R2, MinIO).",
     )
-    import_events = serializers.BooleanField(write_only=True, required=False, default=True)
-    generate_identify_events = serializers.BooleanField(write_only=True, required=False, default=True)
-    generate_group_identify_events = serializers.BooleanField(write_only=True, required=False, default=False)
+    import_events = serializers.BooleanField(
+        write_only=True, required=False, default=True, help_text="Whether to import regular events."
+    )
+    generate_identify_events = serializers.BooleanField(
+        write_only=True, required=False, default=True, help_text="Whether to generate $identify events."
+    )
+    generate_group_identify_events = serializers.BooleanField(
+        write_only=True, required=False, default=False, help_text="Whether to generate $groupidentify events."
+    )
 
     class Meta:
         model = BatchImport
@@ -125,6 +176,7 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
             "s3_region",
             "access_key",
             "secret_key",
+            "role_arn",
             "endpoint_url",
             "import_events",
             "generate_identify_events",
@@ -141,6 +193,64 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
             "import_config",
         ]
 
+    def validate(self, data: dict) -> dict:
+        data = super().validate(data)
+
+        has_access_key = bool(data.get("access_key"))
+        has_secret_key = bool(data.get("secret_key"))
+        has_role = bool(data.get("role_arn"))
+
+        if has_access_key != has_secret_key:
+            raise serializers.ValidationError(
+                "Both access_key and secret_key are required for access key authentication"
+            )
+        if has_role and has_access_key:
+            raise serializers.ValidationError("Provide either role_arn or access keys, not both")
+        if not has_role and not has_access_key:
+            raise serializers.ValidationError(
+                "Authentication is required: provide role_arn (recommended) or access_key and secret_key"
+            )
+        if has_role and data.get("endpoint_url"):
+            raise serializers.ValidationError(
+                "IAM role authentication only works with AWS S3; S3-compatible storage must use access keys"
+            )
+        if has_role and settings.MANAGED_MIGRATIONS_VALIDATE_ROLE_ON_CREATE:
+            self._validate_role_access(data)
+
+        return data
+
+    def _validate_role_access(self, data: dict) -> None:
+        """Assume the customer's role and probe the bucket so misconfiguration fails at create time."""
+        external_id = get_aws_external_id(self.context["get_team"]())
+        try:
+            sts = boto3.client("sts")
+            credentials = sts.assume_role(
+                RoleArn=data["role_arn"],
+                RoleSessionName="posthog-managed-migration-validation",
+                ExternalId=external_id,
+                DurationSeconds=900,
+            )["Credentials"]
+        except (ClientError, BotoCoreError):
+            raise serializers.ValidationError(
+                "PostHog could not assume this IAM role. Verify the role exists, its trust policy "
+                "allows PostHog's import role, and the External ID matches the one shown in setup."
+            )
+
+        s3 = boto3.client(
+            "s3",
+            region_name=data["s3_region"],
+            aws_access_key_id=credentials["AccessKeyId"],
+            aws_secret_access_key=credentials["SecretAccessKey"],
+            aws_session_token=credentials["SessionToken"],
+        )
+        try:
+            s3.list_objects_v2(Bucket=data["s3_bucket"], Prefix=data.get("s3_prefix", ""), MaxKeys=1)
+        except (ClientError, BotoCoreError):
+            raise serializers.ValidationError(
+                "The IAM role was assumed successfully, but listing the bucket failed. "
+                "Check the role's s3:ListBucket and s3:GetObject permissions for this bucket and prefix."
+            )
+
     def create(self, validated_data: dict, **kwargs) -> BatchImport:
         """Create BatchImport using config builder pattern."""
         batch_import = BatchImport(
@@ -148,20 +258,17 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
             created_by_id=self.context["request"].user.id,
         )
 
-        content_type_map = {
-            "mixpanel": ContentType.MIXPANEL,
-            "amplitude": ContentType.AMPLITUDE,
-            "captured": ContentType.CAPTURED,
-        }
+        content_type = ContentType(validated_data["content_type"])
+        role_arn = validated_data.get("role_arn") or None
 
-        content_type = content_type_map[validated_data["content_type"]]
-
-        config_builder = batch_import.config.json_lines(content_type).from_s3(
+        config_builder = getattr(batch_import.config.json_lines(content_type), self._builder_method)(
             bucket=validated_data["s3_bucket"],
             prefix=validated_data.get("s3_prefix", ""),
             region=validated_data["s3_region"],
-            access_key_id=validated_data["access_key"],
-            secret_access_key=validated_data["secret_key"],
+            access_key_id=validated_data.get("access_key") or None,
+            secret_access_key=validated_data.get("secret_key") or None,
+            role_arn=role_arn,
+            external_id=get_aws_external_id(self.context["get_team"]()) if role_arn else None,
             endpoint_url=validated_data.get("endpoint_url"),
         )
 
@@ -178,104 +285,38 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
         return batch_import
 
 
-class BatchImportS3GzipSourceCreateSerializer(BatchImportSerializer):
+class BatchImportS3GzipSourceCreateSerializer(BatchImportS3SourceCreateSerializer):
     """Serializer for creating BatchImports with S3 gzipped JSONL source"""
 
-    content_type = serializers.ChoiceField(
-        choices=["mixpanel", "captured", "amplitude"],
-        write_only=True,
-        required=True,
-    )
+    _builder_method = "from_s3_gzip"
+
     source_type = serializers.ChoiceField(
         choices=["s3_gzip"],
         write_only=True,
         required=True,
+        help_text="Source storage type.",
     )
-    s3_bucket = serializers.CharField(write_only=True, required=False)
-    s3_prefix = serializers.CharField(write_only=True, required=False, allow_blank=True)
-    s3_region = serializers.CharField(write_only=True, required=False)
-    access_key = serializers.CharField(write_only=True, required=False)
-    secret_key = serializers.CharField(write_only=True, required=False)
-    endpoint_url = serializers.CharField(
-        write_only=True,
-        required=False,
+
+
+class BatchImportAWSIAMSetupSerializer(serializers.Serializer):
+    """Values a customer needs to configure cross-account IAM role access for S3 imports"""
+
+    available = serializers.BooleanField(
+        help_text="Whether IAM role authentication is available on this PostHog deployment."
+    )
+    external_id = serializers.CharField(
+        help_text="External ID to pin in the role trust policy's sts:ExternalId condition. Stable per project."
+    )
+    posthog_role_arn = serializers.CharField(
+        allow_blank=True, help_text="ARN of PostHog's import role - the principal your role must trust."
+    )
+    trust_policy = serializers.CharField(
+        allow_blank=True, help_text="Ready-to-paste IAM trust policy JSON for the role in your AWS account."
+    )
+    permission_policy_template = serializers.CharField(
         allow_blank=True,
-        default=None,
-        help_text="Custom endpoint URL for S3-compatible storage (e.g. Cloudflare R2, MinIO).",
+        help_text="IAM permission policy JSON template; replace YOUR_BUCKET and YOUR_PREFIX with your values.",
     )
-    import_events = serializers.BooleanField(write_only=True, required=False, default=True)
-    generate_identify_events = serializers.BooleanField(write_only=True, required=False, default=True)
-    generate_group_identify_events = serializers.BooleanField(write_only=True, required=False, default=False)
-
-    class Meta:
-        model = BatchImport
-        fields = [
-            "id",
-            "team_id",
-            "created_at",
-            "updated_at",
-            "state",
-            "status",
-            "display_status_message",
-            "import_config",
-            "content_type",
-            "source_type",
-            "s3_bucket",
-            "s3_prefix",
-            "s3_region",
-            "access_key",
-            "secret_key",
-            "endpoint_url",
-            "import_events",
-            "generate_identify_events",
-            "generate_group_identify_events",
-        ]
-        read_only_fields = [
-            "id",
-            "team_id",
-            "created_at",
-            "updated_at",
-            "state",
-            "status",
-            "display_status_message",
-            "import_config",
-        ]
-
-    def create(self, validated_data: dict, **kwargs) -> BatchImport:
-        """Create BatchImport using config builder pattern."""
-        batch_import = BatchImport(
-            team_id=self.context["team_id"],
-            created_by_id=self.context["request"].user.id,
-        )
-
-        content_type_map = {
-            "mixpanel": ContentType.MIXPANEL,
-            "amplitude": ContentType.AMPLITUDE,
-            "captured": ContentType.CAPTURED,
-        }
-
-        content_type = content_type_map[validated_data["content_type"]]
-
-        config_builder = batch_import.config.json_lines(content_type).from_s3_gzip(
-            bucket=validated_data["s3_bucket"],
-            prefix=validated_data.get("s3_prefix", ""),
-            region=validated_data["s3_region"],
-            access_key_id=validated_data["access_key"],
-            secret_access_key=validated_data["secret_key"],
-            endpoint_url=validated_data.get("endpoint_url"),
-        )
-
-        if content_type == ContentType.AMPLITUDE:
-            config_builder = (
-                config_builder.with_import_events(validated_data.get("import_events", True))
-                .with_generate_identify_events(validated_data.get("generate_identify_events", True))
-                .with_generate_group_identify_events(validated_data.get("generate_group_identify_events", False))
-            )
-
-        config_builder.to_capture(send_rate=1000)
-
-        batch_import.save()
-        return batch_import
 
 
 class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
@@ -571,6 +612,75 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         response_serializer = BatchImportResponseSerializer(migration)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        responses={200: BatchImportAWSIAMSetupSerializer},
+        description=(
+            "Values needed to set up cross-account IAM role access for S3 imports: the external ID, "
+            "PostHog's import role ARN, and ready-to-paste trust/permission policy JSON. Fetch this "
+            "before creating an import with role_arn so the role can be configured first."
+        ),
+    )
+    @action(methods=["GET"], detail=False)
+    def aws_iam_setup(self, request: Request, **kwargs) -> Response:
+        """Return the values a customer needs to create an IAM role PostHog can assume."""
+        external_id = get_aws_external_id(self.team)
+        posthog_role_arn = settings.MANAGED_MIGRATIONS_IMPORT_ROLE_ARN
+
+        if not posthog_role_arn:
+            serializer = BatchImportAWSIAMSetupSerializer(
+                {
+                    "available": False,
+                    "external_id": external_id,
+                    "posthog_role_arn": "",
+                    "trust_policy": "",
+                    "permission_policy_template": "",
+                }
+            )
+            return Response(serializer.data)
+
+        trust_policy = json.dumps(
+            {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Principal": {"AWS": posthog_role_arn},
+                        "Action": "sts:AssumeRole",
+                        "Condition": {"StringEquals": {"sts:ExternalId": external_id}},
+                    }
+                ],
+            },
+            indent=2,
+        )
+        permission_policy_template = json.dumps(
+            {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["s3:ListBucket"],
+                        "Resource": "arn:aws:s3:::YOUR_BUCKET",
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": ["s3:GetObject"],
+                        "Resource": "arn:aws:s3:::YOUR_BUCKET/YOUR_PREFIX*",
+                    },
+                ],
+            },
+            indent=2,
+        )
+        serializer = BatchImportAWSIAMSetupSerializer(
+            {
+                "available": True,
+                "external_id": external_id,
+                "posthog_role_arn": posthog_role_arn,
+                "trust_policy": trust_policy,
+                "permission_policy_template": permission_policy_template,
+            }
+        )
+        return Response(serializer.data)
 
     @action(methods=["POST"], detail=True)
     def pause(self, request: Request, **kwargs) -> Response:
