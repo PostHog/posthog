@@ -293,13 +293,13 @@ class TestModalSandboxAgentShWrapping(TestCase):
 
     @parameterized.expand(
         [
-            ("modal", True, "--autoPublish true"),
-            ("modal", False, "--autoPublish false"),
-            ("docker", True, "--autoPublish true"),
-            ("docker", False, "--autoPublish false"),
+            ("modal", True),
+            ("modal", False),
+            ("docker", True),
+            ("docker", False),
         ]
     )
-    def test_command_includes_auto_publish_flag(self, provider, auto_publish, expected_flag):
+    def test_command_includes_auto_publish_flag_only_when_opted_in(self, provider, auto_publish):
         from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
         from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 
@@ -316,7 +316,12 @@ class TestModalSandboxAgentShWrapping(TestCase):
             create_pr=True,
             auto_publish=auto_publish,
         )
-        self.assertIn(expected_flag, cmd)
+        # Opt-out runs must not see the flag at all: agent-server builds without
+        # the option reject unknown flags, so appending it would break every run.
+        if auto_publish:
+            self.assertIn("--autoPublish true", cmd)
+        else:
+            self.assertNotIn("--autoPublish", cmd)
 
     def test_command_includes_allowed_domains(self):
         from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox

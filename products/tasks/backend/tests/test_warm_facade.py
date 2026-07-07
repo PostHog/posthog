@@ -170,7 +170,7 @@ class TestCreateTaskWarmReuse(APIBaseTest):
     def test_reuses_matching_warm_task_and_activates_it_in_place(self):
         warm_task, run = self._warm_run()
         with patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as m_signal:
-            dto = self._create()
+            dto = self._create(auto_publish=True)
 
         assert str(dto.id) == str(warm_task.id)
         assert Task.objects.filter(team=self.team, deleted=False).count() == 1
@@ -182,6 +182,8 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         _, kwargs = m_signal.call_args
         assert kwargs["content"] == "fix the bug"
         assert "await_user_message" not in run.state
+        # The already-running agent can't see it this run, but resumes read it from carried state.
+        assert run.state.get("auto_publish") is True
 
     def test_does_not_overwrite_existing_warm_description(self):
         warm_task, _ = self._warm_run()
@@ -321,7 +323,12 @@ class TestRunTaskWarmActivation(APIBaseTest):
                 task.id,
                 self.team.id,
                 self.user.id,
-                validated_data={"mode": "interactive", "branch": "main", "pending_user_message": "do the thing"},
+                validated_data={
+                    "mode": "interactive",
+                    "branch": "main",
+                    "pending_user_message": "do the thing",
+                    "auto_publish": True,
+                },
             )
 
         assert result is not None and result.error is None
@@ -331,6 +338,7 @@ class TestRunTaskWarmActivation(APIBaseTest):
         assert kwargs["content"] == "do the thing"
         run.refresh_from_db()
         assert "await_user_message" not in run.state
+        assert run.state.get("auto_publish") is True
 
     def test_falls_back_to_description_when_no_pending_message(self):
         task, run = self._warm_run()
