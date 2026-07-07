@@ -55,7 +55,7 @@ export function StaffCacheEntryModal(): JSX.Element {
             ) : null}
             <div className="max-h-[70vh] overflow-y-auto">
                 {cacheEntryLoading ? (
-                    <div className="flex items-center justify-center p-8">
+                    <div className="flex items-center justify-center">
                         <Spinner className="text-2xl" />
                     </div>
                 ) : cacheEntry?.data ? (
@@ -67,7 +67,7 @@ export function StaffCacheEntryModal(): JSX.Element {
                         searchQuery={searchQuery}
                     />
                 ) : (
-                    <div className="flex items-center gap-2 p-4">
+                    <div className="flex items-center gap-2">
                         <LemonTag type="warning">Miss</LemonTag>
                         <span className="text-secondary">Nothing is cached in Redis for this team.</span>
                     </div>

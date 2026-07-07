@@ -230,7 +230,9 @@ class FeatureFlagsStaffCacheViewSet(viewsets.ViewSet):
         responses={200: OpenApiResponse(response=StaffCacheStatusResponseSerializer)},
     )
     def list(self, request: request.Request, **kwargs) -> response.Response:
-        team_ids: list[int] = request.validated_query_data["team_ids"]
+        # Dedupe (preserving order) so a caller passing the same id twice doesn't get duplicate
+        # rows in `results`, matching _dispatch_mutation's handling of team_ids below.
+        team_ids: list[int] = list(dict.fromkeys(request.validated_query_data["team_ids"]))
         teams_by_id = {team.id: team for team in Team.objects.filter(id__in=team_ids)}
         teams = [teams_by_id[team_id] for team_id in team_ids if team_id in teams_by_id]
 

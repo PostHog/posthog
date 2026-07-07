@@ -73,6 +73,25 @@ class TestFeatureFlagsStaffTeamSearchAPI(APIBaseTest):
         response = self.client.get("/api/feature_flags_staff_teams/", {"search": search})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_single_digit_search_only_matches_by_id_not_by_name_or_org_substring(self):
+        # A single-digit search is allowed below MIN_SEARCH_LENGTH only as an exact team-id
+        # lookup (see exact_id case above). If it also matched name/organization name via
+        # icontains, a 1-character query could still return a broad, unbounded set of teams,
+        # defeating the min-length guard.
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org, name="Team")
+        digit = next(d for d in "0123456789" if d not in str(team.id))
+        team.name = f"Team{digit}"
+        org.name = f"Org{digit}"
+        team.save(update_fields=["name"])
+        org.save(update_fields=["name"])
+
+        response = self.client.get("/api/feature_flags_staff_teams/", {"search": digit})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        returned_ids = [result["id"] for result in response.json()["results"]]
+        self.assertNotIn(team.id, returned_ids)
+
     def test_limit_is_capped(self):
         response = self.client.get("/api/feature_flags_staff_teams/", {"search": "Test", "limit": "1000"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

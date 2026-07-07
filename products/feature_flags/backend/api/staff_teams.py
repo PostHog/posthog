@@ -82,9 +82,15 @@ class FeatureFlagsStaffTeamSearchViewSet(viewsets.ViewSet):
         search: str = request.validated_query_data["search"]
         limit: int = request.validated_query_data["limit"]
 
-        query = Q(name__icontains=search) | Q(api_token=search) | Q(organization__name__icontains=search)
-        if search.isdecimal():
-            query |= Q(id=int(search))
+        if search.isdecimal() and len(search) < MIN_SEARCH_LENGTH:
+            # A single-digit search is only allowed as an exact team-id lookup (see
+            # validate_search above); matching it against name/organization name too would
+            # turn a 1-character query into a broad substring scan, defeating that guard.
+            query = Q(id=int(search))
+        else:
+            query = Q(name__icontains=search) | Q(api_token=search) | Q(organization__name__icontains=search)
+            if search.isdecimal():
+                query |= Q(id=int(search))
 
         # icontains on name/organization__name forces a sequential scan (no btree-usable index);
         # acceptable today given staff-only, low-frequency usage. Revisit with a pg_trgm index if

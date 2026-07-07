@@ -127,6 +127,13 @@ class TestFeatureFlagsStaffCacheAPI(APIBaseTest):
         cold = self.client.get(f"/api/feature_flags_staff_cache/?team_ids={self.team.id}")
         self.assertEqual(cold.json()["results"][0]["evaluation"]["source"], "miss")
 
+    def test_status_dedupes_repeated_team_ids(self):
+        # A caller passing the same team id twice (e.g. ?team_ids=1&team_ids=1) should get one
+        # row back, not a duplicate per repetition.
+        response = self.client.get(f"/api/feature_flags_staff_cache/?team_ids={self.team.id}&team_ids={self.team.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 1)
+
     def test_status_reports_the_two_definitions_variants_independently(self):
         self.addCleanup(flag_definitions_hypercache.clear_cache, self.team)
         self.addCleanup(flag_definitions_without_cohorts_hypercache.clear_cache, self.team)

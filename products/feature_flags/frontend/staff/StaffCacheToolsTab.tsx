@@ -102,7 +102,7 @@ export function StaffCacheToolsTab(): JSX.Element {
         <div className="space-y-4">
             <StaffTeamSearchInput />
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 mt-2">
                 <LemonButton
                     type="primary"
                     size="small"
@@ -121,7 +121,7 @@ export function StaffCacheToolsTab(): JSX.Element {
                             title: 'Clear flag caches?',
                             description: `This immediately clears the evaluation and definitions caches in Redis for ${selectedTeamIds.length} selected team(s). Reads will fall through to the database until the caches are rebuilt.`,
                             primaryButton: {
-                                children: 'Clear caches',
+                                children: 'Clear flag caches',
                                 status: 'danger',
                                 onClick: () => clearCache({ caches: ALL_CACHES }),
                             },
@@ -133,7 +133,7 @@ export function StaffCacheToolsTab(): JSX.Element {
                     disabledReason={disabledReason}
                     loading={clearResultLoading}
                 >
-                    Clear caches
+                    Clear flag caches
                 </LemonButton>
                 <LemonButton
                     type="tertiary"
