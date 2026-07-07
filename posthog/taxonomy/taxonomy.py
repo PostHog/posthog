@@ -2580,6 +2580,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The AI framework used to produce this event.",
             "examples": ["langchain", "llamaindex", "openai"],
         },
+        "$ai_git_branch": {
+            "label": "AI git branch",
+            "description": "The git branch checked out when the AI generation ran; joins LLM spend to pull requests via the PR head ref.",
+            "examples": ["feat/my-feature"],
+        },
+        "$ai_git_repo": {
+            "label": "AI git repository",
+            "description": "The repository the AI session ran in, as owner/name.",
+            "examples": ["PostHog/posthog"],
+        },
         "$ai_lib": {
             "label": "AI library (LLM)",
             "description": "The name of the SDK or library that sent this AI event.",

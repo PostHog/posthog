@@ -385,6 +385,20 @@
             ],
             "label": "AI framework (LLM)"
         },
+        "$ai_git_branch": {
+            "description": "The git branch checked out when the AI generation ran; joins LLM spend to pull requests via the PR head ref.",
+            "examples": [
+                "feat/my-feature"
+            ],
+            "label": "AI git branch"
+        },
+        "$ai_git_repo": {
+            "description": "The repository the AI session ran in, as owner/name.",
+            "examples": [
+                "PostHog/posthog"
+            ],
+            "label": "AI git repository"
+        },
         "$ai_http_status": {
             "description": "The HTTP status code of the request made to the LLM API.",
             "examples": [
@@ -4500,6 +4514,20 @@
                 "openai"
             ],
             "label": "AI framework (LLM)"
+        },
+        "$ai_git_branch": {
+            "description": "The git branch checked out when the AI generation ran; joins LLM spend to pull requests via the PR head ref.",
+            "examples": [
+                "feat/my-feature"
+            ],
+            "label": "AI git branch"
+        },
+        "$ai_git_repo": {
+            "description": "The repository the AI session ran in, as owner/name.",
+            "examples": [
+                "PostHog/posthog"
+            ],
+            "label": "AI git repository"
         },
         "$ai_http_status": {
             "description": "The HTTP status code of the request made to the LLM API.",
