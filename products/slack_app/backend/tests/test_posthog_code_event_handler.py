@@ -1143,6 +1143,55 @@ class TestAssistantEvents(TestCase):
             )
             slack_cls.return_value.client.assistant_threads_setSuggestedPrompts.assert_not_called()
 
+    def test_thread_started_onboarding_targets_resolved_project_not_probe(self):
+        # In a multi-project workspace the workspace probe and the user's resolved default can
+        # differ; the thread-started entry point must land onboarding on the resolved project (as
+        # the first-DM path does) so the fleet doesn't depend on which entry point fired first.
+        from products.slack_app.backend.services.integration_resolver import (
+            ResolutionResult,
+            UserAndIntegrationsResolution,
+        )
+
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        resolved = Integration.objects.create(
+            team=other_team,
+            kind="slack",
+            integration_id="T12345",
+            config={"scope": "chat:write"},
+            sensitive_config={"access_token": "xoxb-other"},
+        )
+        load = patch(
+            "products.slack_app.backend.api.load_integrations",
+            return_value=ResolutionResult(
+                integration=self.integration, source="workspace_default", candidates=[self.integration, resolved]
+            ),
+        )
+        resolve = patch(
+            "products.slack_app.backend.api.resolve_user_for_workspace",
+            return_value=UserAndIntegrationsResolution(
+                user=self.user,
+                integration=resolved,
+                candidates=[self.integration, resolved],
+                source="user_default",
+            ),
+        )
+        enabled_p = patch("products.slack_app.backend.api.is_slack_app_assistant_enabled", return_value=True)
+        usp = patch("products.slack_app.backend.api._us_should_handle_instead", return_value=False)
+        slack = patch("products.slack_app.backend.api.SlackIntegration")
+        intercept = patch(
+            "products.slack_app.backend.persona_onboarding.maybe_intercept_assistant_surface", return_value=True
+        )
+        with load, resolve, enabled_p, usp, slack, intercept as mock_intercept:
+            self._route(
+                {
+                    "type": "assistant_thread_started",
+                    "assistant_thread": {"user_id": "U123", "channel_id": "D001", "thread_ts": "111.222"},
+                }
+            )
+
+        mock_intercept.assert_called_once()
+        assert mock_intercept.call_args.args[0] == resolved
+
     def test_context_changed_caches_viewed_channel(self):
         from products.slack_app.backend.api import _get_assistant_channel_context
 

@@ -26,6 +26,11 @@ from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 logger = structlog.get_logger(__name__)
 
 
+def _escape_mrkdwn(text: str) -> str:
+    """Slack mrkdwn control chars in customer-supplied strings; & first so we don't double-escape."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 class ScoutSlackDeliveryError(Exception):
     """Delivery failed before or at the Slack API. `code` mirrors the notify endpoint's
     error codes: `no_delivery_config`, `slack_integration_missing`, `channel_unavailable`."""
@@ -37,7 +42,6 @@ class ScoutSlackDeliveryError(Exception):
 
 @dataclasses.dataclass(frozen=True)
 class ScoutSlackDeliveryResult:
-    channel_id: str
     # Display form, e.g. `#account-pulse` (falls back to the channel id).
     channel: str
     ts: str | None
@@ -80,7 +84,9 @@ def send_scout_slack_notification(
     slack = SlackIntegration(integration)
 
     owner_tagged = False
-    owner_prefix = str(owner_label or "")
+    # Escape customer/CRM-sourced strings so they can't inject Slack mentions/links; a server-built
+    # `<@U…>` mention (set below) is the one owner_prefix value that must stay live.
+    owner_prefix = _escape_mrkdwn(str(owner_label or ""))
     if owner_email:
         try:
             lookup = slack.client.users_lookupByEmail(email=owner_email)
@@ -92,16 +98,18 @@ def send_scout_slack_notification(
             # Tagging is best-effort — a lookup miss must never block delivery.
             logger.warning("scout_notify_owner_lookup_failed", exc_info=True)
         if not owner_tagged and not owner_prefix:
-            owner_prefix = str(owner_email)
+            owner_prefix = _escape_mrkdwn(str(owner_email))
 
     emoji = {"high": ":rotating_light:", "medium": ":warning:", "low": ":mag:"}.get(severity or "", ":mag:")
-    body = f"{owner_prefix} {text}".strip()
+    safe_account_name = _escape_mrkdwn(account_name)
+    safe_text = _escape_mrkdwn(text)
+    body = f"{owner_prefix} {safe_text}".strip()
     context_text = context_label
     if report_id is not None:
         report_url = f"{settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id}"
         context_text += f" · <{report_url}|View report in PostHog>"
     blocks = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": f"{emoji} *{account_name}*"}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"{emoji} *{safe_account_name}*"}},
         {"type": "section", "text": {"type": "mrkdwn", "text": body}},
         {"type": "context", "elements": [{"type": "mrkdwn", "text": context_text}]},
     ]
@@ -109,7 +117,7 @@ def send_scout_slack_notification(
     try:
         posted = slack.client.chat_postMessage(
             channel=delivery["channel_id"],
-            text=f"{account_name}: {text[:150]}",
+            text=f"{safe_account_name}: {safe_text[:150]}",
             blocks=blocks,
             unfurl_links=False,
         )
@@ -143,7 +151,6 @@ def send_scout_slack_notification(
             locked.save(update_fields=["notifications"])
 
     return ScoutSlackDeliveryResult(
-        channel_id=delivery["channel_id"],
         channel=f"#{delivery.get('channel_name') or delivery['channel_id']}",
         ts=ts,
         owner_tagged=owner_tagged,

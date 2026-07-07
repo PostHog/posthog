@@ -148,8 +148,7 @@ def _authored_count(messages: list[dict], slack_user_id: str) -> int:
     return sum(1 for message in messages if message.get("user") == slack_user_id)
 
 
-def _detect_persona_from_messages(slack: SlackIntegration, workspace_id: str, slack_user_id: str) -> str | None:
-    action_token = slack_search.get_cached_action_token(workspace_id, slack_user_id)
+def _detect_persona_from_messages(slack: SlackIntegration, slack_user_id: str, action_token: str | None) -> str | None:
     if action_token is None:
         return None
     csm_score = _authored_count(
@@ -186,8 +185,9 @@ def _detect_persona_from_title(slack: SlackIntegration, slack_user_id: str) -> s
 def detect_persona(slack: SlackIntegration, workspace_id: str, slack_user_id: str) -> tuple[str | None, str | None]:
     """Returns ``(candidate, source)`` — candidate in {"csm", "engineer", None}, source in
     {"messages", "title", None}. Best-effort at every rung; never raises."""
-    if slack_search.search_available(slack, workspace_id, slack_user_id):
-        candidate = _detect_persona_from_messages(slack, workspace_id, slack_user_id)
+    action_token = slack_search.get_cached_action_token(workspace_id, slack_user_id)
+    if slack_search.search_available(slack, action_token):
+        candidate = _detect_persona_from_messages(slack, slack_user_id, action_token)
         if candidate is not None:
             return candidate, DETECTION_SOURCE_MESSAGES
     candidate = _detect_persona_from_title(slack, slack_user_id)
@@ -221,10 +221,8 @@ _TOOL_HIT_MIN = 3
 def detect_workspace_tools(slack: SlackIntegration, workspace_id: str, slack_user_id: str) -> list[str]:
     """MCP server names whose tool shows up in recent public-channel messages. Empty when
     search is unavailable — the fleet reveal then renders generic gap lines."""
-    if not slack_search.search_available(slack, workspace_id, slack_user_id):
-        return []
     action_token = slack_search.get_cached_action_token(workspace_id, slack_user_id)
-    if action_token is None:
+    if action_token is None or not slack_search.search_available(slack, action_token):
         return []
     detected: list[str] = []
     for tool in _CONNECTABLE_TOOLS:
@@ -342,6 +340,10 @@ class CsmDataReadiness:
 
     def as_dict(self) -> dict:
         return dataclasses.asdict(self)
+
+    def analytics_props(self) -> dict:
+        # ready_details is presentation-only with variable keys — keep it out of the flat event schema.
+        return {key: value for key, value in self.as_dict().items() if key != "ready_details"}
 
 
 def _active_source_kinds(team_id: int) -> set[str]:
@@ -984,7 +986,9 @@ def _post_kickoff(
         entry_point=entry_point,
         persona_candidate=candidate,
         detection_source=source or "none",
-        search_available=slack_search.search_available(slack, workspace_id, slack_user_id),
+        search_available=slack_search.search_available(
+            slack, slack_search.get_cached_action_token(workspace_id, slack_user_id)
+        ),
     )
 
 
@@ -1191,7 +1195,14 @@ def _handle_connect_click(payload: dict, action: dict) -> None:
     # URL button — the browser already navigated; just ack + record the click.
     ctx = _load_context(payload)
     if ctx is not None:
-        scout_key, _, server_name = str(action.get("value") or "").rpartition(":")
+        # Values are "<readiness_key>:<server>" (readiness_key is colon-free, so split on the
+        # first colon to keep server names that themselves contain colons intact) — or a bare
+        # server name like "github" for buttons not tied to a readiness gap.
+        raw_value = str(action.get("value") or "")
+        if ":" in raw_value:
+            scout_key, _, server_name = raw_value.partition(":")
+        else:
+            scout_key, server_name = "", raw_value
         capture_slack_event(
             ctx.integration,
             EVENT_CONNECT_CLICKED,
@@ -1209,9 +1220,14 @@ def handle_mcp_connect_return(
     template_name: str,
     success: bool,
     error: str = "",
+    capture_event: bool = True,
 ) -> str:
     """Post-OAuth landing for a Connect button: refresh the fleet-reveal message with fresh
-    readiness and return the Slack deep link that sends the user back to the conversation."""
+    readiness and return the Slack deep link that sends the user back to the conversation.
+
+    ``capture_event`` gates only the connect-conversion analytics: the signed state is reusable,
+    so the caller dedupes it per token. The fleet refresh below is DB-recomputed and idempotent,
+    so it always runs regardless."""
     row = SlackSettings.objects.filter(slack_workspace_id=workspace_id, slack_user_id=slack_user_id).first()
     state = row.onboarding_state if row is not None and isinstance(row.onboarding_state, dict) else None
     integration = None
@@ -1220,15 +1236,16 @@ def handle_mcp_connect_return(
         if integration is not None and integration.integration_id != workspace_id:
             integration = None
     if integration is not None:
-        capture_slack_event(
-            integration,
-            EVENT_MCP_CONNECTED,
-            slack_user_id=slack_user_id,
-            server_name=template_name,
-            scout_readiness_key=readiness_key,
-            success=success,
-            error=error or None,
-        )
+        if capture_event:
+            capture_slack_event(
+                integration,
+                EVENT_MCP_CONNECTED,
+                slack_user_id=slack_user_id,
+                server_name=template_name,
+                scout_readiness_key=readiness_key,
+                success=success,
+                error=error or None,
+            )
         if row is not None and state is not None and success:
             _refresh_fleet_reveal(integration, row, state, workspace_id, slack_user_id)
     dm_channel_id = str(state.get("dm_channel_id") or "") if state else ""
@@ -1429,7 +1446,7 @@ def _handle_persona_select(payload: dict, action: dict) -> None:
         EVENT_FLEET_SHOWN,
         slack_user_id=ctx.slack_user_id,
         detected_tools=detected_tools,
-        **readiness.as_dict(),
+        **readiness.analytics_props(),
     )
 
 
@@ -1510,7 +1527,7 @@ def _handle_channel_verify(payload: dict, action: dict) -> None:
         return
     channel_name = ctx.state.get("pending_channel_name") or _channel_name_best_effort(ctx.slack, channel_id)
     _freeze_buttons(ctx, payload, f"⏳ Checking #{channel_name}…")
-    _attempt_channel_setup(ctx, channel_id, channel_name, method="selected", invite_required=True)
+    _attempt_channel_setup(ctx, channel_id, channel_name, method="verified", invite_required=True)
 
 
 # Membership-shaped hello failures that the /invite-then-Verify flow can recover from.
@@ -1648,7 +1665,8 @@ def _provision_and_complete(ctx: _FlowContext, channel_id: str, channel_name: st
         scouts_provisioned=len([result for result in results if result.config_id]),
         first_runs_fired=len([result for result in results if result.first_run_started]),
         channel_conflict=bool(channel_conflict),
-        **readiness,
+        # readiness still carries ready_details for the Block Kit render above; keep it out of analytics.
+        **{key: value for key, value in readiness.items() if key != "ready_details"},
     )
     _republish_home(ctx.integration, ctx.slack_user_id)
     _start_first_patrol_digest(ctx, results, channel_name)
