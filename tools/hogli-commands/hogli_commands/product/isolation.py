@@ -22,6 +22,7 @@ from __future__ import annotations
 import re
 import json
 import tomllib
+import functools
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -317,6 +318,72 @@ def uncovered_permanent_modules(product_dir: Path, permanent_modules: frozenset[
     return {m for m in permanent_modules if not any(i.startswith(_module_input_prefixes(m)) for i in inputs)}
 
 
+# ---------------------------------------------------------------------------
+# Permanent-interface qualification — the marker can only cover genuinely irreducible DDL
+# ---------------------------------------------------------------------------
+
+
+@functools.cache
+def _clickhouse_ddl_corpus(repo_root: Path) -> str:
+    """Concatenated source of everything that consumes a permanent DDL interface outside the
+    import-reroute path: the frozen ClickHouse migrations and the schema registry.
+
+    Cached per repo_root — product:lint runs the qualification check once per product, and re-reading
+    ~250 migration files each time would dominate the lint. The corpus is stable within one process.
+    """
+    migrations_dir = repo_root / "posthog" / "clickhouse" / "migrations"
+    schema_file = repo_root / "posthog" / "clickhouse" / "schema.py"
+    parts: list[str] = []
+    if migrations_dir.is_dir():
+        for path in sorted(migrations_dir.glob("*.py")):
+            parts.append(path.read_text())
+    if schema_file.exists():
+        parts.append(schema_file.read_text())
+    return "\n".join(parts)
+
+
+def _module_is_referenced(corpus: str, full_dotted_path: str) -> bool:
+    """True if the corpus imports full_dotted_path (e.g. 'products.error_tracking.backend.sql').
+
+    Matches both import spellings: the full dotted path appearing verbatim
+    ('from products.x.backend.sql import Y', 'import products.x.backend.sql', or a submodule
+    'products.x.backend.sql.foo') and the leaf form ('from products.x.backend import sql').
+
+    The trailing '(?![A-Za-z0-9_])' is a word boundary that also permits a following '.' submodule,
+    so 'backend.sql' matches 'backend.sql.foo' but not a distinct 'backend.sql_extra'.
+
+    The leaf alternatives are bounded (no newline outside parens, closing paren inside them) so an
+    unrelated occurrence of the leaf name on a later corpus line can't qualify the module.
+    """
+    parent, _, leaf = full_dotted_path.rpartition(".")
+    leaf_word = r"\b" + re.escape(leaf) + r"\b"
+    from_parent = r"from\s+" + re.escape(parent) + r"\s+import"
+    pattern = (
+        re.escape(full_dotted_path) + r"(?![A-Za-z0-9_])"
+        r"|" + from_parent + r"[^\n(]*" + leaf_word + r"|" + from_parent + r"\s*\([^)]*" + leaf_word
+    )
+    return re.search(pattern, corpus) is not None
+
+
+def unqualified_permanent_modules(
+    module_path: str, permanent_modules: frozenset[str], *, repo_root: Path = REPO_ROOT
+) -> set[str]:
+    """Permanently-exposed module roots that don't actually qualify as an irreducible interface.
+
+    The permanent-interface marker is only legitimate for modules core depends on outside the
+    import graph — ClickHouse DDL imported by a frozen migration or the schema registry. This is
+    the mechanical guard against abusing it: a module (e.g. 'backend.sql') qualifies only if its
+    full dotted path (e.g. 'products.error_tracking.backend.sql') is referenced by one of those
+    consumers. Any marked module with no such reference is returned, and IsolationChainCheck turns
+    a non-empty result into a blocking issue — the marker can't be used to smuggle 'backend.models'
+    or 'backend.logic' past the isolation seal.
+    """
+    if not permanent_modules:
+        return set()
+    corpus = _clickhouse_ddl_corpus(repo_root)
+    return {root for root in permanent_modules if not _module_is_referenced(corpus, f"{module_path}.{root}")}
+
+
 def routes_in_turbo_inputs(product_dir: Path) -> bool:
     """True if contract-check inputs watch the routes module specifically — backend/routes.py or a
     backend/routes/ package. Anchored and negation-aware, so a glob that merely contains 'routes',
@@ -349,6 +416,10 @@ class IsolationStatus:
     # in its contract-check inputs — uncovered_permanent_exposures lists any that don't.
     permanent_exposures: tuple[str, ...] = ()
     uncovered_permanent_exposures: tuple[str, ...] = ()
+    # Marked permanent modules that aren't imported by any frozen ClickHouse migration or the
+    # schema registry — so they don't qualify as irreducible interfaces and the marker is being
+    # abused to keep an internal (models/logic) walled off. IsolationChainCheck blocks on these.
+    unqualified_permanent_exposures: tuple[str, ...] = ()
 
     @property
     def deferred_count(self) -> int:
@@ -387,12 +458,15 @@ def compute_isolation_status(
     is_isolated: bool | None = None,
     tach_content: str | None = None,
     pyproject_text: str | None = None,
+    repo_root: Path | None = None,
 ) -> IsolationStatus:
     """Compute the full isolation seal status for one product."""
     if is_isolated is None:
         is_isolated = is_isolated_product(backend_dir)
     if tach_content is None:
         tach_content = TACH_TOML.read_text() if TACH_TOML.exists() else ""
+    if repo_root is None:
+        repo_root = REPO_ROOT
     module_path = f"products.{name}"
     permanent_modules = frozenset(permanent_interface_modules(tach_content, module_path))
     return IsolationStatus(
@@ -406,4 +480,7 @@ def compute_isolation_status(
         has_narrowed_turbo=has_narrowed_turbo_inputs(product_dir, permanent_modules),
         permanent_exposures=tuple(sorted(permanent_modules)),
         uncovered_permanent_exposures=tuple(sorted(uncovered_permanent_modules(product_dir, permanent_modules))),
+        unqualified_permanent_exposures=tuple(
+            sorted(unqualified_permanent_modules(module_path, permanent_modules, repo_root=repo_root))
+        ),
     )
