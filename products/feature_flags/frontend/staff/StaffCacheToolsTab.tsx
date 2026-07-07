@@ -74,15 +74,15 @@ export function StaffCacheToolsTab(): JSX.Element {
         {
             title: 'Project token',
             dataIndex: 'api_token',
-            render: (token: string) => (
+            render: (token) => (
                 <CopyToClipboardInline
-                    explicitValue={token}
+                    explicitValue={String(token)}
                     description="project token"
                     tooltipMessage="Copy project token"
                     iconSize="xsmall"
                     className="font-mono text-xs"
                 >
-                    {truncate(token, 16)}
+                    {truncate(String(token), 16)}
                 </CopyToClipboardInline>
             ),
         },

@@ -1,6 +1,6 @@
 from django.db.models import F, Q
 
-from drf_spectacular.utils import OpenApiResponse
+from drf_spectacular.utils import OpenApiResponse, extend_schema_serializer
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 
@@ -53,6 +53,7 @@ class StaffTeamResultSerializer(serializers.Serializer):
     project_id = serializers.IntegerField(help_text="Project id the team belongs to.")
 
 
+@extend_schema_serializer(many=False)
 class StaffTeamSearchResponseSerializer(serializers.Serializer):
     results = StaffTeamResultSerializer(many=True, help_text="Matching teams.")
 
@@ -67,6 +68,10 @@ class FeatureFlagsStaffTeamSearchViewSet(viewsets.ViewSet):
     already shows staff un-redacted, so no new data exposure.
     """
 
+    # Not part of the public API scope model: access is gated entirely by IsStaffUser below,
+    # not by a personal-API-key scope, so this stays out of the public OpenAPI/generated-client
+    # surface (see posthog/api/documentation.py's INTERNAL handling).
+    scope_object = "INTERNAL"
     permission_classes = [IsAuthenticated, IsStaffUser]
 
     @validated_request(

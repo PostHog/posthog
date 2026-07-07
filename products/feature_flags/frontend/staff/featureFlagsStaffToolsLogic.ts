@@ -6,15 +6,29 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { toParams } from 'lib/utils/url'
 
+import {
+    featureFlagsStaffCacheClearCreate,
+    featureFlagsStaffCacheEntryRetrieve,
+    featureFlagsStaffCacheRebuildCreate,
+    featureFlagsStaffTeamsList,
+} from '../generated/api'
+import type {
+    CachesEnumApi,
+    FeatureFlagsStaffCacheEntryRetrieveCache,
+    StaffCacheEntryResponseApi,
+    StaffCacheMutationResponseApi,
+    StaffCacheTeamStatusApi,
+    StaffTeamResultApi,
+} from '../generated/api.schemas'
 import type { featureFlagsStaffToolsLogicType } from './featureFlagsStaffToolsLogicType'
 
 // What rebuild/clear can act on. Mirrors the backend's CACHE_CHOICES.
-export type StaffCacheKind = 'evaluation' | 'definitions'
+export type StaffCacheKind = CachesEnumApi
 
 // What status/entry can read. Mirrors the backend's READABLE_CACHE_CHOICES: unlike mutation,
 // the two definitions-cache variants are individually observable even though they're only
 // mutated as a pair (see the backend's staff_cache.py module docstring).
-export type StaffReadableCacheKind = StaffCacheKind | 'definitions_no_cohorts'
+export type StaffReadableCacheKind = FeatureFlagsStaffCacheEntryRetrieveCache
 
 export const CACHE_LABELS: Record<StaffReadableCacheKind, string> = {
     evaluation: 'Flags cache',
@@ -24,40 +38,13 @@ export const CACHE_LABELS: Record<StaffReadableCacheKind, string> = {
 
 const MIN_SEARCH_LENGTH = 2
 const SEARCH_DEBOUNCE_MS = 300
-const STAFF_TEAMS_URL = 'api/feature_flags_staff_teams'
 const STAFF_CACHE_URL = 'api/feature_flags_staff_cache'
 
-export interface StaffTeamResult {
-    id: number
-    name: string
-    api_token: string
-    organization_id: string
-    organization_name: string
-    project_id: number
-}
-
-export interface StaffCacheEntryStatus {
-    source: 'redis' | 'miss'
-    flag_count: number | null
-}
-
-export interface StaffCacheTeamStatus {
-    team_id: number
-    evaluation: StaffCacheEntryStatus
-    definitions: StaffCacheEntryStatus
-    definitions_no_cohorts: StaffCacheEntryStatus
-}
-
-export interface StaffCacheMutationResponse {
-    not_found_team_ids: number[]
-}
-
-export interface StaffCacheEntry {
-    team_id: number
-    cache: StaffReadableCacheKind
-    source: 'redis' | 'miss'
-    data: Record<string, any> | null
-}
+export type StaffTeamResult = StaffTeamResultApi
+export type StaffCacheTeamStatus = StaffCacheTeamStatusApi
+export type StaffCacheEntryStatus = StaffCacheTeamStatusApi['evaluation']
+export type StaffCacheMutationResponse = StaffCacheMutationResponseApi
+export type StaffCacheEntry = StaffCacheEntryResponseApi
 
 export const featureFlagsStaffToolsLogic = kea<featureFlagsStaffToolsLogicType>([
     path(['products', 'feature_flags', 'frontend', 'staff', 'featureFlagsStaffToolsLogic']),
@@ -79,9 +66,7 @@ export const featureFlagsStaffToolsLogic = kea<featureFlagsStaffToolsLogicType>(
                         return []
                     }
                     await breakpoint(SEARCH_DEBOUNCE_MS)
-                    const response = await api.get<{ results: StaffTeamResult[] }>(
-                        `${STAFF_TEAMS_URL}?search=${encodeURIComponent(query)}`
-                    )
+                    const response = await featureFlagsStaffTeamsList({ search: query })
                     breakpoint()
                     return response.results
                 },
@@ -99,6 +84,10 @@ export const featureFlagsStaffToolsLogic = kea<featureFlagsStaffToolsLogicType>(
                     // fetch of the final selection instead of refetching the growing selection on
                     // every single add (matches the searchTeams debounce pattern above).
                     await breakpoint(SEARCH_DEBOUNCE_MS)
+                    // team_ids is a repeated-key query param (?team_ids=1&team_ids=2); the generated
+                    // client serializes array params as a single comma-joined value, which this
+                    // ListField-backed endpoint can't parse.
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get<{ results: StaffCacheTeamStatus[] }>(
                         `${STAFF_CACHE_URL}?${toParams({ team_ids: teamIds }, true)}`
                     )
@@ -111,10 +100,7 @@ export const featureFlagsStaffToolsLogic = kea<featureFlagsStaffToolsLogicType>(
             null as StaffCacheMutationResponse | null,
             {
                 rebuildCache: async ({ caches }: { caches: StaffCacheKind[] }) => {
-                    return await api.create<StaffCacheMutationResponse>(`${STAFF_CACHE_URL}/rebuild`, {
-                        team_ids: values.selectedTeamIds,
-                        caches,
-                    })
+                    return await featureFlagsStaffCacheRebuildCreate({ team_ids: values.selectedTeamIds, caches })
                 },
             },
         ],
@@ -122,10 +108,7 @@ export const featureFlagsStaffToolsLogic = kea<featureFlagsStaffToolsLogicType>(
             null as StaffCacheMutationResponse | null,
             {
                 clearCache: async ({ caches }: { caches: StaffCacheKind[] }) => {
-                    return await api.create<StaffCacheMutationResponse>(`${STAFF_CACHE_URL}/clear`, {
-                        team_ids: values.selectedTeamIds,
-                        caches,
-                    })
+                    return await featureFlagsStaffCacheClearCreate({ team_ids: values.selectedTeamIds, caches })
                 },
             },
         ],
@@ -133,9 +116,7 @@ export const featureFlagsStaffToolsLogic = kea<featureFlagsStaffToolsLogicType>(
             null as StaffCacheEntry | null,
             {
                 viewCacheEntry: async ({ teamId, cache }: { teamId: number; cache: StaffReadableCacheKind }) => {
-                    return await api.get<StaffCacheEntry>(
-                        `${STAFF_CACHE_URL}/entry?${toParams({ team_id: teamId, cache }, true)}`
-                    )
+                    return await featureFlagsStaffCacheEntryRetrieve({ team_id: teamId, cache })
                 },
             },
         ],

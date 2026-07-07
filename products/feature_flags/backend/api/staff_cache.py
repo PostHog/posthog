@@ -3,7 +3,7 @@ from typing import Any
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiResponse, extend_schema_field
+from drf_spectacular.utils import OpenApiResponse, extend_schema_field, extend_schema_serializer
 from rest_framework import request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -73,7 +73,7 @@ def _cache_source_field() -> serializers.ChoiceField:
 
 
 class StaffCacheEntryStatusSerializer(serializers.Serializer):
-    source = _cache_source_field()
+    source = _cache_source_field()  # type: ignore[assignment]
     flag_count = serializers.IntegerField(
         allow_null=True,
         help_text="Number of flags in the cached payload, or null on a miss.",
@@ -94,6 +94,7 @@ class StaffCacheTeamStatusSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_serializer(many=False)
 class StaffCacheStatusResponseSerializer(serializers.Serializer):
     results = StaffCacheTeamStatusSerializer(many=True, help_text="Per-team cache status.")
 
@@ -142,8 +143,8 @@ class StaffCacheEntryDataField(serializers.JSONField):
 class StaffCacheEntryResponseSerializer(serializers.Serializer):
     team_id = serializers.IntegerField(help_text="Team id.")
     cache = serializers.ChoiceField(choices=READABLE_CACHE_CHOICES, help_text="Which cache this entry is for.")
-    source = _cache_source_field()
-    data = StaffCacheEntryDataField(
+    source = _cache_source_field()  # type: ignore[assignment]
+    data = StaffCacheEntryDataField(  # type: ignore[assignment]
         allow_null=True,
         help_text="Raw cached payload as stored in Redis, or null on a miss.",
     )
@@ -215,6 +216,10 @@ class FeatureFlagsStaffCacheViewSet(viewsets.ViewSet):
     router so it is not team-nested; staff act on teams they do not belong to.
     """
 
+    # Not part of the public API scope model: access is gated entirely by IsStaffUser below,
+    # not by a personal-API-key scope, so this stays out of the public OpenAPI/generated-client
+    # surface (see posthog/api/documentation.py's INTERNAL handling).
+    scope_object = "INTERNAL"
     permission_classes = [IsAuthenticated, IsStaffUser]
 
     @validated_request(

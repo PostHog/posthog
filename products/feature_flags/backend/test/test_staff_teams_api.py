@@ -74,7 +74,7 @@ class TestFeatureFlagsStaffTeamSearchAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_limit_is_capped(self):
-        response = self.client.get("/api/feature_flags_staff_teams/", {"search": "Test", "limit": 1000})
+        response = self.client.get("/api/feature_flags_staff_teams/", {"search": "Test", "limit": "1000"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_limit_bounds_number_of_results(self):
@@ -82,6 +82,6 @@ class TestFeatureFlagsStaffTeamSearchAPI(APIBaseTest):
         for i in range(3):
             Team.objects.create(organization=org, name=f"Bulk Team {i}")
 
-        response = self.client.get("/api/feature_flags_staff_teams/", {"search": "Bulk Team", "limit": 2})
+        response = self.client.get("/api/feature_flags_staff_teams/", {"search": "Bulk Team", "limit": "2"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 2)

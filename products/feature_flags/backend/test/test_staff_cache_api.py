@@ -54,7 +54,7 @@ class TestFeatureFlagsStaffCacheAPI(APIBaseTest):
         clear_response = self.client.post(CLEAR_URL, {"team_ids": [self.team.id]}, format="json")
         self.assertEqual(clear_response.status_code, status.HTTP_403_FORBIDDEN)
 
-        entry_response = self.client.get(ENTRY_URL, {"team_id": self.team.id, "cache": "evaluation"})
+        entry_response = self.client.get(ENTRY_URL, {"team_id": str(self.team.id), "cache": "evaluation"})
         self.assertEqual(entry_response.status_code, status.HTTP_403_FORBIDDEN)
 
     @parameterized.expand(MUTATION_CASES)
@@ -163,14 +163,14 @@ class TestFeatureFlagsStaffCacheAPI(APIBaseTest):
         )
         hypercache.update_cache(self.team)
 
-        warm = self.client.get(ENTRY_URL, {"team_id": self.team.id, "cache": cache_kind})
+        warm = self.client.get(ENTRY_URL, {"team_id": str(self.team.id), "cache": cache_kind})
         self.assertEqual(warm.status_code, status.HTTP_200_OK)
         self.assertEqual(warm.json()["source"], "redis")
         self.assertEqual(len(warm.json()["data"]["flags"]), 1)
 
         # Any kind other than the one just warmed should still be cold.
         other_kind = next(kind for kind in READABLE_CACHE_CHOICES if kind != cache_kind)
-        cold = self.client.get(ENTRY_URL, {"team_id": self.team.id, "cache": other_kind})
+        cold = self.client.get(ENTRY_URL, {"team_id": str(self.team.id), "cache": other_kind})
         self.assertEqual(cold.json()["source"], "miss")
         self.assertIsNone(cold.json()["data"])
 
@@ -181,12 +181,12 @@ class TestFeatureFlagsStaffCacheAPI(APIBaseTest):
         self.addCleanup(flags_hypercache.clear_cache, self.team)
         flags_hypercache.set_cache_value(self.team, None)
 
-        response = self.client.get(ENTRY_URL, {"team_id": self.team.id, "cache": "evaluation"})
+        response = self.client.get(ENTRY_URL, {"team_id": str(self.team.id), "cache": "evaluation"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["source"], "miss")
         self.assertIsNone(response.json()["data"])
 
     def test_entry_returns_404_for_unknown_team(self):
         missing_id = self.team.id + 9999
-        response = self.client.get(ENTRY_URL, {"team_id": missing_id, "cache": "evaluation"})
+        response = self.client.get(ENTRY_URL, {"team_id": str(missing_id), "cache": "evaluation"})
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
