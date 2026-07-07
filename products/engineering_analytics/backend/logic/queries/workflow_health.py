@@ -3,8 +3,10 @@
 Run counts, success rate, and duration percentiles per ``workflow_name`` for runs
 started within ``[date_from, date_to]`` (``date_to`` optional), optionally scoped to
 a single ``head_branch`` and/or attributed pull-request runs. Rates are over completed
-runs. Percentiles are over completed runs by default, or successful runs when requested,
-so they are ``None`` for a window with no matching runs.
+runs. Duration percentiles are over successful runs only — cancelled/skipped runs
+(common on PR branches, where a new push supersedes in-flight CI) and failed runs
+end early and would bias a "how long does CI take" percentile low — so they are
+``None`` for a window with no successful runs.
 
 The per-bucket history adapts its granularity to the window length (hour / day / week)
 so the trend sparkline keeps a readable number of points — per-day buckets are useless
@@ -18,7 +20,6 @@ from posthog.hogql import ast
 from products.engineering_analytics.backend.facade.contracts import (
     RepoRef,
     WorkflowHealthBucket,
-    WorkflowHealthDurationFilter,
     WorkflowHealthItem,
     WorkflowHealthRunScope,
 )
@@ -40,11 +41,10 @@ _LIMIT = 100
 # Generous bound: _LIMIT workflows x at most ~366 daily buckets.
 _BUCKET_LIMIT = 40000
 
-# Which runs feed the p50/p95 duration percentiles.
-_DURATION_CONDITION: dict[WorkflowHealthDurationFilter, str] = {
-    WorkflowHealthDurationFilter.COMPLETED: "status = 'completed'",
-    WorkflowHealthDurationFilter.SUCCESSFUL: "status = 'completed' AND conclusion = 'success'",
-}
+# Duration percentiles read successful runs only: cancelled/skipped/failed runs end
+# early, so including them answers "how long until CI stopped", not "how long does CI
+# take to pass".
+_DURATION_CONDITION = "status = 'completed' AND conclusion = 'success'"
 
 _SELECT = f"""
     SELECT
@@ -53,8 +53,8 @@ _SELECT = f"""
         workflow_name,
         count() AS run_count,
         countIf(status = 'completed' AND conclusion = 'success') / nullIf(countIf(status = 'completed'), 0) AS success_rate,
-        quantileIf(0.5)(duration_seconds, __DURATION_CONDITION__) AS p50_seconds,
-        quantileIf(0.95)(duration_seconds, __DURATION_CONDITION__) AS p95_seconds,
+        quantileIf(0.5)(duration_seconds, {_DURATION_CONDITION}) AS p50_seconds,
+        quantileIf(0.95)(duration_seconds, {_DURATION_CONDITION}) AS p95_seconds,
         max(if(conclusion IN ('failure', 'timed_out'), run_started_at, NULL)) AS last_failure_at,
         countIf(status = 'completed') AS completed_count,
         argMaxIf(conclusion IN ('failure', 'timed_out'), run_started_at, status = 'completed') AS latest_failed,
@@ -105,14 +105,12 @@ def query_workflow_health(
     date_to: datetime | None,
     branch: str | None,
     run_scope: WorkflowHealthRunScope,
-    duration_filter: WorkflowHealthDurationFilter,
 ) -> list[WorkflowHealthItem]:
     granularity = pick_granularity(date_from, date_to)
     placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
     date_to_clause = date_to_filter_clause(date_to, placeholders)
     branch_clause = branch_filter_clause(branch, placeholders)
     run_scope_clause = run_scope_filter_clause(run_scope)
-    duration_condition = _DURATION_CONDITION[duration_filter]
 
     runs_source = curated.run_source()
 
@@ -122,7 +120,6 @@ def query_workflow_health(
             .replace("__DATE_TO__", date_to_clause)
             .replace("__BRANCH__", branch_clause)
             .replace("__RUN_SCOPE__", run_scope_clause)
-            .replace("__DURATION_CONDITION__", duration_condition)
             .replace("__BUCKET_FN__", bucket_expr(granularity))
         )
 

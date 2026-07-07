@@ -655,13 +655,14 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "p50_seconds": {
-                "help_text": "Median duration in seconds for the selected duration population: completed runs by "
-                "default, or successful runs when requested. Null if no selected run has a duration.",
+                "help_text": "Median duration in seconds over successful runs only — cancelled (superseded) and "
+                "failed runs end early and would bias the percentile. Null if no run succeeded in the window.",
                 "allow_null": True,
             },
             "p95_seconds": {
-                "help_text": "95th-percentile duration in seconds for the selected duration population: completed "
-                "runs by default, or successful runs when requested. Null if no selected run has a duration.",
+                "help_text": "95th-percentile duration in seconds over successful runs only — cancelled "
+                "(superseded) and failed runs end early and would bias the percentile. Null if no run succeeded "
+                "in the window.",
                 "allow_null": True,
             },
             "last_failure_at": {

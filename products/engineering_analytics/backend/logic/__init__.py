@@ -8,8 +8,7 @@ only in canonical types.
 """
 
 from datetime import datetime
-from enum import StrEnum
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING
 
 from posthog.models.team import Team
 from posthog.utils import relative_date_parse
@@ -26,7 +25,6 @@ from products.engineering_analytics.backend.facade.contracts import (
     RepoOverview,
     RunFailureLogs,
     WorkflowCost,
-    WorkflowHealthDurationFilter,
     WorkflowHealthItem,
     WorkflowHealthRunScope,
     WorkflowJob,
@@ -240,7 +238,6 @@ def build_workflow_health(
     date_to: str | None = None,
     branch: str | None = None,
     run_scope: str | None = None,
-    duration_filter: str | None = None,
 ) -> list[WorkflowHealthItem]:
     parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WORKFLOW_WINDOW)
     return query_workflow_health(
@@ -248,8 +245,7 @@ def build_workflow_health(
         date_from=parsed_from,
         date_to=parsed_to,
         branch=branch,
-        run_scope=_parse_choice("run_scope", run_scope, WorkflowHealthRunScope.ALL),
-        duration_filter=_parse_choice("duration_filter", duration_filter, WorkflowHealthDurationFilter.COMPLETED),
+        run_scope=_parse_run_scope(run_scope),
     )
 
 
@@ -288,19 +284,17 @@ def _parse_date(team: Team, value: str) -> datetime:
     return relative_date_parse(value, team.timezone_info)
 
 
-_ChoiceT = TypeVar("_ChoiceT", bound=StrEnum)
-
-
-def _parse_choice(param: str, value: str | None, default: _ChoiceT) -> _ChoiceT:
-    """Absent/blank selects the default; anything else must be an exact enum value (ValueError → 400)."""
+def _parse_run_scope(value: str | None) -> WorkflowHealthRunScope:
+    """Absent/blank selects 'all'; anything else must be an exact enum value (ValueError → 400)."""
     normalized = value.strip() if value else ""
     if not normalized:
-        return default
-    choices = type(default)
+        return WorkflowHealthRunScope.ALL
     try:
-        return choices(normalized)
+        return WorkflowHealthRunScope(normalized)
     except ValueError:
-        raise ValueError(f"{param} must be one of: {', '.join(member.value for member in choices)}") from None
+        raise ValueError(
+            f"run_scope must be one of: {', '.join(scope.value for scope in WorkflowHealthRunScope)}"
+        ) from None
 
 
 def _parse_window(

@@ -9261,7 +9261,7 @@
         }
     },
     "workflow-health": {
-        "description": "Per-workflow CI health over a window: run count, success rate, p50/p95 duration, and last failure time. Use this for \"is CI getting faster or slower\", \"which GitHub Actions workflow is the slow or flaky long pole\", and CI duration trends. By default p50/p95 match the legacy completed-run percentile, which includes cancelled/skipped completed runs. For honest PR-branch CI duration, pass run_scope=pull_request and duration_filter=successful so superseded cancels and failed runs do not bias the percentile. To get a trend, call this over two adjacent windows and compare.",
+        "description": "Per-workflow CI health over a window: run count, success rate, p50/p95 duration, and last failure time. Use this for \"is CI getting faster or slower\", \"which GitHub Actions workflow is the slow or flaky long pole\", and CI duration trends. p50/p95 are over successful runs only, so superseded cancels and failed runs never bias the duration percentile. For PR-branch CI health, pass run_scope=pull_request (same-repo PRs only — fork PRs carry no PR attribution). To get a trend, call this over two adjacent windows and compare.",
         "category": "Engineering analytics",
         "feature": "engineering_analytics",
         "summary": "Per-workflow CI health",

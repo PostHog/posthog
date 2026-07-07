@@ -756,12 +756,12 @@ export interface WorkflowHealthItemApi {
      */
     success_rate: number | null
     /**
-     * Median duration in seconds for the selected duration population: completed runs by default, or successful runs when requested. Null if no selected run has a duration.
+     * Median duration in seconds over successful runs only — cancelled (superseded) and failed runs end early and would bias the percentile. Null if no run succeeded in the window.
      * @nullable
      */
     p50_seconds: number | null
     /**
-     * 95th-percentile duration in seconds for the selected duration population: completed runs by default, or successful runs when requested. Null if no selected run has a duration.
+     * 95th-percentile duration in seconds over successful runs only — cancelled (superseded) and failed runs end early and would bias the percentile. Null if no run succeeded in the window.
      * @nullable
      */
     p95_seconds: number | null
@@ -1097,11 +1097,7 @@ export type EngineeringAnalyticsWorkflowHealthParams = {
      */
     date_to?: string
     /**
-     * Which runs feed p50/p95 duration: 'completed' (default, legacy behavior) includes every completed run; 'successful' includes only completed runs whose conclusion is 'success'. Any other value is a 400.
-     */
-    duration_filter?: EngineeringAnalyticsWorkflowHealthDurationFilter
-    /**
-     * Run scope for workflow health: 'all' (default) includes every run; 'pull_request' includes runs attributed to pull requests, excluding default-branch (master/main) runs. Any other value is a 400.
+     * Run scope for workflow health: 'all' (default) includes every run; 'pull_request' includes runs attributed to pull requests, excluding default-branch (master/main) runs. Fork PRs carry no PR attribution (a GitHub limitation), so 'pull_request' covers same-repo PRs only. Any other value is a 400.
      */
     run_scope?: EngineeringAnalyticsWorkflowHealthRunScope
     /**
@@ -1109,14 +1105,6 @@ export type EngineeringAnalyticsWorkflowHealthParams = {
      */
     source_id?: string
 }
-
-export type EngineeringAnalyticsWorkflowHealthDurationFilter =
-    (typeof EngineeringAnalyticsWorkflowHealthDurationFilter)[keyof typeof EngineeringAnalyticsWorkflowHealthDurationFilter]
-
-export const EngineeringAnalyticsWorkflowHealthDurationFilter = {
-    Completed: 'completed',
-    Successful: 'successful',
-} as const
 
 export type EngineeringAnalyticsWorkflowHealthRunScope =
     (typeof EngineeringAnalyticsWorkflowHealthRunScope)[keyof typeof EngineeringAnalyticsWorkflowHealthRunScope]

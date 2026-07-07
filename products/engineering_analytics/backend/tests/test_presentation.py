@@ -195,13 +195,12 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         with mock.patch(f"{_VIEWS}.list_workflow_health", return_value=[]) as list_health:
             response = self.client.get(
                 self._url("workflow_health"),
-                {"branch": "main", "run_scope": "pull_request", "duration_filter": "successful"},
+                {"branch": "main", "run_scope": "pull_request"},
             )
 
         assert response.status_code == status.HTTP_200_OK
         assert list_health.call_args.kwargs["branch"] == "main"
         assert list_health.call_args.kwargs["run_scope"] == "pull_request"
-        assert list_health.call_args.kwargs["duration_filter"] == "successful"
 
     def test_repo_run_activity_serializes_and_forwards_branch(self) -> None:
         result = contracts.WorkflowRunActivity(
@@ -391,13 +390,12 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "the maximum is 366" in response.json()["detail"]
 
-    @parameterized.expand(["run_scope", "duration_filter"])
-    def test_workflow_health_400_on_invalid_filter(self, param: str) -> None:
-        # A typo'd filter must 400, not silently return the legacy population as a 200.
-        response = self.client.get(self._url("workflow_health"), {param: "bogus"})
+    def test_workflow_health_400_on_invalid_run_scope(self) -> None:
+        # A typo'd scope must 400, not silently return the all-runs population as a 200.
+        response = self.client.get(self._url("workflow_health"), {"run_scope": "bogus"})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert f"{param} must be one of" in response.json()["detail"]
+        assert "run_scope must be one of" in response.json()["detail"]
 
     @parameterized.expand(["sources", "ci_cards", "pull_requests", "workflow_health", "pr_lifecycle", "quarantine"])
     def test_requires_authentication(self, action: str) -> None:

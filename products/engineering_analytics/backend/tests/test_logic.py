@@ -800,14 +800,14 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert ci.last_failure_at is not None
         assert ci.billable_minutes is None  # no jobs source seeded → no cost figure
 
-    def test_workflow_health_successful_duration_filter_excludes_cancelled_and_failed_runs(self) -> None:
+    def test_workflow_health_duration_percentiles_exclude_cancelled_and_failed_runs(self) -> None:
         self._create_table(
             "github_pull_requests",
             _PULL_REQUESTS_COLUMNS,
             [_pr_row(90, "alice", "open", 0, _ago(1), head_sha="sha90")],
         )
-        # Every success shares one duration, so the success-only p50/p95 are exactly 100 while the
-        # completed population (cheap cancels + one expensive failure) lands elsewhere.
+        # Every success shares one duration, so success-only p50/p95 are exactly 100; any leaked
+        # cancel (1s) or failure (1000s) in the percentile population moves them off 100.
         conclusions = [("success", 100)] * 2 + [("cancelled", 1)] * 3 + [("failure", 1000)]
         self._create_table(
             "github_workflow_runs",
@@ -827,21 +827,15 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
             ],
         )
 
-        legacy = next(
+        ci = next(
             item for item in api.list_workflow_health(team=self.team, date_from="-30d") if item.workflow_name == "CI"
         )
-        successful = next(
-            item
-            for item in api.list_workflow_health(team=self.team, date_from="-30d", duration_filter="successful")
-            if item.workflow_name == "CI"
-        )
 
-        assert successful.run_count == legacy.run_count == 6
-        assert successful.success_rate == pytest.approx(2 / 6)
-        assert successful.p50_seconds == pytest.approx(100)
-        assert successful.p95_seconds == pytest.approx(100)
-        assert legacy.p50_seconds != successful.p50_seconds
-        assert legacy.p95_seconds != successful.p95_seconds
+        # Counts and rate stay over all/completed runs; only the duration population narrows.
+        assert ci.run_count == 6
+        assert ci.success_rate == pytest.approx(2 / 6)
+        assert ci.p50_seconds == pytest.approx(100)
+        assert ci.p95_seconds == pytest.approx(100)
 
     def test_workflow_health_pull_request_scope_excludes_default_branch_and_unattributed_runs(self) -> None:
         self._create_table(

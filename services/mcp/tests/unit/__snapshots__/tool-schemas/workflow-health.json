@@ -13,13 +13,8 @@
             "description": "Window end — relative or ISO8601. Defaults to now.",
             "type": "string"
         },
-        "duration_filter": {
-            "description": "Which runs feed p50/p95. Use \"successful\" for success-only duration percentiles; omit or pass \"completed\" for the legacy completed-run percentile.",
-            "enum": ["completed", "successful"],
-            "type": "string"
-        },
         "run_scope": {
-            "description": "Run scope. Use \"pull_request\" for PR CI runs (excludes default-branch master/main runs); omit or pass \"all\" for the legacy all-branches scope.",
+            "description": "Run scope. Use \"pull_request\" for PR CI runs (excludes default-branch master/main runs; same-repo PRs only, since fork PRs carry no PR attribution); omit or pass \"all\" for every run.",
             "enum": ["all", "pull_request"],
             "type": "string"
         },

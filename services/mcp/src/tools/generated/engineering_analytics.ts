@@ -204,10 +204,7 @@ const WorkflowHealthSchema = EngineeringAnalyticsWorkflowHealthQueryParams.exten
         'Window end — relative or ISO8601. Defaults to now.'
     ),
     run_scope: EngineeringAnalyticsWorkflowHealthQueryParams.shape['run_scope'].describe(
-        'Run scope. Use "pull_request" for PR CI runs (excludes default-branch master/main runs); omit or pass "all" for the legacy all-branches scope.'
-    ),
-    duration_filter: EngineeringAnalyticsWorkflowHealthQueryParams.shape['duration_filter'].describe(
-        'Which runs feed p50/p95. Use "successful" for success-only duration percentiles; omit or pass "completed" for the legacy completed-run percentile.'
+        'Run scope. Use "pull_request" for PR CI runs (excludes default-branch master/main runs; same-repo PRs only, since fork PRs carry no PR attribution); omit or pass "all" for every run.'
     ),
 })
 
@@ -223,7 +220,6 @@ const workflowHealth = (): ToolBase<typeof WorkflowHealthSchema, WithPostHogUrl<
                 branch: params.branch,
                 date_from: params.date_from,
                 date_to: params.date_to,
-                duration_filter: params.duration_filter,
                 run_scope: params.run_scope,
                 source_id: params.source_id,
             },
