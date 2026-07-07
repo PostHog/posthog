@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconX } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonInputSelect, LemonSegmentedButton, Link } from '@posthog/lemon-ui'
@@ -438,10 +439,12 @@ function ScreenNameField({
     const rawValue = existingFilter && 'value' in existingFilter ? existingFilter.value : undefined
     const screenNames: string[] =
         rawValue == null || rawValue === '' ? [] : Array.isArray(rawValue) ? rawValue.map(String) : [String(rawValue)]
-    const operator: ScreenNameMatching =
-        existingFilter && 'operator' in existingFilter
-            ? (existingFilter.operator as ScreenNameMatching)
-            : PropertyOperator.IContains
+    const filterOperator: ScreenNameMatching | undefined =
+        existingFilter && 'operator' in existingFilter ? (existingFilter.operator as ScreenNameMatching) : undefined
+
+    // Keep the selected operator even when the value is empty (an empty filter isn't persisted, so we can't
+    // read it back off the step) — otherwise picking "matches exactly" before typing would snap back to the default
+    const [operator, setOperator] = useState<ScreenNameMatching>(filterOperator ?? PropertyOperator.IContains)
 
     // Only "matches exactly" supports multiple values (translated to an IN() query); the rest take a single string
     const isMulti = operator === PropertyOperator.Exact
@@ -468,6 +471,7 @@ function ScreenNameField({
     }
 
     const handleOperatorChange = (op: ScreenNameMatching): void => {
+        setOperator(op)
         const nextValue = op === PropertyOperator.Exact ? screenNames : (screenNames[0] ?? '')
         setFilter(nextValue, op)
     }
