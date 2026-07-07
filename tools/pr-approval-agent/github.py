@@ -255,14 +255,25 @@ def _normalize_reactions(node: dict, is_trusted: Callable[[str], bool]) -> list[
 def _gh_api(endpoint: str, *, paginate: bool = False) -> dict | list:
     cmd = ["gh", "api", endpoint]
     if paginate:
-        cmd.append("--paginate")
+        # --paginate alone emits one JSON document per page, which json.loads
+        # rejects on 2+ pages; --slurp wraps the pages in one outer array.
+        cmd.extend(["--paginate", "--slurp"])
     else:
         sep = "&" if "?" in endpoint else "?"
         cmd[2] = f"{endpoint}{sep}per_page=100"
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
     if result.returncode != 0:
         raise RuntimeError(f"gh api {endpoint} failed: {result.stderr.strip()}")
-    return json.loads(result.stdout)
+    data = json.loads(result.stdout)
+    if paginate:
+        flat: list = []
+        for page in data:
+            if isinstance(page, list):
+                flat.extend(page)
+            else:
+                flat.append(page)
+        return flat
+    return data
 
 
 # GitHub rejects GraphQL queries whose worst-case node count — the product of

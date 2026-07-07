@@ -47,8 +47,8 @@ COMMENT_BODY_MAX = 1500
 # resolution state and the oldest comments carry maintainer holds, so it keeps
 # both ends rather than a newest-only window.
 INLINE_COMMENT_CAP = 60
-DISCUSSION_HEAD_KEEP = 10
-DISCUSSION_TAIL_KEEP = 20
+DISCUSSION_HEAD_KEEP = 15
+DISCUSSION_TAIL_KEEP = 35
 
 
 # _sanitize_untrusted lives in policy.py (shared with the folder-prose

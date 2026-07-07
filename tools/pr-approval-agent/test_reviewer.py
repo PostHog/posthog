@@ -94,10 +94,10 @@ def test_prompt_renders_description_in_untrusted_region(body: str, rendered: str
 @pytest.mark.parametrize(
     "count,omission_line,absent_body",
     [
-        pytest.param(30, "", None, id="at-cap-no-omission"),
+        pytest.param(50, "", None, id="at-cap-no-omission"),
         # Keep-ends, not newest-only: the oldest comments carry maintainer holds,
-        # so over the cap we drop the middle and keep both the first 10 and last 20.
-        pytest.param(45, "(15 middle comments omitted)", "comment015", id="over-cap-drops-middle"),
+        # so over the cap we drop the middle and keep both the first 15 and last 35.
+        pytest.param(65, "(15 middle comments omitted)", "comment020", id="over-cap-drops-middle"),
     ],
 )
 def test_prompt_discussion_keeps_both_ends(count: int, omission_line: str, absent_body: str | None) -> None:
