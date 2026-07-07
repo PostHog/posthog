@@ -1,8 +1,19 @@
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
+import {
+    createPollLoop,
+    isPermanentPollError,
+    resolvePollingIntervalMs,
+    resolveWizardSyncMode,
+    type WizardSyncMode,
+} from 'lib/wizard-sync/pollLoop'
+import { logSyncDebug } from 'lib/wizard-sync/wizardSyncDebugLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
-import { getTasksRunsStreamRetrieveUrl } from 'products/tasks/frontend/generated/api'
+import { getTasksRunsStreamRetrieveUrl, tasksRunsRetrieve } from 'products/tasks/frontend/generated/api'
+import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { onboardingEventUsageLogic } from '../../../onboardingEventUsageLogic'
 import { activeCloudRunLogic } from './activeCloudRunLogic'
@@ -13,6 +24,20 @@ export type TaskRunConnectionStatus = 'idle' | 'connecting' | 'open' | 'closed' 
 // How long a run may sit in `queued` before we call it stalled. Workers normally pick a run up in
 // seconds; minutes of silence means the pipeline isn't running at all.
 export const QUEUED_STALL_MS = 2 * 60 * 1000
+
+// Project the REST run snapshot onto the same shape the SSE `task_run_state` events carry, so polling and
+// streaming feed `taskRunStateUpdated` identically and the rest of the logic stays mode-agnostic.
+export function taskRunDetailToStreamState(dto: TaskRunDetailDTOApi): TaskRunStreamState {
+    return {
+        status: dto.status,
+        stage: dto.stage ?? null,
+        output: (dto.output as { pr_url?: string | null } | null) ?? null,
+        branch: dto.branch ?? null,
+        error_message: dto.error_message ?? null,
+        updated_at: dto.updated_at ?? '',
+        completed_at: dto.completed_at ?? null,
+    }
+}
 
 /**
  * Shapes of the SSE payloads the task-run stream pushes (see the tasks stream view). These are stream
@@ -155,13 +180,26 @@ const reportedTerminalRuns = new Set<string>()
  * Data events (`task_run_state`, `_posthog/progress` notifications) arrive unnamed via `onmessage`;
  * `stream-end` closes the stream; rotation (`end`) and transient drops are handled by EventSource's
  * native reconnect (it replays the `Last-Event-ID` cursor the server stamps on every event).
+ *
+ * When the `onboarding-wizard-sync-mode` flag resolves to `polling` (GROW-118), the EventSource is
+ * replaced by an interval that re-fetches the run's REST snapshot and feeds it through the same
+ * `taskRunStateUpdated` action. Polling carries run state only — `_posthog/progress` step
+ * notifications are stream-borne, so the step timeline stays empty and surfaces degrade to the
+ * coarse run status. The interval comes from the flag payload's `polling_interval_secs`.
  */
 export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
     props({} as TaskRunStreamLogicProps),
     key((props) => props.runId),
     path((key) => ['scenes', 'onboarding', 'taskRunStreamLogic', key]),
     connect(() => ({
-        values: [projectLogic, ['currentProjectId'], activeCloudRunLogic, ['activeCloudRun']],
+        values: [
+            projectLogic,
+            ['currentProjectId'],
+            activeCloudRunLogic,
+            ['activeCloudRun'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
         actions: [onboardingEventUsageLogic, ['reportContextOnboardingCloudRunCompleted']],
     })),
     actions({
@@ -171,6 +209,9 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
         progressStepUpdated: (step: TaskRunProgressStep) => ({ step }),
         connectionOpened: true,
         connectionErrored: (error: string) => ({ error }),
+        // Connect was requested but this run isn't the project's active cloud run — observable so
+        // surfaces render idle instead of an eternal "connecting" spinner.
+        connectionSkipped: true,
         streamCompleted: true,
         runStalled: true,
     }),
@@ -194,6 +235,7 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
                 connect: () => 'connecting',
                 connectionOpened: () => 'open',
                 connectionErrored: () => 'error',
+                connectionSkipped: () => 'idle',
                 disconnect: () => 'closed',
                 streamCompleted: () => 'closed',
             },
@@ -263,48 +305,157 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
             }
             const projectId = values.currentProjectId
             if (projectId === null) {
-                actions.connectionErrored('No current project — cannot open task run stream.')
+                actions.connectionErrored('No current project, cannot open task run stream.')
+                return
+            }
+            // Defense in depth: only sync while this run is the project's active cloud run. If the
+            // persisted handle is gone (dismissed, superseded) or belongs to another run, no wizard
+            // run is happening for this key — never hold a background stream/poll open for it.
+            if (values.activeCloudRun?.runId !== props.runId) {
+                logSyncDebug(`run ${props.runId.slice(0, 8)}`, 'connect', 'skipped: not the active cloud run')
+                actions.connectionSkipped()
                 return
             }
 
+            // Mode is re-sampled on every connect, and the setFeatureFlags listener below reconnects
+            // when the resolved mode changes — so a flag flip (or flags arriving after a cold-cache
+            // connect) swaps the transport live instead of waiting for a remount.
+            const syncMode: WizardSyncMode = resolveWizardSyncMode(
+                values.featureFlags[FEATURE_FLAGS.ONBOARDING_WIZARD_SYNC_MODE]
+            )
+            cache.syncMode = syncMode
+            const debugSource = `run ${props.runId.slice(0, 8)}`
+
+            if (syncMode === 'polling') {
+                const intervalMs = resolvePollingIntervalMs(
+                    getFeatureFlagPayload(FEATURE_FLAGS.ONBOARDING_WIZARD_SYNC_MODE)
+                )
+                logSyncDebug(debugSource, 'connect', `polling every ~${intervalMs / 1000}s (±20% jitter)`, {
+                    mode: 'polling',
+                    intervalMs,
+                })
+                cache.disposables.add(
+                    createPollLoop({
+                        intervalMs,
+                        // Re-checked each tick: tab-visibility resume re-runs this setup, so a run
+                        // dismissed or superseded while hidden must not revive a stale loop.
+                        shouldStop: () => values.activeCloudRun?.runId !== props.runId,
+                        tick: async () => {
+                            const dto = await tasksRunsRetrieve(String(projectId), props.taskId, props.runId)
+                            logSyncDebug(
+                                debugSource,
+                                'poll',
+                                `poll ok: ${dto.status}${dto.stage ? `/${dto.stage}` : ''}`,
+                                {
+                                    mode: 'polling',
+                                    intervalMs,
+                                }
+                            )
+                            // Only on first open / recovery from error — not every tick.
+                            if (values.connectionStatus !== 'open') {
+                                actions.connectionOpened()
+                            }
+                            actions.taskRunStateUpdated(taskRunDetailToStreamState(dto))
+                            if (isTerminalStatus(dto.status)) {
+                                logSyncDebug(debugSource, 'complete', `terminal status ${dto.status}, polling stopped`)
+                                actions.streamCompleted()
+                                return 'terminal'
+                            }
+                            return 'ok'
+                        },
+                        onError: (err) => {
+                            logSyncDebug(debugSource, 'error', `poll failed: ${String(err)}`)
+                            actions.connectionErrored(`Failed to poll task run: ${String(err)}`)
+                            return isPermanentPollError(err) ? 'stop' : 'retry'
+                        },
+                        // Dispose the key so a later tab-visibility resume doesn't restart a loop
+                        // that ended itself.
+                        onLoopEnd: () => cache.disposables.dispose('task-run-sync'),
+                    }),
+                    'task-run-sync'
+                )
+                return
+            }
+
+            logSyncDebug(debugSource, 'connect', 'opening EventSource', { mode: 'sse' })
             cache.disposables.add((): (() => void) => {
                 const url = getTasksRunsStreamRetrieveUrl(String(projectId), props.taskId, props.runId)
                 const eventSource = new EventSource(url, { withCredentials: true })
 
-                eventSource.onopen = actions.connectionOpened
+                eventSource.onopen = (): void => {
+                    // Mode rides along here too: the connect event can predate the debug panel's
+                    // mount (and get dropped), but open/events always land after it.
+                    logSyncDebug(debugSource, 'open', 'SSE connection open', { mode: 'sse' })
+                    actions.connectionOpened()
+                }
                 eventSource.onmessage = (event: MessageEvent<string>): void => {
                     try {
                         const message = parseTaskRunStreamMessage(event.data)
                         if (message?.kind === 'step') {
+                            logSyncDebug(
+                                debugSource,
+                                'event',
+                                `step ${message.step.group}/${message.step.step} → ${message.step.status}`
+                            )
                             actions.progressStepUpdated(message.step)
                         } else if (message?.kind === 'state') {
+                            logSyncDebug(
+                                debugSource,
+                                'event',
+                                `state → ${message.state.status}${message.state.stage ? `/${message.state.stage}` : ''}`
+                            )
                             actions.taskRunStateUpdated(message.state)
+                        } else {
+                            logSyncDebug(debugSource, 'event', 'message ignored (keepalive/unknown type)')
                         }
                     } catch (err) {
+                        logSyncDebug(debugSource, 'error', `failed to parse SSE payload: ${String(err)}`)
                         actions.connectionErrored(`Failed to parse SSE payload: ${String(err)}`)
                     }
                 }
-                // Completion sentinel — close so EventSource doesn't auto-reconnect to a finished run.
+                // Completion sentinel. Dispose the whole disposable (which closes the EventSource)
+                // rather than just closing: a registered-but-closed source would otherwise be
+                // reopened by the disposables plugin on tab-visibility resume.
                 eventSource.addEventListener('stream-end', () => {
+                    logSyncDebug(debugSource, 'complete', 'stream-end received')
                     actions.streamCompleted()
-                    eventSource.close()
+                    cache.disposables.dispose('task-run-sync')
                 })
                 eventSource.onerror = (): void => {
                     // CLOSED → browser gave up (won't auto-reconnect); anything else → it's already
                     // retrying (rides the Last-Event-ID cursor), so just surface "reconnecting".
                     if (eventSource.readyState === EventSource.CLOSED) {
+                        logSyncDebug(debugSource, 'error', 'SSE closed by server')
                         actions.connectionErrored('EventSource connection closed by server — call connect() to retry')
                     } else {
+                        logSyncDebug(debugSource, 'error', 'SSE transport error, reconnecting')
                         actions.connectionErrored('EventSource transport error — reconnecting')
                     }
                 }
 
                 return () => eventSource.close()
-            }, 'event-source')
+            }, 'task-run-sync')
         },
         disconnect: () => {
-            cache.disposables.dispose('event-source')
+            // Tolerant of an empty/absent runId: local mode builds this logic with runId ''.
+            logSyncDebug(`run ${String(props.runId ?? '').slice(0, 8)}`, 'disconnect', 'disconnected')
+            cache.disposables.dispose('task-run-sync')
             cache.disposables.dispose('queued-stall')
+        },
+        // Flags can resolve after a cold-cache connect (posthog-js loads them async), and ops can flip
+        // the mode mid-incident. Reconnect when the resolved mode differs from the running transport —
+        // the keyed disposable makes the swap idempotent.
+        [featureFlagLogic.actionTypes.setFeatureFlags]: () => {
+            if (cache.syncMode === undefined || values.isComplete) {
+                return
+            }
+            if (values.connectionStatus === 'idle' || values.connectionStatus === 'closed') {
+                return
+            }
+            const mode = resolveWizardSyncMode(values.featureFlags[FEATURE_FLAGS.ONBOARDING_WIZARD_SYNC_MODE])
+            if (mode !== cache.syncMode) {
+                actions.connect()
+            }
         },
     })),
 ])

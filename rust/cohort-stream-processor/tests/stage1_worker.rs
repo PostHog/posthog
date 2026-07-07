@@ -7,6 +7,9 @@
 //! Parse-layer behaviors (globals shape, dropped/cohort-ref leaves, key derivation) are covered by
 //! the in-crate classifier / catalog tests, not duplicated here.
 
+// Tests seed and assert through `CohortStore` directly — the sanctioned direct-store test surface.
+#![allow(clippy::disallowed_methods)]
+
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -24,7 +27,8 @@ use cohort_stream_processor::stage1::{
     StatefulRecord, TransitionKind,
 };
 use cohort_stream_processor::store::{
-    CohortStore, LeafStateKey, PersonIndexKey, Stage1Key, StoreConfig,
+    CohortStore, LeafStateKey, OffloadConfig, OffloadMode, PersonIndexKey, Stage1Key, StoreConfig,
+    StoreHandle,
 };
 use cohort_stream_processor::workers::{process_event, MergeWorkerDeps, SkipReason, Stage1Worker};
 use serde_json::{json, Value};
@@ -48,6 +52,17 @@ fn temp_store() -> (TempDir, CohortStore) {
     };
     let store = CohortStore::open(&config).expect("open store");
     (dir, store)
+}
+
+fn test_handle(store: &CohortStore) -> StoreHandle {
+    StoreHandle::new(
+        store.clone(),
+        OffloadConfig {
+            mode: OffloadMode::All,
+            event_read_permits: 16,
+            maintenance_permits: 6,
+        },
+    )
 }
 
 /// Raise the dispatch ceiling *before* sending: `mark_processed` clamps a processed offset to what
@@ -1049,7 +1064,7 @@ async fn spawned_worker_drains_a_batch_and_commits_state() {
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
-        store.clone(),
+        test_handle(&store),
         catalog,
         Arc::new(sink.clone()),
         tracker.clone(),
@@ -1086,6 +1101,63 @@ async fn spawned_worker_drains_a_batch_and_commits_state() {
     );
 }
 
+/// The offloaded read for a second event must observe the first event's committed write: within one
+/// batch, a replay racing ahead of that commit would re-apply and emit a spurious second transition.
+#[tokio::test]
+async fn sub_batch_read_your_writes_survives_offload() {
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![(CohortId(1), cohort(vec![behavioral_leaf(7)]))]);
+    let behavioral_lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
+    let alice = person(1);
+
+    let catalog = catalog_of(filters);
+    let sink = CaptureSink::new();
+    let tracker = Arc::new(OffsetTracker::new());
+
+    let (tx, rx) = mpsc::channel(16);
+    let rx = MeteredReceiver::unmetered(rx);
+    let worker = Stage1Worker::spawn(
+        PARTITION_ID,
+        rx,
+        test_handle(&store),
+        catalog,
+        Arc::new(sink.clone()),
+        tracker.clone(),
+        MergeWorkerDeps::capture(),
+        false,
+    );
+
+    // Same source coordinates (5, 0) make the second event an exact replay of the first; shipping
+    // both in one batch forces the worker to process them back-to-back.
+    tracker.mark_dispatched(PARTITION_ID as i32, 1);
+    tx.send(vec![
+        ShuffleMessage::Event {
+            event: Box::new(event(alice, 5, 0)),
+            cse_offset: 0,
+        },
+        ShuffleMessage::Event {
+            event: Box::new(event(alice, 5, 0)),
+            cse_offset: 0,
+        },
+    ])
+    .await
+    .unwrap();
+    drop(tx);
+    worker.join().await.unwrap();
+
+    let changes = sink.changes();
+    assert_eq!(
+        changes.len(),
+        1,
+        "the replay in the same sub-batch must fold once, not twice (read-your-writes held)",
+    );
+    assert_eq!(changes[0].status, MembershipStatus::Entered);
+    assert!(
+        state_at(&store, behavioral_lsk, alice).is_some(),
+        "the single fold wrote the leaf state",
+    );
+}
+
 #[tokio::test]
 async fn spawned_worker_composes_two_leaf_cohort_and_emits_single_leaf_independently() {
     let (_dir, store) = temp_store();
@@ -1106,7 +1178,7 @@ async fn spawned_worker_composes_two_leaf_cohort_and_emits_single_leaf_independe
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
-        store.clone(),
+        test_handle(&store),
         catalog,
         Arc::new(sink.clone()),
         tracker.clone(),
@@ -1174,7 +1246,7 @@ async fn spawned_worker_skips_events_for_unknown_teams() {
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
-        store.clone(),
+        test_handle(&store),
         catalog,
         Arc::new(sink.clone()),
         tracker.clone(),
@@ -1226,7 +1298,7 @@ async fn worker_produces_changes_and_advances_offset() {
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
-        store.clone(),
+        test_handle(&store),
         single_leaf_catalog(),
         Arc::new(sink.clone()),
         tracker.clone(),
@@ -1261,7 +1333,7 @@ async fn worker_advances_offset_on_empty_transition_subbatch() {
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
-        store.clone(),
+        test_handle(&store),
         single_leaf_catalog(),
         Arc::new(sink.clone()),
         tracker.clone(),
@@ -1296,7 +1368,7 @@ async fn worker_holds_offset_when_the_only_flush_fails() {
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
-        store.clone(),
+        test_handle(&store),
         single_leaf_catalog(),
         Arc::new(sink.clone()),
         tracker.clone(),
@@ -1327,7 +1399,7 @@ async fn worker_keeps_processing_after_a_produce_failure() {
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
-        store.clone(),
+        test_handle(&store),
         single_leaf_catalog(),
         Arc::new(sink.clone()),
         tracker.clone(),
@@ -1766,7 +1838,7 @@ async fn daily_multiple_single_leaf_cohort_emits_entered_then_left_to_the_sink()
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
-        store.clone(),
+        test_handle(&store),
         catalog,
         Arc::new(sink.clone()),
         tracker.clone(),
@@ -2098,7 +2170,7 @@ async fn compressed_sweep_deletes_then_a_late_event_recreates_the_state() {
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
-        store.clone(),
+        test_handle(&store),
         catalog,
         Arc::new(sink.clone()),
         tracker.clone(),
