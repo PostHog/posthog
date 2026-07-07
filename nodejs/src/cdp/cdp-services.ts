@@ -31,6 +31,7 @@ import { HogFunctionTemplateManagerService } from './services/managers/hog-funct
 import { IntegrationManagerService } from './services/managers/integration-manager.service'
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
+import { EmailValidationService } from './services/messaging/email-validation.service'
 import { EmailService } from './services/messaging/email.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { MessageAssetsService } from './services/messaging/message-assets.service'
@@ -148,6 +149,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_FETCH_BACKOFF_MAX_MS'
         | 'CDP_SELF_LOOP_GUARD_MODE'
         | 'CDP_EMAIL_TRACKING_URL'
+        | 'CDP_EMAIL_MX_VALIDATION_ENABLED'
+        | 'CDP_EMAIL_MX_VALIDATION_ENFORCE_TEAMS'
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC'
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER'
         | 'HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC'
@@ -175,6 +178,13 @@ export interface CdpCoreServicesDeps {
     /** Registry of producers backing the CDP outputs (DEFAULT / MSK / Warpstream-ingestion / Warehouse). */
     cdpProducerRegistry: KafkaProducerRegistry<CdpProducerName>
     internalCaptureService: InternalCaptureService
+    /**
+     * SES Valkey pool shared with the SES rate limiter, opened only on pods whose
+     * capabilities actually execute email actions (hogflow/email cyclotron workers).
+     * `null` on every other CDP consumer and on cdp-api so idle pods don't hold
+     * open connections against the SES Valkey instance.
+     */
+    emailValidationValkey: RedisV2 | null
 }
 
 /**
@@ -426,11 +436,17 @@ export function createCdpCoreServices(
 
     const recipientsManager = new RecipientsManagerService(deps.postgres)
     const recipientPreferencesService = new RecipientPreferencesService(recipientsManager)
+    // MX verdicts live on the dedicated SES Valkey (same instance as the SES rate
+    // limiter, separate pool). The pool is created by the server only on pods
+    // whose capabilities execute email actions; everywhere else this is null
+    // and EmailValidationService degrades to the local cache + DNS.
+    const emailValidationService = new EmailValidationService(config, deps.emailValidationValkey)
     // Observer mirrors writes to Valkey (load-only); only the primary path drives metrics.
     const hogFlowDuplicateObserver = new HogFlowDuplicateObserverService(redis, valkeyShadow?.writer ?? null)
     const hogFlowExecutor = new HogFlowExecutorService(
         hogFlowFunctionsService,
         recipientPreferencesService,
+        emailValidationService,
         hogFlowDuplicateObserver
     )
 
