@@ -232,13 +232,14 @@ const meta: Meta = {
             waitForSelector: '[data-attr="accounts-refresh"]',
         },
     },
+    // NB: no QUERY_ENDPOINT mock here — every story registers exactly one query handler.
+    // Meta- and story-level decorators both worker.use() the same path, and their precedence
+    // can flip mid-story, so a meta-level query mock intermittently shadows the story's and
+    // answers billing/chart queries with an empty 200 (breaking the Usage tab canvas).
     decorators: [
         mswDecorator({
             get: {
                 [WAREHOUSE_VIEW_LINK_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
-            },
-            post: {
-                [QUERY_ENDPOINT]: mockAccountsQuery(SAMPLE_ROWS),
             },
         }),
     ],
@@ -249,6 +250,13 @@ type Story = StoryObj<{}>
 
 export const Default: Story = {
     render: () => <App />,
+    decorators: [
+        mswDecorator({
+            post: {
+                [QUERY_ENDPOINT]: mockAccountsQuery(SAMPLE_ROWS),
+            },
+        }),
+    ],
 }
 
 export const Empty: Story = {
@@ -272,6 +280,13 @@ export const FeatureGateOff: Story = {
             waitForSelector: '[data-attr="not-found-page"]',
         },
     },
+    decorators: [
+        mswDecorator({
+            post: {
+                [QUERY_ENDPOINT]: mockAccountsQuery(SAMPLE_ROWS),
+            },
+        }),
+    ],
 }
 
 export const RowExpandedEmpty: Story = {
