@@ -1,6 +1,37 @@
-import { asNonEmptyString, joinWithUiHost, safeFetch, slashDotDataAttrUnescape } from './utils'
+import type { PostHog } from 'posthog-js'
+
+import {
+    asNonEmptyString,
+    joinWithUiHost,
+    safeFetch,
+    safeOverrideFeatureFlags,
+    slashDotDataAttrUnescape,
+} from './utils'
 
 describe('utils', () => {
+    describe('safeOverrideFeatureFlags', () => {
+        it('calls overrideFeatureFlags on the host instance when supported', () => {
+            const overrideFeatureFlags = jest.fn()
+            const clientPostHog = { featureFlags: { overrideFeatureFlags } } as unknown as PostHog
+
+            expect(safeOverrideFeatureFlags(clientPostHog, false)).toBe(true)
+            expect(overrideFeatureFlags).toHaveBeenCalledWith(false)
+        })
+
+        it('does not throw when the host posthog-js predates overrideFeatureFlags', () => {
+            // Older SDKs on customer sites lack this method entirely.
+            const clientPostHog = { featureFlags: {} } as unknown as PostHog
+
+            expect(() => safeOverrideFeatureFlags(clientPostHog, false)).not.toThrow()
+            expect(safeOverrideFeatureFlags(clientPostHog, false)).toBe(false)
+        })
+
+        it('is a no-op when there is no host instance', () => {
+            expect(safeOverrideFeatureFlags(null, { flags: { a: true } })).toBe(false)
+            expect(safeOverrideFeatureFlags(undefined, { flags: { a: true } })).toBe(false)
+        })
+    })
+
     describe('asNonEmptyString', () => {
         const testCases: Array<{ input: unknown; expected: string | null }> = [
             { input: 'hello', expected: 'hello' },

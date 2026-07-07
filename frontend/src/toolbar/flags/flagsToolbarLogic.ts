@@ -9,6 +9,7 @@ import { toolbarApi } from '~/toolbar/toolbarApi'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { safeOverrideFeatureFlags } from '~/toolbar/utils'
 import { CombinedFeatureFlagAndValueType } from '~/types'
 
 import type { flagsToolbarLogicType } from './flagsToolbarLogicType'
@@ -232,7 +233,7 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
         const clearFeatureFlagOverrides = (): void => {
             const clientPostHog = values.posthog
             if (clientPostHog) {
-                clientPostHog.featureFlags.overrideFeatureFlags(false)
+                safeOverrideFeatureFlags(clientPostHog, false)
                 clientPostHog.featureFlags.reloadFeatureFlags()
                 actions.storeLocalOverrides({})
             }
@@ -250,7 +251,7 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                 const clientPostHog = values.posthog
                 if (clientPostHog) {
                     const payloads = payloadOverride ? { [flagKey]: payloadOverride } : undefined
-                    clientPostHog.featureFlags.overrideFeatureFlags({
+                    safeOverrideFeatureFlags(clientPostHog, {
                         flags: { ...values.localOverrides, [flagKey]: overrideValue },
                         payloads: payloads,
                     })
@@ -268,9 +269,9 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                     const updatedFlags = { ...values.localOverrides }
                     delete updatedFlags[flagKey]
                     if (Object.keys(updatedFlags).length > 0) {
-                        clientPostHog.featureFlags.overrideFeatureFlags({ flags: updatedFlags })
+                        safeOverrideFeatureFlags(clientPostHog, { flags: updatedFlags })
                     } else {
-                        clientPostHog.featureFlags.overrideFeatureFlags(false)
+                        safeOverrideFeatureFlags(clientPostHog, false)
                     }
                     toolbarPosthogJS.capture('toolbar feature flag override removed')
                     actions.checkLocalOverrides()
@@ -318,7 +319,7 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                 // Apply as overrides so the page actually re-renders with these flags
                 const clientPostHog = values.posthog
                 if (clientPostHog) {
-                    clientPostHog.featureFlags.overrideFeatureFlags({ flags: flagValues })
+                    safeOverrideFeatureFlags(clientPostHog, { flags: flagValues })
                     actions.checkLocalOverrides()
                 }
                 toolbarPosthogJS.capture('toolbar flags impersonated', { distinct_id: distinctId })

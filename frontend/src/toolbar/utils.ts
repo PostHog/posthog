@@ -1,3 +1,4 @@
+import type { PostHog } from 'posthog-js'
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { CSSProperties } from 'react'
 
@@ -13,6 +14,22 @@ import { ActionStepType } from '~/types'
 import { ActionStepPropertyKey } from './actions/ActionStep'
 
 export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
+
+// `overrideFeatureFlags` is called on the *host page's* posthog-js instance, which the toolbar
+// does not control. Older SDKs predate this method, so calling it directly throws a TypeError.
+// Guard the call so the toolbar degrades gracefully instead of crashing (e.g. during its
+// graceful-exit / logout cleanup, which fires on every close regardless of flag usage).
+// Returns true if the call was made.
+export function safeOverrideFeatureFlags(
+    clientPostHog: PostHog | null | undefined,
+    override: Parameters<PostHog['featureFlags']['overrideFeatureFlags']>[0]
+): boolean {
+    if (typeof clientPostHog?.featureFlags?.overrideFeatureFlags !== 'function') {
+        return false
+    }
+    clientPostHog.featureFlags.overrideFeatureFlags(override)
+    return true
+}
 
 // Props arrive via the `__posthog=<base64>` URL fragment, so the static type is not
 // load-bearing at runtime — verify before storing strings that flow into auth headers.
