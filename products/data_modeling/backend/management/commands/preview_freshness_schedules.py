@@ -24,13 +24,13 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        dags = DAG.objects.filter(team_id=options["team_id"])
+        queryset = DAG.objects.filter(team_id=options["team_id"])
         if options["dag_id"]:
             try:
-                dags = dags.filter(id=uuid.UUID(options["dag_id"]))
+                queryset = queryset.filter(id=uuid.UUID(options["dag_id"]))
             except ValueError:
                 raise CommandError(f"--dag-id must be a UUID, got {options['dag_id']!r}")
-        dags = list(dags)
+        dags = list(queryset)
         if not dags:
             raise CommandError("No matching DAGs")
         for dag in dags:

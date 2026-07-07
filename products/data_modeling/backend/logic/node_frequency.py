@@ -3,12 +3,15 @@
 `freshness.py` stays pure (primitives only); this module reads the declared target
 off `Node.properties`, extracts the `(nodes, edges, targets)` graph for a DAG, and
 resolves per-source freshness. Storing the target in `properties` is a deliberate
-stopgap (see products/data_modeling/dev/freshness-targets-and-consistency.md) — it
-lets us validate the model with no migration before promoting it to a typed column.
+stopgap: it lets us validate the model with no migration before promoting it to a
+typed column.
 """
 
+import uuid
 import dataclasses
 from datetime import timedelta
+
+from django.db.models import Q
 
 from products.data_modeling.backend.logic.freshness import STREAMING
 from products.data_modeling.backend.models.dag import DAG
@@ -46,25 +49,45 @@ def set_frequency_target(node: Node, target: timedelta | None) -> None:
     node.save(update_fields=["properties"])
 
 
-def _resolve_warehouse_source_interval(node: Node) -> timedelta | None:
-    """Sync interval for an imported (origin=warehouse) source, or None if it has no schedule.
+def _resolve_warehouse_source_intervals(nodes: list[Node]) -> dict[str, timedelta | None]:
+    """Sync interval per imported (origin=warehouse) source node id, batched.
 
-    None covers manual/`never` schemas, paused schemas, and tables we can't resolve to a schema
-    — all "best-effort, no floor" from a freshness standpoint.
+    A node maps to None when it has no schedule: manual/`never` schemas, paused schemas, and
+    tables we can't resolve to a schema are all "best-effort, no floor" from a freshness
+    standpoint. Tables resolve by the stamped table id first, falling back to the node name.
     """
-    table_id = (node.properties or {}).get(_WAREHOUSE_TABLE_ID_KEY)
-    table = None
-    if table_id:
-        table = DataWarehouseTable.objects.filter(team_id=node.team_id, id=table_id).exclude(deleted=True).first()
-    if table is None:
-        table = DataWarehouseTable.objects.filter(team_id=node.team_id, name=node.name).exclude(deleted=True).first()
-    if table is None:
-        return None
+    if not nodes:
+        return {}
+    team_ids = {node.team_id for node in nodes}
+    table_ids = {table_id for node in nodes if (table_id := (node.properties or {}).get(_WAREHOUSE_TABLE_ID_KEY))}
+    names = {node.name for node in nodes}
+    tables = (
+        DataWarehouseTable.objects.filter(team_id__in=team_ids)
+        .filter(Q(id__in=table_ids) | Q(name__in=names))
+        .exclude(deleted=True)
+    )
+    tables_by_id: dict[tuple[int, str], DataWarehouseTable] = {}
+    tables_by_name: dict[tuple[int, str], DataWarehouseTable] = {}
+    for table in tables:
+        tables_by_id.setdefault((table.team_id, str(table.id)), table)
+        tables_by_name.setdefault((table.team_id, table.name), table)
 
-    schema = ExternalDataSchema.objects.filter(table_id=table.id).exclude(deleted=True).first()
-    if schema is None or not schema.should_sync:
-        return None
-    return schema.sync_frequency_interval
+    schemas_by_table_id: dict[uuid.UUID, ExternalDataSchema] = {}
+    for schema in ExternalDataSchema.objects.filter(table_id__in=[table.id for table in tables]).exclude(deleted=True):
+        schemas_by_table_id.setdefault(schema.table_id, schema)
+
+    intervals: dict[str, timedelta | None] = {}
+    for node in nodes:
+        table_id = (node.properties or {}).get(_WAREHOUSE_TABLE_ID_KEY)
+        table = tables_by_id.get((node.team_id, str(table_id))) if table_id else None
+        if table is None:
+            table = tables_by_name.get((node.team_id, node.name))
+        schema = schemas_by_table_id.get(table.id) if table is not None else None
+        if schema is None or not schema.should_sync:
+            intervals[str(node.id)] = None
+        else:
+            intervals[str(node.id)] = schema.sync_frequency_interval
+    return intervals
 
 
 def resolve_source_intervals(source_nodes: list[Node]) -> tuple[dict[str, timedelta], set[str]]:
@@ -75,13 +98,16 @@ def resolve_source_intervals(source_nodes: list[Node]) -> tuple[dict[str, timede
     is not actually guaranteed: streamed PostHog builtins are genuinely continuous, but a
     manual/paused/unresolvable import only *looks* fresh.
     """
+    warehouse_intervals = _resolve_warehouse_source_intervals(
+        [node for node in source_nodes if (node.properties or {}).get(_ORIGIN_KEY) == _ORIGIN_WAREHOUSE]
+    )
     source_intervals: dict[str, timedelta] = {}
     best_effort: set[str] = set()
     for node in source_nodes:
         node_id = str(node.id)
         origin = (node.properties or {}).get(_ORIGIN_KEY)
         if origin == _ORIGIN_WAREHOUSE:
-            interval = _resolve_warehouse_source_interval(node)
+            interval = warehouse_intervals[node_id]
             if interval is None:
                 source_intervals[node_id] = STREAMING
                 best_effort.add(node_id)
@@ -140,8 +166,8 @@ def seed_targets(dag: DAG) -> dict[str, timedelta]:
     A node inherits its saved query's `sync_frequency_interval` if set, else the DAG's
     `sync_frequency_interval`; nodes with neither are omitted. This deliberately preserves the
     distinct per-query frequencies of teams still on v1 (whose DAG runs several schedules at
-    different cadences) rather than flattening everything to a single DAG cadence. Read-only; PR B
-    reuses it as the actual backfill, and the preview overlays it in memory.
+    different cadences) rather than flattening everything to a single DAG cadence. Read-only;
+    the preview overlays these in memory, and a backfill can persist them.
     """
     seeds: dict[str, timedelta] = {}
     for node in Node.objects.filter(dag=dag).exclude(type=NodeType.TABLE).select_related("saved_query"):

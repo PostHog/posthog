@@ -13,11 +13,6 @@ import dataclasses
 from collections import defaultdict
 from datetime import timedelta
 
-# Per-tier schedule id = "{dag_id}:{interval_seconds}". A DAG UUID never contains a colon, so
-# the dag id parses back off the prefix — and a migration-era single schedule (id == dag_id,
-# no colon) parses to itself, keeping the read side backward-compatible through the transition.
-_TIER_SEPARATOR = ":"
-
 
 def bucket_into_cadence_tiers(effective: dict[str, timedelta | None]) -> dict[timedelta, set[str]]:
     """Group schedulable nodes by effective cadence.
@@ -33,13 +28,20 @@ def bucket_into_cadence_tiers(effective: dict[str, timedelta | None]) -> dict[ti
 
 
 def tier_schedule_id(dag_id: str, interval: timedelta) -> str:
-    """Temporal schedule id for one cadence tier of a DAG."""
-    return f"{dag_id}{_TIER_SEPARATOR}{int(interval.total_seconds())}"
+    """Temporal schedule id for one cadence tier of a DAG: "{dag_id}:{interval_seconds}".
+
+    A DAG UUID never contains a colon, so the dag id parses back off the prefix.
+    """
+    return f"{dag_id}:{int(interval.total_seconds())}"
 
 
 def dag_id_from_schedule_id(schedule_id: str) -> str:
-    """Recover the DAG id from a tier schedule id, tolerating the pre-tier (colon-less) form."""
-    return schedule_id.rsplit(_TIER_SEPARATOR, 1)[0]
+    """Recover the DAG id from a tier schedule id.
+
+    A migration-era single schedule (id == dag_id, no colon) parses to itself, keeping the
+    read side backward-compatible through the transition.
+    """
+    return schedule_id.rsplit(":", 1)[0]
 
 
 @dataclasses.dataclass
