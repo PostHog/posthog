@@ -8,21 +8,20 @@ import { IconCheck, IconCheckCircle, IconPlus, IconWarning } from '@posthog/icon
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { ScopeAccessRow } from 'scenes/settings/shared/ScopeAccessRow'
 import ScopeAccessSelector from 'scenes/settings/user/scopes/ScopeAccessSelector'
 
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
 import { AvailableFeature } from '~/types'
 
 import { SceneExport } from '../sceneTypes'
-import { oauthAuthorizeLogic } from './oauthAuthorizeLogic'
+import { type ScopeAction, oauthAuthorizeLogic } from './oauthAuthorizeLogic'
 
 export const OAuthAuthorizeError = ({ title, description }: { title: string; description: string }): JSX.Element => {
     return (
@@ -127,10 +126,11 @@ const InlineCreateForm = ({
 export const OAuthAuthorize = (): JSX.Element => {
     const {
         scopeRows,
-        allScopesRequired,
+        allScopesLocked,
         identityScopeDescriptions,
-        showReadOnlyToggle,
-        readOnlyMode,
+        canSetReadOnly,
+        allScopesGranted,
+        allScopesDenied,
         oauthApplication,
         oauthApplicationLoading,
         allOrganizations,
@@ -158,8 +158,10 @@ export const OAuthAuthorize = (): JSX.Element => {
         setShowCreateProject,
         setSelectedOrganization,
         setOauthAuthorizationValue,
-        setReadOnlyMode,
-        toggleDeniedScope,
+        setScopeAction,
+        selectAllScopes,
+        deselectAllScopes,
+        setReadOnlyScopes,
     } = useActions(oauthAuthorizeLogic)
 
     const { isReadOnly: isImpersonationReadOnly, isImpersonated } = useValues(impersonationNoticeLogic)
@@ -378,16 +380,36 @@ export const OAuthAuthorize = (): JSX.Element => {
                         <div className="flex flex-col gap-3">
                             <div className="flex items-center justify-between gap-2 flex-wrap">
                                 <div className="text-sm font-semibold uppercase text-muted">Permissions</div>
-                                {showReadOnlyToggle && (
-                                    <LemonSegmentedButton
-                                        size="small"
-                                        value={readOnlyMode ? 'read' : 'full'}
-                                        onChange={(value) => setReadOnlyMode(value === 'read')}
-                                        options={[
-                                            { value: 'full', label: 'All requested' },
-                                            { value: 'read', label: 'Read-only' },
-                                        ]}
-                                    />
+                                {!allScopesLocked && scopeRows.length > 0 && !resourceScopesLoading && (
+                                    <div className="flex items-center gap-1">
+                                        <LemonButton
+                                            size="xsmall"
+                                            type="secondary"
+                                            onClick={() => selectAllScopes()}
+                                            disabledReason={
+                                                allScopesGranted ? 'Everything is already selected' : undefined
+                                            }
+                                        >
+                                            Select all
+                                        </LemonButton>
+                                        {canSetReadOnly && (
+                                            <LemonButton
+                                                size="xsmall"
+                                                type="secondary"
+                                                onClick={() => setReadOnlyScopes()}
+                                            >
+                                                Read-only
+                                            </LemonButton>
+                                        )}
+                                        <LemonButton
+                                            size="xsmall"
+                                            type="secondary"
+                                            onClick={() => deselectAllScopes()}
+                                            disabledReason={allScopesDenied ? 'Nothing left to deselect' : undefined}
+                                        >
+                                            Deselect all
+                                        </LemonButton>
+                                    </div>
                                 )}
                             </div>
                             {resourceScopesLoading ? (
@@ -408,7 +430,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                                         </ul>
                                     )}
                                     {scopeRows.length > 0 &&
-                                        (allScopesRequired ? (
+                                        (allScopesLocked ? (
                                             <ul className="space-y-2">
                                                 {scopeRows.map((row) => (
                                                     <li key={row.key} className="flex items-center space-x-2">
@@ -418,18 +440,20 @@ export const OAuthAuthorize = (): JSX.Element => {
                                                 ))}
                                             </ul>
                                         ) : (
-                                            <div className="flex flex-col gap-2">
+                                            <div className="flex flex-col divide-y divide-border max-h-[45vh] overflow-y-auto pr-1">
                                                 {scopeRows.map((row) => (
-                                                    <LemonCheckbox
+                                                    <ScopeAccessRow
                                                         key={row.key}
-                                                        checked={row.granted}
-                                                        onChange={() =>
-                                                            row.toggleKey && toggleDeniedScope(row.toggleKey)
+                                                        label={row.label}
+                                                        info={row.info}
+                                                        value={row.value}
+                                                        onChange={(value) =>
+                                                            setScopeAction(row.key, value as ScopeAction)
                                                         }
-                                                        label={row.description}
-                                                        disabledReason={
-                                                            row.required ? `Required by ${appName}` : undefined
-                                                        }
+                                                        noneDisabledReason={row.noneDisabledReason}
+                                                        readDisabledReason={row.readDisabledReason}
+                                                        writeDisabledReason={row.writeDisabledReason}
+                                                        warning={row.warning}
                                                     />
                                                 ))}
                                             </div>

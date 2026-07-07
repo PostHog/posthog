@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { MCP_SERVER_OAUTH_SCOPES } from 'lib/scopes'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -88,15 +89,18 @@ export default meta
 
 type Story = StoryObj<{}>
 
+// The long-list case an MCP client hits: dozens of resource scopes, none required. Every row is a
+// per-resource read/write/none picker and the Select all / Read-only / Deselect all bulk controls
+// are offered so the user isn't ticking dozens of boxes one at a time.
 export const DefaultScopes: Story = {
     render: () => {
-        useDelayedOnMountEffect(() => pushAuthorize())
+        useDelayedOnMountEffect(() => pushAuthorize(MCP_SERVER_OAUTH_SCOPES.join(' ')))
         return <App />
     },
 }
 
 // Explicit request where every requested scope is required: rows render as a plain locked list
-// (no checkboxes) and the read-only toggle is hidden, since there is nothing to toggle.
+// (no pickers) and no bulk controls show, since there is nothing to toggle.
 export const WithScopes: Story = {
     decorators: [
         withOAuthApplication({
@@ -109,8 +113,8 @@ export const WithScopes: Story = {
     },
 }
 
-// Broad/deferred request (empty ceiling): nothing is required, so every row is deselectable and
-// the read-only toggle is offered. This is the MCP case.
+// Broad/deferred request (empty ceiling): nothing is required, so every resource is a deselectable
+// read/write/none picker and all bulk controls (Select all / Read-only / Deselect all) are offered.
 export const BroadFreePick: Story = {
     decorators: [withOAuthApplication({ required_scopes: [] })],
     render: () => {
@@ -119,9 +123,9 @@ export const BroadFreePick: Story = {
     },
 }
 
-// Mixed: feature_flag:write is required but only read was requested (renders locked at write),
+// Mixed: feature_flag:write is required but only read was requested (its picker is locked at write),
 // and experiment:read is required but unrequested (appears as an extra locked row). Because some
-// requested scopes stay declinable, the checkboxes remain.
+// requested scopes stay declinable, the pickers and bulk controls remain.
 export const WithRequiredScopes: Story = {
     decorators: [withOAuthApplication({ required_scopes: ['experiment:read', 'feature_flag:write'] })],
     render: () => {

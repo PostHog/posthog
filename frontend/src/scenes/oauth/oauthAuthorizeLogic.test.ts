@@ -33,21 +33,36 @@ describe('oauthAuthorizeLogic', () => {
             expected: ['openid', 'feature_flag:write', 'insight:read'],
         },
         {
-            name: 'downgrades every write scope to read in read-only mode',
+            name: 'downgrades every write scope to read via the read-only bulk action',
             scopes: ['openid', 'feature_flag:write', 'dashboard:write', 'query:read'],
-            apply: () => logic.actions.setReadOnlyMode(true),
+            apply: () => logic.actions.setReadOnlyScopes(),
             expected: ['openid', 'feature_flag:read', 'dashboard:read', 'query:read'],
         },
         {
-            name: 'drops a denied object and keeps identity scopes',
+            name: 'drops an object set to none and keeps identity scopes',
             scopes: ['openid', 'email', 'feature_flag:write'],
-            apply: () => logic.actions.toggleDeniedScope('feature_flag'),
+            apply: () => logic.actions.setScopeAction('feature_flag', 'none'),
             expected: ['openid', 'email'],
         },
         {
-            name: 'grants the wildcard unchanged when read-only is off',
+            name: 'grants the wildcard unchanged by default',
             scopes: ['openid', '*'],
             expected: ['openid', '*'],
+        },
+        {
+            name: 'clears every optional object via the deselect-all bulk action',
+            scopes: ['openid', 'feature_flag:write', 'insight:read'],
+            apply: () => logic.actions.deselectAllScopes(),
+            expected: ['openid'],
+        },
+        {
+            name: 'restores the requested set via the select-all bulk action',
+            scopes: ['openid', 'feature_flag:write', 'insight:read'],
+            apply: () => {
+                logic.actions.deselectAllScopes()
+                logic.actions.selectAllScopes()
+            },
+            expected: ['openid', 'feature_flag:write', 'insight:read'],
         },
     ]
 
@@ -57,14 +72,30 @@ describe('oauthAuthorizeLogic', () => {
         expect(logic.values.effectiveScopes).toEqual(expected)
     })
 
-    it('offers the read-only toggle for wildcard requests', () => {
-        logic.actions.setScopes(['*'])
-        expect(logic.values.showReadOnlyToggle).toBe(true)
+    it('offers a per-resource read option for a requested write scope', () => {
+        logic.actions.setScopes(['feature_flag:write'])
+        const row = logic.values.scopeRows.find((r) => r.key === 'feature_flag')
+        expect(row).toMatchObject({ value: 'write', required: false, hasChoice: true })
+        expect(row?.readDisabledReason).toBeUndefined()
+        logic.actions.setScopeAction('feature_flag', 'read')
+        expect(logic.values.effectiveScopes).toEqual(['feature_flag:read'])
     })
 
-    it('expands the wildcard to read scopes in read-only mode', () => {
+    it('disables the write option for a read-only requested scope', () => {
+        logic.actions.setScopes(['query:read'])
+        const row = logic.values.scopeRows.find((r) => r.key === 'query')
+        expect(row?.value).toBe('read')
+        expect(row?.writeDisabledReason).toBeTruthy()
+    })
+
+    it('offers the read-only bulk action for wildcard requests', () => {
+        logic.actions.setScopes(['*'])
+        expect(logic.values.canSetReadOnly).toBe(true)
+    })
+
+    it('expands the wildcard to read scopes via the read-only bulk action', () => {
         logic.actions.setScopes(['openid', '*'])
-        logic.actions.setReadOnlyMode(true)
+        logic.actions.setReadOnlyScopes()
         const scopes = logic.values.effectiveScopes
         expect(scopes).toContain('openid')
         expect(scopes).toContain('feature_flag:read')
@@ -85,15 +116,15 @@ describe('oauthAuthorizeLogic', () => {
             logo_uri: null,
             wildcard_read_scopes: ['insight:read', 'batch_import:read'],
         })
-        logic.actions.setReadOnlyMode(true)
+        logic.actions.setReadOnlyScopes()
         expect(logic.values.effectiveScopes).toEqual(['openid', 'insight:read', 'batch_import:read'])
     })
 
-    it('drops a scope when its object is denied and re-adds it when toggled back', () => {
+    it('drops a scope when its object is set to none and re-adds it when set back', () => {
         logic.actions.setScopes(['openid', 'feature_flag:write', 'insight:read'])
-        logic.actions.toggleDeniedScope('feature_flag')
+        logic.actions.setScopeAction('feature_flag', 'none')
         expect(logic.values.effectiveScopes).toEqual(['openid', 'insight:read'])
-        logic.actions.toggleDeniedScope('feature_flag')
+        logic.actions.setScopeAction('feature_flag', 'write')
         expect(logic.values.effectiveScopes).toEqual(['openid', 'feature_flag:write', 'insight:read'])
     })
 
@@ -107,71 +138,73 @@ describe('oauthAuthorizeLogic', () => {
         })
     }
 
-    it('ignores denial of a required object and marks its row required', () => {
+    it('clamps a required object back to its floor and marks its row required', () => {
         logic.actions.setScopes(['openid', 'feature_flag:write', 'insight:read'])
         withRequiredScopes(['feature_flag:write'])
-        logic.actions.toggleDeniedScope('feature_flag')
+        logic.actions.setScopeAction('feature_flag', 'none')
         expect(logic.values.effectiveScopes).toEqual(['openid', 'feature_flag:write', 'insight:read'])
         const row = logic.values.scopeRows.find((r) => r.key === 'feature_flag')
-        expect(row).toMatchObject({ required: true, granted: true })
+        expect(row).toMatchObject({ required: true, value: 'write' })
+        expect(row?.noneDisabledReason).toBeTruthy()
     })
 
-    it('keeps a required write scope at write level in read-only mode', () => {
+    it('keeps a required write scope at write level under the read-only bulk action', () => {
         logic.actions.setScopes(['openid', 'feature_flag:write', 'dashboard:write'])
         withRequiredScopes(['feature_flag:write'])
-        logic.actions.setReadOnlyMode(true)
+        logic.actions.setReadOnlyScopes()
         expect(logic.values.effectiveScopes).toEqual(['openid', 'feature_flag:write', 'dashboard:read'])
     })
 
-    it('downgrades to read in read-only mode when only the read level is required', () => {
+    it('downgrades to read under the read-only bulk action when only the read level is required', () => {
         logic.actions.setScopes(['openid', 'feature_flag:write'])
         withRequiredScopes(['feature_flag:read'])
-        logic.actions.setReadOnlyMode(true)
+        logic.actions.setReadOnlyScopes()
         expect(logic.values.effectiveScopes).toEqual(['openid', 'feature_flag:read'])
         const row = logic.values.scopeRows.find((r) => r.key === 'feature_flag')
-        expect(row).toMatchObject({ required: true, granted: true })
+        expect(row).toMatchObject({ required: true, value: 'read' })
     })
 
-    it('marks all scopes required when every requested scope is required', () => {
+    it('locks all scopes when every requested scope is required', () => {
         logic.actions.setScopes(['experiment:read', 'dashboard:write'])
         withRequiredScopes(['experiment:read', 'dashboard:write'])
-        expect(logic.values.allScopesRequired).toBe(true)
-        expect(logic.values.showReadOnlyToggle).toBe(false)
+        expect(logic.values.allScopesLocked).toBe(true)
+        expect(logic.values.canSetReadOnly).toBe(false)
     })
 
-    it('does not mark all required when a requested scope is declinable', () => {
+    it('does not lock when a requested scope is declinable', () => {
         logic.actions.setScopes(['experiment:read', 'dashboard:write'])
         withRequiredScopes(['experiment:read'])
-        expect(logic.values.allScopesRequired).toBe(false)
+        expect(logic.values.allScopesLocked).toBe(false)
     })
 
     it('renders a locked row for required scopes the client did not request and grants them', () => {
         logic.actions.setScopes(['openid', 'insight:read'])
         withRequiredScopes(['feature_flag:read'])
         const row = logic.values.scopeRows.find((r) => r.key === 'feature_flag')
-        expect(row).toMatchObject({ required: true, granted: true })
+        expect(row).toMatchObject({ required: true, value: 'read' })
         expect(logic.values.effectiveScopes).toEqual(
             expect.arrayContaining(['openid', 'insight:read', 'feature_flag:read'])
         )
         expect(logic.values.effectiveScopes).toHaveLength(3)
     })
 
-    it('lets the user decline an optional write above a required read floor', () => {
+    it('lets the user decline an optional write down to a required read floor', () => {
         logic.actions.setScopes(['openid', 'feature_flag:write'])
         withRequiredScopes(['feature_flag:read'])
-        const floor = logic.values.scopeRows.find((r) => r.key === 'feature_flag')
-        const upgrade = logic.values.scopeRows.find((r) => r.key === 'feature_flag:optional-write')
-        expect(floor).toMatchObject({ required: true, granted: true, toggleKey: null })
-        expect(upgrade).toMatchObject({ required: false, granted: true, toggleKey: 'feature_flag' })
+        const row = logic.values.scopeRows.find((r) => r.key === 'feature_flag')
+        expect(row).toMatchObject({ required: true, value: 'write', hasChoice: true })
+        expect(row?.noneDisabledReason).toBeTruthy()
+        expect(row?.readDisabledReason).toBeUndefined()
         expect(logic.values.effectiveScopes).toContain('feature_flag:write')
 
-        logic.actions.toggleDeniedScope('feature_flag')
+        logic.actions.setScopeAction('feature_flag', 'read')
         expect(logic.values.effectiveScopes).toEqual(['openid', 'feature_flag:read'])
-        expect(logic.values.scopeRows.find((r) => r.key === 'feature_flag:optional-write')).toMatchObject({
-            granted: false,
-        })
 
-        logic.actions.toggleDeniedScope('feature_flag')
+        // The floor holds: trying to decline entirely clamps back to the required read.
+        logic.actions.setScopeAction('feature_flag', 'none')
+        expect(logic.values.effectiveScopes).toEqual(['openid', 'feature_flag:read'])
+
+        logic.actions.setScopeAction('feature_flag', 'write')
         expect(logic.values.effectiveScopes).toContain('feature_flag:write')
     })
 
@@ -179,19 +212,19 @@ describe('oauthAuthorizeLogic', () => {
         logic.actions.setScopes(['openid', 'feature_flag:read'])
         withRequiredScopes(['feature_flag:write'])
         const row = logic.values.scopeRows.find((r) => r.key === 'feature_flag')
-        expect(row).toMatchObject({ required: true, granted: true })
+        expect(row).toMatchObject({ required: true, value: 'write' })
         expect(row?.description).toContain('Write')
+        expect(row?.readDisabledReason).toBeTruthy()
         expect(logic.values.effectiveScopes).toContain('feature_flag:write')
         expect(logic.values.effectiveScopes).not.toContain('feature_flag:read')
     })
 
-    it('resets read-only mode and denied scopes when scopes are reloaded', () => {
+    it('resets overrides when scopes are reloaded', () => {
         logic.actions.setScopes(['openid', 'feature_flag:write'])
-        logic.actions.setReadOnlyMode(true)
-        logic.actions.toggleDeniedScope('feature_flag')
+        logic.actions.setReadOnlyScopes()
+        logic.actions.setScopeAction('feature_flag', 'none')
         logic.actions.setScopes(['openid', 'insight:write'])
-        expect(logic.values.readOnlyMode).toBe(false)
-        expect(logic.values.deniedScopeObjects).toEqual([])
+        expect(logic.values.scopeActionOverrides).toEqual({})
         expect(logic.values.effectiveScopes).toEqual(['openid', 'insight:write'])
     })
 
