@@ -1,3 +1,5 @@
+import './DashboardSubscribeExperiment.scss'
+
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
@@ -24,12 +26,12 @@ function SubscribeIcon({ dashboardId }: { dashboardId: number }): JSX.Element {
     const { subscriptions } = useValues(subscriptionsLogic({ dashboardId }))
 
     if (!hasAvailableFeature(AvailableFeature.SUBSCRIPTIONS)) {
-        return <IconBell fontSize="16" />
+        return <IconBell className="DashboardSubscribeBell" fontSize="16" />
     }
 
     return (
         <IconWithCount count={subscriptions?.length} showZero={false}>
-            <IconBell fontSize="16" />
+            <IconBell className="DashboardSubscribeBell" fontSize="16" />
         </IconWithCount>
     )
 }
