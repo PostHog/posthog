@@ -49,8 +49,11 @@ def get_cached_action_token(workspace_id: str, slack_user_id: str) -> str | None
     return value if isinstance(value, str) and value else None
 
 
-def search_available(slack: SlackIntegration, workspace_id: str, slack_user_id: str) -> bool:
-    if get_cached_action_token(workspace_id, slack_user_id) is None:
+def search_available(slack: SlackIntegration, action_token: str | None) -> bool:
+    """True only with both a fresh action token and the search scope. Callers fetch the token
+    once via ``get_cached_action_token`` and pass it in; a missing token or scope-check failure
+    counts as unavailable."""
+    if action_token is None:
         return False
     try:
         return not slack.missing_scopes(SEARCH_SCOPES)
