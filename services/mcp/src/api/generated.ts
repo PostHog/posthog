@@ -12530,7 +12530,6 @@ export namespace Schemas {
     /**
      * * `valid` - Valid
      * * `invalid` - Invalid
-     * * `expired` - Expired
      * * `stale` - Stale (resource changed)
      */
     export type ValidationStatusEnum = typeof ValidationStatusEnum[keyof typeof ValidationStatusEnum];
@@ -12539,7 +12538,6 @@ export namespace Schemas {
     export const ValidationStatusEnum = {
       Valid: 'valid',
       Invalid: 'invalid',
-      Expired: 'expired',
       Stale: 'stale',
     } as const;
 

@@ -9,9 +9,35 @@ from rest_framework.exceptions import PermissionDenied
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 
+from products.approvals.backend.mixins import ApprovalHandlingMixin
+from products.approvals.backend.models import ChangeRequest, ChangeRequestState
+from products.approvals.backend.scheduled_changes import gate_scheduled_change
 from products.feature_flags.backend.api.feature_flag import CanEditFeatureFlag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
+
+
+def _gate_scheduled_change_at_creation(
+    model_name: str | None,
+    record_id: Any,
+    team_id: int,
+    payload: dict,
+    user: Any,
+) -> ChangeRequest | None:
+    """Create a pending ChangeRequest if a scheduled change targets a policy-gated field.
+
+    Returns the CR to bind to the new ScheduledChange, or None when no policy applies (the
+    common case). Only feature-flag schedules are gated; a missing target flag is left to the
+    existing edit-permission check, which already validates the flag exists.
+    """
+    if model_name != ScheduledChange.AllowedModels.FEATURE_FLAG or not record_id:
+        return None
+
+    flag = FeatureFlag.objects.filter(id=record_id, team_id=team_id).first()
+    if flag is None:
+        return None
+
+    return gate_scheduled_change(flag, payload, user)
 
 
 class ScheduledChangeSerializer(serializers.ModelSerializer):
@@ -109,6 +135,8 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
             if instance.executed_at is not None and not instance.is_recurring:
                 raise serializers.ValidationError("Cannot modify a scheduled change that has already executed.")
 
+            self._reject_timing_change_on_gated_schedule(instance, data)
+
         # For updates, merge with existing instance values
         is_recurring = data.get("is_recurring", getattr(instance, "is_recurring", False) if instance else False)
         recurrence_interval = data.get(
@@ -185,6 +213,36 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
 
         return data
 
+    # Fields that determine *when* a scheduled change fires. Re-gating (see update()) only covers
+    # *what* it applies, so these are locked once a schedule carries a live approval.
+    TIMING_FIELDS = ("scheduled_at", "cron_expression", "recurrence_interval", "end_date", "is_recurring")
+
+    def _reject_timing_change_on_gated_schedule(self, instance: ScheduledChange, data: dict) -> None:
+        """Block retiming a schedule whose bound ChangeRequest is still pending or approved.
+
+        An approver signs off on a change firing within a specific window. Re-gating only reacts to
+        payload edits, so without this an editor could wait for a future schedule to be approved and
+        then PATCH scheduled_at (or the recurrence config) to fire the approved change at a moment the
+        approval never covered — e.g. move it earlier to apply immediately. Deleting and recreating
+        the schedule re-gates from scratch, so this only forbids retiming a change mid-approval.
+        """
+        change_request = instance.change_request
+        if change_request is None or change_request.state not in (
+            ChangeRequestState.PENDING,
+            ChangeRequestState.APPROVED,
+        ):
+            return
+        changed = [field for field in self.TIMING_FIELDS if field in data and data[field] != getattr(instance, field)]
+        if changed:
+            raise serializers.ValidationError(
+                {
+                    changed[0]: (
+                        "Cannot change the timing of a scheduled change while its approval request is "
+                        "pending or approved. Delete this schedule and create a new one to reschedule."
+                    )
+                }
+            )
+
     def _check_target_edit_permission(self, model_name: str | None, record_id: Any, team_id: int) -> FeatureFlag | None:
         """Enforce edit permission on the target record and return the resolved flag (None if not a flag)."""
         if model_name != ScheduledChange.AllowedModels.FEATURE_FLAG or not record_id:
@@ -220,6 +278,17 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
         team = self.context["get_team"]()
         validated_data["timezone"] = team.timezone
 
+        # Gate at scheduling time: if the change would flip a policy-gated field, create a pending
+        # ChangeRequest now and bind it so the applier only applies once approved (see
+        # process_scheduled_changes). NULL change_request means no policy applies — apply as before.
+        validated_data["change_request"] = _gate_scheduled_change_at_creation(
+            validated_data.get("model_name"),
+            validated_data.get("record_id"),
+            validated_data["team_id"],
+            validated_data.get("payload", {}),
+            validated_data["created_by"],
+        )
+
         return super().create(validated_data)
 
     def update(self, instance: ScheduledChange, validated_data: dict) -> ScheduledChange:
@@ -229,11 +298,43 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
         # Canonicalize any legacy non-canonical record_id so the access filter keeps matching it.
         if feature_flag is not None:
             instance.record_id = str(feature_flag.id)
+
+        # Re-gate whenever the payload changes: create() only gates the payload the row is born with,
+        # so without this an editor could create an ungated schedule and then PATCH its payload to a
+        # policy-gated change, which the applier would dispatch with change_request=None (ungated).
+        if feature_flag is not None and "payload" in validated_data:
+            validated_data["change_request"] = self._regate_on_payload_change(
+                instance, feature_flag, validated_data["payload"]
+            )
+
         return super().update(instance, validated_data)
+
+    def _regate_on_payload_change(
+        self, instance: ScheduledChange, feature_flag: FeatureFlag, new_payload: dict
+    ) -> ChangeRequest | None:
+        """Re-evaluate the approval gate against a changed payload and return the CR to bind.
+
+        Expires any previously bound pending CR that the new payload no longer needs, so a stale
+        request can't be approved into applying a change the row no longer carries.
+
+        Gate as the user making the edit, not the original creator: a creator with approval-bypass
+        would otherwise let any editor PATCH in a gated payload that stays unbound and applies
+        unapproved.
+        """
+        new_change_request = gate_scheduled_change(feature_flag, new_payload, self.context["request"].user)
+        existing = instance.change_request
+        if (
+            existing is not None
+            and existing.state == ChangeRequestState.PENDING
+            and (new_change_request is None or new_change_request.id != existing.id)
+        ):
+            existing.state = ChangeRequestState.EXPIRED
+            existing.save(update_fields=["state"])
+        return new_change_request
 
 
 @extend_schema(extensions={"x-product": "feature_flags"})
-class ScheduledChangeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ScheduledChangeViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, read, update and delete scheduled changes.
     """

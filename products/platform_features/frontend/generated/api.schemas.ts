@@ -645,7 +645,6 @@ export interface PatchedApprovalPolicyApi {
 /**
  * * `valid` - Valid
  * * `invalid` - Invalid
- * * `expired` - Expired
  * * `stale` - Stale (resource changed)
  */
 export type ValidationStatusEnumApi = (typeof ValidationStatusEnumApi)[keyof typeof ValidationStatusEnumApi]
@@ -653,7 +652,6 @@ export type ValidationStatusEnumApi = (typeof ValidationStatusEnumApi)[keyof typ
 export const ValidationStatusEnumApi = {
     Valid: 'valid',
     Invalid: 'invalid',
-    Expired: 'expired',
     Stale: 'stale',
 } as const
 
