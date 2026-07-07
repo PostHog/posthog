@@ -97,12 +97,6 @@ pub struct ExceptionProperties {
     // stage fingerprints it and clears it.
     #[serde(skip)]
     pub legacy_order_resolved: Option<ExceptionList>,
-
-    // The fingerprint the event would have produced in its original
-    // (pre-normalization) order. `Some` only when normalization was applied and
-    // the grouping stage computed it. Consumed by issue linking for continuity.
-    #[serde(skip)]
-    pub legacy_fingerprint: Option<String>,
 }
 
 impl ExceptionProperties {

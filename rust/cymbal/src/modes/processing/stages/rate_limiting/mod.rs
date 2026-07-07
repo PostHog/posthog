@@ -672,7 +672,6 @@ mod tests {
             issue: None,
             legacy_order_exception_list: None,
             legacy_order_resolved: None,
-            legacy_fingerprint: None,
         })
     }
 

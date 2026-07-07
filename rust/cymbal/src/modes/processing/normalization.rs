@@ -195,7 +195,11 @@ pub fn normalize_wire_order(
     // Snapshot only once we know a reversal is coming — the common (canonical)
     // path pays no clone.
     let legacy = exception_list.clone();
+    apply_fix(exception_list, fix);
+    Some(legacy)
+}
 
+fn apply_fix(exception_list: &mut ExceptionList, fix: WireOrderFix) {
     if fix.reverse_exception_list {
         exception_list.reverse();
     }
@@ -210,7 +214,26 @@ pub fn normalize_wire_order(
             }
         }
     }
+}
 
+/// Reconstructs `lib`'s legacy wire order from a canonical-order list,
+/// regardless of `$lib_version` or cutoff — each fix is its own inverse, so
+/// applying it to a canonical list recovers the pre-flip order.
+///
+/// This is how legacy fingerprint versions keep pre-normalization issues
+/// addressable after an SDK ships the flip: the cutoff stops the reordering,
+/// but must not stop legacy hashing. Reconstruction is exact except where
+/// resolution reshaped the list (inline expansion, remapping) — those hashes
+/// can only be reproduced from the pre-flip snapshot, which post-flip events
+/// no longer carry.
+pub fn legacy_wire_order(
+    lib: Option<&str>,
+    exception_list: &ExceptionList,
+) -> Option<ExceptionList> {
+    let lib = lib?;
+    let rule = lib_rules().iter().find(|r| r.lib == lib)?;
+    let mut legacy = exception_list.clone();
+    apply_fix(&mut legacy, rule.fix);
     Some(legacy)
 }
 
@@ -257,6 +280,32 @@ mod test {
                 frames: functions.iter().map(|f| py_frame(f)).collect(),
             }),
         }
+    }
+
+    #[test]
+    fn legacy_wire_order_reconstructs_pre_flip_order() {
+        // Frames: reconstruction re-applies the reversal, independent of
+        // `$lib_version` — this is what keeps legacy fingerprint versions
+        // computable after an SDK ships the flip and its cutoff is set.
+        let canonical: ExceptionList =
+            vec![exception_with_frames("Boom", &["main", "boom"])].into();
+        let legacy = legacy_wire_order(Some("posthog-go"), &canonical).expect("go is in the table");
+        assert_eq!(frame_names(&legacy[0]), vec!["boom", "main"]);
+
+        // Exception list: python's fix reverses the list, not the frames.
+        let canonical: ExceptionList = vec![
+            exception_with_frames("Outer", &["main", "wrap"]),
+            exception_with_frames("RootCause", &["main", "boom"]),
+        ]
+        .into();
+        let legacy =
+            legacy_wire_order(Some("posthog-python"), &canonical).expect("python is in the table");
+        assert_eq!(legacy[0].exception_type, "RootCause");
+        assert_eq!(frame_names(&legacy[0]), vec!["main", "boom"]);
+
+        // Natively-canonical SDKs have no legacy order.
+        assert!(legacy_wire_order(Some("posthog-node"), &canonical).is_none());
+        assert!(legacy_wire_order(None, &canonical).is_none());
     }
 
     #[test]

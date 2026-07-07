@@ -1,10 +1,12 @@
+use serde_json::Value;
 use sha2::{Digest, Sha512};
 
 use crate::{
     error::UnhandledError,
     fingerprinting::{Fingerprint, FingerprintRecordPart, FingerprintVersion},
     issue_resolution::IssueFingerprintOverride,
-    metric_consts::FINGERPRINT_GENERATOR_OPERATOR,
+    metric_consts::{FINGERPRINT_GENERATOR_OPERATOR, FINGERPRINT_LEGACY_VERSION_USED},
+    modes::processing::normalization::legacy_wire_order,
     modes::processing::rules::grouping::evaluate_grouping_rules,
     stages::{grouping::GroupingStage, pipeline::HandledError},
     types::{
@@ -58,19 +60,26 @@ impl ValueOperator for FingerprintGenerator {
             return Ok(Ok(input));
         }
 
-        // When wire-order normalization reordered the payload, also compute the
-        // fingerprint the event would have had in its original order. Issue
-        // linking uses it to alias the canonical fingerprint onto a
-        // pre-normalization issue instead of forking a new one. Only meaningful
-        // for the automatic (stack-derived) fingerprint: manual and rule
-        // fingerprints are order-independent, so continuity is moot.
-        let legacy_list = input.legacy_order_resolved.take();
-        let (version, fingerprint, legacy_fingerprint) =
+        // Legacy fingerprint versions keep issues keyed before wire-order
+        // normalization addressable. They hash the event's pre-flip order:
+        // the re-resolved snapshot while normalization still reorders this
+        // SDK's payloads (byte-exact, covers resolution reshaping), or a
+        // reconstruction by re-applying the SDK's reversal once the SDK has
+        // flipped and only the canonical order arrives.
+        let lib = input.props.get("$lib").and_then(Value::as_str);
+        let legacy_list = input
+            .legacy_order_resolved
+            .take()
+            .or_else(|| legacy_wire_order(lib, &input.exception_list));
+        let (version, fingerprint) =
             select_automatic_fingerprint(&input, legacy_list.as_ref(), &ctx).await?;
+        if version.is_legacy() {
+            metrics::counter!(FINGERPRINT_LEGACY_VERSION_USED, "version" => version.as_str())
+                .increment(1);
+        }
         input.fingerprint = Some(fingerprint.value);
         input.fingerprint_record = Some(fingerprint.record);
         input.fingerprint_version = Some(version);
-        input.legacy_fingerprint = legacy_fingerprint;
 
         Ok(Ok(input))
     }
@@ -90,19 +99,24 @@ fn apply_manual_fingerprint(input: &mut ExceptionProperties) -> Result<(), Unhan
     Ok(())
 }
 
+// Walks versions newest-first and keeps the first fingerprint that already maps to an issue,
+// falling back to the newest (canonical) version for new issues. Legacy versions hash the
+// pre-flip order and participate only in matching: `all()` orders them below the canonical
+// versions, so they can never be the fallback that creates a new issue.
 async fn select_automatic_fingerprint(
     input: &ExceptionProperties,
     legacy_list: Option<&ExceptionList>,
     ctx: &GroupingStage,
-) -> Result<(FingerprintVersion, Fingerprint, Option<String>), UnhandledError> {
+) -> Result<(FingerprintVersion, Fingerprint), UnhandledError> {
     let fingerprints = FingerprintVersion::all()
         .iter()
-        .map(|version| {
-            (
-                *version,
-                version.compute(&input.exception_list),
-                legacy_list.map(|list| version.compute(list).value),
-            )
+        .filter_map(|version| {
+            let list = if version.is_legacy() {
+                legacy_list?
+            } else {
+                &input.exception_list
+            };
+            Some((*version, version.compute(list)))
         })
         .collect::<Vec<_>>();
     let newest = fingerprints
@@ -110,19 +124,9 @@ async fn select_automatic_fingerprint(
         .cloned()
         .ok_or_else(|| UnhandledError::Other("No fingerprint algorithms registered".into()))?;
 
-    for (version, fingerprint, legacy) in fingerprints.into_iter().rev() {
+    for (version, fingerprint) in fingerprints.into_iter().rev() {
         if fingerprint_exists(ctx, input.team_id, &fingerprint.value).await? {
-            return Ok((version, fingerprint, legacy));
-        }
-        // A pre-flip issue is keyed on the legacy-order fingerprint of the
-        // version its events ingested under. Selecting that version keeps the
-        // canonical/legacy pair aligned, so issue linking can alias the
-        // canonical fingerprint onto the existing issue instead of creating a
-        // new issue under the newest version.
-        if let Some(legacy_value) = &legacy {
-            if fingerprint_exists(ctx, input.team_id, legacy_value).await? {
-                return Ok((version, fingerprint, legacy));
-            }
+            return Ok((version, fingerprint));
         }
     }
 

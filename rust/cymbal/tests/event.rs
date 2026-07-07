@@ -754,7 +754,7 @@ async fn existing_issue_under_older_version_wins(db: PgPool) {
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
-async fn legacy_order_issue_wins_across_versions_and_aliases(db: PgPool) {
+async fn legacy_order_issue_wins_via_legacy_version(db: PgPool) {
     let harness = TestHarness::new(db);
     let mut input = make_event(vec![make_exception_with_stack(
         "Error",
@@ -801,18 +801,28 @@ async fn legacy_order_issue_wins_across_versions_and_aliases(db: PgPool) {
     let (_, body): (_, SuccessResponse) = harness.post_event(&input).await;
     let event = body.first_event().as_ref().unwrap();
 
-    // Version selection finds the pre-flip issue through the legacy-order
-    // fingerprint, keeps the canonical value on the event, and issue linking
-    // aliases it onto the same issue instead of forking a new one.
+    // Version selection finds the pre-flip issue through the V2Legacy hash:
+    // the event carries the legacy fingerprint and version, links to the same
+    // issue, and no canonical row is written — the issue stays keyed on its
+    // pre-flip fingerprint until it ages out (or a later decision aliases it).
     assert_eq!(
         event.properties["$exception_fingerprint"],
-        json!(canonical_value)
+        json!(legacy_value)
     );
     assert_eq!(
         event.properties["$exception_fingerprint_version"],
-        json!("v2")
+        json!("v2_legacy")
     );
     assert_eq!(event.properties["$exception_issue_id"], json!(issue_id));
+
+    let canonical_rows: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM posthog_errortrackingissuefingerprintv2 WHERE fingerprint = $1",
+    )
+    .bind(&canonical_value)
+    .fetch_one(&harness.db)
+    .await
+    .expect("count should work");
+    assert_eq!(canonical_rows, 0, "no alias row is written");
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]

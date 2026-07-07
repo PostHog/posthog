@@ -503,6 +503,5 @@ pub fn build_event(num_exceptions: usize) -> ExceptionProperties {
         issue: None,
         legacy_order_exception_list: None,
         legacy_order_resolved: None,
-        legacy_fingerprint: None,
     }
 }
