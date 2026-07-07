@@ -232,8 +232,9 @@ jobs:
             # Consumed by the select-stories job below. Uploaded separately so
             # the visual-regression matrix doesn't pay to download it on every
             # shard.
+            # module-graph.json only exists once the Vite build completes, so no
+            # `if: always()`: on a failed/cancelled build it would just warn.
             - name: Upload module-graph artifact
-              if: always()
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: storybook-module-graph
