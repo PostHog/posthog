@@ -41,6 +41,6 @@ export const keyBinds: Record<string, string[]> = {
     theme: ['g', 'then', 't'],
     jumpToTimestamp: ['j', 'then', 't'],
     homeLaunchpad: ['g', 'then', 'h'],
-    homeApps: ['g', 'then', 'l'],
+    homeApps: ['g', 'then', 'b'],
     homeFiles: ['g', 'then', 'f'],
 }
