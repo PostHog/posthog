@@ -182,7 +182,8 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         _, kwargs = m_signal.call_args
         assert kwargs["content"] == "fix the bug"
         assert "await_user_message" not in run.state
-        # The already-running agent can't see it this run, but resumes read it from carried state.
+        # The agent-server re-reads run state on the forwarded first message, so this
+        # must be persisted for the warm run to honor the setting.
         assert run.state.get("auto_publish") is True
 
     def test_does_not_overwrite_existing_warm_description(self):

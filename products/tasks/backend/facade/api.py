@@ -3247,8 +3247,9 @@ def _activate_warm_run(
     so the Run leaves the warm pool. Mirrors ``message_routing._handle_first_message``; no fresh agent
     start.
 
-    ``auto_publish`` is persisted into the Run's state even though the already-running agent-server
-    won't see it this run — resumes launch a fresh agent-server that reads it from carried state."""
+    ``auto_publish`` is persisted into the Run's state before the message signal: the already-running
+    agent-server can't take it as a launch flag, so it re-reads run state when the forwarded first
+    message arrives (and resumes read it from carried state)."""
     from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
         observe_prewarmed_activated,
     )
@@ -3256,12 +3257,12 @@ def _activate_warm_run(
     if description and not (task.description or "").strip():
         task.description = description
         task.save(update_fields=["description", "updated_at"])
+    if auto_publish is not None:
+        # Before the signal: the agent-server re-reads run state when the forwarded
+        # first message arrives, so the choice must already be persisted by then.
+        TaskRun.update_state_atomic(run.id, updates={"auto_publish": auto_publish})
     signal_task_run_user_message(run.id, task.id, team_id, content=message, artifact_ids=artifact_ids)
-    TaskRun.update_state_atomic(
-        run.id,
-        updates={"auto_publish": auto_publish} if auto_publish is not None else None,
-        remove_keys=["await_user_message"],
-    )
+    TaskRun.update_state_atomic(run.id, remove_keys=["await_user_message"])
     # Only count activations of Runs that actually carry the prewarmed marker, so the activation
     # numerator stays consistent with the workflow_start{prewarmed="true"} denominator — otherwise
     # warm Runs provisioned before this ships (await_user_message set, prewarmed absent) would push
