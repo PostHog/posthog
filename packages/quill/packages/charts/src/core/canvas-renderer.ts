@@ -1,6 +1,6 @@
 import { type ScaleLinear, type ScaleLogarithmic } from 'd3-scale'
 
-import { barColorAt, mixColors } from './color-utils'
+import { barColorAt, dimColor, mixColors } from './color-utils'
 import { yTickCountForHeight } from './scales'
 import type {
     BarFillStyle,
@@ -491,7 +491,9 @@ export function drawArea(
     if (useGradient) {
         gradient = ctx.createLinearGradient(0, dimensions.plotTop, 0, baseline)
         gradient.addColorStop(0, series.color)
-        gradient.addColorStop(1, 'transparent')
+        // Fade to the series color at zero alpha — `transparent` is transparent *black*, which
+        // drags the gradient's midtones grey.
+        gradient.addColorStop(1, dimColor(series.color, 0))
     }
 
     for (const { top, bottom } of segments) {

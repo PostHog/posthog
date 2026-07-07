@@ -525,7 +525,9 @@ describe('hog-charts canvas-renderer', () => {
                 dimensions.plotTop + dimensions.plotHeight
             )
             expect(gradient.addColorStop).toHaveBeenCalledWith(0, '#22d3ee')
-            expect(gradient.addColorStop).toHaveBeenCalledWith(1, 'transparent')
+            // The bottom stop fades to the series color at zero alpha, not `transparent`
+            // (transparent black), which would grey the midtones
+            expect(gradient.addColorStop).toHaveBeenCalledWith(1, 'rgba(34, 211, 238, 0)')
             expect(recordedFillStyles).toContain(gradient)
         })
 
