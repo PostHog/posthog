@@ -66,20 +66,19 @@ The vendored matcher is `.github/scripts/codeowners.js` (a port of `hmarr/codeow
 One schema, distributed per directory. Under `products/`, the existing `product.yaml` **is** the ownership file (see the alias rule below) — no new files needed there.
 
 ```yaml
-# OWNERS.yaml — full form; every field except `team` is optional
+# OWNERS.yaml — full form; every field except `owners` is optional
 version: 1
 
-# The one required field: the responsible team. GitHub team slug minus
-# @PostHog/, or a '@github-handle' where no team exists.
-team: team-error-tracking
-
-# Non-blocking PR review tagging (defaults to [team] when omitted).
-# Mixed list of team slugs and '@handles' — individuals are first-class.
-reviewers: [team-error-tracking, '@pauldambra']
+# The one required field, same key and semantics as product.yaml.
+# Ordered, mixed list of GitHub team slugs (minus @PostHog/) and
+# '@handles'; the first entry is the primary owner, used for defaults
+# like the derived Slack channel. Owners are tagged for review
+# (non-blocking) and are the answer to "who owns this path".
+owners: [team-error-tracking, '@pauldambra']
 
 # Routing metadata (Chromium DIR_METADATA role) — never affects review gates.
-# contact.slack defaults to '#<team>' by convention, so this whole block is
-# usually omitted; set a string to override, or `slack: false` to opt out.
+# contact.slack defaults to '#<primary owner>' by convention, so this whole
+# block is usually omitted; set a string to override, or `slack: false`.
 contact:
   slack: '#support-error-tracking'
   oncall: pagerduty:error-tracking # opaque, scheme-prefixed reference
@@ -99,9 +98,9 @@ rules:
     status: generated
   - match: 'vendor/**'
     status: vendored
-    team: null # explicit reset: unowned-by-design, lint-exempt
+    owners: null # explicit reset: unowned-by-design, lint-exempt
   - match: 'migrations/**'
-    reviewers: [team-error-tracking, team-data-modeling]
+    owners: [team-error-tracking, team-data-modeling]
 ```
 
 The 90% case is two lines:
@@ -109,12 +108,12 @@ The 90% case is two lines:
 ```yaml
 # rust/OWNERS.yaml
 version: 1
-team: team-ingestion
+owners: [team-ingestion]
 ```
 
 ### `product.yaml` as an accepted alias
 
-`products/<name>/product.yaml` with an `owners:` key is read by the resolver as if it were an `OWNERS.yaml` declaring `team: <first owner>` and `reviewers: <all owners>`. Every other field in `product.yaml` (`name:` today, anything added later) is ignored for ownership purposes — `product.yaml` remains free to grow product metadata without touching the ownership schema. Rules:
+`products/<name>/product.yaml` with an `owners:` key is read by the resolver as an `OWNERS.yaml` with that same `owners:` list — identical key, identical semantics, different filename. Every other field in `product.yaml` (`name:` today, anything added later) is ignored for ownership purposes — `product.yaml` remains free to grow product metadata without touching the ownership schema. Rules:
 
 - A directory may have `product.yaml`-with-`owners` **or** `OWNERS.yaml`, never both — lint error.
 - Sub-folder overrides inside a product use nested `OWNERS.yaml` as anywhere else (e.g. `products/x/backend/migrations/OWNERS.yaml`).
@@ -134,14 +133,15 @@ So the derived default is right for ~87% of teams and the rest write one line. G
 
 ### Individuals, no alias layer
 
-There is no `OWNERS_ALIASES` file. `team:` and `reviewers:` take GitHub team slugs or `@handles` directly — the same convention `product.yaml` already uses for `user_interviews`. Lint validates handles against org membership the same way it validates team slugs. The auto-assigner requests individual reviewers through the API's `reviewers` field (it currently skips `@`-entries entirely, so individuals only work via `CODEOWNERS-soft` today — this closes that gap and lets the soft-file wiring die with the file).
+There is no `OWNERS_ALIASES` file. `owners:` takes GitHub team slugs or `@handles` directly — the same convention `product.yaml` already uses for `user_interviews`. Lint validates handles against org membership the same way it validates team slugs. The auto-assigner requests individual reviewers through the API's `reviewers` field (it currently skips `@`-entries entirely, so individuals only work via `CODEOWNERS-soft` today — this closes that gap and lets the soft-file wiring die with the file).
 
 ### Design choices, argued
 
 - **Distributed, not central.** The repo already voted: `product.yaml` is per-directory and the soft file's own header pushes ownership toward it. Central files are what we're escaping (ordering bugs, merge conflicts on one hot file). The audit story ("show me everything") is a tool's job (`hogli owners:map`), not a file layout's.
-- **Nearest-file-wins with per-field fallthrough, not ancestor union.** Kubernetes unions approvers up the tree because its bar is "someone must approve"; our soft model is "tag the right team, don't spam five". Union inheritance would tag `posthog/` owners on every deep PR. Override semantics also match what the ownership skill already implements (product.yaml beats CODEOWNERS). Fallthrough is per field: a child file that only sets `reviewers` still inherits `team` and `contact` from its ancestor.
+- **Nearest-file-wins with per-field fallthrough, not ancestor union.** Kubernetes unions approvers up the tree because its bar is "someone must approve"; our soft model is "tag the right team, don't spam five". Union inheritance would tag `posthog/` owners on every deep PR. Override semantics also match what the ownership skill already implements (product.yaml beats CODEOWNERS). Fallthrough is per field: a child file that only sets `owners` still inherits `contact` and `status` from its ancestor.
 - **`rules:` are file-local.** Cross-file glob interactions are the CODEOWNERS footgun; here a glob can only override its own directory's defaults, so reading one file plus its ancestors fully explains any path.
-- **`team: null` is explicit, not absent.** Unowned must be a decision (vendored code, scratch dirs), never a default. The coverage check treats missing resolution as an error and `team: null` as an exemption with a paper trail.
+- **`owners: null` is explicit, not absent.** Unowned must be a decision (vendored code, scratch dirs), never a default. The coverage check treats missing resolution as an error and `owners: null` as an exemption with a paper trail.
+- **One `owners` list, no role split.** A `team`-vs-`reviewers` distinction (Kubernetes-style) was considered and dropped: with blocking out of scope, "who is responsible" and "who gets tagged" are the same set, and product.yaml already speaks `owners`. Ordering carries the only extra signal needed — first entry is the primary owner (drives derived defaults like the Slack channel). A blocking role, if ever needed, is a new field later, not a split now.
 - **`status:` replaces hardcoded ignore lists.** The assigner's generated-file ignore list, review-noise suppression, and future tooling (e.g. excluding vendored code from lint) all key off one field instead of N copies.
 
 ## 4. Resolution model
@@ -151,10 +151,10 @@ For a path `P`:
 1. Walk from the repo root toward `P`, collecting every `OWNERS.yaml` (or aliased `product.yaml`) on the way. If a file sets `inherit: false`, drop everything collected above it.
 2. Effective config = shallow merge, nearest file winning per field (lists replace, never merge — predictability over cleverness).
 3. Within the nearest file that has `rules:`, apply the last rule whose `match` glob (gitignore-style semantics, documented with the schema) matches `P` relative to that file's directory. Rule fields override the merged config.
-4. Review tagging = resolved `reviewers`. Responsible team = resolved `team`.
-5. No ownership file on the walk and no rule match → **unowned**, which fails the coverage check unless the path is under a `team: null` rule.
+4. Review tagging = resolved `owners`. Primary owner = its first entry.
+5. No ownership file on the walk and no rule match → **unowned**, which fails the coverage check unless the path is under an `owners: null` rule.
 
-The hard `.github/CODEOWNERS` stays outside this walk entirely. It keeps its own GitHub-native semantics and remains hand-maintained; the resolver reads it only as a **read-only overlay** so lookups can additionally report "blocking approval required from X" (what the ownership skill layers in today). It never influences the resolved `team`/`reviewers`, and nothing in this proposal writes to it.
+The hard `.github/CODEOWNERS` stays outside this walk entirely. It keeps its own GitHub-native semantics and remains hand-maintained; the resolver reads it only as a **read-only overlay** so lookups can additionally report "blocking approval required from X" (what the ownership skill layers in today). It never influences the resolved `owners`, and nothing in this proposal writes to it.
 
 ## 5. Tool independence: one resolver, many consumers
 
@@ -162,7 +162,7 @@ The stability guarantee is architectural: **consumers never parse ownership file
 
 - **Resolver**: single implementation in hogli — a Python module at `tools/hogli-commands/hogli_commands/owners/` exposing `resolve(path)`, `map()`, `unowned()` as a library, and `hogli owners:resolve --json <path...>` (paths also accepted on stdin) as the CLI. Rationale: hogli already lints ownership, and two of the four consumers are Python, so this makes lint, lookup, and the pr-approval agent native library callers with zero subprocess hops. Glob matching for `rules:` uses gitignore-style semantics implemented (and documented) here — the vendored JS matcher stays only for the hard-CODEOWNERS overlay parsing, or is replaced by an equivalent Python CODEOWNERS parser.
 - **JS consumers** shell out to the CLI and read JSON — `assign-reviewers.js` feeds the PR's changed files in and gets resolved owners back; the `establishing-code-ownership` skill does the same. The auto-assign workflow gains a Python/uv setup step (it is node-only today). `gates.py` imports the library directly. No committed lock file, so no freshness-check machinery; if one is ever wanted (offline consumers, Backstage `catalog-info.yaml` emitters), it is a trivial fold over `map()` added later.
-- **Validator**: `hogli owners:lint` — schema check, team slugs and `@handles` against the live GitHub org (reusing `product/gh.py`), dead `rules:` globs (match zero files), same-directory `product.yaml`/`OWNERS.yaml` conflicts, and full-tree coverage (every `git ls-files` path resolves or is `team: null`).
+- **Validator**: `hogli owners:lint` — schema check, team slugs and `@handles` against the live GitHub org (reusing `product/gh.py`), dead `rules:` globs (match zero files), same-directory `product.yaml`/`OWNERS.yaml` conflicts, and full-tree coverage (every `git ls-files` path resolves or is `owners: null`).
 - **Lookup**: `hogli owners:who <path>` / `owners:team <slug>` / `owners:unowned` — thin wrappers over the library; the `establishing-code-ownership` skill's `ownership.js` becomes a shim over the CLI (or is deleted in favor of it).
 
 One tradeoff to acknowledge: today `.github/scripts/` sits behind the blocking `CODEOWNERS` (`team-security`), so changes to assignment logic require their approval. Moving the resolver into hogli takes it out of that gate. If that matters, the fix is a one-line addition to the hard file covering `tools/hogli-commands/hogli_commands/owners/` — a deliberate exception to "leave CODEOWNERS alone", to be decided at review.
@@ -181,7 +181,7 @@ Everything lands atomically. The delivery order below is a review guide, not a m
    - `gates.py`: replace the private CODEOWNERS-soft parser with a direct library import.
    - `ownership.js` (skill): becomes a shim over the CLI; SKILL.md updated.
 5. **Delete `.github/CODEOWNERS-soft`.** Also drop its entry from anything referencing it.
-6. **Lint wiring.** `hogli owners:lint` + a CI job (extend the existing `validate-product-yamls` job rather than adding a new one). Coverage starts warn-only; ratchet to fail in a follow-up once `owners:unowned` is clean or explicitly `team: null`.
+6. **Lint wiring.** `hogli owners:lint` + a CI job (extend the existing `validate-product-yamls` job rather than adding a new one). Coverage starts warn-only; ratchet to fail in a follow-up once `owners:unowned` is clean or explicitly `owners: null`.
 
 Safety properties of the atomic switch:
 
