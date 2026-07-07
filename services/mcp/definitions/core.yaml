@@ -256,9 +256,6 @@ tools:
     domains-scim-logs-retrieve:
         operation: domains_scim_logs_retrieve
         enabled: false
-    domains-scim-token-create:
-        operation: domains_scim_token_create
-        enabled: false
     domains-update:
         operation: domains_update
         enabled: false
