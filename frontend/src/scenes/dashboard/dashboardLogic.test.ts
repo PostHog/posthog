@@ -1739,13 +1739,16 @@ describe('dashboardLogic', () => {
             expect(container.textContent).toBe('Text card has been removed from the dashboard')
         })
 
-        it('removes the tile from state optimistically before the API call resolves', () => {
+        it('removes the tile from state optimistically before the API call resolves', async () => {
             expect(logic.values.textTiles).toHaveLength(1)
 
             // Dispatch without awaiting listeners — the reducer drops the tile synchronously.
             logic.actions.removeTile(TEXT_TILE)
 
             expect(logic.values.textTiles).toEqual([])
+
+            // Let the in-flight listener settle before teardown unmounts the logic
+            await expectLogic(logic).toFinishAllListeners()
         })
 
         it('restores the tile and suppresses the undo toast when the API call fails', async () => {
