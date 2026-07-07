@@ -1,11 +1,17 @@
+from typing import Literal
+from uuid import UUID
+
 MAX_ATTEMPTS = 5
+
+# Stable namespace for deterministic per-ticket trace ids (uuid5).
+AI_REPLY_TRACE_NAMESPACE = UUID("a1b2c3d4-5678-4e9f-ab12-cd34ef567890")
 SCORE_THRESHOLD = 0.5
 RERANK_TOP_K = 5
 # Ticket types whose replies may ever be published to the (untrusted) ticket author.
 # diagnostic/account_billing draw on project data and must stay private regardless of settings.
 PUBLISHABLE_TICKET_TYPES = {"how_to"}
 RETRIEVE_LIMIT = 15
-DRAFT_POLL_SECONDS = 600
+DRAFT_POLL_SECONDS = 900
 WIDEN_RADIUS = 3
 
 # Temporal records every activity input/output in workflow history (per-payload limit ~2 MiB,
@@ -42,32 +48,36 @@ LLM_REQUEST_TIMEOUT_SECONDS = 90.0
 # (spam, bare feedback, no question) short-circuits before the expensive draft loop.
 TICKET_TYPES = ("how_to", "diagnostic", "account_billing", "unactionable")
 
-# Base read scopes every draft gets: BK search/window + docs-search (Inkeep RAG over the
-# official PostHog docs). Both read-only; persistence is a plain activity, no write scope needed.
-BASE_DRAFT_SCOPES = ["business_knowledge:read", "project:read"]
-
-# Extra read scopes granted only to `diagnostic` tickets so the agent can investigate the
-# customer's own data. All confirmed valid scope objects in posthog/scopes.py.
-# - query:read + insight:read together unlock execute-sql/HogQL (query:read alone does NOT;
-#   the execute-sql tool requires both, and there's no separate `events` scope — query:read
-#   "covers query and events endpoints").
-# - logs:read unlocks query-logs (a separate scope, not implied by query:read); harmless no-op
-#   on teams without the logs feature flag.
-# - error_tracking:read (issues list/get/events), session_recording:read (recording get/summaries).
-#
-# query:read also exposes execute-sql's optional `connectionId`, which can target external
-# direct-query data sources — outside the "customer's own PostHog project data" boundary these
-# scopes are meant to cover. There is no narrower project-only query scope to grant instead, so
-# the direct-connection path is closed at the prompt layer (the diagnostic instructions forbid
-# connectionId / external sources) and backstopped by support_review_reply_activity, which treats any
-# external-connection-sourced data in the reply as unsafe.
-DIAGNOSTIC_DRAFT_SCOPES = [
-    "error_tracking:read",
-    "query:read",
-    "insight:read",
-    "session_recording:read",
-    "logs:read",
+# Base read scopes every draft gets (when the team has NOT opted into ai_diagnostics_enabled):
+# BK, docs, project metadata, taxonomy, and config reads that return no raw customer rows.
+BASE_DRAFT_SCOPES: list[str] = [
+    "business_knowledge:read",
+    "project:read",
+    "event_definition:read",
+    "property_definition:read",
+    "feature_flag:read",
+    "experiment:read",
+    "survey:read",
+    "action:read",
+    "annotation:read",
+    "dashboard:read",
 ]
+
+# When the team opted into ai_diagnostics_enabled, the draft gets the "read_only" preset
+# (all reads, including customer data tools like execute-sql, session recordings, error
+# tracking, logs). The preset string is passed directly to CustomPromptSandboxContext.
+# The prompt layer + support_review_reply_activity backstop external-connection data.
+# Typed as a bare Literal (not oauth.McpScopePreset) to keep this module import-free of
+# Django/ORM -- it's loaded inside the Temporal workflow sandbox via pipeline.py.
+DIAGNOSTIC_SCOPES_PRESET: Literal["read_only"] = "read_only"
+
+# Sandbox agent model for the draft step. Must be in the LLM gateway's `background_agents`
+# product allowlist (services/llm-gateway/src/llm_gateway/products/config.py) -- that's the
+# product the sandbox agent server routes through, NOT `conversations`. `claude-sonnet-4-6`
+# is allowed for `conversations` (the plain utility/validator calls) but NOT for
+# `background_agents`, so the sandbox draft uses the strongest allowed sonnet instead.
+DRAFT_MODEL = "claude-sonnet-5"
+DRAFT_RUNTIME_ADAPTER = "claude"
 
 # One-line bias appended to refine/draft/validate prompts so each step focuses on what the
 # ticket type actually needs answered.

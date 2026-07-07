@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { useChartTheme } from 'lib/charts/hooks'
+import { FilterBar } from 'lib/components/FilterBar'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
@@ -20,6 +21,8 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
     const {
         kpis,
         kpisLoading,
+        users,
+        usersLoading,
         intentClusterCount,
         notableSessions,
         sessionRowsLoading,
@@ -43,38 +46,49 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <MCPAnalyticsFirstLook />
-            <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex flex-wrap items-center gap-3">
-                    <McpDateFilter
-                        dateFrom={dateFilter.dateFrom}
-                        dateTo={dateFilter.dateTo}
-                        onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
-                        dataAttr="mcp-dashboard-date-filter"
-                    />
-                    <div data-attr="mcp-dashboard-property-filter">
-                        <PropertyFilters
-                            pageKey="mcp-dashboard-overview"
-                            propertyFilters={propertyFilters}
-                            onChange={setPropertyFilters}
-                            taxonomicGroupTypes={[
-                                TaxonomicFilterGroupType.EventProperties,
-                                TaxonomicFilterGroupType.EventFeatureFlags,
-                            ]}
-                            eventNames={['$mcp_tool_call']}
-                            buttonText="Add filter"
+            <FilterBar
+                left={
+                    <>
+                        <McpDateFilter
+                            dateFrom={dateFilter.dateFrom}
+                            dateTo={dateFilter.dateTo}
+                            onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
+                            dataAttr="mcp-dashboard-date-filter"
                         />
-                    </div>
-                </div>
-                <TestAccountFilterSwitch
-                    checked={filterTestAccounts}
-                    onChange={setFilterTestAccounts}
-                    data-attr="mcp-dashboard-test-account-filter"
-                />
-            </div>
+                        <div data-attr="mcp-dashboard-property-filter">
+                            <PropertyFilters
+                                pageKey="mcp-dashboard-overview"
+                                propertyFilters={propertyFilters}
+                                onChange={setPropertyFilters}
+                                taxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.EventProperties,
+                                    TaxonomicFilterGroupType.EventFeatureFlags,
+                                ]}
+                                eventNames={['$mcp_tool_call']}
+                                buttonText="Add filter"
+                            />
+                        </div>
+                    </>
+                }
+                right={
+                    <TestAccountFilterSwitch
+                        checked={filterTestAccounts}
+                        onChange={setFilterTestAccounts}
+                        data-attr="mcp-dashboard-test-account-filter"
+                    />
+                }
+            />
+            <MCPAnalyticsFirstLook />
             <section data-quill>
                 <h2 className="mb-4 text-xl font-semibold text-primary">Key metrics</h2>
-                <KpiTiles kpis={kpis} intentClusterCount={intentClusterCount} kpisLoading={kpisLoading} theme={theme} />
+                <KpiTiles
+                    kpis={kpis}
+                    users={users}
+                    intentClusterCount={intentClusterCount}
+                    kpisLoading={kpisLoading}
+                    usersLoading={usersLoading}
+                    theme={theme}
+                />
             </section>
             <section data-quill>
                 <h2 className="mb-4 text-xl font-semibold text-primary">Usage</h2>

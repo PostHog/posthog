@@ -249,7 +249,7 @@ class TestCustomerJourneyViewSet(APIBaseTest):
         self.assertIn("created_at", data)
         self.assertIn("updated_at", data)
 
-        journey = CustomerJourney.objects.get(id=data["id"])  # nosemgrep: semgrep.rules.idor-lookup-without-team
+        journey = CustomerJourney.objects.get(id=data["id"])  # nosemgrep: idor-lookup-without-team
         self.assertEqual(journey.created_by, self.user)
         self.assertEqual(journey.team, self.team)
 
@@ -304,7 +304,7 @@ class TestCustomerJourneyViewSet(APIBaseTest):
 
         self.assertEqual(status.HTTP_204_NO_CONTENT, response.status_code)
         self.assertFalse(
-            CustomerJourney.objects.filter(id=journey_id).exists()  # nosemgrep: semgrep.rules.idor-lookup-without-team
+            CustomerJourney.objects.filter(id=journey_id).exists()  # nosemgrep: idor-lookup-without-team
         )
 
     @parameterized.expand(
@@ -435,7 +435,7 @@ class TestAccountViewSet(APIBaseTest):
         self.assertIn("created_at", data)
         self.assertIn("updated_at", data)
 
-        account = Account.objects.unscoped().get(id=data["id"])  # nosemgrep: semgrep.rules.idor-lookup-without-team
+        account = Account.objects.unscoped().get(id=data["id"])  # nosemgrep: idor-lookup-without-team
         self.assertEqual(account.created_by, self.user)
         self.assertEqual(account.team, self.team)
         self.assertEqual(account.properties.csm, AccountAssignment(id=self.user.id, email=self.user.email))
@@ -1579,6 +1579,41 @@ class TestCustomPropertyDefinitionViewSet(APIBaseTest):
         response = self.client.post(self.endpoint_base, {"name": "P", "display_type": display_type}, format="json")
         self.assertEqual(expected_status, response.status_code, response.json())
 
+    def test_create_select_assigns_option_ids_and_patch_round_trips(self):
+        response = self._create(
+            name="Stage",
+            display_type="select",
+            is_big_number=False,
+            options=[{"label": "Open", "color": "preset-1"}, {"label": "Closed", "color": "preset-2"}],
+        )
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        options = response.json()["options"]
+        self.assertEqual([option["label"] for option in options], ["Open", "Closed"])
+        self.assertTrue(all(option["id"] for option in options))
+
+        patched = self.client.patch(
+            f"{self.endpoint_base}{response.json()['id']}/",
+            {"options": [{**options[0], "label": "Won"}, options[1]]},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_200_OK, patched.status_code, patched.json())
+        self.assertEqual([option["label"] for option in patched.json()["options"]], ["Won", "Closed"])
+        self.assertEqual(patched.json()["options"][0]["id"], options[0]["id"])
+
+    @parameterized.expand(
+        [
+            ("select_without_options", {"name": "S1", "display_type": "select"}),
+            ("select_empty_options", {"name": "S2", "display_type": "select", "options": []}),
+            ("bad_color", {"name": "S3", "display_type": "select", "options": [{"label": "A", "color": "red"}]}),
+        ]
+    )
+    def test_create_select_rejects_invalid_payloads(self, _name, payload):
+        response = self.client.post(self.endpoint_base, payload, format="json")
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+
     def test_is_big_number_forced_false_for_non_numeric(self):
         response = self._create(name="Tier", display_type="text", is_big_number=True)
 
@@ -1917,7 +1952,7 @@ class TestAccountNotesViewSet(APIBaseTest):
         return notebook
 
     def test_list_returns_account_notes_with_account_fields(self):
-        note = self._link_note(title="Renewal")
+        note = self._link_note(title="Renewal", created_by=self.user)
 
         response = self.client.get(self.endpoint_base)
 
@@ -1928,6 +1963,8 @@ class TestAccountNotesViewSet(APIBaseTest):
         self.assertEqual(results[0]["title"], "Renewal")
         self.assertEqual(results[0]["account_id"], str(self.account.id))
         self.assertEqual(results[0]["account_name"], "Acme Corp")
+        self.assertEqual(results[0]["created_by"]["id"], self.user.id)
+        self.assertEqual(results[0]["created_by"]["email"], self.user.email)
 
     def test_list_excludes_unlinked_deleted_noninternal_and_other_team_notes(self):
         included = self._link_note(title="Included")
@@ -1963,6 +2000,76 @@ class TestAccountNotesViewSet(APIBaseTest):
 
         titles = {n["title"] for n in response.json()["results"]}
         self.assertEqual(titles, expected_titles)
+
+    def test_list_filter_by_account(self):
+        other_account = Account.objects.unscoped().create(team=self.team, name="Beta LLC")
+        self._link_note(title="Acme note")
+        self._link_note(title="Beta note", account=other_account)
+
+        response = self.client.get(f"{self.endpoint_base}?account_id={self.account.id}")
+
+        titles = [n["title"] for n in response.json()["results"]]
+        self.assertEqual(titles, ["Acme note"])
+
+    @parameterized.expand(
+        [
+            ("account_id", "not-a-uuid"),
+            ("created_by", "alice"),
+            ("created_by", "alice,bob"),
+            ("assigned_to", "alice"),
+        ]
+    )
+    def test_list_rejects_malformed_filter(self, param, value):
+        response = self.client.get(f"{self.endpoint_base}?{param}={value}")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_list_filter_by_assigned_to(self):
+        # "My accounts" on the Notes tab: notes on accounts where the user is CSM or AE.
+        # account_owner is deliberately not treated as "assigned" (mirrors the accounts list).
+        csm_account = Account.objects.unscoped().create(
+            team=self.team, name="CSM Co", _properties={"csm": {"id": self.user.id, "email": self.user.email}}
+        )
+        ae_account = Account.objects.unscoped().create(
+            team=self.team,
+            name="AE Co",
+            _properties={"account_executive": {"id": self.user.id, "email": self.user.email}},
+        )
+        owner_account = Account.objects.unscoped().create(
+            team=self.team,
+            name="Owner Co",
+            _properties={"account_owner": {"id": self.user.id, "email": self.user.email}},
+        )
+        other_account = Account.objects.unscoped().create(
+            team=self.team, name="Other Co", _properties={"csm": {"id": 999999, "email": "someone@x.com"}}
+        )
+        self._link_note(title="CSM note", account=csm_account)
+        self._link_note(title="AE note", account=ae_account)
+        self._link_note(title="Owner note", account=owner_account)
+        self._link_note(title="Other note", account=other_account)
+
+        response = self.client.get(f"{self.endpoint_base}?assigned_to={self.user.id}")
+
+        titles = {n["title"] for n in response.json()["results"]}
+        self.assertEqual(titles, {"CSM note", "AE note"})
+
+    @parameterized.expand(
+        [
+            ("single", "{uid}"),
+            ("comma_joined", "{uid},999999"),  # the encoding the generated frontend client sends
+            ("repeated", "{uid}&created_by=999999"),
+        ]
+    )
+    def test_list_filter_by_created_by(self, _name, created_by_query):
+        other_user = User.objects.create_and_join(self.organization, "note-author@posthog.com", None)
+        self._link_note(title="Mine", created_by=self.user)
+        self._link_note(title="Theirs", created_by=other_user)
+
+        query = created_by_query.format(uid=self.user.id)
+        response = self.client.get(f"{self.endpoint_base}?created_by={query}")
+
+        titles = [n["title"] for n in response.json()["results"]]
+        self.assertEqual(titles, ["Mine"])
 
     def test_list_orders_by_last_modified_desc_and_paginates(self):
         with freeze_time("2024-01-01"):

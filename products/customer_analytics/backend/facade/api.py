@@ -36,17 +36,28 @@ from posthog.models.tagged_item import TaggedItem
 
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
 from products.customer_analytics.backend.constants import ACCOUNT_ASSIGNMENT_ROLE_FIELDS
-from products.customer_analytics.backend.logic import custom_property_values as _custom_property_values_logic
-from products.customer_analytics.backend.logic.custom_property_definitions import coerce_is_big_number
+from products.customer_analytics.backend.logic import (
+    custom_property_values as _custom_property_values_logic,
+    relationships as _relationships_logic,
+)
+from products.customer_analytics.backend.logic.custom_property_definitions import (
+    InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
+    apply_option_side_effects,
+    coerce_is_big_number,
+    normalize_options,
+)
 from products.customer_analytics.backend.logic.usage_spike_notifications import (
     notify_managers_of_usage_spike as notify_managers_of_usage_spike,
 )
 from products.customer_analytics.backend.models import (
     Account,
+    AccountRelationship,
+    AccountRelationshipDefinition,
     CustomerJourney,
     CustomerProfileConfig,
     CustomPropertyDefinition,
     CustomPropertySource,
+    DisplayType,
 )
 from products.customer_analytics.backend.models.account import AccountProperties as _ModelAccountProperties
 from products.notebooks.backend.facade import (
@@ -325,6 +336,7 @@ def _apply_external_role_assignments(
         return contracts.ExternalAccountUpdateResult(error=contracts.ExternalAccountUpdateError.INVALID_PROPERTIES)
 
     account.save(update_fields=["_properties", "updated_at"])
+    _relationships_logic.sync_from_account_properties(account)
     return None
 
 
@@ -684,7 +696,16 @@ def _to_custom_property_definition_view(
         updated_at=definition.updated_at,
         references=references or [],
         source=_definition_source_view(definition),
+        options=_to_custom_property_options(definition.options),
     )
+
+
+def _to_custom_property_options(
+    options: list[dict[str, Any]] | None,
+) -> list[contracts.CustomPropertyOption] | None:
+    if options is None:
+        return None
+    return [contracts.CustomPropertyOption(**option) for option in options]
 
 
 def _can_read_workflow_references(user_access_control: "UserAccessControl") -> bool:
@@ -764,6 +785,7 @@ def create_custom_property_definition(
     description: str | None,
     display_type: str,
     is_big_number: bool,
+    options: list[dict[str, Any]] | None = None,
     organization_id,
     user: "User",
     was_impersonated: bool,
@@ -776,6 +798,7 @@ def create_custom_property_definition(
             description=description,
             display_type=display_type,
             is_big_number=coerce_is_big_number(display_type, is_big_number),
+            options=normalize_options(DisplayType(display_type), options),
         )
     except IntegrityError:
         raise CustomPropertyDefinitionConflictError("A custom property with this name already exists for this team.")
@@ -812,8 +835,21 @@ def update_custom_property_definition(
     # Re-coerce against the effective display type: a PATCH that only flips the type to a
     # non-numeric one must clear a previously-set is_big_number (the partial-update case).
     definition.is_big_number = coerce_is_big_number(definition.display_type, definition.is_big_number)
+    definition.options = normalize_options(
+        DisplayType(definition.display_type),
+        definition.options,
+        existing_ids=frozenset(option["id"] for option in previous.options or []),
+    )
     try:
-        definition.save()
+        with transaction.atomic():
+            definition.save()
+            if DisplayType(definition.display_type) == DisplayType.SELECT:
+                apply_option_side_effects(
+                    team_id=team_id,
+                    definition_id=definition.id,
+                    previous_options=previous.options,
+                    new_options=definition.options,
+                )
     except IntegrityError:
         raise CustomPropertyDefinitionConflictError("A custom property with this name already exists for this team.")
     _log_activity_swallowing(
@@ -1254,6 +1290,8 @@ def create_account_for_view(
                 properties=input.properties,
             )
             _set_tags(input.tags, account)
+            if any(field in (account._properties or {}) for field in ACCOUNT_ASSIGNMENT_ROLE_FIELDS):
+                _relationships_logic.sync_from_account_properties(account, created_by=user)
     except PydanticValidationError as exc:
         raise AccountPropertiesValidationError(_format_pydantic_errors(exc))
     except IntegrityError:
@@ -1298,6 +1336,8 @@ def update_account_for_view(
         with transaction.atomic():
             account = Account.objects.update_account(account, **update_kwargs)
             _set_tags(input.tags, account)
+            if input.properties_provided:
+                _relationships_logic.sync_from_account_properties(account, created_by=user)
     except PydanticValidationError as exc:
         raise AccountPropertiesValidationError(_format_pydantic_errors(exc))
     except IntegrityError:
@@ -1447,13 +1487,31 @@ def list_account_notes_for_view(
     offset: int,
     limit: int,
     search: str | None = None,
+    account_id: UUID | str | None = None,
+    created_by_ids: list[int] | None = None,
+    assigned_to_ids: list[int] | None = None,
 ) -> tuple[list[contracts.AccountNoteView], int]:
     """Team-wide account notes (internal notebooks linked to accounts), newest-modified first,
     restricted to accounts the caller can read. ``search`` matches note title/content (full-text)
-    and account name (substring). Returns ``(page, total_count)``."""
-    accessible_account_ids = _accounts_queryset(team_id, user_access_control).values_list("id", flat=True)
+    and account name (substring). ``account_id`` narrows to one account, ``created_by_ids`` to
+    notes authored by the given users, ``assigned_to_ids`` to notes on accounts whose CSM or
+    account executive is one of the given users. Returns ``(page, total_count)``."""
+    accounts = _accounts_queryset(team_id, user_access_control)
+    if assigned_to_ids:
+        # "Assigned to" means CSM or AE (account_owner excluded), matching the accounts list
+        # HogQL runner's ASSIGNED_ROLE_KEYS.
+        accounts = accounts.filter(
+            Q(_properties__csm__id__in=assigned_to_ids) | Q(_properties__account_executive__id__in=assigned_to_ids)
+        )
+    accessible_account_ids = accounts.values_list("id", flat=True)
     notes, count = notebooks.list_team_account_notes(
-        team_id, account_ids=accessible_account_ids, search=search, offset=offset, limit=limit
+        team_id,
+        account_ids=accessible_account_ids,
+        account_id=account_id,
+        created_by_ids=created_by_ids,
+        search=search,
+        offset=offset,
+        limit=limit,
     )
     return [
         contracts.AccountNoteView(
@@ -1463,6 +1521,7 @@ def list_account_notes_for_view(
             last_modified_at=note.last_modified_at,
             account_id=note.account_id,
             account_name=note.account_name,
+            created_by=_notebook_user_to_basic_info(note.created_by),
         )
         for note in notes
     ], count
@@ -1628,3 +1687,84 @@ def list_active_custom_property_values(team_id: int, account_id: str | UUID) -> 
     """The account's current (non-deleted) custom property values as contracts, newest first."""
     rows = _custom_property_values_logic.list_active_custom_property_values(team_id=team_id, account_id=account_id)
     return [_to_custom_property_value(row) for row in rows]
+
+
+# --- Account relationships ---
+
+
+class AccountRelationshipDefinitionConflictError(Exception):
+    """Raised when a relationship definition violates the per-team unique name constraint."""
+
+
+def _to_account_relationship_definition(
+    definition: AccountRelationshipDefinition,
+) -> contracts.AccountRelationshipDefinition:
+    return contracts.AccountRelationshipDefinition(
+        id=definition.id,
+        name=definition.name,
+        description=definition.description,
+        is_single_holder=definition.is_single_holder,
+    )
+
+
+def _to_account_relationship(relationship: AccountRelationship) -> contracts.AccountRelationship:
+    user = relationship.user
+    return contracts.AccountRelationship(
+        id=relationship.id,
+        definition=_to_account_relationship_definition(relationship.definition),
+        user=contracts.AccountAssignment(id=user.id, email=user.email) if user is not None else None,
+        started_at=relationship.started_at,
+        ended_at=relationship.ended_at,
+    )
+
+
+def list_account_relationship_definitions(team_id: int) -> list[contracts.AccountRelationshipDefinition]:
+    return [
+        _to_account_relationship_definition(definition)
+        for definition in AccountRelationshipDefinition.objects.for_team(team_id).order_by("name")
+    ]
+
+
+def create_account_relationship_definition(
+    *,
+    team_id: int,
+    name: str,
+    description: str | None = None,
+    is_single_holder: bool = True,
+    created_by: "User",
+) -> contracts.AccountRelationshipDefinition:
+    try:
+        definition = AccountRelationshipDefinition.objects.for_team(team_id).create(
+            team_id=team_id,
+            name=name,
+            description=description,
+            is_single_holder=is_single_holder,
+            created_by=created_by,
+        )
+    except IntegrityError:
+        raise AccountRelationshipDefinitionConflictError(
+            "A relationship definition with this name already exists for this team."
+        )
+    return _to_account_relationship_definition(definition)
+
+
+def delete_account_relationship_definition(*, team_id: int, definition_id: str | UUID) -> bool:
+    """Hard-deletes the definition and (by cascade) its assignment history. Returns False when
+    no definition matches the id for this team (→ 404)."""
+    deleted, _ = AccountRelationshipDefinition.objects.for_team(team_id).filter(id=definition_id).delete()
+    return deleted > 0
+
+
+def list_account_relationships(
+    *, team_id: int, account_id: str | UUID, include_history: bool = False
+) -> list[contracts.AccountRelationship]:
+    """The account's active relationships, or its full assignment timeline with ``include_history``."""
+    queryset = (
+        AccountRelationship.objects.for_team(team_id)
+        .filter(account_id=account_id)
+        .select_related("definition", "user")
+        .order_by("definition__name", "-started_at")
+    )
+    if not include_history:
+        queryset = queryset.filter(ended_at__isnull=True)
+    return [_to_account_relationship(relationship) for relationship in queryset]

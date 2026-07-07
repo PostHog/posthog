@@ -56,6 +56,55 @@ def resolve_schema(schema: type[BaseModel] | dict) -> dict:
     return schema.model_json_schema()
 
 
+class Channel(TeamScopedRootMixin):
+    """A shared feed of tasks (rendered as "#<name>" in PostHog Code). Every task is
+    owned by the channel it was kicked off in. Each user gets one private "personal"
+    channel ("#me") per team, provisioned lazily on first channel list."""
+
+    class ChannelType(models.TextChoices):
+        PUBLIC = "public", "Public"
+        PERSONAL = "personal", "Personal"
+
+    PERSONAL_CHANNEL_NAME = "me"
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # db_constraint=False on the team/user FKs: posthog_team and posthog_user are written on
+    # virtually every request, and adding an FK constraint takes a SHARE ROW EXCLUSIVE lock on
+    # them that stalls deploys. Django still enforces the relation and on_delete at the app
+    # level (see safe-django-migrations.md).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    name = models.CharField(max_length=128)
+    channel_type = models.CharField(max_length=16, choices=ChannelType, default=ChannelType.PUBLIC)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
+    deleted = models.BooleanField(default=False)
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_task_channel"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "name"],
+                condition=models.Q(channel_type="public", deleted=False),
+                name="task_channel_team_name_public_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["team", "created_by"],
+                condition=models.Q(channel_type="personal", deleted=False),
+                name="task_channel_team_user_personal_unique",
+            ),
+        ]
+
+    def __str__(self):
+        return f"#{self.name}"
+
+
+SLACK_NOTIFIED_PR_URL_STATE_KEY = "slack_notified_pr_url"
+
+
 class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
     class OriginProduct(models.TextChoices):
         ONBOARDING = "onboarding", "Onboarding"
@@ -67,6 +116,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         SUPPORT_QUEUE = "support_queue", "Support Queue"
         SESSION_SUMMARIES = "session_summaries", "Session Summaries"
         POSTHOG_AI = "posthog_ai", "PostHog AI"
+        EXPERIMENTS = "experiments", "Experiments"
         # Unlike the others (which indicate direct creation from that product, e.g. a "fix this error" button),
         # signal report tasks originate indirectly via signals from other products.
         SIGNAL_REPORT = "signal_report", "Signal Report"
@@ -115,6 +165,17 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         max_length=255, null=True, blank=True
     )  # Format is organization/repo, for example posthog/posthog-js
 
+    # Channel this task was kicked off in. Legacy tasks (and tasks from non-channel
+    # surfaces) stay NULL. SET_NULL so deleting a channel never deletes its tasks.
+    channel = models.ForeignKey(
+        "tasks.Channel",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="tasks",
+        db_index=False,
+    )
+
     # DEPRECATED - do not use
     signal_report = models.ForeignKey(
         "signals.SignalReport",
@@ -154,6 +215,10 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         help_text="Custom prompt for CI fixes. If blank, a default prompt will be used.",
     )
 
+    # Conversation-level state shared across the task's runs (each resume/follow-up
+    # is a fresh TaskRun), e.g. which PRs have been announced to the Slack thread.
+    state = models.JSONField(default=dict, null=True, blank=True)
+
     class Meta:
         db_table = "posthog_task"
         managed = True
@@ -162,6 +227,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             models.Index(fields=["archived"], name="posthog_task_archived_idx"),
             models.Index(fields=["team", "-created_at", "-id"], name="posthog_task_team_created_idx"),
             models.Index(fields=["team", "created_by", "-created_at", "-id"], name="posthog_task_team_creator_idx"),
+            models.Index(fields=["channel", "-created_at"], name="posthog_task_channel_feed_idx"),
         ]
 
     def __str__(self):
@@ -311,6 +377,22 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         )
         return task_run
 
+    @property
+    def slack_notified_pr_url(self) -> str | None:
+        """PR URL last announced to this task's Slack thread, if any."""
+        return (self.state or {}).get(SLACK_NOTIFIED_PR_URL_STATE_KEY)
+
+    def mark_slack_pr_notified(self, pr_url: str) -> None:
+        """Record ``pr_url`` as the PR announced to the task's Slack thread. Row-locked
+        merge so it doesn't clobber other keys in the shared state bag."""
+        with transaction.atomic():
+            task = Task.objects.select_for_update().only("id", "state").get(id=self.id)
+            state = dict(task.state or {})
+            state[SLACK_NOTIFIED_PR_URL_STATE_KEY] = pr_url
+            task.state = state
+            task.save(update_fields=["state", "updated_at"])
+        self.state = state
+
     def soft_delete(self):
         self.deleted = True
         self.deleted_at = django_timezone.now()
@@ -456,11 +538,9 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         if model:
             extra_state["model"] = model
 
-        # The model's runtime adapter and the provider derived from it. The agent server can't route
-        # a model without its runtime (it resolves the provider from the runtime), so callers that pin
-        # a non-default model must pass the matching runtime — mirrors the warm path in `facade/api`.
-        # Codex runs need permission mode `auto` (same default the warm path applies) so a headless
-        # run doesn't stall waiting on a prompt; an explicit `initial_permission_mode` still wins.
+        # `runtime_adapter` selects the harness (claude | codex) and the agent server derives
+        # the provider from it, so a pinned model must ship with its matching runtime. Codex runs
+        # default permission mode to `auto` so a headless run doesn't stall on a prompt.
         if runtime_adapter:
             extra_state["runtime_adapter"] = runtime_adapter
             provider = get_provider_for_runtime_adapter(runtime_adapter)
@@ -468,7 +548,6 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
                 extra_state["provider"] = provider.value
             if initial_permission_mode is None and runtime_adapter == RuntimeAdapter.CODEX.value:
                 initial_permission_mode = "auto"
-
         if reasoning_effort:
             extra_state["reasoning_effort"] = reasoning_effort
 
@@ -659,6 +738,39 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             transaction.on_commit(_dispatch)
 
         return task
+
+
+class TaskThreadMessage(TeamScopedRootMixin):
+    """One human message in a task's thread — the side conversation channel members
+    have around a task. Messages never reach the agent unless the task author
+    forwards one (send_to_agent), which stamps the forwarded_* fields."""
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # db_constraint=False on the team/user FKs: adding an FK constraint to those hot tables
+    # locks them and stalls deploys; Django still enforces the relation and on_delete at the
+    # app level (see safe-django-migrations.md).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="thread_messages")
+    author = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
+    content = models.TextField()
+    forwarded_to_agent_at = models.DateTimeField(null=True, blank=True)
+    forwarded_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
+    forwarded_run = models.ForeignKey(
+        "tasks.TaskRun", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_index=False
+    )
+    created_at = models.DateTimeField(default=django_timezone.now)
+
+    class Meta:
+        db_table = "posthog_task_thread_message"
+        indexes = [models.Index(fields=["task", "created_at"], name="task_thread_msg_task_created")]
+
+    def __str__(self):
+        return f"Thread message {self.id} on task {self.task_id}"
 
 
 class TaskAutomationManager(models.Manager):
