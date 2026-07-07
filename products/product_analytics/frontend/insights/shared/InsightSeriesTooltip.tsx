@@ -3,6 +3,7 @@ import { useCallback, useMemo } from 'react'
 
 import { DefaultTooltip, type TooltipContext } from '@posthog/quill-charts'
 
+import { parseDateInTimezone } from 'lib/utils/datetime'
 import { percentage } from 'lib/utils/numbers'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import {
@@ -254,7 +255,14 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
     const labelFormatter = useCallback((): React.ReactNode => {
         const firstKey = context.seriesData[0]?.series.key
         const date = firstKey ? datumByKey.get(firstKey)?.date_label : undefined
-        const formattedDate = getFormattedDate(date, { interval, dateRange, timezone, weekStartDay })
+        let formattedDate = getFormattedDate(date, { interval, dateRange, timezone, weekStartDay })
+        // Match the classic insight tooltip, which spells out the weekday on daily buckets
+        if (interval === 'day' && typeof date === 'string') {
+            const parsed = parseDateInTimezone(date, timezone ?? 'UTC')
+            if (parsed.isValid()) {
+                formattedDate = `${parsed.format('dddd')}, ${formattedDate}`
+            }
+        }
         if (altTitle) {
             return getTooltipTitle([...datumByKey.values()], altTitle, formattedDate) ?? formattedDate
         }
