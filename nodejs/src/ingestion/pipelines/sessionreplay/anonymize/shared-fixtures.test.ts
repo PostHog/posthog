@@ -9,7 +9,7 @@ import { AllowLists } from './allow-lists'
 import { anonymizeEvent } from './anonymize-event'
 import { ScrubContext } from './config'
 import { scrubText } from './text'
-import { firstPartyHostPatterns, scrubUrl } from './url'
+import { scrubUrl } from './url'
 
 // shared fixtures to guarantee identical behaviour between implementations
 const FIXTURE_DIR = path.resolve(__dirname, '../../../../../../rust/replay-anonymizer-node/tests/fixtures')
@@ -26,7 +26,7 @@ interface TextCase {
 }
 interface UrlCase extends TextCase {
     collapseHost?: boolean
-    recordingDomains?: string[]
+    firstPartyHosts?: string[]
 }
 interface EventCase {
     name: string
@@ -83,7 +83,7 @@ describe('anonymize shared fixtures', () => {
         })
 
         test.each(urlCases.map((c) => [c.name, c] as const))('url: %s', (_name, c) => {
-            const ctx = { ...ctxOf(c.allow), firstPartyHosts: firstPartyHostPatterns(c.recordingDomains) }
+            const ctx = { ...ctxOf(c.allow), firstPartyHosts: c.firstPartyHosts }
             expect(scrubUrl(ctx, c.input, { collapseHost: c.collapseHost }).value).toEqual(c.expected)
         })
 
@@ -165,7 +165,7 @@ describe('anonymize shared fixtures', () => {
             }
         })
 
-        it('collapses first-party hosts from recording domains passed per call', async () => {
+        it('collapses first-party hosts passed per call', async () => {
             const event = {
                 type: 2,
                 data: {
@@ -185,7 +185,7 @@ describe('anonymize shared fixtures', () => {
             }
             rustAddon!.initAnonymizer({ text: [], url: [] })
             const result = await rustAddon!.anonymizeKafkaPayload(payloadOf('w', [event]), undefined, [
-                'https://*.customer-site.test',
+                'customer-site.test',
             ])
             expect(result.failed).toBe(false)
             const line = parseLines(result.lines!)[0] as [

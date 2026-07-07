@@ -76,12 +76,12 @@ export function initAnonymizer(allow: AllowListsInput): void {
 export function anonymizeKafkaPayload(
     payload: Buffer,
     contentEncoding?: string | null,
-    /** The team's recording-domain origins; their hosts are collapsed as first-party by the URL scrub. */
-    recordingDomains?: string[] | null
+    /** Lowercase registrable-domain patterns; matching hosts (and their subdomains) are collapsed as first-party by the URL scrub. */
+    firstPartyHosts?: string[] | null
 ): Promise<AnonymizeKafkaPayloadResult> {
     return native.anonymizeKafkaPayload(
         payload,
         contentEncoding ?? undefined,
-        recordingDomains && recordingDomains.length > 0 ? JSON.stringify(recordingDomains) : undefined
+        firstPartyHosts && firstPartyHosts.length > 0 ? JSON.stringify(firstPartyHosts) : undefined
     )
 }

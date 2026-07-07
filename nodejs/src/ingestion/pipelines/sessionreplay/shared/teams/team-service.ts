@@ -1,6 +1,7 @@
 import { BackgroundRefresher } from '~/common/utils/background-refresher'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { logger } from '~/common/utils/logger'
+import { firstPartyHostPatterns } from '~/ingestion/pipelines/sessionreplay/anonymize/url'
 import { RetentionPeriod, isValidRetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { Team, TeamId } from '~/types'
 
@@ -93,7 +94,7 @@ export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Pro
                 teamId: row.id,
                 consoleLogIngestionEnabled: row.capture_console_log_opt_in,
                 aiTrainingOptedIn: row.is_ai_training_opted_in,
-                recordingDomains: row.recording_domains,
+                firstPartyHosts: firstPartyHostPatterns(row.recording_domains),
             }
             return acc
         },

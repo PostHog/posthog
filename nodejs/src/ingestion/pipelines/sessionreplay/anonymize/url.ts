@@ -14,6 +14,8 @@
  *   patterns (the team's recording domains), it additionally drops the port and collapses the
  *   host to `example.com` (keeping a leading allow-listed subdomain label).
  */
+import { getDomain } from 'tldts'
+
 import { ScrubContext } from './config'
 import { ScrubResult } from './text'
 
@@ -147,8 +149,10 @@ function scrubTail(ctx: ScrubContext, tail: string): string {
 }
 
 /**
- * Lowercase host patterns from a team's `recording_domains` origins: scheme, path, and port are
- * dropped; `*.`-prefixed entries stay wildcards. Bare `*` (match-everything) entries are ignored.
+ * Registrable-domain patterns from a team's `recording_domains` origins. Scheme, path, port,
+ * and every subdomain (including `*.` wildcards) are dropped via the public-suffix list, so
+ * recording on `www.example.com` also collapses `app.example.com:5000`. Hosts without a
+ * registrable domain (IPs, `localhost`) keep the full host. Bare `*` entries are ignored.
  */
 export function firstPartyHostPatterns(recordingDomains: string[] | null | undefined): string[] {
     const patterns: string[] = []
@@ -159,29 +163,25 @@ export function firstPartyHostPatterns(recordingDomains: string[] | null | undef
             host = host.slice(schemeEnd + 3)
         }
         host = host.split('/')[0].replace(/:\d+$/, '')
-        if (host !== '' && host !== '*' && host !== '*.') {
-            patterns.push(host)
+        if (host.startsWith('*.')) {
+            host = host.slice(2)
         }
+        if (host === '' || host === '*') {
+            continue
+        }
+        patterns.push(getDomain(host) ?? host)
     }
     return patterns
 }
 
+// Every pattern is a registrable domain, matched with all its subdomains.
 function isFirstPartyHost(ctx: ScrubContext, hostPort: string): boolean {
     const patterns = ctx.firstPartyHosts
     if (!patterns || patterns.length === 0) {
         return false
     }
     const host = hostPort.replace(/:\d+$/, '').toLowerCase()
-    for (const pattern of patterns) {
-        if (pattern.startsWith('*.')) {
-            if (host === pattern.slice(2) || host.endsWith(pattern.slice(1))) {
-                return true
-            }
-        } else if (host === pattern) {
-            return true
-        }
-    }
-    return false
+    return patterns.some((pattern) => host === pattern || host.endsWith(`.${pattern}`))
 }
 
 // Drop the port and rewrite the host to example.com. Keep a leading *subdomain* label

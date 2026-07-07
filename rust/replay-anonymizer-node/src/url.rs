@@ -18,26 +18,6 @@ use crate::context::Ctx;
 // only costs replay fidelity. Exact matches only.
 pub const PASSTHROUGH_URLS: &[&str] = &["about:blank", "about:srcdoc"];
 
-/// Lowercase host patterns from a team's `recording_domains` origins: scheme, path, and port are
-/// dropped; `*.`-prefixed entries stay wildcards. Bare `*` (match-everything) entries are ignored.
-pub fn first_party_host_patterns(recording_domains: &[String]) -> Vec<String> {
-    let mut patterns = Vec::new();
-    for domain in recording_domains {
-        let mut host = domain.trim().to_ascii_lowercase();
-        if let Some(scheme_end) = host.find("://") {
-            host = host[scheme_end + 3..].to_string();
-        }
-        if let Some(path_start) = host.find('/') {
-            host.truncate(path_start);
-        }
-        strip_port(&mut host);
-        if !host.is_empty() && host != "*" && host != "*." {
-            patterns.push(host);
-        }
-    }
-    patterns
-}
-
 fn strip_port(host: &mut String) {
     if let Some(ci) = host.rfind(':') {
         let after = &host[ci + 1..];
@@ -47,18 +27,20 @@ fn strip_port(host: &mut String) {
     }
 }
 
+// Every pattern is a registrable domain (computed TS-side from the team's recording domains via
+// the public-suffix list), matched with all its subdomains.
 fn is_first_party_host(ctx: &Ctx<'_>, host_port: &str) -> bool {
     if ctx.first_party_hosts.is_empty() {
         return false;
     }
     let mut host = host_port.to_ascii_lowercase();
     strip_port(&mut host);
-    ctx.first_party_hosts
-        .iter()
-        .any(|pattern| match pattern.strip_prefix("*.") {
-            Some(base) => host == base || host.ends_with(&pattern[1..]),
-            None => host == *pattern,
-        })
+    ctx.first_party_hosts.iter().any(|pattern| {
+        host == *pattern
+            || (host.len() > pattern.len()
+                && host.ends_with(pattern.as_str())
+                && host.as_bytes()[host.len() - pattern.len() - 1] == b'.')
+    })
 }
 
 pub fn scrub_url(ctx: &Ctx<'_>, input: &str) -> Option<String> {

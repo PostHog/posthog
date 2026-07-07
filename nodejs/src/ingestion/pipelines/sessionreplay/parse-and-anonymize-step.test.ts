@@ -14,8 +14,8 @@ const compressWithGzip = promisify(gzip)
 // assembly — not the scrub itself (that's covered by the Rust suite + shared fixtures).
 const mockAnonymizeKafkaPayload = jest.fn()
 jest.mock('@posthog/replay-anonymizer', () => ({
-    anonymizeKafkaPayload: (payload: Buffer, contentEncoding?: string | null, recordingDomains?: string[] | null) =>
-        mockAnonymizeKafkaPayload(payload, contentEncoding, recordingDomains),
+    anonymizeKafkaPayload: (payload: Buffer, contentEncoding?: string | null, firstPartyHosts?: string[] | null) =>
+        mockAnonymizeKafkaPayload(payload, contentEncoding, firstPartyHosts),
 }))
 
 describe('createParseAndAnonymizeMessageStep', () => {
@@ -26,7 +26,7 @@ describe('createParseAndAnonymizeMessageStep', () => {
         teamId: 1,
         consoleLogIngestionEnabled: true,
         aiTrainingOptedIn: true,
-        recordingDomains: ['https://app.customer-site.test'],
+        firstPartyHosts: ['customer-site.test'],
     }
 
     const headers: SessionReplayHeaders = {
@@ -110,14 +110,14 @@ describe('createParseAndAnonymizeMessageStep', () => {
         const raw = Buffer.from(JSON.stringify({ distinct_id: 'user-1', data: '{}' }))
         const zipped = await compressWithGzip(raw)
         await step({ message: kafkaMessage(zipped), headers, team })
-        expect(mockAnonymizeKafkaPayload).toHaveBeenCalledWith(zipped, null, team.recordingDomains)
+        expect(mockAnonymizeKafkaPayload).toHaveBeenCalledWith(zipped, null, team.firstPartyHosts)
 
         mockAnonymizeKafkaPayload.mockClear()
         addonSuccess()
         const lz4Message = kafkaMessage(raw)
         lz4Message.headers = [{ 'content-encoding': Buffer.from('lz4') }]
         await step({ message: lz4Message, headers, team })
-        expect(mockAnonymizeKafkaPayload).toHaveBeenCalledWith(raw, 'lz4', team.recordingDomains)
+        expect(mockAnonymizeKafkaPayload).toHaveBeenCalledWith(raw, 'lz4', team.firstPartyHosts)
     })
 
     test.each([

@@ -6,7 +6,7 @@ import { ParsedMessageData } from './kafka/types'
 
 describe('anonymize-step', () => {
     const step = createAnonymizeStep({ scrubContext: { allow: defaultAllowLists() } })
-    const team = { teamId: 1, consoleLogIngestionEnabled: true, aiTrainingOptedIn: true, recordingDomains: null }
+    const team = { teamId: 1, consoleLogIngestionEnabled: true, aiTrainingOptedIn: true, firstPartyHosts: [] }
 
     const parsedMessageWith = (eventsByWindowId: Record<string, any[]>): ParsedMessageData =>
         ({ eventsByWindowId }) as unknown as ParsedMessageData

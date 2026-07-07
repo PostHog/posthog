@@ -119,7 +119,7 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
         .argument_opt(1)
         .and_then(|v| v.downcast::<JsString, _>(&mut cx).ok())
         .map(|s| s.value(&mut cx));
-    let recording_domains_json: Option<String> = cx
+    let first_party_hosts_json: Option<String> = cx
         .argument_opt(2)
         .and_then(|v| v.downcast::<JsString, _>(&mut cx).ok())
         .map(|s| s.value(&mut cx));
@@ -134,12 +134,16 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
                 let allow = guard.as_ref().ok_or_else(|| {
                     "anonymizer not initialized (call initAnonymizer first)".to_string()
                 })?;
-                // A malformed domains list fails closed (message dropped), never silently unscrubbed.
-                let first_party_hosts = match &recording_domains_json {
+                // A malformed host list fails closed (message dropped), never silently unscrubbed.
+                let first_party_hosts: Vec<String> = match &first_party_hosts_json {
                     Some(json) => {
-                        let domains: Vec<String> = serde_json::from_str(json)
-                            .map_err(|e| format!("invalid recording domains json: {e}"))?;
-                        url::first_party_host_patterns(&domains)
+                        let hosts: Vec<String> = serde_json::from_str(json)
+                            .map_err(|e| format!("invalid first-party hosts json: {e}"))?;
+                        hosts
+                            .iter()
+                            .map(|h| h.trim().to_ascii_lowercase())
+                            .filter(|h| !h.is_empty())
+                            .collect()
                     }
                     None => Vec::new(),
                 };

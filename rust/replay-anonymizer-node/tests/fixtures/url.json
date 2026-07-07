@@ -179,42 +179,55 @@
     "expected": "mailto:[redacted]"
   },
   {
-    "name": "first-party host from recording domains collapses without the collapseHost flag",
+    "name": "first-party base domain collapses subdomain and port",
     "allow": {
       "text": [],
       "url": []
     },
-    "recordingDomains": [
-      "https://app.customer-site.test"
+    "firstPartyHosts": [
+      "customer-site.test"
     ],
-    "input": "https://app.customer-site.test/settings/billing",
+    "input": "https://app.customer-site.test:5000/settings/billing",
     "collapseHost": false,
     "expected": "https://example.com/[redacted]/[redacted]"
   },
   {
-    "name": "wildcard recording domain matches subdomains and ignores the port",
+    "name": "first-party base domain collapses the apex host itself",
     "allow": {
       "text": [],
       "url": []
     },
-    "recordingDomains": [
-      "https://*.customer-site.test"
+    "firstPartyHosts": [
+      "customer-site.test"
     ],
-    "input": "https://static.customer-site.test:8443/logo.png",
+    "input": "https://customer-site.test/pricing",
     "collapseHost": false,
     "expected": "https://example.com/[redacted]"
   },
   {
-    "name": "third-party host keeps its hostname despite recording domains",
+    "name": "third-party host keeps its hostname despite first-party patterns",
     "allow": {
       "text": [],
       "url": []
     },
-    "recordingDomains": [
-      "https://app.customer-site.test"
+    "firstPartyHosts": [
+      "customer-site.test"
     ],
     "input": "https://js.payment-vendor.test/v3",
     "collapseHost": false,
     "expected": "https://js.payment-vendor.test/[redacted]"
+  },
+  {
+    "name": "lookalike suffix host is not treated as first-party",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "firstPartyHosts": [
+      "customer-site.test"
+    ],
+    "input": "https://evil-customer-site.test/x",
+    "collapseHost": false,
+    "expected": "https://evil-customer-site.test/[redacted]"
   }
 ]

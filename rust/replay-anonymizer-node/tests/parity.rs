@@ -6,8 +6,7 @@ use std::time::Instant;
 
 use replay_anonymizer_node::allow_lists::AllowLists;
 use replay_anonymizer_node::{
-    anonymize_event_str, anonymize_message, context::Ctx, text::scrub_text,
-    url::first_party_host_patterns, url::scrub_url_opts,
+    anonymize_event_str, anonymize_message, context::Ctx, text::scrub_text, url::scrub_url_opts,
 };
 use serde_json::Value;
 
@@ -52,7 +51,7 @@ fn url_fixtures() {
         let input = case["input"].as_str().unwrap();
         let expected = case["expected"].as_str().unwrap();
         let collapse_host = case["collapseHost"].as_bool().unwrap_or(false);
-        let recording_domains: Vec<String> = case["recordingDomains"]
+        let first_party_hosts: Vec<String> = case["firstPartyHosts"]
             .as_array()
             .map(|a| {
                 a.iter()
@@ -60,8 +59,7 @@ fn url_fixtures() {
                     .collect()
             })
             .unwrap_or_default();
-        let ctx =
-            Ctx::with_first_party_hosts(&allow, first_party_host_patterns(&recording_domains));
+        let ctx = Ctx::with_first_party_hosts(&allow, first_party_hosts);
         let actual =
             scrub_url_opts(&ctx, input, collapse_host).unwrap_or_else(|| input.to_string());
         assert_eq!(actual, expected, "url case: {}", case["name"]);

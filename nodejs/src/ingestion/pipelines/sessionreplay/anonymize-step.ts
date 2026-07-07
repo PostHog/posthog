@@ -3,7 +3,6 @@ import { ProcessingStep } from '~/ingestion/framework/steps'
 
 import { anonymizeParsedMessage } from './anonymize/anonymize-event'
 import { ScrubContext } from './anonymize/config'
-import { firstPartyHostPatterns } from './anonymize/url'
 import { ParsedMessageData } from './kafka/types'
 import { TeamForReplay } from './shared/teams/types'
 
@@ -27,7 +26,7 @@ export function createAnonymizeStep<T extends AnonymizeStepInput>(config: Anonym
     return async function anonymizeStep(input) {
         const teamContext: ScrubContext = {
             ...scrubContext,
-            firstPartyHosts: firstPartyHostPatterns(input.team.recordingDomains),
+            firstPartyHosts: input.team.firstPartyHosts,
         }
         const { failed } = await anonymizeParsedMessage(teamContext, input.parsedMessage)
         if (failed) {
