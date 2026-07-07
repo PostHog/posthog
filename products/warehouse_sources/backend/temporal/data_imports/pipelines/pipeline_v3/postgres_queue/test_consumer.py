@@ -7,6 +7,9 @@ from unittest.mock import AsyncMock, patch
 import psycopg
 import structlog
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import (
+    batch_consumer as batch_consumer_module,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     OwnershipLostError,
 )
@@ -1478,3 +1481,35 @@ class TestDispatchGroups:
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
+
+
+class TestBatchHeartbeat:
+    @pytest.mark.asyncio
+    async def test_transient_renewal_failure_does_not_end_heartbeat(self):
+        # A single pgbouncer/network blip previously killed the heartbeat
+        # silently for the rest of the batch: renewals stopped, the lease
+        # expired under a healthy owner, and another pod could re-claim the
+        # batch mid-apply. The loop must survive transient errors and only
+        # stop when the lease is genuinely lost.
+        consumer = _make_consumer()
+        renew = AsyncMock(side_effect=[ConnectionError("blip"), True, False])
+        refresh = AsyncMock()
+
+        sleep_count = 0
+
+        async def fast_sleep(_seconds):
+            nonlocal sleep_count
+            sleep_count += 1
+            if sleep_count > 10:
+                raise AssertionError("heartbeat loop did not exit after lease loss")
+
+        with (
+            patch.object(consumer._adapter, "renew_lease", renew),
+            patch.object(consumer._adapter, "update_status", refresh),
+            patch.object(batch_consumer_module.asyncio, "sleep", fast_sleep),
+        ):
+            await consumer._batch_heartbeat(AsyncMock(), _make_batch(), attempt=1)
+
+        # blip -> continue; renewed -> status refresh; lease lost -> stop
+        assert renew.await_count == 3
+        refresh.assert_awaited_once()
