@@ -61,7 +61,7 @@ export const RunningProvisioning: Story = {
 }
 
 // The wizard's own sub-steps (session tasks) replace the pipeline's aggregate wizard stage in the
-// flat timeline; a small tag marks them as wizard-reported.
+// flat timeline, indistinguishable from pipeline steps.
 const wizardSubSteps: InstallationProgress['steps'] = [
     { id: 'wizard-task:a', label: 'Detected Next.js', status: 'completed', detail: null, source: 'wizard' },
     { id: 'wizard-task:b', label: 'Installing the PostHog SDK', status: 'in_progress', detail: null, source: 'wizard' },

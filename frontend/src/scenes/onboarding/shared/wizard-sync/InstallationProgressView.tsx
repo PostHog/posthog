@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconCheckCircle, IconPullRequest, IconTerminal, IconX } from '@posthog/icons'
-import { LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -129,30 +129,22 @@ export function InstallationProgressContent({
             {steps.length > 0 ? (
                 <ol className="flex flex-col m-0 p-0 list-none">
                     {steps.map((step, i) => (
-                        // One flat rail for pipeline and wizard-reported steps alike — a small tag is
-                        // the only cue that a row came from the wizard rather than the run pipeline.
+                        // One flat rail for pipeline and wizard-reported steps alike.
                         <li key={step.id} className="flex gap-3">
                             <div className="flex flex-col items-center pt-0.5">
                                 <StepIcon status={step.status} />
                                 {i < steps.length - 1 && <div className="w-px flex-1 bg-border my-1 min-h-[0.75rem]" />}
                             </div>
                             <div className="flex-1 min-w-0 pb-3">
-                                <div className="flex items-center gap-1.5 min-w-0">
-                                    <span
-                                        className={cn(
-                                            'text-sm truncate',
-                                            step.status === 'pending' && 'text-muted',
-                                            step.status === 'failed' && 'text-danger font-medium',
-                                            step.status === 'in_progress' && 'font-medium'
-                                        )}
-                                    >
-                                        {step.label}
-                                    </span>
-                                    {step.source === 'wizard' && (
-                                        <LemonTag size="small" type="muted">
-                                            wizard
-                                        </LemonTag>
+                                <div
+                                    className={cn(
+                                        'text-sm truncate',
+                                        step.status === 'pending' && 'text-muted',
+                                        step.status === 'failed' && 'text-danger font-medium',
+                                        step.status === 'in_progress' && 'font-medium'
                                     )}
+                                >
+                                    {step.label}
                                 </div>
                                 {step.detail && <div className="text-xs text-muted truncate">{step.detail}</div>}
                             </div>
