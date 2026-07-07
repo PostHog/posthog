@@ -174,7 +174,7 @@ impl Normalization {
         !(self.strip_query_strings || self.strip_hashed_chunks || self.basename_only)
     }
 
-    fn apply<'a>(&self, value: &'a str) -> Cow<'a, str> {
+    fn apply_source<'a>(&self, value: &'a str) -> Cow<'a, str> {
         if self.is_noop() {
             return Cow::Borrowed(value);
         }
@@ -206,6 +206,20 @@ impl Normalization {
                 .into_owned();
         }
         Cow::Owned(out)
+    }
+
+    fn apply_module<'a>(&self, value: &'a str) -> Cow<'a, str> {
+        // Module names are logical identifiers, not build artifact paths. Keep dotted package
+        // context and avoid chunk-hash masking so names like `sqlalchemy2.orm` don't collapse
+        // into `*.orm`.
+        if self.is_noop() || !self.strip_query_strings {
+            return Cow::Borrowed(value);
+        }
+
+        let Some(idx) = value.find('?') else {
+            return Cow::Borrowed(value);
+        };
+        Cow::Owned(value[..idx].to_string())
     }
 }
 
@@ -371,12 +385,12 @@ impl FingerprintStrategy {
 
         // Include source and module in the fingerprint either way
         if let Some(source) = &frame.source {
-            fp.update(self.normalize.apply(source).as_bytes());
+            fp.update(self.normalize.apply_source(source).as_bytes());
             included_pieces.push("Source file name");
         }
 
         if let Some(module) = &frame.module {
-            fp.update(self.normalize.apply(module).as_bytes());
+            fp.update(self.normalize.apply_module(module).as_bytes());
             included_pieces.push("Module name");
         }
 
@@ -703,6 +717,20 @@ mod test {
     }
 
     #[test]
+    fn v2_does_not_mask_dotted_module_names_as_chunks() {
+        let with_module = |module: &str| {
+            let mut frame = frame("execute", None, Some("execute"), true, true, Some(1));
+            frame.module = Some(module.to_string());
+            vec![exception("Error", "boom", resolved_stack(vec![frame]))]
+        };
+
+        assert_ne!(
+            value(FingerprintVersion::V2, with_module("sqlalchemy2.orm")),
+            value(FingerprintVersion::V2, with_module("customlib2.orm")),
+        );
+    }
+
+    #[test]
     fn v2_masks_dynamic_message_tokens() {
         let cases = [
             (
@@ -796,7 +824,9 @@ mod test {
     #[test]
     fn normalizations_are_identity_when_disabled() {
         let path = "chunk-PGUQKT6S.js?v=1";
-        assert!(matches!(Normalization::default().apply(path), Cow::Borrowed(s) if s == path));
+        assert!(
+            matches!(Normalization::default().apply_source(path), Cow::Borrowed(s) if s == path)
+        );
         let msg = "timeout after 30s for 'user' at 0xdeadbeef";
         assert!(matches!(MessageNormalization::default().apply(msg), Cow::Borrowed(s) if s == msg));
     }
