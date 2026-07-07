@@ -31,9 +31,9 @@ const RESPONSE: _LogsPatternsResponseApi = {
             first_seen: '2026-06-23T12:00:00+00:00',
             last_seen: '2026-06-23T12:05:00+00:00',
             examples: [],
-            services: ['auth'],
+            services: ['auth', 'api'],
             sparkline: [1, 2],
-            severity_counts: { error: 3 },
+            severity_counts: { error: 2, warn: 1 },
             match_regex: '^\\s*User\\s+\\S+\\s+not\\s+found\\s*$',
             match_literal: 'User',
         },
@@ -96,11 +96,22 @@ describe('logsPatternsLogic', () => {
                 value: RESPONSE.patterns[0].match_regex,
             })
         )
-        // The pattern's sample was unambiguous (one service, one severity), so the pivot also
-        // scopes by both — service_name and severity prune the scan the body regex can't.
-        expect(filtersLogic.values.filters.serviceNames).toEqual(['auth'])
-        expect(filtersLogic.values.filters.severityLevels).toEqual(['error'])
+        // The pivot also scopes by everything the sample saw — service_name and severity
+        // prune the scan the body regex can't, and multi-value IN filters narrow just as well.
+        expect(filtersLogic.values.filters.serviceNames).toEqual(['auth', 'api'])
+        expect(filtersLogic.values.filters.severityLevels).toEqual(['error', 'warn'])
         expect(configLogic.values.viewMode).toBe('logs')
+
+        // A filter that could silently exclude matching lines must be withheld: a services
+        // list at the miner's cap may be truncated, and a non-canonical severity ("notice")
+        // can't be expressed as a severity filter. Both leave the previous values untouched.
+        logic.actions.viewMatchingLogs({
+            ...RESPONSE.patterns[0],
+            services: ['auth', 'api', 'db', 'kafka'],
+            severity_counts: { error: 2, notice: 1 },
+        })
+        expect(filtersLogic.values.filters.serviceNames).toEqual(['auth', 'api'])
+        expect(filtersLogic.values.filters.severityLevels).toEqual(['error', 'warn'])
     })
 
     it('surfaces a load failure as patternsError and clears it on the next success', async () => {

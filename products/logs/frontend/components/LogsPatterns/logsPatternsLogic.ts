@@ -22,9 +22,14 @@ export interface LogsPatternsLogicProps {
     id: string
 }
 
-// The severity filter is an exact match on these six buckets; a pattern whose single sampled
-// severity is non-canonical (e.g. "notice") must not be narrowed to a filter that matches nothing.
+// The severity filter is an exact match on these six buckets; a sampled severity outside them
+// (e.g. "notice") can't be expressed, so applying the filter would silently exclude those lines.
 const CANONICAL_SEVERITIES = ['trace', 'debug', 'info', 'warn', 'error', 'fatal']
+
+// Mirrors the miner's LOGS_PATTERNS_MAX_SERVICES default: a services list this long may have
+// been truncated at the cap, so filtering by it could exclude services the pattern also hits.
+// severity_counts has no cap, so it never needs this guard.
+const SERVICES_LIST_CAP = 4
 
 const EMPTY_RESPONSE: _LogsPatternsResponseApi = {
     patterns: [],
@@ -179,16 +184,18 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
                               values: [{ type: FilterLogicalOperator.And, values: [predicate] }],
                           }
                 actions.setFilterGroup(newGroup, false)
-                // When the sample is unambiguous, scope by service and severity too: service_name
-                // is in the table's sort key and severity is indexed, so these prune the scan the
-                // body regex alone can't. Both land as visible filter chips the user can remove if
-                // the pattern turns out to exist beyond what the sample saw.
-                if (pattern.services.length === 1) {
+                // Scope by every service and severity the sample saw: service_name is in the
+                // table's sort key and severity is indexed, so these prune the scan the body regex
+                // alone can't. Both are IN filters, so N values narrow just as validly as one, and
+                // both land as visible chips the user can remove if the pattern exists beyond the
+                // sample. Skipped only when the filter could silently exclude matching lines: a
+                // cap-truncated services list, or a severity outside the canonical buckets.
+                if (pattern.services.length > 0 && pattern.services.length < SERVICES_LIST_CAP) {
                     actions.setServiceNames(pattern.services)
                 }
                 const severities = Object.keys(pattern.severity_counts)
-                if (severities.length === 1 && CANONICAL_SEVERITIES.includes(severities[0])) {
-                    actions.setSeverityLevels([severities[0]] as LogsQuery['severityLevels'])
+                if (severities.length > 0 && severities.every((s) => CANONICAL_SEVERITIES.includes(s))) {
+                    actions.setSeverityLevels(severities as LogsQuery['severityLevels'])
                 }
                 actions.setViewMode('logs')
             },
