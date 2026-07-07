@@ -194,6 +194,20 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    cache (proven); `ENABLE_PROMPT_CACHING_1H=1` per sandbox enforces 1h when needed. Working mode
    (amended 2026-07-07): everything on `signals/reviewhog`, experiment code behind on/off constants,
    losers reverted — no per-experiment branches.
+8. **Try dedup at `effort=high` instead of `xhigh` (noted 2026-07-07).** Measured (local ClickHouse,
+   `ai_stage=dedup`, 14d): dedup's output tokens are dominated by adaptive thinking at
+   `ONESHOT_REASONING_EFFORT=xhigh`, NOT by the answer — the schema is ids-only (`{duplicates:[{id}]}`,
+   ≤~700 tokens even at the 50-finding cap). Worst observed 28,899 output tokens / $0.35 on a 36-finding
+   PR; typical PRs $0.02–0.18, so this is a tail trim worth pennies per review, not a headline saving.
+   Mechanics when picked up: add an `effort` param to `run_oneshot_review` and pass `"high"` from
+   `deduplicate_issues` only — chunking stays at xhigh. Acceptance: on a frozen-PR set, survivor id-sets
+   match the xhigh control (or diffs hand-adjudicated as defensible merges); kill if it collapses
+   non-duplicates or misses obvious dupes. Related stale breadcrumb: `direct_llm.py`'s comment still says
+   dedup "re-emits every surviving issue's full JSON" — it doesn't (ids-only since Jun 25); fix when touching.
+
+### ✅ BUILT 2026-07-07 — canonical skill bodies rewritten to the writing-great-skills form (uncommitted)
+
+Form-only pass over the six `skills/*/SKILL.md` canonicals applying [mattpocock/skills → writing-great-skills](https://github.com/mattpocock/skills/tree/main/skills/productivity/writing-great-skills): single source of truth vs the review harness (the perspectives' parallel-topology/dedup paragraph, the non-test-files rule, and the perf skill's severity guide all restated `issues_review/prompt.jinja` — cut from the skills, the harness owns them), in-skill duplication collapsed (each perspective said its scope 3×: investigation areas → "Key questions" → "valid finding" noun list), sediment deleted ("Investigation commands" — repo-wide `rg` in a chunk-anchored review, with a broken `--type tsx` flag; buffer-overflow/GraphQL template leftovers), no-op virtues pruned ("verify calculations are correct"). Added per the doc: a **checkable completion criterion** on every perspective ("done when every changed file is flagged or affirmatively cleared against every hunting ground") and shared leading words — "lane"/"hunting grounds"/"negative space" (blind-spots), and the validator's "concrete trigger + concrete consequence" now IS the finder-side finding bar, so finder and judge speak one language. **Bar semantics untouched**: validator body intact except one restatement collapse (strictness round is item 4); blind-spots stays pure-generic (item 2's lock); NOT the content-coverage round (item 5 — new grounds/4th perspective still pending). `review-hog-authoring` updated so customs get authored to the same shape (and told not to restate harness mechanics). Skill bodies ~halved; canonical sync picks the new bodies up on next run for unedited teams. **Not e2e'd — next live run should sanity-check finding volume/quality didn't regress; the real acceptance test stays the eval yardstick (item 5's coverage matrix).**
 
 ### ✅ BUILT 2026-07-07 — sandbox workflow ids branded with review + step (Temporal debuggability) (uncommitted)
 
