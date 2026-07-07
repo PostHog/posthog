@@ -42,8 +42,11 @@ class PublicGitHubTokenCircuit:
             return False
 
     def record_success(self) -> None:
+        # Any non-401 response breaks the consecutive-401 streak; clearing the open flag too means
+        # an in-flight success that races the trip closes the circuit immediately.
         try:
             cache.delete(_PUBLIC_TOKEN_UNAUTHORIZED_COUNT_KEY)
+            cache.delete(_PUBLIC_TOKEN_CIRCUIT_OPEN_KEY)
         except Exception:
             pass
 
@@ -285,7 +288,9 @@ class GitProviderFileLinksViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             if outcome.status_code == 401:
                 circuit.record_unauthorized()
                 logger.error("github_public_token_unauthorized", status_code=401)
-            elif outcome.status_code == 200:
+            elif outcome.status_code is not None:
+                # Any completed non-401 response breaks the streak — the breaker is for a dead PAT
+                # (consistent 401s), not for interleaved rate-limit or server errors.
                 circuit.record_success()
             if outcome.url:
                 return Response({"found": True, "url": outcome.url})
