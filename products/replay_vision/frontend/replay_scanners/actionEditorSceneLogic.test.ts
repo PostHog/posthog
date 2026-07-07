@@ -10,7 +10,7 @@ import { initKeaTests } from '~/test/init'
 import type { VisionActionApi } from '../generated/api.schemas'
 import { actionEditorSceneLogic } from './actionEditorSceneLogic'
 
-const existingAction: VisionActionApi = {
+const existingAction = {
     id: 'e',
     name: 'action-e',
     scanner: 's1',
@@ -18,13 +18,7 @@ const existingAction: VisionActionApi = {
     trigger_config: { rrule: 'FREQ=WEEKLY;BYDAY=MO,WE;BYHOUR=14;BYMINUTE=30', timezone: 'Europe/Prague' },
     synthesis_config: { prompt_guide: 'focus on checkout' },
     delivery_config: [{ type: 'slack', integration_id: 5, channel: 'C123' }],
-    next_run_at: null,
-    last_run_at: null,
-    hog_flow_id: null,
-    created_at: '2026-01-01T00:00:00Z',
-    created_by: null,
-    updated_at: '2026-01-01T00:00:00Z',
-}
+} as unknown as VisionActionApi
 
 describe('actionEditorSceneLogic', () => {
     let logic: ReturnType<typeof actionEditorSceneLogic.build>
@@ -59,18 +53,12 @@ describe('actionEditorSceneLogic', () => {
             })
     })
 
-    it('the edit route switches to edit mode and loads the action', async () => {
-        await expectLogic(logic, () => {
-            router.actions.push(urls.replayVisionActionEdit('e'))
-        }).toDispatchActions(['setActionId', 'loadAction'])
-        expect(logic.values.isNew).toEqual(false)
-    })
-
-    it('loading an action seeds the form from it', async () => {
-        logic.actions.loadAction('e')
+    it('the edit route loads the action and seeds the form from it', async () => {
+        router.actions.push(urls.replayVisionActionEdit('e'))
         await expectLogic(logic)
             .toFinishAllListeners()
             .toMatchValues({
+                isNew: false,
                 effectiveScannerId: 's1',
                 actionForm: {
                     name: 'action-e',

@@ -34,8 +34,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
     }),
 
     reducers({
-        // The scanner the action belongs to. Known up-front for a new action (URL param); for an edit it's
-        // filled in once the action loads.
+        // Known up-front for a new action (URL param); filled in from the loaded action when editing.
         scannerId: [
             '',
             {
@@ -75,8 +74,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
 
     selectors({
         isNew: [(s) => [s.actionId], (actionId: string): boolean => actionId === 'new'],
-        // The scanner the create/update body targets: the loaded action's scanner when editing, else the
-        // scanner from the URL for a new action.
+        // The scanner the create/update body targets: loaded action's scanner when editing, else the URL's.
         effectiveScannerId: [
             (s) => [s.scannerId, s.loadedAction],
             (scannerId: string, loadedAction: VisionActionApi | null): string => loadedAction?.scanner || scannerId,
@@ -126,9 +124,8 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
             defaults: NEW_ACTION_FORM(),
             errors: ({ name, cadence, integration_id, channel }: VisionActionForm) => ({
                 name: !name?.trim() ? 'Give this summary a name' : undefined,
-                // weekdays is a number[], which kea-forms can't carry a string error on, so we hang the
-                // "pick a day" error on the cadence object via `hour` to mark the form invalid. This blocks
-                // Enter-to-submit; the user-facing message is the inline danger text + submit disabledReason.
+                // kea-forms can't carry a string error on the weekdays array, so hang it on `hour` to
+                // mark the form invalid and block Enter-to-submit; the visible copy is the inline text.
                 cadence: cadence.weekdays.length === 0 ? { hour: 'Pick at least one day' } : undefined,
                 channel: integration_id && !channel ? 'Pick a channel' : undefined,
             }),
@@ -162,11 +159,8 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
 
     listeners(({ actions }) => ({
         setScannerId: async ({ scannerId }, breakpoint) => {
-            if (!scannerId) {
-                return
-            }
             const teamId = teamLogic.values.currentTeamId
-            if (!teamId) {
+            if (!scannerId || !teamId) {
                 return
             }
             try {
@@ -214,8 +208,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
         [urls.replayVisionActionNew(':scannerId')]: ({ scannerId }) => {
             actions.setActionId('new')
             actions.setScannerId(scannerId || '')
-            // Landing on the create page fresh — clear any values left from a previous edit.
-            actions.resetActionForm(NEW_ACTION_FORM())
+            actions.resetActionForm(NEW_ACTION_FORM()) // clear values left from a previous edit
         },
         [urls.replayVisionActionEdit(':actionId')]: ({ actionId }) => {
             const id = actionId || 'new'
