@@ -772,6 +772,7 @@ const signalsScoutProjectProfileGet = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/project_profile/current/`,
             query: {
                 force_refresh: params.force_refresh,
+                run_id: params.run_id,
             },
         })
         return result

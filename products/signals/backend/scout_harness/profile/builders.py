@@ -70,7 +70,7 @@ logger = logging.getLogger(__name__)
 # rows whose `source_version` doesn't match the current build, so adding a new key here
 # (or restructuring an existing one) without bumping the version would silently mix old
 # and new shapes in the cache.
-INVENTORY_SOURCE_VERSION = "v8"
+INVENTORY_SOURCE_VERSION = "v9"
 
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without
@@ -280,6 +280,10 @@ def _emit_eligibility(team: Team) -> dict[str, Any]:
         "ai_processing_approved": ai_processing_approved,
         "source_enabled": source_enabled,
         "can_emit": can_emit,
+        # Team-wide baseline: the shared cached profile can't know which scout is reading it, so the
+        # per-scout dry-run flag is False here. The profile endpoint overlays the real value (and
+        # drops `can_emit`) when a scout passes its `run_id`. See `SignalProjectProfileViewSet`.
+        "scout_dry_run": False,
         "remediation": remediation_for_skip(blocking_reason),
     }
 

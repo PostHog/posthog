@@ -70,13 +70,19 @@ class EmitEligibility(_Section):
     and the `signals_scout` signal source must be enabled. When either is off, every emit is
     silently dropped — so a scout can read this at cold start and quick-close instead of doing
     throwaway investigation whose output never surfaces. `remediation` is the one-line next step
-    when `can_emit` is False. Per-scout state (the config's dry-run `emit` toggle) is not covered
-    here — this is the team-wide floor, not a single scout's config.
+    when `can_emit` is False.
+
+    `scout_dry_run` folds in the *per-scout* `emit` toggle (the config's dry-run posture), the
+    third gate `_preflight_emit_gates` checks. The cached team-wide profile can't know which scout
+    is reading it, so this defaults False; the profile endpoint overlays it (and drops `can_emit`
+    to False) when a scout passes its `run_id`. Without that overlay a dry-run scout would read
+    `can_emit=true`, run a full pass, and only discover at emit time that its output is dropped.
     """
 
     ai_processing_approved: bool
     source_enabled: bool
     can_emit: bool
+    scout_dry_run: bool = False
     remediation: str | None
 
 

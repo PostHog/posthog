@@ -1076,8 +1076,10 @@ export interface EmitEligibilityApi {
     ai_processing_approved: boolean
     /** Whether the `signals_scout` signal source is enabled for this team. */
     source_enabled: boolean
-    /** True only when both team/org-level gates pass, so scout findings (signal and report channels alike) actually reach the inbox. When False, every emit is silently dropped — quick-close instead of doing throwaway investigation. Does not account for a scout's own dry-run `emit` toggle, which is per-config, not team-wide. */
+    /** True only when every emit gate passes, so scout findings (signal and report channels alike) actually reach the inbox. When False, every emit is silently dropped, so quick-close instead of doing throwaway investigation. Reflects the team/org-level gates by default; when a scout passes its `run_id`, it also folds in that scout's own dry-run `emit` toggle (see `scout_dry_run`), so a dry-run scout reads False here at cold start. */
     can_emit: boolean
+    /** Whether the calling scout's own config has `emit` disabled (dry-run): the per-scout gate checked first by the emit preflight. Populated only when a scout passes its `run_id` to the profile endpoint; the shared team-wide profile can't know which scout is reading it, so it defaults False. When True, `can_emit` is also False and `remediation` points at the dry-run toggle. */
+    scout_dry_run?: boolean
     /**
      * One-line next step to unblock emits when `can_emit` is False; null when emits can flow.
      * @nullable
@@ -2377,6 +2379,11 @@ export type SignalsScoutProjectProfileGetParams = {
      * When true, skip the cache and rebuild the profile from authoritative sources before responding. Use after seeding events, importing data, or any other change the caller knows just landed but hasn't surfaced through natural cache expiry yet. Honored only for the internal scout token — public read callers get the cached profile regardless. Concurrent forced rebuilds are serialized by the team-keyed advisory lock — at most one extra `build_inventory` per simultaneous request.
      */
     force_refresh?: boolean
+    /**
+     * The calling scout's `run_id`. Pass it so `emit_eligibility` reflects this scout's own dry-run `emit` toggle, not just the team-wide gates: a dry-run scout then reads `can_emit=false` / `scout_dry_run=true` at cold start and can close out during Orient instead of discovering at emit time that its findings are dropped. Honored only for the internal scout token; ignored for public read callers.
+     * @nullable
+     */
+    run_id?: string | null
 }
 
 export type SignalsScoutRunsListParams = {

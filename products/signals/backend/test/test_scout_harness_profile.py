@@ -203,6 +203,9 @@ class TestEmitEligibility(BaseTest):
         assert result["source_enabled"] is True
         assert result["can_emit"] is True
         assert result["remediation"] is None
+        # Team-wide baseline can't know which scout is reading, so the per-scout dry-run flag is
+        # False here; the profile endpoint overlays the real value when a scout passes its run_id.
+        assert result["scout_dry_run"] is False
 
     def test_blocked_with_remediation_when_ai_not_approved(self) -> None:
         # Mutate through team.organization — the exact instance the builder reads — so the change is

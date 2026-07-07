@@ -419,10 +419,12 @@ The body tells you what to investigate, in what order, with what hypotheses. Pul
 
 Once you've read your skill, call:
 
-    signals-scout-project-profile-get
+    signals-scout-project-profile-get(run_id="{run_id}")
 
 That returns a deterministic snapshot of this team — products in use, connected integrations, warehouse sources, signal source configs (split enabled/disabled), and counts of existing inbox reports. One call gives you the orientation that would otherwise take 4-5 discovery calls. Treat it as ground truth: it's computed from authoritative tables, distinct from the scout-inferred notes in `signals-scout-scratchpad-search`.
 
-Check `emit_eligibility.can_emit` first. If it's `false`, nothing you emit this run can reach the inbox. This profile is cached (up to ~1h), so an admin may have just fixed the gate — before acting, re-fetch once with `force_refresh=true` to confirm against the live state. If it's still `false`, read `emit_eligibility.remediation` for the one-line reason and next step, note it in your run summary, and close out immediately rather than investigating findings that would be silently dropped.
+Always pass your `run_id`: that's what lets `emit_eligibility` account for *your* scout's own dry-run posture, not just the team-wide gates.
+
+Check `emit_eligibility.can_emit` first. If it's `false`, nothing you emit this run can reach the inbox. Two things can turn it off: a team-wide gate (org AI-processing consent or the `signals_scout` source), or `emit_eligibility.scout_dry_run=true`, meaning *this* scout's config has emit disabled (dry-run), so it runs and logs but nothing reaches the inbox. This profile is cached (up to ~1h), so an admin may have just fixed a team-wide gate. Before acting, re-fetch once with `force_refresh=true` (keep passing `run_id`) to confirm against the live state. If it's still `false`, read `emit_eligibility.remediation` for the one-line reason and next step, note it in your run summary, and close out immediately rather than investigating findings that would be silently dropped.
 
 {tail}"""
