@@ -650,8 +650,7 @@ jobs:
                   # Partition selected files by the Django segment that owns them.
                   # Mirrors the positional path arguments in the Run Core / Run Temporal pytest invocations:
                   #   Core (POE off): posthog ee/  (minus posthog/temporal, posthog/dags)
-                  #   Core POE on:    posthog/clickhouse, posthog/queries, posthog/api/test/test_insight*,
-                  #                   posthog/api/test/dashboards/test_dashboard.py, ee/clickhouse/
+                  #   Core POE on:    posthog/clickhouse, posthog/queries, ee/clickhouse/
                   #   Temporal:       posthog/temporal, products/{batch_exports,tasks}/backend/temporal,
                   #                   products/signals/backend/emission
                   # Files outside posthog/ and ee/ (e.g. products/foo/backend/test_*) are not in this
@@ -665,8 +664,12 @@ jobs:
                           posthog/temporal/*|products/batch_exports/backend/tests/temporal/*|products/tasks/backend/temporal/*|products/signals/backend/emission/*)
                               temporal+=("$f")
                               ;;
-                          posthog/clickhouse/*|posthog/queries/*|ee/clickhouse/*|products/product_analytics/backend/api/test/*|posthog/api/test/test_insight*|posthog/api/test/dashboards/test_dashboard.py)
+                          posthog/clickhouse/*|posthog/queries/*|ee/clickhouse/*)
                               poe+=("$f")
+                              core+=("$f")
+                              ;;
+                          products/product_analytics/backend/api/test/*|posthog/api/test/test_insight*|posthog/api/test/dashboards/test_dashboard.py)
+                              # Single-run core coverage only; the POE toggle's SQL is already exercised by the query-engine folders above.
                               core+=("$f")
                               ;;
                           posthog/dags/*|common/hogvm/python/test/*)
@@ -1599,7 +1602,7 @@ jobs:
                         && env.CLICKHOUSE_COMPAT_PYTEST_TARGETS
                         || (
                         matrix.person-on-events
-                        && './posthog/clickhouse/ ./posthog/queries/ ./products/product_analytics/backend/api/test/ ./posthog/api/test/dashboards/test_dashboard.py'
+                        && './posthog/clickhouse/ ./posthog/queries/'
                         || 'posthog'
                         )
                     }} ${{ !matrix.compat && (matrix.person-on-events && 'ee/clickhouse/' || 'ee/') || '' }} -m "not async_migrations" \
