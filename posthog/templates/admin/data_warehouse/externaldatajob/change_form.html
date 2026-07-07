@@ -33,11 +33,13 @@
         <h2>Recovery: mark orphaned Running job as Failed</h2>
         <div class="form-row" style="padding: 10px;">
             <p style="max-width: 720px; color: var(--body-quiet-color, #666); line-height: 1.5;">
-                If the Temporal workflow was <strong>terminated</strong> (force-killed, not cancelled),
-                the cleanup activity never ran and this row is stuck in <code>Running</code>.
-                Use this to flip status to <code>Failed</code> and stamp <code>finished_at</code> so
-                downstream status surfaces (schema list, source list, sync logs) match reality.
-                The pipeline's regular schedule continues independently.
+                If the worker died (OOM, deploy, SIGKILL) or the Temporal workflow was terminated
+                without its cleanup activity running, this row — and the schema it drives — are stuck
+                in <code>Running</code> forever. This <strong>terminates</strong> the Temporal workflow
+                (forceful, so a dead worker isn't needed) and flips the <strong>job and its schema</strong>
+                to <code>Failed</code>, stamping <code>finished_at</code> so downstream status surfaces
+                (schema list, source list, sync logs) match reality. The pipeline's regular schedule
+                continues independently.
             </p>
             <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
                 <label for="reason_input" style="font-weight: 500;">Reason (optional):</label>
@@ -45,7 +47,7 @@
                        style="min-width: 360px;"
                        placeholder="e.g. workflow terminated in Temporal UI after OOM">
                 <button type="submit" form="mark-failed-action-form" class="default"
-                        onclick="return confirm('Mark this Running job as Failed? This does not stop or restart any workflow — DB metadata only.');">
+                        onclick="return confirm('Terminate the Temporal workflow and mark this job and its schema as Failed?');">
                     Mark as Failed
                 </button>
             </div>

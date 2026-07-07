@@ -379,6 +379,20 @@ async def cancel_workflow(temporal: TemporalClient, workflow_id: str):
     await handle.cancel()
 
 
+def terminate_external_data_workflow(workflow_id: str, reason: str | None = None):
+    temporal = sync_connect()
+    terminate_workflow(temporal, workflow_id, reason=reason)
+
+
+@async_to_sync
+async def terminate_workflow(temporal: TemporalClient, workflow_id: str, reason: str | None = None):
+    # Terminate, not cancel: cancellation is cooperative and needs a live worker to process the
+    # request, so it can't clean up a run whose worker died (OOM, deploy, SIGKILL). Terminate is
+    # forceful and server-side, which is what recovering an orphaned Running job requires.
+    handle = temporal.get_workflow_handle(workflow_id)
+    await handle.terminate(reason=reason)
+
+
 def is_any_external_data_schema_paused(team_id: int) -> bool:
     from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 

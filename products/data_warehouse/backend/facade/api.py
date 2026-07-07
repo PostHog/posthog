@@ -45,6 +45,7 @@ _LAZY = {
     "sync_cdc_extraction_schedule": "logic.data_load.service",
     "sync_discover_schemas_schedule": "logic.data_load.service",
     "sync_external_data_job_workflow": "logic.data_load.service",
+    "terminate_external_data_workflow": "logic.data_load.service",
     "trigger_external_data_source_workflow": "logic.data_load.service",
     "trigger_external_data_workflow": "logic.data_load.service",
     "unpause_external_data_schedule": "logic.data_load.service",

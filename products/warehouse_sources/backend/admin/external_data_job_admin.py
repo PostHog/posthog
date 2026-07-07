@@ -1,17 +1,20 @@
 from django import forms
 from django.conf import settings
 from django.contrib import admin, messages
-from django.db import transaction
+from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils import timezone
 from django.utils.html import format_html
 
-from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
+import structlog
+
+from products.data_warehouse.backend.facade.api import terminate_external_data_workflow, update_external_job_status
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
 
 def _change_url(job_id) -> str:
-    return reverse("admin:data_warehouse_externaldatajob_change", args=[job_id])
+    return reverse("admin:warehouse_sources_externaldatajob_change", args=[job_id])
 
 
 class ExternalDataJobAdminForm(forms.ModelForm):
@@ -129,37 +132,62 @@ class ExternalDataJobAdmin(admin.ModelAdmin):
         return custom_urls + urls
 
     def mark_failed_view(self, request, job_id):
-        # Convenience for orphaned Running jobs: workflow was terminated in Temporal
-        # without the cleanup activity running, so the DB row is stuck on Running
-        # forever. This flips status to Failed and stamps finished_at so downstream
-        # status surfaces match reality.
+        # Recover an orphaned Running job: the Temporal workflow died (OOM, deploy, SIGKILL) or was
+        # terminated without its cleanup activity running, so the job row — and the schema it drives —
+        # are stuck on Running forever. This terminates the workflow (forceful, since a dead worker
+        # can't process a graceful cancel) and flips both the job and its schema to Failed through the
+        # canonical status path, which also stamps finished_at, emits metrics, and fires the failure
+        # digest. The pipeline's regular schedule continues independently.
         if request.method != "POST":
             return redirect(_change_url(job_id))
 
-        # Wrap the read-check-write in a transaction with select_for_update so two
-        # concurrent staff POSTs can't both observe Running and double-write
-        # latest_error / finished_at.
-        with transaction.atomic():
+        try:
+            job = ExternalDataJob.objects.select_related("schema").get(id=job_id)
+        except ExternalDataJob.DoesNotExist:
+            messages.error(request, f"Job {job_id} not found.")
+            return redirect(reverse("admin:warehouse_sources_externaldatajob_changelist"))
+
+        if not self.has_change_permission(request, job):
+            raise PermissionDenied
+
+        if job.status != ExternalDataJob.Status.RUNNING:
+            messages.warning(request, f"Job is not Running (status={job.status}). No change.")
+            return redirect(_change_url(job_id))
+
+        reason = (request.POST.get("reason") or "").strip()
+        latest_error = reason or "Marked Failed via admin (Temporal workflow terminated without cleanup activity)"
+
+        # Best-effort terminate. An already-closed workflow (or a job that never got one) raises —
+        # that's fine, we still flip the DB below; just surface what happened to the operator.
+        if job.workflow_id:
             try:
-                job = ExternalDataJob.objects.select_for_update().get(id=job_id)
-            except ExternalDataJob.DoesNotExist:
-                messages.error(request, f"Job {job_id} not found.")
-                return redirect(reverse("admin:data_warehouse_externaldatajob_changelist"))
+                terminate_external_data_workflow(job.workflow_id, reason=latest_error)
+                messages.info(request, f"Terminated Temporal workflow {job.workflow_id}.")
+            except Exception as e:
+                messages.warning(
+                    request,
+                    f"Could not terminate Temporal workflow {job.workflow_id} ({e}); it may already be "
+                    "closed. Continuing to mark the job Failed.",
+                )
 
-            if job.status != ExternalDataJob.Status.RUNNING:
-                messages.warning(request, f"Job is not Running (status={job.status}). No change.")
-                return redirect(_change_url(job_id))
-
-            reason = (request.POST.get("reason") or "").strip()
+        if job.schema_id is None:
+            # No schema attached — the canonical path can't run (it propagates status to the schema).
+            # Fall back to a direct write so a truly orphaned job can still be cleared.
             job.status = ExternalDataJob.Status.FAILED
-            job.latest_error = (
-                reason or "Marked Failed via admin (Temporal workflow terminated without cleanup activity)"
-            )
+            job.latest_error = latest_error
             if job.finished_at is None:
                 job.finished_at = timezone.now()
             job.save(update_fields=["status", "latest_error", "finished_at", "updated_at"])
+        else:
+            update_external_job_status(
+                job_id=str(job.id),
+                team_id=job.team_id,
+                status=ExternalDataJob.Status.FAILED,
+                logger=structlog.get_logger(__name__).bind(team_id=job.team_id),
+                latest_error=latest_error,
+            )
 
-        messages.success(request, f"Marked job {job.id} as Failed.")
+        messages.success(request, f"Marked job {job.id} (and its schema) as Failed.")
         return redirect(_change_url(job_id))
 
     def change_view(self, request, object_id, form_url="", extra_context=None):
@@ -174,7 +202,7 @@ class ExternalDataJobAdmin(admin.ModelAdmin):
             extra_context["mark_failed_url"] = reverse("admin:external_data_job_mark_failed", args=[obj.id])
             if obj.schema_id:
                 extra_context["schema_admin_url"] = reverse(
-                    "admin:data_warehouse_externaldataschema_change", args=[obj.schema_id]
+                    "admin:warehouse_sources_externaldataschema_change", args=[obj.schema_id]
                 )
         return super().change_view(request, object_id, form_url, extra_context=extra_context)
 
@@ -192,7 +220,7 @@ class ExternalDataJobAdmin(admin.ModelAdmin):
             return "—"
         return format_html(
             '<a href="{}">{}</a>',
-            reverse("admin:data_warehouse_externaldataschema_change", args=[job.schema_id]),
+            reverse("admin:warehouse_sources_externaldataschema_change", args=[job.schema_id]),
             job.schema.name if job.schema else job.schema_id,
         )
 
