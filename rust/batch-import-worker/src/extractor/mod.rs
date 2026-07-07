@@ -2,9 +2,60 @@ use anyhow::Error;
 use flate2::read::GzDecoder;
 use serde::{Deserialize, Serialize};
 use std::panic::AssertUnwindSafe;
-use std::{io::Read, path::PathBuf, sync::Arc};
+use std::{
+    io::Read,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use tokio::sync::mpsc;
 use zip::ZipArchive;
+
+/// Magic-byte prefixes of the compression formats we might be handed by mistake.
+/// Each entry maps a constant header prefix to the format name.
+///
+/// A newline-delimited JSON import only ever expects plaintext JSON, whose values
+/// begin with `{ [ " -`, a digit, `t`/`f`/`n`, or whitespace. None of the first
+/// bytes below (`0x1f 0x28 0x50 0x42 0xfd 0x78`) collide with those, so a match at
+/// the *start of a part* is an unambiguous "still compressed" signal rather than a
+/// coincidence - see [`detect_compression_magic`].
+const COMPRESSION_MAGICS: &[(&[u8], &str)] = &[
+    (&[0x1f, 0x8b], "gzip"),
+    (&[0x28, 0xb5, 0x2f, 0xfd], "zstd"),
+    (&[0x50, 0x4b, 0x03, 0x04], "zip"),
+    (&[0x50, 0x4b, 0x05, 0x06], "zip"), // empty archive
+    (&[0x50, 0x4b, 0x07, 0x08], "zip"), // spanned archive
+    (&[0x42, 0x5a, 0x68], "bzip2"),
+    (&[0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00], "xz"),
+    // zlib streams start with CM/CINFO byte 0x78 followed by an FLG byte chosen so
+    // that (CMF*256 + FLG) % 31 == 0. These four FLG values cover the compression
+    // levels every common zlib encoder emits.
+    (&[0x78, 0x01], "zlib"),
+    (&[0x78, 0x5e], "zlib"),
+    (&[0x78, 0x9c], "zlib"),
+    (&[0x78, 0xda], "zlib"),
+];
+
+/// Return the name of the compression format whose magic bytes prefix `data`, or
+/// `None` if `data` does not start with a recognized compression header. Data
+/// shorter than a candidate prefix simply does not match it.
+pub(crate) fn detect_compression_magic(data: &[u8]) -> Option<&'static str> {
+    COMPRESSION_MAGICS
+        .iter()
+        .find(|(magic, _)| data.starts_with(magic))
+        .map(|(_, name)| *name)
+}
+
+/// Peek the first bytes of `path` and, if they are a recognized *non-gzip*
+/// compression header, return that format's name. Used to enrich a gzip decode
+/// failure: a real gzip that fails to decode is genuine corruption, but a zstd /
+/// zip / xz / ... file reaching the gzip extractor is a compression-setting
+/// mismatch worth naming. Best-effort - any IO error yields `None`.
+fn peek_non_gzip_compression(path: &Path) -> Option<&'static str> {
+    let mut buf = [0u8; 8];
+    let mut file = std::fs::File::open(path).ok()?;
+    let n = file.read(&mut buf).ok()?;
+    detect_compression_magic(&buf[..n]).filter(|&fmt| fmt != "gzip")
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -211,7 +262,22 @@ fn run_plain_gzip_producer(raw_file_path: PathBuf, tx: mpsc::Sender<Block>) {
                 }
             }
             Err(e) => {
-                let _unused = tx.blocking_send(Err(format!("Failed to decompress gzip data: {e}")));
+                // A decode failure before any output is usually a wrong-format file
+                // (e.g. a zstd/zip/xz object reaching the gzip extractor), not a
+                // corrupt gzip. Sniff the raw header and, if it is another known
+                // format, name it so the pause message is actionable.
+                let msg = match (!produced_any)
+                    .then(|| peek_non_gzip_compression(&raw_file_path))
+                    .flatten()
+                {
+                    Some(fmt) => format!(
+                        "Failed to decompress gzip data: {e}. The file appears to be \
+                         {fmt}-compressed, but this import expects gzip - check the source's \
+                         compression setting."
+                    ),
+                    None => format!("Failed to decompress gzip data: {e}"),
+                };
+                let _unused = tx.blocking_send(Err(msg));
                 return;
             }
         }
@@ -411,6 +477,96 @@ mod tests {
     fn test_extractory_type_default() {
         let default_type = ExtractorType::default();
         assert!(matches!(default_type, ExtractorType::PlainGzip));
+    }
+
+    #[test]
+    fn test_detect_compression_magic_positive() {
+        // Real headers emitted by each encoder must be recognized by name.
+        let cases: [(&[u8], &str); 8] = [
+            (&[0x1f, 0x8b, 0x08, 0x00], "gzip"),
+            (&[0x28, 0xb5, 0x2f, 0xfd, 0x00], "zstd"),
+            (b"PK\x03\x04rest", "zip"),
+            (b"PK\x05\x06", "zip"),
+            (b"BZh9blah", "bzip2"),
+            (&[0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00, 0x00], "xz"),
+            (&[0x78, 0x9c, 0xcb, 0x48], "zlib"),
+            (&[0x78, 0xda, 0x01], "zlib"),
+        ];
+        for (bytes, expected) in cases {
+            assert_eq!(
+                detect_compression_magic(bytes),
+                Some(expected),
+                "bytes {bytes:02x?} should be detected as {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_detect_compression_magic_negative() {
+        // Plaintext JSONL and other non-magic inputs must never be flagged: this is
+        // what keeps the offset-0 job-loop guard from ever tripping on real data.
+        let cases: [&[u8]; 7] = [
+            b"{\"event\":\"x\"}\n",    // bare JSON object line
+            b"[1,2,3]\n",              // JSON array line
+            &[0xef, 0xbb, 0xbf, b'{'], // UTF-8 BOM then JSON
+            &[0x1f],                   // gzip first byte only - too short to match
+            &[0x78],                   // zlib first byte only - too short to match
+            &[0xff, 0xff, 0xff],       // invalid-utf8 binary that is not a magic
+            b"",                       // empty
+        ];
+        for bytes in cases {
+            assert_eq!(
+                detect_compression_magic(bytes),
+                None,
+                "bytes {bytes:02x?} must not be detected as compression"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_plain_gzip_producer_enriches_wrong_format_error() {
+        // A zstd file reaching the gzip extractor is a compression-setting mismatch,
+        // not corruption. The decode error must name the actual format so the pause
+        // message is actionable, instead of a bare "failed to decompress" string.
+        let temp_dir = TempDir::new().unwrap();
+        let zstd_file = temp_dir.path().join("actually.zst");
+        // A minimal zstd magic-led body is enough: GzDecoder rejects it at the header.
+        std::fs::write(&zstd_file, [0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x01, 0x02, 0x03]).unwrap();
+
+        let mut reader = PlainGzipExtractor.open_reader(zstd_file);
+        let Err(err) = reader.read_at(0, 8192).await else {
+            panic!("a zstd file must not decode as gzip");
+        };
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("zstd"),
+            "decode error should name the detected format, got: {msg}"
+        );
+        assert!(
+            msg.contains("gzip"),
+            "decode error should state the expected format, got: {msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_plain_gzip_producer_does_not_mislabel_corrupt_gzip() {
+        // A genuinely corrupt gzip (valid header, truncated body) is corruption, not a
+        // format mismatch - the error must stay generic and never claim another format.
+        let temp_dir = TempDir::new().unwrap();
+        let gzip_file = temp_dir.path().join("corrupt.gz");
+        create_test_gzip_file(&"line\n".repeat(10000), &gzip_file).unwrap();
+        let full = std::fs::read(&gzip_file).unwrap();
+        std::fs::write(&gzip_file, &full[..20]).unwrap();
+
+        let mut reader = PlainGzipExtractor.open_reader(gzip_file);
+        let Err(err) = reader.read_at(0, 8192).await else {
+            panic!("truncated gzip must error");
+        };
+        let msg = format!("{err:#}");
+        assert!(
+            !msg.contains("zstd") && !msg.contains("compression setting"),
+            "corrupt gzip must not be mislabeled as a format mismatch, got: {msg}"
+        );
     }
 
     #[tokio::test]

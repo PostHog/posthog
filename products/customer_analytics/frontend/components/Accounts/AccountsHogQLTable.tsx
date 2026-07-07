@@ -1,15 +1,19 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useMemo } from 'react'
 
 import { IconCheck, IconX } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTable, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonButton, LemonColorGlyph, LemonSkeleton, LemonTable, ProfilePicture } from '@posthog/lemon-ui'
 
+import type { DataColorToken } from 'lib/colors'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
+import { Link } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
@@ -24,6 +28,7 @@ import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
 import { ACCOUNTS_NAME_COLUMN, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import { accountsExpansionLogic } from './accountsExpansionLogic'
 import { AccountRoleKey, accountsLogic } from './accountsLogic'
+import { AccountsEvents } from './constants'
 
 type AccountAssignment = { id: number; email: string } | null
 
@@ -84,17 +89,44 @@ function tupleToAssignment(value: unknown): AccountAssignment {
 
 function NameCell({ record }: { record: unknown }): JSX.Element {
     const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
+    const { isAccountExpanded } = useValues(accountsExpansionLogic)
+    const { toggleAccountExpanded } = useActions(accountsExpansionLogic)
     const cell = getNameCell(record, visibleColumnNames)
     const name = cell?.name ?? ''
     const externalId = cell?.external_id ?? ''
+    const accountId = cell?.id
     return (
-        <div className="flex flex-col min-w-40" data-account-id={cell?.id}>
-            <span className="font-medium">{name}</span>
+        <div className="flex flex-col min-w-40" data-account-id={accountId}>
+            {accountId ? (
+                <Link
+                    // Plain click opens the account details inline (keeping the list mounted); the href
+                    // stays so a modifier-click (cmd/ctrl/shift) opens the account's deep-link page in a new tab/window.
+                    to={urls.customerAnalyticsAccount(accountId)}
+                    className="font-semibold"
+                    onClick={(event) => {
+                        if (event.metaKey || event.ctrlKey || event.shiftKey) {
+                            return
+                        }
+                        event.preventDefault()
+                        event.stopPropagation()
+                        if (!isAccountExpanded(accountId)) {
+                            posthog.capture(AccountsEvents.AccountOpened)
+                        }
+                        toggleAccountExpanded(accountId)
+                    }}
+                >
+                    {name}
+                </Link>
+            ) : (
+                <span className="font-semibold">{name}</span>
+            )}
             {externalId ? (
                 <CopyToClipboardInline
                     explicitValue={externalId}
                     iconStyle={{ color: 'var(--color-accent)' }}
+                    iconSize="xsmall"
                     description="account ID"
+                    className="text-xs text-muted"
                 >
                     {externalId}
                 </CopyToClipboardInline>
@@ -182,6 +214,15 @@ function CustomPropertyCell({
     }
     if (definition.display_type === 'boolean') {
         return value === 'true' || value === '1' ? <IconCheck /> : <IconX className="text-muted" />
+    }
+    if (definition.display_type === 'select') {
+        const option = definition.options?.find((candidate) => candidate.label === value)
+        return (
+            <span className="inline-flex items-center gap-1.5">
+                {option && <LemonColorGlyph colorToken={option.color as DataColorToken} size="small" />}
+                <span>{value}</span>
+            </span>
+        )
     }
     return <span>{formatCustomPropertyValue(value, definition)}</span>
 }

@@ -22,7 +22,9 @@ import requests
 import structlog
 from prometheus_client import Counter
 
+from posthog.egress.github.limiter import remember_observed_core_limit
 from posthog.egress.github.transport import GitHubRateLimitError, github_request, raise_if_github_rate_limited
+from posthog.egress.limiter.policies import Priority
 from posthog.sync import database_sync_to_async_pool
 
 logger = structlog.get_logger(__name__)
@@ -93,6 +95,11 @@ class GitHubIntegrationBase:
     # with their own source (e.g. GitHubIntegration(integration, source="visual_review")) so every
     # request made through this instance — api_request, verbs, GraphQL — is attributed to them.
     source: str = _OBSERVABILITY_SOURCE
+    # How sheddable this instance's calls are when the installation's shared budget runs hot.
+    # CRITICAL (the default) is never blocked; deferrable background callers construct with
+    # priority=Priority.BATCH so the egress limiter sheds them first — a denied sheddable call
+    # raises GitHubEgressBudgetExhausted from api_request before anything is sent.
+    priority: Priority = Priority.CRITICAL
 
     @property
     def github_installation_id(self) -> str | None:
@@ -432,6 +439,40 @@ class GitHubIntegrationBase:
             logger.warning("GitHubIntegration: installation GET failed", url=url, exc_info=True)
             return None
 
+    def _installation_authenticated_patch(
+        self,
+        url: str,
+        *,
+        endpoint: str,
+        json_body: Mapping[str, object],
+        timeout: int = 10,
+    ) -> requests.Response | None:
+        """PATCH with installation token via :meth:`api_request`; ``None`` instead of raising, for the
+        success/error-dict verbs built on top."""
+        path = url.removeprefix("https://api.github.com")
+        try:
+            return self.api_request("PATCH", path, endpoint=endpoint, json_body=json_body, timeout=timeout)
+        except GitHubIntegrationError:
+            logger.warning("GitHubIntegration: installation PATCH failed", url=url, exc_info=True)
+            return None
+
+    def _installation_authenticated_post(
+        self,
+        url: str,
+        *,
+        endpoint: str,
+        json_body: Mapping[str, object],
+        timeout: int = 10,
+    ) -> requests.Response | None:
+        """POST with installation token via :meth:`api_request`; ``None`` instead of raising, for the
+        success/error-dict verbs built on top."""
+        path = url.removeprefix("https://api.github.com")
+        try:
+            return self.api_request("POST", path, endpoint=endpoint, json_body=json_body, timeout=timeout)
+        except GitHubIntegrationError:
+            logger.warning("GitHubIntegration: installation POST failed", url=url, exc_info=True)
+            return None
+
     def installation_can_access_repository(self, repository: str) -> bool:
         """Whether this installation token can access the repo (``GET /repos/{owner}/{repo}`` returns 200)."""
         response = self._installation_authenticated_get(
@@ -643,12 +684,81 @@ class GitHubIntegrationBase:
         owner, repo, pr_number = parsed
         return self.get_pull_request(f"{owner}/{repo}", pr_number)
 
+    def close_pull_request(self, repository: str, pr_number: int) -> dict[str, Any]:
+        """Close a pull request (``PATCH`` state=closed). ``repository`` is ``owner/repo`` or a bare repo.
+
+        Idempotent: an already-closed or merged PR reports success without reopening it (GitHub
+        ignores a closed→closed transition, and closing a merged PR is a no-op).
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        response = self._installation_authenticated_patch(
+            f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}",
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+            json_body={"state": "closed"},
+        )
+        if response is None:
+            return {"success": False, "error": "Network error closing pull request"}
+        if response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"Failed to close pull request: {response.text}",
+                "status_code": response.status_code,
+            }
+
+        try:
+            pr = response.json()
+        except Exception:
+            pr = {}
+
+        return {"success": True, "number": pr.get("number", pr_number), "state": pr.get("state")}
+
+    def close_pull_request_from_url(self, pr_url: str) -> dict[str, Any]:
+        """Close a pull request by its HTML URL (e.g. ``https://github.com/owner/repo/pull/123``)."""
+        parsed = self.parse_pull_request_url(pr_url)
+        if parsed is None:
+            return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
+        owner, repo, pr_number = parsed
+        return self.close_pull_request(f"{owner}/{repo}", pr_number)
+
+    def comment_on_pull_request(self, repository: str, pr_number: int, body: str) -> dict[str, Any]:
+        """Post a comment on a pull request. ``repository`` is ``owner/repo`` or a bare repo.
+
+        PR comments use the issues endpoint (a PR is an issue for commenting purposes).
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        response = self._installation_authenticated_post(
+            f"https://api.github.com/repos/{repo_path}/issues/{pr_number}/comments",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
+            json_body={"body": body},
+        )
+        if response is None:
+            return {"success": False, "error": "Network error commenting on pull request"}
+        if response.status_code != 201:
+            return {
+                "success": False,
+                "error": f"Failed to comment on pull request: {response.text}",
+                "status_code": response.status_code,
+            }
+        return {"success": True}
+
+    def comment_on_pull_request_from_url(self, pr_url: str, body: str) -> dict[str, Any]:
+        """Post a comment on a pull request by its HTML URL."""
+        parsed = self.parse_pull_request_url(pr_url)
+        if parsed is None:
+            return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
+        owner, repo, pr_number = parsed
+        return self.comment_on_pull_request(f"{owner}/{repo}", pr_number, body)
+
     def find_pull_request_urls_for_branch(self, repository: str, branch: str) -> list[str]:
         """Return the HTML URLs of open or closed PRs whose head is ``branch`` in ``repository``.
 
         ``repository`` is ``owner/repo`` (or a bare repo, resolved against the org). Results come
         from the installation token's own API call, so they are inherently trusted — not
-        user-supplied like ``output.pr_url``. Best-effort: returns [] on a bad repo, non-200, or error.
+        user-supplied like ``output.pr_url``. Best-effort: returns [] on a bad repo, non-200, or
+        error — except rate limits (``GitHubRateLimitError``) and, on a sheddable instance, budget
+        denial (``GitHubEgressBudgetExhausted``), which raise so callers can defer the sweep.
         """
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
         owner = repo_path.split("/", 1)[0]
@@ -773,9 +883,10 @@ class GitHubIntegrationBase:
     def get_pull_request_snapshot(self, pr_url: str) -> dict[str, Any]:
         """Fetch the classification-relevant PR signals in one GraphQL call.
 
-        On any handled failure returns ``{"success": False, "error": ...}``;
-        rate-limit and unexpected errors raise ``GitHubIntegrationError`` so the
-        caller can back off.
+        On any handled failure returns ``{"success": False, "error": ...}``; unexpected errors
+        raise ``GitHubIntegrationError``. GitHub rate limits raise ``GitHubRateLimitError``, and on
+        a sheddable instance (``priority=NORMAL/BATCH``) a denied budget raises
+        ``GitHubEgressBudgetExhausted`` — callers own the back-off for both.
         """
         parsed = self.parse_pull_request_url(pr_url)
         if parsed is None:
@@ -1294,6 +1405,7 @@ class GitHubIntegrationBase:
         headers: dict[str, str] | None = None,
         timeout: int = 10,
         retry_transient: bool | None = None,
+        priority: Priority | None = None,
     ) -> requests.Response:
         """Authenticated request against ``https://api.github.com`` returning the raw response.
 
@@ -1305,7 +1417,9 @@ class GitHubIntegrationBase:
         callers that want dict-or-raise semantics.
 
         ``endpoint`` is the normalized label for egress telemetry; leave it ``None`` to let the
-        recorder template the raw URL. Attribution uses ``self.source``.
+        recorder template the raw URL. Attribution uses ``self.source``; the limiter lane defaults
+        to ``self.priority`` — on a sheddable lane (NORMAL/BATCH) a denied call raises
+        ``GitHubEgressBudgetExhausted`` instead of being sent, and the caller owns the deferral.
         """
         if not path.startswith("/"):
             raise ValueError(f"api_request path must start with '/', got {path!r}")
@@ -1332,6 +1446,7 @@ class GitHubIntegrationBase:
                     # Token last: a caller-supplied Authorization must not bypass the managed lifecycle.
                     headers={**(headers or {}), "Authorization": f"Bearer {token}"},
                     installation_id=self.github_installation_id,
+                    priority=priority if priority is not None else self.priority,
                     endpoint=endpoint,
                     params=params,
                     json=json_body,
@@ -1346,6 +1461,9 @@ class GitHubIntegrationBase:
                     )
                     continue
                 raise GitHubIntegrationError(f"GitHubIntegration: api_request network error on {path}") from exc
+            # Successful installation-token responses are the only trusted source of the tier the
+            # limiter budgets to; the store filters non-2xx/non-core itself.
+            remember_observed_core_limit(self.github_installation_id, response)
             # Auth failure → refresh token and retry once (safe for any method: 401 means nothing ran).
             if response.status_code == 401 and attempt == 0:
                 try:
