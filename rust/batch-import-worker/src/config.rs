@@ -113,6 +113,8 @@ pub struct Config {
     // string means unset. TEMP_BUCKET_NAME is required in that mode.
     #[envconfig(from = "TEMP_BUCKET_NAME", default = "")]
     pub temp_bucket_name: String,
+    // Custom S3 endpoint for local dev / CI (SeaweedFS: http://localhost:8333 with
+    // bucket `posthog`, any credentials, and TEMP_BUCKET_FORCE_PATH_STYLE=true).
     #[envconfig(from = "TEMP_BUCKET_ENDPOINT", default = "")]
     pub temp_bucket_endpoint: String,
     #[envconfig(from = "TEMP_BUCKET_REGION", default = "")]
@@ -120,12 +122,69 @@ pub struct Config {
     #[envconfig(from = "TEMP_BUCKET_PREFIX", default = "batch-import-staging/")]
     pub temp_bucket_prefix: String,
 
+    // Explicit S3 credentials for local dev / CI without IAM (production uses the
+    // standard AWS chain: IRSA web-identity). Both must be set to take effect.
+    #[envconfig(from = "TEMP_BUCKET_ACCESS_KEY_ID", default = "")]
+    pub temp_bucket_access_key_id: String,
+    #[envconfig(from = "TEMP_BUCKET_SECRET_ACCESS_KEY", default = "")]
+    pub temp_bucket_secret_access_key: String,
+
+    // Path-style object URLs (required by S3-compatible dev stores like SeaweedFS).
+    #[envconfig(from = "TEMP_BUCKET_FORCE_PATH_STYLE", default = "false")]
+    pub temp_bucket_force_path_style: bool,
+
+    // Timeout for a single S3 request attempt, including body transfer. Must be
+    // large enough for a full CHUNK_SIZE (~100 MB) ranged GET on a slow path.
+    #[envconfig(from = "TEMP_BUCKET_ATTEMPT_TIMEOUT_SECS", default = "120")]
+    pub temp_bucket_attempt_timeout_secs: u64,
+
+    // Total time budget for an S3 operation across all client-level retries.
+    #[envconfig(from = "TEMP_BUCKET_OPERATION_TIMEOUT_SECS", default = "600")]
+    pub temp_bucket_operation_timeout_secs: u64,
+
+    // Client-level retries per S3 operation (job-level backoff retries on top).
+    #[envconfig(from = "TEMP_BUCKET_MAX_RETRIES", default = "3")]
+    pub temp_bucket_max_retries: usize,
+
+    // Concurrent in-flight requests to the temp bucket per job client.
+    #[envconfig(from = "TEMP_BUCKET_MAX_CONCURRENT_REQUESTS", default = "16")]
+    pub temp_bucket_max_concurrent_requests: usize,
+
+    // Multipart upload part size when staging a part. S3 assembles the numbered
+    // parts into one object; part size bounds the maximum staged object size
+    // (part_size x 10,000 parts — the AWS multipart limit) and the upload's
+    // memory footprint (part_size x (concurrency + 1) buffered in RAM).
+    // 64 MiB => 640 GiB max staged part at ~320 MiB peak RAM. Must be within
+    // S3's 5 MiB..5 GiB part-size bounds.
+    #[envconfig(from = "TEMP_BUCKET_UPLOAD_PART_SIZE_BYTES", default = "67108864")]
+    pub temp_bucket_upload_part_size_bytes: u64,
+
+    // Concurrent in-flight part uploads while staging. Staging throughput is
+    // producer-bound (origin download + gzip decode), so a small window suffices
+    // to keep uploads fully overlapped.
+    #[envconfig(from = "TEMP_BUCKET_UPLOAD_CONCURRENCY", default = "4")]
+    pub temp_bucket_upload_concurrency: usize,
+
     // Per-part decompressed-byte ceiling enforced by the fetch+decompress pipeline
-    // (decompression-bomb / cost guard). 0 disables it. Breaching it pauses the job
-    // with an actionable error rather than staging unbounded plaintext.
+    // (decompression-bomb / cost guard). Breaching it pauses the job with an
+    // actionable error rather than staging unbounded plaintext.
+    //
+    // 0 means "no operator-configured ceiling", NOT unlimited: in temp_bucket mode
+    // an implicit ceiling just below the S3 multipart wall always applies (see
+    // `effective_plaintext_ceiling`), so an oversized part pauses with the
+    // actionable message instead of an opaque multipart failure. The local
+    // streaming path has no wall and stays unlimited when this is 0.
     #[envconfig(from = "STAGED_PLAINTEXT_MAX_BYTES", default = "0")]
     pub staged_plaintext_max_bytes: u64,
 }
+
+/// S3 multipart uploads are capped at 10,000 parts (AWS hard limit).
+const S3_MAX_MULTIPART_PARTS: u64 = 10_000;
+/// S3 part-size bounds: 5 MiB minimum (except the last part), 5 GiB maximum.
+const S3_MIN_PART_SIZE_BYTES: u64 = 5 * 1024 * 1024;
+const S3_MAX_PART_SIZE_BYTES: u64 = 5 * 1024 * 1024 * 1024;
+/// S3 single-object size cap.
+const S3_MAX_OBJECT_BYTES: u64 = 5 * 1024 * 1024 * 1024 * 1024;
 
 /// Which staging backend a job's compressed sources use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -151,7 +210,8 @@ impl Config {
     }
 
     /// Resolve and validate the configured staging backend. Fails fast when
-    /// `temp_bucket` is selected without a bucket name, or on an unknown value.
+    /// `temp_bucket` is selected without a bucket name, with upload knobs outside
+    /// S3's multipart bounds, or on an unknown value.
     pub fn staging_backend(&self) -> Result<StagingBackendKind, anyhow::Error> {
         match self.staging_backend.as_str() {
             "local_disk" => Ok(StagingBackendKind::LocalDisk),
@@ -161,11 +221,52 @@ impl Config {
                         "STAGING_BACKEND=temp_bucket requires TEMP_BUCKET_NAME to be set",
                     ));
                 }
+                if !(S3_MIN_PART_SIZE_BYTES..=S3_MAX_PART_SIZE_BYTES)
+                    .contains(&self.temp_bucket_upload_part_size_bytes)
+                {
+                    // Sub-5MiB parts are rejected by S3 on every multi-part stage;
+                    // catch the misconfiguration before any job work starts.
+                    return Err(anyhow::Error::msg(format!(
+                        "TEMP_BUCKET_UPLOAD_PART_SIZE_BYTES={} outside S3 part-size bounds \
+                         ({S3_MIN_PART_SIZE_BYTES}..={S3_MAX_PART_SIZE_BYTES})",
+                        self.temp_bucket_upload_part_size_bytes
+                    )));
+                }
+                if self.temp_bucket_upload_concurrency == 0 {
+                    return Err(anyhow::Error::msg(
+                        "TEMP_BUCKET_UPLOAD_CONCURRENCY must be >= 1",
+                    ));
+                }
                 Ok(StagingBackendKind::TempBucket)
             }
             other => Err(anyhow::Error::msg(format!(
                 "Unknown STAGING_BACKEND '{other}' (expected 'local_disk' or 'temp_bucket')"
             ))),
+        }
+    }
+
+    /// The largest object the temp bucket can hold with the configured part size:
+    /// S3 caps multipart uploads at 10,000 parts and objects at 5 TiB.
+    fn temp_bucket_object_wall_bytes(&self) -> u64 {
+        std::cmp::min(
+            self.temp_bucket_upload_part_size_bytes
+                .saturating_mul(S3_MAX_MULTIPART_PARTS),
+            S3_MAX_OBJECT_BYTES,
+        )
+    }
+
+    /// Effective per-part decompressed-byte ceiling in temp_bucket mode.
+    ///
+    /// Always non-zero: an implicit ceiling at 95% of the S3 multipart wall applies
+    /// even when `STAGED_PLAINTEXT_MAX_BYTES=0`, so an oversized part always pauses
+    /// with the actionable "split the import" message and can never reach the wall's
+    /// opaque multipart failure. An operator-configured ceiling only tightens it.
+    pub fn effective_plaintext_ceiling(&self) -> u64 {
+        let implicit = self.temp_bucket_object_wall_bytes() / 100 * 95;
+        if self.staged_plaintext_max_bytes > 0 {
+            std::cmp::min(self.staged_plaintext_max_bytes, implicit)
+        } else {
+            implicit
         }
     }
 
@@ -179,6 +280,14 @@ impl Config {
     pub fn temp_bucket_region(&self) -> Option<&str> {
         let r = self.temp_bucket_region.trim();
         (!r.is_empty()).then_some(r)
+    }
+
+    /// Explicit S3 credentials (local dev / CI). `None` unless both parts are set;
+    /// production relies on the standard AWS chain (IRSA) instead.
+    pub fn temp_bucket_credentials(&self) -> Option<(&str, &str)> {
+        let key = self.temp_bucket_access_key_id.trim();
+        let secret = self.temp_bucket_secret_access_key.trim();
+        (!key.is_empty() && !secret.is_empty()).then_some((key, secret))
     }
 
     pub fn backoff_policy(&self) -> BackoffPolicy {
@@ -316,5 +425,74 @@ mod tests {
         config.temp_bucket_region = "us-east-1".to_string();
         assert_eq!(config.temp_bucket_endpoint(), Some("http://localhost:8333"));
         assert_eq!(config.temp_bucket_region(), Some("us-east-1"));
+    }
+
+    #[test]
+    fn test_temp_bucket_credentials_require_both_parts() {
+        let mut config = Config::init_from_env().unwrap();
+        assert_eq!(config.temp_bucket_credentials(), None);
+        config.temp_bucket_access_key_id = "key".to_string();
+        assert_eq!(config.temp_bucket_credentials(), None);
+        config.temp_bucket_secret_access_key = "secret".to_string();
+        assert_eq!(config.temp_bucket_credentials(), Some(("key", "secret")));
+    }
+
+    #[test]
+    fn test_upload_knob_validation_bounds() {
+        // Sub-5MiB parts are rejected by S3 on multi-part stages; >5GiB is the S3
+        // part-size maximum; concurrency 0 would deadlock the writer. Each must
+        // fail fast at config resolution — but only in temp_bucket mode, where the
+        // knobs are actually consumed.
+        let cases: Vec<(u64, usize, &str)> = vec![
+            (4 * 1024 * 1024, 4, "TEMP_BUCKET_UPLOAD_PART_SIZE_BYTES"),
+            (
+                6 * 1024 * 1024 * 1024,
+                4,
+                "TEMP_BUCKET_UPLOAD_PART_SIZE_BYTES",
+            ),
+            (64 * 1024 * 1024, 0, "TEMP_BUCKET_UPLOAD_CONCURRENCY"),
+        ];
+        for (part_size, concurrency, expected) in cases {
+            let mut config = config_for_backend("temp_bucket", "my-bucket");
+            config.temp_bucket_upload_part_size_bytes = part_size;
+            config.temp_bucket_upload_concurrency = concurrency;
+            let err = config.staging_backend().unwrap_err().to_string();
+            assert!(
+                err.contains(expected),
+                "part_size={part_size} concurrency={concurrency}: unexpected error: {err}"
+            );
+
+            let mut local = config_for_backend("local_disk", "");
+            local.temp_bucket_upload_part_size_bytes = part_size;
+            local.temp_bucket_upload_concurrency = concurrency;
+            assert_eq!(
+                local.staging_backend().unwrap(),
+                StagingBackendKind::LocalDisk,
+                "local_disk mode must not validate unused upload knobs"
+            );
+        }
+    }
+
+    #[test]
+    fn test_effective_plaintext_ceiling_is_always_below_the_wall() {
+        let mut config = config_for_backend("temp_bucket", "my-bucket");
+
+        // Defaults: 64 MiB parts -> 640 GiB wall -> implicit ceiling at 95%.
+        let wall: u64 = 64 * 1024 * 1024 * 10_000;
+        assert_eq!(config.effective_plaintext_ceiling(), wall / 100 * 95);
+
+        // An operator ceiling only tightens the implicit one...
+        config.staged_plaintext_max_bytes = 1_000_000;
+        assert_eq!(config.effective_plaintext_ceiling(), 1_000_000);
+
+        // ...and can never loosen it past the wall.
+        config.staged_plaintext_max_bytes = u64::MAX;
+        assert_eq!(config.effective_plaintext_ceiling(), wall / 100 * 95);
+
+        // Maximum part size: the wall clamps at S3's 5 TiB object cap.
+        config.staged_plaintext_max_bytes = 0;
+        config.temp_bucket_upload_part_size_bytes = 5 * 1024 * 1024 * 1024;
+        let object_cap: u64 = 5 * 1024 * 1024 * 1024 * 1024;
+        assert_eq!(config.effective_plaintext_ceiling(), object_cap / 100 * 95);
     }
 }

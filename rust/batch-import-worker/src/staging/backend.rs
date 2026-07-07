@@ -7,6 +7,7 @@ use bytes::Bytes;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::{mpsc, Mutex};
+use tokio::task::JoinHandle;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -18,18 +19,48 @@ use uuid::Uuid;
 /// exact same byte stream, so a part's byte offsets stay valid across backends.
 pub struct PlaintextStream {
     rx: mpsc::Receiver<Result<Bytes, Error>>,
+    // The producer task, if this stream owns one. Awaited on channel EOF so a producer
+    // panic surfaces as a stream error instead of being mistaken for a clean end-of-stream
+    // (which would silently truncate the staged part).
+    producer: Option<JoinHandle<()>>,
 }
 
 impl PlaintextStream {
-    /// Wrap a receiver of decompressed blocks. The sender side is the pipeline's
-    /// producer; each item is either a block of plaintext or a decode/IO error.
+    /// Wrap a receiver of decompressed blocks with no owned producer. The caller is
+    /// responsible for the sender side (tests, manual channels).
     pub fn new(rx: mpsc::Receiver<Result<Bytes, Error>>) -> Self {
-        Self { rx }
+        Self { rx, producer: None }
     }
 
-    /// Pull the next block, or `None` once the producer has finished (EOF).
+    /// Wrap a receiver alongside the producer task feeding it, so a producer panic is
+    /// detected at EOF and reported rather than swallowed.
+    pub(crate) fn from_producer(
+        rx: mpsc::Receiver<Result<Bytes, Error>>,
+        producer: JoinHandle<()>,
+    ) -> Self {
+        Self {
+            rx,
+            producer: Some(producer),
+        }
+    }
+
+    /// Pull the next block, or `None` once the producer has finished cleanly. If the
+    /// channel closes without the producer sending an error, the owned producer handle is
+    /// awaited: a panic (or cancellation) is surfaced as an error so the consumer does not
+    /// treat a crashed producer as a complete stream.
     pub async fn next(&mut self) -> Option<Result<Bytes, Error>> {
-        self.rx.recv().await
+        if let Some(item) = self.rx.recv().await {
+            return Some(item);
+        }
+        match self.producer.take() {
+            Some(handle) => match handle.await {
+                Ok(()) => None,
+                Err(join_err) => Some(Err(Error::msg(format!(
+                    "decompression task terminated abnormally: {join_err}"
+                )))),
+            },
+            None => None,
+        }
     }
 
     /// Build a stream from in-memory blocks, feeding them through a bounded channel
@@ -41,14 +72,14 @@ impl PlaintextStream {
         I::IntoIter: Send,
     {
         let (tx, rx) = mpsc::channel(16);
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             for chunk in chunks {
                 if tx.send(Ok(chunk)).await.is_err() {
                     break;
                 }
             }
         });
-        Self { rx }
+        Self::from_producer(rx, handle)
     }
 }
 
@@ -265,6 +296,54 @@ pub(crate) async fn stage_bytes(
     backend.stage_part(key, stream).await
 }
 
+/// Prove a backend's reads reconstruct the staged bytes exactly across arbitrary,
+/// record-misaligned offsets — the property the job loop relies on when it re-reads a
+/// partial trailing record. Stages `body`, reads it back in tiny (7-byte) slices whose
+/// boundaries do not align with record boundaries, asserts the concatenation equals
+/// `body`, and asserts a single read spanning more than one slice returns the exact span.
+///
+/// Shared across backends so both `LocalDiskBackend` and `TempBucketBackend` are held to
+/// the identical read contract.
+///
+/// A multi-record JSONL body whose record boundaries do not fall on the read-slice
+/// boundaries used by [`assert_reads_reconstruct`], so both backends are exercised with
+/// the same fixture.
+#[cfg(test)]
+pub(crate) const TEST_RECORD_BODY: &[u8] = b"{\"id\":1}\n{\"id\":2}\n{\"id\":3}\n{\"id\":4}\n";
+
+#[cfg(test)]
+pub(crate) async fn assert_reads_reconstruct(backend: &dyn StagingBackend, key: &str, body: &[u8]) {
+    let size = stage_bytes(backend, key, body).await.unwrap();
+    assert_eq!(size, body.len() as u64);
+
+    // Reassemble via small, deliberately record-misaligned reads.
+    const SLICE: u64 = 7;
+    let mut reconstructed = Vec::with_capacity(body.len());
+    let mut offset = 0u64;
+    loop {
+        let chunk = backend.read(key, offset, SLICE).await.unwrap();
+        if chunk.is_empty() {
+            break;
+        }
+        assert!(
+            chunk.len() as u64 <= SLICE,
+            "read returned more than requested"
+        );
+        reconstructed.extend_from_slice(&chunk);
+        offset += chunk.len() as u64;
+    }
+    assert_eq!(
+        reconstructed, body,
+        "misaligned reads must reconstruct the body"
+    );
+
+    // A single read wider than a slice returns exactly the requested span.
+    if body.len() >= 20 {
+        let span = backend.read(key, 5, 15).await.unwrap();
+        assert_eq!(span, &body[5..20]);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -300,6 +379,26 @@ mod tests {
             .await
             .unwrap()
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn producer_panic_surfaces_as_error_not_clean_eof() {
+        // A producer that panics (mirrors a flate2/zip internal panic) must not look like a
+        // clean EOF — otherwise the consumer would stage a silently truncated part.
+        let (tx, rx) = mpsc::channel::<Result<Bytes, Error>>(4);
+        let handle = tokio::task::spawn_blocking(move || {
+            let _tx = tx; // hold the sender so the channel closes only on unwind
+            panic!("simulated decoder panic");
+        });
+        let mut stream = PlaintextStream::from_producer(rx, handle);
+
+        let mut saw_error = false;
+        while let Some(item) = stream.next().await {
+            if item.is_err() {
+                saw_error = true;
+            }
+        }
+        assert!(saw_error, "a producer panic must surface as a stream error");
     }
 
     #[tokio::test]
@@ -376,6 +475,13 @@ mod tests {
             .await
             .unwrap();
         assert!(entries.next_entry().await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn misaligned_reads_reconstruct_body() {
+        let root = TempDir::new().unwrap();
+        let be = backend(root.path());
+        assert_reads_reconstruct(&be, "k", TEST_RECORD_BODY).await;
     }
 
     #[tokio::test]

@@ -6,8 +6,13 @@ use tracing::{info, warn};
 use crate::error::UserError;
 
 pub mod backend;
+pub mod pipeline;
+pub mod s3_client;
+pub mod temp_bucket;
 
 pub use backend::{LocalDiskBackend, PlaintextStream, StagingBackend};
+pub use pipeline::open_plaintext_stream;
+pub use temp_bucket::TempBucketBackend;
 
 /// Default amount of freshly-written data between staging-size checks. Stat-ing
 /// the whole staging tree is O(files), so we only re-measure after this much has
