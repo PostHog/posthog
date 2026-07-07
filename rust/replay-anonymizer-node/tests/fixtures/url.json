@@ -9,7 +9,7 @@
       ]
     },
     "input": "https://example.com/users/42/profile",
-    "scrubAuthority": false,
+    "collapseHost": false,
     "expected": "https://example.com/users/$$/profile"
   },
   {
@@ -19,7 +19,7 @@
       "url": []
     },
     "input": "/foo/bar?x=1",
-    "scrubAuthority": false,
+    "collapseHost": false,
     "expected": "/[redacted]/[redacted]"
   },
   {
@@ -31,7 +31,7 @@
       ]
     },
     "input": "https://example.com/?page=2&secret=abc",
-    "scrubAuthority": false,
+    "collapseHost": false,
     "expected": "https://example.com/?page=$"
   },
   {
@@ -43,11 +43,11 @@
       ]
     },
     "input": "https://example.com/#section",
-    "scrubAuthority": false,
+    "collapseHost": false,
     "expected": "https://example.com/#section"
   },
   {
-    "name": "scrubAuthority strips userinfo/port and keeps allow-listed subdomain",
+    "name": "collapseHost drops the port and keeps an allow-listed subdomain",
     "allow": {
       "text": [],
       "url": [
@@ -56,17 +56,17 @@
       ]
     },
     "input": "https://user:pw@us.example.org:8080/path",
-    "scrubAuthority": true,
+    "collapseHost": true,
     "expected": "https://us.example.com/path"
   },
   {
-    "name": "scrubAuthority collapses a two-label host to example.com",
+    "name": "collapseHost collapses a two-label host to example.com",
     "allow": {
       "text": [],
       "url": []
     },
     "input": "https://example.com/u/42",
-    "scrubAuthority": true,
+    "collapseHost": true,
     "expected": "https://example.com/[redacted]/$$"
   },
   {
@@ -78,7 +78,7 @@
       ]
     },
     "input": "https://example.com/?ok=&x=1",
-    "scrubAuthority": false,
+    "collapseHost": false,
     "expected": "https://example.com/?ok="
   },
   {
@@ -90,7 +90,7 @@
       ]
     },
     "input": "https://example.com/?ok&drop",
-    "scrubAuthority": false,
+    "collapseHost": false,
     "expected": "https://example.com/?ok"
   },
   {
@@ -100,7 +100,7 @@
       "url": []
     },
     "input": "https://example.com/#42",
-    "scrubAuthority": false,
+    "collapseHost": false,
     "expected": "https://example.com/"
   },
   {
@@ -110,7 +110,7 @@
       "url": []
     },
     "input": "/a/../b",
-    "scrubAuthority": false,
+    "collapseHost": false,
     "expected": "/[redacted]/../[redacted]"
   },
   {
@@ -125,7 +125,7 @@
       ]
     },
     "input": "https://example.com/?a=x&b=y",
-    "scrubAuthority": false,
+    "collapseHost": false,
     "expected": "https://example.com/?a=x&b=y"
   },
   {
@@ -135,7 +135,7 @@
       "url": []
     },
     "input": "about:blank",
-    "scrubAuthority": true,
+    "collapseHost": true,
     "expected": "about:blank"
   },
   {
@@ -145,7 +145,7 @@
       "url": []
     },
     "input": "about:srcdoc",
-    "scrubAuthority": true,
+    "collapseHost": true,
     "expected": "about:srcdoc"
   },
   {
@@ -155,7 +155,7 @@
       "url": []
     },
     "input": "https://user:hunter2@app.example.com/settings",
-    "scrubAuthority": false,
+    "collapseHost": false,
     "expected": "https://app.example.com/[redacted]"
   },
   {
@@ -165,7 +165,7 @@
       "url": []
     },
     "input": "tel:+15551234567",
-    "scrubAuthority": false,
+    "collapseHost": false,
     "expected": "tel:[redacted]"
   },
   {
@@ -175,7 +175,7 @@
       "url": []
     },
     "input": "mailto:john.fakename@example.com?subject=hello%20there",
-    "scrubAuthority": true,
+    "collapseHost": true,
     "expected": "mailto:[redacted]"
   }
 ]

@@ -50,9 +50,9 @@ fn url_fixtures() {
         let allow = allow_of(&case);
         let input = case["input"].as_str().unwrap();
         let expected = case["expected"].as_str().unwrap();
-        let scrub_authority = case["scrubAuthority"].as_bool().unwrap_or(false);
+        let collapse_host = case["collapseHost"].as_bool().unwrap_or(false);
         let actual =
-            scrub_url_opts(&allow, input, scrub_authority).unwrap_or_else(|| input.to_string());
+            scrub_url_opts(&allow, input, collapse_host).unwrap_or_else(|| input.to_string());
         assert_eq!(actual, expected, "url case: {}", case["name"]);
     }
 }

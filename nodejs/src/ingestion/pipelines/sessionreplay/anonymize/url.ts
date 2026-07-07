@@ -8,16 +8,16 @@
  *   counts as denied for survival, so `id=42` is dropped while `page=2` → `page=$`. When a param
  *   survives, each side renders independently: allow-listed → kept, number → `$$`, denied → `[key]`/`[value]`.
  * - Fragment: kept only if it is an allow-listed alphanumeric token; numbers and everything else dropped.
- * - Userinfo (`user:pass@`) is always stripped from the authority, even without `scrubAuthority`.
+ * - Userinfo (`user:pass@`) is always stripped from the authority.
  * - A scheme without slashes (`mailto:`, `tel:`) is kept; the rest is scrubbed as a path.
- * - With `{ scrubAuthority: true }` it additionally strips the port and
+ * - With `{ collapseHost: true }` it additionally drops the port and
  *   collapses the host to `example.com` (keeping a leading allow-listed subdomain label).
  */
 import { ScrubContext } from './config'
 import { ScrubResult } from './text'
 
 export interface UrlScrubOptions {
-    scrubAuthority?: boolean
+    collapseHost?: boolean
 }
 
 // Spec-defined, entropy-free literals (rrweb's blank/srcdoc iframe placeholders): redacting them
@@ -52,18 +52,19 @@ export function scrubUrl(ctx: ScrubContext, input: string, opts?: UrlScrubOption
     const { scheme, authority, path } = splitUrl(base)
     let out = scheme
     if (authority) {
-        if (opts?.scrubAuthority) {
-            const scrubbed = scrubHost(ctx, authority)
-            if (scrubbed !== authority) {
+        const at = authority.lastIndexOf('@')
+        if (at !== -1) {
+            changed = true
+        }
+        const hostPort = authority.slice(at + 1)
+        if (opts?.collapseHost) {
+            const collapsed = collapsedHost(ctx, hostPort)
+            if (collapsed !== hostPort) {
                 changed = true
             }
-            out += scrubbed
+            out += collapsed
         } else {
-            const at = authority.lastIndexOf('@')
-            if (at !== -1) {
-                changed = true
-            }
-            out += authority.slice(at + 1)
+            out += hostPort
         }
     }
 
@@ -144,12 +145,10 @@ function scrubTail(ctx: ScrubContext, tail: string): string {
     return out
 }
 
-// Strip userinfo + port and rewrite the host to example.com. Keep a leading *subdomain* label
+// Drop the port and rewrite the host to example.com. Keep a leading *subdomain* label
 // (only when there is one, i.e. ≥3 labels) if it's url-allow-listed: `us.test.com` → `us.example.com`.
-function scrubHost(ctx: ScrubContext, authority: string): string {
-    const at = authority.lastIndexOf('@')
-    let host = at !== -1 ? authority.slice(at + 1) : authority
-    host = host.replace(/:\d+$/, '') // drop :port
+function collapsedHost(ctx: ScrubContext, hostPort: string): string {
+    const host = hostPort.replace(/:\d+$/, '')
     const labels = host.split('.')
     const first = labels[0] ?? ''
     return labels.length > 2 && first && ctx.allow.urlContains(first) ? `${first}.example.com` : 'example.com'

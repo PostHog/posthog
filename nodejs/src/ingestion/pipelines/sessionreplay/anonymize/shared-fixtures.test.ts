@@ -25,7 +25,7 @@ interface TextCase {
     expected: string
 }
 interface UrlCase extends TextCase {
-    scrubAuthority?: boolean
+    collapseHost?: boolean
 }
 interface EventCase {
     name: string
@@ -82,7 +82,7 @@ describe('anonymize shared fixtures', () => {
         })
 
         test.each(urlCases.map((c) => [c.name, c] as const))('url: %s', (_name, c) => {
-            expect(scrubUrl(ctxOf(c.allow), c.input, { scrubAuthority: c.scrubAuthority }).value).toEqual(c.expected)
+            expect(scrubUrl(ctxOf(c.allow), c.input, { collapseHost: c.collapseHost }).value).toEqual(c.expected)
         })
 
         test.each(eventCases.map((c) => [c.name, c] as const))('event: %s', (_name, c) => {

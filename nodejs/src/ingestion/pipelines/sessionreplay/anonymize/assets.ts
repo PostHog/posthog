@@ -74,7 +74,7 @@ export function applyBlur(ctx: ScrubContext, attrs: Record<string, unknown>): vo
         } else {
             // Stash the scrubbed original under a namespaced attr (won't collide with app
             // `data-original-*`), host-scrubbed too so the CDN host can't leak.
-            const scrubbed = scrubUrl(ctx, existing, { scrubAuthority: true })
+            const scrubbed = scrubUrl(ctx, existing, { collapseHost: true })
             attrs[key] = PLACEHOLDER_SRC
             attrs[`data-anon-original-${key}`] = scrubbed.changed ? scrubbed.value : existing
         }

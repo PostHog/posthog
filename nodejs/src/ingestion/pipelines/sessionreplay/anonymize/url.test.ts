@@ -35,9 +35,9 @@ describe('anonymize/url', () => {
         expect(scrub('https://example.com/api/v1/users')).toBe('https://example.com/api/v1/users')
     })
 
-    describe('scrubAuthority (Meta only)', () => {
+    describe('collapseHost (Meta only)', () => {
         const ctx = { allow: new AllowLists([], ['us', 'api', 'v1', 'users', 'profile']) }
-        const sa = (i: string): string => scrubUrl(ctx, i, { scrubAuthority: true }).value
+        const sa = (i: string): string => scrubUrl(ctx, i, { collapseHost: true }).value
 
         it('keeps an allow-listed subdomain and rewrites the rest to example.com', () => {
             expect(sa('https://us.website.com/api/v1/users/42/profile')).toBe(

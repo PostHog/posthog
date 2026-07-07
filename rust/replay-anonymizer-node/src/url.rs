@@ -5,9 +5,9 @@
 //! - Path: keep allow-listed segments; a number -> `$$`; anything else -> `[redacted]`.
 //! - Query: a param survives only if its key or value is an allow-listed alphanumeric token.
 //! - Fragment: kept only if it is an allow-listed alphanumeric token.
-//! - Userinfo (`user:pass@`) is always stripped from the authority, even without `scrub_authority`.
+//! - Userinfo (`user:pass@`) is always stripped from the authority.
 //! - A scheme without slashes (`mailto:`, `tel:`) is kept; the rest is scrubbed as a path.
-//! - With `scrub_authority` it additionally strips the port and collapses the host to
+//! - With `collapse_host` it additionally drops the port and collapses the host to
 //!   `example.com` (keeping a leading allow-listed subdomain label).
 
 use crate::allow_lists::AllowLists;
@@ -20,7 +20,7 @@ pub fn scrub_url(allow: &AllowLists, input: &str) -> Option<String> {
     scrub_url_opts(allow, input, false)
 }
 
-pub fn scrub_url_opts(allow: &AllowLists, input: &str, scrub_authority: bool) -> Option<String> {
+pub fn scrub_url_opts(allow: &AllowLists, input: &str, collapse_host: bool) -> Option<String> {
     if PASSTHROUGH_URLS.contains(&input) {
         return None;
     }
@@ -35,20 +35,21 @@ pub fn scrub_url_opts(allow: &AllowLists, input: &str, scrub_authority: bool) ->
     let mut out = String::with_capacity(input.len());
     out.push_str(scheme);
     if !authority.is_empty() {
-        if scrub_authority {
-            let scrubbed = scrub_host(allow, authority);
-            if scrubbed != authority {
+        let host_port = match authority.rfind('@') {
+            Some(at) => {
+                changed = true;
+                &authority[at + 1..]
+            }
+            None => authority,
+        };
+        if collapse_host {
+            let collapsed = collapsed_host(allow, host_port);
+            if collapsed != host_port {
                 changed = true;
             }
-            out.push_str(&scrubbed);
+            out.push_str(&collapsed);
         } else {
-            match authority.rfind('@') {
-                Some(at) => {
-                    changed = true;
-                    out.push_str(&authority[at + 1..]);
-                }
-                None => out.push_str(authority),
-            }
+            out.push_str(host_port);
         }
     }
 
@@ -144,13 +145,10 @@ fn scrub_tail(allow: &AllowLists, tail: &str) -> String {
     out
 }
 
-// Strip userinfo + port and rewrite the host to example.com. Keep a leading *subdomain* label
+// Drop the port and rewrite the host to example.com. Keep a leading *subdomain* label
 // (only when there is one, i.e. >=3 labels) if it's url-allow-listed: `us.test.com` -> `us.example.com`.
-fn scrub_host(allow: &AllowLists, authority: &str) -> String {
-    let mut host = match authority.rfind('@') {
-        Some(at) => &authority[at + 1..],
-        None => authority,
-    };
+fn collapsed_host(allow: &AllowLists, host_port: &str) -> String {
+    let mut host = host_port;
     if let Some(ci) = host.rfind(':') {
         let after = &host[ci + 1..];
         if !after.is_empty() && after.bytes().all(|b| b.is_ascii_digit()) {
