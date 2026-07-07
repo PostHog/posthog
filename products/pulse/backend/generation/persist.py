@@ -98,7 +98,7 @@ def _promoted_metric(
     values = series_daily_values(results[0], brief.period_days) if results else None
     if values is None:
         return None
-    windows = split_score_windows(values, brief.period_days)
+    windows = split_score_windows(values)
     if windows is None:
         return None
     # The minimal shape accountability's usability gate requires — the same snapshot semantics
