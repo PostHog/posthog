@@ -524,6 +524,11 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
 const MEMORY_LIMIT_AI_PROMPT =
     "!This insight ran out of memory before it could finish. Help me work out why it's scanning so much data and how to fix it — e.g. a shorter date range, narrower filters, or materializing the data."
 
+// Substring of the backend ClickHouseQueryMemoryLimitExceeded.default_detail. Async query paths
+// don't carry the error code yet, so we fall back to matching this in the message; keep it in sync
+// with that copy (or better, propagate the code through QueryStatus and drop the fallback).
+const MEMORY_LIMIT_DETAIL_MARKER = 'ran out of memory'
+
 // Render a plain error string with any embedded URLs (e.g. a docs link the backend includes)
 // as clickable links rather than bare text.
 const DETAIL_URL_REGEX = /(https?:\/\/[^\s]+)/g
@@ -554,11 +559,14 @@ export function InsightValidationError({
     cta?: JSX.Element
 }): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
+    const debugWithAI = (): void => openSidePanel(SidePanelTab.Max, MEMORY_LIMIT_AI_PROMPT)
     // Prefer the stable backend error code. Some query paths (e.g. async dashboard tiles) don't
-    // propagate a code yet, so fall back to the message there until QueryStatus carries one.
+    // propagate a code yet, so fall back to matching the message there until QueryStatus carries one.
     const isMemoryLimitError = validationErrorCode
         ? validationErrorCode === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE
-        : detail.includes('ran out of memory')
+        : detail.includes(MEMORY_LIMIT_DETAIL_MARKER)
+    const defaultCta =
+        cta ?? (onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />)
 
     return (
         <div
@@ -582,18 +590,13 @@ export function InsightValidationError({
             <p className="text-sm text-muted max-w-120 mb-2">{renderDetailWithLinks(detail)}</p>
 
             {isMemoryLimitError ? (
-                <AIConsentPopoverWrapper onApprove={() => openSidePanel(SidePanelTab.Max, MEMORY_LIMIT_AI_PROMPT)}>
-                    <LemonButton
-                        type="primary"
-                        onClick={() => openSidePanel(SidePanelTab.Max, MEMORY_LIMIT_AI_PROMPT)}
-                        data-attr="insight-memory-limit-debug-with-ai"
-                    >
+                <AIConsentPopoverWrapper onApprove={debugWithAI}>
+                    <LemonButton type="primary" onClick={debugWithAI} data-attr="insight-memory-limit-debug-with-ai">
                         Debug with PostHog AI
                     </LemonButton>
                 </AIConsentPopoverWrapper>
             ) : (
-                (cta ??
-                (onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />))
+                defaultCta
             )}
 
             {detail.includes('Exclusion') && (
