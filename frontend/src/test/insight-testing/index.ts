@@ -6,6 +6,7 @@ export { createInsightTooltipAccessor } from './tooltip-helpers'
 export type { InsightTooltipAccessor } from './tooltip-helpers'
 export {
     buildFunnelsQuery,
+    buildRetentionQuery,
     buildStickinessQuery,
     buildTrendsQuery,
     renderInsight,

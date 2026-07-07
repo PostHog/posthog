@@ -6,6 +6,10 @@ import {
     actionDefinitions,
     eventDefinitions as defaultEventDefs,
     type FunnelStepData,
+    type FunnelStepFixture,
+    funnelSteps,
+    type FunnelTimeToConvertFixture,
+    funnelTimeToConvertBins,
     funnelTrendsSteps,
     lookupActors,
     lookupCompareSeries,
@@ -14,6 +18,8 @@ import {
     personProperties,
     propertyDefinitions as defaultPropDefs,
     propertyValues as defaultPropValues,
+    type RetentionResultFixture,
+    retentionResults,
     sessionPropertyDefinitions,
     type SeriesData,
 } from './test-data'
@@ -30,6 +36,9 @@ export interface QueryBody {
         formulas?: string[]
         formulaNodes?: unknown[]
     }
+    funnelsFilter?: {
+        funnelVizType?: string
+    }
     [key: string]: unknown
 }
 
@@ -39,16 +48,22 @@ function hasFormula(query: QueryBody): boolean {
 }
 
 interface FunnelsQueryResponseLike {
-    results: FunnelStepData[]
+    results: FunnelStepData[] | FunnelStepFixture[] | FunnelStepFixture[][] | FunnelTimeToConvertFixture
 }
+
+interface RetentionQueryResponseLike {
+    results: RetentionResultFixture[]
+}
+
+type InsightMockResponse =
+    | TrendsQueryResponse
+    | ActorsQueryResponse
+    | FunnelsQueryResponseLike
+    | RetentionQueryResponseLike
 
 export interface MockResponse {
     match: (query: QueryBody) => boolean
-    response:
-        | TrendsQueryResponse
-        | ActorsQueryResponse
-        | FunnelsQueryResponseLike
-        | ((query: QueryBody) => TrendsQueryResponse | ActorsQueryResponse | FunnelsQueryResponseLike)
+    response: InsightMockResponse | ((query: QueryBody) => InsightMockResponse)
 }
 
 /** Build an ActorsQueryResponse shaped like the server response, with one row
@@ -156,7 +171,7 @@ function resolveActors(query: QueryBody): Array<{ email: string }> {
 }
 
 /** Funnels in trends-viz mode return a flat `FunnelStep[]` — one entry per series, or per breakdown value. */
-function buildFunnelsResponse(query: QueryBody): FunnelsQueryResponseLike {
+function buildFunnelTrendsResponse(query: QueryBody): FunnelsQueryResponseLike {
     const breakdownProp = query.breakdownFilter?.breakdowns?.[0]?.property ?? query.breakdownFilter?.breakdown
     const isCompare = !!(query as { compareFilter?: { compare?: boolean } }).compareFilter?.compare
     if (isCompare && breakdownProp && funnelTrendsSteps.compareByBreakdown[breakdownProp]) {
@@ -166,6 +181,28 @@ function buildFunnelsResponse(query: QueryBody): FunnelsQueryResponseLike {
         return { results: funnelTrendsSteps.byBreakdown[breakdownProp] }
     }
     return { results: [funnelTrendsSteps.default] }
+}
+
+/** Steps-viz funnels return a flat `FunnelStep[]`, or `FunnelStep[][]` (one funnel per breakdown value). */
+function buildFunnelStepsResponse(query: QueryBody): FunnelsQueryResponseLike {
+    const breakdownProp = query.breakdownFilter?.breakdowns?.[0]?.property ?? query.breakdownFilter?.breakdown
+    if (breakdownProp && funnelSteps.byBreakdown[breakdownProp]) {
+        return { results: funnelSteps.byBreakdown[breakdownProp] }
+    }
+    return { results: funnelSteps.default }
+}
+
+/** Routes a FunnelsQuery to the fixture matching its viz type. The backend defaults an
+ *  absent `funnelVizType` to steps, so the mock does too. */
+function buildFunnelsResponse(query: QueryBody): FunnelsQueryResponseLike {
+    const vizType = query.funnelsFilter?.funnelVizType
+    if (vizType === 'trends') {
+        return buildFunnelTrendsResponse(query)
+    }
+    if (vizType === 'time_to_convert') {
+        return { results: funnelTimeToConvertBins }
+    }
+    return buildFunnelStepsResponse(query)
 }
 
 interface FunnelsActorsQueryShape {
@@ -250,6 +287,10 @@ export function setupInsightMocks({
         {
             match: (query) => query.kind === NodeKind.FunnelsQuery,
             response: (query) => buildFunnelsResponse(query),
+        },
+        {
+            match: (query) => query.kind === NodeKind.RetentionQuery,
+            response: { results: retentionResults },
         },
         // Must precede the generic ActorsQuery matcher so funnel actor queries route to lookupFunnelActors.
         {
