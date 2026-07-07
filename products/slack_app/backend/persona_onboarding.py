@@ -34,7 +34,7 @@ from products.mcp_store.backend.facade.contracts import TemplateInfo
 if TYPE_CHECKING:
     from slack_sdk.web import SlackResponse
 
-from products.slack_app.backend.analytics import capture_slack_event
+from products.slack_app.backend.analytics import capture_slack_event, slack_user_distinct_id
 from products.slack_app.backend.feature_flags import is_persona_onboarding_enabled
 from products.slack_app.backend.inbox_channel import (
     INBOX_CHANNEL_REQUIRED_SCOPES,
@@ -71,16 +71,24 @@ SCOUTS_DOC_URL = "https://posthog.com/docs/self-driving/scouts"
 # Single-flight window for the kickoff post (see `start_onboarding_dm`).
 _START_CLAIM_TTL_SECONDS = 60
 
+# Funnel: home_card_shown → started → persona_selected → fleet_shown → channel_configured →
+# completed (skipped/grandfathered are exits; invite_needed, nudged, and error mark friction
+# between steps). Every event shares a per-user distinct_id and carries persona context so
+# conversion can be broken down by persona at any step.
+EVENT_HOME_CARD_SHOWN = "slack_persona_onboarding_home_card_shown"
 EVENT_STARTED = "slack_persona_onboarding_started"
 EVENT_PERSONA_SELECTED = "slack_persona_onboarding_persona_selected"
 EVENT_FLEET_SHOWN = "slack_persona_onboarding_fleet_shown"
 EVENT_CONNECT_CLICKED = "slack_persona_onboarding_connect_clicked"
 EVENT_MCP_CONNECTED = "slack_persona_onboarding_mcp_connected"
 EVENT_GITHUB_CONNECTED = "slack_persona_onboarding_github_connected"
+EVENT_CHANNEL_INVITE_NEEDED = "slack_persona_onboarding_channel_invite_needed"
 EVENT_CHANNEL_CONFIGURED = "slack_persona_onboarding_channel_configured"
 EVENT_COMPLETED = "slack_persona_onboarding_completed"
 EVENT_SKIPPED = "slack_persona_onboarding_skipped"
 EVENT_GRANDFATHERED = "slack_persona_onboarding_grandfathered"
+EVENT_NUDGED = "slack_persona_onboarding_nudged"
+EVENT_ERROR = "slack_persona_onboarding_error"
 
 # Signed state carried by Connect buttons through the MCP OAuth round-trip; long-lived because
 # the fleet-reveal message can sit unread in a DM for a while before anyone clicks it.
@@ -471,11 +479,17 @@ def has_prior_slack_activity(integration_ids: list[int], slack_user_id: str) -> 
     ).exists()
 
 
-def _grandfather(integration: Integration, row: SlackSettings, slack_user_id: str) -> None:
+def _grandfather(integration: Integration, row: SlackSettings, slack_user_id: str, posthog_user_id: int) -> None:
     row.onboarded_at = timezone.now()
     row.onboarding_state = None
     row.save(update_fields=["onboarded_at", "onboarding_state", "updated_at"])
-    capture_slack_event(integration, EVENT_GRANDFATHERED, slack_user_id=slack_user_id)
+    capture_slack_event(
+        integration,
+        EVENT_GRANDFATHERED,
+        slack_user_id=slack_user_id,
+        distinct_id=slack_user_distinct_id(integration.integration_id, slack_user_id),
+        posthog_user_id=posthog_user_id,
+    )
 
 
 def compute_home_onboarding_status(integration: Integration, workspace_id: str, slack_user_id: str) -> str:
@@ -811,6 +825,22 @@ def _load_context(payload: dict) -> _FlowContext | None:
     return ctx
 
 
+def _capture_flow_event(ctx: _FlowContext, event: str, **props: object) -> None:
+    """Capture a funnel event for an in-flight onboarding: per-user distinct_id (steps must
+    chain on one person) plus persona context on every step for breakdowns. Explicit props win
+    over the defaults."""
+    props.setdefault("persona", ctx.row.persona)
+    props.setdefault("persona_candidate", ctx.state.get("persona_candidate"))
+    props.setdefault("posthog_user_id", ctx.state.get("posthog_user_id"))
+    capture_slack_event(
+        ctx.integration,
+        event,
+        slack_user_id=ctx.slack_user_id,
+        distinct_id=slack_user_distinct_id(ctx.workspace_id, ctx.slack_user_id),
+        **props,
+    )
+
+
 def _retarget_to_click(ctx: _FlowContext, payload: dict) -> None:
     """Point follow-up posts at the thread hosting the clicked button. In the assistant surface
     every top-level DM message roots its own conversation, so replying anywhere else opens a
@@ -973,10 +1003,12 @@ def _post_kickoff(
         integration,
         EVENT_STARTED,
         slack_user_id=slack_user_id,
+        distinct_id=slack_user_distinct_id(workspace_id, slack_user_id),
         entry_point=entry_point,
         persona_candidate=candidate,
         detection_source=source or "none",
         search_available=slack_search.search_available(slack, workspace_id, slack_user_id),
+        posthog_user_id=posthog_user_id,
     )
 
 
@@ -1000,7 +1032,7 @@ def maybe_intercept_assistant_surface(
         return False
     if has_prior_slack_activity(accessible_integration_ids, slack_user_id):
         # An established user predating this flow — never ambush them with onboarding.
-        _grandfather(integration, row, slack_user_id)
+        _grandfather(integration, row, slack_user_id, posthog_user_id)
         return False
     # The consume/pass-through decision must be made inline, but everything past it talks to
     # Slack (detection searches, posts) — run it off the event-request thread so the events API
@@ -1118,6 +1150,7 @@ def _run_action(handler: Callable[[], None], payload: dict, action_id: str) -> N
         logger.exception("persona_onboarding_action_failed", action_id=action_id)
         ctx = _load_context(payload)
         if ctx is not None:
+            _capture_flow_event(ctx, EVENT_ERROR, stage=action_id)
             try:
                 _post(ctx, [_section(ERROR_TEXT)], ERROR_TEXT)
             except Exception:
@@ -1129,6 +1162,8 @@ def _post_nudge(ctx: _FlowContext) -> None:
     text = NUDGE_CHANNEL_TEXT if step == STEP_AWAITING_CHANNEL else NUDGE_PERSONA_TEXT
     _post(ctx, [_section(text)], text)
     _repost_current_step(ctx)
+    # Friction signal: the user tried to talk to the bot instead of finishing the step.
+    _capture_flow_event(ctx, EVENT_NUDGED, step=step)
 
 
 def _repost_current_step(ctx: _FlowContext) -> None:
@@ -1166,16 +1201,31 @@ def _can_create_channel(slack: SlackIntegration) -> bool:
 
 def _handle_connect_click(payload: dict, action: dict) -> None:
     # URL button — the browser already navigated; just ack + record the click.
+    scout_key, _, server_name = str(action.get("value") or "").rpartition(":")
     ctx = _load_context(payload)
     if ctx is not None:
-        scout_key, _, server_name = str(action.get("value") or "").rpartition(":")
-        capture_slack_event(
-            ctx.integration,
-            EVENT_CONNECT_CLICKED,
-            slack_user_id=ctx.slack_user_id,
-            server_name=server_name,
-            scout_readiness_key=scout_key or None,
-        )
+        _capture_flow_event(ctx, EVENT_CONNECT_CLICKED, server_name=server_name, scout_readiness_key=scout_key or None)
+        return
+    # Connect buttons outlive the flow (the engineer completion's GitHub button, a finished
+    # CSM's fleet-reveal buttons), so clicks after state is cleared still need recording.
+    workspace_id = str((payload.get("team") or {}).get("id") or "")
+    slack_user_id = str((payload.get("user") or {}).get("id") or "")
+    if not workspace_id or not slack_user_id:
+        return
+    result = load_integrations(slack_team_id=workspace_id, kinds=["slack"], slack_user_id=slack_user_id)
+    integration = result.integration or (result.candidates[0] if result.candidates else None)
+    if integration is None:
+        return
+    row = SlackSettings.objects.filter(slack_workspace_id=workspace_id, slack_user_id=slack_user_id).first()
+    capture_slack_event(
+        integration,
+        EVENT_CONNECT_CLICKED,
+        slack_user_id=slack_user_id,
+        distinct_id=slack_user_distinct_id(workspace_id, slack_user_id),
+        server_name=server_name,
+        scout_readiness_key=scout_key or None,
+        persona=row.persona if row is not None else None,
+    )
 
 
 def handle_mcp_connect_return(
@@ -1201,10 +1251,13 @@ def handle_mcp_connect_return(
             integration,
             EVENT_MCP_CONNECTED,
             slack_user_id=slack_user_id,
+            distinct_id=slack_user_distinct_id(workspace_id, slack_user_id),
             server_name=template_name,
             scout_readiness_key=readiness_key,
             success=success,
             error=error or None,
+            persona=row.persona if row is not None else None,
+            posthog_user_id=state.get("posthog_user_id") if state else None,
         )
         if row is not None and state is not None and success:
             _refresh_fleet_reveal(integration, row, state, workspace_id, slack_user_id)
@@ -1313,6 +1366,7 @@ def _post_github_connected_followup(integration: Integration, row: SlackSettings
         integration,
         EVENT_GITHUB_CONNECTED,
         slack_user_id=row.slack_user_id,
+        distinct_id=slack_user_distinct_id(row.slack_workspace_id, row.slack_user_id or ""),
         persona=row.persona,
         posthog_user_id=followup.get("posthog_user_id"),
     )
@@ -1335,12 +1389,10 @@ def _handle_persona_select(payload: dict, action: dict) -> None:
     if persona == PERSONA_CSM:
         note += " — one sec while I look at what data you have…"
     _freeze_buttons(ctx, payload, note)
-    capture_slack_event(
-        ctx.integration,
+    _capture_flow_event(
+        ctx,
         EVENT_PERSONA_SELECTED,
-        slack_user_id=ctx.slack_user_id,
         persona=persona,
-        persona_candidate=ctx.state.get("persona_candidate"),
         matched_detection=persona == ctx.state.get("persona_candidate"),
     )
 
@@ -1364,14 +1416,7 @@ def _handle_persona_select(payload: dict, action: dict) -> None:
         posted = _post(ctx, blocks, text)
         if not github_connected:
             _remember_github_followup(ctx, posted)
-        capture_slack_event(
-            ctx.integration,
-            EVENT_COMPLETED,
-            slack_user_id=ctx.slack_user_id,
-            persona=persona,
-            scouts_provisioned=0,
-            **completion_props,
-        )
+        _capture_flow_event(ctx, EVENT_COMPLETED, persona=persona, scouts_provisioned=0, **completion_props)
         _republish_home(ctx.integration, ctx.slack_user_id)
         return
 
@@ -1401,13 +1446,7 @@ def _handle_persona_select(payload: dict, action: dict) -> None:
         ctx.state["fleet_message_ts"] = posted.get("ts")
         _save_state(ctx.row, ctx.state)
     _post_channel_prompt(ctx)
-    capture_slack_event(
-        ctx.integration,
-        EVENT_FLEET_SHOWN,
-        slack_user_id=ctx.slack_user_id,
-        detected_tools=detected_tools,
-        **readiness.as_dict(),
-    )
+    _capture_flow_event(ctx, EVENT_FLEET_SHOWN, detected_tools=detected_tools, **readiness.as_dict())
 
 
 def _handle_skip(payload: dict) -> None:
@@ -1420,7 +1459,7 @@ def _handle_skip(payload: dict) -> None:
     ctx.row.onboarding_state = None
     ctx.row.save(update_fields=["onboarded_at", "onboarding_state", "updated_at"])
     _post(ctx, [_section(SKIP_TEXT)], SKIP_TEXT)
-    capture_slack_event(ctx.integration, EVENT_SKIPPED, slack_user_id=ctx.slack_user_id, step=step)
+    _capture_flow_event(ctx, EVENT_SKIPPED, step=step)
     _republish_home(ctx.integration, ctx.slack_user_id)
 
 
@@ -1547,14 +1586,11 @@ def _attempt_channel_setup(
             # different channel stays possible alongside the /invite path.
             _post_channel_prompt(ctx)
         _post_invite_needed(ctx, channel_id, channel_name)
+        # Drop-off marker: users parked at /invite-then-Verify with no channel_configured after
+        # this are the ones who wedged here.
+        _capture_flow_event(ctx, EVENT_CHANNEL_INVITE_NEEDED, method=method, error=error, retry=invite_required)
         return
-    capture_slack_event(
-        ctx.integration,
-        EVENT_CHANNEL_CONFIGURED,
-        slack_user_id=ctx.slack_user_id,
-        method=method,
-        invite_required=invite_required,
-    )
+    _capture_flow_event(ctx, EVENT_CHANNEL_CONFIGURED, method=method, invite_required=invite_required)
     _provision_and_complete(ctx, channel_id, channel_name)
 
 
@@ -1585,6 +1621,7 @@ def _provision_and_complete(ctx: _FlowContext, channel_id: str, channel_name: st
     user = User.objects.filter(id=ctx.state.get("posthog_user_id")).first()
     if user is None:
         _post(ctx, [_section(ERROR_TEXT)], ERROR_TEXT)
+        _capture_flow_event(ctx, EVENT_ERROR, stage="provisioning_user_missing")
         return
     try:
         results = provision_persona_scouts(
@@ -1598,6 +1635,8 @@ def _provision_and_complete(ctx: _FlowContext, channel_id: str, channel_name: st
     except Exception:
         logger.exception("persona_onboarding_provisioning_failed", team_id=ctx.integration.team_id)
         _post(ctx, [_section(ERROR_TEXT)], ERROR_TEXT)
+        # Funnel leak between channel_configured and completed — the user stays un-onboarded.
+        _capture_flow_event(ctx, EVENT_ERROR, stage="provisioning")
         return
 
     readiness = ctx.state.get("readiness") or {}
@@ -1617,10 +1656,9 @@ def _provision_and_complete(ctx: _FlowContext, channel_id: str, channel_name: st
         ),
         "You're locked in — your scouts are on their first patrol.",
     )
-    capture_slack_event(
-        ctx.integration,
+    _capture_flow_event(
+        ctx,
         EVENT_COMPLETED,
-        slack_user_id=ctx.slack_user_id,
         persona=PERSONA_CSM,
         scouts_provisioned=len([result for result in results if result.config_id]),
         first_runs_fired=len([result for result in results if result.first_run_started]),

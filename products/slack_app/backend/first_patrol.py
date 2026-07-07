@@ -16,7 +16,7 @@ import structlog
 
 from posthog.models.integration import Integration, SlackIntegration
 
-from products.slack_app.backend.analytics import capture_slack_event
+from products.slack_app.backend.analytics import capture_slack_event, slack_user_distinct_id
 from products.slack_app.backend.persona_onboarding import PERSONA_CSM, PERSONA_SCOUT_CATALOG, inbox_url
 
 logger = structlog.get_logger(__name__)
@@ -141,6 +141,9 @@ def post_first_patrol_digest(
         integration,
         EVENT_DIGEST_SENT,
         slack_user_id=slack_user_id,
+        # Same per-user person as the onboarding funnel, so the digest chains as its final step.
+        distinct_id=slack_user_distinct_id(integration.integration_id, slack_user_id),
         variant=digest.get("variant"),
         runs_completed=digest.get("runs_completed"),
+        persona=PERSONA_CSM,
     )

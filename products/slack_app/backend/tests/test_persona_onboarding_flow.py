@@ -995,3 +995,104 @@ class TestHomeStartFlow(_FlowTestBase):
         ):
             persona_onboarding._run_home_start(WORKSPACE, SLACK_USER)
         republish.assert_called_once()
+
+
+class TestFunnelAnalytics(_FlowTestBase):
+    # The funnel contract: every step of one user's onboarding must land on the same per-user
+    # distinct_id (else conversion collapses to team level and steps stop chaining) and carry
+    # persona for breakdowns. The other flow tests mute analytics, so nothing else guards the
+    # emitted stream.
+    DISTINCT_ID = f"slack:{WORKSPACE}:{SLACK_USER}"
+
+    @patch(PROVISION)
+    @patch(FLAG, return_value=True)
+    @patch(WEBCLIENT)
+    def test_csm_flow_events_share_person_and_persona(self, mock_webclient, _flag, mock_provision):
+        self._client(mock_webclient)
+        mock_provision.return_value = [
+            ScoutProvisionResult(
+                skill_name=skill_name,
+                config_id=f"cfg-{index}",
+                created=True,
+                channel_conflict=None,
+                first_run_started=True,
+            )
+            for index, skill_name in enumerate(CSM_SKILL_NAMES)
+        ]
+        select = {"action_id": persona_onboarding.PERSONA_SELECT_ACTION_ID, "value": "csm"}
+        confirm = {"action_id": persona_onboarding.CHANNEL_CONFIRM_ACTION_ID}
+        confirm_payload = self._payload(confirm)
+        confirm_payload["state"] = {
+            "values": {
+                persona_onboarding.CHANNEL_SELECT_BLOCK_ID: {
+                    persona_onboarding.CHANNEL_SELECT_ACTION_ID: {"selected_conversation": PICKED_CHANNEL}
+                }
+            }
+        }
+        with patch.object(persona_onboarding, "capture_slack_event") as capture:
+            persona_onboarding.maybe_intercept_assistant_surface(
+                self.integration,
+                posthog_user_id=self.user.id,
+                workspace_id=WORKSPACE,
+                slack_user_id=SLACK_USER,
+                channel_id=DM_CHANNEL,
+                thread_ts=None,
+                accessible_integration_ids=[self.integration.id],
+                entry_point="first_dm",
+            )
+            persona_onboarding.handle_block_action(self._payload(select), select)
+            persona_onboarding.handle_block_action(confirm_payload, confirm)
+
+        assert [call.args[1] for call in capture.call_args_list] == [
+            persona_onboarding.EVENT_STARTED,
+            persona_onboarding.EVENT_PERSONA_SELECTED,
+            persona_onboarding.EVENT_FLEET_SHOWN,
+            persona_onboarding.EVENT_CHANNEL_CONFIGURED,
+            persona_onboarding.EVENT_COMPLETED,
+        ]
+        assert {call.kwargs["distinct_id"] for call in capture.call_args_list} == {self.DISTINCT_ID}
+        by_event = {call.args[1]: call.kwargs for call in capture.call_args_list}
+        assert by_event[persona_onboarding.EVENT_STARTED]["posthog_user_id"] == self.user.id
+        for event in (
+            persona_onboarding.EVENT_PERSONA_SELECTED,
+            persona_onboarding.EVENT_FLEET_SHOWN,
+            persona_onboarding.EVENT_CHANNEL_CONFIGURED,
+            persona_onboarding.EVENT_COMPLETED,
+        ):
+            assert by_event[event]["persona"] == persona_onboarding.PERSONA_CSM
+        assert by_event[persona_onboarding.EVENT_COMPLETED]["scouts_provisioned"] == len(CSM_SKILL_NAMES)
+
+    @patch(WEBCLIENT)
+    def test_connect_click_after_completion_still_tracked(self, mock_webclient):
+        # Connect buttons outlive the flow (the engineer completion's GitHub button); a click
+        # after onboarding_state is cleared must still record, with the persona off the row.
+        self._client(mock_webclient)
+        row = persona_onboarding.get_or_create_settings_row(WORKSPACE, SLACK_USER)
+        row.persona = persona_onboarding.PERSONA_ENGINEER
+        row.onboarded_at = timezone.now()
+        row.save(update_fields=["persona", "onboarded_at", "updated_at"])
+        action = {"action_id": f"{persona_onboarding.CONNECT_SOURCE_ACTION_ID}:github", "value": "github"}
+
+        with patch.object(persona_onboarding, "capture_slack_event") as capture:
+            persona_onboarding.handle_block_action(self._payload(action), action)
+
+        capture.assert_called_once()
+        assert capture.call_args.args[1] == persona_onboarding.EVENT_CONNECT_CLICKED
+        assert capture.call_args.kwargs["distinct_id"] == self.DISTINCT_ID
+        assert capture.call_args.kwargs["persona"] == persona_onboarding.PERSONA_ENGINEER
+        assert capture.call_args.kwargs["server_name"] == "github"
+
+    @patch(FLAG, return_value=True)
+    @patch(WEBCLIENT)
+    def test_home_impression_fires_only_on_user_initiated_open(self, mock_webclient, _flag):
+        # Programmatic republishes (after every flow step) must not count as impressions, or
+        # the funnel's top inflates by a few events per onboarding.
+        self._client(mock_webclient)
+        with patch.object(slack_app_home, "capture_slack_event") as capture:
+            slack_app_home.republish_home_for_user(self.integration, SLACK_USER, track_impression=True)
+            assert capture.call_args.args[1] == persona_onboarding.EVENT_HOME_CARD_SHOWN
+            assert capture.call_args.kwargs["distinct_id"] == self.DISTINCT_ID
+            assert capture.call_args.kwargs["status"] == "start"
+            capture.reset_mock()
+            slack_app_home.republish_home_for_user(self.integration, SLACK_USER)
+            capture.assert_not_called()

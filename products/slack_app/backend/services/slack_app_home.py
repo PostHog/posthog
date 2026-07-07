@@ -31,6 +31,7 @@ from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend import persona_onboarding
+from products.slack_app.backend.analytics import capture_slack_event, slack_user_distinct_id
 from products.slack_app.backend.feature_flags import is_slack_app_home_enabled, is_slack_app_oauth_enabled
 from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache
 from products.slack_app.backend.services.slack_auth import check_integrations_auth_and_filter
@@ -1089,13 +1090,18 @@ def handle_app_home_opened(event: dict, slack_team_id: str) -> None:
     if not is_slack_app_home_enabled(integration):
         return
 
-    republish_home_for_user(integration, slack_user_id)
+    republish_home_for_user(integration, slack_user_id, track_impression=True)
 
 
-def _publish_onboarding_home_if_needed(integration: Integration, slack_user_id: str) -> bool:
+def _publish_onboarding_home_if_needed(
+    integration: Integration, slack_user_id: str, *, track_impression: bool = False
+) -> bool:
     """Publish the onboarding-only home when the user hasn't onboarded yet (flag-gated inside
     the status computation). Returns True when it published — the caller must then skip the
-    settings view, which also skips its several Slack/DB round-trips of state resolution."""
+    settings view, which also skips its several Slack/DB round-trips of state resolution.
+
+    ``track_impression`` is set only for user-initiated home opens: the card is the top of the
+    onboarding funnel, and programmatic republishes (after each flow step) aren't impressions."""
     onboarding_status = persona_onboarding.compute_home_onboarding_status(
         integration, integration.integration_id, slack_user_id
     )
@@ -1107,6 +1113,14 @@ def _publish_onboarding_home_if_needed(integration: Integration, slack_user_id: 
         else None
     )
     _publish_home_view(integration, slack_user_id, render_onboarding_home_view(onboarding_status, dm_link))
+    if track_impression:
+        capture_slack_event(
+            integration,
+            persona_onboarding.EVENT_HOME_CARD_SHOWN,
+            slack_user_id=slack_user_id,
+            distinct_id=slack_user_distinct_id(integration.integration_id, slack_user_id),
+            status=onboarding_status,
+        )
     return True
 
 
@@ -1127,10 +1141,11 @@ def _publish_home_view(integration: Integration, slack_user_id: str, view: dict)
         )
 
 
-def republish_home_for_user(integration: Integration, slack_user_id: str) -> None:
+def republish_home_for_user(integration: Integration, slack_user_id: str, *, track_impression: bool = False) -> None:
     """Recompute and publish the Home tab for one user — the shared publish path for
-    `app_home_opened` and for flows (persona onboarding) that change what home shows."""
-    if _publish_onboarding_home_if_needed(integration, slack_user_id):
+    `app_home_opened` (which tracks the onboarding-card impression) and for flows
+    (persona onboarding) that change what home shows."""
+    if _publish_onboarding_home_if_needed(integration, slack_user_id, track_impression=track_impression):
         return
     effective = resolve_ai_preferences(integration, slack_user_id)
     user_row, workspace_row = _load_rows(integration, slack_user_id)
