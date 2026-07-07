@@ -19,6 +19,15 @@ from posthog.models.user_integration import UserIntegration
 logger = structlog.get_logger(__name__)
 
 
+def purge_installation_rows(installation_id: str) -> tuple[int, int]:
+    """Delete every PostHog row referencing a GitHub App installation that no longer exists on
+    GitHub. Never calls GitHub's DELETE endpoint — the App is already gone. Returns
+    ``(team_rows_deleted, user_rows_deleted)``."""
+    team_deleted, _ = Integration.objects.filter(kind="github", integration_id=installation_id).delete()
+    user_deleted, _ = UserIntegration.objects.filter(kind="github", integration_id=installation_id).delete()
+    return team_deleted, user_deleted
+
+
 def handle_installation_event(payload: dict) -> HttpResponse:
     """Process a pre-verified GitHub ``installation`` webhook event.
 
@@ -37,9 +46,7 @@ def handle_installation_event(payload: dict) -> HttpResponse:
         return HttpResponse(status=200)
 
     installation_id = str(installation_id)
-
-    team_deleted, _ = Integration.objects.filter(kind="github", integration_id=installation_id).delete()
-    user_deleted, _ = UserIntegration.objects.filter(kind="github", integration_id=installation_id).delete()
+    team_deleted, user_deleted = purge_installation_rows(installation_id)
 
     logger.info(
         "github_installation_webhook_uninstalled",

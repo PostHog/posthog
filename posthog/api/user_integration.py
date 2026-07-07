@@ -26,6 +26,10 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.github_callback import state as github_callback_state
+from posthog.api.github_callback.team_services import (
+    build_personal_github_oauth_authorize_url,
+    team_github_installation_id,
+)
 from posthog.api.github_callback.types import (
     APP_CONNECT_FROM_VALUES,
     PERSONAL_INTEGRATIONS_SETTINGS_PATH,
@@ -455,7 +459,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         team = _resolve_team_for_github_start(user, self.request)
         connect_from = request.data.get("connect_from")
 
-        if fast_path_response := _attempt_app_oauth_fast_path(user, team, token, state, connect_from):
+        if fast_path_response := _attempt_app_oauth_fast_path(user, team, connect_from):
             return fast_path_response
 
         if connect_from in APP_CONNECT_FROM_VALUES:
@@ -734,19 +738,10 @@ def _has_unlinked_github_installations(user: User) -> bool | None:
 def _team_github_installation_id(team: Any) -> str | None:
     if team is None:
         return None
-    team_row = (
-        Integration.objects.filter(team=team, kind="github")
-        .exclude(integration_id__isnull=True)
-        .exclude(integration_id="")
-        .order_by("id")
-        .first()
-    )
-    return str(team_row.integration_id) if team_row is not None and team_row.integration_id else None
+    return team_github_installation_id(team.id)
 
 
-def _attempt_app_oauth_fast_path(
-    user: User, team: Any, token: str, state: str, connect_from: str | None
-) -> Response | None:
+def _attempt_app_oauth_fast_path(user: User, team: Any, connect_from: str | None) -> Response | None:
     """If the team has a GitHub installation the user hasn't linked yet, return
     an OAuth-only ``/login/oauth/authorize`` redirect so users authorize against
     the already-installed App — no org picker needed. ``connect_from`` is
@@ -755,21 +750,12 @@ def _attempt_app_oauth_fast_path(
     Returns ``None`` when the fast path doesn't apply (no team integration,
     user already linked, or missing config).
     """
-    team_installation_id = _team_github_installation_id(team)
-    if team_installation_id is None:
+    if team is None:
         return None
-    if UserIntegration.objects.filter(user=user, kind="github", integration_id=team_installation_id).exists():
+    install_url = build_personal_github_oauth_authorize_url(user=user, team_id=team.id, connect_from=connect_from)
+    if install_url is None:
         return None
-    github_callback_state.store_unified_authorize_state(
-        GitHubAuthorizeState(
-            token=token,
-            flow=FlowKind.PERSONAL_OAUTH,
-            user_id=user.id,
-            installation_id=team_installation_id,
-            connect_from=connect_from,
-        ),
-    )
-    return Response({"install_url": github_oauth_authorize_url(state), "connect_flow": "oauth_authorize"})
+    return Response({"install_url": install_url, "connect_flow": "oauth_authorize"})
 
 
 def _serialize_github_integration(
