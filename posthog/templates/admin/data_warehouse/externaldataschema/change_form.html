@@ -389,7 +389,9 @@
             <tbody>
                 {% for job in page_obj %}
                 <tr style="border-bottom: 1px solid #eee;">
-                    <td style="padding: 8px; font-family: monospace; font-size: 12px;">{{ job.id }}</td>
+                    <td style="padding: 8px; font-family: monospace; font-size: 12px;">
+                        <a href="{% url 'admin:data_warehouse_externaldatajob_change' job.id %}">{{ job.id }}</a>
+                    </td>
                     <td style="padding: 8px;">
                         {% if job.status == "Running" %}
                             <span class="status-badge status-running" style="color: blue;">Running</span>
