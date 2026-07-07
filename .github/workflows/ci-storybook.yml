@@ -121,19 +121,20 @@ jobs:
             # The excluded dirs are derived from pnpm-workspace.yaml (the product paths that
             # declare nested pnpm workspaces), not hardcoded — see bin/frontend-exclude-filter.
             #
-            # A separate `every`-quantifier step is required: a plain `!...` in the broad
-            # filter is neutralized by dorny's default `some` quantifier (same gotcha as the
-            # output comment above). With `every`, the filter is true only when some changed
-            # file lives OUTSIDE every excluded dir.
+            # A separate include-exclude step is required: a plain `!...` in the broad
+            # filter is neutralized by the default `some` quantifier (same gotcha as the
+            # output comment above). The generated filter is exclude-only, so under
+            # include-exclude it is true only when some changed file lives OUTSIDE every
+            # excluded dir.
             - name: Derive Node-only product workspace exclusions
               if: github.event_name != 'push'
               run: bin/frontend-exclude-filter > "$RUNNER_TEMP/frontend-exclude.yml"
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: exclude
               if: github.event_name != 'push'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
-                  predicate-quantifier: 'every'
+                  predicate-quantifier: include-exclude
                   filters: ${{ runner.temp }}/frontend-exclude.yml
 
             # Build the visual-regression matrix.

@@ -79,7 +79,7 @@ jobs:
         name: Determine need to run backend and migration checks
         # Set job outputs to values from filter step
         outputs:
-            backend: ${{ steps.backend_docs.outputs.backend || 'true' }}
+            backend: ${{ steps.filter.outputs.backend || 'true' }}
             backend_files: ${{ steps.filter.outputs.backend_files }}
             migrations: ${{ steps.filter.outputs.migrations || 'true' }}
             migrations_files: ${{ steps.filter.outputs.migrations_files }}
@@ -110,23 +110,21 @@ jobs:
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   list-files: 'escape'
+                  predicate-quantifier: include-exclude
                   filters: |
                       backend:
                         # Avoid running backend tests for irrelevant changes
                         # NOTE: we are at risk of missing a dependency here. We could make
                         # the dependencies more clear if we separated the backend/frontend
                         # code completely
-                        # really we should ignore ee/frontend/** but dorny doesn't support that
-                        # - '!ee/frontend/**'
-                        # including the negated rule appears to work
-                        # but makes it always match because the checked file always isn't `ee/frontend/**` 🙈
                         - 'ee/**/*'
+                        - '!ee/frontend/**' # frontend code under ee/ must not trigger backend
                         - 'common/__init__.py'
                         - 'common/hogql_parser/**'
                         - 'common/hogvm/**'
@@ -193,12 +191,18 @@ jobs:
                         - bin/ci-wait-for-docker
                         - frontend/public/email/*
                         - 'docker/clickhouse/**'
+                        # Markdown-only changes (e.g. a README under posthog/) match the
+                        # broad globs above but exercise no backend code — exclude them so
+                        # a docs-only PR doesn't run the whole backend suite.
+                        - '!**/*.md'
+                        - '!**/*.mdx'
                       legacy:
                         # Non-product backend code — when only products/ change,
                         # turbo-discover uses Turbo query affectedness to detect changed
                         # products and decide whether Django runs.
                         # Everything from backend: EXCEPT products/**/backend/**/*
                         - 'ee/**/*'
+                        - '!ee/frontend/**' # frontend code under ee/ must not trigger backend
                         - 'common/__init__.py'
                         - 'common/hogql_parser/**'
                         - 'common/hogvm/**'
@@ -283,38 +287,6 @@ jobs:
                         - 'services/mcp/src/tools/generated/**/*'
                         - 'services/mcp/schema/generated-tool-definitions.json'
                         - 'services/mcp/schema/tool-definitions-all.json'
-
-            # A change that only touches Markdown docs (e.g. a README under
-            # posthog/) still matches the broad backend globs above, needlessly
-            # running the whole backend suite. Drop the backend signal when
-            # every backend-matched file is Markdown.
-            # PR/merge_group events only; push keeps the default full run.
-            - name: Ignore Markdown-only changes for backend
-              id: backend_docs
-              if: github.event_name != 'push'
-              # If this step ever errors, the job output falls back to
-              # backend='true', so a failure here can only over-run the
-              # backend suite, never wrongly skip it.
-              continue-on-error: true
-              env:
-                  BACKEND: ${{ steps.filter.outputs.backend }}
-                  BACKEND_FILES: ${{ steps.filter.outputs.backend_files }}
-              run: |
-                  backend="$BACKEND"
-                  if [ "$backend" = "true" ] && [ -n "$BACKEND_FILES" ]; then
-                      # backend_files is in dorny/paths-filter's "escape" format
-                      # (space-delimited, backslash-escaped). Decode it with xargs
-                      # so paths containing whitespace stay intact and a very long
-                      # list can't overflow the argument list, then skip the backend
-                      # suite only when every changed file is Markdown.
-                      if files=$(printf '%s' "$BACKEND_FILES" | xargs -n1); then
-                          if ! printf '%s\n' "$files" | grep -qvE '\.(md|mdx)$'; then
-                              backend=false
-                          fi
-                      fi
-                  fi
-                  echo "backend=$backend" >> "$GITHUB_OUTPUT"
-                  echo "Backend tests needed: $backend"
 
     detect-snapshot-mode:
         name: Detect snapshot mode

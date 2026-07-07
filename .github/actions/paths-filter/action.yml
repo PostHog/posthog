@@ -1,0 +1,66 @@
+name: 'Paths Changes Filter'
+description: 'Execute your workflow steps only if relevant files are modified. Vendored fork of dorny/paths-filter with an include-exclude matching mode.'
+author: 'Michal Dorner <dorner.michal@gmail.com>'
+inputs:
+    token:
+        description: 'GitHub Access Token'
+        required: false
+        default: ${{ github.token }}
+    working-directory:
+        description: 'Relative path under $GITHUB_WORKSPACE where the repository was checked out.'
+        required: false
+    ref:
+        description: |
+            Git reference (e.g. branch name) from which the changes will be detected.
+            This option is ignored if action is triggered by pull_request event.
+        required: false
+    base:
+        description: |
+            Git reference (e.g. branch name) against which the changes will be detected. Defaults to repository default branch (e.g. master).
+            If it references same branch it was pushed to, changes are detected against the most recent commit before the push.
+            This option is ignored if action is triggered by pull_request event.
+        required: false
+    filters:
+        description: 'Path to the configuration file or YAML string with filters definition'
+        required: true
+    list-files:
+        description: |
+            Enables listing of files matching the filter:
+              'none'  - Disables listing of matching files (default).
+              'csv'   - Coma separated list of filenames.
+                        If needed it uses double quotes to wrap filename with unsafe characters.
+              'json'  - Serialized as JSON array.
+              'shell' - Space delimited list usable as command line argument list in linux shell.
+                        If needed it uses single or double quotes to wrap filename with unsafe characters.
+              'escape'- Space delimited list usable as command line argument list in linux shell.
+                        Backslash escapes every potentially unsafe character.
+        required: false
+        default: none
+    initial-fetch-depth:
+        description: |
+            How many commits are initially fetched from base branch.
+            If needed, each subsequent fetch doubles the previously requested number of commits
+            until the merge-base is found or there are no more commits in the history.
+            This option takes effect only when changes are detected using git against different base branch.
+        required: false
+        default: '100'
+    predicate-quantifier:
+        description: |
+            Controls how a file is matched against the patterns of a filter:
+              'some'            - (default) file matches if it matches at least one pattern.
+              'every'           - file matches only if it matches every pattern.
+              'include-exclude' - positive patterns are OR-ed as includes and every '!' pattern is an
+                                  exclude that vetoes a match. A file matches when it matches at least one
+                                  include (or there are no includes) and matches no exclude. This is the
+                                  only mode that can express "everything in folder X, except *.md".
+        required: false
+        default: 'some'
+outputs:
+    changes:
+        description: JSON array with names of all filters matching any of changed files
+runs:
+    using: 'node24'
+    main: 'dist/index.js'
+branding:
+    color: blue
+    icon: filter

@@ -56,7 +56,7 @@ jobs:
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: filter
               if: steps.skip-label.outputs.skip != 'true'
               with:
@@ -75,17 +75,14 @@ jobs:
                       nodejs:
                           - 'nodejs/**'
 
-            # Separate step with predicate-quantifier: 'every' so that the
-            # negative patterns actually exclude migration directories.
-            # The default quantifier is 'some' (OR logic), which means a file
-            # matching ANY pattern (including the positive rust/**) passes the
-            # filter — the ! patterns are silently ignored.
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            # include-exclude so rust_services matches any rust/** change except the
+            # migration directories the ! patterns carve out.
+            - uses: ./.github/actions/paths-filter
               id: rust-filter
               if: steps.skip-label.outputs.skip != 'true'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
-                  predicate-quantifier: 'every'
+                  predicate-quantifier: include-exclude
                   filters: |
                       rust_services:
                           - 'rust/**'
