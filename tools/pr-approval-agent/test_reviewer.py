@@ -114,6 +114,15 @@ def test_prompt_discussion_keeps_both_ends(count: int, omission_line: str, absen
         assert absent_body not in prompt
 
 
+def test_author_flood_cannot_displace_maintainer_hold() -> None:
+    hold = {"user": "maintainer", "body": "hold off, do not merge yet", "created_at": None}
+    flood = [{"user": "alice", "body": f"author spam {i}", "created_at": None} for i in range(100)]
+    prompt = _prompt(_pr(discussion=[hold, *flood]))
+
+    assert "hold off, do not merge yet" in prompt
+    assert "older comments by the PR author omitted" in prompt
+
+
 def test_prompt_truncates_long_review_body() -> None:
     # Guards the widened cap: a revert to the old 500-char limit would drop the
     # 2500th character and fail this.

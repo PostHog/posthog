@@ -116,13 +116,15 @@ deny:
                 - '\.tool-versions'
                 - '\.nvmrc'
     stamphog_policy:
-        description: "Stamphog's own policy files and engine."
-        rationale: "Changes to the merge gate's own policy or engine always require human review - the gate cannot be trusted to approve edits to itself."
+        description: "Stamphog's own policy files, engine, and gate inputs."
+        rationale: "Changes to the merge gate's own policy or engine always require human review - the gate cannot be trusted to approve edits to itself. Ownership sources (CODEOWNERS, product.yaml owners) are gate inputs: an ownership edit changes which team the reviewer treats as owning future PRs, and product.yaml would otherwise ride the .yaml allow-list to a T0 auto-approve (Jul 2026 review finding)."
         match:
             paths:
                 - '\.stamphog/'
                 - 'AGENT_APPROVALS\.md'
                 - 'tools/pr-approval-agent/'
+                - 'CODEOWNERS'
+                - 'product\.yaml'
 allow:
     path_patterns:
         - 'docs/'

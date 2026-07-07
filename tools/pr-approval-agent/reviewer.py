@@ -49,6 +49,7 @@ COMMENT_BODY_MAX = 1500
 INLINE_COMMENT_CAP = 60
 DISCUSSION_HEAD_KEEP = 15
 DISCUSSION_TAIL_KEEP = 35
+AUTHOR_DISCUSSION_KEEP = 10
 
 
 # _sanitize_untrusted lives in policy.py (shared with the folder-prose
@@ -92,6 +93,21 @@ def _truncate_inline_comments(comments: list[dict], cap: int) -> tuple[list[dict
     kept = [c for i, c in enumerate(comments) if i not in settled or i in keep_settled]
     dropped = len(settled) - len(keep_settled)
     return kept, f"({dropped} older resolved/outdated comments omitted)"
+
+
+def _cap_author_comments(comments: list[dict], author: str, keep: int) -> tuple[list[dict], int]:
+    """Cap the PR author's own discussion comments to their newest `keep`.
+
+    Author comments are claims, not assurance, and the author is the one actor
+    who can unilaterally flood the timeline - without this cap they could push
+    a maintainer's hold comment into the truncated middle of _keep_ends.
+    Non-author comments are never dropped here.
+    """
+    author_comments = [i for i, c in enumerate(comments) if c.get("user") == author]
+    drop = set(author_comments[:-keep]) if len(author_comments) > keep else set()
+    if not drop:
+        return comments, 0
+    return [c for i, c in enumerate(comments) if i not in drop], len(drop)
 
 
 def _keep_ends(items: list[dict], head: int, tail: int) -> tuple[list[dict], list[dict], int]:
@@ -410,8 +426,11 @@ class Reviewer:
 
         discussion_text = ""
         if pr.discussion:
-            head_items, tail_items, omitted = _keep_ends(pr.discussion, DISCUSSION_HEAD_KEEP, DISCUSSION_TAIL_KEEP)
+            discussion, author_omitted = _cap_author_comments(pr.discussion, pr.author, AUTHOR_DISCUSSION_KEEP)
+            head_items, tail_items, omitted = _keep_ends(discussion, DISCUSSION_HEAD_KEEP, DISCUSSION_TAIL_KEEP)
             lines = [self._discussion_line(c) for c in head_items]
+            if author_omitted:
+                lines.append(f"  ({author_omitted} older comments by the PR author omitted)")
             if omitted:
                 lines.append(f"  ({omitted} middle comments omitted)")
             lines.extend(self._discussion_line(c) for c in tail_items)
