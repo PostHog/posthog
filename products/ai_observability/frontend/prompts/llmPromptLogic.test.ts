@@ -1,4 +1,7 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 import api from '~/lib/api'
 import { ApiError } from '~/lib/api-error'
@@ -285,6 +288,60 @@ describe('llmPromptLogic', () => {
         expect(logic.values.publishConflict).toEqual({ latestVersion: 3 })
         expect(logic.values.prompt).toMatchObject({ latest_version: 3 })
         expect(logic.values.mode).toBe(PromptMode.Edit)
+
+        logic.unmount()
+    })
+
+    it('guards cancel behind a confirmation only when the form is dirty', async () => {
+        const { versions, has_more, ...promptFields } = mockPrompt
+        jest.spyOn(api.llmPrompts, 'resolveByName').mockResolvedValue({
+            prompt: promptFields,
+            versions,
+            has_more,
+        } as unknown as LLMPromptResolveResponse)
+        const dialogSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+
+        const logic = llmPromptLogic({ promptName: 'my-test-prompt' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPromptSuccess'])
+
+        // Clean form: cancel exits edit mode directly, no dialog
+        logic.actions.setMode(PromptMode.Edit)
+        logic.actions.cancelEditing()
+        expect(logic.values.mode).toBe(PromptMode.View)
+        expect(dialogSpy).not.toHaveBeenCalled()
+
+        // Dirty form: cancel keeps edit mode until the dialog's discard is confirmed
+        logic.actions.setMode(PromptMode.Edit)
+        logic.actions.setPromptFormValues({ prompt: 'My in-progress edit.' })
+        logic.actions.cancelEditing()
+        expect(logic.values.mode).toBe(PromptMode.Edit)
+        expect(dialogSpy).toHaveBeenCalledTimes(1)
+
+        dialogSpy.mock.calls[0][0].primaryButton?.onClick?.(undefined as any)
+        expect(logic.values.mode).toBe(PromptMode.View)
+        expect(logic.values.promptForm.prompt).toBe(mockPrompt.prompt)
+
+        logic.unmount()
+    })
+
+    it('reflects edit mode in the url', async () => {
+        const { versions, has_more, ...promptFields } = mockPrompt
+        jest.spyOn(api.llmPrompts, 'resolveByName').mockResolvedValue({
+            prompt: promptFields,
+            versions,
+            has_more,
+        } as unknown as LLMPromptResolveResponse)
+
+        const logic = llmPromptLogic({ promptName: 'my-test-prompt' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPromptSuccess'])
+
+        logic.actions.setMode(PromptMode.Edit)
+        expect(router.values.searchParams.edit).toBe(true)
+
+        logic.actions.setMode(PromptMode.View)
+        expect(router.values.searchParams.edit).toBeUndefined()
 
         logic.unmount()
     })

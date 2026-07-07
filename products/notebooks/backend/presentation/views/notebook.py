@@ -3,9 +3,11 @@ import hashlib
 from datetime import timedelta
 from typing import Any, cast
 
+from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Q, QuerySet
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.utils.timezone import now
 
 import structlog
@@ -19,6 +21,7 @@ from drf_spectacular.utils import (
     extend_schema_view,
 )
 from rest_framework import serializers, viewsets
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -46,9 +49,13 @@ from products.notebooks.backend import collab_stream, markdown_collab, presence
 from products.notebooks.backend.activity_logging import log_notebook_activity
 from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
-from products.notebooks.backend.models import KernelRuntime, Notebook
+from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
 from products.notebooks.backend.query_validation import InvalidNotebookQueryError, normalize_notebook_query_nodes
+from products.notebooks.backend.sql_v2 import is_sql_v2_enabled
+from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2RunRequestSerializer
+from products.notebooks.backend.temporal.client import start_sql_v2_run_workflow
+from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput
 from products.tasks.backend.facade.exceptions import SandboxProvisionError
 from products.tasks.backend.facade.sandbox import SandboxStatus
 
@@ -272,6 +279,15 @@ class NotebookSerializer(NotebookMinimalSerializer):
             return normalize_notebook_query_nodes(value)
         except InvalidNotebookQueryError as err:
             raise serializers.ValidationError(str(err))
+
+
+class NotebookMarkdownSerializer(serializers.Serializer):
+    markdown = serializers.CharField(
+        allow_blank=True,
+        allow_null=True,
+        read_only=True,
+        help_text="Markdown source for markdown notebooks, or `null` for legacy rich-text notebooks.",
+    )
 
 
 class NotebookKernelExecuteSerializer(serializers.Serializer):
@@ -510,8 +526,25 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         return self.get_object()
 
+    def _require_query_access(self) -> None:
+        # SQLV2 runs arbitrary HogQL and returns analytics rows, so notebook access alone is not
+        # enough — a notebook editor whose query access is denied must not read data through it.
+        # Mirrors ee/api/subscription.py: the query:read scope gates tokens, this gates sessions
+        # (which carry no scopes) and enforces real RBAC for tokens too.
+        if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+            raise PermissionDenied("You need query access to run SQL in a notebook.")
+
     def _current_user(self) -> User | None:
         return self.request.user if isinstance(self.request.user, User) else None
+
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], url_path="markdown", detail=True, required_scopes=["notebook:read"])
+    def markdown(self, request: Request, **kwargs) -> Response:
+        notebook = self.get_object()
+        serializer = NotebookMarkdownSerializer(
+            {"markdown": markdown_collab.get_markdown_notebook_markdown(notebook.content)}
+        )
+        return Response(serializer.data)
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         if not self.action.endswith("update"):
@@ -860,6 +893,81 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return Response({"detail": "Failed to fetch dataframe data."}, status=503)
 
         return Response(data)
+
+    # Experimental, flag-gated slice — kept out of the public OpenAPI schema (no generated FE/MCP types yet).
+    @extend_schema(exclude=True)
+    @action(methods=["POST"], url_path="sql_v2/run", detail=True, required_scopes=["notebook:write", "query:read"])
+    def sql_v2_run(self, request: Request, **kwargs):
+        user = self._current_user()
+        # Server-side gate is permissive in local dev (frontend still gates the UI); prod is flag-gated.
+        if not (settings.DEBUG or is_sql_v2_enabled(user)):
+            raise Http404()
+
+        serializer = NotebookSQLV2RunRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        notebook = self._get_notebook_for_kernel()
+        self._require_query_access()
+
+        run = NotebookNodeRun.objects.create(
+            team_id=self.team_id,
+            notebook=notebook,
+            node_id=serializer.validated_data["node_id"],
+            status=NotebookNodeRun.Status.RUNNING,
+        )
+
+        try:
+            start_sql_v2_run_workflow(
+                SQLV2RunInput(
+                    run_id=str(run.id),
+                    notebook_short_id=notebook.short_id,
+                    team_id=self.team_id,
+                    user_id=user.id if isinstance(user, User) else None,
+                    code=serializer.validated_data["code"],
+                )
+            )
+        except Exception:
+            logger.exception("notebook_sql_v2_run_start_failed", notebook_short_id=notebook.short_id)
+            run.status = NotebookNodeRun.Status.FAILED
+            run.error = "Failed to start run."
+            run.save(update_fields=["status", "error", "updated_at"])
+            return Response({"detail": "Failed to start run."}, status=503)
+
+        return Response({"run_id": str(run.id)})
+
+    @extend_schema(exclude=True)
+    @action(
+        methods=["GET"],
+        url_path="sql_v2/runs/(?P<run_id>[^/.]+)",
+        detail=True,
+        required_scopes=["notebook:read", "query:read"],
+    )
+    def sql_v2_run_result(self, request: Request, run_id: str | None = None, **kwargs):
+        # The node short-polls this durable read to learn when its run finishes. One indexed
+        # query, no held connection — resilient to reloads/remounts (see sql_v2_result_delivery.md).
+        user = self._current_user()
+        if not (settings.DEBUG or is_sql_v2_enabled(user)) or run_id is None:
+            raise Http404()
+
+        # Scope to the notebook (via get_object → per-notebook access control), not just the
+        # team: a team-only lookup lets a user read a run from a notebook they can't access.
+        notebook = self._get_notebook_for_kernel()
+        # The result envelope is analytics rows, so gate reads on query access too — a
+        # notebook-reader whose query access is denied must not read the rows back.
+        self._require_query_access()
+        try:
+            run = NotebookNodeRun.objects.for_team(self.team_id).filter(id=run_id, notebook=notebook).first()
+        except DjangoValidationError:  # malformed run_id (not a UUID)
+            raise Http404()
+        if run is None:
+            raise Http404()
+
+        return Response(
+            {
+                "status": run.status,
+                "result": run.envelope if run.status == NotebookNodeRun.Status.DONE else None,
+                "error": run.error or None,
+            }
+        )
 
     @extend_schema(request=NotebookCollabSaveSerializer)
     @action(methods=["POST"], url_path="collab/save", detail=True, required_scopes=["notebook:write"])

@@ -1,0 +1,29 @@
+# Async code must reach the store through `StoreHandle` (which offloads I/O to the blocking pool),
+# never a raw `CohortStore` I/O method on a runtime thread. Every direct `CohortStore` I/O method is
+# disallowed here; the workspace lint level (`rust/Cargo.toml`) raises `disallowed_methods` to deny.
+# Sync contexts that legitimately need the direct surface each carry one
+# `#[allow(clippy::disallowed_methods)]` with a justification. `CohortStore::open` is omitted:
+# constructing the store is not an I/O op and every context needs it.
+disallowed-methods = [
+    { path = "cohort_stream_processor::store::rocks::CohortStore::get", reason = "async code must read through StoreHandle; sync contexts need a module-level allow — see store/handle.rs" },
+    { path = "cohort_stream_processor::store::rocks::CohortStore::get_stage1", reason = "async code must read through StoreHandle; sync contexts need a module-level allow — see store/handle.rs" },
+    { path = "cohort_stream_processor::store::rocks::CohortStore::multi_get_stage1", reason = "async code must read through StoreHandle; sync contexts need a module-level allow — see store/handle.rs" },
+    { path = "cohort_stream_processor::store::rocks::CohortStore::get_stage2", reason = "async code must read through StoreHandle; sync contexts need a module-level allow — see store/handle.rs" },
+    { path = "cohort_stream_processor::store::rocks::CohortStore::multi_get_stage2", reason = "async code must read through StoreHandle; sync contexts need a module-level allow — see store/handle.rs" },
+    { path = "cohort_stream_processor::store::rocks::CohortStore::get_person_index", reason = "async code must read through StoreHandle; sync contexts need a module-level allow — see store/handle.rs" },
+    { path = "cohort_stream_processor::store::rocks::CohortStore::write_batch", reason = "async code must write through StoreHandle::commit; sync contexts need a module-level allow — see store/handle.rs" },
+    { path = "cohort_stream_processor::store::rocks::CohortStore::apply", reason = "async code must write through StoreHandle::commit; sync contexts need a module-level allow — see store/handle.rs" },
+    { path = "cohort_stream_processor::store::rocks::CohortStore::get_merge_drain_applied", reason = "async code must read through StoreHandle or run_section; sync contexts need a module-level allow — see store/handle.rs" },
+    { path = "cohort_stream_processor::store::rocks::CohortStore::get_merge_applied", reason = "async code must read through StoreHandle or run_section; sync contexts need a module-level allow — see store/handle.rs" },
+    { path = "cohort_stream_processor::store::rocks::CohortStore::get_tombstone", reason = "async code must read through StoreHandle; sync contexts need a module-level allow — see store/handle.rs" },
+    { path = "cohort_stream_processor::store::rocks::CohortStore::get_pending_transfer", reason = "async code must read through StoreHandle; sync contexts need a module-level allow — see store/handle.rs" },
+    { path = "cohort_stream_processor::store::rocks::CohortStore::clear_pending_transfer", reason = "async code must write through StoreHandle; sync contexts need a module-level allow — see store/handle.rs" },
+    { path = "cohort_stream_processor::store::rocks::CohortStore::scan_pending_transfers", reason = "async code must scan through StoreHandle; sync contexts need a module-level allow — see store/handle.rs" },
+    { path = "cohort_stream_processor::store::rocks::CohortStore::scan_merge_cf", reason = "async code must scan through StoreHandle or run_section; sync contexts need a module-level allow — see store/handle.rs" },
+    { path = "cohort_stream_processor::store::rocks::CohortStore::scan_stage1", reason = "async code must scan through StoreHandle; sync contexts need a module-level allow — see store/handle.rs" },
+    { path = "cohort_stream_processor::store::rocks::CohortStore::delete_partition", reason = "async code must use StoreHandle::delete_partition (or delete_partition_blocking under a no-await guard) — see store/handle.rs" },
+    { path = "cohort_stream_processor::store::rocks::CohortStore::flush", reason = "async code must go through StoreHandle; sync contexts need a module-level allow — see store/handle.rs" },
+    { path = "cohort_stream_processor::store::rocks::CohortStore::flush_wal_sync", reason = "async code must use StoreHandle::flush_wal_sync; sync contexts need a module-level allow — see store/handle.rs" },
+    { path = "cohort_stream_processor::store::rocks::CohortStore::create_checkpoint", reason = "async code must go through the checkpoint sweeper's own offload; sync contexts need a module-level allow — see store/handle.rs" },
+    { path = "cohort_stream_processor::store::rocks::CohortStore::stats_snapshot", reason = "async code must use StoreHandle::stats_snapshot; sync contexts need a module-level allow — see store/handle.rs" },
+]

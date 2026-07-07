@@ -98,7 +98,7 @@ describe('WidgetCardHeader', () => {
             />
         )
 
-        expect(screen.getByRole('link', { name: /Top issues/i })).toHaveAttribute('href', '/error_tracking')
+        expect(screen.getByText('Top issues').closest('a')).toHaveAttribute('href', '/error_tracking')
     })
 
     it('does not link the title in dashboard edit mode even when titleHref is set', () => {
@@ -112,8 +112,7 @@ describe('WidgetCardHeader', () => {
             />
         )
 
-        expect(screen.queryByRole('link', { name: /Top issues/i })).not.toBeInTheDocument()
-        expect(screen.getByText('Top issues')).toBeInTheDocument()
+        expect(screen.getByText('Top issues').closest('a')).toBeNull()
     })
 
     it('links the title in view mode when editing controls are shown', () => {
@@ -126,7 +125,7 @@ describe('WidgetCardHeader', () => {
             />
         )
 
-        expect(screen.getByRole('link', { name: /Top issues/i })).toHaveAttribute('href', '/error_tracking')
+        expect(screen.getByText('Top issues').closest('a')).toHaveAttribute('href', '/error_tracking')
     })
 
     it('forwards the hover refresh control into the dashboard_tile header', () => {
@@ -148,7 +147,7 @@ describe('WidgetCardHeader', () => {
         const { container } = render(<WidgetCardHeader layout="simple" title="My widget" showEditingControls={false} />)
 
         expect(container.querySelector('.WidgetCard__header h3')).toHaveTextContent('My widget')
-        expect(screen.queryByRole('button', { name: 'Refresh' })).not.toBeInTheDocument()
+        expect(screen.queryByText('Refresh')).not.toBeInTheDocument()
         expect(container.querySelector('.CardMeta--compact')).toBeNull()
     })
 

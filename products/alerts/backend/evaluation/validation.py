@@ -13,12 +13,13 @@ from posthog.schema import (
     HogQLAlertEvaluation,
     InsightThreshold,
     InsightThresholdType,
+    IntervalType,
     NodeKind,
     TrendsAlertConfig,
     TrendsQuery,
 )
 
-from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, is_non_time_series_trend
+from posthog.tasks.alerts.utils import REAL_TIME_CADENCE_MINUTES, WRAPPER_NODE_KINDS, is_non_time_series_trend
 from posthog.utils import get_from_dict_or_attr
 
 from products.alerts.backend.evaluation.dispatcher import DETECTOR_EXTRACTORS
@@ -175,6 +176,101 @@ _ALERT_CONFIG_VALIDATORS: dict[str, Callable[[_AlertConfigValidationContext], No
     "TrendsAlertConfig": _validate_trends_alert_config,
     "FunnelsAlertConfig": _validate_funnels_alert_config,
 }
+
+
+# Twin of CADENCE_DURATION_MINUTES / INSIGHT_INTERVAL_DURATION_MINUTES in
+# products/alerts/frontend/logic/alertIntervalHelpers.ts — keep the two in sync.
+_CADENCE_DURATION_MINUTES: dict[AlertCalculationInterval, float] = {
+    AlertCalculationInterval.REAL_TIME: REAL_TIME_CADENCE_MINUTES,
+    AlertCalculationInterval.EVERY_15_MINUTES: 15,
+    AlertCalculationInterval.HOURLY: 60,
+    AlertCalculationInterval.DAILY: 60 * 24,
+    AlertCalculationInterval.WEEKLY: 60 * 24 * 7,
+    AlertCalculationInterval.MONTHLY: 60 * 24 * 30,
+}
+
+_INTERVAL_DURATION_MINUTES: dict[IntervalType, float] = {
+    IntervalType.SECOND: 1 / 60,
+    IntervalType.MINUTE: 1,
+    IntervalType.HOUR: 60,
+    IntervalType.DAY: 60 * 24,
+    IntervalType.WEEK: 60 * 24 * 7,
+    IntervalType.MONTH: 60 * 24 * 30,
+}
+
+
+def _cadence_finer_than_interval(cadence: AlertCalculationInterval, insight_interval: IntervalType | None) -> bool:
+    interval_minutes = _INTERVAL_DURATION_MINUTES.get(
+        insight_interval or IntervalType.DAY, _INTERVAL_DURATION_MINUTES[IntervalType.DAY]
+    )
+    return _CADENCE_DURATION_MINUTES[cadence] < interval_minutes
+
+
+def _threshold_has_upper_bound(threshold_config: dict | None) -> bool:
+    if threshold_config is None:
+        return False
+    try:
+        threshold = InsightThreshold.model_validate(threshold_config)
+    except PydanticValidationError:
+        return False
+    return threshold.bounds is not None and threshold.bounds.upper is not None
+
+
+def should_default_check_ongoing_interval(
+    *,
+    query: dict,
+    config: dict | None,
+    condition: dict | None,
+    threshold_config: dict | None,
+    calculation_interval: str | None,
+) -> bool:
+    """Whether an alert left with ``check_ongoing_interval`` unset should default it on.
+
+    A cadence finer than the insight's grouping interval re-checks a frozen completed bucket until it
+    closes, so evaluating the ongoing (incomplete) bucket is what makes the faster cadence meaningful.
+    Only applies where the toggle is valid — mirrors the UI's ``canCheckOngoingInterval``: a trends
+    absolute/increase alert above an upper bound, or a time-series (historical-trend) funnel.
+    """
+    if not isinstance(config, dict) or calculation_interval is None:
+        return False
+    try:
+        cadence = AlertCalculationInterval(calculation_interval)
+    except ValueError:
+        return False
+
+    kind = get_from_dict_or_attr(query, "kind")
+    if kind in WRAPPER_NODE_KINDS:
+        query = get_from_dict_or_attr(query, "source")
+
+    config_type = config.get("type")
+    if config_type == "TrendsAlertConfig":
+        try:
+            trends_query = TrendsQuery.model_validate(query)
+            parsed_condition = AlertCondition.model_validate(condition)
+        except PydanticValidationError:
+            return False
+        if is_non_time_series_trend(trends_query):
+            return False
+        if parsed_condition.type not in (AlertConditionType.ABSOLUTE_VALUE, AlertConditionType.RELATIVE_INCREASE):
+            return False
+        return _cadence_finer_than_interval(cadence, trends_query.interval) and _threshold_has_upper_bound(
+            threshold_config
+        )
+
+    if config_type == "FunnelsAlertConfig":
+        try:
+            funnels_query = FunnelsQuery.model_validate(query)
+        except PydanticValidationError:
+            return False
+        viz = funnels_query.funnelsFilter.funnelVizType if funnels_query.funnelsFilter else None
+        try:
+            strategy = strategy_for_viz(viz)
+        except ValueError:
+            return False
+        # Time-series funnels only (steps funnels have no periods) — the same gate as isTrendsFunnel.
+        return strategy.supports_relative_conditions and _cadence_finer_than_interval(cadence, funnels_query.interval)
+
+    return False
 
 
 def validate_alert_config(

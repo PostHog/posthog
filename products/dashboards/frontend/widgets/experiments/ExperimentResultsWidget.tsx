@@ -257,13 +257,20 @@ export function ExperimentResultsWidget({
         <WidgetCardContent>
             <div className="flex flex-col gap-3 p-2" data-attr="experiment-results-widget-body">
                 <div className="flex items-center justify-between gap-2">
+                    {/* The experiment name already shows in the tile filter bar, so link out rather than repeat it. */}
                     <Link
                         to={urls.experiment(experiment.id)}
                         target="_blank"
-                        className="truncate font-semibold text-primary"
-                        title={experiment.name}
+                        className="text-sm font-medium"
+                        onClick={() =>
+                            posthog.capture('dashboard widget open experiment clicked', {
+                                widget_type: 'experiment_results',
+                                tile_id: tileId,
+                                experiment_id: experiment.id,
+                            })
+                        }
                     >
-                        {experiment.name}
+                        See more
                     </Link>
                     <StatusTag status={experiment.status as ExperimentStatus} />
                 </div>

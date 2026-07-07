@@ -7,6 +7,7 @@ from io import StringIO
 from typing import TYPE_CHECKING, Any, Optional, TypedDict, cast
 from urllib.parse import urlparse, urlunparse
 
+from django.apps import apps
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
@@ -62,12 +63,7 @@ from products.demo.backend.logic.matrix.matrix import Cluster, Matrix
 from products.demo.backend.logic.matrix.models import SimEvent
 from products.demo.backend.logic.matrix.randomization import Industry
 from products.endpoints.backend.facade.models import Endpoint, EndpointVersion
-from products.error_tracking.backend.models import (
-    ErrorTrackingIssue,
-    ErrorTrackingIssueFingerprintV2,
-    ErrorTrackingStackFrame,
-    sync_issues_to_clickhouse,
-)
+from products.error_tracking.backend.facade import sync_issues_to_clickhouse
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
 from products.event_definitions.backend.models.schema import (
@@ -108,6 +104,10 @@ from .taxonomy import (
 if TYPE_CHECKING:
     from posthog.models.team import Team
     from posthog.models.user import User
+
+ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
+ErrorTrackingIssueFingerprintV2 = apps.get_model("error_tracking", "ErrorTrackingIssueFingerprintV2")
+ErrorTrackingStackFrame = apps.get_model("error_tracking", "ErrorTrackingStackFrame")
 
 
 @dataclass
@@ -1155,11 +1155,6 @@ class HedgeboxMatrix(Matrix):
             ],
             metrics_secondary=[],
             parameters={
-                "feature_flag_variants": [
-                    {"key": "control", "rollout_percentage": 34},
-                    {"key": "red", "rollout_percentage": 33},
-                    {"key": "blue", "rollout_percentage": 33},
-                ],
                 "recommended_sample_size": int(len(self.clusters) * 0.35),
                 "minimum_detectable_effect": 15,
             },
@@ -1317,11 +1312,6 @@ class HedgeboxMatrix(Matrix):
                 new_shared_retention.query["uuid"],
             ],
             parameters={
-                "feature_flag_variants": [
-                    {"key": "control", "rollout_percentage": 34},
-                    {"key": "red", "rollout_percentage": 33},
-                    {"key": "blue", "rollout_percentage": 33},
-                ],
                 "recommended_sample_size": int(len(self.clusters) * 0.40),
                 "minimum_detectable_effect": 10,
             },
@@ -1373,10 +1363,6 @@ class HedgeboxMatrix(Matrix):
             metrics_secondary=[],
             primary_metrics_ordered_uuids=pricing_metric_uuids,
             parameters={
-                "feature_flag_variants": [
-                    {"key": "control", "rollout_percentage": 50},
-                    {"key": "test", "rollout_percentage": 50},
-                ],
                 "recommended_sample_size": int(len(self.clusters) * 0.30),
                 "minimum_detectable_effect": 10,
             },
@@ -1421,10 +1407,6 @@ class HedgeboxMatrix(Matrix):
             metrics_secondary=[],
             primary_metrics_ordered_uuids=sharing_metric_uuids,
             parameters={
-                "feature_flag_variants": [
-                    {"key": "control", "rollout_percentage": 50},
-                    {"key": "test", "rollout_percentage": 50},
-                ],
                 "recommended_sample_size": int(len(self.clusters) * 0.25),
                 "minimum_detectable_effect": 12,
             },
@@ -1469,11 +1451,6 @@ class HedgeboxMatrix(Matrix):
             metrics_secondary=[],
             primary_metrics_ordered_uuids=upgrade_metric_uuids,
             parameters={
-                "feature_flag_variants": [
-                    {"key": "control", "rollout_percentage": 34},
-                    {"key": "aggressive", "rollout_percentage": 33},
-                    {"key": "subtle", "rollout_percentage": 33},
-                ],
                 "recommended_sample_size": int(len(self.clusters) * 0.35),
                 "minimum_detectable_effect": 15,
             },
@@ -1516,10 +1493,6 @@ class HedgeboxMatrix(Matrix):
             metrics_secondary=[],
             primary_metrics_ordered_uuids=retention_metric_uuids,
             parameters={
-                "feature_flag_variants": [
-                    {"key": "control", "rollout_percentage": 50},
-                    {"key": "test", "rollout_percentage": 50},
-                ],
                 "recommended_sample_size": int(len(self.clusters) * 0.30),
                 "minimum_detectable_effect": 10,
             },
@@ -1562,10 +1535,6 @@ class HedgeboxMatrix(Matrix):
             metrics_secondary=[],
             primary_metrics_ordered_uuids=team_collab_metric_uuids,
             parameters={
-                "feature_flag_variants": [
-                    {"key": "control", "rollout_percentage": 50},
-                    {"key": "test", "rollout_percentage": 50},
-                ],
                 "recommended_sample_size": int(len(self.clusters) * 0.30),
                 "minimum_detectable_effect": 12,
             },
@@ -1612,10 +1581,6 @@ class HedgeboxMatrix(Matrix):
             metrics_secondary=[],
             primary_metrics_ordered_uuids=bias_warning_metric_uuids,
             parameters={
-                "feature_flag_variants": [
-                    {"key": "control", "rollout_percentage": 90},
-                    {"key": "test", "rollout_percentage": 10},
-                ],
                 "recommended_sample_size": int(len(self.clusters) * 0.30),
                 "minimum_detectable_effect": 10,
             },

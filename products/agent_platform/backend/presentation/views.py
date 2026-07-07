@@ -85,6 +85,7 @@ from .serializers import (
     AgentRevisionSerializer,
     CloneFromRequestSerializer,
     DecideApprovalRequestSerializer,
+    DryRunToolRequestSerializer,
     NewDraftRevisionRequestSerializer,
     PreviewProxyInvokeRequestSerializer,
     PromoteRevisionRequestSerializer,
@@ -1741,6 +1742,10 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "set_skill_refs",
         "put_tool",
         "delete_tool",
+        # Dry-run reads the persisted compiled.js but actually executes user
+        # code in a sandbox — treat it as a write-scoped op so the scope
+        # gates arbitrary compute, not just data reads.
+        "dry_run_tool",
         "cron_fire",
         "set_env",
         # env_keys_key handles GET/PUT/DELETE on /env_keys/<KEY>/ — bundled
@@ -2215,6 +2220,61 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def delete_tool(self, request: Request, tool_id: str, **kwargs) -> Response:
         revision: AgentRevision = self.get_object()
         return Response(self._call(_janitor().delete_tool, str(revision.id), tool_id))
+
+    @extend_schema(
+        request=DryRunToolRequestSerializer,
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentRevisionDryRunToolResponse",
+                fields={
+                    "ok": drf_serializers.BooleanField(
+                        help_text="True when the tool's `actions.default` returned without throwing. False when the tool threw or the sandbox rejected the invocation (the structured `error` describes which)."
+                    ),
+                    "tool_id": drf_serializers.CharField(help_text="Echo of the tool id from the URL."),
+                    "result": drf_serializers.JSONField(
+                        required=False,
+                        help_text="Present on success — the value the tool's `actions.default` returned.",
+                    ),
+                    "error": inline_serializer(
+                        name="AgentRevisionDryRunToolError",
+                        fields={
+                            "code": drf_serializers.CharField(
+                                help_text=(
+                                    "Stable error code. `sandbox_acquire_failed` — the platform could not start a "
+                                    "sandbox (infrastructure issue, not tool code). `sandbox_invoke_failed` — the "
+                                    "sandbox started but the invoke threw uncaught (problem in the tool body, or a "
+                                    "runtime error). Dispatcher-side codes come through on `ok:false` invoke results: "
+                                    "`timeout`, `secret_not_provisioned`, `action_not_found`, `tool_not_found`."
+                                )
+                            ),
+                            "message": drf_serializers.CharField(help_text="One-line human-readable detail."),
+                        },
+                        required=False,
+                    ),
+                    "duration_ms": drf_serializers.IntegerField(
+                        help_text=(
+                            "Wall-clock duration in milliseconds, measured from sandbox acquire to after release. "
+                            "Captured consistently across success, tool-throw, and acquire-failure paths so authors "
+                            "can compare timings between calls. Always present."
+                        )
+                    ),
+                },
+            )
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path=r"tools/(?P<tool_id>[a-z0-9][a-z0-9_-]*)/dry_run")
+    def dry_run_tool(self, request: Request, tool_id: str, **kwargs) -> Response:
+        """Execute one persisted custom tool in a single-shot sandbox.
+
+        Authoring loop's "test this tool" button. The tool's source must
+        already be PUT (compiled.js is what runs); this just invokes it
+        with the caller-supplied args and a stubbed ctx. No real secrets
+        leave Django — `mock_secrets` is a `{name → placeholder}` map.
+        """
+        revision: AgentRevision = self.get_object()
+        body = DryRunToolRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        return Response(self._call(_janitor().dry_run_tool, str(revision.id), tool_id, body.validated_data))
 
     @extend_schema(
         request=None,
