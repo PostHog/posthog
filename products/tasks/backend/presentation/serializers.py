@@ -1077,6 +1077,13 @@ class TaskMentionQuerySerializer(serializers.Serializer):
     since = serializers.DateTimeField(
         required=False, help_text="Only return mentions created after this ISO 8601 timestamp."
     )
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=500,
+        help_text="Maximum number of mentions to return (newest first).",
+    )
 
 
 class TaskMentionSerializer(DataclassSerializer):

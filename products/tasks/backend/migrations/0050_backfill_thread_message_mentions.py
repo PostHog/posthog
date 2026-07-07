@@ -38,6 +38,8 @@ def backfill_thread_message_mentions(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
+    atomic = False  # Batched backfill; each bulk_create commits independently and reruns are idempotent.
+
     dependencies = [
         ("tasks", "0049_taskthreadmessagemention"),
     ]

@@ -290,6 +290,9 @@ class TaskMentionsAPITestCase(ChannelTaskAPITestCase):
         ids = [m["message_id"] for m in self.peer_client.get(self._mentions_url()).json()]
         self.assertEqual(ids, [second["id"], first["id"]])
 
+        limited = self.peer_client.get(self._mentions_url(), {"limit": 1}).json()
+        self.assertEqual([m["message_id"] for m in limited], [second["id"]])
+
     def test_unparseable_since_is_a_400(self):
         response = self.peer_client.get(self._mentions_url(), {"since": "not-a-date"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

@@ -124,7 +124,8 @@ class TaskMentionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def list(self, request, *args, **kwargs):
         since = request.validated_query_data.get("since")
-        mentions = tasks_facade.list_mentions(self.team_id, self._user_id(), since=since)
+        limit = request.validated_query_data["limit"]
+        mentions = tasks_facade.list_mentions(self.team_id, self._user_id(), since=since, limit=limit)
         return Response(TaskMentionSerializer(mentions, many=True).data)
 
 
