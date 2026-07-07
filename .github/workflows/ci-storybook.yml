@@ -165,7 +165,11 @@ jobs:
     build-storybook:
         name: Build Storybook (depot-ubuntu-latest)
         runs-on: depot-ubuntu-latest
-        timeout-minutes: 15
+        # The Vite build normally takes ~3.5 minutes, but a degraded runner can stretch
+        # the memory-heavy bundling phase past 15 minutes — leave headroom so a slow
+        # runner yields a slow-but-green build instead of a cancelled one that hard-fails
+        # the visual-regression gate.
+        timeout-minutes: 30
         needs: changes
         if: needs.changes.outputs.frontend == 'true'
         steps:
@@ -211,26 +215,12 @@ jobs:
                   path: ${{ steps.pnpm-store.outputs.path }}
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
-            - name: Restore webpack build cache
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: common/storybook/node_modules/.cache/
-                  key: ${{ runner.os }}-webpack-storybook-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: ${{ runner.os }}-webpack-storybook-
-
             - name: Build Storybook
               env:
                   NODE_OPTIONS: --max-old-space-size=32768
               run: |
                   bin/turbo --filter=@posthog/storybook prepare
                   pnpm --filter=@posthog/storybook build --test
-
-            - name: Save webpack build cache
-              if: github.ref == 'refs/heads/master'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: common/storybook/node_modules/.cache/
-                  key: ${{ runner.os }}-webpack-storybook-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Upload Storybook build artifact
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

@@ -309,4 +309,23 @@ describe('tracingDataLogic', () => {
             sparklineSpy.mockRestore()
         })
     })
+
+    describe('keyed instances', () => {
+        it('reads filters from its own instance, not the scene default', () => {
+            const isolatedFilters = tracingFiltersLogic({ id: 'isolated' })
+            const isolatedData = tracingDataLogic({ id: 'isolated' })
+            isolatedFilters.mount()
+            isolatedData.mount()
+            const defaultData = mountWithSpans([])
+            try {
+                isolatedFilters.actions.setServiceNames(['isolated-svc'])
+
+                expect(isolatedData.values.filters.serviceNames).toEqual(['isolated-svc'])
+                expect(defaultData.values.filters.serviceNames).toEqual([])
+            } finally {
+                isolatedData.unmount()
+                isolatedFilters.unmount()
+            }
+        })
+    })
 })

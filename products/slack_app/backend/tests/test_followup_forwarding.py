@@ -609,7 +609,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
 
     @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
-    def test_terminal_run_seeds_pr_url_into_new_run_state(self, mock_slack_cls, mock_execute_workflow):
+    def test_terminal_run_seeds_pr_context_into_new_run_prompt(self, mock_slack_cls, mock_execute_workflow):
         self.task_run.status = self.TaskRun.Status.COMPLETED
         self.task_run.output = {"pr_url": "https://github.com/org/repo/pull/1"}
         self.task_run.save()
@@ -623,10 +623,12 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
 
         new_run_id = mock_execute_workflow.call_args.kwargs["run_id"]
         new_run = self.TaskRun.objects.get(id=new_run_id)
-        assert new_run.state.get("slack_pr_opened_notified") is True
-        assert new_run.state.get("slack_notified_pr_url") == "https://github.com/org/repo/pull/1"
+        # Resumed run is told to reuse the PR branch, and carries no per-run notified
+        # flag (the "PR opened" card is deduped on the Task).
         assert "gh pr checkout https://github.com/org/repo/pull/1" in new_run.state.get("initial_prompt_override", "")
         assert "gh pr checkout https://github.com/org/repo/pull/1" in new_run.state.get("pending_user_message", "")
+        assert "slack_pr_opened_notified" not in new_run.state
+        assert "slack_notified_pr_url" not in new_run.state
 
     @patch("products.slack_app.backend.api.resolve_slack_user", return_value=None)
     @patch("posthog.models.integration.SlackIntegration")

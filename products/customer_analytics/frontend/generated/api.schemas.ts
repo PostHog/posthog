@@ -95,6 +95,55 @@ export interface PaginatedAccountNoteListApi {
 }
 
 /**
+ * A team-defined account relationship type (CSM, Onboarding manager, ...).
+ */
+export interface AccountRelationshipDefinitionApi {
+    /** Relationship definition UUID. */
+    readonly id: string
+    /**
+     * Human-readable name of the relationship. Unique within the team.
+     * @maxLength 400
+     */
+    name: string
+    /**
+     * What this relationship means, e.g. 'The customer success manager responsible for this account'.
+     * @nullable
+     */
+    description?: string | null
+    /** Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account. */
+    is_single_holder?: boolean
+}
+
+export interface PaginatedAccountRelationshipDefinitionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AccountRelationshipDefinitionApi[]
+}
+
+/**
+ * A team-defined account relationship type (CSM, Onboarding manager, ...).
+ */
+export interface PatchedAccountRelationshipDefinitionApi {
+    /** Relationship definition UUID. */
+    readonly id?: string
+    /**
+     * Human-readable name of the relationship. Unique within the team.
+     * @maxLength 400
+     */
+    name?: string
+    /**
+     * What this relationship means, e.g. 'The customer success manager responsible for this account'.
+     * @nullable
+     */
+    description?: string | null
+    /** Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account. */
+    is_single_holder?: boolean
+}
+
+/**
  * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
  * @nullable
  */
@@ -814,6 +863,10 @@ export type AccountNotesListParams = {
      */
     account_id?: string
     /**
+     * Only return notes on accounts assigned to these user IDs (the account's CSM or account executive; repeat the param per user).
+     */
+    assigned_to?: number[]
+    /**
      * Only return notes created by these user IDs (repeat the param per user).
      */
     created_by?: number[]
@@ -829,6 +882,17 @@ export type AccountNotesListParams = {
      * Full-text search across note title and content, plus substring match on account name.
      */
     search?: string
+}
+
+export type AccountRelationshipDefinitionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type AccountsListParams = {

@@ -417,6 +417,11 @@ jobs:
               run: |
                   git fetch -n origin "$BASE_SHA"
                   git reset --hard "$BASE_SHA"
+                  # dist/ is untracked so it survives the reset. Without a clean, the base
+                  # build layers differently-hashed chunks on top of the PR's, inflating the
+                  # base measurement by hundreds of MiB and making every PR's dist-size delta
+                  # a large spurious negative. The build never cleans dist/ itself.
+                  rm -rf frontend/dist
                   pnpm --filter=@posthog/frontend... install
                   pnpm --filter=@posthog/frontend build:with-report
                   du -sb frontend/dist | cut -f1 > frontend/dist-size-base.txt
