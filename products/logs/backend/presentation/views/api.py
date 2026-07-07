@@ -739,6 +739,22 @@ class _LogPatternSerializer(serializers.Serializer):
             "counts, not extrapolated — severity dominance is a proportion, so scaling would not change it."
         ),
     )
+    match_regex = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "RE2-safe regex over raw log bodies that matches lines of this pattern, compiled from "
+            "the template and validated against the pattern's own examples before being offered. "
+            "Null when the template lacks literal content or validation failed — never trust an "
+            "unvalidated predicate. Use with the message/regex log property filter."
+        ),
+    )
+    match_literal = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Longest literal run in the template, for plain-text (icontains) filtering when "
+            "`match_regex` is null. Null when the template has no usable literal content."
+        ),
+    )
 
 
 class _LogsPatternsSparklineBucketSerializer(serializers.Serializer):

@@ -1198,6 +1198,16 @@ export interface _LogPatternApi {
     sparkline: number[]
     /** Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample counts, not extrapolated — severity dominance is a proportion, so scaling would not change it. */
     severity_counts: _LogPatternApiSeverityCounts
+    /**
+     * RE2-safe regex over raw log bodies that matches lines of this pattern, compiled from the template and validated against the pattern's own examples before being offered. Null when the template lacks literal content or validation failed — never trust an unvalidated predicate. Use with the message/regex log property filter.
+     * @nullable
+     */
+    match_regex: string | null
+    /**
+     * Longest literal run in the template, for plain-text (icontains) filtering when `match_regex` is null. Null when the template has no usable literal content.
+     * @nullable
+     */
+    match_literal: string | null
 }
 
 export interface _LogsPatternsSparklineBucketApi {

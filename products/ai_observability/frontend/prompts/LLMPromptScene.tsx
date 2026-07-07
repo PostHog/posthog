@@ -34,7 +34,8 @@ export const scene: SceneExport<PromptLogicProps> = {
     productKey: ProductKey.AI_OBSERVABILITY,
     paramsToProps: ({ params: { name }, searchParams }) => ({
         promptName: name && name !== 'new' ? name : 'new',
-        mode: searchParams?.edit === 'true' ? PromptMode.Edit : PromptMode.View,
+        // kea-router JSON-decodes query values, so ?edit=true arrives as boolean true
+        mode: String(searchParams?.edit) === 'true' ? PromptMode.Edit : PromptMode.View,
         selectedVersion: searchParams?.version ? Number(searchParams.version) || null : null,
     }),
 }
@@ -54,13 +55,14 @@ export function LLMPromptScene(): JSX.Element {
         versions,
         canLoadMoreVersions,
         nextVersion,
+        isPromptFormDirty,
     } = useValues(llmPromptLogic)
     const { searchParams } = useValues(router)
     const currentSearchParams = searchParams ?? {}
     const activeViewTab =
         searchParams?.tab === 'usage' ? 'usage' : searchParams?.tab === 'experiments' ? 'experiments' : 'overview'
 
-    const { submitPromptForm, deletePrompt, setMode, setPromptFormValues, loadMoreVersions } =
+    const { submitPromptForm, deletePrompt, setMode, setPromptFormValues, loadMoreVersions, cancelEditing } =
         useActions(llmPromptLogic)
     const sourcePromptName = !isNewPrompt && prompt && isPrompt(prompt) ? prompt.name : null
     const sourcePromptVersion = isHistoricalVersion && isPrompt(prompt) ? prompt.version : null
@@ -218,7 +220,13 @@ export function LLMPromptScene(): JSX.Element {
                                     type="secondary"
                                     icon={<IconPlay />}
                                     to={openInPlaygroundUrl}
-                                    disabledReason={isPromptFormSubmitting ? 'Saving…' : undefined}
+                                    disabledReason={
+                                        isPromptFormSubmitting
+                                            ? 'Saving…'
+                                            : isPromptFormDirty
+                                              ? 'You have unsaved edits — publish or cancel first'
+                                              : undefined
+                                    }
                                     size="small"
                                     data-attr="llma-playground-open-from-prompt"
                                 >
@@ -227,15 +235,7 @@ export function LLMPromptScene(): JSX.Element {
                             ) : null}
                             <LemonButton
                                 type="secondary"
-                                onClick={() => {
-                                    if (isNewPrompt) {
-                                        router.actions.push(
-                                            combineUrl(urls.aiObservabilityPrompts(), currentSearchParams).url
-                                        )
-                                    } else {
-                                        setMode(PromptMode.View)
-                                    }
-                                }}
+                                onClick={() => cancelEditing()}
                                 disabledReason={isPromptFormSubmitting ? 'Saving…' : undefined}
                                 size="small"
                                 data-attr="llma-prompt-cancel-button"
@@ -300,6 +300,7 @@ export function LLMPromptScene(): JSX.Element {
                             canLoadMoreVersions={canLoadMoreVersions}
                             loadMoreVersions={loadMoreVersions}
                             searchParams={currentSearchParams}
+                            readOnly
                         />
                     )}
                 </div>

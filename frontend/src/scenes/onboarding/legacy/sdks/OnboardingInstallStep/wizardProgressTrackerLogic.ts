@@ -7,7 +7,10 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api.schemas'
 import { wizardSessionStreamLogic } from 'products/wizard/frontend/wizardSessionStreamLogic'
 
-import { isSessionActive, wizardActiveSessionDetectorLogic } from './wizardActiveSessionDetectorLogic'
+import {
+    isSessionActive,
+    wizardActiveSessionDetectorLogic,
+} from '../../../shared/wizard-sync/wizardActiveSessionDetectorLogic'
 import type { wizardProgressTrackerLogicType } from './wizardProgressTrackerLogicType'
 
 export type DisplayState =

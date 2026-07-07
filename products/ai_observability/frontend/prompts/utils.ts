@@ -25,6 +25,23 @@ export function getApiErrorDetail(error: unknown): string | undefined {
     return undefined
 }
 
+export function openDiscardChangesDialog(onDiscard: () => void): void {
+    LemonDialog.open({
+        title: 'Discard changes?',
+        description: 'Your unsaved edits will be lost.',
+        primaryButton: {
+            children: 'Discard',
+            type: 'primary',
+            status: 'danger',
+            onClick: onDiscard,
+        },
+        secondaryButton: {
+            children: 'Keep editing',
+            type: 'secondary',
+        },
+    })
+}
+
 export function openArchivePromptDialog(onArchive: () => void): void {
     LemonDialog.open({
         title: 'Archive prompt?',
