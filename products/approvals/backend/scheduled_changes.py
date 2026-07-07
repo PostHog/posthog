@@ -44,33 +44,18 @@ def scheduled_change_serializer_data(flag: "FeatureFlag", payload: dict[str, Any
     return build_scheduled_change_serializer_data(flag, payload)
 
 
-def gate_scheduled_change(
-    flag: "FeatureFlag",
-    payload: dict[str, Any],
-    user,
-    current_change_request: Optional[ChangeRequest] = None,
-) -> Optional[ChangeRequest]:
-    """Evaluate the approval gate for a scheduled change and create a pending CR if required.
+def _detect_gated_action(
+    flag: "FeatureFlag", payload: dict[str, Any], user
+) -> Optional[tuple[Any, Any, Any, HttpRequest, tuple]]:
+    """Detect the enabled approval action + policy that gates a scheduled change — no side effects.
 
-    Returns the created ``ChangeRequest`` when an enabled policy gates the change the scheduled
-    payload would apply, otherwise ``None`` (no policy, approvals disabled, or the change doesn't
-    match any gated action). Reuses the request-time gate's action detection and CR creation so
-    creation-time gating and request-time gating stay in lockstep.
-
-    ``current_change_request`` is the CR already bound to the schedule being (re)gated, if any.
-    Re-gating an unchanged action after a payload edit legitimately rediscovers that same pending
-    CR; passing it here lets us tell "reuse my own binding" apart from "bind to someone else's
-    pending request" (see the duplicate handling below).
-
-    Raises ``PolicyConflict`` when the change matches more than one enabled policy: a single
-    ``ChangeRequest`` can only carry one approval, so binding one would let the other policy's
-    gated change ride along unapproved. We fail closed rather than save the row ungated — callers
-    surface this as a 400 (creation/update) or skip the change (copy / recurring re-gate).
-
-    Raises ``ApprovalRequired`` when the only matching request is a pending or approved duplicate
-    that is not this schedule's own binding: binding it would let this schedule fire another
-    change's approval at a moment that approval never covered (the second-schedule / immediate-
-    change-then-schedule bypass). Fail closed.
+    Runs only the request-time gate's *detection* (``action.detect`` + ``_check_policy_for_action``)
+    against the flag's current state, so no ``ChangeRequest`` is created and no notification is sent.
+    Returns ``(matched_action, matched_policy, serializer, http_request, gate_args)`` when an enabled
+    policy gates the change the payload would apply, else ``None`` (approvals disabled, malformed
+    payload, or no gated action matches). Shared by ``gate_scheduled_change`` (which then evaluates
+    the gate to create/reuse a CR) and by the fire-time re-check that keeps creation-time and
+    request-time gating in lockstep.
     """
     # Deferred: feature_flags' serializer/actions transitively import posthog.tasks, which imports
     # this module — eager imports would create a circular import at startup.
@@ -113,30 +98,60 @@ def gate_scheduled_change(
     # The gate's serializer path reads the validated change from args[1] (update's validated_data).
     gate_args: tuple = (flag, dict(serializer.validated_data))
 
-    matched_action = None
-    matched_policy = None
     for action_class in feature_flag_actions:
         try:
             if action_class.detect(http_request, serializer, *gate_args):
                 policy = decorators._check_policy_for_action(action_class, team, organization)
                 if policy:
-                    matched_action = action_class
-                    matched_policy = policy
-                    break
+                    return action_class, policy, serializer, http_request, gate_args
         except Exception:
             logger.exception(
                 "Error detecting action for scheduled change",
                 extra={"action": action_class.key, "flag_id": flag.id},
             )
 
-    if not matched_action or not matched_policy:
+    return None
+
+
+def gate_scheduled_change(
+    flag: "FeatureFlag",
+    payload: dict[str, Any],
+    user,
+    current_change_request: Optional[ChangeRequest] = None,
+) -> Optional[ChangeRequest]:
+    """Evaluate the approval gate for a scheduled change and create a pending CR if required.
+
+    Returns the created ``ChangeRequest`` when an enabled policy gates the change the scheduled
+    payload would apply, otherwise ``None`` (no policy, approvals disabled, or the change doesn't
+    match any gated action). Reuses the request-time gate's action detection and CR creation so
+    creation-time gating and request-time gating stay in lockstep.
+
+    ``current_change_request`` is the CR already bound to the schedule being (re)gated, if any.
+    Re-gating an unchanged action after a payload edit legitimately rediscovers that same pending
+    CR; passing it here lets us tell "reuse my own binding" apart from "bind to someone else's
+    pending request" (see the duplicate handling below).
+
+    Raises ``PolicyConflict`` when the change matches more than one enabled policy: a single
+    ``ChangeRequest`` can only carry one approval, so binding one would let the other policy's
+    gated change ride along unapproved. We fail closed rather than save the row ungated — callers
+    surface this as a 400 (creation/update) or skip the change (copy / recurring re-gate).
+
+    Raises ``ApprovalRequired`` when the only matching request is a pending or approved duplicate
+    that is not this schedule's own binding: binding it would let this schedule fire another
+    change's approval at a moment that approval never covered (the second-schedule / immediate-
+    change-then-schedule bypass). Fail closed.
+    """
+    detection = _detect_gated_action(flag, payload, user)
+    if detection is None:
         return None
+
+    matched_action, matched_policy, serializer, http_request, gate_args = detection
 
     result = decorators._evaluate_gate(
         action_class=matched_action,
         request=http_request,
-        team=team,
-        organization=organization,
+        team=flag.team,
+        organization=flag.team.organization,
         policy=matched_policy,
         view_or_serializer=serializer,
         args=gate_args,
@@ -190,13 +205,31 @@ def gate_scheduled_change(
     return None
 
 
+def _unbound_change_is_now_gated(scheduled_change: "ScheduledChange") -> bool:
+    """True when a schedule with no bound CR would flip a policy-gated field against the flag's
+    *current* state.
+
+    Detection only (no CR is created, no notification sent) — a fire-time re-check that closes the
+    stale-read bypass where a change that was a harmless no-op at scheduling time becomes a real,
+    policy-gated change by the time it fires because the flag drifted in between.
+    """
+    from products.feature_flags.backend.models.feature_flag import FeatureFlag  # noqa: PLC0415
+
+    flag = FeatureFlag.objects.filter(id=scheduled_change.record_id, team_id=scheduled_change.team_id).first()
+    if flag is None:
+        # No flag to gate against; let the caller dispatch so the applier surfaces the missing-flag error.
+        return False
+    return _detect_gated_action(flag, scheduled_change.payload, scheduled_change.created_by) is not None
+
+
 def apply_gated_scheduled_change(scheduled_change: "ScheduledChange") -> bool:
     """Decide what to do with a gated scheduled change at fire time.
 
     Returns ``True`` when the caller should dispatch the change through the normal
-    ``scheduled_changes_dispatcher`` path (no binding CR, or it has already been applied via the
-    approved path here), and ``False`` when the change must be skipped (its CR is still pending and
-    the fire window has closed, so the CR is expired and nothing is applied).
+    ``scheduled_changes_dispatcher`` path (no binding CR and no policy now gates the change, or the
+    CR has already been applied via the approved path here), and ``False`` when the change must be
+    skipped (its CR is still pending and the fire window has closed, so the CR is expired and nothing
+    is applied; or an unbound change would now flip a policy-gated field with no approval).
 
     - Bound CR is APPROVED and not stale: apply via ``apply_change_request`` (the approved,
       non-re-gating path) and return ``False`` so the caller does not dispatch again.
@@ -204,14 +237,18 @@ def apply_gated_scheduled_change(scheduled_change: "ScheduledChange") -> bool:
       ``scheduled_at <= now``), so mark the CR EXPIRED and return ``False`` — skip the change.
     - Bound CR is in any other terminal state (APPLIED/REJECTED/EXPIRED/FAILED): do not re-apply;
       return ``False``.
-    - No bound CR: return ``True`` so the caller dispatches as before (ungated).
+    - No bound CR: re-check the gate against the flag's *current* state. A schedule binds no CR when
+      its change was a no-op at scheduling time (e.g. an enable scheduled while the flag was already
+      active), but the flag can drift before the fire window — a stale-read bypass where the schedule
+      would re-enable a since-disabled flag with the enable policy never consulted. If a policy now
+      gates the change, fail closed (return ``False``, skip); otherwise dispatch as before (``True``).
 
     Must be called inside the sweep's ``transaction.atomic()``: the bound CR is re-fetched under a
     row lock so this decision reads the latest committed state and serializes with
     ``ChangeRequestService.approve()``.
     """
     if scheduled_change.change_request_id is None:
-        return True
+        return not _unbound_change_is_now_gated(scheduled_change)
 
     # Re-fetch under a row lock rather than trusting the prefetched copy. The sweep locks only the
     # ScheduledChange rows (select_for_update(of=("self",))), so a concurrent approve() that flips

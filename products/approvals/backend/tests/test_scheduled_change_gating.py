@@ -144,6 +144,40 @@ class TestScheduledChangeGating(APIBaseTest):
         scheduled.refresh_from_db()
         assert scheduled.executed_at is not None
 
+    def test_unbound_schedule_that_becomes_gated_by_drift_is_not_applied(self, _mock_enabled):
+        # Stale-read bypass: scheduling an enable while the flag is already active binds no CR (the
+        # change is a no-op at scheduling time, so the enable policy never fires). If the flag is
+        # disabled before the fire window, dispatching ungated would re-enable it with the enable
+        # policy never consulted. The fire-time re-gate must catch the drift and skip the change.
+        self._enable_policy()
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="already-active-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+            active=True,
+            created_by=self.user,
+        )
+
+        scheduled = self._schedule(
+            flag,
+            {"operation": "update_status", "value": True},
+            timezone.now() + timedelta(hours=1),
+        )
+        # No-op against the then-active flag: nothing bound.
+        assert scheduled.change_request is None
+
+        # Flag drifts to disabled, then the fire window opens.
+        flag.active = False
+        flag.save()
+        scheduled.scheduled_at = timezone.now() - timedelta(seconds=30)
+        scheduled.save()
+
+        process_scheduled_changes()
+
+        flag.refresh_from_db()
+        # The enable must not have applied — a policy now gates it and it was never approved.
+        assert flag.active is False
+
     def test_scheduled_rollout_change_under_update_policy_is_gated(self, _mock_enabled):
         self._update_policy({"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 0})
         flag = self._disabled_flag(key="rollout-flag")
