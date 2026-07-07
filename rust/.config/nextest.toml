@@ -1,0 +1,4 @@
+# CI profile: emits JUnit XML (target/nextest/ci/junit.xml) so test results can be
+# uploaded to Trunk for flaky-test detection.
+[profile.ci.junit]
+path = "junit.xml"
