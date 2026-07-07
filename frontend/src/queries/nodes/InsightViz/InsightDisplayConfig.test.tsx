@@ -424,40 +424,55 @@ describe('InsightDisplayConfig', () => {
             })
         })
 
-        it('keeps frequent options top-level and collapses rare ones into submenu rows', async () => {
+        it('puts display toggles first and drops the low-usage smoothing and color sections', async () => {
             setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
             await openOptionsMenu()
+
+            const sectionTitles = getSectionTitles()
+            expect(sectionTitles[0]).toBe('Display')
+            expect(sectionTitles).not.toContain('Smoothing')
+            expect(sectionTitles).not.toContain('Color customization by')
 
             const items = getDisplaySectionItems()
             expect(items).toContain('Show values on series')
             expect(items).toContain('Show legend')
-            // Rarely used options leave the top level for the submenus
+            // Rarely used options leave the top level for the accordions
             expect(items).not.toContain('Show multiple Y-axes')
-            expect(getSectionTitles()).not.toContain('Y-axis scale')
-            expect(getSectionTitles()).not.toContain('Axis labels')
             expect(screen.getByText('Line style')).toBeInTheDocument()
             expect(screen.getByText('Axes')).toBeInTheDocument()
         })
 
-        it('reveals the sub-options when a submenu row is opened', async () => {
+        it('nests the unit, scale, and label options under the Axes accordion', async () => {
             setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
             await openOptionsMenu()
 
-            await userEvent.click(screen.getByText('Line style'))
-            expect(await screen.findByText('Line shape')).toBeInTheDocument()
-            expect(screen.getByText('Show points')).toBeInTheDocument()
-
-            await userEvent.click(screen.getByText('Axes'))
-            expect(await screen.findByText('Show multiple Y-axes')).toBeInTheDocument()
-            expect(screen.getByText('Y-axis scale')).toBeInTheDocument()
+            const axes = screen.getByTestId('options-axes-section')
+            expect(within(axes).getByText('Y-axis unit')).toBeInTheDocument()
+            expect(within(axes).getByText('Y-axis scale')).toBeInTheDocument()
+            expect(within(axes).getByText('Show multiple Y-axes')).toBeInTheDocument()
+            expect(within(axes).getByText('Axis labels')).toBeInTheDocument()
+            // ... and nowhere else in the menu
+            expect(screen.getAllByText('Y-axis unit')).toHaveLength(1)
         })
 
-        it('omits the Line style submenu for non-line displays', async () => {
+        it('expands an accordion row in place when clicked', async () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
+            await openOptionsMenu()
+
+            const lineStyleButton = screen.getByText('Line style').closest('button')!
+            expect(lineStyleButton).toHaveAttribute('aria-expanded', 'false')
+            await userEvent.click(lineStyleButton)
+            expect(lineStyleButton).toHaveAttribute('aria-expanded', 'true')
+            expect(screen.getByText('Shape')).toBeInTheDocument()
+            expect(screen.getByText('Dash')).toBeInTheDocument()
+        })
+
+        it('omits the Line style accordion for non-line displays', async () => {
             setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsBarValue))
             await openOptionsMenu()
 
             expect(screen.queryByText('Line style')).not.toBeInTheDocument()
-            // Axis labels still apply to bar charts, so the Axes submenu stays
+            // Axis labels still apply to bar charts, so the Axes accordion stays
             expect(screen.getByText('Axes')).toBeInTheDocument()
         })
     })

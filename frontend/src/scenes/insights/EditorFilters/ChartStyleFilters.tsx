@@ -30,7 +30,7 @@ export function LineShapePicker(): JSX.Element {
 
     return (
         <div className="flex items-center justify-between gap-2 px-2 pb-2 w-full">
-            <span className="font-normal">Line shape</span>
+            <span className="font-normal">Shape</span>
             <LemonSegmentedButton
                 size="small"
                 value={effectiveCurve}
@@ -49,7 +49,7 @@ export function LineStylePicker(): JSX.Element {
 
     return (
         <div className="flex items-center justify-between gap-2 px-2 pb-2 w-full">
-            <span className="font-normal">Line style</span>
+            <span className="font-normal">Dash</span>
             <LemonSegmentedButton
                 size="small"
                 value={chartStyle.lineStyle ?? 'solid'}

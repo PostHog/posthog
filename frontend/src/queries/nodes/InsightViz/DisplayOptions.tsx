@@ -11,12 +11,6 @@ import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { DEFAULT_DECIMAL_PLACES } from 'lib/utils/numbers'
 import { AxisLabelsFilter } from 'scenes/insights/EditorFilters/AxisLabelsFilter'
-import {
-    LineShapePicker,
-    LineStylePicker,
-    ShowGridLinesFilter,
-    ShowPointsFilter,
-} from 'scenes/insights/EditorFilters/ChartStyleFilters'
 import { HideIncompleteConversionWindowPeriodsFilter } from 'scenes/insights/EditorFilters/HideIncompleteConversionWindowPeriodsFilter'
 import { HideWeekendsFilter } from 'scenes/insights/EditorFilters/HideWeekendsFilter'
 import { LegendOptionsFilter } from 'scenes/insights/EditorFilters/LegendOptionsFilter'
@@ -246,17 +240,26 @@ export function CollapsibleOptionsSection({
     const [expanded, setExpanded] = useState(false)
 
     return (
-        <div className="flex flex-col w-full">
+        <div className="flex flex-col w-full" data-attr={dataAttr}>
             <LemonButton
                 fullWidth
                 size="small"
                 onClick={() => setExpanded(!expanded)}
                 sideIcon={expanded ? <IconChevronDown /> : <IconChevronRight />}
-                data-attr={dataAttr}
+                aria-expanded={expanded}
             >
                 {label}
             </LemonButton>
-            {expanded && <div className="flex flex-col pl-2 w-full">{children}</div>}
+            {/* Content stays mounted so the menu keeps a constant width — only the height animates
+                (same grid-rows trick as EditorFilterGroupTile) */}
+            <div
+                className="grid transition-all duration-200 ease-in-out"
+                style={{ gridTemplateRows: expanded ? '1fr' : '0fr' }}
+            >
+                <div className="overflow-hidden">
+                    <div className="flex flex-col pl-2 w-full">{children}</div>
+                </div>
+            </div>
         </div>
     )
 }
@@ -309,10 +312,6 @@ export const DisplayOptions = {
     HideWeekends: { label: () => <HideWeekendsFilter /> },
     Annotations: { label: () => <ShowAnnotationsFilter /> },
     ResultCustomizationBy: { label: () => <ResultCustomizationByPicker /> },
-    LineShape: { label: () => <LineShapePicker /> },
-    LineStyle: { label: () => <LineStylePicker /> },
-    ShowPoints: { label: () => <ShowPointsFilter /> },
-    GridLines: { label: () => <ShowGridLinesFilter /> },
     Unit: { label: () => <UnitPicker /> },
     Scale: { label: () => <ScalePicker /> },
     ConfidenceInterval: { label: () => <ConfidenceInterval /> },

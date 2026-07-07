@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { normalizeAxisLabel } from '@posthog/quill-charts'
 
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
+import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -192,7 +193,9 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
 
     const items: LemonMenuItems = []
 
-    if (showSmoothing) {
+    // With the reorganized menu, smoothing and the color-assignment picker are dropped entirely —
+    // usage data shows they barely register (smoothing is set on <1% of saved trends insights).
+    if (showSmoothing && !styleMenuEnabled) {
         items.push({ title: 'Smoothing', items: [DisplayOptions.Smoothing] })
     }
 
@@ -203,7 +206,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         })
     }
 
-    if (supportsResultCustomizationBy) {
+    if (supportsResultCustomizationBy && !styleMenuEnabled) {
         items.push({
             title: (
                 <SectionHeader tooltip="You can customize the appearance of individual results in your insights. This can be done based on the result's name (e.g., customize the breakdown value 'pizza' for the first series) or based on the result's rank (e.g., customize the first dataset in the results).">
@@ -214,7 +217,8 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         })
     }
 
-    if (!showPercentStackView && isTrends && !isCalendarHeatmap) {
+    const showUnitPicker = !showPercentStackView && isTrends && !isCalendarHeatmap
+    if (showUnitPicker && !styleMenuEnabled) {
         items.push({
             title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
             items: [DisplayOptions.Unit],
@@ -280,18 +284,26 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
             })
         }
         const showDecimalPlaces = mightContainFractionalNumbers && isTrends && !isCalendarHeatmap
-        if (showMultipleYAxesConfig || showYAxisScale || showAxisLabelsConfig || showDecimalPlaces) {
+        if (showUnitPicker || showMultipleYAxesConfig || showYAxisScale || showAxisLabelsConfig || showDecimalPlaces) {
             collapsedRows.push({
                 label: function AxesSection() {
                     return (
                         <CollapsibleOptionsSection label="Axes" dataAttr="options-axes-section">
-                            {showMultipleYAxesConfig && <ShowMultipleYAxesFilter />}
+                            {showUnitPicker && (
+                                <>
+                                    <SectionHeader>
+                                        {axisLabel(display || ChartDisplayType.ActionsLineGraph)}
+                                    </SectionHeader>
+                                    <UnitPicker />
+                                </>
+                            )}
                             {showYAxisScale && (
                                 <>
                                     <SectionHeader>Y-axis scale</SectionHeader>
                                     <ScalePicker />
                                 </>
                             )}
+                            {showMultipleYAxesConfig && <ShowMultipleYAxesFilter />}
                             {showAxisLabelsConfig && (
                                 <>
                                     <SectionHeader>Axis labels</SectionHeader>
@@ -334,7 +346,8 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         (showLineStyleConfig && chartStyle?.showGrid === false ? 1 : 0)
 
     const optionsCount: number =
-        (showSmoothing && (trendsFilter?.smoothingIntervals ?? 1) !== 1 ? 1 : 0) +
+        // The smoothing control is dropped from the reorganized menu, so don't badge for it there
+        (showSmoothing && !styleMenuEnabled && (trendsFilter?.smoothingIntervals ?? 1) !== 1 ? 1 : 0) +
         (showPercentStackView ? 1 : 0) +
         (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0) +
         (showMultipleYAxes ? 1 : 0) +
