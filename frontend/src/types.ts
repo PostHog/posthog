@@ -6269,7 +6269,8 @@ export interface RowFilter {
 
 /** The fast-lookup structure the source engine's `is_indexed` detection checks — most databases
  *  use secondary indexes, but columnar warehouses prune scans via sort/clustering/partition keys.
- *  Mirrors IndexMechanism on the backend. */
+ *  Keep in sync with IndexMechanism in products/warehouse_sources/backend/types.py — backend
+ *  values missing here render the generic "index" warning copy. */
 export type IndexMechanism = 'index' | 'sort_key' | 'clustering_key' | 'partition_or_clustering' | 'sorting_key'
 
 export type SchemaIncrementalFieldsResponse = {

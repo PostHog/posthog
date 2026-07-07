@@ -37,6 +37,10 @@ class IndexMechanism(StrEnum):
     Most databases use secondary indexes, but columnar warehouses prune scans differently —
     the sync-form warning shown for `is_indexed=False` fields is phrased per mechanism, so the
     advice names a structure the user can actually create on their engine.
+
+    Keep in sync with `IndexMechanism` in frontend/src/types.ts: these values cross the API as
+    plain strings (no codegen), and the UI renders the generic "index" copy for any member it
+    doesn't know. Adding it to the frontend union forces the copy map update via typechecking.
     """
 
     INDEX = "index"
