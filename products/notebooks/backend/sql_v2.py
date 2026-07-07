@@ -168,15 +168,32 @@ def _find_running_runtime(notebook: Notebook, user: User | None) -> KernelRuntim
     return runtime
 
 
-def _with_connect_token(url: str, connect_token: str | None) -> str:
-    return f"{url}?_modal_connect_token={connect_token}" if connect_token else url
+_COMMAND_TOKEN_HEADER = "X-Command-Token"
+
+
+def _sandbox_auth_headers(connect_token: str | None, command_token: str | None = None) -> dict[str, str]:
+    """Auth headers for a request into the sandbox.
+
+    The Modal connect token rides `Authorization: Bearer` — Modal's edge accepts it there
+    as well as in the query string, and headers stay out of proxy/access logs while URLs
+    do not. With that slot taken, the kernel's command token travels in its own header.
+    """
+    headers: dict[str, str] = {}
+    if connect_token:
+        headers["Authorization"] = f"Bearer {connect_token}"
+    if command_token:
+        headers[_COMMAND_TOKEN_HEADER] = command_token
+    return headers
 
 
 def _server_version(server_url: str, connect_token: str | None) -> str | None:
     """The deployed package hash the running server reports, or None if unreachable."""
-    health_url = _with_connect_token(f"{server_url.rstrip('/')}/health", connect_token)
     try:
-        response = requests.get(health_url, timeout=2)
+        response = requests.get(
+            f"{server_url.rstrip('/')}/health",
+            headers=_sandbox_auth_headers(connect_token),
+            timeout=2,
+        )
         if response.status_code != 200:
             return None
         return str(response.json().get("version") or "")
@@ -262,7 +279,7 @@ def dispatch_sql_v2_run(notebook: Notebook, user: User | None, run: NotebookNode
     command_token = mint_command_token(kernel_server_secret(str(runtime.id)), str(run.id))
     user_id = user.id if isinstance(user, User) else None
     response = requests.post(
-        _with_connect_token(f"{runtime.server_url.rstrip('/')}/run", runtime.server_connect_token),
+        f"{runtime.server_url.rstrip('/')}/run",
         json={
             "run_id": str(run.id),
             "code": code,
@@ -273,7 +290,7 @@ def dispatch_sql_v2_run(notebook: Notebook, user: User | None, run: NotebookNode
             "page_limit": DISPLAY_PAGE_LIMIT,
             "cache_limit": RESULT_CACHE_ROWS,
         },
-        headers={"Authorization": f"Bearer {command_token}"},
+        headers=_sandbox_auth_headers(runtime.server_connect_token, command_token),
         timeout=_RUN_POST_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
@@ -293,7 +310,7 @@ def fetch_sql_v2_page(notebook: Notebook, user: User | None, run: NotebookNodeRu
     user_id = user.id if isinstance(user, User) else None
     try:
         response = requests.post(
-            _with_connect_token(f"{runtime.server_url.rstrip('/')}/page", runtime.server_connect_token),
+            f"{runtime.server_url.rstrip('/')}/page",
             json={
                 "run_id": str(run.id),
                 "code": run.code,
@@ -302,7 +319,7 @@ def fetch_sql_v2_page(notebook: Notebook, user: User | None, run: NotebookNodeRu
                 "data_plane_url": build_data_plane_url(),
                 "data_plane_token": mint_data_plane_token(notebook.short_id, notebook.team_id, user_id),
             },
-            headers={"Authorization": f"Bearer {command_token}"},
+            headers=_sandbox_auth_headers(runtime.server_connect_token, command_token),
             timeout=_PAGE_POST_TIMEOUT_SECONDS,
         )
     except requests.RequestException as exc:
