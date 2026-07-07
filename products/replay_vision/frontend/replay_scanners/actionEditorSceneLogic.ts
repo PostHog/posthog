@@ -14,8 +14,7 @@ import type { VisionActionApi } from '../generated/api.schemas'
 import type { actionEditorSceneLogicType } from './actionEditorSceneLogicType'
 import { parseRruleToCadence } from './cadence'
 import { visionActionRunsLogic } from './visionActionRunsLogic'
-import { buildActionBody, NEW_ACTION_FORM, VisionActionForm } from './visionActionsLogic'
-import { visionActionsLogic } from './visionActionsLogic'
+import { buildActionBody, NEW_ACTION_FORM, VisionActionForm, visionActionsLogic } from './visionActionsLogic'
 
 export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
     path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'actionEditorSceneLogic']),
@@ -141,6 +140,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 visionActionsLogic.findMounted({ scannerId })?.actions.loadActions()
                 const runsLogic = visionActionRunsLogic.findMounted({ actionId: updated.id })
                 runsLogic?.actions.loadAction()
+                runsLogic?.actions.loadRuns()
                 router.actions.push(urls.replayVisionAction(updated.id))
             },
         },

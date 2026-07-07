@@ -192,6 +192,20 @@ export function ActionEditorSceneComponent(): JSX.Element {
         )
     }
 
+    // Editing but the load failed — don't render a blank form pointing at a broken action.
+    if (!isNew && !loadedAction) {
+        return (
+            <SceneContent>
+                <SceneTitleSection name="Action not found" resourceType={{ type: 'replay_vision' }} />
+                <div className="flex justify-center pt-4">
+                    <LemonButton type="secondary" to={urls.replayVision()}>
+                        Back to Replay vision
+                    </LemonButton>
+                </div>
+            </SceneContent>
+        )
+    }
+
     const title = isNew ? 'New action' : loadedAction?.name || 'Edit action'
     const noDays = actionForm.cadence.weekdays.length === 0
     const backTo = isNew
