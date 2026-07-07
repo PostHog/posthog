@@ -132,12 +132,28 @@ def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
     return any(s in MCP_WRITE_SCOPES for s in scopes)
 
 
+# Region values that legitimately use the dev/local OAuth apps. Anything else on a real
+# deployment (a missing region, an unexpected value) is a misconfiguration — see
+# `_get_client_id_for_region`.
+_DEV_REGIONS = frozenset({"DEV", "LOCAL", "E2E"})
+
+
 def _get_client_id_for_region(*, region: str | None, us: str, eu: str, dev: str) -> str:
     if region == "EU":
         return eu
     if region == "US":
         return us
-    return dev
+    # The dev/local OAuth apps only exist in dev, local, and test environments. Silently
+    # falling back to them elsewhere selects an app that isn't seeded in prod, so the lookup
+    # later fails with a confusing `OAuthApplication.DoesNotExist` pointing at a dev client id.
+    # Fail loudly here instead: an unresolved region on a real deployment almost always means
+    # CLOUD_DEPLOYMENT isn't set on this worker.
+    if region in _DEV_REGIONS or settings.DEBUG or settings.TEST:
+        return dev
+    raise RuntimeError(
+        f"Cannot resolve OAuth client id for region {region!r}: refusing to fall back to the dev "
+        "app outside a dev/local/test environment. Is CLOUD_DEPLOYMENT set on this worker?"
+    )
 
 
 def _get_oauth_app_for_client_id(client_id: str, app_name: str, region: str | None) -> OAuthApplication:
