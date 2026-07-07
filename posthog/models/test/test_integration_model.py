@@ -1389,9 +1389,30 @@ class TestGitHubIntegrationModel(BaseTest):
             assert "expires_in" not in integration.config
             assert "refreshed_at" not in integration.config
             assert GitHubIntegration(integration).access_token_expired() is False
+            assert integration.config["installation_unavailable_since"]
+            assert GitHubIntegration(integration).installation_unavailable() is True
         else:
             assert integration.config["expires_in"] == 3600
             assert "refreshed_at" in integration.config
+            assert "installation_unavailable_since" not in integration.config
+            assert GitHubIntegration(integration).installation_unavailable() is False
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_github_refresh_success_clears_installation_unavailable_marker(self, mock_client_request, _mock_reload):
+        mock_client_request.side_effect = self.mock_github_client_request(status_code=201)
+        integration = self.create_integration(
+            config={"installation_id": "INSTALL", "installation_unavailable_since": 1700000000},
+            sensitive_config={"access_token": "STALE_TOKEN"},
+        )
+
+        GitHubIntegration(integration).refresh_access_token()
+
+        integration.refresh_from_db()
+        assert "installation_unavailable_since" not in integration.config
+        assert GitHubIntegration(integration).installation_unavailable() is False
+        assert integration.sensitive_config["access_token"] == "ACCESS_TOKEN"
+        assert "expires_in" in integration.config
 
     @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)

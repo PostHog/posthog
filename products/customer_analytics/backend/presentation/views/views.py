@@ -36,6 +36,7 @@ from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.presentation.views.serializers import (
     AccountNotebookSerializer,
     AccountNoteSerializer,
+    AccountRelationshipDefinitionSerializer,
     AccountSerializer,
     CustomerJourneySerializer,
     CustomerProfileConfigSerializer,
@@ -301,6 +302,84 @@ def _custom_property_option_dicts(options) -> list[dict] | None:
     if options is None:
         return None
     return [asdict(option) for option in options]
+
+
+class AccountRelationshipDefinitionViewSet(
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    _FacadePaginationMixin,
+    viewsets.ModelViewSet,
+):
+    scope_object = "account"
+    serializer_class = AccountRelationshipDefinitionSerializer
+    queryset = None  # data is reached through the facade; declared for router/schema only
+
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        return self._paginate_via_facade(
+            request,
+            lambda offset, limit: api.list_account_relationship_definitions(self.team_id, offset=offset, limit=limit),
+            AccountRelationshipDefinitionSerializer,
+        )
+
+    def retrieve(self, request: Request, *args, **kwargs) -> Response:
+        definition = api.get_account_relationship_definition(self.team_id, self.kwargs["pk"])
+        if definition is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(AccountRelationshipDefinitionSerializer(instance=definition).data)
+
+    def create(self, request: Request, *args, **kwargs) -> Response:
+        serializer = AccountRelationshipDefinitionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            definition = api.create_account_relationship_definition(
+                team_id=self.team_id,
+                name=data.name,
+                description=data.description,
+                is_single_holder=data.is_single_holder,
+                created_by=cast(User, request.user),
+            )
+        except api.AccountRelationshipDefinitionConflictError as e:
+            raise Conflict(str(e))
+        return Response(
+            AccountRelationshipDefinitionSerializer(instance=definition).data, status=status.HTTP_201_CREATED
+        )
+
+    def update(self, request: Request, *args, **kwargs) -> Response:
+        partial = kwargs.pop("partial", False)
+        serializer = AccountRelationshipDefinitionSerializer(data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        try:
+            definition = api.update_account_relationship_definition(
+                team_id=self.team_id,
+                definition_id=self.kwargs["pk"],
+                fields=_account_relationship_definition_write_fields(serializer.validated_data, request.data),
+            )
+        except api.AccountRelationshipDefinitionConflictError as e:
+            raise Conflict(str(e))
+        if definition is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(AccountRelationshipDefinitionSerializer(instance=definition).data)
+
+    def partial_update(self, request: Request, *args, **kwargs) -> Response:
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request: Request, *args, **kwargs) -> Response:
+        if not api.delete_account_relationship_definition(team_id=self.team_id, definition_id=self.kwargs["pk"]):
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+def _account_relationship_definition_write_fields(validated, raw_data: dict) -> dict:
+    fields: dict = {}
+    if "name" in raw_data:
+        fields["name"] = validated.name
+    if "description" in raw_data:
+        fields["description"] = validated.description
+    if "is_single_holder" in raw_data:
+        fields["is_single_holder"] = validated.is_single_holder
+    return fields
 
 
 class CustomPropertySourceViewSet(

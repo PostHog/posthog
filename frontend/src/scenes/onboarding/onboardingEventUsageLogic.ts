@@ -1,7 +1,10 @@
-import { actions, kea, listeners, path } from 'kea'
+import { actions, connect, kea, listeners, path } from 'kea'
 import posthog from 'posthog-js'
 
+import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+
 import type { onboardingEventUsageLogicType } from './onboardingEventUsageLogicType'
+import { resolveOnboardingFlowVariant } from './onboardingVariants'
 
 /** Steps of the context-first onboarding flow (`ContextOnboarding.tsx`), in order. */
 export type ContextOnboardingStepId = 'welcome' | 'install' | 'sources' | 'warehouse' | 'billing' | 'invite'
@@ -12,6 +15,15 @@ export type ContextOnboardingStepId = 'welcome' | 'install' | 'sources' | 'wareh
 // `eventUsageLogic`, stamped `{version: 1, flow_variant: 'legacy'}`.
 const CONTEXT_ONBOARDING_EVENT_PROPS = { version: 2, flow_variant: 'context_first' } as const
 
+// Wizard-sync events fire from BOTH onboarding variants (GROW-121): same v2 event shape, but
+// flow_variant reflects whichever flow the user is actually in so the AB test can split on it.
+function wizardSyncEventProps(featureFlags: FeatureFlagsSet): { version: 2; flow_variant: string } {
+    return {
+        version: 2,
+        flow_variant: resolveOnboardingFlowVariant(featureFlags) === 'self-driving' ? 'context_first' : 'legacy',
+    }
+}
+
 /**
  * Funnel events for the context-first onboarding flow (v2) — a dedicated logic rather than more
  * surface on the giant `eventUsageLogic`, following `sessionRecordingEventUsageLogic`'s split.
@@ -21,6 +33,9 @@ const CONTEXT_ONBOARDING_EVENT_PROPS = { version: 2, flow_variant: 'context_firs
  */
 export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
     path(['scenes', 'onboarding', 'onboardingEventUsageLogic']),
+    connect(() => ({
+        values: [featureFlagLogic, ['featureFlags']],
+    })),
     actions({
         reportContextOnboardingStarted: true,
         reportContextOnboardingStepViewed: (stepId: ContextOnboardingStepId) => ({ stepId }),
@@ -45,8 +60,19 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
             prOpened: boolean
             prUrl: string | null
         }) => props,
+        // Engagement with the shared wizard sync surface (FAB card / launcher / dialog), fired for
+        // both variants and both run modes (GROW-121).
+        reportWizardSyncExpanded: (props: { runKey: string; mode: 'cloud' | 'local'; phase: string }) => props,
+        reportWizardSyncMinimized: (props: { runKey: string; mode: 'cloud' | 'local'; phase: string }) => props,
+        reportWizardSyncRestored: (props: { runKey: string; mode: 'cloud' | 'local'; phase: string }) => props,
+        reportWizardSyncRunDismissed: (props: {
+            runKey: string
+            mode: 'cloud' | 'local'
+            phase: string
+            elapsedSeconds: number
+        }) => props,
     }),
-    listeners({
+    listeners(({ values }) => ({
         // The flow always enters at the welcome step, so `started` carries a fixed entry point
         // (legacy uses e.g. 'product_selection').
         reportContextOnboardingStarted: () => {
@@ -82,7 +108,7 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
         reportContextOnboardingInstallModeSelected: ({ mode }) => {
             posthog.capture('onboarding install mode selected', {
                 mode,
-                ...CONTEXT_ONBOARDING_EVENT_PROPS,
+                ...wizardSyncEventProps(values.featureFlags),
             })
         },
         reportContextOnboardingSourceToggled: ({ productKey, toggle, enabled }) => {
@@ -104,7 +130,7 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
                 task_id: taskId,
                 run_id: runId,
                 repository,
-                ...CONTEXT_ONBOARDING_EVENT_PROPS,
+                ...wizardSyncEventProps(values.featureFlags),
             })
         },
         reportContextOnboardingCloudRunCompleted: ({ taskId, runId, status, durationSeconds, prOpened, prUrl }) => {
@@ -115,8 +141,41 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
                 duration_seconds: durationSeconds,
                 pr_opened: prOpened,
                 pr_url: prUrl,
-                ...CONTEXT_ONBOARDING_EVENT_PROPS,
+                ...wizardSyncEventProps(values.featureFlags),
             })
         },
-    }),
+        reportWizardSyncExpanded: ({ runKey, mode, phase }) => {
+            posthog.capture('wizard sync expanded', {
+                run_key: runKey,
+                mode,
+                phase,
+                ...wizardSyncEventProps(values.featureFlags),
+            })
+        },
+        reportWizardSyncMinimized: ({ runKey, mode, phase }) => {
+            posthog.capture('wizard sync minimized', {
+                run_key: runKey,
+                mode,
+                phase,
+                ...wizardSyncEventProps(values.featureFlags),
+            })
+        },
+        reportWizardSyncRestored: ({ runKey, mode, phase }) => {
+            posthog.capture('wizard sync restored', {
+                run_key: runKey,
+                mode,
+                phase,
+                ...wizardSyncEventProps(values.featureFlags),
+            })
+        },
+        reportWizardSyncRunDismissed: ({ runKey, mode, phase, elapsedSeconds }) => {
+            posthog.capture('wizard sync run dismissed', {
+                run_key: runKey,
+                mode,
+                phase,
+                elapsed_seconds: elapsedSeconds,
+                ...wizardSyncEventProps(values.featureFlags),
+            })
+        },
+    })),
 ])

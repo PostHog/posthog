@@ -34,6 +34,7 @@ from products.customer_analytics.backend.facade.constants import (
 from products.customer_analytics.backend.facade.contracts import (
     AccountNotebookView,
     AccountNoteView,
+    AccountRelationshipDefinition,
     AccountView,
     CustomerJourneyView,
     CustomerProfileConfigView,
@@ -512,3 +513,28 @@ class CustomPropertyValueSerializer(serializers.Serializer):
     created_by_id = serializers.IntegerField(
         read_only=True, allow_null=True, help_text="Id of the user who set this value, if known."
     )
+
+
+class AccountRelationshipDefinitionSerializer(DataclassSerializer):
+    """A team-defined account relationship type (CSM, Onboarding manager, ...)."""
+
+    id = serializers.UUIDField(read_only=True, help_text="Relationship definition UUID.")
+    name = serializers.CharField(
+        max_length=400, help_text="Human-readable name of the relationship. Unique within the team."
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="What this relationship means, e.g. 'The customer success manager responsible for this account'.",
+    )
+    is_single_holder = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text="Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.",
+    )
+
+    class Meta:
+        dataclass = AccountRelationshipDefinition
+        ref_name = "AccountRelationshipDefinition"
+        fields = ["id", "name", "description", "is_single_holder"]

@@ -916,6 +916,35 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @extend_schema(
         responses={
             200: inline_serializer(
+                "DeleteWarehouseOrgResponse",
+                fields={
+                    "status": serializers.CharField(
+                        required=False, help_text="Deletion lifecycle message from the provisioner"
+                    ),
+                    "org": serializers.CharField(
+                        required=False,
+                        help_text="duckgres org identifier (the PostHog organization id)",
+                    ),
+                },
+            )
+        },
+    )
+    @action(methods=["DELETE"], detail=False, url_path="delete-org", required_scopes=["warehouse_view:write"])
+    def delete_org(self, request: Request, **kwargs) -> Response:
+        """Remove the organization's provisioning record after teardown, freeing its warehouse name.
+
+        Called once the warehouse status reports `deleted`: deprovision tears the warehouse
+        down, this removes the now-empty org row so the database_name can be reused. Restricted
+        to organization admins.
+        """
+        admin_error = self._require_organization_admin(request, "delete the provisioning record for")
+        if admin_error is not None:
+            return admin_error
+        return managed_warehouse.delete_org(self.team.organization_id)
+
+    @extend_schema(
+        responses={
+            200: inline_serializer(
                 "WarehouseStatusResponse",
                 fields={
                     "org_id": serializers.CharField(help_text="duckgres org identifier (the PostHog organization id)"),
