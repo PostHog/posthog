@@ -59,6 +59,7 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentBasicSerializer,
     ExperimentMetricsRecalculationSerializer,
     ExperimentSerializer,
+    ExperimentWriteSerializer,
     RecalculateMetricsRequestSerializer,
     RunningTimeCalculationInputSerializer,
     RunningTimeCalculationResultSerializer,
@@ -186,12 +187,18 @@ def _slugify_feature_flag_key(name: str, *, team_id: int) -> str:
 @extend_schema_view(
     # PATCH /experiments/{id}/
     # DRF mixin calls implementation at ExperimentSerializer.update
+    # request=ExperimentWriteSerializer is schema-only: it adds the writable feature_flag input
+    # to the OpenAPI request body; runtime validation stays on ExperimentSerializer.
     partial_update=extend_schema(
-        description="Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time.",
+        description="Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time. Feature-flag config (variants, rollout, payloads) is sent via the feature_flag object.",
+        request=ExperimentWriteSerializer,
     ),
+    # PUT /experiments/{id}/ — same request shape as PATCH
+    update=extend_schema(request=ExperimentWriteSerializer),
     # POST /experiments/ — DRF mixin calls ExperimentSerializer.create
     create=extend_schema(
         description="Create a new experiment in draft status with optional metrics.",
+        request=ExperimentWriteSerializer,
     ),
     # GET /experiments/{id}/ — DRF mixin, read-only serialization via ExperimentSerializer
     retrieve=extend_schema(
