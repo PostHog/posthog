@@ -286,22 +286,25 @@ function progressLabel(review: ReviewRecentReviewApi): string {
     if (!review.progress) {
         return 'Review in progress'
     }
-    // Steps match the pipeline as users think of it: chunking → review → dedupe → validation.
-    // Fetching folds into step 1; dedupe is inferred from "every chunk read, findings not judged yet".
+    // Steps match the pipeline as users think of it: chunking → pick perspectives → review →
+    // dedupe → validation → finalize. Fetching folds into step 1.
     const { review_stage, done, total } = review.progress
     const percent = done !== null && total !== null && total > 0 ? ` · ${Math.round((done / total) * 100)}%` : ''
     switch (review_stage) {
         case 'fetching':
-            return 'Step 1/4 · Preparing the diff'
+            return 'Step 1/6 · Preparing the diff'
         case 'chunking':
-            return 'Step 1/4 · Splitting into chunks'
+            return 'Step 1/6 · Splitting into chunks'
+        case 'selecting':
+            return 'Step 2/6 · Picking perspectives'
         case 'reviewing':
-            if (done !== null && total !== null && total > 0 && done >= total) {
-                return 'Step 3/4 · Merging overlapping findings'
-            }
-            return `Step 2/4 · Reviewing chunks${percent}`
+            return `Step 3/6 · Reviewing chunks${percent}`
+        case 'deduplicating':
+            return 'Step 4/6 · Merging overlapping findings'
         case 'validating':
-            return `Step 4/4 · Validating findings${percent}`
+            return `Step 5/6 · Validating findings${percent}`
+        case 'finalizing':
+            return 'Step 6/6 · Finalizing the review'
     }
 }
 

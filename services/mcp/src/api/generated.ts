@@ -47868,8 +47868,11 @@ export namespace Schemas {
     /**
      * * `fetching` - fetching
      * * `chunking` - chunking
+     * * `selecting` - selecting
      * * `reviewing` - reviewing
+     * * `deduplicating` - deduplicating
      * * `validating` - validating
+     * * `finalizing` - finalizing
      */
     export type ReviewStageEnum = typeof ReviewStageEnum[keyof typeof ReviewStageEnum];
 
@@ -47877,17 +47880,23 @@ export namespace Schemas {
     export const ReviewStageEnum = {
       Fetching: 'fetching',
       Chunking: 'chunking',
+      Selecting: 'selecting',
       Reviewing: 'reviewing',
+      Deduplicating: 'deduplicating',
       Validating: 'validating',
+      Finalizing: 'finalizing',
     } as const;
 
     export interface ReviewProgress {
-      /** How far the in-flight review turn has come: fetching the diff, chunking, reviewing chunks, or validating findings.
+      /** How far the in-flight review turn has come: fetching the diff, chunking, picking each chunk's perspectives, reviewing chunks, merging overlapping findings, validating them, or finalizing (building and publishing the review).
        *
        * * `fetching` - fetching
        * * `chunking` - chunking
+       * * `selecting` - selecting
        * * `reviewing` - reviewing
-       * * `validating` - validating */
+       * * `deduplicating` - deduplicating
+       * * `validating` - validating
+       * * `finalizing` - finalizing */
       review_stage: ReviewStageEnum;
       /**
          * Work units finished within the stage; null when the stage has no counter.

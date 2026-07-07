@@ -53,14 +53,15 @@ _PRIORITY_CHOICES = [priority.value for priority in IssuePriority]
 # Display order for the detail view: most urgent first.
 _PRIORITY_DISPLAY_RANK = {IssuePriority.MUST_FIX: 0, IssuePriority.SHOULD_FIX: 1, IssuePriority.CONSIDER: 2}
 
-_REVIEW_STAGES = ["fetching", "chunking", "reviewing", "validating"]
+_REVIEW_STAGES = ["fetching", "chunking", "selecting", "reviewing", "deduplicating", "validating", "finalizing"]
 
 
 class ReviewProgressSerializer(serializers.Serializer):
     review_stage = serializers.ChoiceField(
         choices=_REVIEW_STAGES,
-        help_text="How far the in-flight review turn has come: fetching the diff, chunking, "
-        "reviewing chunks, or validating findings.",
+        help_text="How far the in-flight review turn has come: fetching the diff, chunking, picking "
+        "each chunk's perspectives, reviewing chunks, merging overlapping findings, validating them, "
+        "or finalizing (building and publishing the review).",
     )
     done = serializers.IntegerField(
         allow_null=True, help_text="Work units finished within the stage; null when the stage has no counter."
@@ -446,13 +447,25 @@ def _progress_payload(
     turn: _TurnStats,
     current_pairs: list[tuple[ReviewIssueFinding, ValidationVerdict | None]],
 ) -> dict[str, Any]:
-    """Stage + counters for the in-flight turn, inferred from which working state exists at the head."""
+    """Stage + counters for the in-flight turn, inferred from which working state exists at the head.
+
+    Covers the full pipeline: fetching → chunking → selecting → reviewing → deduplicating →
+    validating → finalizing (body build + publish, the moments before the turn completes).
+    """
     if current_pairs:
         judged = sum(1 for _, verdict in current_pairs if verdict is not None)
+        if judged >= len(current_pairs):
+            return {"review_stage": "finalizing", "done": judged, "total": len(current_pairs)}
         return {"review_stage": "validating", "done": judged, "total": len(current_pairs)}
     if turn.chunk_count is not None:
         done = turn.perspective_reads or 0
+        # The selector runs between chunking and the fan-out; its persisted plan is the stage marker.
+        # A selection-less run (fallback) skips straight to "reviewing" once its first read lands.
+        if done == 0 and turn.selection_chunks is None:
+            return {"review_stage": "selecting", "done": None, "total": None}
         expected = _expected_reads(team_id, report, turn)
+        if expected is not None and done >= expected:
+            return {"review_stage": "deduplicating", "done": done, "total": expected}
         return {"review_stage": "reviewing", "done": done, "total": max(expected, done) if expected else None}
     if snapshot.head_matched:
         return {"review_stage": "chunking", "done": None, "total": None}

@@ -299,8 +299,8 @@ class TestRecentReviewsAPI(APIBaseTest):
 
     def test_in_progress_review_surfaces_with_stage_progress(self) -> None:
         # A visibly running first-turn review must appear first with a stage inferred from the
-        # working state (fetching → chunking → reviewing n/m → validating n/m); completed rows
-        # never carry progress.
+        # working state (fetching → chunking → selecting → reviewing n/m → deduplicating →
+        # validating n/m → finalizing); completed rows never carry progress.
         self._report(pr_number=1, acting_user=self.user)
         running = self._report(pr_number=2, acting_user=self.user, completed=False, run_count=0, head_sha="sha1")
         running_id = str(running.id)
@@ -328,8 +328,12 @@ class TestRecentReviewsAPI(APIBaseTest):
             head_sha="sha1",
             chunks=ChunksList(chunks=[Chunk(chunk_id=i, files=[FileInfo(filename="a.py")]) for i in range(2)]),
         )
-        # 2 chunks × (3 canonical perspectives + the blind-spot sweep) = 8 expected reads.
-        assert self.client.get(self.url).json()[0]["progress"] == {"review_stage": "reviewing", "done": 0, "total": 8}
+        # A chunked turn with no reads and no plan yet is the selector's window.
+        assert self.client.get(self.url).json()[0]["progress"] == {
+            "review_stage": "selecting",
+            "done": None,
+            "total": None,
+        }
 
         persist_perspective_results(
             team_id=self.team.id,
@@ -337,6 +341,8 @@ class TestRecentReviewsAPI(APIBaseTest):
             head_sha="sha1",
             results={(1, 1): _issues_review(1), (2, 1): _issues_review(0)},
         )
+        # No persisted plan (a fallback run): the dense estimate — 2 chunks × (3 canonical
+        # perspectives + the blind-spot sweep) = 8 expected reads.
         assert self.client.get(self.url).json()[0]["progress"] == {"review_stage": "reviewing", "done": 2, "total": 8}
 
         # Once the selector's plan lands, the total is exact: planned wave units + one blind spot per
@@ -355,11 +361,32 @@ class TestRecentReviewsAPI(APIBaseTest):
         )
         assert self.client.get(self.url).json()[0]["progress"] == {"review_stage": "reviewing", "done": 2, "total": 3}
 
+        # All planned reads in (1 selected wave unit + 2 blind spots = 3) → the dedup window.
+        persist_perspective_results(
+            team_id=self.team.id,
+            report_id=running_id,
+            head_sha="sha1",
+            results={(1000, 0): _issues_review(0)},
+        )
+        assert self.client.get(self.url).json()[0]["progress"] == {
+            "review_stage": "deduplicating",
+            "done": 3,
+            "total": 3,
+        }
+
         self._finding(running, "1-a", priority=IssuePriority.MUST_FIX)
         self._finding(running, "1-b", priority=IssuePriority.CONSIDER, judged=False)
         assert self.client.get(self.url).json()[0]["progress"] == {
             "review_stage": "validating",
             "done": 1,
+            "total": 2,
+        }
+
+        # Every finding judged → the turn is building + publishing, the moments before it completes.
+        self._finding(running, "1-b", priority=IssuePriority.CONSIDER, is_valid=False)
+        assert self.client.get(self.url).json()[0]["progress"] == {
+            "review_stage": "finalizing",
+            "done": 2,
             "total": 2,
         }
 
