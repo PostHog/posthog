@@ -58,8 +58,12 @@ def test_rel_identity_cache_matches_unpatched_django():
         # dict — so clear the instance cache before and after to keep the rel pristine.
         descriptor = type(rel).identity
         rel.__dict__.pop("identity", None)
-        fresh_identity = descriptor.func(rel)
-        rel.__dict__.pop("identity", None)
+        try:
+            fresh_identity = descriptor.func(rel)
+        finally:
+            # Always restore: rels are process-global, and a partial tuple left behind
+            # would corrupt hash/eq for every later test in the same worker.
+            rel.__dict__.pop("identity", None)
         assert cached_identity == fresh_identity
         assert cached_hash == hash(fresh_identity)
     # Compare a same-class pair — across classes the original __eq__ returns
