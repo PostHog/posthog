@@ -16,6 +16,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import User
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 
 from products.replay_vision.backend.api.scanners import _scanner_config_error_message
 from products.replay_vision.backend.feature_flag import (
@@ -173,7 +174,13 @@ class ReplayScannerPromptSuggestionViewSet(
             "recording edit access."
         ),
     )
-    @action(detail=False, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
+    # Each call is an inline LLM request, so it gets the shared AI rate limits on top of the editor gate.
+    @action(
+        detail=False,
+        methods=["post"],
+        required_scopes=["replay_scanner:write", "session_recording:read"],
+        throttle_classes=[AIBurstRateThrottle, AISustainedRateThrottle],
+    )
     def generate(self, request: Request, **kwargs: Any) -> Response:
         scanner = self._scanner_for_url()
         self._require_editor()
