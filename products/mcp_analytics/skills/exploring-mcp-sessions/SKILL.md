@@ -31,10 +31,10 @@ the typed tool `posthog:mcp-analytics-sessions-generate-intent`.
 ## Tools
 
 | Tool                                             | Purpose                                                          |
-| ------------------------------------------------ | --------------------------------------------------------------- |
-| `posthog:mcp-analytics-sessions-list`            | List recent sessions (readOnly) — one row per session           |
-| `posthog:mcp-analytics-sessions-tool-calls`      | Read one session's chronological tool calls (readOnly)          |
-| `posthog:mcp-analytics-sessions-generate-intent` | Generate (or fetch cached) LLM summary of a session's goal      |
+| ------------------------------------------------ | ---------------------------------------------------------------- |
+| `posthog:mcp-analytics-sessions-list`            | List recent sessions (readOnly) — one row per session            |
+| `posthog:mcp-analytics-sessions-tool-calls`      | Read one session's chronological tool calls (readOnly)           |
+| `posthog:mcp-analytics-sessions-generate-intent` | Generate (or fetch cached) LLM summary of a session's goal       |
 | `posthog:execute-sql`                            | Escape hatch — custom aggregation not covered by the tools above |
 
 ## Workflow: list recent sessions
