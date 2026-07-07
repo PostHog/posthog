@@ -1442,6 +1442,9 @@ class SignalReportViewSet(
                 if hasattr(report, "prefetched_dismissal_artefacts"):
                     del report.prefetched_dismissal_artefacts
 
+        # A dismissal (transition into SUPPRESSED) closes the linked implementation PR — handled
+        # centrally by the post_save receiver (receivers.close_pr_when_report_dismissed), so this
+        # method doesn't special-case it. Restore/snooze to "potential" leaves the PR alone.
         return SignalReportBulkStateOutcome.TRANSITIONED
 
     @extend_schema(

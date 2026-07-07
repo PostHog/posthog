@@ -54,7 +54,9 @@ class MinedPattern:
     error_count: int
     first_seen: dt.datetime
     last_seen: dt.datetime
-    examples: list[str]
+    # Sampled rows that produced this pattern; `body` is the prepared (whitespace-collapsed,
+    # truncated) form the miner saw, not the raw log line.
+    examples: list[LogSample]
     services: list[str]
     # Raw sample counts per caller-supplied time bucket (empty when no buckets given).
     bucket_counts: list[int]
@@ -68,7 +70,7 @@ class _Accumulator:
     first_seen: dt.datetime
     last_seen: dt.datetime
     count: int = 0
-    examples: list[str] = field(default_factory=list)
+    examples: list[LogSample] = field(default_factory=list)
     services: list[str] = field(default_factory=list)
     bucket_counts: list[int] = field(default_factory=list)
     severity_counts: dict[str, int] = field(default_factory=dict)
@@ -126,7 +128,7 @@ def mine_patterns(
         return []
 
     max_patterns = max_patterns if max_patterns is not None else _env("LOGS_PATTERNS_MAX_PATTERNS", 200, int)
-    max_examples = max_examples if max_examples is not None else _env("LOGS_PATTERNS_MAX_EXAMPLES", 3, int)
+    max_examples = max_examples if max_examples is not None else _env("LOGS_PATTERNS_MAX_EXAMPLES", 10, int)
     max_services = max_services if max_services is not None else _env("LOGS_PATTERNS_MAX_SERVICES", 4, int)
     truncate = _env("LOGS_PATTERNS_BODY_TRUNCATE", 512, int)
     sim_th = _env("LOGS_PATTERNS_SIM_TH", 0.4, float)
@@ -161,8 +163,15 @@ def mine_patterns(
         acc.count += 1
         severity = sample.severity_text.lower()
         acc.severity_counts[severity] = acc.severity_counts.get(severity, 0) + 1
-        if len(acc.examples) < max_examples and prepared not in acc.examples:
-            acc.examples.append(prepared)
+        if len(acc.examples) < max_examples and all(e.body != prepared for e in acc.examples):
+            acc.examples.append(
+                LogSample(
+                    body=prepared,
+                    severity_text=sample.severity_text,
+                    service_name=sample.service_name,
+                    timestamp=sample.timestamp,
+                )
+            )
         if sample.service_name not in acc.services and len(acc.services) < max_services:
             acc.services.append(sample.service_name)
         if buckets:

@@ -14717,6 +14717,10 @@ export namespace Schemas {
       date_from?: string | null;
       date_to?: string | null;
       explicitDate?: boolean | null;
+      /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
+      filterTestAccounts?: boolean | null;
+      /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
+      interval?: IntervalType | null;
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
     }
 
@@ -18800,6 +18804,8 @@ export namespace Schemas {
          * @nullable
          */
       conclusion_comment?: string | null;
+      /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Only acts for allowlisted teams; ignored otherwise. */
+      open_cleanup_pr?: boolean;
     }
 
     export interface EndpointBreakdownLimitExceededSignalExtra {
@@ -18857,6 +18863,75 @@ export namespace Schemas {
          * @nullable
          */
       saved_query_id?: string | null;
+    }
+
+    /**
+     * The live materialization rules, for agents that want to rewrite a rejected query themselves.
+     */
+    export interface EndpointMaterializationConditions {
+      /** Python source code of the checks that decide whether an endpoint query can be materialized, read from the running system — always matches what this instance enforces. Reason from it to rewrite a rejected query into a form that passes every check. */
+      conditions_source: string;
+      /** Hard rules a rewrite must obey so it stays semantically equivalent to the original query (same results for all variable values, keep every variable placeholder unchanged). */
+      rewrite_contract: string;
+    }
+
+    /**
+     * * `ok` - ok
+     * * `cannot_fix` - cannot_fix
+     * * `invalid` - invalid
+     * * `model_error` - model_error
+     */
+    export type SuggestionStatusEnum = typeof SuggestionStatusEnum[keyof typeof SuggestionStatusEnum];
+
+
+    export const SuggestionStatusEnum = {
+      Ok: 'ok',
+      CannotFix: 'cannot_fix',
+      Invalid: 'invalid',
+      ModelError: 'model_error',
+    } as const;
+
+    /**
+     * AI-suggested query rewrite that would make the endpoint materializable.
+     */
+    export interface EndpointMaterializationSuggestion {
+      /** Outcome of the suggestion run: 'ok' — the suggested query passes the live materialization checks; 'cannot_fix' — no semantically equivalent rewrite exists; 'invalid' — a suggestion was produced but never passed validation (suggested_query carries the last attempt); 'model_error' — the model returned no usable response.
+       *
+       * * `ok` - ok
+       * * `cannot_fix` - cannot_fix
+       * * `invalid` - invalid
+       * * `model_error` - model_error */
+      suggestion_status: SuggestionStatusEnum;
+      /**
+         * The complete rewritten SQL query, or null when no rewrite was produced.
+         * @nullable
+         */
+      suggested_query: string | null;
+      /**
+         * User-facing explanation of what was changed and why, or why no fix exists.
+         * @nullable
+         */
+      explanation: string | null;
+      /** How many suggest→validate rounds were used. */
+      attempts: number;
+      /**
+         * Last validation failure when the suggestion did not pass the checks.
+         * @nullable
+         */
+      error: string | null;
+      /** The materialization blocker that triggered the suggestion. */
+      original_reason: string;
+    }
+
+    /**
+     * Request body for the AI materialization-fix suggestion action.
+     */
+    export interface EndpointMaterializationSuggestionRequest {
+      /**
+         * Endpoint version to suggest a fix for. Defaults to the latest version.
+         * @nullable
+         */
+      version?: number | null;
     }
 
     export type EndpointRefreshMode = typeof EndpointRefreshMode[keyof typeof EndpointRefreshMode];
@@ -31388,6 +31463,7 @@ export namespace Schemas {
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
+     * * `experiments` - Experiments
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply
@@ -31406,6 +31482,7 @@ export namespace Schemas {
       SupportQueue: 'support_queue',
       SessionSummaries: 'session_summaries',
       PosthogAi: 'posthog_ai',
+      Experiments: 'experiments',
       SignalReport: 'signal_report',
       SignalsScout: 'signals_scout',
       SupportReply: 'support_reply',
@@ -42374,6 +42451,7 @@ export namespace Schemas {
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
        * * `posthog_ai` - PostHog AI
+       * * `experiments` - Experiments
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
        * * `support_reply` - Support Reply
@@ -49297,6 +49375,8 @@ export namespace Schemas {
          * @nullable
          */
       conclusion_comment?: string | null;
+      /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Only acts for allowlisted teams; ignored otherwise. */
+      open_cleanup_pr?: boolean;
       /** The key of the variant to ship. */
       variant_key: string;
       /** If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them. */
@@ -53578,6 +53658,7 @@ export namespace Schemas {
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
        * * `posthog_ai` - PostHog AI
+       * * `experiments` - Experiments
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
        * * `support_reply` - Support Reply
@@ -55168,6 +55249,17 @@ export namespace Schemas {
      */
     export type _LogPatternSeverityCounts = {[key: string]: number};
 
+    export interface _LogPatternExample {
+      /** Log body as the miner saw it: whitespace-collapsed and truncated to the mining length cap, not the raw stored line. */
+      body: string;
+      /** Severity of the sampled line, e.g. "info", "error". */
+      severity_text: string;
+      /** Service that emitted the sampled line. */
+      service_name: string;
+      /** ISO 8601 timestamp of the sampled line. */
+      timestamp: string;
+    }
+
     export interface _LogPattern {
       /** Mined log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". Tokens: <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary. */
       pattern: string;
@@ -55185,8 +55277,8 @@ export namespace Schemas {
       first_seen: string;
       /** ISO 8601 timestamp of the latest sampled occurrence. */
       last_seen: string;
-      /** Up to 3 distinct raw log bodies (truncated) that produced this pattern. */
-      examples: string[];
+      /** Up to 10 distinct sampled log lines that produced this pattern, with severity, service, and timestamp for display. */
+      examples: _LogPatternExample[];
       /** Up to 4 distinct service names this pattern was observed in. */
       services: string[];
       /** Estimated occurrences per time bucket, aligned index-for-index with the response's `sparkline_buckets`. Extrapolated from the sample like `estimated_count`, so it shows the volume shape over the window, not exact per-bucket tallies. */
@@ -61377,6 +61469,10 @@ export namespace Schemas {
      * Only return notes linked to this account.
      */
     account_id?: string;
+    /**
+     * Only return notes on accounts assigned to these user IDs (the account's CSM or account executive; repeat the param per user).
+     */
+    assigned_to?: number[];
     /**
      * Only return notes created by these user IDs (repeat the param per user).
      */
