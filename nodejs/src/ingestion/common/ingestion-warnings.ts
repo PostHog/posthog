@@ -39,11 +39,13 @@ export interface StructuredWarningFields {
 }
 
 function serializeIngestionWarning(teamId: TeamId, warning: IngestionWarning): string {
+    // Structured fields are spread last so a stray key in details cannot override them.
+    // ClickHouse v2 materializes columns from these exact key names (see sql_v2.py).
     const fullDetails = {
+        ...warning.details,
         ...(warning.category && { category: warning.category }),
         ...(warning.severity && { severity: warning.severity }),
         ...(warning.pipelineStep && { pipelineStep: warning.pipelineStep }),
-        ...warning.details,
     }
     return JSON.stringify({
         team_id: teamId,

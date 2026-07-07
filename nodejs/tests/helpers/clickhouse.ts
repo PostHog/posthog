@@ -121,7 +121,11 @@ export class Clickhouse {
             this.truncate('ingestion_warnings'),
         ])
 
-        await Promise.allSettled([this.truncate('sharded_ingestion_warnings'), this.truncate('sharded_app_metrics')])
+        await Promise.allSettled([
+            this.truncate('sharded_ingestion_warnings'),
+            this.truncate('sharded_app_metrics'),
+            this.truncate('ingestion_warnings_v2'),
+        ])
     }
 
     // Topics that this database's Kafka engine tables consume from. Tests pre-create every

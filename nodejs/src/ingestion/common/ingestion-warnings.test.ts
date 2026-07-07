@@ -27,7 +27,11 @@ describe('captureIngestionWarning()', () => {
     it('can read own writes', async () => {
         await captureIngestionWarning(kafkaProducer, 2, {
             type: 'some_type',
-            details: { foo: 'bar' },
+            // severity inside details must lose to the structured field below
+            details: { foo: 'bar', distinctId: 'user-1', severity: 'from-details' },
+            category: 'size',
+            severity: 'error',
+            pipelineStep: 'emit-event',
         })
 
         const warnings = await clickhouse.delayUntilEventIngested(
@@ -39,10 +43,36 @@ describe('captureIngestionWarning()', () => {
                 team_id: 2,
                 source: 'plugin-server',
                 type: 'some_type',
-                details: '{"foo":"bar"}',
+                details: expect.any(String),
                 timestamp: expect.any(String),
                 _timestamp: expect.any(String),
             }),
+        ])
+
+        // v2 derives these columns (DEFAULT expressions) from the exact JSON key names
+        // emitted by serializeIngestionWarning — a renamed key silently degrades them
+        // to the defaults.
+        const v2Warnings = await clickhouse.delayUntilEventIngested(
+            async () =>
+                await clickhouse.query<{
+                    team_id: number
+                    type: string
+                    category: string
+                    severity: string
+                    pipeline_step: string
+                    distinct_id: string | null
+                }>('SELECT team_id, type, category, severity, pipeline_step, distinct_id FROM ingestion_warnings_v2')
+        )
+
+        expect(v2Warnings).toEqual([
+            {
+                team_id: 2,
+                type: 'some_type',
+                category: 'size',
+                severity: 'error',
+                pipeline_step: 'emit-event',
+                distinct_id: 'user-1',
+            },
         ])
     })
 })
