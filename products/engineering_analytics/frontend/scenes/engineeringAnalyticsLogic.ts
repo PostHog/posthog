@@ -7,10 +7,12 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { ApiConfig, ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils/objects'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import {
     engineeringAnalyticsCiCards,
+    engineeringAnalyticsFlakyTests,
     engineeringAnalyticsPullRequests,
     engineeringAnalyticsQuarantine,
     engineeringAnalyticsQuarantineRequest,
@@ -398,6 +400,35 @@ export function quarantineCountsOf(rows: QuarantineEntryRow[]): QuarantineCounts
     return { ...counts, pastExpiry: counts.inGrace + counts.overdue }
 }
 
+/** Leaderboard windows the UI offers; the endpoint accepts any window up to 30 days. */
+export type FlakyTestWindow = '-7d' | '-14d' | '-30d'
+export const DEFAULT_FLAKY_TEST_WINDOW: FlakyTestWindow = '-7d'
+
+export interface FlakyTestRow {
+    /** Reconstructed pytest nodeid (the CI span name) — a stable grouping/display key. */
+    nodeid: string
+    /** Runnable pytest selector for the quarantine action; exact when the CI reporter emitted it. */
+    selector: string
+    /** Failed, then passed on an automatic retry — the strongest flaky signal (rerun-enabled lanes only). */
+    rerunPassedCount: number
+    /** Spans whose final outcome was failed/error. Absolute count, never a rate (denominators are biased). */
+    failedCount: number
+    /** Distinct PRs among the failures; master/branch failures carry no PR and don't count here. */
+    failedPrCount: number
+    /** Distinct branches across the test's flaky-signal spans. */
+    branchCount: number
+    /** Failed while quarantined (xfail) — already masked in CI, still flaky. */
+    xfailedCount: number
+    lastSeenAt: string
+}
+
+export interface FlakyTestsData {
+    rows: FlakyTestRow[]
+    /** True when more tests qualified than the cap; rows are the strongest `limit`. */
+    truncated: boolean
+    limit: number
+}
+
 export type QuarantineRequestAction = 'quarantine' | 'extend' | 'remove'
 
 /** What the tab submits to the write endpoint; the backend opens the issue + PR. */
@@ -421,6 +452,29 @@ export interface QuarantineModalState {
     owner: string
     issue: string
     mode: QuarantineMode
+    /** Glanceable confirm presentation for prefilled openers (leaderboard rows); 'Edit details' switches to the form. */
+    confirm?: boolean
+}
+
+/** Data-backed quarantine reason from a leaderboard row — the evidence is the reason; the
+ *  cause is unknown until someone investigates, which is the tracking issue's job. */
+export function flakyEvidenceReason(row: FlakyTestRow, window: FlakyTestWindow): string {
+    const windowLabel = { '-7d': '7 days', '-14d': '14 days', '-30d': '30 days' }[window]
+    const parts: string[] = []
+    if (row.rerunPassedCount > 0) {
+        parts.push(`passed on retry ${row.rerunPassedCount}x`)
+    }
+    if (row.failedCount > 0) {
+        parts.push(
+            row.failedPrCount > 0
+                ? `failed ${row.failedCount}x across ${pluralize(row.failedPrCount, 'PR')}`
+                : `failed ${row.failedCount}x`
+        )
+    }
+    if (row.xfailedCount > 0) {
+        parts.push(`failed while quarantined ${row.xfailedCount}x`)
+    }
+    return `Flaky in CI: ${parts.join(', ')} in the last ${windowLabel}`
 }
 
 /** Suggest an owning team from a product-scoped selector; '' when the selector isn't product-scoped. */
@@ -492,6 +546,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             resetQuarantineFilters: true,
             openQuarantineModal: (state: QuarantineModalState) => ({ state }),
             closeQuarantineModal: true,
+            setFlakyTestWindow: (window: FlakyTestWindow) => ({ window }),
             refresh: true,
         }),
 
@@ -591,6 +646,33 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                             parseWarnings: data.parse_warnings,
                             sourceUrl: data.source_url,
                             repoFullName: data.repo ? `${data.repo.owner}/${data.repo.name}` : null,
+                        }
+                    },
+                },
+            ],
+            flakyTests: [
+                null as FlakyTestsData | null,
+                {
+                    loadFlakyTests: async (): Promise<FlakyTestsData> => {
+                        const data = await engineeringAnalyticsFlakyTests(projectId(), {
+                            date_from: values.flakyTestWindow,
+                            source_id: values.sourceId ?? undefined,
+                        })
+                        return {
+                            rows: data.items.map(
+                                (it): FlakyTestRow => ({
+                                    nodeid: it.nodeid,
+                                    selector: it.selector,
+                                    rerunPassedCount: it.rerun_passed_count,
+                                    failedCount: it.failed_count,
+                                    failedPrCount: it.failed_pr_count,
+                                    branchCount: it.branch_count,
+                                    xfailedCount: it.xfailed_count,
+                                    lastSeenAt: it.last_seen_at,
+                                })
+                            ),
+                            truncated: data.truncated,
+                            limit: data.limit,
                         }
                     },
                 },
@@ -705,6 +787,21 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadQuarantine: () => false,
                     loadQuarantineSuccess: () => false,
                     loadQuarantineFailure: () => true,
+                },
+            ],
+            // Leaderboard window; transient like the other lenses (no persisted UI in this phase).
+            flakyTestWindow: [
+                DEFAULT_FLAKY_TEST_WINDOW as FlakyTestWindow,
+                { setFlakyTestWindow: (_, { window }) => window },
+            ],
+            // Same tri-state as the other loaders: 'notConnected' (no source) defers to the tab-level
+            // "connect a source" gate; only a real 'error' surfaces the leaderboard's own banner.
+            flakyTestsStatus: [
+                'ok' as LoaderStatus,
+                {
+                    loadFlakyTests: () => 'ok',
+                    loadFlakyTestsSuccess: () => 'ok',
+                    loadFlakyTestsFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
                 },
             ],
             quarantineModal: [
@@ -891,7 +988,9 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 actions.loadPullRequests()
                 actions.loadWorkflowHealth()
                 actions.loadQuarantine()
+                actions.loadFlakyTests()
             },
+            setFlakyTestWindow: () => actions.loadFlakyTests(),
             setSourceId: () => actions.refresh(),
             [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {
                 actions.loadWorkflowHealth()
