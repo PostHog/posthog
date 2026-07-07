@@ -1,12 +1,9 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
-import { TextMorph } from 'torph/react'
 
 import { IconBell, IconCheck, IconInfo } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -16,16 +13,6 @@ import { experimentResultsNotificationLogic } from '~/scenes/experiments/experim
 import { Experiment } from '~/types'
 
 import type { ExperimentMetricsRecalculationApi } from 'products/experiments/frontend/generated/api.schemas'
-
-const RECALCULATION_LOADING_MESSAGES = [
-    'Snuffling through spiky piles for metrics…',
-    'Counting quills, clicks, and conversions…',
-    'Scurrying through the underbrush for results…',
-    'Hoarding shiny little significant digits…',
-    'Padding softly through fields of variants…',
-    'Untangling prickly paths to results…',
-    'Balancing nuts, berries, and confidence intervals…',
-]
 
 /**
  * Always-on status line for the recalculation flow. Renders exactly one state from
@@ -102,20 +89,18 @@ function InFlightStatus({
     onSubscribe: () => void
 }): JSX.Element {
     const rowsRead = recalculation?.rows_read ?? undefined
-    const running = recalculation?.running_metrics ?? 0
     const succeeded = recalculation?.completed_metrics ?? 0
     const failed = recalculation?.failed_metrics ?? 0
     const total = recalculation?.total_metrics ?? 0
     /**
-     * `running` is a momentary sample of system.processes, so it reads 0 between per-metric queries.
      * Pending (not yet resolved, not currently sampled as running) keeps the segment truthful in those gaps.
      */
-    const pending = Math.max(0, total - succeeded - failed - running)
+    const pending = Math.max(0, total - succeeded - failed)
     return (
         <StatusBar>
             <span className="flex items-center gap-1.5 whitespace-nowrap">
                 <Spinner textColored className="text-sm text-accent" />
-                <CountsSegment running={running} pending={pending} succeeded={succeeded} failed={failed} />
+                <CountsSegment pending={pending} succeeded={succeeded} failed={failed} />
                 <span className="text-muted text-xs">· running in the background</span>
                 <Tooltip title="We're computing each metric against the latest data. This runs server-side so you can leave this page; results appear as each metric finishes.">
                     <IconInfo className="text-muted text-xs" />
@@ -126,7 +111,6 @@ function InFlightStatus({
                         estimatedRows={recalculation?.estimated_rows_total ?? undefined}
                     />
                 )}
-                <RotatingMessage />
             </span>
             {notifyWhenResultsReady ? (
                 <LemonButton
@@ -155,22 +139,18 @@ function StatusBar({ children }: { children: React.ReactNode }): JSX.Element {
 }
 
 function CountsSegment({
-    running,
     pending,
     succeeded,
     failed,
 }: {
-    running: number
     pending: number
     succeeded: number
     failed: number
 }): JSX.Element {
     // "running" is only shown when the live sample caught a query mid-flight; pending covers the rest.
     const parts: JSX.Element[] = []
-    if (running > 0) {
-        parts.push(<span key="running">{running} running</span>)
-    }
-    if (pending > 0 || running === 0) {
+
+    if (pending > 0) {
         parts.push(<span key="pending">{pending} pending</span>)
     }
     parts.push(
@@ -204,35 +184,5 @@ function ClimbingRows({ rowsRead, estimatedRows }: { rowsRead: number; estimated
             · {humanFriendlyNumber(rowsRead, 0)}
             {showCeiling && ` / ${humanFriendlyNumber(estimatedRows, 0)}`} rows
         </span>
-    )
-}
-
-function RotatingMessage(): JSX.Element {
-    const [index, setIndex] = useState(0)
-    const { isVisible } = usePageVisibility()
-
-    useEffect(() => {
-        if (!isVisible) {
-            return
-        }
-        const interval = setInterval(
-            () => {
-                setIndex((current) => {
-                    let next = Math.floor(Math.random() * RECALCULATION_LOADING_MESSAGES.length)
-                    if (next === current) {
-                        next = (next + 1) % RECALCULATION_LOADING_MESSAGES.length
-                    }
-                    return next
-                })
-            },
-            3000 + Math.random() * 2000
-        )
-        return () => clearInterval(interval)
-    }, [isVisible])
-
-    return (
-        <TextMorph as="span" className="text-muted text-xs">
-            {`· ${RECALCULATION_LOADING_MESSAGES[index]}`}
-        </TextMorph>
     )
 }
