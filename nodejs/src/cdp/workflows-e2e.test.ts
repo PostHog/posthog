@@ -376,6 +376,13 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
     // bytecode (op 29). Unlike an events entry, the executor evaluates the condition on entry, so
     // without the guard this fires the wait immediately. Mirrors the serializer's compiled shape.
     const emptyConditionFilters = () => ({ bytecode: ['_H', 1, 29], properties: [] })
+    // A wait CONDITION on a person property: `person.properties[key] == value`. Mirrors the bytecode
+    // Django compiles for a single person-property equality filter. Used to prove that a person
+    // mutation (no analytics event) can satisfy a parked condition wait.
+    const personPropertyConditionFilters = (key: string, value: string): any => ({
+        bytecode: ['_H', 1, 32, value, 32, key, 32, 'properties', 32, 'person', 1, 3, 11],
+        properties: [{ key, value, type: 'person', operator: 'exact' }],
+    })
 
     describe('simple workflow: trigger → function → exit', () => {
         beforeEach(async () => {
@@ -1023,6 +1030,103 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             }, 10000)
             // Exited on conversion — the after-delay step never ran.
             expect(mockFetch).not.toHaveBeenCalled()
+        })
+
+        it('wakes a parked condition wait on a person-property change with no analytics event', async () => {
+            // The core of removing the 10-minute poll: a property change that produces no analytics
+            // event (only a clickhouse_person mutation) must still wake the wait. The matcher's
+            // person stream synthesizes a $person_updated globals carrying the new person.properties,
+            // which the wait's property condition then matches.
+            await createWaitUntilWorkflow({
+                // Person-property condition only — never satisfied by the trigger event, so it parks.
+                condition: { filters: personPropertyConditionFilters('plan', 'enterprise') },
+                max_wait_duration: '5m',
+            })
+            // person is not persisted in the job state — the worker re-resolves it from the person store
+            // on dequeue (CyclotronPerson.id = person.uuid). Without a resolvable person the re-parked job
+            // stores person_id = null and the person-stream matcher can never find it. Production resolves
+            // person_id during ingestion before the job parks; mirror that so the parked job carries
+            // person_id = 'uuid' — the same id the clickhouse_person mutation below targets. The resolved
+            // person has no `plan`, so the condition still fails on entry and the job parks as expected.
+            mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([
+                {
+                    id: '1',
+                    uuid: 'uuid',
+                    team_id: team.id,
+                    properties: { email: 'test@posthog.com' },
+                    properties_last_updated_at: {},
+                    properties_last_operation: null,
+                    created_at: DateTime.utc(),
+                    version: 1,
+                    is_identified: true,
+                    is_user_id: null,
+                    last_seen_at: null,
+                    distinct_id: 'distinct_id',
+                },
+            ])
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            // A clickhouse_person mutation for that person — the person now matches `plan=enterprise`.
+            // No analytics event is involved; this comes straight off the person topic.
+            const personMessage = {
+                value: Buffer.from(
+                    JSON.stringify({
+                        id: 'uuid',
+                        team_id: team.id,
+                        properties: JSON.stringify({ email: 'test@posthog.com', plan: 'enterprise' }),
+                        is_deleted: 0,
+                        is_identified: 1,
+                        created_at: '2024-09-03 09:00:00.000',
+                        timestamp: '2024-09-03 09:00:00.000',
+                        version: 2,
+                    })
+                ),
+            }
+            const personGlobals = await matcher._parsePersonBatch([personMessage as any])
+            await matcher.processBatch(personGlobals)
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
+        it('wakes a parked wait from a cdp_internal_events signal with no analytics event', async () => {
+            // CDP-generated signals (e.g. $insight_alert_firing) arrive on cdp_internal_events and never
+            // hit the analytics events topic. The matcher parses them via _parseInternalEventsBatch and
+            // wakes parked waits whose "events to wait for" name the signal, matched by distinct_id.
+            await createWaitUntilWorkflow({
+                // Property condition never matches the trigger event, so the job parks until the signal.
+                condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                events: [eventNameFilter('$insight_alert_firing')],
+                max_wait_duration: '5m',
+            })
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            // A raw cdp_internal_events message for this person's distinct_id — no analytics event.
+            const internalEventMessage = {
+                value: Buffer.from(
+                    JSON.stringify({
+                        team_id: team.id,
+                        event: {
+                            uuid: new UUIDT().toString(),
+                            event: '$insight_alert_firing',
+                            distinct_id: 'distinct_id',
+                            properties: {},
+                            timestamp: '2024-09-03T09:00:00Z',
+                        },
+                    })
+                ),
+            }
+            const internalGlobals = await matcher._parseInternalEventsBatch([internalEventMessage as any])
+            await matcher.processBatch(internalGlobals)
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
         })
 
         it('counts an event-based conversion exactly once per run even when the event fires repeatedly', async () => {
