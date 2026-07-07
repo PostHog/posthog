@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from django.db.models import Q, QuerySet
+from django.db.models import Prefetch, Q, QuerySet
 
 from rest_framework import filters, pagination, serializers, viewsets
 
@@ -9,16 +9,26 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import TaggedItemSerializerMixin
+from posthog.models import TaggedItem
 
 from products.annotations.backend.models.annotation import Annotation
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.models.insight import Insight
 
 
-class AnnotationSerializer(serializers.ModelSerializer):
+class AnnotationSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     dashboard_id = serializers.IntegerField(required=False, allow_null=True)
     dashboard_item = TeamScopedPrimaryKeyRelatedField(queryset=Insight.objects.all(), required=False, allow_null=True)
+    tags = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text=(
+            "Tag names this annotation is scoped to. When `scope` is `tag`, the annotation is shown on every "
+            "dashboard and insight carrying one of these tags. Required (non-empty) when `scope` is `tag`."
+        ),
+    )
 
     class Meta:
         model = Annotation
@@ -40,6 +50,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "scope",
             "emoji",
             "hidden_in_user_interface",
+            "tags",
         ]
         read_only_fields = [
             "id",
@@ -72,8 +83,9 @@ class AnnotationSerializer(serializers.ModelSerializer):
             },
             "scope": {
                 "help_text": (
-                    "Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. "
-                    "`recording` is deprecated and rejected."
+                    "Annotation visibility scope: `project`, `organization`, `dashboard`, `dashboard_item`, or "
+                    "`tag`. With `tag`, the annotation shows on every dashboard and insight carrying one of the "
+                    "annotation's `tags`. `recording` is deprecated and rejected."
                 ),
             },
             "emoji": {
@@ -99,6 +111,8 @@ class AnnotationSerializer(serializers.ModelSerializer):
 
     def update(self, instance: Annotation, validated_data: dict[str, Any]) -> Annotation:
         instance.team_id = self.context["team_id"]
+        # `tags` isn't a model field; TaggedItemSerializerMixin.update persists it from initial_data.
+        validated_data.pop("tags", None)
         return super().update(instance, validated_data)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
@@ -113,18 +127,32 @@ class AnnotationSerializer(serializers.ModelSerializer):
         if scope == Annotation.Scope.RECORDING.value:
             raise serializers.ValidationError("Recording scope is deprecated")
 
+        # A tag-scoped annotation with no tags would match no surface, so require at least one.
+        effective_scope = attrs.get("scope") if "scope" in attrs else (self.instance.scope if self.instance else None)
+        if effective_scope == Annotation.Scope.TAG.value:
+            if "tags" in attrs:
+                tags = attrs.get("tags")
+            elif self.instance is not None:
+                tags = list(self.instance.tagged_items.values_list("tag__name", flat=True))
+            else:
+                tags = None
+            if not tags:
+                raise serializers.ValidationError({"tags": "At least one tag is required when scope is 'tag'."})
+
         return attrs
 
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> Annotation:
         request = self.context["request"]
         team = self.context["get_team"]()
 
+        tags = validated_data.pop("tags", None)
         annotation = Annotation.objects.create(
             organization_id=team.organization_id,
             team_id=team.id,
             created_by=request.user,
             **validated_data,
         )
+        self._attempt_set_tags(tags, annotation)
         return annotation
 
 
@@ -138,7 +166,13 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
     """
 
     scope_object = "annotation"
-    queryset = Annotation.objects.select_related("dashboard_item").select_related("created_by")
+    queryset = (
+        Annotation.objects.select_related("dashboard_item")
+        .select_related("created_by")
+        .prefetch_related(
+            Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags")
+        )
+    )
     serializer_class = AnnotationSerializer
     filter_backends = [filters.SearchFilter]
     pagination_class = AnnotationsLimitOffsetPagination

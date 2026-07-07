@@ -6,6 +6,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { groupBy } from 'lib/utils/arrays'
 import { parseDateInTimezone } from 'lib/utils/datetime'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -183,6 +184,15 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 // where 3 projects exceed this limit. To accommodate those, we should always make a request for the
                 // date range of the graph, and not rely on the annotations in the store.
 
+                // A tag-scoped annotation shows on any surface sharing one of its tags: insight tags come from
+                // the saved insight, dashboard tags from the dashboard being viewed (if on a dashboard).
+                const surfaceTags = new Set<string>([
+                    ...(savedInsight?.tags ?? []),
+                    ...(dashboardId
+                        ? (dashboardLogic.findMounted({ id: dashboardId })?.values.dashboard?.tags ?? [])
+                        : []),
+                ])
+
                 const filteredAnnotations = dateRange
                     ? annotations.filter(
                           (annotation: AnnotationType) =>
@@ -197,6 +207,8 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                                         savedInsight?.dashboard_tiles?.find(
                                             ({ dashboard_id }) => dashboard_id === annotation.dashboard_id
                                         ))) &&
+                              (annotation.scope !== AnnotationScope.Tag ||
+                                  (annotation.tags ?? []).some((tag) => surfaceTags.has(tag))) &&
                               annotation.date_marker &&
                               annotation.date_marker >= dateRange[0] &&
                               annotation.date_marker < dateRange[1]

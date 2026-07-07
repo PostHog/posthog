@@ -2884,6 +2884,7 @@ export interface PluginLogEntry {
 export enum AnnotationScope {
     Insight = 'dashboard_item',
     Dashboard = 'dashboard',
+    Tag = 'tag',
     Project = 'project',
     Organization = 'organization',
 }
@@ -2908,6 +2909,8 @@ export interface RawAnnotationType {
     emoji?: string | null
     /** When true, the annotation is hidden from the UI but still readable over the API and MCP. */
     hidden_in_user_interface?: boolean | null
+    /** Tag names this annotation is scoped to. With scope `tag`, it shows on every dashboard and insight carrying one of these tags. */
+    tags?: string[]
 }
 
 export interface AnnotationType extends Omit<RawAnnotationType, 'created_at' | 'date_marker'> {

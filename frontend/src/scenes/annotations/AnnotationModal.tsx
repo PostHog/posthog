@@ -2,7 +2,15 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconX } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonModalProps, LemonSelect, LemonSelectOptions, Link } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonInputSelect,
+    LemonModal,
+    LemonModalProps,
+    LemonSelect,
+    LemonSelectOptions,
+    Link,
+} from '@posthog/lemon-ui'
 
 import { DatePicker } from 'lib/components/DatePicker/DatePicker'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
@@ -12,6 +20,7 @@ import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextAreaM
 import { shortTimeZone } from 'lib/utils/timezones'
 import { urls } from 'scenes/urls'
 
+import { tagsModel } from '~/models/tagsModel'
 import { AnnotationScope, AnnotationType } from '~/types'
 
 import { annotationModalLogic, annotationScopeToName } from './annotationModalLogic'
@@ -39,6 +48,7 @@ export function AnnotationModal({
         timezone,
     } = useValues(annotationModalLogic)
     const { closeModal, deleteAnnotation, submitAnnotationModal } = useActions(annotationModalLogic)
+    const { tags: allTags, tagsLoading } = useValues(tagsModel)
 
     const scopeOptions: LemonSelectOptions<AnnotationType['scope'] | null> = [
         {
@@ -83,6 +93,11 @@ export function AnnotationModal({
                 existingModalAnnotation.dashboard_id !== annotationModal.dashboardId ? (
                     <Link to={urls.dashboard(existingModalAnnotation?.dashboard_id)} target="_blank" targetBlankIcon />
                 ) : null,
+        },
+        {
+            value: AnnotationScope.Tag,
+            label: annotationScopeToName[AnnotationScope.Tag],
+            tooltip: 'Show on every dashboard and insight that shares one of the selected tags.',
         },
         {
             value: AnnotationScope.Project,
@@ -173,6 +188,26 @@ export function AnnotationModal({
                         <LemonSelect options={scopeOptions} fullWidth />
                     </LemonField>
                 </div>
+                {annotationModal.scope === AnnotationScope.Tag && (
+                    <LemonField
+                        name="tags"
+                        label="Tags"
+                        info="This annotation will appear on every dashboard and insight carrying one of these tags."
+                    >
+                        {({ value, onChange }) => (
+                            <LemonInputSelect
+                                mode="multiple"
+                                allowCustomValues
+                                value={value ?? []}
+                                onChange={onChange}
+                                options={allTags.map((tag) => ({ key: tag, label: tag }))}
+                                loading={tagsLoading}
+                                placeholder="Select or create tags…"
+                                data-attr="annotation-tags-select"
+                            />
+                        )}
+                    </LemonField>
+                )}
                 <LemonField name="content" label="Content">
                     <LemonTextAreaMarkdown
                         placeholder="What's this annotation about?"

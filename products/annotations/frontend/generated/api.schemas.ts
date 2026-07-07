@@ -78,6 +78,7 @@ export interface UserBasicApi {
  * * `dashboard` - dashboard
  * * `project` - project
  * * `organization` - organization
+ * * `tag` - tag
  * * `recording` - recording
  */
 export type AnnotationScopeEnumApi = (typeof AnnotationScopeEnumApi)[keyof typeof AnnotationScopeEnumApi]
@@ -87,9 +88,13 @@ export const AnnotationScopeEnumApi = {
     Dashboard: 'dashboard',
     Project: 'project',
     Organization: 'organization',
+    Tag: 'tag',
     Recording: 'recording',
 } as const
 
+/**
+ * Serializer mixin that handles tags for objects.
+ */
 export interface AnnotationApi {
     readonly id: number
     /**
@@ -126,12 +131,13 @@ export interface AnnotationApi {
     readonly updated_at: string
     /** Soft-delete flag. Set to true to hide the annotation, or false to restore it. */
     deleted?: boolean
-    /** Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.
+    /** Annotation visibility scope: `project`, `organization`, `dashboard`, `dashboard_item`, or `tag`. With `tag`, the annotation shows on every dashboard and insight carrying one of the annotation's `tags`. `recording` is deprecated and rejected.
      *
      * * `dashboard_item` - insight
      * * `dashboard` - dashboard
      * * `project` - project
      * * `organization` - organization
+     * * `tag` - tag
      * * `recording` - recording */
     scope?: AnnotationScopeEnumApi
     /**
@@ -145,6 +151,8 @@ export interface AnnotationApi {
      * @nullable
      */
     hidden_in_user_interface?: boolean | null
+    /** Tag names this annotation is scoped to. When `scope` is `tag`, the annotation is shown on every dashboard and insight carrying one of these tags. Required (non-empty) when `scope` is `tag`. */
+    tags?: string[]
 }
 
 export interface PaginatedAnnotationListApi {
@@ -156,6 +164,9 @@ export interface PaginatedAnnotationListApi {
     results: AnnotationApi[]
 }
 
+/**
+ * Serializer mixin that handles tags for objects.
+ */
 export interface PatchedAnnotationApi {
     readonly id?: number
     /**
@@ -192,12 +203,13 @@ export interface PatchedAnnotationApi {
     readonly updated_at?: string
     /** Soft-delete flag. Set to true to hide the annotation, or false to restore it. */
     deleted?: boolean
-    /** Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.
+    /** Annotation visibility scope: `project`, `organization`, `dashboard`, `dashboard_item`, or `tag`. With `tag`, the annotation shows on every dashboard and insight carrying one of the annotation's `tags`. `recording` is deprecated and rejected.
      *
      * * `dashboard_item` - insight
      * * `dashboard` - dashboard
      * * `project` - project
      * * `organization` - organization
+     * * `tag` - tag
      * * `recording` - recording */
     scope?: AnnotationScopeEnumApi
     /**
@@ -211,6 +223,8 @@ export interface PatchedAnnotationApi {
      * @nullable
      */
     hidden_in_user_interface?: boolean | null
+    /** Tag names this annotation is scoped to. When `scope` is `tag`, the annotation is shown on every dashboard and insight carrying one of these tags. Required (non-empty) when `scope` is `tag`. */
+    tags?: string[]
 }
 
 export type AnnotationsListParams = {

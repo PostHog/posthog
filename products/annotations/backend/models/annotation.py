@@ -14,6 +14,7 @@ class Annotation(ModelActivityMixin, models.Model):
         DASHBOARD = "dashboard", "dashboard"
         PROJECT = "project", "project"
         ORGANIZATION = "organization", "organization"
+        TAG = "tag", "tag"
         RECORDING = "recording", "recording"
 
     class CreationType(models.TextChoices):

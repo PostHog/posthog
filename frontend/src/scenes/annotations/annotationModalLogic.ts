@@ -21,6 +21,7 @@ export const ANNOTATION_DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
 export const annotationScopeToName: Record<AnnotationScope, string> = {
     [AnnotationScope.Insight]: 'Insight',
     [AnnotationScope.Dashboard]: 'Dashboard',
+    [AnnotationScope.Tag]: 'Tag',
     [AnnotationScope.Project]: 'Project',
     [AnnotationScope.Organization]: 'Organization',
 }
@@ -28,8 +29,9 @@ export const annotationScopeToName: Record<AnnotationScope, string> = {
 export const annotationScopeToLevel: Record<AnnotationScope, number> = {
     [AnnotationScope.Insight]: 0,
     [AnnotationScope.Dashboard]: 1,
-    [AnnotationScope.Project]: 2,
-    [AnnotationScope.Organization]: 3,
+    [AnnotationScope.Tag]: 2,
+    [AnnotationScope.Project]: 3,
+    [AnnotationScope.Organization]: 4,
 }
 
 export interface AnnotationModalForm {
@@ -39,6 +41,7 @@ export interface AnnotationModalForm {
     emoji: AnnotationType['emoji']
     dashboardItemId: AnnotationType['dashboard_item'] | null
     dashboardId: AnnotationType['dashboard_id'] | null
+    tags: string[]
 }
 
 export const annotationModalLogic = kea<annotationModalLogicType>([
@@ -98,12 +101,17 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
         ],
     })),
     listeners(({ cache, actions, values }) => ({
-        openModalToEditAnnotation: ({ annotation: { date_marker, scope, content, emoji }, insightId, dashboardId }) => {
+        openModalToEditAnnotation: ({
+            annotation: { date_marker, scope, content, emoji, tags },
+            insightId,
+            dashboardId,
+        }) => {
             actions.setAnnotationModalValues({
                 dateMarker: dayjs(date_marker).tz(values.timezone),
                 scope,
                 content,
                 emoji,
+                tags: tags ?? [],
             })
             if (insightId) {
                 actions.setAnnotationModalValue('dashboardItemId', insightId)
@@ -152,12 +160,17 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                 scope: AnnotationScope.Project,
                 dashboardItemId: null,
                 dashboardId: null,
+                tags: [],
             } as AnnotationModalForm,
-            errors: ({ content }) => ({
+            errors: ({ content, scope, tags }) => ({
                 content: !content?.trim() ? 'An annotation must have text content.' : null,
+                tags:
+                    scope === AnnotationScope.Tag && !tags?.length
+                        ? 'Select at least one tag for a tag-scoped annotation.'
+                        : null,
             }),
             submit: async (data) => {
-                const { dateMarker, content, emoji, scope, dashboardItemId, dashboardId } = data
+                const { dateMarker, content, emoji, scope, dashboardItemId, dashboardId, tags } = data
 
                 if (values.existingModalAnnotation) {
                     // annotationsModel's updateAnnotation inlined so that isAnnotationModalSubmitting works
@@ -170,6 +183,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                         dashboard_item: dashboardItemId,
                         // preserve existing dashboard id
                         dashboard_id: values.existingModalAnnotation.dashboard_id,
+                        tags,
                     })
                     actions.replaceAnnotation(updatedAnnotation)
                 } else {
@@ -181,6 +195,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                         scope,
                         dashboard_item: dashboardItemId,
                         dashboard_id: dashboardId,
+                        tags,
                     })
                     actions.appendAnnotations([createdAnnotation])
                     const trimmedContent = content?.trim() ?? ''

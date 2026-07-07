@@ -15,6 +15,7 @@ RELATED_OBJECTS = (
     "ticket",
     "account",
     "endpoint",
+    "annotation",
 )
 
 
@@ -102,6 +103,13 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
     )
     endpoint = models.ForeignKey(
         "endpoints.Endpoint",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="tagged_items",
+    )
+    annotation = models.ForeignKey(
+        "annotations.Annotation",
         on_delete=models.CASCADE,
         null=True,
         blank=True,

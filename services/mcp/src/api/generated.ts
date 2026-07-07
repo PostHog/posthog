@@ -9149,6 +9149,7 @@ export namespace Schemas {
      * * `dashboard` - dashboard
      * * `project` - project
      * * `organization` - organization
+     * * `tag` - tag
      * * `recording` - recording
      */
     export type AnnotationScopeEnum = typeof AnnotationScopeEnum[keyof typeof AnnotationScopeEnum];
@@ -9159,9 +9160,13 @@ export namespace Schemas {
       Dashboard: 'dashboard',
       Project: 'project',
       Organization: 'organization',
+      Tag: 'tag',
       Recording: 'recording',
     } as const;
 
+    /**
+     * Serializer mixin that handles tags for objects.
+     */
     export interface Annotation {
       readonly id: number;
       /**
@@ -9198,12 +9203,13 @@ export namespace Schemas {
       readonly updated_at: string;
       /** Soft-delete flag. Set to true to hide the annotation, or false to restore it. */
       deleted?: boolean;
-      /** Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.
+      /** Annotation visibility scope: `project`, `organization`, `dashboard`, `dashboard_item`, or `tag`. With `tag`, the annotation shows on every dashboard and insight carrying one of the annotation's `tags`. `recording` is deprecated and rejected.
        *
        * * `dashboard_item` - insight
        * * `dashboard` - dashboard
        * * `project` - project
        * * `organization` - organization
+       * * `tag` - tag
        * * `recording` - recording */
       scope?: AnnotationScopeEnum;
       /**
@@ -9217,6 +9223,8 @@ export namespace Schemas {
          * @nullable
          */
       hidden_in_user_interface?: boolean | null;
+      /** Tag names this annotation is scoped to. When `scope` is `tag`, the annotation is shown on every dashboard and insight carrying one of these tags. Required (non-empty) when `scope` is `tag`. */
+      tags?: string[];
     }
 
     export interface AppMetricSeries {
@@ -36316,6 +36324,9 @@ export namespace Schemas {
       readonly search_match_type?: SearchMatchTypeEnum | null;
     }
 
+    /**
+     * Serializer mixin that handles tags for objects.
+     */
     export interface PatchedAnnotation {
       readonly id?: number;
       /**
@@ -36352,12 +36363,13 @@ export namespace Schemas {
       readonly updated_at?: string;
       /** Soft-delete flag. Set to true to hide the annotation, or false to restore it. */
       deleted?: boolean;
-      /** Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.
+      /** Annotation visibility scope: `project`, `organization`, `dashboard`, `dashboard_item`, or `tag`. With `tag`, the annotation shows on every dashboard and insight carrying one of the annotation's `tags`. `recording` is deprecated and rejected.
        *
        * * `dashboard_item` - insight
        * * `dashboard` - dashboard
        * * `project` - project
        * * `organization` - organization
+       * * `tag` - tag
        * * `recording` - recording */
       scope?: AnnotationScopeEnum;
       /**
@@ -36371,6 +36383,8 @@ export namespace Schemas {
          * @nullable
          */
       hidden_in_user_interface?: boolean | null;
+      /** Tag names this annotation is scoped to. When `scope` is `tag`, the annotation is shown on every dashboard and insight carrying one of these tags. Required (non-empty) when `scope` is `tag`. */
+      tags?: string[];
     }
 
     export interface PatchedApprovalPolicy {

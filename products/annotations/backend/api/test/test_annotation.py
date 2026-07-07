@@ -37,7 +37,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
 
     @patch("products.annotations.backend.activity_logging.report_user_action")
     def test_retrieving_annotation_is_not_n_plus_1(self, _mock_capture: MagicMock) -> None:
-        with self.assertNumQueries(FuzzyInt(9, 10)), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(FuzzyInt(9, 11)), snapshot_postgres_queries_context(self):
             response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
             assert len(response["results"]) == 0
 
@@ -49,7 +49,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             content=now().isoformat(),
         )
 
-        with self.assertNumQueries(FuzzyInt(9, 10)), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(FuzzyInt(9, 11)), snapshot_postgres_queries_context(self):
             response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
             assert len(response["results"]) == 1
 
@@ -61,7 +61,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             content=now().isoformat(),
         )
 
-        with self.assertNumQueries(FuzzyInt(9, 10)), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(FuzzyInt(9, 11)), snapshot_postgres_queries_context(self):
             response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
             assert len(response["results"]) == 2
 
@@ -155,6 +155,60 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
 
         get_created_response = self.client.get(f"/api/projects/{self.team.id}/annotations/{instance.id}/")
         assert get_created_response.json()["creation_type"] == "GIT"
+
+    def test_creating_tag_scoped_annotation_persists_and_returns_tags(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/annotations/",
+            {
+                "content": "Release for product A",
+                "scope": "tag",
+                "date_marker": "2020-01-01T00:00:00.000000Z",
+                "tags": ["product-a", "release"],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        data = response.json()
+        assert data["scope"] == "tag"
+        assert sorted(data["tags"]) == ["product-a", "release"]
+
+        # Tags round-trip on subsequent reads
+        get_response = self.client.get(f"/api/projects/{self.team.id}/annotations/{data['id']}/")
+        assert sorted(get_response.json()["tags"]) == ["product-a", "release"]
+
+    @parameterized.expand([("empty_tags", []), ("no_tags_field", None)])
+    def test_tag_scoped_annotation_requires_at_least_one_tag(self, _name: str, tags: Optional[list[str]]) -> None:
+        payload: dict[str, Any] = {
+            "content": "Tag annotation without tags",
+            "scope": "tag",
+            "date_marker": "2020-01-01T00:00:00.000000Z",
+        }
+        if tags is not None:
+            payload["tags"] = tags
+        response = self.client.post(f"/api/projects/{self.team.id}/annotations/", payload, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "tags"
+
+    def test_updating_tag_scoped_annotation_replaces_tags(self) -> None:
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/annotations/",
+            {
+                "content": "Tagged",
+                "scope": "tag",
+                "date_marker": "2020-01-01T00:00:00.000000Z",
+                "tags": ["old"],
+            },
+            format="json",
+        )
+        annotation_id = created.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/annotations/{annotation_id}/",
+            {"tags": ["new-1", "new-2"]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert sorted(response.json()["tags"]) == ["new-1", "new-2"]
 
     @patch("products.annotations.backend.activity_logging.report_user_action")
     def test_downgrading_scope_from_org_to_project_uses_team_id_from_api(self, mock_capture: MagicMock) -> None:
