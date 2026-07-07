@@ -1342,6 +1342,13 @@ class FileSystemEntry(BaseModel):
         default=None,
         description="Type of object, used for icon, e.g. feature_flag, insight, etc",
     )
+    user_access_level: str | None = Field(
+        default=None,
+        description=(
+            "Access level the user has for the referenced object ('none' means no"
+            " access); null/absent when access controls don't apply"
+        ),
+    )
     visualOrder: float | None = Field(default=None, description="Order of object in tree")
 
 
@@ -4773,6 +4780,13 @@ class FileSystemImport(BaseModel):
     type: str | None = Field(
         default=None,
         description="Type of object, used for icon, e.g. feature_flag, insight, etc",
+    )
+    user_access_level: str | None = Field(
+        default=None,
+        description=(
+            "Access level the user has for the referenced object ('none' means no"
+            " access); null/absent when access controls don't apply"
+        ),
     )
     visualOrder: float | None = Field(default=None, description="Order of object in tree")
 

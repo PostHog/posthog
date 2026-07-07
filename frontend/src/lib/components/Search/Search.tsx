@@ -498,6 +498,9 @@ function SearchRoot({
 
     const handleItemClick = useCallback(
         (item: SearchItem) => {
+            if (item.disabledReason) {
+                return
+            }
             if (item.id === SETTINGS_THEME_ITEM_ID) {
                 const record = item.record as { themeMode?: UserTheme; toggleTheme?: boolean } | undefined
                 if (record?.themeMode) {
@@ -885,8 +888,12 @@ function SearchResults({
                                                                     <div className="px-2">
                                                                         <Link
                                                                             to={item.href}
+                                                                            disabledReason={item.disabledReason}
                                                                             buttonProps={{
                                                                                 fullWidth: true,
+                                                                                className: item.disabledReason
+                                                                                    ? 'opacity-50'
+                                                                                    : undefined,
                                                                             }}
                                                                             {...props}
                                                                             tabIndex={-1}

@@ -2,6 +2,7 @@ import posthog from 'posthog-js'
 
 import { getAppContext } from 'lib/utils/getAppContext'
 import { toSentenceCase } from 'lib/utils/strings'
+import { Scene, sceneToAccessControlResourceType } from 'scenes/sceneTypes'
 
 import { APIScopeObject, AccessControlLevel, AccessControlResourceType, AvailableFeature } from '~/types'
 
@@ -197,6 +198,46 @@ export const userHasAccess = (
     userAccessLevel?: AccessControlLevel
 ): boolean => {
     return !getAccessControlDisabledReason(resourceType, minAccessLevel, userAccessLevel)
+}
+
+export const PRODUCT_ACCESS_DISABLED_REASON = "You don't have access to this product"
+export const ENTRY_ACCESS_DISABLED_REASON = "You don't have access to this item"
+
+/**
+ * Disabled reason for a product navigation item (sidebar product list, search product results)
+ * when the user's effective access to the product's resource is "none".
+ *
+ * Mirrors the scene gating in sceneLogic (which uses `effective_resource_access_control` and
+ * `sceneToAccessControlResourceType`), so items are disabled exactly when opening the target
+ * page would show "Access denied". Users with object-level grants get effective "viewer"
+ * access, so the product stays enabled for them.
+ *
+ * @param item - Navigation item with the scene key it points at (e.g. a FileSystemImport)
+ * @returns Reason to show on the disabled item, or undefined when the user has access
+ */
+export const getProductAccessDisabledReason = (item: { sceneKey?: string }): string | undefined => {
+    if (!item.sceneKey) {
+        return undefined
+    }
+    const resourceType = sceneToAccessControlResourceType[item.sceneKey as Scene]
+    if (!resourceType) {
+        return undefined
+    }
+    const effectiveLevel = getAppContext()?.effective_resource_access_control?.[resourceType]
+    return effectiveLevel === AccessControlLevel.None ? PRODUCT_ACCESS_DISABLED_REASON : undefined
+}
+
+/**
+ * Disabled reason for an individual item (search result, Files/Starred entry) based on the
+ * backend-resolved access level for the underlying object. The backend resolution accounts
+ * for object-level overrides, so an item the user was individually granted access to stays
+ * enabled even when they have "none" access to the product.
+ *
+ * @param entry - Entry carrying the `user_access_level` the backend resolved for it
+ * @returns Reason to show on the disabled item, or undefined when the user has access
+ */
+export const getEntryAccessDisabledReason = (entry: { user_access_level?: string | null }): string | undefined => {
+    return entry.user_access_level === AccessControlLevel.None ? ENTRY_ACCESS_DISABLED_REASON : undefined
 }
 
 /**

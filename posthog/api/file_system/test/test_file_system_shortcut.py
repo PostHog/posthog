@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+import pytest
 from posthog.test.base import APIBaseTest
 
 from django.utils import timezone
@@ -7,7 +8,12 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models import User
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
+
+from products.dashboards.backend.models.dashboard import Dashboard
+
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestFileSystemShortcutAPI(APIBaseTest):
@@ -231,3 +237,34 @@ class TestFileSystemShortcutSurface(APIBaseTest):
             format="json",
         )
         self.assertEqual(ok.status_code, status.HTTP_200_OK, ok.json())
+
+
+@pytest.mark.ee
+class TestFileSystemShortcutAccessLevels(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": "access_control", "name": "access_control"},
+            {"key": "role_based_access", "name": "role_based_access"},
+        ]
+        self.organization.save()
+        self.other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "testpass")
+
+    def test_annotates_resolved_access_level_and_fetches_object_creator(self):
+        mine = Dashboard.objects.create(team=self.team, name="Mine", created_by=self.user)
+        theirs = Dashboard.objects.create(team=self.team, name="Theirs", created_by=self.other_user)
+        FileSystemShortcut.objects.create(
+            team=self.team, user=self.user, path="Mine", type="dashboard", ref=str(mine.pk)
+        )
+        FileSystemShortcut.objects.create(
+            team=self.team, user=self.user, path="Theirs", type="dashboard", ref=str(theirs.pk)
+        )
+        AccessControl.objects.create(team=self.team, resource="dashboard", resource_id=None, access_level="none")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system_shortcut/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        levels = {item["path"]: item["user_access_level"] for item in response.json()["results"]}
+        # Shortcut rows don't store the object's creator - it is resolved from the target model,
+        # so the user's own dashboard stays accessible while the blocked one is marked "none"
+        self.assertEqual(levels, {"Mine": "manager", "Theirs": "none"})

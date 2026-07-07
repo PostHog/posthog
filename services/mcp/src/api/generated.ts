@@ -24483,6 +24483,11 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly last_viewed_at: string | null;
+      /**
+         * Resolved access level the user has for the object this entry references ('none' means the user can't open it). Null when access controls don't apply to the entry type.
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     export interface FileSystemShortcut {
@@ -24512,6 +24517,11 @@ export namespace Schemas {
          */
       order?: number;
       readonly created_at: string;
+      /**
+         * Resolved access level the user has for the object this entry references ('none' means the user can't open it). Null when access controls don't apply to the entry type.
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     export interface FileSystemShortcutReorder {
@@ -38938,6 +38948,11 @@ export namespace Schemas {
       readonly created_at?: string;
       /** @nullable */
       readonly last_viewed_at?: string | null;
+      /**
+         * Resolved access level the user has for the object this entry references ('none' means the user can't open it). Null when access controls don't apply to the entry type.
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
     }
 
     export interface PatchedFileSystemShortcut {
@@ -38967,6 +38982,11 @@ export namespace Schemas {
          */
       order?: number;
       readonly created_at?: string;
+      /**
+         * Resolved access level the user has for the object this entry references ('none' means the user can't open it). Null when access controls don't apply to the entry type.
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
     }
 
     export interface PatchedFolderInstructionsPublish {
@@ -68402,6 +68422,47 @@ export namespace Schemas {
      */
     force_refresh?: boolean;
     };
+
+    export type SearchListParams = {
+    entities?: SearchListEntitiesItem[];
+    include_counts?: boolean;
+    /**
+     * @minLength 1
+     */
+    q?: string;
+    };
+
+    /**
+     * * `insight` - insight
+     * * `dashboard` - dashboard
+     * * `experiment` - experiment
+     * * `feature_flag` - feature_flag
+     * * `notebook` - notebook
+     * * `action` - action
+     * * `cohort` - cohort
+     * * `event_definition` - event_definition
+     * * `property_definition` - property_definition
+     * * `survey` - survey
+     * * `early_access_feature` - early_access_feature
+     * * `hog_flow` - hog_flow
+     */
+    export type SearchListEntitiesItem = typeof SearchListEntitiesItem[keyof typeof SearchListEntitiesItem];
+
+
+    export const SearchListEntitiesItem = {
+      Insight: 'insight',
+      Dashboard: 'dashboard',
+      Experiment: 'experiment',
+      FeatureFlag: 'feature_flag',
+      Notebook: 'notebook',
+      Action: 'action',
+      Cohort: 'cohort',
+      EventDefinition: 'event_definition',
+      PropertyDefinition: 'property_definition',
+      Survey: 'survey',
+      EarlyAccessFeature: 'early_access_feature',
+      HogFlow: 'hog_flow',
+    } as const;
 
     export type SessionGroupSummariesListParams = {
     /**
