@@ -880,6 +880,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportFailedToCreateFeatureFlagWithCohort: (code: string, detail: string) => ({ code, detail }),
         reportFeatureFlagCopySuccess: true,
         reportFeatureFlagCopyFailure: (error) => ({ error }),
+        reportFeatureFlagBulkCopy: (flagCount: number, projectCount: number, failedCount: number) => ({
+            flagCount,
+            projectCount,
+            failedCount,
+        }),
         reportFeatureFlagScheduleSuccess: true,
         reportFeatureFlagScheduleFailure: (error) => ({ error }),
         reportInviteMembersButtonClicked: true,
@@ -2040,6 +2045,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportFeatureFlagCopyFailure: ({ error }) => {
             posthog.capture('feature flag copy failure', { error })
+        },
+        reportFeatureFlagBulkCopy: ({ flagCount, projectCount, failedCount }) => {
+            posthog.capture('feature flags bulk copied', {
+                flag_count: flagCount,
+                project_count: projectCount,
+                failed_count: failedCount,
+            })
         },
         reportFeatureFlagScheduleSuccess: () => {
             posthog.capture('feature flag scheduled')

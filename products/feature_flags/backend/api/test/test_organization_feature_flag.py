@@ -875,6 +875,63 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.json()["failed"][0]["project_id"], self.team_2.id)
         self.assertEqual(response.json()["failed"][0]["error_message"], "Project not found.")
 
+    def test_copy_feature_flag_approval_required_reports_pending_and_continues(self):
+        from products.approvals.backend.exceptions import ApprovalRequired
+        from products.approvals.backend.models import ChangeRequest
+        from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+
+        team_3 = Team.objects.create(organization=self.organization)
+        change_request = ChangeRequest.objects.create(
+            action_key="feature_flag.update",
+            team=self.team_2,
+            organization=self.organization,
+            resource_type="feature_flag",
+            intent={},
+            intent_display={},
+            policy_snapshot={},
+            expires_at=timezone.now() + timedelta(days=7),
+            created_by=self.user,
+        )
+
+        real_save = FeatureFlagSerializer.save
+
+        def gated_save(serializer_self, **kwargs):
+            if kwargs.get("team_id") == self.team_2.id:
+                raise ApprovalRequired(
+                    change_request=change_request,
+                    message="Approval required",
+                    required_approvers={},
+                )
+            return real_save(serializer_self, **kwargs)
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": self.feature_flag_key,
+            "from_project": self.team_1.id,
+            "target_project_ids": [self.team_2.id, team_3.id],
+        }
+        with patch.object(FeatureFlagSerializer, "save", autospec=True, side_effect=gated_save):
+            response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        result = response.json()
+        self.assertEqual(
+            result["failed"],
+            [
+                {
+                    "project_id": self.team_2.id,
+                    "error_message": "Approval required",
+                    "approval_pending": True,
+                    "change_request_id": str(change_request.id),
+                }
+            ],
+        )
+        # The gated target must not block the remaining targets from copying.
+        self.assertEqual(len(result["success"]), 1)
+        self.assertEqual(result["success"][0]["key"], self.feature_flag_key)
+        self.assertTrue(FeatureFlag.objects.filter(team=team_3, key=self.feature_flag_key).exists())
+        self.assertFalse(FeatureFlag.objects.filter(team=self.team_2, key=self.feature_flag_key).exists())
+
     def test_copy_feature_flag_cohort_nonexistent_in_destination(self):
         cohorts = {}
         creation_order = []

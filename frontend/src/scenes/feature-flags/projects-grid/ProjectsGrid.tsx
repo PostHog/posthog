@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef } from 'react'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { IconCopy } from '@posthog/icons'
+import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -12,6 +13,8 @@ import { urls } from 'scenes/urls'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { OrganizationFeatureFlag, OrganizationFeatureFlagRow } from '~/types'
 
+import { BulkCopyFlagsModal } from '../BulkCopyFlagsModal'
+import { BULK_COPY_MAX_FLAGS, flagSelectionLogic } from '../flagSelectionLogic'
 import { CellState, ProjectsGridCell } from './ProjectsGridCell'
 import { projectsGridLogic } from './projectsGridLogic'
 import { ProjectsGridToolbar } from './ProjectsGridToolbar'
@@ -69,6 +72,7 @@ export function ProjectsGrid(): JSX.Element {
     const { loadMoreFlags } = useActions(projectsGridLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const { openBulkCopyModal } = useActions(flagSelectionLogic)
 
     const sentinelRef = useRef<HTMLDivElement>(null)
 
@@ -145,6 +149,7 @@ export function ProjectsGrid(): JSX.Element {
             description="Compare each flag's status, rollout, and recent usage across your organization's projects."
         >
             <ProjectsGridToolbar />
+            <BulkCopyFlagsModal />
             <LemonTable
                 columns={columns}
                 dataSource={flags}
@@ -153,6 +158,34 @@ export function ProjectsGrid(): JSX.Element {
                 emptyState="No flags match your search."
                 data-attr="projects-grid-table"
                 className="[&_table]:table-fixed"
+                bulkSelection={{
+                    getKey: (flag: OrganizationFeatureFlagRow): string => flag.key,
+                    rowAriaLabel: (flag: OrganizationFeatureFlagRow) => `Select feature flag ${flag.key}`,
+                    headerAriaLabel: 'Select all loaded feature flags',
+                    noun: ['flag', 'flags'],
+                    renderActions: (ctx) => (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconCopy />}
+                            data-attr="projects-grid-bulk-copy-button"
+                            disabledReason={
+                                ctx.selectedCount > BULK_COPY_MAX_FLAGS
+                                    ? `Bulk copy supports up to ${BULK_COPY_MAX_FLAGS} flags at once`
+                                    : undefined
+                            }
+                            onClick={() => {
+                                openBulkCopyModal({
+                                    sourceProjectId: currentTeamId,
+                                    flagKeys: ctx.selectedKeys.map(String),
+                                    sourceSelectable: true,
+                                })
+                            }}
+                        >
+                            Copy to projects
+                        </LemonButton>
+                    ),
+                }}
             />
             {flagsPageLoading && flags.length > 0 && <LemonSkeleton className="h-8 my-2" />}
             <div ref={sentinelRef} className="h-1" />

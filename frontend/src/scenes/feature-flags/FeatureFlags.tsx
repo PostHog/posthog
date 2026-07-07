@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconLock, IconPlusSmall, IconTrash } from '@posthog/icons'
+import { IconCopy, IconLock, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -33,6 +33,7 @@ import stringWithWBR from 'lib/utils/stringWithWBR'
 import { toParams } from 'lib/utils/url'
 import { PendingApprovalsBanner } from 'scenes/approvals/PendingApprovalsBanner'
 import { NotificationsPane } from 'scenes/hog-functions/list/NotificationsPane'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -57,12 +58,13 @@ import {
 } from '~/types'
 
 import { ApprovalsPromoBanner } from './ApprovalsPromoBanner'
+import { BulkCopyFlagsModal } from './BulkCopyFlagsModal'
 import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
 import { openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
 import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
 import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic, flagMatchesType } from './featureFlagsLogic'
-import { flagSelectionLogic } from './flagSelectionLogic'
+import { BULK_COPY_MAX_FLAGS, flagSelectionLogic } from './flagSelectionLogic'
 import { OverlayForNewFeatureFlagMenu } from './NewFeatureFlagMenu'
 import ProjectsGrid from './projects-grid/ProjectsGrid'
 
@@ -394,9 +396,10 @@ export function OverviewTab({
     const isProductIntroVisible = shouldShowEmptyState || !user?.has_seen_product_intro_for?.[ProductKey.FEATURE_FLAGS]
 
     const { currentProjectId } = useValues(projectLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const { paramsFromFilters } = useValues(featureFlagsLogic({}))
     const { bulkDeleteResponseLoading } = useValues(flagSelectionLogic)
-    const { bulkDeleteFlags } = useActions(flagSelectionLogic)
+    const { bulkDeleteFlags, openBulkCopyModal } = useActions(flagSelectionLogic)
 
     const [matchingFlagIds, setMatchingFlagIds] = useState<readonly number[] | null>(null)
     const [matchingFlagIdsLoading, setMatchingFlagIdsLoading] = useState(false)
@@ -597,6 +600,7 @@ export function OverviewTab({
             <PendingApprovalsBanner />
             <div>{filtersSection}</div>
             <BulkDeleteResultsModal />
+            <BulkCopyFlagsModal />
 
             <LemonTable
                 dataSource={displayedFlags}
@@ -671,6 +675,29 @@ export function OverviewTab({
                                         Select all {totalMatchingCount} matching flags
                                     </LemonButton>
                                 )}
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconCopy />}
+                                    data-attr="bulk-copy-flags-button"
+                                    disabledReason={
+                                        (currentOrganization?.teams?.length ?? 0) <= 1
+                                            ? 'Your organization has only one project'
+                                            : ctx.selectedCount > BULK_COPY_MAX_FLAGS
+                                              ? `Bulk copy supports up to ${BULK_COPY_MAX_FLAGS} flags at once`
+                                              : undefined
+                                    }
+                                    onClick={() => {
+                                        if (currentProjectId) {
+                                            openBulkCopyModal({
+                                                sourceProjectId: currentProjectId,
+                                                flagIds: [...ctx.selectedKeys],
+                                            })
+                                        }
+                                    }}
+                                >
+                                    Copy to projects
+                                </LemonButton>
                                 <BulkUpdateTagsButton
                                     resource="feature_flags"
                                     selectedIds={ctx.selectedKeys}
