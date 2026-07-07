@@ -35,7 +35,8 @@ posthog/hogql/database/test/__snapshots__/test_database.ambr
 .github/scripts/codeowners.js @PostHog/team-security
 
 # And of course modifying this file can bring us problems so let's have the security team own it.
-# This does not affect CODEOWNERS-soft which is used for assigning non-required reviewers and it's much safer to change.
+# This does not affect the distributed owners.yaml files, which drive non-required reviewer
+# assignment and are much safer to change.
 CODEOWNERS @PostHog/team-security
 
 # PR approval agent — can auto-approve PRs, so changes need review

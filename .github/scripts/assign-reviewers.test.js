@@ -16,7 +16,8 @@ const file = (filename, additions = 0, deletions = 0) => ({
     additions,
     deletions,
 })
-const rule = (pattern, ...owners) => ({ pattern, owners })
+// A resolver result entry: bare team slugs / @handles plus the deciding source.
+const resolved = (owners, source) => ({ owners, source, status: 'active', slack: null })
 
 describe('assign-reviewers', () => {
     describe('isExcludedFile', () => {
@@ -103,14 +104,15 @@ describe('assign-reviewers', () => {
     })
 
     describe('computeOwnerFootprints', () => {
-        test('ignores generated/excluded files when matching ownership', () => {
-            const rules = [
-                rule('posthog/api/survey.py', '@PostHog/team-surveys'),
-                rule('frontend/src/generated/**', '@PostHog/team-devex'),
-            ]
+        test('ignores generated/excluded files and maps bare slugs to @PostHog handles', () => {
+            const resolution = {
+                'posthog/api/survey.py': resolved(['team-surveys'], 'products/surveys/product.yaml'),
+                // Excluded before resolution, but assert it can't leak in even if present.
+                'frontend/src/generated/core/api.ts': resolved(['team-devex'], 'owners.yaml'),
+            }
             const files = [file('posthog/api/survey.py', 40, 10), file('frontend/src/generated/core/api.ts', 999, 999)]
 
-            const footprints = computeOwnerFootprints(rules, files)
+            const footprints = computeOwnerFootprints(resolution, files)
 
             expect(footprints).toHaveLength(1)
             expect(footprints[0]).toMatchObject({
@@ -118,21 +120,25 @@ describe('assign-reviewers', () => {
                 type: 'team',
                 fileCount: 1,
                 lines: 50,
+                patterns: ['products/surveys/product.yaml'],
             })
         })
 
-        test('dedupes a file owned via multiple rules and sums lines once', () => {
-            const rules = [
-                rule('posthog/hogql/**', '@PostHog/team-data-tools'),
-                rule('posthog/hogql/printer.py', '@PostHog/team-data-tools'),
-            ]
-            const files = [file('posthog/hogql/printer.py', 5, 3)]
+        test('accumulates files and sources per owner, and requests @handle individuals as users', () => {
+            const resolution = {
+                'posthog/hogql/printer.py': resolved(['team-data-tools'], 'posthog/hogql/owners.yaml'),
+                'posthog/hogql/parser.py': resolved(['team-data-tools', '@webjunkie'], 'posthog/hogql/owners.yaml'),
+            }
+            const files = [file('posthog/hogql/printer.py', 5, 3), file('posthog/hogql/parser.py', 2, 0)]
 
-            const [footprint] = computeOwnerFootprints(rules, files)
+            const footprints = computeOwnerFootprints(resolution, files)
 
-            expect(footprint.fileCount).toBe(1)
-            expect(footprint.lines).toBe(8)
-            expect(footprint.patterns).toEqual(expect.arrayContaining(['posthog/hogql/**', 'posthog/hogql/printer.py']))
+            const team = footprints.find((f) => f.owner === '@PostHog/team-data-tools')
+            expect(team).toMatchObject({ type: 'team', fileCount: 2, lines: 10 })
+            expect(team.patterns).toEqual(['posthog/hogql/owners.yaml'])
+
+            const user = footprints.find((f) => f.owner === '@webjunkie')
+            expect(user).toMatchObject({ type: 'user', name: 'webjunkie', fileCount: 1, lines: 2 })
         })
     })
 

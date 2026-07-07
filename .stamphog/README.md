@@ -5,7 +5,7 @@ The engine loads these files from the checked-out working tree at run time.
 
 ## What lives here
 
-- `policy.yml` - the global machine policy: deny categories, allow-list, size gate, tier thresholds, dismiss-time triviality rules, the folder delegation contract, and the ownership sources (the `gh-codeowners` and `ph-product` inputs that feed the reviewer's advisory team context, merged as a union). Trusted data. Each rule's `rationale` records why the rule became what it is (which false positives drove an exclusion, and when) - historical justification like a commit message, not a claim about the present.
+- `policy.yml` - the global machine policy: deny categories, allow-list, size gate, tier thresholds, dismiss-time triviality rules, the folder delegation contract, and the ownership source (the `hogli-resolver` input that feeds the reviewer's advisory team context via the shared hogli resolver). Trusted data. Each rule's `rationale` records why the rule became what it is (which false positives drove an exclusion, and when) - historical justification like a commit message, not a claim about the present.
 - `review-guidance.md` - the trusted review-norms prose injected into the reviewer's system prompt. Ordinary repo-formatted markdown. Editing it changes the production prompt directly, so update deliberately - the `stamphog_policy` deny guarantees a human reviews every change.
 
 ## Proposing a policy change

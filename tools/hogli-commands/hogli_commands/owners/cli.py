@@ -215,13 +215,45 @@ def cmd_convert(dry_run: bool) -> None:
             click.echo(f"  {note}")
 
 
+def _load_soft_text(repo_root: Path, soft_file: str | None) -> str:
+    """Read CODEOWNERS-soft for the differ. The file is deleted post-migration, so
+    fall back to its git history: explicit ``--soft-file`` wins, then the on-disk
+    default, then ``git show HEAD:.github/CODEOWNERS-soft``."""
+    if soft_file:
+        return Path(soft_file).read_text()
+
+    default = repo_root / ".github" / "CODEOWNERS-soft"
+    if default.is_file():
+        return default.read_text()
+
+    result = subprocess.run(
+        ["git", "-C", str(repo_root), "show", "HEAD:.github/CODEOWNERS-soft"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        return result.stdout
+    raise click.ClickException(
+        "no CODEOWNERS-soft on disk or at HEAD:.github/CODEOWNERS-soft. "
+        "Pass --soft-file PATH, or run against a ref/commit that still has it "
+        "(e.g. `git show <ref>:.github/CODEOWNERS-soft > /tmp/soft && hogli owners:diff-legacy --soft-file /tmp/soft`)."
+    )
+
+
 @click.command(
     name="owners:diff-legacy", help="Prove owners.yaml resolution matches legacy CODEOWNERS-soft + product.yaml"
 )
 @click.option("--report", "report_path", type=click.Path(), help="Write the full classified list as markdown")
-def cmd_diff_legacy(report_path: str | None) -> None:
+@click.option(
+    "--soft-file",
+    "soft_file",
+    type=click.Path(exists=True),
+    help="Path to a CODEOWNERS-soft snapshot (the file is deleted post-migration; defaults to HEAD's copy)",
+)
+def cmd_diff_legacy(report_path: str | None, soft_file: str | None) -> None:
     resolver = OwnersResolver()
-    report = diff_all(resolver.repo_root, resolver)
+    soft_text = _load_soft_text(resolver.repo_root, soft_file)
+    report = diff_all(resolver.repo_root, soft_text, resolver)
 
     for klass, count in report.counts.items():
         click.echo(f"{klass.value}: {count}")

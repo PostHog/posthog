@@ -4,10 +4,12 @@ Handles deny-lists, allow-lists, multi-source ownership (declared in
 `.stamphog/policy.yml`), tier assignment, and file classification. Policy data
 loads from .stamphog/policy.yml at import via policy.py, which needs PyYAML:
 any uv-run script that imports this module must declare pyyaml in its PEP 723
-dependencies block.
+dependencies block. Ownership goes through the shared hogli resolver rather
+than a private parser — one semantics, many consumers.
 """
 
 import re
+import sys
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -15,8 +17,16 @@ from fnmatch import fnmatch
 from pathlib import Path
 from typing import Protocol
 
-import yaml
 from policy import OwnershipSource, load_policy
+
+# The resolver lives in the hogli-commands package, a sibling under tools/. It is
+# not installed in this script's uv env, so put it on the path and import the
+# library directly (it needs only pyyaml, which review_pr.py declares).
+_HOGLI_COMMANDS = Path(__file__).resolve().parents[1] / "hogli-commands"
+if str(_HOGLI_COMMANDS) not in sys.path:
+    sys.path.insert(0, str(_HOGLI_COMMANDS))
+
+from hogli_commands.owners.resolver import OwnersResolver  # noqa: E402
 
 # ── Dependency ecosystems ────────────────────────────────────────
 #
@@ -141,10 +151,10 @@ def _ecosystem_for_manifest(name: str) -> str | None:
 # Ownership is advisory reviewer context, not a hard gate. The sources are
 # declared in `.stamphog/policy.yml` (`ownership:`) and compiled here into
 # resolvers; each resolver answers "which teams own this file?" and the
-# per-file result is the union across sources. Two formats ship today:
-# `gh-codeowners` (a CODEOWNERS-soft file, last-match-wins) and `ph-product`
-# (products/*/product.yaml owners). OWNERSHIP_FORMATS is the single place a new
-# format registers.
+# per-file result is the union across sources. One format ships today:
+# `hogli-resolver`, which delegates to the shared hogli `OwnersResolver` over
+# the distributed `owners.yaml` / `product.yaml` files. OWNERSHIP_FORMATS is the
+# single place a new format registers.
 
 
 class OwnershipResolver(Protocol):
@@ -153,119 +163,38 @@ class OwnershipResolver(Protocol):
     def owners(self, filepath: str) -> set[str]: ...
 
 
-class CodeownersRule:
-    def __init__(self, pattern: str, teams: list[str]):
-        self.raw_pattern = pattern
-        self.teams = set(teams)
-        self._pattern = pattern.lstrip("/").replace("\\*\\*", "**").replace("\\*", "*")
+def _owner_to_team_handle(owner: str) -> str | None:
+    """Map a resolver owner to the `@PostHog/<slug>` team handle the gate uses.
 
-    def matches(self, filepath: str) -> bool:
-        pat = self._pattern
-        if not any(c in pat for c in ("*", "?")):
-            if filepath == pat or filepath == pat.rstrip("/"):
-                return True
-            prefix = pat if pat.endswith("/") else pat + "/"
-            if filepath.startswith(prefix):
-                return True
-            return False
-        if fnmatch(filepath, pat):
-            return True
-        if "**" in pat and fnmatch(filepath, pat.rstrip("/") + "/**"):
-            return True
-        return False
-
-
-def parse_codeowners_soft(path: Path) -> list[CodeownersRule]:
-    rules = []
-    if not path.exists():
-        return rules
-    with open(path) as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            parts = line.split()
-            if len(parts) < 2:
-                continue
-            pattern = parts[0]
-            teams = [t for t in parts[1:] if t.startswith("@")]
-            if teams:
-                rules.append(CodeownersRule(pattern, teams))
-    return rules
-
-
-def resolve_owners(filepath: str, rules: list[CodeownersRule]) -> set[str]:
-    matched_teams: set[str] = set()
-    for rule in rules:
-        if rule.matches(filepath):
-            matched_teams = rule.teams
-    return matched_teams
-
-
-class _CodeownersResolver:
-    """gh-codeowners: last-match-wins CODEOWNERS-soft semantics over one file."""
-
-    def __init__(self, rules: list[CodeownersRule]) -> None:
-        self._rules = rules
-
-    def owners(self, filepath: str) -> set[str]:
-        return set(resolve_owners(filepath, self._rules))
-
-
-def _normalize_product_owner(slug: object) -> str | None:
-    """Normalize a product.yaml owner slug exactly like assign-reviewers.js.
-
-    Skip empty / `team-CHANGEME` / already-`@`-prefixed slugs (an existing
-    prefix would build `@PostHog/@PostHog/...`); otherwise prefix `@PostHog/`.
+    Resolver owners are bare team slugs (`team-foo`) plus `@handle` individuals.
+    The ownership gate is team-based, so keep team slugs (formatted as the
+    handle the reviewer prompt and membership check expect) and drop individuals.
+    Empty and placeholder `team-CHANGEME` slugs carry no ownership signal.
     """
-    if not isinstance(slug, str):
+    if not owner or owner.startswith("@") or owner == "team-CHANGEME":
         return None
-    slug = slug.strip()
-    if not slug or slug == "team-CHANGEME" or slug.startswith("@"):
-        return None
-    return f"@PostHog/{slug}"
+    return f"@PostHog/{owner}"
 
 
-def _read_product_owners(path: Path) -> frozenset[str]:
-    """Normalized owners from a product.yaml, or empty on any parse/shape problem."""
-    try:
-        data = yaml.safe_load(path.read_text())
-    except (OSError, yaml.YAMLError):
-        return frozenset()
-    if not isinstance(data, dict) or not isinstance(data.get("owners"), list):
-        return frozenset()
-    teams = {norm for slug in data["owners"] if (norm := _normalize_product_owner(slug)) is not None}
-    return frozenset(teams)
+class _HogliResolver:
+    """hogli-resolver: the shared hogli resolver over distributed ownership files.
 
+    `OwnersResolver` walks `owners.yaml` / `product.yaml` from the repo root and
+    merges nearest-file-wins, so it subsumes the old CODEOWNERS-soft parser and
+    the separate product.yaml reader — one ownership semantics, many consumers.
+    """
 
-class _ProductYamlResolver:
-    """ph-product: each product.yaml owns its parent directory subtree."""
-
-    def __init__(self, owned_dirs: dict[str, frozenset[str]]) -> None:
-        # Maps a repo-relative directory (posix, no trailing slash) to its owners.
-        self._owned_dirs = owned_dirs
+    def __init__(self, resolver: OwnersResolver) -> None:
+        self._resolver = resolver
 
     def owners(self, filepath: str) -> set[str]:
-        result: set[str] = set()
-        for directory, teams in self._owned_dirs.items():
-            if filepath.startswith(directory + "/"):
-                result |= teams
-        return result
+        resolved = self._resolver.resolve(filepath).owners or []
+        return {handle for owner in resolved if (handle := _owner_to_team_handle(owner))}
 
 
-def _build_codeowners_resolver(repo_root: Path, source: OwnershipSource) -> _CodeownersResolver:
-    assert source.path is not None  # validated by the loader (gh-codeowners uses `path`)
-    return _CodeownersResolver(parse_codeowners_soft(repo_root / source.path))
-
-
-def _build_product_yaml_resolver(repo_root: Path, source: OwnershipSource) -> _ProductYamlResolver:
-    assert source.glob is not None  # validated by the loader (ph-product uses `glob`)
-    owned_dirs: dict[str, frozenset[str]] = {}
-    for yaml_path in sorted(repo_root.glob(source.glob)):
-        teams = _read_product_owners(yaml_path)
-        if teams:
-            owned_dirs[yaml_path.parent.relative_to(repo_root).as_posix()] = teams
-    return _ProductYamlResolver(owned_dirs)
+def _build_hogli_resolver(repo_root: Path, source: OwnershipSource) -> _HogliResolver:
+    assert source.path is not None  # validated by the loader (hogli-resolver uses `path`)
+    return _HogliResolver(OwnersResolver(repo_root=repo_root / source.path))
 
 
 @dataclass(frozen=True)
@@ -280,8 +209,7 @@ class OwnershipFormat:
 # entry here plus its resolver above; the loader validates each declared
 # source's format name and locator pairing against this table.
 OWNERSHIP_FORMATS: dict[str, OwnershipFormat] = {
-    "gh-codeowners": OwnershipFormat("path", _build_codeowners_resolver),
-    "ph-product": OwnershipFormat("glob", _build_product_yaml_resolver),
+    "hogli-resolver": OwnershipFormat("path", _build_hogli_resolver),
 }
 
 OWNERSHIP_FORMAT_LOCATORS: dict[str, str] = {name: fmt.locator for name, fmt in OWNERSHIP_FORMATS.items()}

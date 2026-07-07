@@ -482,53 +482,40 @@ def test_dismiss_time_trust_is_opt_in_per_ecosystem() -> None:
 
 # ── Ownership sources ────────────────────────────────────────────
 
-_PH_PRODUCT = (OwnershipSource(format="ph-product", glob="products/*/product.yaml"),)
+_HOGLI_RESOLVER = (OwnershipSource(format="hogli-resolver", path="."),)
 
 
 @pytest.mark.parametrize(
     "owners_yaml, expected_teams",
     [
         pytest.param("owners:\n  - team-devex\n", ["@PostHog/team-devex"], id="plain-slug-prefixed"),
-        pytest.param("owners:\n  - '@PostHog/team-x'\n", [], id="already-prefixed-skipped"),
+        pytest.param("owners:\n  - '@handle'\n", [], id="individual-dropped"),
         pytest.param("owners:\n  - team-CHANGEME\n", [], id="changeme-skipped"),
         pytest.param("name: foo\n", [], id="ownerless"),
-        pytest.param("owners: value: bad\n", [], id="unparseable"),
     ],
 )
-def test_product_yaml_owner_normalization(tmp_path: Path, owners_yaml: str, expected_teams: list[str]) -> None:
+def test_resolver_owner_normalization(tmp_path: Path, owners_yaml: str, expected_teams: list[str]) -> None:
     product_dir = tmp_path / "products" / "foo"
     product_dir.mkdir(parents=True)
     (product_dir / "product.yaml").write_text(owners_yaml)
 
-    resolvers = build_ownership(tmp_path, _PH_PRODUCT)
+    resolvers = build_ownership(tmp_path, _HOGLI_RESOLVER)
     ownership = detect_ownership(["products/foo/backend/models.py"], resolvers)
 
     assert ownership["teams"] == expected_teams
 
 
-def test_ownership_unions_codeowners_and_product_yaml(tmp_path: Path) -> None:
-    codeowners = tmp_path / ".github" / "CODEOWNERS-soft"
-    codeowners.parent.mkdir(parents=True)
-    codeowners.write_text("products/foo/sub/ @PostHog/team-a\nposthog/ @PostHog/team-c\n")
+def test_ownership_cross_team_and_unowned(tmp_path: Path) -> None:
     product_dir = tmp_path / "products" / "foo"
     product_dir.mkdir(parents=True)
-    (product_dir / "product.yaml").write_text("owners:\n  - team-b\n")
+    (product_dir / "product.yaml").write_text("owners:\n  - team-a\n  - team-b\n")
 
-    resolvers = build_ownership(
-        tmp_path,
-        (
-            OwnershipSource(format="gh-codeowners", path=".github/CODEOWNERS-soft"),
-            OwnershipSource(format="ph-product", glob="products/*/product.yaml"),
-        ),
-    )
+    resolvers = build_ownership(tmp_path, _HOGLI_RESOLVER)
 
-    both = detect_ownership(["products/foo/sub/x.py"], resolvers)
-    assert both["teams"] == ["@PostHog/team-a", "@PostHog/team-b"]
-    assert both["cross_team"] is True
-
-    product_only = detect_ownership(["products/foo/y.py"], resolvers)
-    assert product_only["teams"] == ["@PostHog/team-b"]
-    assert product_only["cross_team"] is False
+    owned = detect_ownership(["products/foo/sub/x.py"], resolvers)
+    assert owned["teams"] == ["@PostHog/team-a", "@PostHog/team-b"]
+    assert owned["cross_team"] is True
 
     outside = detect_ownership(["posthog/models/x.py"], resolvers)
-    assert outside["teams"] == ["@PostHog/team-c"]
+    assert outside["teams"] == []
+    assert outside["unowned_files"] == 1

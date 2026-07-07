@@ -255,10 +255,12 @@ jobs:
                       tasks_temporal:
                         - 'products/tasks/backend/temporal/**/*'
                       product_yamls:
-                        # Validates owner team slugs against PostHog/posthog collaborator teams.
-                        # Costs one GitHub API call; gated here so we only pay it when ownership
-                        # actually changes. Drives the validate-product-yamls job below.
+                        # Validates owner team slugs against PostHog/posthog collaborator teams,
+                        # and lints the distributed owners.yaml files (schema, conflicts, dead
+                        # globs, coverage). Costs one GitHub API call; gated here so we only pay
+                        # it when ownership actually changes. Drives the validate-product-yamls job.
                         - 'products/*/product.yaml'
+                        - '**/owners.yaml'
                       openapi_types:
                         # Generated OpenAPI types - validate they match schema
                         - 'frontend/src/generated/**/*'
@@ -1020,9 +1022,15 @@ jobs:
                   names=$(for n in $names; do [ -f "products/$n/product.yaml" ] && printf '%s ' "$n"; done | xargs)
                   if [ -z "$names" ]; then
                     echo "No existing product.yaml files in diff after filtering"
-                    exit 0
+                  else
+                    ./bin/hogli product:lint:owners $names
                   fi
-                  ./bin/hogli product:lint:owners $names
+
+            # Lints the distributed owners.yaml tree: schema, product.yaml/owners.yaml
+            # conflicts, dead rule globs, and coverage (warn-only). Runs without --live
+            # so it needs no GitHub API — team-slug validation stays in product:lint:owners.
+            - name: Lint owners.yaml files
+              run: ./bin/hogli owners:lint
 
     # Migration validation.
     # This job needs Docker + DB — it checks out master first to run baseline

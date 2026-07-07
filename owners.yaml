@@ -1,5 +1,5 @@
 version: 1
-owners: null
+owners: []
 rules:
     - match: Dockerfile.llm-analytics
       owners: [team-ai-observability]
@@ -15,17 +15,11 @@ rules:
       owners: [team-devex]
     - match: tach.toml
       owners: [team-devex]
-    - match: bin/
-      owners: [team-devex]
-    - match: CODEOWNERS-soft
-      owners: [team-devex]
-    - match: CODEOWNERS
-      owners: [team-devex]
     - match: CLAUDE.md
       owners: [team-devex]
     - match: AGENTS.md
       owners: [team-devex]
-    - match: '.claude/'
+    - match: 'bin/'
       owners: [team-devex]
     - match: greptile.json
       owners: [team-devex]

@@ -185,14 +185,12 @@ def test_diff_classify(old: set[str], new: set[str], expected: DiffClass) -> Non
 
 
 def test_legacy_owners_unions_matching_rules(tmp_path: Path) -> None:
-    _write(
-        tmp_path,
-        ".github/CODEOWNERS-soft",
-        "posthog/x/ @PostHog/team-a\nposthog/x/y.py @PostHog/team-b\nproducts/foo/** @rafael @PostHog/team-foo\n",
+    soft_text = (
+        "posthog/x/ @PostHog/team-a\nposthog/x/y.py @PostHog/team-b\nproducts/foo/** @rafael @PostHog/team-foo\n"
     )
     _write(tmp_path, "products/foo/product.yaml", "name: Foo\nowners:\n  - team-foo\n  - '@handle'\n")
     _write(tmp_path, "products/bar/product.yaml", "name: Bar\nowners:\n  - team-CHANGEME\n")
-    legacy = LegacyOwners(tmp_path)
+    legacy = LegacyOwners(tmp_path, soft_text)
 
     assert legacy.owners_of("posthog/x/y.py") == {"team-a", "team-b"}
     assert legacy.owners_of("products/foo/z.py") == {"@rafael", "team-foo"}

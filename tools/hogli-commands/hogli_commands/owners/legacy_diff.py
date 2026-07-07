@@ -58,11 +58,14 @@ def synthesize_product_rules(repo_root: Path) -> list[LegacyRule]:
 
 
 class LegacyOwners:
-    """OLD owner resolution: union across all matching soft + product.yaml rules."""
+    """OLD owner resolution: union across all matching soft + product.yaml rules.
 
-    def __init__(self, repo_root: Path) -> None:
-        soft_path = repo_root / ".github" / "CODEOWNERS-soft"
-        soft_rules = parse_soft_file(soft_path.read_text()) if soft_path.is_file() else []
+    ``soft_text`` is the ``CODEOWNERS-soft`` contents. It is passed in explicitly
+    (rather than read from disk) because the file is deleted post-migration — the
+    differ is a migration-era tool that runs against the file's git history."""
+
+    def __init__(self, repo_root: Path, soft_text: str) -> None:
+        soft_rules = parse_soft_file(soft_text) if soft_text else []
         self._rules: list[LegacyRule] = [LegacyRule(r.pattern, r.owners) for r in soft_rules]
         self._rules.extend(synthesize_product_rules(repo_root))
         self._matchers = [(compile_pattern(r.pattern), r.owners) for r in self._rules]
@@ -115,9 +118,9 @@ class DiffReport:
         return bool(self.by_class(DiffClass.ORPHANED) or self.by_class(DiffClass.EXPANDED))
 
 
-def diff_all(repo_root: Path, resolver: OwnersResolver | None = None) -> DiffReport:
+def diff_all(repo_root: Path, soft_text: str, resolver: OwnersResolver | None = None) -> DiffReport:
     resolver = resolver or OwnersResolver(repo_root)
-    legacy = LegacyOwners(repo_root)
+    legacy = LegacyOwners(repo_root, soft_text)
     diffs: list[PathDiff] = []
     for path in resolver.tracked_files():
         old = legacy.owners_of(path)

@@ -7,3 +7,5 @@ rules:
       owners: [team-devex]
     - match: '/pull_request_template.md'
       owners: [team-devex]
+    - match: '/CODEOWNERS'
+      owners: [team-devex]

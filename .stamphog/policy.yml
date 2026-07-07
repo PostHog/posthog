@@ -202,16 +202,13 @@ familiarity:
         min_prior_prs: 5
         max_days_since_touch: 180
 # Ownership sources feeding the reviewer's team context - advisory only, never a
-# gate. product.yaml is the canonical owner of products/<name>/** (per the
-# CODEOWNERS-soft header), and the reviewer auto-assigner already merges both
-# sources, so stamphog reads the same merged view (union across sources).
-# Formats: gh-codeowners (a CODEOWNERS-soft file, last-match-wins) and ph-product
-# (products/*/product.yaml owners). Sources are read from the master checkout
-# (the workflow pins ref: master), so a PR editing them cannot influence its own
-# review. Locators must stay repo-relative (no absolute paths, no '..').
+# gate. The hogli-resolver source delegates to the shared hogli OwnersResolver,
+# which walks the distributed owners.yaml / product.yaml files from the repo root
+# (the `path` locator) and merges nearest-file-wins, so stamphog reads the same
+# view the reviewer auto-assigner builds. Sources are read from the master
+# checkout (the workflow pins ref: master), so a PR editing them cannot influence
+# its own review. Locators must stay repo-relative (no absolute paths, no '..').
 ownership:
     sources:
-        - path: .github/CODEOWNERS-soft
-          format: gh-codeowners
-        - glob: products/*/product.yaml
-          format: ph-product
+        - path: .
+          format: hogli-resolver
