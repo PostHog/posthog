@@ -13,7 +13,7 @@ from infi.clickhouse_orm.utils import import_submodules
 
 from posthog.clickhouse.client.connection import default_client
 from posthog.settings import CLICKHOUSE_DATABASE, CLICKHOUSE_HTTP_URL, CLICKHOUSE_PASSWORD, CLICKHOUSE_USER
-from posthog.settings.data_stores import CLICKHOUSE_MIGRATIONS_CLUSTER
+from posthog.settings.data_stores import CLICKHOUSE_MIGRATIONS_CLUSTER, CLICKHOUSE_SATELLITE_CLUSTERS
 
 MIGRATIONS_PACKAGE_NAME = "posthog.clickhouse.migrations"
 
@@ -54,7 +54,7 @@ class Command(BaseCommand):
 
     def migrate(self, host, options):
         # Infi only creates the DB in one node, but not the rest. Create it before running migrations.
-        self._create_database_if_not_exists(CLICKHOUSE_DATABASE, CLICKHOUSE_MIGRATIONS_CLUSTER)
+        self._create_database_if_not_exists(CLICKHOUSE_DATABASE)
         self._create_migration_tracking_tables_if_not_exist(CLICKHOUSE_DATABASE, CLICKHOUSE_MIGRATIONS_CLUSTER)
         database = Database(
             CLICKHOUSE_DATABASE,
@@ -120,17 +120,43 @@ class Command(BaseCommand):
     def get_applied_migrations(self, database) -> set[str]:
         return database._get_applied_migrations(MIGRATIONS_PACKAGE_NAME, replicated=True)
 
-    def _create_database_if_not_exists(self, database: str, cluster: str):
+    def _create_database_if_not_exists(self, database: str):
         # MULTINODE_CLICKHOUSE: infi.clickhouse_orm creates the Distributed
         # migration-tracking table across the migrations cluster before the
         # first migration runs, so the database has to exist on every node up
         # front — otherwise the CREATE TABLE fans out to satellites that have
         # no `posthog` database yet and fails with UNKNOWN_DATABASE.
-        if settings.TEST or settings.E2E_TESTING or settings.MULTINODE_CLICKHOUSE:
-            with default_client() as client:
+        #
+        # Individual migration operations then fan out per node role via
+        # cluster.map_hosts_by_roles / any_host_by_roles, which reach the
+        # satellite clusters (ai_events, aux, ops, sessions, ...) through the
+        # cluster's extra hosts — not through the migrations cluster. Those
+        # satellite nodes are their own clusters and are NOT necessarily part
+        # of CLICKHOUSE_MIGRATIONS_CLUSTER, so creating the database only on
+        # the migrations cluster leaves them without `posthog` and every
+        # fanned-out query against them fails with UNKNOWN_DATABASE. Create it
+        # on each satellite cluster too, before any migration query lands.
+        if not self._should_bootstrap_databases():
+            return
+        # dict.fromkeys dedupes while preserving order in case the migrations
+        # cluster is also listed as a satellite.
+        clusters = dict.fromkeys([CLICKHOUSE_MIGRATIONS_CLUSTER, *CLICKHOUSE_SATELLITE_CLUSTERS])
+        with default_client() as client:
+            for cluster in clusters:
                 client.execute(
                     f"CREATE DATABASE IF NOT EXISTS {database} ON CLUSTER {cluster}",
                 )
+
+    def _should_bootstrap_databases(self) -> bool:
+        # Migrations fan out to satellite clusters by node role only when routing
+        # is NOT collapsed to NodeRole.ALL. Mirror the collapse condition in
+        # run_sql_with_exceptions so database bootstrap and query routing agree on
+        # which nodes are in play: role-based routing is active in the multinode
+        # smoke stack and in real cloud deployments, but not in local/hobby dev.
+        collapsed_to_all = (
+            settings.E2E_TESTING or settings.DEBUG or not settings.CLOUD_DEPLOYMENT
+        ) and not settings.MULTINODE_CLICKHOUSE
+        return settings.TEST or settings.E2E_TESTING or settings.MULTINODE_CLICKHOUSE or not collapsed_to_all
 
     def _create_migration_tracking_tables_if_not_exist(self, database: str, cluster: str):
         # MULTINODE_CLICKHOUSE only: infi.clickhouse_orm's auto-create path
