@@ -216,7 +216,9 @@ export function EditModeActions(): JSX.Element {
     return (
         <>
             {layoutEditMode && <DashboardEditSaveCancelButtons />}
+            <DashboardSubscribeExperiment placement="button" />
             <DashboardAddTileButton />
+            <DashboardSubscribeExperiment placement="menu" />
         </>
     )
 }

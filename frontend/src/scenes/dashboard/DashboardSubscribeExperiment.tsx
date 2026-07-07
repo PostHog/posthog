@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { IconBell, IconList } from '@posthog/icons'
+import { IconBell, IconEllipsis } from '@posthog/icons'
 import { useFeatureFlagVariantKey } from '@posthog/react'
 
 import { subscriptionsLogic } from 'lib/components/Subscriptions/subscriptionsLogic'
@@ -67,9 +67,9 @@ export function DashboardSubscribeExperiment({ placement }: { placement: Subscri
                 ]}
             >
                 <LemonButton
-                    type="secondary"
+                    type="tertiary"
                     size="small"
-                    icon={<IconList fontSize="16" />}
+                    icon={<IconEllipsis fontSize="16" />}
                     data-attr="dashboard-subscribe-menu"
                     aria-label="More actions"
                 />
@@ -79,7 +79,7 @@ export function DashboardSubscribeExperiment({ placement }: { placement: Subscri
 
     return (
         <LemonButton
-            type="secondary"
+            type="tertiary"
             size="small"
             icon={<SubscribeIcon dashboardId={dashboardId} />}
             data-attr="dashboard-subscribe-prominent-button"
