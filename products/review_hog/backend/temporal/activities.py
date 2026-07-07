@@ -59,6 +59,7 @@ from products.review_hog.backend.reviewer.persistence import (
     load_perspective_results,
     load_pr_snapshot,
     load_prior_findings,
+    load_run_issues,
     load_run_validations,
     load_valid_findings,
     persist_chunk_set,
@@ -257,8 +258,9 @@ class ReviewChunkInput(SandboxStageInput):
 @dataclass
 class ValidateChunkInput(SandboxStageInput):
     chunk_id: int
-    # This chunk's post-dedup issues to validate (JSON-encoded `Issue`s), grouped by the parent.
-    issues_json: list[str]
+    # This chunk's post-dedup issue ids, grouped by the parent; the activity reloads the issue
+    # content from the persisted finding rows (`load_run_issues`) instead of shipping it by value.
+    issue_ids: list[str]
     skill_name: str
     skill_version: int
 
@@ -283,21 +285,11 @@ class LoadedBlindSpotsSkillDTO:
 
 
 @dataclass
-class CombineCleanInput:
-    team_id: int
-    report_id: str
-    head_sha: str
-
-
-@dataclass
-class DedupInput(SandboxStageInput):
-    issues_json: list[str]
-
-
-@dataclass
 class DedupResult:
-    issues_json: list[str]
-    findings_count: int
+    # The persisted survivors' issue ids — the by-reference handle validate and body-build use to
+    # reload issue content from the finding rows (unbounded issue JSON would foreseeably hit
+    # Temporal's ~2 MiB payload cap on large PRs).
+    issue_ids: list[str]
 
 
 @dataclass
@@ -306,7 +298,8 @@ class BuildBodyInput:
     report_id: str
     head_sha: str
     run_index: int
-    issues_json: list[str]
+    # This turn's survivor ids (`DedupResult.issue_ids`); content reloads from the finding rows.
+    issue_ids: list[str]
     # The acting user's threshold, snapshotted at resolve time. Defaulted so payloads serialized
     # before the field existed still deserialize (they keep today's should_fix behavior).
     urgency_threshold: str = IssuePriority.SHOULD_FIX.value
@@ -784,31 +777,28 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
 # --- Combine + scope-clean + dedup -----------------------------------------------------------------
 
 
-def _combine_and_clean(team_id: int, report_id: str, head_sha: str) -> list[str]:
+def _combine_and_clean(team_id: int, report_id: str, head_sha: str) -> list[Issue]:
     perspective_results = load_perspective_results(team_id=team_id, report_id=report_id, head_sha=head_sha)
     snapshot = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=head_sha)
     pr_files = snapshot.pr_files if snapshot is not None else []
     raw_issues = combine_issues(perspective_results)
-    cleaned = clean_issues(raw_issues, pr_files)
-    return [issue.model_dump_json() for issue in cleaned]
+    return clean_issues(raw_issues, pr_files)
 
 
 @activity.defn
 @scoped_temporal()
 @close_db_connections
-async def combine_and_clean_activity(input: CombineCleanInput) -> list[str]:
-    """Flatten every perspective's findings and scope-clean to the diff (local, no sandbox)."""
-    return await database_sync_to_async(_combine_and_clean, thread_sensitive=False)(
+async def dedup_activity(input: SandboxStageInput) -> DedupResult:
+    """Combine + scope-clean every perspective's issues, deduplicate them, and persist the findings.
+
+    Combine/clean is a local flatten over the persisted perspective results; dedup is a conditional
+    single LLM call (one-shot within the gate). Returns only the persisted survivors' ids — later
+    stages reload the issue content from the finding rows, so the unbounded issue list never crosses
+    a Temporal payload boundary by value.
+    """
+    issues = await database_sync_to_async(_combine_and_clean, thread_sensitive=False)(
         input.team_id, input.report_id, input.head_sha
     )
-
-
-@activity.defn
-@scoped_temporal()
-@close_db_connections
-async def dedup_activity(input: DedupInput) -> DedupResult:
-    """Deduplicate the in-scope issues (conditional single LLM call — one-shot within the gate) and persist the findings."""
-    issues = [Issue.model_validate_json(j) for j in input.issues_json]
     snapshot = await database_sync_to_async(load_pr_snapshot, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha
     )
@@ -825,10 +815,10 @@ async def dedup_activity(input: DedupInput) -> DedupResult:
             repository=input.repository,
             workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),
         )
-    findings_count = await database_sync_to_async(persist_findings, thread_sensitive=False)(
+    issue_ids = await database_sync_to_async(persist_findings, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, issues=survivors, run_index=input.run_index
     )
-    return DedupResult(issues_json=[issue.model_dump_json() for issue in survivors], findings_count=findings_count)
+    return DedupResult(issue_ids=issue_ids)
 
 
 # --- Validate (per-chunk warm-session fan-out) -----------------------------------------------------
@@ -876,7 +866,9 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
     session) so one bad issue can't sink the chunk. Verdicts are the durable output — body + publish
     read them from the DB, not this return value.
     """
-    issues = [Issue.model_validate_json(j) for j in input.issues_json]
+    issues = await database_sync_to_async(load_run_issues, thread_sensitive=False)(
+        team_id=input.team_id, report_id=input.report_id, run_index=input.run_index, issue_ids=input.issue_ids
+    )
     done = await database_sync_to_async(load_run_validations, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, run_index=input.run_index, issues=issues
     )
@@ -963,9 +955,9 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
 
 
 def _build_and_finalize(
-    team_id: int, report_id: str, head_sha: str, run_index: int, issues_json: list[str], urgency_threshold: str
+    team_id: int, report_id: str, head_sha: str, run_index: int, issue_ids: list[str], urgency_threshold: str
 ) -> None:
-    issues = [Issue.model_validate_json(j) for j in issues_json]
+    issues = load_run_issues(team_id=team_id, report_id=report_id, run_index=run_index, issue_ids=issue_ids)
     # Verdicts come from the DB (the same rows publish reads), so a partially-failed chunk shows the
     # same findings in the body and the posted comments.
     validations = load_run_validations(team_id=team_id, report_id=report_id, run_index=run_index, issues=issues)
@@ -990,7 +982,7 @@ def _build_and_finalize(
 async def build_body_activity(input: BuildBodyInput) -> None:
     """Render the review body and finalize the turn (store the body, bump the run watermark)."""
     await database_sync_to_async(_build_and_finalize, thread_sensitive=False)(
-        input.team_id, input.report_id, input.head_sha, input.run_index, input.issues_json, input.urgency_threshold
+        input.team_id, input.report_id, input.head_sha, input.run_index, input.issue_ids, input.urgency_threshold
     )
 
 

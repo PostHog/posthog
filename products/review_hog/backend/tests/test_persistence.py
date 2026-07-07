@@ -18,6 +18,7 @@ from products.review_hog.backend.reviewer.persistence import (
     load_perspective_results,
     load_pr_snapshot,
     load_prior_findings,
+    load_run_issues,
     load_run_validations,
     load_valid_findings,
     persist_chunk_set,
@@ -171,7 +172,7 @@ class TestPersistResults(BaseTest):
             is_directly_related_to_changes=True,
         )
         report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
-        assert persist_findings(team_id=self.team.id, report_id=report_id, issues=[issue], run_index=1) == 1
+        assert persist_findings(team_id=self.team.id, report_id=report_id, issues=[issue], run_index=1) == ["1-2-3"]
         assert (
             persist_verdicts(
                 team_id=self.team.id,
@@ -219,7 +220,10 @@ class TestPersistResults(BaseTest):
             priority=IssuePriority.SHOULD_FIX,
         )
         report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
-        assert persist_findings(team_id=self.team.id, report_id=report_id, issues=[a, b], run_index=1) == 2
+        assert persist_findings(team_id=self.team.id, report_id=report_id, issues=[a, b], run_index=1) == [
+            "1-2-1",
+            "1-2-2",
+        ]
         assert (
             persist_verdicts(
                 team_id=self.team.id,
@@ -264,7 +268,7 @@ class TestPersistResults(BaseTest):
         )
         bad = _issue("1-1-2", file="b.py", start=1, title="bad", issue="   ", priority=IssuePriority.CONSIDER)
         report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
-        assert persist_findings(team_id=self.team.id, report_id=report_id, issues=[good, bad], run_index=1) == 1
+        assert persist_findings(team_id=self.team.id, report_id=report_id, issues=[good, bad], run_index=1) == ["1-1-1"]
         assert (
             persist_verdicts(
                 team_id=self.team.id,
@@ -295,12 +299,43 @@ class TestPersistResults(BaseTest):
         )
         bad = _issue("1-1-2", file="b.py", title="bad", lines=[], issue="   ", priority=IssuePriority.CONSIDER)
         report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
-        assert persist_findings(team_id=self.team.id, report_id=report_id, issues=[good, bad], run_index=1) == 1
+        assert persist_findings(team_id=self.team.id, report_id=report_id, issues=[good, bad], run_index=1) == ["1-1-1"]
 
         rows = ReviewReportArtefact.objects.for_team(self.team.id).filter(
             report_id=report_id, type=ReviewReportArtefact.ArtefactType.ISSUE_FINDING
         )
         assert rows.count() == 1
+
+    def test_load_run_issues_round_trips_persisted_findings_by_id(self) -> None:
+        # Validate + body-build reload issues from the finding rows by id (only ids cross Temporal
+        # payloads): a drift between _to_finding/_from_finding, or a broken id reconstruction from
+        # issue_key, would silently feed validation wrong or missing issues.
+        a = _issue(
+            "1-2-1",
+            file="x.py",
+            start=5,
+            title="A",
+            issue="problem A",
+            suggestion="fix A",
+            is_directly_related_to_changes=True,
+        )
+        b = _issue(
+            "1000-2-1",
+            file="y.py",
+            start=9,
+            title="B",
+            issue="problem B",
+            suggestion="fix B",
+            priority=IssuePriority.SHOULD_FIX,
+            source_perspective="review-hog-blind-spots-general",
+        )
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+        persisted = persist_findings(team_id=self.team.id, report_id=report_id, issues=[a, b], run_index=1)
+        assert persisted == ["1-2-1", "1000-2-1"]
+
+        assert load_run_issues(team_id=self.team.id, report_id=report_id, run_index=1, issue_ids=persisted) == [a, b]
+        # The id filter scopes to the requested subset (a chunk's slice of the survivors).
+        assert load_run_issues(team_id=self.team.id, report_id=report_id, run_index=1, issue_ids=["1000-2-1"]) == [b]
 
 
 class TestLoadValidFindings(BaseTest):

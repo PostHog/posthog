@@ -306,17 +306,21 @@ def _load_working_state(team_id: int, report_id: str, artefact_type: str, head_s
 # --- Findings & verdicts ---------------------------------------------------------------------------
 
 
-def persist_findings(*, team_id: int, report_id: str, issues: list[Issue], run_index: int) -> int:
-    """Append the canonical post-dedup findings as `issue_finding` artefacts. Returns the count."""
+def persist_findings(*, team_id: int, report_id: str, issues: list[Issue], run_index: int) -> list[str]:
+    """Append the canonical post-dedup findings as `issue_finding` artefacts.
+
+    Returns the persisted issues' live ids, in order — the by-reference handle later stages carry
+    through Temporal payloads instead of the issue JSON itself (reload via `load_run_issues`).
+    """
     pairs = _persistable_findings(issues, run_index)
     if not pairs:
-        return 0
+        return []
     with transaction.atomic():
         for _issue, finding in pairs:
             ReviewReportArtefact.append_finding(
                 team_id=team_id, report_id=report_id, content=finding, attribution=ArtefactAttribution.system()
             )
-    return len(pairs)
+    return [issue.id for issue, _finding in pairs]
 
 
 def persist_verdicts(
@@ -492,6 +496,22 @@ def load_run_validations(
     return out
 
 
+def load_run_issues(*, team_id: int, report_id: str, run_index: int, issue_ids: Sequence[str]) -> list[Issue]:
+    """Reconstruct the live `Issue`s for `issue_ids` from this turn's persisted findings, in persist order.
+
+    The read side of `persist_findings`' by-reference handle: validate and body-build receive only
+    issue ids through Temporal payloads (unbounded issue JSON would foreseeably hit the ~2 MiB cap on
+    large PRs) and reload content here. An id without a persisted finding is absent from the result —
+    such an issue could never publish anyway (publishing pairs findings with verdicts by key).
+    """
+    wanted = set(issue_ids)
+    return [
+        issue
+        for finding, _verdict in load_turn_findings(team_id=team_id, report_id=report_id, run_index=run_index)
+        if (issue := _from_finding(finding)).id in wanted
+    ]
+
+
 def load_prior_findings(*, team_id: int, report_id: str, before_run_index: int) -> list[ReviewIssueFinding]:
     """Findings from earlier turns of this report (`run_index < before_run_index`), latest per key.
 
@@ -565,4 +585,19 @@ def _to_finding(issue: Issue, run_index: int) -> ReviewIssueFinding:
         priority=issue.priority,
         source_perspective=issue.source_perspective,
         is_directly_related_to_changes=issue.is_directly_related_to_changes,
+    )
+
+
+def _from_finding(finding: ReviewIssueFinding) -> Issue:
+    """Inverse of `_to_finding`. The live id is the `issue_key`'s last `:`-segment (ids carry no `:`)."""
+    return Issue(
+        id=finding.issue_key.rsplit(":", 1)[-1],
+        title=finding.title,
+        file=finding.file,
+        lines=finding.lines,
+        issue=finding.body,
+        suggestion=finding.suggestion,
+        priority=finding.priority,
+        source_perspective=finding.source_perspective,
+        is_directly_related_to_changes=finding.is_directly_related_to_changes,
     )

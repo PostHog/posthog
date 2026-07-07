@@ -45,7 +45,7 @@ def _input(issues: list[Issue]) -> ValidateChunkInput:
         branch="feat",
         run_index=1,
         chunk_id=_CHUNK_ID,
-        issues_json=[issue.model_dump_json() for issue in issues],
+        issue_ids=[issue.id for issue in issues],
         skill_name="s-val",
         skill_version=1,
     )
@@ -81,9 +81,12 @@ def _env(attempt: int) -> ActivityEnvironment:
 
 
 @contextlib.contextmanager
-def _chunk_context(done: dict[str, IssueValidation]) -> Iterator[None]:
+def _chunk_context(issues: list[Issue], done: dict[str, IssueValidation]) -> Iterator[None]:
+    # The activity receives only issue ids and reloads content from the finding rows — the loader
+    # is patched to hand back the live issues the test built.
     with (
         patch(f"{_MODULE}.Heartbeater"),
+        patch(f"{_MODULE}.load_run_issues", return_value=issues),
         patch(f"{_MODULE}.load_run_validations", return_value=done),
         patch(f"{_MODULE}.load_pr_snapshot", return_value=_snapshot()),
         patch(
@@ -107,7 +110,7 @@ async def test_turn_failure_fails_the_activity_so_temporal_retries() -> None:
     mock_persist = MagicMock(return_value=True)
     env = _env(attempt=1)
     with (
-        _chunk_context(done={done_issue.id: _verdict()}),
+        _chunk_context(issues=[done_issue, ok_issue, failing_issue], done={done_issue.id: _verdict()}),
         patch(f"{_MODULE}.persist_verdict", mock_persist),
         patch(f"{_MODULE}.start_sandbox_session", mock_start),
         patch(f"{_MODULE}.continue_sandbox_session", mock_continue),
@@ -137,7 +140,7 @@ async def test_final_attempt_skips_the_failed_turn_and_continues_on_a_fresh_sess
     mock_end = AsyncMock()
     mock_persist = MagicMock(return_value=True)
     with (
-        _chunk_context(done={}),
+        _chunk_context(issues=[ok_issue, failing_issue, last_issue], done={}),
         patch(f"{_MODULE}.persist_verdict", mock_persist),
         patch(f"{_MODULE}.start_sandbox_session", mock_start),
         patch(f"{_MODULE}.continue_sandbox_session", mock_continue),
@@ -157,13 +160,14 @@ async def test_final_attempt_skips_the_failed_turn_and_continues_on_a_fresh_sess
 async def test_session_open_failure_raises_even_on_the_final_attempt() -> None:
     # A session that never opens is the outage signal the failure floor counts — skipping it on the
     # final attempt would report a wiped-out chunk as a clean success.
+    issue = _issue(1)
     with (
-        _chunk_context(done={}),
+        _chunk_context(issues=[issue], done={}),
         patch(f"{_MODULE}.persist_verdict", MagicMock(return_value=True)),
         patch(f"{_MODULE}.start_sandbox_session", AsyncMock(side_effect=RuntimeError("sandbox down"))),
         patch(f"{_MODULE}.end_sandbox_session", AsyncMock()) as mock_end,
     ):
         with pytest.raises(RuntimeError):
-            await _env(attempt=VALIDATION_MAX_ATTEMPTS).run(validate_chunk_activity, _input([_issue(1)]))
+            await _env(attempt=VALIDATION_MAX_ATTEMPTS).run(validate_chunk_activity, _input([issue]))
 
     mock_end.assert_not_awaited()

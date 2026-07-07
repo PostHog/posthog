@@ -202,8 +202,8 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    Mechanics when picked up: add an `effort` param to `run_oneshot_review` and pass `"high"` from
    `deduplicate_issues` only — chunking stays at xhigh. Acceptance: on a frozen-PR set, survivor id-sets
    match the xhigh control (or diffs hand-adjudicated as defensible merges); kill if it collapses
-   non-duplicates or misses obvious dupes. Related stale breadcrumb: `direct_llm.py`'s comment still says
-   dedup "re-emits every surviving issue's full JSON" — it doesn't (ids-only since Jun 25); fix when touching.
+   non-duplicates or misses obvious dupes. (The related stale `direct_llm.py` comment, which claimed dedup
+   "re-emits every surviving issue's full JSON", was corrected 2026-07-07: ids-only since Jun 25.)
 
 ### ✅ BUILT 2026-07-07 — canonical skill bodies rewritten to the writing-great-skills form (uncommitted)
 
@@ -218,6 +218,17 @@ Now every sandbox run's workflow id is `{activity's workflow id}:{step}-{task_id
 - **ReviewHog:** `_sandbox_workflow_id_prefix(step)` (activities.py) brands all four sandbox stages (chunking sandbox path, review/blind-spot units, dedup sandbox path, validation sessions) via a `workflow_id_prefix` kwarg on `run_sandbox_review` / `start_sandbox_session` / `deduplicate_issues`. `review_pr_workflow_id` / `review_branch_workflow_id` now **lowercase** (GitHub owner/repo are case-insensitive) so parent, children, and sandbox ids search as one casing. Temporal id constraints checked: `:` and `/` already proven in this cluster's ids; ~130 chars ≪ the 1000-byte server cap.
 - Tests: `products/tasks/backend/tests/test_workflow_id_prefix.py` (property persisted-or-derived; dispatch starts under the id it records, default writes nothing; reconciler rebuilds the prefixed id from `pending_dispatch`) + prefix assertions in `test_review_activity.py` / `test_validate_activity.py` (activity tests now run under `ActivityEnvironment`) + a mixed-case id test in `test_branch_targets.py`.
 - **Follow-up, same day — spawned-task attribution (the Signals pattern, all reused fields):** every ReviewHog sandbox spawn now passes `origin_product=TaskOriginProduct.REVIEW_HOG` (new enum member, choices-only tasks migration **0047**, SQL no-op), `internal=True` (`Task.internal` — not exposed to end users), and `ai_stage=step_name` (existing field → run state → stamped on `$ai_generation`, giving per-stage sandbox cost attribution like the one-shot calls already had). Set once in the executor (`_run_prompt` + `start_sandbox_session`), asserted in `test_executor.py`. **No new fields** — review linkage is already carried by the branded `state["workflow_id"]`; threading `signal_report_id` for inbox-triggered reviews is a possible later reuse (needs stage-input plumbing).
+
+### ✅ BUILT 2026-07-07 — findings cross Temporal stages by reference, not by value (uncommitted)
+
+Prod-readiness fix (the Temporal-audit "finding C"). The full post-review issue list used to cross five payload boundaries by value (combine result → dedup input → dedup result → validate child input → build-body input) with nothing bounding it: no max PR size, no per-unit issue cap, no text-length caps. Measured density (local runs): ~2 KB per serialized issue, ~9 issues/chunk worst case — a ~14-chunk PR (~4–5K additions, realistic here) crosses the repo's ~256 KB pass-by-reference rule, and a pathological PR would hit Temporal's ~2 MiB cap as a `PayloadSizeError` at the combine→dedup handoff, after all sandbox spend.
+Now only **issue ids** cross stage boundaries; content reloads from the persisted rows:
+
+- **Combine + scope-clean folded into `dedup_activity`** (they were consecutive, both DB-local; the standalone `combine_and_clean_activity` and its by-value return are gone — stages renumbered to /7). Dedup persists survivors as before and returns `DedupResult.issue_ids` only.
+- `persist_findings` returns the persisted issues' live ids (the by-reference handle); new `load_run_issues(team_id, report_id, run_index, issue_ids)` + `_from_finding` (inverse of `_to_finding`; the live id is the `issue_key`'s last `:`-segment) reconstruct the live `Issue`s. Round-trip is exact — `_issue_key` regenerates identically, so validate's skip-resume keys are unaffected.
+- `ValidateIssuesWorkflow` takes `issue_ids`, groups chunks by parsing the id string directly; `validate_chunk_activity` and `build_body_activity` reload their issues from the finding rows.
+- Side effect, strictly better: a survivor that failed durable-finding validation (never persisted → could never publish) no longer reaches validation at all — previously it burned a sandbox verdict that `persist_verdict` then dropped.
+- Tests: workflow stubs updated to the id contract; a persistence round-trip test guards `_to_finding`/`_from_finding` drift and the id reconstruction (silent-empty-validation regression). 205 backend tests + ruff green.
 
 ### ✅ BUILT 2026-07-07 — validation turn failures retry instead of silently skipping (uncommitted)
 
@@ -3278,27 +3289,35 @@ Per-run state by kind:
 
 ## Known issues & tech debt
 
-Found during Stage 1 analysis and the first parallel run (PR #65862); **documented, not fixed**:
+Found during Stage 1 analysis and the first parallel run (PR #65862); swept against the code 2026-07-07,
+resolved entries kept with what superseded them:
 
-- **TODO — transient sandbox timeout silently drops a review.** On the #65862 run, the Performance perspective
-  × chunk-1 returned `API Error: The operation timed out.` and was dropped (11/12 `(perspective × chunk)`
-  reviews landed). There is **no retry** for transient sandbox/agent errors, and the failure is swallowed by
-  the "log-and-return on partial failure" behavior below — so one timed-out perspective silently removes a
-  whole specialty's view of a chunk. Fix: bounded retry on transient sandbox errors in `run_sandbox_review`,
-  and surface the dropped `(perspective × chunk)` loudly (or fail the stage) rather than swallowing it.
-- **TODO — perspective fan-out back-loads the last perspective.** `review_chunks` builds the gather in
-  perspective order (all Logic chunks, then all Contracts, then all Performance); with a FIFO semaphore the 3rd
-  perspective queues at the back, so on #65862 the Performance reviews finished last (+183/+444/+514s vs
-  Logic/Contracts up front). It is genuinely parallel, but not balanced per-chunk. Fix: interleave the task
-  list by chunk (`P1c1, P2c1, P3c1, P1c2, …`) so a chunk's three perspectives co-schedule. (Raising
-  `MAX_CONCURRENT_SANDBOXES` partly mitigates by leaving fewer tasks queued.)
+- **✅ RESOLVED — transient sandbox timeout silently drops a review.** Superseded by the Temporal migration
+  and later hardening: every review unit is an activity with `RetryPolicy(maximum_attempts=2)`, failed units
+  are counted and logged per stage (never silent), and a fan-out stage losing more than
+  `FAN_OUT_FAILURE_FLOOR = 0.70` of its units fails the run loudly (`_enforce_failure_floor`,
+  `temporal/workflow.py`). Validation turn failures additionally retry with skip-resume (see "✅ BUILT
+  2026-07-07 — validation turn failures retry").
+- **TODO — perspective fan-out back-loads the last perspective.** `ReviewPerspectivesWorkflow.run` builds the
+  wave gather in perspective order (`units = [(p, c) for p in ordered for c in inputs.chunk_ids]`,
+  `temporal/workflow.py`); with a FIFO semaphore the last perspective queues at the back, so on #65862 the
+  Performance reviews finished last (+183/+444/+514s vs Logic/Contracts up front). It is genuinely parallel,
+  but not balanced per-chunk. Fix: interleave the task list by chunk (`P1c1, P2c1, P3c1, P1c2, …`) so a
+  chunk's perspectives co-schedule. (Raising `MAX_CONCURRENT_SANDBOXES` partly mitigates by leaving fewer
+  tasks queued.)
   _(Step 8 fixed several Stage-1 issues: the neutered validation batching is gone — `validate_issues` now
   fans out one sandbox activity per issue, bounded by the validate child's `asyncio.Semaphore`; and the duplicate report build is gone —
   publish is DB-driven and the report is rendered once.)_
-- **Inconsistent failure handling** — chunk analysis (step 5) and perspective review (step 6) log and continue on
-  partial chunk failure (pipeline proceeds with incomplete results — by design, those stages are
-  best-effort), whereas chunking and dedup raise `RuntimeError`.
-- **Alpha maturity** — the published comment literally says "ReviewHog Alpha" and asks users to reply
-  "valid"/"invalid" (publish is gated off for now anyway).
-- **Flat orchestration** — `run.py` is a single async function with a top-of-file
-  `TODO: Make it a parent workflow and spawn steps as child workflows`.
+- **Per-stage failure policy (deliberate; formerly listed as "inconsistent failure handling").** Chunking and
+  dedup raise and fail the run (single-unit stages, nothing to degrade to); the perspective wave and
+  blind-spot sweep are best-effort under the 70% failure floor; validation retries per chunk, and only the
+  final attempt degrades to skipping the failing issue. The original inconsistency (stages silently
+  continuing on partial failure) is gone: the analyze stage was removed entirely, and every best-effort
+  stage is floor-bounded and logs its losses.
+- **Alpha maturity** — the published comment still says "ReviewHog Alpha" and asks users to reply
+  "valid"/"invalid" (`reviewer/tools/publish_review.py`, the `post_promo` block). Publish is now live
+  per-run (the trigger endpoint posts with `publish=true`), so settle the prod wording before real users
+  see it.
+- **✅ RESOLVED — flat orchestration.** `run.py` is gone; the pipeline is the Temporal parent
+  `ReviewPRWorkflow` plus child workflows (Stage 3, step 15), entered via the `run_review` command
+  (blocking) or the trigger endpoint (non-blocking).

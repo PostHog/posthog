@@ -28,6 +28,27 @@ Purpose: record every end-to-end `run_review` so we can tell whether a prompt/co
 
 ---
 
+## 2026-07-07 · publish e2e: by-reference payloads + mid-run worker-restart recovery ✅ — PR #69032 @ `02f8701b434`
+
+- **Purpose:** infra e2e (not a quality run — live PR): first full run of the **by-reference payload path**
+  (combine folded into dedup, only issue ids cross Temporal boundaries, validate/body reload from finding rows)
+  plus the branded workflow ids and validation retry, with `--publish`.
+- **Pipeline (exit 0, ~45 min incl. an environmental restart):** 3 chunks (737 additions → semantic chunker) ·
+  12 units (9 wave + 3 blind-spot) · dedup one-shot (no sandbox) · **25 findings → 25 verdicts, zero losses
+  through the ids-only handoff** · body 2,581 chars · `run_count=1`, idle, `published_head_sha == head_sha`.
+- **Publish:** review posted by `posthog-local-dev[bot]` at 19:54:49Z, COMMENT pinned to the reviewed head;
+  **4 inline comments**; validator kept **7 / dropped 18** (1 must_fix, 4 should_fix, 2 consider kept).
+- **Unplanned resilience proof:** at 21:12:04 local something regenerated `products/posthog_ai/dist/skills/**/*.py`
+  (build artifacts under `products/` with `.py` extension) → nodemon bounced the worker **mid-wave**. All 9
+  in-flight review activities failed with `Worker is shutting down`, Temporal **retried all 9 (attempt 2) on the
+  new worker pid**, every unit completed, `perspective_result` = exactly 12 (no double-persist). Cost: the 9
+  orphaned attempt-1 sandboxes ran to completion (~8-11 min each of wasted agent spend). Dev-stack footgun to
+  keep in mind: any write of `.py` files under `products/` during a run doubles the in-flight stage's sandbox
+  spend — consider nodemon-ignoring `products/posthog_ai/dist/`.
+- **Temporal roster:** one prefix query returns everything — parent, `/review` + `/validate` children,
+  18 wave (9 orphaned + 9 retried), 3 blind-spot, 3 validation sandbox runs, all lowercase branded ids; parent
+  history shows the new 7-stage shape (`dedup_activity` present, no `combine_and_clean_activity`).
+
 ## 2026-07-06 · harness smoke: LOCAL agent build in sandboxes + surprise partial cross-sandbox cache sharing ✅
 
 - **Purpose:** NOT a quality run — verify the two-repo harness dev loop for the prompt-caching program

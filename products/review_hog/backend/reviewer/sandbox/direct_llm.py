@@ -15,8 +15,8 @@ _ModelT = TypeVar("_ModelT", bound=BaseModel)
 logger = logging.getLogger(__name__)
 
 # Bounds the response, not the prompt (prompt size is bounded by the callers' one-shot gates).
-# A ceiling, not a spend — but adaptive thinking bills against it too, and dedup re-emits every
-# surviving issue's full JSON: a 36-finding PR blew a 16K cap (stop_reason=max_tokens, run failed).
+# A ceiling, not a spend, but adaptive thinking bills against it too and dominates the output at
+# xhigh (dedup's answer is ids-only, yet a 36-finding dedup blew a 16K cap with stop_reason=max_tokens).
 # 64K is sonnet-5's output limit.
 _MAX_OUTPUT_TOKENS = 64_000
 # A large chunking prompt at xhigh effort can legitimately take several minutes end-to-end.

@@ -2,10 +2,10 @@
 
 `ReviewPRWorkflow` is pure orchestration mirroring the former `run.py main()`: setup activities →
 two fan-out child workflows (perspective review / validate) → finishing activities. Only small,
-serializable values cross boundaries — `report_id` + `head_sha` + unit keys / JSON issue slices —
-and every consumer reloads its inputs from the `pr_snapshot` artefact, so no big payload hits
-Temporal's ~2 MiB cap. Stage progress is logged via `workflow.logger` so it streams in the worker
-log (the former stdout banners).
+serializable values cross boundaries — `report_id` + `head_sha` + unit keys / issue ids — and every
+consumer reloads its inputs from the persisted artefact rows (`pr_snapshot`, findings), so no
+unbounded payload hits Temporal's ~2 MiB cap. Stage progress is logged via `workflow.logger` so it
+streams in the worker log (the former stdout banners).
 
 The fan-out children dispatch per-unit sandbox activities (each retried) under a fresh
 `asyncio.Semaphore` and `gather(return_exceptions=True)`, so a minority of failed units degrade
@@ -33,8 +33,6 @@ from products.review_hog.backend.reviewer.constants import (
 from products.review_hog.backend.temporal.activities import (
     AppendCodeReviewArtefactInput,
     BuildBodyInput,
-    CombineCleanInput,
-    DedupInput,
     DedupResult,
     FetchPRDataInput,
     GenerateSchemasInput,
@@ -56,7 +54,6 @@ from products.review_hog.backend.temporal.activities import (
     ValidateIntegrationInput,
     append_code_review_artefact_activity,
     build_body_activity,
-    combine_and_clean_activity,
     dedup_activity,
     fetch_pr_data_activity,
     generate_schemas_activity,
@@ -106,7 +103,9 @@ class ReviewPerspectivesInputs(SandboxStageInput):
 
 @dataclass
 class ValidateIssuesInputs(SandboxStageInput):
-    issues_json: list[str]
+    # The survivors' issue ids (`DedupResult.issue_ids`); the chunk activities reload the content
+    # from the finding rows, so only ids cross the child-workflow payload boundary.
+    issue_ids: list[str]
     # The user whose selected validator validates this review (the PR author, or the CLI override).
     acting_user_id: int
 
@@ -203,12 +202,9 @@ class ReviewPerspectivesWorkflow:
         return reviewed
 
 
-def _chunk_id_of(issue_json: str) -> int | None:
+def _chunk_id_of(issue_id: str) -> int | None:
     """The chunk id encoded in an issue's id (`{pass}-{chunk}-{issue}`), or None if malformed."""
-    try:
-        parts = str(json.loads(issue_json)["id"]).split("-")
-    except (json.JSONDecodeError, KeyError, TypeError):
-        return None
+    parts = issue_id.split("-")
     if len(parts) != 3:
         return None
     try:
@@ -228,7 +224,7 @@ class ValidateIssuesWorkflow:
 
     @temporalio.workflow.run
     async def run(self, inputs: ValidateIssuesInputs) -> int:
-        if not inputs.issues_json:
+        if not inputs.issue_ids:
             return 0
         skill: LoadedValidationSkillDTO = await workflow.execute_activity(
             load_validation_skill_activity,
@@ -238,15 +234,15 @@ class ValidateIssuesWorkflow:
         )
         # Group survivors by their chunk so one warm session validates each chunk's issues together.
         by_chunk: dict[int, list[str]] = {}
-        for issue_json in inputs.issues_json:
-            chunk_id = _chunk_id_of(issue_json)
+        for issue_id in inputs.issue_ids:
+            chunk_id = _chunk_id_of(issue_id)
             if chunk_id is None:
-                workflow.logger.warning("Skipping validation for an issue with a malformed id")
+                workflow.logger.warning(f"Skipping validation for an issue with a malformed id: {issue_id}")
                 continue
-            by_chunk.setdefault(chunk_id, []).append(issue_json)
+            by_chunk.setdefault(chunk_id, []).append(issue_id)
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_SANDBOXES)
 
-        async def _validate(chunk_id: int, chunk_issues: list[str]) -> ValidateChunkResult:
+        async def _validate(chunk_id: int, chunk_issue_ids: list[str]) -> ValidateChunkResult:
             async with semaphore:
                 return await workflow.execute_activity(
                     validate_chunk_activity,
@@ -259,7 +255,7 @@ class ValidateIssuesWorkflow:
                         branch=inputs.branch,
                         run_index=inputs.run_index,
                         chunk_id=chunk_id,
-                        issues_json=chunk_issues,
+                        issue_ids=chunk_issue_ids,
                         skill_name=skill.skill_name,
                         skill_version=skill.version,
                     ),
@@ -268,9 +264,7 @@ class ValidateIssuesWorkflow:
                     retry_policy=_VALIDATE_RETRY,
                 )
 
-        results = await asyncio.gather(
-            *(_validate(c, issues) for c, issues in by_chunk.items()), return_exceptions=True
-        )
+        results = await asyncio.gather(*(_validate(c, ids) for c, ids in by_chunk.items()), return_exceptions=True)
         total = len(by_chunk)
         failed = sum(1 for r in results if isinstance(r, BaseException))
         _enforce_failure_floor("Validate", failed, total)
@@ -282,7 +276,7 @@ class ValidateIssuesWorkflow:
 
 @temporalio.workflow.defn(name="review-pr")
 class ReviewPRWorkflow:
-    """Single-turn PR review: setup → split → review → combine → dedup → validate → build → publish."""
+    """Single-turn PR review: setup → split → review → dedup (incl. combine) → validate → build → publish."""
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> ReviewPRWorkflowInputs:
@@ -301,7 +295,7 @@ class ReviewPRWorkflow:
             retry_policy=_RETRY,
         )
 
-        workflow.logger.info("STAGE 1/8 · Fetch PR data")
+        workflow.logger.info("STAGE 1/7 · Fetch PR data")
         meta: ReviewMeta = await workflow.execute_activity(
             fetch_pr_data_activity,
             FetchPRDataInput(
@@ -404,7 +398,7 @@ class ReviewPRWorkflow:
                 run_index=meta.run_index,
             )
 
-            workflow.logger.info("STAGE 2/8 · Split into chunks")
+            workflow.logger.info("STAGE 2/7 · Split into chunks")
             chunk_ids: list[int] = await workflow.execute_activity(
                 split_chunks_activity,
                 stage,
@@ -415,7 +409,7 @@ class ReviewPRWorkflow:
 
             parent_id = workflow.info().workflow_id
 
-            workflow.logger.info("STAGE 3/8 · Review chunks (perspective wave + blind-spot check)")
+            workflow.logger.info("STAGE 3/7 · Review chunks (perspective wave + blind-spot check)")
             await workflow.execute_child_workflow(
                 ReviewPerspectivesWorkflow.run,
                 ReviewPerspectivesInputs(
@@ -433,34 +427,19 @@ class ReviewPRWorkflow:
                 retry_policy=_RETRY,
             )
 
-            workflow.logger.info("STAGE 4/8 · Combine & scope-clean issues")
-            issues_json: list[str] = await workflow.execute_activity(
-                combine_and_clean_activity,
-                CombineCleanInput(team_id=inputs.team_id, report_id=report_id, head_sha=head_sha),
-                start_to_close_timeout=_QUICK_TIMEOUT,
-                retry_policy=_RETRY,
-            )
-
-            workflow.logger.info("STAGE 5/8 · Deduplicate issues")
+            # Combine + scope-clean run inside the dedup activity (local flatten over the persisted
+            # perspective results) — only the survivors' ids come back, never the issue JSON.
+            workflow.logger.info("STAGE 4/7 · Combine, scope-clean & deduplicate issues")
             dedup: DedupResult = await workflow.execute_activity(
                 dedup_activity,
-                DedupInput(
-                    team_id=stage.team_id,
-                    user_id=stage.user_id,
-                    report_id=stage.report_id,
-                    head_sha=stage.head_sha,
-                    repository=stage.repository,
-                    branch=stage.branch,
-                    run_index=stage.run_index,
-                    issues_json=issues_json,
-                ),
+                stage,
                 start_to_close_timeout=_SANDBOX_TIMEOUT,
                 heartbeat_timeout=_SANDBOX_HEARTBEAT,
                 retry_policy=_RETRY,
             )
-            workflow.logger.info(f"Persisted {dedup.findings_count} finding(s) to the review report")
+            workflow.logger.info(f"Persisted {len(dedup.issue_ids)} finding(s) to the review report")
 
-            workflow.logger.info("STAGE 6/8 · Validate issues")
+            workflow.logger.info("STAGE 5/7 · Validate issues")
             await workflow.execute_child_workflow(
                 ValidateIssuesWorkflow.run,
                 ValidateIssuesInputs(
@@ -471,14 +450,14 @@ class ReviewPRWorkflow:
                     repository=stage.repository,
                     branch=stage.branch,
                     run_index=stage.run_index,
-                    issues_json=dedup.issues_json,
+                    issue_ids=dedup.issue_ids,
                     acting_user_id=acting_user_id,
                 ),
                 id=f"{parent_id}/validate",
                 retry_policy=_RETRY,
             )
 
-            workflow.logger.info("STAGE 7/8 · Build report")
+            workflow.logger.info("STAGE 6/7 · Build report")
             await workflow.execute_activity(
                 build_body_activity,
                 BuildBodyInput(
@@ -486,14 +465,14 @@ class ReviewPRWorkflow:
                     report_id=report_id,
                     head_sha=head_sha,
                     run_index=stage.run_index,
-                    issues_json=dedup.issues_json,
+                    issue_ids=dedup.issue_ids,
                     urgency_threshold=acting.urgency_threshold,
                 ),
                 start_to_close_timeout=_QUICK_TIMEOUT,
                 retry_policy=_RETRY,
             )
 
-            workflow.logger.info("STAGE 8/8 · Publish review")
+            workflow.logger.info("STAGE 7/7 · Publish review")
             if inputs.publish and meta.pr_number is not None:
                 publish_result = await workflow.execute_activity(
                     publish_review_activity,

@@ -167,16 +167,12 @@ async def _run_full_review_pr_workflow(
         )
         return True
 
-    @activity.defn(name="combine_and_clean_activity")
-    async def combine(input) -> list[str]:
-        return ["issue-json"]
-
     @activity.defn(name="dedup_activity")
     async def dedup(input) -> DedupResult:
         if fail_dedup:
             raise ApplicationError("sandbox layer down", non_retryable=True)
         # Two survivors in two different chunks, so validate fans out one warm session per chunk.
-        return DedupResult(issues_json=[json.dumps({"id": "1-1-1"}), json.dumps({"id": "1-2-1"})], findings_count=2)
+        return DedupResult(issue_ids=["1-1-1", "1-2-1"])
 
     @activity.defn(name="load_validation_skill_activity")
     async def load_validation(input: LoadValidationInput) -> LoadedValidationSkillDTO:
@@ -186,7 +182,7 @@ async def _run_full_review_pr_workflow(
     @activity.defn(name="validate_chunk_activity")
     async def validate_chunk(input: ValidateChunkInput) -> ValidateChunkResult:
         validate_calls.append(input.chunk_id)
-        return ValidateChunkResult(chunk_id=input.chunk_id, validated_count=len(input.issues_json))
+        return ValidateChunkResult(chunk_id=input.chunk_id, validated_count=len(input.issue_ids))
 
     @activity.defn(name="build_body_activity")
     async def build_body(input: BuildBodyInput) -> None:
@@ -226,7 +222,6 @@ async def _run_full_review_pr_workflow(
                 load_perspectives,
                 load_blind_spots,
                 review,
-                combine,
                 dedup,
                 load_validation,
                 validate_chunk,
@@ -455,7 +450,7 @@ def test_review_pr_workflow_inputs_deserialize_old_payloads():
     assert inputs.head_branch is None
 
 
-async def _run_validate_workflow(*, issues_json: list[str], validate_chunk) -> int:
+async def _run_validate_workflow(*, issue_ids: list[str], validate_chunk) -> int:
     """Run `ValidateIssuesWorkflow` with a stand-in chunk validator; return the validated count."""
 
     @activity.defn(name="load_validation_skill_activity")
@@ -473,7 +468,7 @@ async def _run_validate_workflow(*, issues_json: list[str], validate_chunk) -> i
         ):
             result = await env.client.execute_workflow(
                 ValidateIssuesWorkflow.run,
-                ValidateIssuesInputs(**_stage_kwargs(), issues_json=issues_json, acting_user_id=3),
+                ValidateIssuesInputs(**_stage_kwargs(), issue_ids=issue_ids, acting_user_id=3),
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
             )
@@ -488,21 +483,21 @@ async def test_validate_issues_workflow_fans_out_one_session_per_chunk():
 
     @activity.defn(name="validate_chunk_activity")
     async def validate_chunk(input: ValidateChunkInput) -> ValidateChunkResult:
-        calls.append((input.chunk_id, tuple(sorted(input.issues_json))))
-        return ValidateChunkResult(chunk_id=input.chunk_id, validated_count=len(input.issues_json))
+        calls.append((input.chunk_id, tuple(sorted(input.issue_ids))))
+        return ValidateChunkResult(chunk_id=input.chunk_id, validated_count=len(input.issue_ids))
 
-    issues = [
-        json.dumps({"id": "1-1-1"}),  # chunk 1
-        json.dumps({"id": "2-1-2"}),  # chunk 1 (different perspective)
-        json.dumps({"id": "1-2-1"}),  # chunk 2
-        "not-json",  # malformed → skipped
+    issue_ids = [
+        "1-1-1",  # chunk 1
+        "2-1-2",  # chunk 1 (different perspective)
+        "1-2-1",  # chunk 2
+        "malformed",  # not {pass}-{chunk}-{issue} → skipped
     ]
-    await _run_validate_workflow(issues_json=issues, validate_chunk=validate_chunk)
+    await _run_validate_workflow(issue_ids=issue_ids, validate_chunk=validate_chunk)
 
-    by_chunk = {chunk_id: set(issues_json) for chunk_id, issues_json in calls}
+    by_chunk = {chunk_id: set(ids) for chunk_id, ids in calls}
     assert set(by_chunk) == {1, 2}
-    assert by_chunk[1] == {json.dumps({"id": "1-1-1"}), json.dumps({"id": "2-1-2"})}
-    assert by_chunk[2] == {json.dumps({"id": "1-2-1"})}
+    assert by_chunk[1] == {"1-1-1", "2-1-2"}
+    assert by_chunk[2] == {"1-2-1"}
 
 
 @pytest.mark.asyncio
@@ -518,8 +513,7 @@ async def test_validate_issues_workflow_retries_a_failed_chunk_validation():
             raise RuntimeError("transient turn failure")
         return ValidateChunkResult(chunk_id=input.chunk_id, validated_count=1)
 
-    issues = [json.dumps({"id": "1-1-1"})]
-    validated = await _run_validate_workflow(issues_json=issues, validate_chunk=validate_chunk)
+    validated = await _run_validate_workflow(issue_ids=["1-1-1"], validate_chunk=validate_chunk)
     assert validated == 1
     assert attempts == list(range(1, VALIDATION_MAX_ATTEMPTS + 1))
 
@@ -534,8 +528,7 @@ async def test_validate_issues_workflow_is_best_effort_on_chunk_failure():
             raise RuntimeError("sandbox boom")
         return ValidateChunkResult(chunk_id=input.chunk_id, validated_count=1)
 
-    issues = [json.dumps({"id": "1-1-1"}), json.dumps({"id": "1-2-1"})]
-    validated = await _run_validate_workflow(issues_json=issues, validate_chunk=validate_chunk)
+    validated = await _run_validate_workflow(issue_ids=["1-1-1", "1-2-1"], validate_chunk=validate_chunk)
     assert validated == 1  # chunk 1 survived; chunk 2 dropped
 
 
@@ -547,6 +540,5 @@ async def test_validate_issues_workflow_fails_above_failure_floor():
     async def validate_chunk(input: ValidateChunkInput) -> ValidateChunkResult:
         raise RuntimeError("sandbox boom")
 
-    issues = [json.dumps({"id": "1-1-1"}), json.dumps({"id": "1-2-1"})]
     with pytest.raises(WorkflowFailureError):
-        await _run_validate_workflow(issues_json=issues, validate_chunk=validate_chunk)
+        await _run_validate_workflow(issue_ids=["1-1-1", "1-2-1"], validate_chunk=validate_chunk)
