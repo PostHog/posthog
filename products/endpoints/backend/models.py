@@ -10,6 +10,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from posthog.hogql import ast
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor
 
@@ -234,7 +235,13 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
                 self.columns = columns
                 self.save(update_fields=["columns", "updated_at"])
             if exc is not None:
-                capture_exception(exc)
+                # Expected user-facing HogQL errors (invalid queries) are not app bugs.
+                # Introspection is best-effort, so log them quietly rather than reporting
+                # them to error tracking, and reserve capture_exception for real failures.
+                if isinstance(exc, ExposedHogQLError):
+                    logger.warning("Skipping column introspection for invalid HogQL query: %s", exc)
+                else:
+                    capture_exception(exc)
         return self.columns
 
     @property

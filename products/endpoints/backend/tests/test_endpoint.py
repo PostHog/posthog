@@ -1577,6 +1577,41 @@ class TestExtractColumns(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result, expected)
 
 
+class TestGetColumns(ClickhouseTestMixin, APIBaseTest):
+    def _version(self, query: dict) -> EndpointVersion:
+        endpoint = create_endpoint_with_version(
+            name="get-columns-test",
+            team=self.team,
+            query=query,
+            created_by=self.user,
+        )
+        return endpoint.get_version()
+
+    def test_invalid_hogql_query_does_not_report_to_error_tracking(self):
+        # if() takes 3 args; 5 raises a QueryError (an ExposedHogQLError) — a user typo, not an app bug
+        version = self._version({"kind": "HogQLQuery", "query": "SELECT if(1, 2, 3, 4, 5) AS bad FROM events"})
+
+        with mock.patch("products.endpoints.backend.models.capture_exception") as mock_capture:
+            columns = version.get_columns()
+
+        mock_capture.assert_not_called()
+        self.assertEqual(columns, [])
+        version.refresh_from_db()
+        self.assertEqual(version.columns, [])
+
+    def test_unexpected_failure_is_reported_to_error_tracking(self):
+        version = self._version({"kind": "HogQLQuery", "query": "SELECT event FROM events"})
+
+        with (
+            mock.patch.object(EndpointVersion, "extract_columns", side_effect=RuntimeError("boom")),
+            mock.patch("products.endpoints.backend.models.capture_exception") as mock_capture,
+        ):
+            columns = version.get_columns()
+
+        mock_capture.assert_called_once()
+        self.assertEqual(columns, [])
+
+
 class TestClickhouseTypeMapping(TestCase):
     @parameterized.expand(
         [
