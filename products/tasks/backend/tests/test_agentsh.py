@@ -303,8 +303,11 @@ class TestModalSandboxAgentShWrapping(TestCase):
         from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
         from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 
-        sandbox_cls = ModalSandbox if provider == "modal" else DockerSandbox
-        sandbox = sandbox_cls.__new__(sandbox_cls)
+        sandbox: ModalSandbox | DockerSandbox
+        if provider == "modal":
+            sandbox = ModalSandbox.__new__(ModalSandbox)
+        else:
+            sandbox = DockerSandbox.__new__(DockerSandbox)
         cmd = sandbox._build_agent_server_command(
             repo_path="/tmp/workspace/repos/org/repo",
             task_id="test-task",
