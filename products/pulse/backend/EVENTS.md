@@ -2,7 +2,7 @@
 
 Every product-analytics event Pulse emits, with its properties and the dashboard panel(s) that consume it.
 This is the contract the Pulse health dashboard (and the future feedback-driven tuning loop) builds against — treat property renames as breaking changes and update this file in the same PR.
-The contract is maintained by hand (deliberate for 7 events): emission *shapes* are pinned by tests (`test_feedback_api.py`, `test_activities.py`), so a property rename fails tests; keeping this file in sync is part of those PRs.
+The contract is maintained by hand (deliberate for 7 events): emission _shapes_ are pinned by tests (`test_feedback_api.py`, `test_activities.py`), so a property rename fails tests; keeping this file in sync is part of those PRs.
 The dashboard is defined as code in `terraform/us/project-2/team-analytics-platform/pulse-health/`; its README carries the panel ↔ event table this file's "Dashboard panels" lines mirror.
 
 All events are captured against the acting user's distinct id.
