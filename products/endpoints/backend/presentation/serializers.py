@@ -10,7 +10,7 @@ from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 
-from products.endpoints.backend.constants import MaterializationFixStatus
+from products.endpoints.backend.facade.enums import MaterializationFixStatus
 
 
 class EndpointRequestSerializer(serializers.Serializer):
