@@ -12,6 +12,7 @@ const FLAKY_TESTS: FlakyTestListApi = {
     items: [
         {
             nodeid: 'posthog/api/test/test_decide/TestDecide::test_flag_rollout_consistency',
+            selector: 'posthog/api/test/test_decide.py::TestDecide::test_flag_rollout_consistency',
             rerun_passed_count: 6,
             failed_count: 4,
             failed_pr_count: 3,
@@ -21,6 +22,7 @@ const FLAKY_TESTS: FlakyTestListApi = {
         },
         {
             nodeid: 'posthog/tasks/test/test_usage_report/TestUsageReport::test_full_report',
+            selector: 'posthog/tasks/test/test_usage_report.py::TestUsageReport::test_full_report',
             rerun_passed_count: 0,
             failed_count: 9,
             failed_pr_count: 4,
@@ -30,6 +32,7 @@ const FLAKY_TESTS: FlakyTestListApi = {
         },
         {
             nodeid: 'posthog/hogql/test/test_resolver/TestResolver::test_asterisk_expander',
+            selector: 'posthog/hogql/test/test_resolver.py::TestResolver::test_asterisk_expander',
             rerun_passed_count: 2,
             failed_count: 1,
             failed_pr_count: 1,
@@ -39,6 +42,7 @@ const FLAKY_TESTS: FlakyTestListApi = {
         },
         {
             nodeid: 'posthog/temporal/tests/batch_exports/test_backfill::test_workflow_timeout',
+            selector: 'posthog/temporal/tests/batch_exports/test_backfill.py::test_workflow_timeout',
             rerun_passed_count: 1,
             failed_count: 2,
             failed_pr_count: 2,
