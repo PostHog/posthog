@@ -1962,9 +1962,8 @@ class FeatureFlagSerializer(
                 # nosemgrep: idor-lookup-without-team -- dashboard objects validated via get_fields() queryset restriction
                 FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
 
-        # The linked feature flag is the source of truth for variants and aggregation group type.
-        # Experiment reads derive these from the flag (see ExperimentBaseSerializer), so there is no
-        # longer a `parameters` mirror to keep in sync here.
+        # The linked feature flag is the source of truth for variants and aggregation group type;
+        # experiment reads derive these from the flag (see ExperimentBaseSerializer).
 
         if old_key != instance.key:
             _update_feature_flag_dashboard(instance, old_key)
