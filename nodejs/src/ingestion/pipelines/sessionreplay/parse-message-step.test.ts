@@ -4,7 +4,7 @@ import { gzip } from 'zlib'
 
 import { PipelineResultType } from '~/ingestion/framework/results'
 
-import { ParseMessageStepInput, createParseMessageStep } from './parse-message-step'
+import { ParseMessageStepInput, createParseMessageStep, decompressMessageValue } from './parse-message-step'
 import { SessionReplayHeaders } from './validate-headers-step'
 
 const compressWithGzip = promisify(gzip)
@@ -592,5 +592,41 @@ describe('createParseMessageStep', () => {
         if (result.type === PipelineResultType.OK) {
             expect(result.value.parsedMessage.session_id).toBe(expectedSessionId)
         }
+    })
+
+    describe('decompressMessageValue lz4 hardening', () => {
+        const lz4 = require('lz4')
+
+        function lz4Message(value: Buffer): Message {
+            return {
+                value,
+                headers: [{ 'content-encoding': Buffer.from('lz4') }],
+            } as unknown as Message
+        }
+
+        function lz4Frame(payload: Buffer, claimedSize?: number): Buffer {
+            const compressed = Buffer.alloc(lz4.encodeBound(payload.length))
+            const n = lz4.encodeBlock(payload, compressed)
+            const prefix = Buffer.alloc(4)
+            prefix.writeUInt32LE(claimedSize ?? payload.length, 0)
+            return Buffer.concat([prefix, compressed.subarray(0, n)])
+        }
+
+        it('round-trips a valid block', () => {
+            const payload = Buffer.from('{"distinct_id":"d","data":"x"}'.repeat(10))
+            expect(decompressMessageValue(lz4Message(lz4Frame(payload)))).toEqual(payload)
+        })
+
+        it('rejects a size prefix beyond the decompression cap instead of allocating it', () => {
+            const payload = Buffer.from('small')
+            const bomb = lz4Frame(payload, 0xffffffff)
+            expect(() => decompressMessageValue(lz4Message(bomb))).toThrow(/exceeds/)
+        })
+
+        it('rejects a size prefix that does not match the decoded length', () => {
+            const payload = Buffer.from('0123456789'.repeat(20))
+            const lying = lz4Frame(payload, payload.length + 512)
+            expect(() => decompressMessageValue(lz4Message(lying))).toThrow(/decoded/)
+        })
     })
 })
