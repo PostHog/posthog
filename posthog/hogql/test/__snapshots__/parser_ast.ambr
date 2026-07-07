@@ -11562,22 +11562,27 @@
     declarations: [
       {
         end: 24
-        expr: {
+        left: {
+          chain: [
+            "y"
+          ]
+          end: 1
+          from_asterisk: False
+          start: 0
+        }
+        right: {
           end: 24
           left: {
-            name: "y"
-            value: {
-              alias: "x"
-              end: 11
-              expr: {
-                end: 6
-                start: 5
-                value: 1
-              }
-              from_asterisk: False
-              hidden: False
+            alias: "x"
+            end: 11
+            expr: {
+              end: 6
               start: 5
+              value: 1
             }
+            from_asterisk: False
+            hidden: False
+            start: 5
           }
           op: "not in"
           right: {
@@ -11596,7 +11601,7 @@
             ]
             start: 19
           }
-          start: 0
+          start: 5
         }
         start: 0
       }

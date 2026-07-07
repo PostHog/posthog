@@ -5424,8 +5424,12 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "y := 1 as x :: Int",
                 "y := 1 as x + 2",
                 "y := 1 as x between 1 and 2",
-                "y := 1 as x not in (1,2)",
                 "for (y := 1 as x [1]; a; b) {}",
+                # A comparison is the exception: it binds to the bare alias
+                # (ColumnExprAliasCompare), so the value consumes the whole
+                # comparison and the statement promotes to a VariableAssignment
+                # instead of re-rooting.
+                "y := 1 as x not in (1,2)",
                 # Guards: promotion to VariableAssignment and statement-splitting
                 # recovery are unaffected.
                 "y := 1",
@@ -7825,9 +7829,76 @@ def parser_test_factory(backend: HogQLParserBackend):
             # A real lambda body after `AS` is not a valid alias and rejects on both
             # in plain expression context (the alias absorbs `lambda`, the `:` trails).
             # `AS`/aliases live in the loosest (boolean) precedence tier, so a value-tier
-            # operator (call `()`, arithmetic `+`, …) cannot bind to a bare alias — it
-            # needs parentheses (`(1 as lambda) + 2`). This matches ClickHouse/SQL.
+            # operator other than a comparison (call `()`, arithmetic `+`, …) cannot bind
+            # to a bare alias — it needs parentheses (`(1 as lambda) + 2`).
             for query in ("1 as lambda: 2", "1 as lambda x: x", "1 as lambda x", "1 as lambda()", "1 as lambda + 2"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(query, backend=backend)
+
+        def test_comparison_binds_to_bare_alias(self):
+            # A comparison may take an aliased expression as its left operand:
+            # `x AS er > 0` parses as `(x AS er) > 0`. ClickHouse accepts this in
+            # nested contexts (`SELECT if(1 AS x > 0, 1, 2)` is valid CH), and
+            # production models rely on it inside `if(...)` conditions. Other
+            # value-tier continuations after a bare alias (`+`, `??`, `IS NULL`,
+            # `::`, `[`, BETWEEN) still require parentheses.
+            self.assertEqual(
+                self._expr("1 as x > 0"),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Gt,
+                    left=ast.Alias(alias="x", expr=ast.Constant(value=1)),
+                    right=ast.Constant(value=0),
+                ),
+            )
+            # The alias keeps its old left reach: it still captures a whole comparison.
+            self.assertEqual(
+                self._expr("1 > 2 as x"),
+                ast.Alias(
+                    alias="x",
+                    expr=ast.CompareOperation(
+                        op=ast.CompareOperationOp.Gt,
+                        left=ast.Constant(value=1),
+                        right=ast.Constant(value=2),
+                    ),
+                ),
+            )
+            # Full parity against cpp (values + positions) for the comparison set
+            # and its interplay with AND/OR, ternary, and a chained alias.
+            for query in (
+                "1 as x > 0",
+                "1 as x < 0",
+                "1 as x >= 0 and x",
+                "1 as x != 2 or x",
+                "1 as x not in (1, 2)",
+                "'a' as x like 'a%'",
+                "1 as x > 0 as y",
+                "x as a > 1 ? a : 0",
+                "if(JSONExtractFloat(properties, 'rate') as rate > 0, rate, 1.0)",
+            ):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+            for query in (
+                "select if(JSONExtractFloat(properties, 'rate') as rate > 0, rate, 1.0) as r from events",
+                "select 1 as x > 0 from t",
+            ):
+                self.assertEqual(
+                    parse_select(query, backend="cpp-json"),
+                    parse_select(query, backend=backend),
+                    msg=query,
+                )
+            # Non-comparison continuations after a bare alias stay rejected —
+            # notably BETWEEN, so an alias can't reopen the bounds-vs-AND hole.
+            for query in (
+                "1 as x + 2",
+                "1 as x ?? 2",
+                "1 as x is null",
+                "1 as x :: Int",
+                "1 as x [1]",
+                "1 as x between 1 and 2",
+            ):
                 with self.assertRaises(BaseHogQLError):
                     parse_expr(query, backend=backend)
 
