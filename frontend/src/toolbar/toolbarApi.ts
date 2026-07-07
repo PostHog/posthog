@@ -25,9 +25,10 @@ import type { ActionType, CombinedFeatureFlagAndValueType, EventDefinition, Prod
  *   - It always parses the body and returns a discriminated-union `ToolbarApiResult`,
  *     so every call site branches on `result.ok` the same way.
  *   - It centralizes observability: every failure is logged via `toolbarLogger`, and
- *     genuinely-unexpected failures (network errors, 5xx, malformed JSON) are reported
- *     to error tracking. Auth (401/403) and client (4xx) errors are expected outcomes —
- *     they are logged but not reported as exceptions.
+ *     genuinely-unexpected failures (5xx, malformed JSON) are reported to error tracking.
+ *     Auth (401/403), client (4xx), and network-level errors are expected outcomes: the
+ *     last are environmental (blocked/wrapped `window.fetch`, ad blockers, CORS, offline),
+ *     so they are logged but not reported as exceptions.
  *   - Per-request telemetry (`toolbar api request`) is emitted by `toolbarFetch` itself.
  *
  * What stays at the call site is only what is genuinely call-site specific: the
@@ -80,7 +81,7 @@ export interface ToolbarApiOptions {
      */
     reauthenticateOnForbidden?: boolean
     /**
-     * Report unexpected failures (network / 5xx / malformed JSON) to error tracking.
+     * Report unexpected failures (5xx / malformed JSON) to error tracking.
      * Defaults to `true`. Set to `false` when the caller deliberately re-raises the
      * failure (e.g. a kea loader that throws to drive its own `*Failure` reducer) so the
      * exception is only captured once.
@@ -155,7 +156,7 @@ async function request<T>(
     let response: Response
     try {
         response = await toolbarFetch(url, method, payload, urlConstruction)
-    } catch (e) {
+    } catch {
         const error: ToolbarApiErrorInfo = {
             status: 0,
             detail: 'Network error',
@@ -163,10 +164,11 @@ async function request<T>(
             isAuthError: false,
             isNetworkError: true,
         }
-        toolbarLogger.error('api', `Request failed (network): ${context}`, { context, method, pathname })
-        if (captureOnError) {
-            captureToolbarException(e, context, { reason: 'network' })
-        }
+        // Network-level failures are environmental, not defects: a customer page that wrapped
+        // or blocked `window.fetch`, an ad blocker, CORS, or the user going offline. They surface
+        // as "TypeError: Failed to fetch" and are unactionable, so (like auth and other 4xx) we
+        // log them for debugging but never report them as exceptions.
+        toolbarLogger.warn('api', `Request failed (network): ${context}`, { context, method, pathname })
         emitToast(toastOnError, error)
         return { ok: false, status: 0, data: null, error }
     }
