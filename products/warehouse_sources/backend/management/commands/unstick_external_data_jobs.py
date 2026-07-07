@@ -158,9 +158,10 @@ class Command(BaseCommand):
         with psycopg.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as conn:
             for job, classification in actionable:
                 self.stdout.write(f"job={job.id}:")
-                self._fix_job(conn, temporal, job, classification, reason=reason)
+                is_latest = bool(job.schema_id) and self._is_latest_job_for_schema(job)
+                self._fix_job(conn, temporal, job, classification, reason=reason, is_latest=is_latest)
                 if trigger_sync:
-                    self._maybe_trigger_sync(job, triggered_schemas)
+                    self._maybe_trigger_sync(job, triggered_schemas, is_latest=is_latest)
                 logger.info(
                     "unstick_external_data_jobs_fixed",
                     job_id=str(job.id),
@@ -209,6 +210,7 @@ class Command(BaseCommand):
         classification: Classification,
         *,
         reason: str,
+        is_latest: bool,
     ) -> None:
         """Each step is isolated so one failure doesn't abort the rest of the sweep."""
         if classification.kind in ("wedged", "healthy"):
@@ -240,7 +242,7 @@ class Command(BaseCommand):
             elif get_v3_pipeline_lock_holder(job.team_id, str(job.schema_id)) is not None:
                 self.stdout.write("  redis lock: held by a different token - left in place")
 
-        if job.schema_id and self._is_latest_job_for_schema(job):
+        if job.schema_id and is_latest:
             schema_updated = ExternalDataSchema.objects.filter(
                 id=job.schema_id, team_id=job.team_id, status=ExternalDataSchema.Status.RUNNING
             ).update(status=ExternalDataSchema.Status.FAILED, latest_error=reason, updated_at=now)
@@ -262,10 +264,10 @@ class Command(BaseCommand):
             logger.exception("unstick_external_data_jobs_terminate_failed", workflow_id=job.workflow_id)
             self.stdout.write(self.style.ERROR("  temporal: terminate failed (see logs)"))
 
-    def _maybe_trigger_sync(self, job: ExternalDataJob, triggered_schemas: set[str]) -> None:
+    def _maybe_trigger_sync(self, job: ExternalDataJob, triggered_schemas: set[str], *, is_latest: bool) -> None:
         if not job.schema_id or str(job.schema_id) in triggered_schemas:
             return
-        if not self._is_latest_job_for_schema(job):
+        if not is_latest:
             self.stdout.write("  sync: newer job exists for schema - not retriggering")
             return
 
@@ -273,12 +275,15 @@ class Command(BaseCommand):
         if schema is None or schema.deleted or not schema.should_sync:
             self.stdout.write("  sync: schema deleted or sync disabled - not retriggering")
             return
+        # Same guard the reload/resync endpoints apply before triggering a sync: a
+        # Paused schema on the team means syncing was deliberately stopped, so a
+        # bulk sweep shouldn't restart it.
         if (
             ExternalDataSchema.objects.exclude(deleted=True)
             .filter(team_id=job.team_id, status=ExternalDataSchema.Status.PAUSED)
             .exists()
         ):
-            self.stdout.write("  sync: team has paused schemas (billing limit) - not retriggering")
+            self.stdout.write("  sync: team has a paused schema - not retriggering")
             return
 
         try:
