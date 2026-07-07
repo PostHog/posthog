@@ -261,6 +261,26 @@ class DuckgresBatchQueue:
             await cur.execute(
                 f"""
                 WITH {ELIGIBILITY_CTES}
+                team_org AS (
+                    -- Enabled-team -> (org, budget) mapping, passed in because the
+                    -- queue DB has no teams table. Empty when no caps apply.
+                    SELECT team_id, org_id, budget
+                    FROM unnest(
+                        %(budget_team_ids)s::bigint[],
+                        %(budget_org_ids)s::varchar[],
+                        %(budget_values)s::int[]
+                    ) AS t(team_id, org_id, budget)
+                ),
+                org_usage AS (
+                    -- Fleet-wide in-flight groups per org: every live lease, any
+                    -- owner (including this pod's own in-flight groups, which the
+                    -- candidates CTE already excludes from re-claiming).
+                    SELECT m.org_id, count(*) AS live
+                    FROM {DUCKGRES_LEASE_TABLE} l
+                    JOIN team_org m ON m.team_id = l.team_id
+                    WHERE l.expires_at > now()
+                    GROUP BY m.org_id
+                ),
                 candidates AS MATERIALIZED (
                     SELECT
                         {pending_batch_select_columns("dgs")}
@@ -289,6 +309,20 @@ class DuckgresBatchQueue:
                                 AND bl.schema_id = b.schema_id
                                 AND bl.expires_at > now()
                                 AND bl.owner_token <> %(owner)s
+                        )
+                        -- Fully budget-saturated orgs are unclaimable too, and for
+                        -- the same reason must be filtered BEFORE the LIMIT: a
+                        -- saturated org's deep backlog (e.g. a pending backfill)
+                        -- would otherwise fill the window with rows the group
+                        -- filter then drops, and the pod claims nothing while
+                        -- other orgs have work. Partially available orgs keep
+                        -- their rows; candidate_groups ranks those per org below.
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM team_org m
+                            JOIN org_usage u ON u.org_id = m.org_id
+                            WHERE m.team_id = b.team_id
+                                AND u.live >= m.budget
                         )
                         AND NOT {BLOCKED_LIVE_BATCH_CONDITION}
                         AND ds.job_state = 'succeeded'
@@ -388,32 +422,13 @@ class DuckgresBatchQueue:
                     ORDER BY b.created_at ASC, b.batch_index ASC, b.is_final_batch ASC
                     LIMIT %(limit)s
                 ),
-                team_org AS (
-                    -- Enabled-team -> (org, budget) mapping, passed in because the
-                    -- queue DB has no teams table. Empty when no caps apply.
-                    SELECT team_id, org_id, budget
-                    FROM unnest(
-                        %(budget_team_ids)s::bigint[],
-                        %(budget_org_ids)s::varchar[],
-                        %(budget_values)s::int[]
-                    ) AS t(team_id, org_id, budget)
-                ),
-                org_usage AS (
-                    -- Fleet-wide in-flight groups per org: every live lease, any
-                    -- owner (including this pod's own in-flight groups, which the
-                    -- candidates CTE already excluded from re-claiming).
-                    SELECT m.org_id, count(*) AS live
-                    FROM {DUCKGRES_LEASE_TABLE} l
-                    JOIN team_org m ON m.team_id = l.team_id
-                    WHERE l.expires_at > now()
-                    GROUP BY m.org_id
-                ),
                 candidate_groups AS (
                     -- Cap leased groups to the consumer's free slots, oldest work
                     -- first (NULL = no cap): a leased-but-unstarted group would be
                     -- renewed by every poll and stay dark to other pods. Groups of
-                    -- an org at its sink budget are skipped (not merely deferred),
-                    -- so other orgs' groups still fill max_groups.
+                    -- an org with only PARTIAL budget left are ranked here and the
+                    -- overflow skipped (fully saturated orgs never reached the
+                    -- candidates window at all), so other orgs still fill max_groups.
                     SELECT g.team_id, g.schema_id
                     FROM (
                         SELECT

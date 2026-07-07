@@ -1027,6 +1027,29 @@ class TestOrgConcurrencyBudget:
         assert {(b.team_id, b.schema_id) for b in batches} == {(3, "s3")}
 
     @pytest.mark.asyncio
+    async def test_saturated_orgs_deep_backlog_cannot_fill_the_candidate_window(self, conn):
+        # The budget filter must apply BEFORE the candidate LIMIT, like the
+        # other-owner lease exclusion above it: a fully saturated org's deep
+        # backlog would otherwise fill the window with rows the group filter
+        # then drops, and the pod claims NOTHING while other orgs have work.
+        one_slot = [(1, "org-a", 1), (3, "org-b", 4)]
+        await self._eligible_group(conn, team_id=1, schema_id="s0")
+        claimed = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="other-pod", team_org_budgets=one_slot
+        )
+        assert len(claimed) == 1  # org-a saturated
+
+        for i in range(3):  # org-a backlog, all older than org-b's work
+            await self._eligible_group(conn, team_id=1, schema_id=f"s{i + 1}")
+        await self._eligible_group(conn, team_id=3, schema_id="sb")
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", limit=3, team_org_budgets=one_slot
+        )
+
+        assert {(b.team_id, b.schema_id) for b in batches} == {(3, "sb")}
+
+    @pytest.mark.asyncio
     async def test_unmapped_team_is_uncapped(self, conn):
         # The mapping caps; it must never act as an eligibility filter —
         # team_ids/eligible_schema_ids own that. A team missing from the
