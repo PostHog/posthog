@@ -215,6 +215,14 @@ class _PostgresQueueReplay:
 _pg_queue_replay = _PostgresQueueReplay()
 
 
+# Pin util's query-folder clock so successive syncs get distinct __query_<ts> folders (as prod's
+# spaced syncs do). Scoped to util, not freeze_time, which would freeze the source DB timeouts.
+def _query_folder_clock(unix_ts: float):
+    clock = mock.MagicMock()
+    clock.now.return_value.timestamp.return_value = unix_ts
+    return mock.patch("products.warehouse_sources.backend.temporal.data_imports.util.datetime", clock)
+
+
 @pytest.fixture
 def postgres_config():
     return {
@@ -4152,16 +4160,19 @@ async def test_mysql_incremental_integer_cursor(team, mysql_config, mysql_connec
         ],
     )
 
-    _workflow_id, inputs = await _run(
-        team=team,
-        schema_name="events_int_incremental",
-        table_name="mysql_events_int_incremental",
-        source_type="MySQL",
-        job_inputs=_mysql_job_inputs(mysql_config),
-        mock_data_response=[],
-        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
-        sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
-    )
+    # Distinct folder timestamp per sync — same-second syncs share a folder and read stale parquet.
+    folder_ts = datetime.now().timestamp()
+    with _query_folder_clock(folder_ts):
+        _workflow_id, inputs = await _run(
+            team=team,
+            schema_name="events_int_incremental",
+            table_name="mysql_events_int_incremental",
+            source_type="MySQL",
+            job_inputs=_mysql_job_inputs(mysql_config),
+            mock_data_response=[],
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+        )
 
     res = await sync_to_async(execute_hogql_query)("SELECT id FROM mysql_events_int_incremental ORDER BY id", team)
     assert [row[0] for row in res.results] == [1]
@@ -4175,8 +4186,9 @@ async def test_mysql_incremental_integer_cursor(team, mysql_config, mysql_connec
         ],
     )
 
-    await _execute_run(str(uuid.uuid4()), inputs, [])
-    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+    with _query_folder_clock(folder_ts + 300):
+        await _execute_run(str(uuid.uuid4()), inputs, [])
+        await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
     res = await sync_to_async(execute_hogql_query)("SELECT id FROM mysql_events_int_incremental ORDER BY id", team)
     assert [row[0] for row in res.results] == [1, 2, 3]
@@ -4336,17 +4348,21 @@ async def test_postgres_xmin_sync(team, postgres_config, postgres_connection):
     )
     await postgres_connection.commit()
 
+    # Distinct folder timestamp per sync — same-second syncs share a folder and read stale parquet.
+    folder_ts = datetime.now().timestamp()
+
     # Initial snapshot captures the committed row (`_run` asserts exactly one row landed).
-    _workflow_id, inputs = await _run(
-        team=team,
-        schema_name="xmin_table",
-        table_name="postgres_xmin_table",
-        source_type="Postgres",
-        job_inputs=_postgres_job_inputs(postgres_config),
-        mock_data_response=[],
-        sync_type=ExternalDataSchema.SyncType.XMIN,
-        sync_type_config={},
-    )
+    with _query_folder_clock(folder_ts):
+        _workflow_id, inputs = await _run(
+            team=team,
+            schema_name="xmin_table",
+            table_name="postgres_xmin_table",
+            source_type="Postgres",
+            job_inputs=_postgres_job_inputs(postgres_config),
+            mock_data_response=[],
+            sync_type=ExternalDataSchema.SyncType.XMIN,
+            sync_type_config={},
+        )
 
     res = await sync_to_async(execute_hogql_query)("SELECT id, name FROM postgres_xmin_table ORDER BY id", team)
     assert [(r[0], r[1]) for r in res.results] == [(1, "a")]
@@ -4367,8 +4383,9 @@ async def test_postgres_xmin_sync(team, postgres_config, postgres_connection):
     )
     await postgres_connection.commit()
 
-    await _execute_run(str(uuid.uuid4()), inputs, [])
-    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+    with _query_folder_clock(folder_ts + 300):
+        await _execute_run(str(uuid.uuid4()), inputs, [])
+        await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
     # Only the delta is read, upserted by primary key: row 1 reflects the update, row 2 is new.
     res = await sync_to_async(execute_hogql_query)("SELECT id, name FROM postgres_xmin_table ORDER BY id", team)
@@ -4383,8 +4400,9 @@ async def test_postgres_xmin_sync(team, postgres_config, postgres_connection):
     await postgres_connection.execute("DELETE FROM {schema}.xmin_table WHERE id = 2".format(schema=schema_name))
     await postgres_connection.commit()
 
-    await _execute_run(str(uuid.uuid4()), inputs, [])
-    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+    with _query_folder_clock(folder_ts + 900):
+        await _execute_run(str(uuid.uuid4()), inputs, [])
+        await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
     res = await sync_to_async(execute_hogql_query)("SELECT id, name FROM postgres_xmin_table ORDER BY id", team)
     assert [(r[0], r[1]) for r in res.results] == [(1, "a2"), (2, "b")]
@@ -4449,17 +4467,21 @@ async def test_postgres_switch_to_xmin_rebuilds_table(team, postgres_config, pos
     )
     await postgres_connection.commit()
 
+    # Distinct query-folder timestamp per sync (see test_mysql_incremental_integer_cursor).
+    folder_ts = datetime.now().timestamp()
+
     # First sync as incremental — the Delta table is created without `_ph_xmin`.
-    _workflow_id, inputs = await _run(
-        team=team,
-        schema_name="switch_tbl",
-        table_name="postgres_switch_tbl",
-        source_type="Postgres",
-        job_inputs=_postgres_job_inputs(postgres_config),
-        mock_data_response=[],
-        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
-        sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
-    )
+    with _query_folder_clock(folder_ts):
+        _workflow_id, inputs = await _run(
+            team=team,
+            schema_name="switch_tbl",
+            table_name="postgres_switch_tbl",
+            source_type="Postgres",
+            job_inputs=_postgres_job_inputs(postgres_config),
+            mock_data_response=[],
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+        )
 
     res = await sync_to_async(execute_hogql_query)("SELECT id, name FROM postgres_switch_tbl ORDER BY id", team)
     assert [(r[0], r[1]) for r in res.results] == [(1, "a")]
@@ -4475,8 +4497,9 @@ async def test_postgres_switch_to_xmin_rebuilds_table(team, postgres_config, pos
     )
     await postgres_connection.commit()
 
-    await _execute_run(str(uuid.uuid4()), inputs, [])
-    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+    with _query_folder_clock(folder_ts + 300):
+        await _execute_run(str(uuid.uuid4()), inputs, [])
+        await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
     # The table was rebuilt from scratch under xmin (first xmin run reads everything below the
     # ceiling), so both rows land and the `_ph_xmin` column is present.
