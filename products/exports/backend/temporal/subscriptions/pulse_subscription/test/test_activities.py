@@ -110,6 +110,24 @@ async def test_prepare_creates_scheduled_brief_and_is_idempotent(team, user) -> 
     assert snapshot[PULSE_BRIEF_ID_SNAPSHOT_KEY] == first.brief_id
 
 
+async def test_prepare_retry_keeps_original_period_days_after_frequency_change(team, user) -> None:
+    await _set_ai_consent(team, True)
+    config = await _create_config(team)
+    subscription = await _create_pulse_subscription(team, user, config.id)  # weekly → 7-day window
+    delivery = await _create_delivery(subscription)
+    inputs = PreparePulseBriefInputs(subscription_id=subscription.id, delivery_id=delivery.id)
+
+    first = await ActivityEnvironment().run(prepare_pulse_brief_subscription, inputs)
+    assert first.period_days == 7
+
+    subscription.frequency = Subscription.SubscriptionFrequency.MONTHLY  # would derive 30 days
+    await sync_to_async(subscription.save)(update_fields=["frequency"])
+
+    second = await ActivityEnvironment().run(prepare_pulse_brief_subscription, inputs)
+    assert second.brief_id == first.brief_id
+    assert second.period_days == 7, "retry must use the brief's original window, not the changed frequency"
+
+
 @pytest.mark.parametrize(
     "name,consent,config_kwargs,delete_config",
     [

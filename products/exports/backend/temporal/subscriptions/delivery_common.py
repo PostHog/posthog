@@ -125,6 +125,10 @@ SnapshotValue = str | list[dict[str, str | bool | None]]
 
 
 async def write_delivery_snapshot_values(delivery_id: uuid.UUID, values: dict[str, SnapshotValue]) -> None:
+    """Merge keys into a delivery's content_snapshot. Assumes single-writer execution: the
+    activities for one delivery_id run sequentially within a single workflow, so this
+    read-modify-write is never concurrent. Not safe to call from concurrent writers."""
+
     @database_sync_to_async(thread_sensitive=False)
     def _write() -> None:
         # No DoesNotExist guard: create_delivery_record always writes this row first,
