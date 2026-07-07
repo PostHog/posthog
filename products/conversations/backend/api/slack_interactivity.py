@@ -17,18 +17,11 @@ import structlog
 
 from posthog.models.integration import SlackIntegrationError
 
-from products.conversations.backend.models import TeamConversationsSlackConfig
 from products.conversations.backend.services.region_routing import is_primary_region, proxy_to_secondary_region
-from products.conversations.backend.support_slack import validate_support_request
+from products.conversations.backend.support_slack import team_exists_for_slack_workspace, validate_support_request
 from products.conversations.backend.tasks import process_supporthog_interactivity
 
 logger = structlog.get_logger(__name__)
-
-
-def _team_exists_for_slack_workspace(slack_team_id: str) -> bool:
-    return TeamConversationsSlackConfig.objects.filter(
-        slack_team_id=slack_team_id, slack_bot_token__isnull=False
-    ).exists()
 
 
 @csrf_exempt
@@ -60,7 +53,7 @@ def supporthog_interactivity_handler(request: HttpRequest) -> HttpResponse:
 
     logger.info("supporthog_interactivity_received", payload_type=payload.get("type"), slack_team_id=slack_team_id)
 
-    if _team_exists_for_slack_workspace(slack_team_id) and not (settings.DEBUG and is_primary_region(request)):
+    if team_exists_for_slack_workspace(slack_team_id) and not (settings.DEBUG and is_primary_region(request)):
         cast(Any, process_supporthog_interactivity).delay(payload=payload, slack_team_id=slack_team_id)
     elif is_primary_region(request):
         proxy_to_secondary_region(request, log_prefix="supporthog_interactivity")
