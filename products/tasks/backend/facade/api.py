@@ -2132,6 +2132,17 @@ def relay_task_run_message(
 # --- Task run creation / start / cloud resume ---
 
 
+def user_can_author_repository(user_id: int, repository: str) -> bool:
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
+        get_user_github_integration,
+        user_github_integration_is_usable,
+    )
+
+    user = User.objects.filter(id=user_id).first()
+    integration = get_user_github_integration(user, repository=repository, allow_refresh=False)
+    return user_github_integration_is_usable(integration)
+
+
 def _ensure_task_team_github_integration(task: Task) -> bool:
     if task.github_integration_id is not None:
         return True
@@ -2838,6 +2849,8 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     warm_runtime_adapter = validated_data.pop("runtime_adapter", None)
     warm_model = validated_data.pop("model", None)
     warm_reasoning_effort = validated_data.pop("reasoning_effort", None)
+    pending_user_message = (validated_data.pop("pending_user_message", None) or "").strip() or None
+    pending_user_artifact_ids = validated_data.pop("pending_user_artifact_ids", None) or []
 
     if user_id is not None:
         validated_data["created_by"] = User.objects.get(id=user_id)
@@ -2857,18 +2870,44 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
             model=warm_model,
             reasoning_effort=warm_reasoning_effort,
         )
+        if warm_run is not None and pending_user_artifact_ids:
+            from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+                get_task_run_artifacts_by_id,
+            )
+
+            _, missing_artifact_ids = get_task_run_artifacts_by_id(warm_run, pending_user_artifact_ids)
+            if missing_artifact_ids:
+                logger.info(
+                    "Skipping warm run reuse: %d pending artifact id(s) missing from warm run %s manifest",
+                    len(missing_artifact_ids),
+                    warm_run.id,
+                )
+                warm_run = None
         if warm_run is not None:
             warm_task = warm_run.task
-            message = (validated_data.get("description") or "").strip()
-            if message and not (warm_task.title or "").strip():
-                warm_task.title = generate_task_title(message)
+            description = (validated_data.get("description") or "").strip()
+            update_fields: list[str] = []
+            if description and not (warm_task.title or "").strip():
+                warm_task.title = generate_task_title(description)
                 warm_task.title_manually_set = False
-                warm_task.save(update_fields=["title", "title_manually_set", "updated_at"])
+                update_fields += ["title", "title_manually_set"]
+            if description and not (warm_task.description or "").strip():
+                warm_task.description = description
+                update_fields.append("description")
             channel = validated_data.get("channel")
             if channel is not None and warm_task.channel_id != channel.id:
                 warm_task.channel = channel
-                warm_task.save(update_fields=["channel", "updated_at"])
-            _activate_warm_run(warm_run, warm_task, team_id, message=message or None, artifact_ids=[])
+                update_fields.append("channel")
+            if update_fields:
+                warm_task.save(update_fields=[*update_fields, "updated_at"])
+            _activate_warm_run(
+                warm_run,
+                warm_task,
+                team_id,
+                message=pending_user_message or description or None,
+                description=description or None,
+                artifact_ids=pending_user_artifact_ids,
+            )
             return _task_detail_to_dto(_task_detail_queryset().get(pk=warm_task.pk))
 
     # Only IMPLEMENTATION is accepted; pop it so it isn't forwarded to the model. The link itself
@@ -3166,16 +3205,48 @@ def _idling_warm_run_for_task(task: Task) -> TaskRun | None:
     return run
 
 
-def _activate_warm_run(run: TaskRun, task: Task, team_id: int, *, message: str | None, artifact_ids: list[str]) -> None:
-    """Activate an idling warm Run: set the draft Task's description (when empty), forward the first
-    message to the already-running agent, and drop the ``await_user_message`` marker so the Run leaves
-    the warm pool. Mirrors ``message_routing._handle_first_message``; no fresh agent start."""
+def _attach_staged_artifacts_to_run(
+    run: TaskRun, task: Task, *, staged_artifacts: list[dict], artifact_ids: list[str]
+) -> None:
+    from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        RUN_ARTIFACT_TTL_DAYS,
+        build_task_staged_artifact_cache_key,
+        tag_task_artifact,
+    )
+    from products.tasks.backend.redis import get_tasks_cache  # noqa: PLC0415
+
+    manifest = list(run.artifacts or [])
+    for staged_artifact in staged_artifacts:
+        storage_path = str(staged_artifact["storage_path"])
+        if _find_artifact_manifest_entry(manifest, str(staged_artifact.get("id")), storage_path):
+            continue
+        tag_task_artifact(storage_path, ttl_days=RUN_ARTIFACT_TTL_DAYS, team_id=task.team_id)
+        manifest.append(dict(staged_artifact))
+    _save_artifact_manifest(run, manifest)
+    get_tasks_cache().delete_many(
+        [build_task_staged_artifact_cache_key(str(task.id), artifact_id) for artifact_id in artifact_ids]
+    )
+
+
+def _activate_warm_run(
+    run: TaskRun,
+    task: Task,
+    team_id: int,
+    *,
+    message: str | None,
+    artifact_ids: list[str],
+    description: str | None = None,
+) -> None:
+    """Activate an idling warm Run: set the draft Task's visible description from raw task text,
+    forward the first message to the already-running agent, and drop the ``await_user_message`` marker
+    so the Run leaves the warm pool. Mirrors ``message_routing._handle_first_message``; no fresh agent
+    start."""
     from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
         observe_prewarmed_activated,
     )
 
-    if message and not (task.description or "").strip():
-        task.description = message
+    if description and not (task.description or "").strip():
+        task.description = description
         task.save(update_fields=["description", "updated_at"])
     signal_task_run_user_message(run.id, task.id, team_id, content=message, artifact_ids=artifact_ids)
     TaskRun.update_state_atomic(run.id, remove_keys=["await_user_message"])
@@ -3298,13 +3369,7 @@ def run_task(
     ``TaskRunResult`` carrying the refreshed task detail DTO or a structured error. The usage
     gate (429) is applied by the view before calling this.
     """
-    from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415
-        RUN_ARTIFACT_TTL_DAYS,
-        build_task_staged_artifact_cache_key,
-        get_task_staged_artifacts,
-        tag_task_artifact,
-    )
-    from products.tasks.backend.redis import get_tasks_cache  # noqa: PLC0415
+    from products.tasks.backend.logic.services.staged_artifacts import get_task_staged_artifacts  # noqa: PLC0415
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
         PrAuthorshipMode,
         RunSource,
@@ -3322,6 +3387,7 @@ def run_task(
     branch = validated_data.get("branch")
     resume_from_run_id = validated_data.get("resume_from_run_id")
     pending_user_message = validated_data.get("pending_user_message")
+    pending_user_artifact_ids = validated_data.get("pending_user_artifact_ids") or []
 
     if not resume_from_run_id:
         warm_run = _idling_warm_run_for_task(task)
@@ -3337,15 +3403,28 @@ def run_task(
                 validated_data.get("reasoning_effort") or None,
             )
             if warm_runtime_matches:
-                _activate_warm_run(
-                    warm_run,
-                    task,
-                    team_id,
-                    message=pending_user_message or (task.description or None),
-                    artifact_ids=validated_data.get("pending_user_artifact_ids") or [],
+                warm_staged_artifacts, warm_missing_artifact_ids = (
+                    get_task_staged_artifacts(task, pending_user_artifact_ids)
+                    if pending_user_artifact_ids
+                    else ([], [])
                 )
-                return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))
-    pending_user_artifact_ids = validated_data.get("pending_user_artifact_ids") or []
+                if not warm_missing_artifact_ids:
+                    if warm_staged_artifacts:
+                        _attach_staged_artifacts_to_run(
+                            warm_run,
+                            task,
+                            staged_artifacts=warm_staged_artifacts,
+                            artifact_ids=pending_user_artifact_ids,
+                        )
+                    _activate_warm_run(
+                        warm_run,
+                        task,
+                        team_id,
+                        message=pending_user_message or (task.description or None),
+                        description=task.description or None,
+                        artifact_ids=pending_user_artifact_ids,
+                    )
+                    return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))
     sandbox_environment_id = validated_data.get("sandbox_environment_id")
     sandbox_environment_id_supplied_by_user = sandbox_environment_id is not None
     pr_authorship_mode = validated_data.get("pr_authorship_mode")
@@ -3497,17 +3576,9 @@ def run_task(
     task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
 
     if pending_user_artifact_ids:
-        run_artifacts: list[dict] = []
-        for staged_artifact in staged_artifacts:
-            storage_path = str(staged_artifact["storage_path"])
-            tag_task_artifact(storage_path, ttl_days=RUN_ARTIFACT_TTL_DAYS, team_id=task.team_id)
-            run_artifacts.append(dict(staged_artifact))
-
-        task_run.artifacts = run_artifacts
-        task_run.save(update_fields=["artifacts", "updated_at"])
-
-        for artifact_id in pending_user_artifact_ids:
-            get_tasks_cache().delete(build_task_staged_artifact_cache_key(str(task.id), artifact_id))
+        _attach_staged_artifacts_to_run(
+            task_run, task, staged_artifacts=staged_artifacts, artifact_ids=pending_user_artifact_ids
+        )
 
     if github_user_token and pr_authorship_mode == PrAuthorshipMode.USER:
         cache_github_user_token(str(task_run.id), github_user_token)

@@ -8,6 +8,7 @@ import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { UniversalFiltersGroup } from '~/types'
 
+import { LogsGroupByResults } from 'products/logs/frontend/components/LogsGroupBy/LogsGroupByResults'
 import { LogsPatterns } from 'products/logs/frontend/components/LogsPatterns/LogsPatterns'
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
@@ -106,12 +107,13 @@ function LogsViewerContent({
         clearSelection,
         togglePrettifyLog,
     } = useActions(logsViewerLogic)
-    const { orderBy, sparklineBreakdownBy, sparklineCollapsed, facetRailCollapsed, viewMode } =
+    const { orderBy, sparklineBreakdownBy, sparklineCollapsed, facetRailCollapsed, viewMode, groupBy } =
         useValues(logsViewerConfigLogic)
     const { setOrderBy, setSparklineBreakdownBy, toggleSparklineCollapsed } = useActions(logsViewerConfigLogic)
     const {
         logsLoading,
         parsedLogs,
+        newLogUuids,
         sparklineData,
         sparklineLoading,
         sparklineIncompleteBarIndices,
@@ -122,6 +124,7 @@ function LogsViewerContent({
     const { setDateRange, zoomDateRange } = useActions(logsViewerFiltersLogic)
     const showFacetRail = useFeatureFlag('LOGS_FACET_RAIL')
     const showPatternsView = useFeatureFlag('LOGS_PATTERNS_VIEW')
+    const showGroupBy = useFeatureFlag('LOGS_GROUP_BY')
     const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ id }))
     const { setCellScrollLeft } = useActions(virtualizedLogsListLogic({ id }))
     const messageScrollLeft = cellScrollLefts['message'] ?? 0
@@ -334,6 +337,7 @@ function LogsViewerContent({
 
             <VirtualizedLogsList
                 dataSource={parsedLogs}
+                newLogUuids={newLogUuids}
                 loading={logsLoading}
                 wrapBody={wrapBody}
                 prettifyJson={prettifyJson}
@@ -353,7 +357,16 @@ function LogsViewerContent({
     // Gate on the flag too, so the patterns query stays unreachable when the flag is off regardless
     // of the (non-persisted) viewMode state.
     const inPatternsMode = showPatternsView && viewMode === 'patterns'
-    const resultsRegion = inPatternsMode ? <LogsPatterns id={id} /> : logList
+    // Group-by (prototype, logs-group-by flag): an active grouping swaps the Logs lens's results
+    // for the grouped table. Double-gated like Patterns so it's unreachable with the flag off.
+    const inGroupByMode = showGroupBy && !inPatternsMode && groupBy !== null
+    const resultsRegion = inPatternsMode ? (
+        <LogsPatterns id={id} />
+    ) : inGroupByMode && groupBy ? (
+        <LogsGroupByResults groupBy={groupBy} />
+    ) : (
+        logList
+    )
 
     // Both layouts share the same results column; only the results bar above it differs (the facet-rail
     // layout adds the rail toggle). The bar owns the Logs⇄Patterns switch and hides its Logs-only tools

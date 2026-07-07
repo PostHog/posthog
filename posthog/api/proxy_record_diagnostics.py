@@ -31,6 +31,7 @@ from posthog.temporal.proxy_service.cloudflare import (
     CustomHostnameSSLStatus,
     get_custom_hostname_by_domain,
 )
+from posthog.temporal.proxy_service.common import is_cloudflare_proxy_by_cname
 
 # --- Customer-facing message helpers ---
 # All user-visible strings live here so copy can be reviewed in one place. Functions
@@ -160,7 +161,19 @@ class DiagnosticReport:
 
 
 def diagnose(record: ProxyRecord) -> DiagnosticReport:
-    """Run the full diagnostic pipeline against a proxy record."""
+    """Run the full diagnostic pipeline against a proxy record.
+
+    The proxy's own endpoint is the source of truth: if it serves HTTPS and accepts a test
+    event, the certificate is issued and deployed and the proxy is healthy — whatever any
+    certificate-provider API reports. So the live-event probe runs first and, on success,
+    short-circuits to healthy.
+
+    Provider-specific checks only run when the endpoint *isn't* serving, and only for the
+    path the proxy was actually provisioned on — detected from `target_cname`, never a
+    global flag. This keeps the Cloudflare checks from misfiring on legacy proxies that
+    predate the Cloudflare path (where a Cloudflare lookup always comes back empty and would
+    otherwise read as a false "we don't have a record of this proxy").
+    """
     log = LOGGER.bind(
         proxy_record_id=str(record.id),
         organization_id=str(record.organization_id),
@@ -168,38 +181,48 @@ def diagnose(record: ProxyRecord) -> DiagnosticReport:
     )
     log.info("Starting proxy diagnostics")
 
-    checks: list[CheckResult] = []
+    is_cloudflare = is_cloudflare_proxy_by_cname(record.target_cname)
 
     cname_check = _check_cname(record)
-    checks.append(cname_check)
+    checks: list[CheckResult] = [cname_check]
 
-    cloudflare_check, hostname_info = _check_cloudflare(record)
-    checks.append(cloudflare_check)
-
-    ssl_active = hostname_info is not None and hostname_info.ssl.status == CustomHostnameSSLStatus.ACTIVE
-
-    if ssl_active:
-        checks.append(_skip("caa", "CAA records", "Skipped — certificate is already active."))
+    # Primary signal: does the proxy actually serve HTTPS and accept an event? A pass means
+    # the cert is live and deployed, regardless of what the provider API says.
+    #
+    # Gate the probe on the CNAME first. `record.domain` is org-admin-controlled, so we only
+    # fire the outbound request once DNS confirms the domain points at our managed proxy
+    # target — otherwise Diagnose could be aimed at an internal address and used as an
+    # SSRF / port-scan primitive. A failed CNAME is the actionable issue anyway.
+    if cname_check.status == "passed":
+        live_check = _check_live_event(record)
     else:
-        checks.append(_check_caa(record, hostname_info))
+        live_check = _skip("live_event", "Live event probe", "Skipped — DNS isn't pointing at the proxy yet.")
+    checks.append(live_check)
 
-    if ssl_active:
-        checks.append(_skip("http_challenge", "HTTP-01 challenge", "Skipped — certificate is already active."))
-    elif hostname_info is None or not hostname_info.ssl.http_url:
-        checks.append(_skip("http_challenge", "HTTP-01 challenge", "Skipped — no challenge URL available."))
-    else:
-        checks.append(_check_http_challenge(record, hostname_info))
-
-    if not ssl_active:
-        checks.append(_skip("live_event", "Live event probe", "Skipped — certificate is not active yet."))
+    if live_check.status == "passed":
+        # Healthy — the endpoint works. The only remaining concern is renewal, read from the
+        # certificate the proxy is actually serving.
+        checks.append(_check_cert_expiry(record, is_cloudflare=is_cloudflare))
+    elif is_cloudflare:
+        # Not serving, and provisioned on the Cloudflare path — inspect the custom hostname.
+        cloudflare_check, hostname_info = _check_cloudflare(record)
+        checks.append(cloudflare_check)
+        checks.append(_check_caa(record, hostname_info, is_cloudflare=True))
+        if hostname_info is not None and hostname_info.ssl.http_url:
+            checks.append(_check_http_challenge(record, hostname_info))
+        else:
+            checks.append(_skip("http_challenge", "HTTP-01 challenge", "Skipped — no challenge URL available."))
         checks.append(_skip("cert_expiry", "Certificate expiry", "Skipped — certificate is not active yet."))
     else:
-        live_check = _check_live_event(record)
-        checks.append(live_check)
-        if live_check.status == "passed":
-            checks.append(_check_cert_expiry(record))
-        else:
-            checks.append(_skip("cert_expiry", "Certificate expiry", "Skipped — live event probe failed."))
+        # Not serving, and provisioned on the legacy path — there is no Cloudflare custom
+        # hostname by design, so the Cloudflare check would only ever produce a false
+        # "missing" result. CAA still matters for the legacy (Let's Encrypt) issuer.
+        checks.append(
+            _skip("cloudflare", "Certificate provider", "Skipped — this proxy uses the legacy certificate path.")
+        )
+        checks.append(_check_caa(record, None, is_cloudflare=False))
+        checks.append(_skip("http_challenge", "HTTP-01 challenge", "Skipped — not applicable for this proxy."))
+        checks.append(_skip("cert_expiry", "Certificate expiry", "Skipped — proxy isn't serving traffic yet."))
 
     summary = _build_summary(checks)
     log.info("Diagnostics complete", primary_issue=summary.primary_issue, status=summary.status)
@@ -390,18 +413,24 @@ def _check_cloudflare(record: ProxyRecord) -> tuple[CheckResult, Optional[Custom
     )
 
 
-def _check_caa(record: ProxyRecord, hostname_info: Optional[CustomHostnameInfo]) -> CheckResult:
+def _check_caa(record: ProxyRecord, hostname_info: Optional[CustomHostnameInfo], *, is_cloudflare: bool) -> CheckResult:
     """
     Walk up the DNS tree from `record.domain` to apex, looking for the first non-empty
     set of CAA records. Per RFC 8659, the first non-empty CAA result wins — climbing
-    stops there. If those records don't authorize the CA Cloudflare uses, surface a
-    remediation block listing CAA records the customer should add.
+    stops there. If those records don't authorize the CA that issues this proxy's
+    certificate, surface a remediation block listing CAA records the customer should add.
+
+    The required issuer depends on the provisioning path: Cloudflare-path certs come from
+    the CA in the hostname info (Google by default), legacy-path certs come from Let's
+    Encrypt.
     """
     if hostname_info is not None and hostname_info.ssl.certificate_authority:
         ca_field = hostname_info.ssl.certificate_authority
         required_issuer = CA_TO_CAA_ISSUER.get(ca_field, "pki.goog")
-    else:
+    elif is_cloudflare:
         required_issuer = "pki.goog"
+    else:
+        required_issuer = "letsencrypt.org"
 
     name = dns.name.from_text(record.domain)
     resolver = dns.resolver.Resolver()
@@ -567,7 +596,7 @@ def _check_live_event(record: ProxyRecord) -> CheckResult:
     )
 
 
-def _check_cert_expiry(record: ProxyRecord) -> CheckResult:
+def _check_cert_expiry(record: ProxyRecord, *, is_cloudflare: bool) -> CheckResult:
     try:
         ctx = ssl_module.create_default_context()
         ctx.minimum_version = ssl_module.TLSVersion.TLSv1_2
@@ -613,12 +642,20 @@ def _check_cert_expiry(record: ProxyRecord) -> CheckResult:
     days_remaining = (expires_at - dt.datetime.now(dt.UTC)).days
 
     if days_remaining < CERT_EXPIRY_WARN_DAYS:
+        # Retry re-runs provisioning, which is only safe to suggest for Cloudflare-path
+        # proxies. For a legacy proxy, retry would migrate it onto Cloudflare and break a
+        # working setup, so point at support rather than offering a "recreate".
+        remediation = (
+            Remediation(type="retry", summary="Hit Retry to start a fresh issuance.")
+            if is_cloudflare
+            else Remediation(type="config", summary="The certificate isn't auto-renewing — contact support.")
+        )
         return CheckResult(
             id="cert_expiry",
             name="Certificate expiry",
             status="failed",
             detail=_msg_cert_expiring_soon(record.domain, days_remaining),
-            remediation=Remediation(type="retry", summary="Hit Retry to start a fresh issuance."),
+            remediation=remediation,
         )
 
     return CheckResult(
