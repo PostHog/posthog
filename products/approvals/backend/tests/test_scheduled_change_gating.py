@@ -180,14 +180,7 @@ class TestScheduledChangeGating(APIBaseTest):
         # CR. It must fail closed at creation (400) with no row, rather than save ungated and let
         # the Celery applier dispatch it with no approval at all.
         self._enable_policy()
-        ApprovalPolicy.objects.create(
-            organization=self.organization,
-            team=None,  # org-level policy also matches the enable, creating the conflict
-            action_key="feature_flag.enable",
-            conditions={},
-            approver_config={"quorum": 1, "users": [self.user.id]},
-            created_by=self.user,
-        )
+        self._org_enable_policy()  # org-level policy also matches the enable, creating the conflict
         flag = self._disabled_flag()
 
         response = self.client.post(
@@ -300,6 +293,36 @@ class TestScheduledChangeGating(APIBaseTest):
         assert reloaded.change_request is not None
         assert reloaded.change_request.created_by == editor
         assert reloaded.change_request.created_by != self.user
+
+    def test_patching_gated_schedule_with_same_action_reuses_bound_cr(self, _mock_enabled):
+        # Re-gating a gated schedule whose payload edit keeps the same gated action must reuse the
+        # row's own pending CR — not fail closed on it as a duplicate, and not mint a second one.
+        # This is the only path that reaches the current_change_request reuse branch in
+        # gate_scheduled_change (every other PATCH test goes ungated↔gated).
+        self._enable_policy()
+        flag = self._disabled_flag()
+
+        scheduled = self._schedule(
+            flag,
+            {"operation": "update_status", "value": True},
+            timezone.now() + timedelta(hours=1),
+        )
+        original_cr = scheduled.change_request
+        assert original_cr is not None and original_cr.state == ChangeRequestState.PENDING
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/scheduled_changes/{scheduled.id}/",
+            {"payload": {"operation": "update_status", "value": True}},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.content
+        reloaded = ScheduledChange.objects.get(id=scheduled.id)
+        assert reloaded.change_request is not None
+        assert reloaded.change_request.id == original_cr.id
+        assert reloaded.change_request.state == ChangeRequestState.PENDING
+        # No second CR minted for the flag — the schedule's own binding was reused.
+        assert ChangeRequest.objects.filter(resource_id=str(flag.id)).count() == 1
 
     def test_scheduled_variant_rollout_change_under_policy_is_gated(self, _mock_enabled):
         # update_variants writes into the flag's live multivariate filters. Unless the gate deep-copies
@@ -569,5 +592,38 @@ class TestScheduledChangeGating(APIBaseTest):
         scheduled.save()
         process_scheduled_changes()
 
+        flag.refresh_from_db()
+        assert flag.active is False
+
+    def test_recurring_approved_then_stale_cr_survives_and_regates(self, _mock_enabled):
+        # A recurring schedule whose bound CR is approved-but-stale must not die at fire time. The
+        # stale CR is expired (not applied), then the next occurrence re-gates to a fresh pending CR
+        # and the schedule advances — rather than leaving the stale-approved CR in [PENDING, APPROVED]
+        # for the flag-scoped duplicate check to rediscover, raise ApprovalRequired on, and retry to
+        # exhaustion. This exercises the regate path that the one-time variant above never reaches.
+        self._enable_policy()
+        flag = self._disabled_flag()
+        scheduled = self._recurring_enable_schedule(flag, gated=True)
+        old_cr = scheduled.change_request
+        assert old_cr is not None
+
+        old_cr.state = ChangeRequestState.APPROVED
+        old_cr.validation_status = ValidationStatus.STALE
+        old_cr.save()
+
+        process_scheduled_changes()
+
+        old_cr.refresh_from_db()
+        assert old_cr.state == ChangeRequestState.EXPIRED
+        scheduled.refresh_from_db()
+        # Survived: advanced to a future occurrence, still active, no failures recorded.
+        assert scheduled.scheduled_at > timezone.now()
+        assert scheduled.executed_at is None
+        assert scheduled.failure_count == 0
+        # Rebound to a fresh pending CR for the next occurrence, not the expired one.
+        assert scheduled.change_request is not None
+        assert scheduled.change_request.id != old_cr.id
+        assert scheduled.change_request.state == ChangeRequestState.PENDING
+        # The stale change never applied.
         flag.refresh_from_db()
         assert flag.active is False

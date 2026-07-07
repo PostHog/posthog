@@ -232,11 +232,16 @@ def apply_gated_scheduled_change(scheduled_change: "ScheduledChange") -> bool:
 
     if change_request.state == ChangeRequestState.APPROVED:
         # Reachable only when STALE (the approved-and-not-stale case applied and returned above).
-        # Not a permanent drop — the hourly expire_old_change_requests sweep transitions it to
-        # EXPIRED — but log so the marked-done schedule isn't left with no record of why the
-        # approved change never applied.
+        # Expire it here (terminal) rather than leaning on the hourly expire_old_change_requests
+        # sweep: for a recurring schedule the next re-gate runs immediately, and a stale-approved
+        # CR left in [PENDING, APPROVED] would be rediscovered by the flag-scoped duplicate check
+        # as a duplicate it can't reuse (reuse requires PENDING), raising ApprovalRequired and
+        # retrying the schedule to exhaustion long before the sweep (expires_at is policy-tunable
+        # and can be days out) would clear it.
+        change_request.state = ChangeRequestState.EXPIRED
+        change_request.save(update_fields=["state"])
         logger.info(
-            "Skipped approved-but-stale change request for scheduled change",
+            "Expired approved-but-stale change request for scheduled change",
             extra={
                 "scheduled_change_id": scheduled_change.id,
                 "change_request_id": str(change_request.id),

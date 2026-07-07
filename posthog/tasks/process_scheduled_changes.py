@@ -16,6 +16,7 @@ from prometheus_client import Counter
 
 from posthog.exceptions_capture import capture_exception
 
+from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.scheduled_changes import apply_gated_scheduled_change, regate_recurring_scheduled_change
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
@@ -284,7 +285,26 @@ def process_scheduled_changes() -> None:
                             #      exception propagate before the advanced scheduled_at is persisted, so
                             #      the failure handler stops advancing the schedule rather than silently
                             #      skipping the conflicting occurrence.
-                            new_change_request = regate_recurring_scheduled_change(scheduled_change)
+                            try:
+                                new_change_request = regate_recurring_scheduled_change(scheduled_change)
+                            except ApprovalRequired:
+                                # A pending/approved CR for the same flag+action already exists (a
+                                # second schedule, or an immediate edit awaiting approval), so this
+                                # occurrence can't be given its own gate yet. Defer instead of
+                                # advancing: advancing would require either a fresh CR (which the
+                                # conflict forbids) or a null binding, and a null binding dispatches
+                                # the next fire ungated — the exact bypass this gating closes. Leave
+                                # the row untouched (scheduled_at unchanged) so the next sweep
+                                # re-gates it, and don't route through the failure handler, so a
+                                # transient duplicate doesn't retry the schedule to exhaustion and
+                                # mark it permanently failed. It self-heals once the conflicting CR
+                                # resolves. PolicyConflict is deliberately not caught — that's a
+                                # genuine, non-transient conflict the failure handler should record.
+                                logger.info(
+                                    "Deferring recurring scheduled change; a conflicting change request is awaiting approval",
+                                    scheduled_change_id=scheduled_change.id,
+                                )
+                                continue
                             scheduled_change.change_request = new_change_request
                             scheduled_change.scheduled_at = next_run
                             scheduled_change.last_executed_at = now
