@@ -6,7 +6,6 @@ import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 
 import { startDetachedElementTracking } from './detachedElementTracker'
-import { dropAbortErrors, dropReadOnlyExceptions } from './exceptionAutocaptureFilters'
 import { startFramerateTracking } from './framerateTracker'
 
 export const SDK_DEFAULTS_DATE = '2026-05-30'
@@ -39,17 +38,6 @@ export interface LoadPostHogJSOptions {
 
 export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
     if (window.JS_POSTHOG_API_KEY) {
-        // Central `before_send` chain. `dropAbortErrors` and `dropReadOnlyExceptions`
-        // drop benign `$exception` noise (superseded-query cancellations and
-        // read-only blocks-by-design) for every code path, including posthog-js's
-        // own autocapture. Any caller-supplied filter runs after them.
-        const callerBeforeSend = options.beforeSend
-            ? Array.isArray(options.beforeSend)
-                ? options.beforeSend
-                : [options.beforeSend]
-            : []
-        const beforeSend: BeforeSendFn[] = [dropAbortErrors, dropReadOnlyExceptions, ...callerBeforeSend]
-
         posthog.init(window.JS_POSTHOG_API_KEY, {
             opt_out_useragent_filter: window.location.hostname === 'localhost', // we ARE a bot when running in localhost, so we need to enable this opt-out
             api_host: window.JS_POSTHOG_HOST,
@@ -68,7 +56,7 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
-            before_send: beforeSend,
+            before_send: options.beforeSend,
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true

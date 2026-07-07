@@ -50,10 +50,9 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
                         //
                         // Capturing the original `error` directly (rather than wrapping it
                         // in `new Error('...', { cause })`) keeps the error type at the top
-                        // of `$exception_list`, so the central `before_send` filter
-                        // (`dropReadOnlyExceptions` in `exceptionAutocaptureFilters`) can
-                        // drop `ReadOnlyModeError` without assuming posthog-js serialises
-                        // the cause chain.
+                        // of `$exception_list`, so the central `before_send` filter in
+                        // `selfReadOnlyModeLogic` can drop `ReadOnlyModeError` without
+                        // assuming posthog-js serialises the cause chain.
                         posthog.captureException(error, {
                             posthog_source: 'reverseProxyCheckerLogic.loadHasReverseProxy',
                         })
