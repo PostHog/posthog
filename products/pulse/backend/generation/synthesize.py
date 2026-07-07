@@ -31,7 +31,9 @@ def apply_say_less_gate(out: BriefOut) -> BriefOut:
 def _render_items(items: list[SourceItem]) -> str:
     # Titles and descriptions carry untrusted free text (annotation content, resource names) —
     # sanitize at this boundary, for every source. Evidence labels are not rendered (only
-    # type:ref); if they ever are, they must pass through sanitize_for_prompt too.
+    # type:ref); if they ever are, they must pass through sanitize_for_prompt too. numbers keys
+    # and values are rendered raw: every source puts only system-generated data there (timestamps,
+    # counts); a source that ever stores user-supplied text must sanitize it before this point.
     blocks = []
     for item in items:
         numbers = ", ".join(f"{k}={v}" for k, v in item.numbers.items())
