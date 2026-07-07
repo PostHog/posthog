@@ -240,6 +240,12 @@ class TestAIWindowConfigProperties:
                 "days_ago_range",
             ),
             (
+                # Equality is inverted too (>= boundary): a zero-length half-open window is empty.
+                "range_zero_length",
+                {"window": {"mode": "days_ago_range", "start_days_ago": 3, "end_days_ago": 3}},
+                "days_ago_range",
+            ),
+            (
                 "over_max_days",
                 {"window": {"mode": "last_n_days", "start_days_ago": 9000, "end_days_ago": 400}},
                 "last_n_days",
@@ -259,6 +265,15 @@ class TestAIWindowConfigProperties:
         assert sub.ai_window_mode == Subscription.AIWindowMode.DAYS_AGO_RANGE
         assert sub.ai_window_start_days_ago == 10
         assert sub.ai_window_end_days_ago == 3
+
+    def test_last_n_days_keeps_start_despite_garbage_end(self) -> None:
+        # Normalisation is per-mode: a garbage value in a field the mode ignores must not
+        # collateral-null the field it uses.
+        sub = self._sub({"window": {"mode": "last_n_days", "start_days_ago": 7, "end_days_ago": 10}})
+
+        assert sub.ai_window_mode == Subscription.AIWindowMode.LAST_N_DAYS
+        assert sub.ai_window_start_days_ago == 7
+        assert sub.ai_window_end_days_ago is None
 
 
 class TestComputeReportWindow:

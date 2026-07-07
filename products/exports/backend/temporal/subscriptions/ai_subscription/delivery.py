@@ -113,7 +113,12 @@ def _last_successful_delivery_finished_at(subscription: Subscription) -> datetim
     except Exception as exc:
         # A transient DB error on this one lookup shouldn't fail the whole delivery — None falls
         # back to the cadence window (which may re-cover already-sent data, never drop any).
-        logger.warning("ai_report.last_delivery_lookup_failed", subscription_id=subscription.id, exc_info=True)
+        logger.warning(
+            "ai_report.last_delivery_lookup_failed",
+            subscription_id=subscription.id,
+            team_id=subscription.team_id,
+            exc_info=True,
+        )
         capture_exception(exc, {"subscription_id": subscription.id, "feature": "ai_subscription"})
         return None
 

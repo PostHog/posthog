@@ -343,13 +343,20 @@ class Subscription(ModelActivityMixin, models.Model):
             return value if minimum <= value <= cls.AI_WINDOW_MAX_DAYS else None
 
         raw = window if isinstance(window, dict) else {}
-        mode = raw.get("mode")
+        raw_mode = raw.get("mode")
+        mode = raw_mode if raw_mode in cls.AIWindowMode.values else cls.AIWindowMode.SINCE_LAST_SENT
         start = day_bound(raw.get("start_days_ago"), 1)
         end = day_bound(raw.get("end_days_ago"), 0)
-        if start is not None and end is not None and end >= start:
+        # Mirror AIWindowConfigSerializer's per-mode normalisation, so a garbage value in a field
+        # the mode ignores can't affect the fields it uses.
+        if mode == cls.AIWindowMode.SINCE_LAST_SENT:
+            start, end = None, None
+        elif mode == cls.AIWindowMode.LAST_N_DAYS:
+            end = None
+        elif start is not None and end is not None and end >= start:
             start, end = None, None
         return {
-            "mode": mode if mode in cls.AIWindowMode.values else cls.AIWindowMode.SINCE_LAST_SENT,
+            "mode": mode,
             "start_days_ago": start,
             "end_days_ago": end,
         }
@@ -457,7 +464,7 @@ class Subscription(ModelActivityMixin, models.Model):
             "byweekday": self.byweekday,
             "bysetpos": self.bysetpos,
             "prompt_length": len(self.prompt or ""),
-            "ai_window_mode": self.ai_window_mode,
+            "ai_window_mode": self.ai_window_mode if self.resource_type == self.ResourceType.AI_PROMPT else None,
         }
 
 
