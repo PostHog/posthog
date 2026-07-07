@@ -33,6 +33,7 @@ Fired after the CORS reachability check to the PostHog app.
 | `is_authenticated` | `boolean`         | Auth state at time of check                                          |
 | `status`           | `'ok' \| 'error'` | Check result                                                         |
 | `error_type`       | `string`          | Only on error: `timeout`, `network_or_cors`, `http_error`, `unknown` |
+| `http_status`      | `number`          | Only on `http_error`: HTTP status returned by the host              |
 | `duration_ms`      | `number`          | Time taken for the check                                             |
 
 **File:** `toolbarConfigLogic.ts`
