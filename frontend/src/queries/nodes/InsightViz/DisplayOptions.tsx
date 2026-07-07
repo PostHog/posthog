@@ -135,7 +135,7 @@ function PercentStack(): JSX.Element {
     )
 }
 
-function ConfidenceInterval(): JSX.Element {
+export function ConfidenceInterval(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { querySource, trendsFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
@@ -166,7 +166,7 @@ function ConfidenceInterval(): JSX.Element {
     )
 }
 
-function MovingAverage(): JSX.Element {
+export function MovingAverage(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { querySource, trendsFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))

@@ -407,4 +407,27 @@ describe('InsightDisplayConfig', () => {
             expect(items.some((item) => item.includes('Bottom'))).toBe(false)
         })
     })
+
+    describe('options menu with the overlays section flag', () => {
+        beforeEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHT_OVERLAYS_SECTION]: true,
+            })
+        })
+
+        it('drops the overlay toggles and statistical analysis, which move to the editor panel', async () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
+            await openOptionsMenu()
+
+            expect(getSectionTitles()).not.toContain('Statistical analysis')
+            const items = getDisplaySectionItems()
+            for (const moved of ['Show trend lines', 'Show alert threshold lines', 'Show annotations']) {
+                expect(items).not.toContain(moved)
+            }
+            // Options staying in the menu are unaffected
+            expect(items).toContain('Show values on series')
+            expect(items).toContain('Show legend')
+            expect(items).toContain('Show multiple Y-axes')
+        })
+    })
 })

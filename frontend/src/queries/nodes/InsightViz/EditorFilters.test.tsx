@@ -4,6 +4,8 @@ import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -130,7 +132,7 @@ describe('EditorFilters', () => {
             name: 'trends',
             query: makeTrendsQuery(),
             expectedPresent: ['Filters'],
-            expectedAbsent: ['Lifecycle Toggles', 'Retention condition', 'Event Types', 'Starts at'],
+            expectedAbsent: ['Lifecycle Toggles', 'Retention condition', 'Event Types', 'Starts at', 'Overlays'],
         },
         {
             name: 'lifecycle',
@@ -213,5 +215,36 @@ describe('EditorFilters', () => {
 
         await userEvent.click(settingsButton)
         expect(settingsButton).toHaveAttribute('title', 'Show less')
+    })
+
+    describe('with the overlays section flag', () => {
+        beforeEach(() => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHT_OVERLAYS_SECTION]: true,
+            })
+        })
+
+        it('gathers goal lines and the overlay toggles under one Overlays section for trends', () => {
+            setupAndRender(makeTrendsQuery())
+
+            expect(screen.getByText('Overlays')).toBeInTheDocument()
+            // Moved out of "Advanced options" — must not render in both places
+            expect(screen.getAllByText('Goal lines')).toHaveLength(1)
+            for (const toggle of [
+                'Show trend lines',
+                'Show alert threshold lines',
+                'Show annotations',
+                'Show confidence intervals',
+                'Show moving average',
+            ]) {
+                expect(screen.getByText(toggle)).toBeInTheDocument()
+            }
+        })
+
+        it('hides the Overlays section for paths, which supports no overlays', () => {
+            setupAndRender(makePathsQuery())
+            expect(screen.queryByText('Overlays')).not.toBeInTheDocument()
+        })
     })
 })

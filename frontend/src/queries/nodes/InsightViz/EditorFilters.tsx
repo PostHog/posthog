@@ -3,7 +3,8 @@ import { useValues } from 'kea'
 import { IconInfo } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
-import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
+import { FEATURE_FLAGS, NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils/strings'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
@@ -21,6 +22,10 @@ import { PoeFilter } from 'scenes/insights/EditorFilters/PoeFilter'
 import { RetentionCondition } from 'scenes/insights/EditorFilters/RetentionCondition'
 import { RetentionOptions } from 'scenes/insights/EditorFilters/RetentionOptions'
 import { SamplingDeprecationNotice } from 'scenes/insights/EditorFilters/SamplingDeprecationNotice'
+import { ShowAlertAnomalyPointsFilter } from 'scenes/insights/EditorFilters/ShowAlertAnomalyPointsFilter'
+import { ShowAlertThresholdLinesFilter } from 'scenes/insights/EditorFilters/ShowAlertThresholdLinesFilter'
+import { ShowAnnotationsFilter } from 'scenes/insights/EditorFilters/ShowAnnotationsFilter'
+import { ShowTrendLinesFilter } from 'scenes/insights/EditorFilters/ShowTrendLinesFilter'
 import { WebAnalyticsEditorFilters } from 'scenes/insights/EditorFilters/WebAnalyticsEditorFilters'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -46,6 +51,7 @@ import { EditorFiltersShell } from './EditorFiltersShell'
 import { getBreakdownSummary, getFiltersSummary, getSeriesSummary, visibleFilters } from './editorFilterUtils'
 import { GlobalAndOrFilters } from './GlobalAndOrFilters'
 import { LifecycleToggles } from './LifecycleToggles'
+import { ConfidenceIntervalFilter, MovingAverageFilter } from './OverlayFilters'
 import { TrendsSeries } from './TrendsSeries'
 
 export interface EditorFiltersProps {
@@ -72,9 +78,11 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         series,
         breakdownFilter,
         properties,
+        isNonTimeSeriesDisplay,
     } = useValues(insightVizDataLogic(insightProps))
 
     const { isStepsFunnel, isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (!querySource) {
         return null
@@ -113,6 +121,20 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsBar].includes(
                 display || ChartDisplayType.ActionsLineGraph
             ))
+
+    const overlaysSectionEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHT_OVERLAYS_SECTION]
+    // Overlay availability mirrors the conditions the Options menu uses for the same toggles
+    // (see useInsightDisplayOptions), so the toggles keep appearing for exactly the same insights.
+    const isContinuousChartDisplay =
+        !isNonTimeSeriesDisplay && display !== ChartDisplayType.Metric && display !== ChartDisplayType.SlopeGraph
+    const displayTrendLines = (isTrends || isRetention || isTrendsFunnel) && isContinuousChartDisplay
+    const displayAlertOverlays = isTrends && isContinuousChartDisplay
+    const displayAnnotations = (isTrends && isContinuousChartDisplay) || isTrendsFunnel
+    const displayStatisticalOverlays =
+        isTrends &&
+        isContinuousChartDisplay &&
+        display !== ChartDisplayType.CalendarHeatmap &&
+        display !== ChartDisplayType.BoxPlot
 
     const seriesSummary = getSeriesSummary(series)
     const filtersSummary = getFiltersSummary(properties)
@@ -349,6 +371,34 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 },
             ]),
         },
+        // Everything drawn on top of the chart data: reference lines and computed/content overlays.
+        // Gathers the goal lines from "Advanced options" and the overlay toggles from the Options menu
+        // into one place, so e.g. goal lines and alert threshold lines are finally siblings.
+        {
+            title: 'Overlays',
+            defaultExpanded: false,
+            show: overlaysSectionEnabled,
+            editorFilters: visibleFilters([
+                {
+                    key: 'goal-lines',
+                    label: 'Goal lines',
+                    tooltip: (
+                        <>
+                            Goal lines can be used to highlight specific goals (Revenue, Signups, etc.) or limits (Web
+                            Vitals, etc.)
+                        </>
+                    ),
+                    component: GoalLines,
+                    show: displayGoalLines,
+                },
+                { key: 'trend-lines', component: ShowTrendLinesFilter, show: displayTrendLines },
+                { key: 'alert-threshold-lines', component: ShowAlertThresholdLinesFilter, show: displayAlertOverlays },
+                { key: 'alert-anomaly-points', component: ShowAlertAnomalyPointsFilter, show: displayAlertOverlays },
+                { key: 'confidence-intervals', component: ConfidenceIntervalFilter, show: displayStatisticalOverlays },
+                { key: 'moving-average', component: MovingAverageFilter, show: displayStatisticalOverlays },
+                { key: 'annotations', component: ShowAnnotationsFilter, show: displayAnnotations },
+            ]),
+        },
         // Hide advanced options for calendar heatmap
         {
             title: 'Advanced options',
@@ -366,7 +416,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         </>
                     ),
                     component: GoalLines,
-                    show: displayGoalLines,
+                    show: displayGoalLines && !overlaysSectionEnabled,
                 },
                 { key: 'sampling-deprecation', component: SamplingDeprecationNotice },
             ]),

@@ -62,6 +62,9 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     const { featureFlags } = useValues(featureFlagLogic)
     const hideWeekendsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS]
     const quillLegendEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]
+    // With the Overlays editor panel section enabled, the overlay toggles (trend lines, alert
+    // overlays, annotations, statistical analysis) move there and leave this menu.
+    const overlaysSectionEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHT_OVERLAYS_SECTION]
 
     // The slope graph shows the first vs last interval, so it drops the options that need the points
     // between them (smoothing, multiple axes, alert/annotation overlays, statistical analysis).
@@ -144,13 +147,13 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         if (display === ChartDisplayType.ActionsPie) {
             displayItems.push(DisplayOptions.PieTotal)
         }
-        if (showAlertThresholdLinesConfig) {
+        if (showAlertThresholdLinesConfig && !overlaysSectionEnabled) {
             displayItems.push(DisplayOptions.AlertThresholdLines, DisplayOptions.AlertAnomalyPoints)
         }
         if (showMultipleYAxesConfig) {
             displayItems.push(DisplayOptions.MultipleYAxes)
         }
-        if ((isTrends || isRetention || isTrendsFunnel) && !hideContinuousChartOptions) {
+        if ((isTrends || isRetention || isTrendsFunnel) && !hideContinuousChartOptions && !overlaysSectionEnabled) {
             displayItems.push(DisplayOptions.TrendLines)
         }
         if (isTrendsFunnel && !hideContinuousChartOptions) {
@@ -159,7 +162,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         if (isTrends && !hideContinuousChartOptions && hideWeekendsEnabled) {
             displayItems.push(DisplayOptions.HideWeekends)
         }
-        if (showAnnotationsConfig) {
+        if (showAnnotationsConfig && !overlaysSectionEnabled) {
             displayItems.push(DisplayOptions.Annotations)
         }
         if (useQuillLegendOptions) {
@@ -203,7 +206,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         items.push({ title: 'Y-axis scale', items: [DisplayOptions.Scale] })
     }
 
-    if (showYAxisScale && !isBoxPlot) {
+    if (showYAxisScale && !isBoxPlot && !overlaysSectionEnabled) {
         const statisticalItems: LemonMenuItem[] = [DisplayOptions.ConfidenceInterval]
         if (showConfidenceIntervals) {
             statisticalItems.push(DisplayOptions.ConfidenceLevel)
@@ -252,7 +255,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.yAxisLabel) ? 1 : 0) +
         (showMultipleYAxes ? 1 : 0) +
         (trendsFilter?.hideWeekends && hideWeekendsEnabled ? 1 : 0) +
-        (showAnnotationsConfig && showAnnotations === false ? 1 : 0) +
+        (showAnnotationsConfig && !overlaysSectionEnabled && showAnnotations === false ? 1 : 0) +
         (isMetric && trendsFilter?.metricShowChange === false ? 1 : 0) +
         (isMetric && trendsFilter?.metricColorByDirection ? 1 : 0) +
         (isMetric && !!trendsFilter?.metricSummary && trendsFilter.metricSummary !== 'total' ? 1 : 0)

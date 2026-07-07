@@ -5,9 +5,28 @@ import { LemonCheckbox } from '@posthog/lemon-ui'
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
+import { InsightLogicProps } from '~/types'
+
 export function ShowAlertAnomalyPointsFilter(): JSX.Element | null {
     const { insightProps, insight } = useValues(insightLogic)
-    const logic = insightAlertsLogic({ insightId: insight.id!, insightLogicProps: insightProps })
+
+    // Unsaved insights can't have alerts — mounting insightAlertsLogic without an id would fire a
+    // pointless alerts fetch.
+    if (!insight.id) {
+        return null
+    }
+
+    return <AnomalyPointsToggle insightId={insight.id} insightLogicProps={insightProps} />
+}
+
+function AnomalyPointsToggle({
+    insightId,
+    insightLogicProps,
+}: {
+    insightId: number
+    insightLogicProps: InsightLogicProps
+}): JSX.Element | null {
+    const logic = insightAlertsLogic({ insightId, insightLogicProps })
     const { showAlertAnomalyPointsFlag, hasDetectorAlerts } = useValues(logic)
     const { setShowAlertAnomalyPoints } = useActions(logic)
 
