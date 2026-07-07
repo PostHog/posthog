@@ -213,6 +213,7 @@ export const sourceFieldToElement = (
                 key={field.name}
                 name={hasOptionFields ? [field.name, 'selection'] : field.name}
                 label={field.label}
+                help={field.caption ? <LemonMarkdown className="text-xs">{field.caption}</LemonMarkdown> : undefined}
             >
                 {({ value, onChange }) => (
                     <>

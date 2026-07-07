@@ -70,6 +70,8 @@ _LAZY = {
     "PostgresSource": "sources.postgres.source",
     "RedshiftSource": "sources.redshift.source",
     "SnowflakeSource": "sources.snowflake.source",
+    "detect_typeform_response_types_transition": "sources.typeform.schema_transition",
+    "apply_typeform_response_types_reset": "sources.typeform.schema_transition",
 }
 
 __all__ = sorted(_LAZY)

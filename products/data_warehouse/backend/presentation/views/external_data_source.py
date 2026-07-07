@@ -97,6 +97,7 @@ from products.data_warehouse.backend.facade.api import (
     sync_discover_schemas_schedule,
     sync_external_data_job_workflow,
     trigger_external_data_source_workflow,
+    trigger_external_data_workflow,
     upsert_direct_mysql_table,
     upsert_direct_postgres_table,
     upsert_direct_redshift_table,
@@ -159,8 +160,10 @@ from products.warehouse_sources.backend.facade.source_management import (
     SQLSource,
     SSLRequiredError,
     WebhookSource,
+    apply_typeform_response_types_reset,
     build_default_schemas,
     cdc_pg_connection,
+    detect_typeform_response_types_transition,
     draft_manifest_sync,
     fetch_docs_text,
     filter_dwh_columns_by_enabled_columns,
@@ -1186,6 +1189,16 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         if old_schema is not None:
             apply_sql_warehouse_schema_clear_migration(instance, old_schema)
 
+        # Typeform: switching response types changes how the responses table syncs (incremental on
+        # submitted_at ⇄ full refresh), which only takes effect on a rebuilt table. Decide here, but
+        # apply the reset only once the source save succeeds (below) so a later validation failure
+        # can't leave the schema reset against an unchanged source.
+        typeform_response_types_changed = detect_typeform_response_types_transition(
+            source_type=source_type_model,
+            existing_job_inputs=existing_job_inputs,
+            incoming_job_inputs=incoming_job_inputs,
+        )
+
         source_config: Config = source.parse_config(new_job_inputs)
         validated_job_inputs = source_config.to_dict()
         for key in _CDC_EXPOSED_JOB_INPUT_KEYS:
@@ -1233,7 +1246,27 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     validated_job_inputs[key] = existing_job_inputs[key]
             validated_data["job_inputs"] = validated_job_inputs
 
-        updated_source: ExternalDataSource = super().update(instance, validated_data)
+        reset_typeform_schemas: list[ExternalDataSchema] = []
+        with transaction.atomic():
+            updated_source: ExternalDataSource = super().update(instance, validated_data)
+            if typeform_response_types_changed:
+                reset_typeform_schemas = apply_typeform_response_types_reset(
+                    updated_source, incoming_job_inputs=incoming_job_inputs
+                )
+
+        # Kick off the resync now that the reset is persisted; the reset alone only takes effect on
+        # the next scheduled run. Best-effort: a missing schedule (never-synced schema) just means
+        # the reset applies on the first manual/scheduled run instead, so a Temporal hiccup here must
+        # not fail the config save.
+        for schema in reset_typeform_schemas:
+            try:
+                trigger_external_data_workflow(schema)
+            except Exception:
+                logger.exception(
+                    "Could not trigger resync after Typeform response_types change",
+                    schema_id=str(schema.id),
+                    source_id=str(updated_source.id),
+                )
 
         if updated_source.is_direct_query and discovered_schemas is not None:
             schema_names = {schema.name: schema.label for schema in discovered_schemas}
