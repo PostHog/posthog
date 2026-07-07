@@ -106,6 +106,19 @@ describe('notebookNodeSQLV2Logic', () => {
         expect(updateAttributes).toHaveBeenCalledWith({ nodeId: 'n1', runId: 'r1', result: null })
     })
 
+    it('dispatches a python run with its node type and output name', async () => {
+        mount()
+        logic.actions.runQuery('df.head()', { sql_df: 'other' }, { nodeType: 'python', outputName: 'df' })
+        await expectLogic(logic).toDispatchActions(['runQuery', 'startPolling'])
+        expect(runSpy).toHaveBeenCalledWith('nb1', {
+            node_id: 'n1',
+            code: 'df.head()',
+            refs: { sql_df: 'other' },
+            node_type: 'python',
+            output_name: 'df',
+        })
+    })
+
     it('maps a done envelope into the node result and stops the spinner', async () => {
         resultSpy.mockResolvedValue({
             status: 'done',

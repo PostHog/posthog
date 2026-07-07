@@ -4,7 +4,9 @@ import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCornerDownRight } from '@posthog/icons'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
@@ -12,6 +14,8 @@ import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } 
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
 import type { NotebookDependencyUsage } from './notebookNodeContent'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { NotebookNodePythonKernelComponent, NotebookNodePythonKernelSettings } from './NotebookNodePythonKernel'
+import type { NotebookNodeSQLV2Result } from './NotebookNodeSQLV2'
 import { PythonExecutionMedia, PythonExecutionResult } from './pythonExecution'
 import { buildMediaSource, renderAnsiText } from './utils'
 
@@ -25,6 +29,10 @@ export type NotebookNodePythonAttributes = {
     pythonExecutionSandboxId?: string | null
     showSettings?: boolean
     autoHeight?: boolean
+    // Revamped (sandbox-kernel) path only — see NotebookNodePythonKernel.
+    returnVariable?: string
+    runId?: string | null
+    result?: NotebookNodeSQLV2Result | null
 }
 
 const VariableUsageOverlay = ({
@@ -186,7 +194,7 @@ const MediaBlock = ({ media }: { media: PythonExecutionMedia }): JSX.Element | n
 const DEFAULT_PYTHON_NODE_HEIGHT = 100
 const MAX_PYTHON_NODE_HEIGHT = 500
 
-const Component = ({
+const LegacyComponent = ({
     attributes,
     updateAttributes,
 }: NotebookNodeProps<NotebookNodePythonAttributes>): JSX.Element | null => {
@@ -329,7 +337,7 @@ const Component = ({
     )
 }
 
-const Settings = ({
+const LegacySettings = ({
     attributes,
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodePythonAttributes>): JSX.Element => {
@@ -348,6 +356,26 @@ const Settings = ({
             minHeight={160}
             embedded
         />
+    )
+}
+
+// The same ph-python node runs in two worlds: the revamped path executes in the notebook's
+// sandbox kernel over materialized SQLV2 frames, the legacy path in the in-browser kernel.
+const Component = (props: NotebookNodeProps<NotebookNodePythonAttributes>): JSX.Element | null => {
+    const { featureFlags } = useValues(featureFlagLogic)
+    return featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS] ? (
+        <NotebookNodePythonKernelComponent {...props} />
+    ) : (
+        <LegacyComponent {...props} />
+    )
+}
+
+const Settings = (props: NotebookNodeAttributeProperties<NotebookNodePythonAttributes>): JSX.Element => {
+    const { featureFlags } = useValues(featureFlagLogic)
+    return featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS] ? (
+        <NotebookNodePythonKernelSettings {...props} />
+    ) : (
+        <LegacySettings {...props} />
     )
 }
 
@@ -386,6 +414,15 @@ export const NotebookNodePython = createPostHogWidgetNode<NotebookNodePythonAttr
         },
         autoHeight: {
             default: true,
+        },
+        returnVariable: {
+            default: 'df',
+        },
+        runId: {
+            default: null,
+        },
+        result: {
+            default: null,
         },
     },
     Settings,

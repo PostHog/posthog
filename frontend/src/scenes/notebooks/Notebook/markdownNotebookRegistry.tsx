@@ -147,7 +147,15 @@ export const MARKDOWN_NODE_DEFINITIONS: {
     insertCommand?: NotebookComponentDefinition['insertCommand']
 }[] = [
     { tagName: 'Query', category: 'Insight' },
-    { tagName: 'Python', category: 'Code' },
+    // Inserts the revamped (sandbox-kernel) Python cell; gated like SQLV2 below.
+    {
+        tagName: 'Python',
+        category: 'Code',
+        insertCommand: {
+            aliases: ['python', 'py'],
+            defaultProps: () => ({ ...getDefaultPropsForNodeType(NotebookNodeType.Python), nodeId: uuid() }),
+        },
+    },
     { tagName: 'DuckSQL', category: 'SQL', label: 'SQL (DuckDB)' },
     { tagName: 'HogQLSQL', category: 'SQL', label: 'SQL (HogQL)' },
     // insertCommand makes it show in the markdown insert menu; the feature-flag gate in
@@ -246,7 +254,7 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
 export function getMarkdownRegistryForFeatureFlags(featureFlags: FeatureFlagsSet): NotebookComponentRegistry {
     const hiddenTags: string[] = []
     if (!featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]) {
-        hiddenTags.push('SQLV2')
+        hiddenTags.push('SQLV2', 'Python')
     }
 
     if (hiddenTags.length === 0) {
