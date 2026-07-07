@@ -4,13 +4,24 @@ import posthog from 'posthog-js'
 
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { RenderKeybind } from 'lib/components/Shortcuts/ShortcutMenu'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { emptySceneParams } from '~/scenes/scenes'
 import { Scene, SceneTab } from '~/scenes/sceneTypes'
 import { urls } from '~/scenes/urls'
 
 export type HomeView = 'launchpad' | 'search' | 'apps' | 'files'
+
+function TooltipWithKeybind({ text, keybind }: { text: string; keybind: string[] }): JSX.Element {
+    return (
+        <div className="flex items-center gap-2">
+            <span>{text}</span>
+            <RenderKeybind keybind={[keybind]} />
+        </div>
+    )
+}
 
 // Launchpad is the project default, represented by a null homepage
 const homeViewTabs: Record<Exclude<HomeView, 'launchpad'>, SceneTab> = {
@@ -74,30 +85,42 @@ export function HomeViewToggle({ current }: { current: HomeView }): JSX.Element 
                         value: 'launchpad' as const,
                         label: 'Launchpad',
                         'data-attr': 'home-view-toggle-launchpad',
-                        tooltip: 'An AI-powered home with quick actions and recent items',
+                        tooltip: (
+                            <TooltipWithKeybind
+                                text="An AI-powered home with quick actions and recent items"
+                                keybind={keyBinds.homeLaunchpad}
+                            />
+                        ),
                     },
                     {
                         value: 'search' as const,
-                        label: (
-                            <span className="flex items-center gap-1">
-                                Search
-                                <KeyboardShortcut command k />
-                            </span>
-                        ),
+                        label: 'Search',
                         'data-attr': 'home-view-toggle-search',
-                        tooltip: 'A search page to quickly find anything in your project',
+                        tooltip: (
+                            <TooltipWithKeybind
+                                text="A search page to quickly find anything in your project"
+                                keybind={keyBinds.search}
+                            />
+                        ),
                     },
                     {
                         value: 'apps' as const,
                         label: 'Apps',
                         'data-attr': 'home-view-toggle-apps',
-                        tooltip: 'A grid of all the apps and data tools in PostHog',
+                        tooltip: (
+                            <TooltipWithKeybind
+                                text="A grid of all the apps and data tools in PostHog"
+                                keybind={keyBinds.homeApps}
+                            />
+                        ),
                     },
                     {
                         value: 'files' as const,
                         label: 'Files',
                         'data-attr': 'home-view-toggle-files',
-                        tooltip: 'All the files in your project',
+                        tooltip: (
+                            <TooltipWithKeybind text="All the files in your project" keybind={keyBinds.homeFiles} />
+                        ),
                     },
                 ]}
             />

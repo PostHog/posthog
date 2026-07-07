@@ -38,12 +38,20 @@ export const appsSceneLogic = kea<appsSceneLogicType>([
     })),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setSelectedIndex: (selectedIndex: number) => ({ selectedIndex }),
     }),
     reducers({
         searchTerm: [
             '',
             {
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
+        selectedIndex: [
+            0,
+            {
+                setSelectedIndex: (_, { selectedIndex }) => selectedIndex,
+                setSearchTerm: () => 0,
             },
         ],
     }),

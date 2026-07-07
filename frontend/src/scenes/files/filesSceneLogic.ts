@@ -56,10 +56,18 @@ export const filesSceneLogic = kea<filesSceneLogicType>([
             setLastViewedId: syncTreeStateToUrl,
         }
     }),
-    urlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values, cache }) => ({
         [urls.files()]: (_, __, hashParams) => {
             const raw = hashParams['folders']
             const paths: string[] = Array.isArray(raw) ? raw.map(String) : typeof raw === 'string' && raw ? [raw] : []
+            // Start with Unfiled open on a plain visit, but only once — collapsing it afterwards
+            // clears the hash again, and that must not bounce the folder back open
+            if (!cache.appliedDefaultFolders) {
+                cache.appliedDefaultFolders = true
+                if (paths.length === 0) {
+                    paths.push('Unfiled')
+                }
+            }
             const targetIds = Array.from(new Set([PROTOCOL, ...paths.map((folder) => PROTOCOL + folder)]))
             if (!objectsEqual([...values.expandedFolders].sort(), [...targetIds].sort())) {
                 actions.setExpandedFolders(targetIds)

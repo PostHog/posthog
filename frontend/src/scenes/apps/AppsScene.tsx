@@ -21,18 +21,15 @@ export const scene: SceneExport = {
 }
 
 export function AppsScene(): JSX.Element {
-    const { searchTerm, filteredAppItems } = useValues(appsSceneLogic)
-    const { setSearchTerm } = useActions(appsSceneLogic)
-    const hasSearch = searchTerm.trim().length > 0
-    const searchRef = useRef<HTMLInputElement>(null)
+    const { searchTerm, filteredAppItems, selectedIndex } = useValues(appsSceneLogic)
+    const { setSearchTerm, setSelectedIndex } = useActions(appsSceneLogic)
     const gridRef = useRef<HTMLDivElement>(null)
 
-    function getGridLinks(): HTMLAnchorElement[] {
-        return Array.from(gridRef.current?.querySelectorAll<HTMLAnchorElement>('[data-attr="apps-grid-item"]') ?? [])
-    }
-
     // The grid is responsive (auto-fill), so the column count comes from the rendered layout
-    function getColumnCount(links: HTMLAnchorElement[]): number {
+    function getColumnCount(): number {
+        const links = Array.from(
+            gridRef.current?.querySelectorAll<HTMLAnchorElement>('[data-attr="apps-grid-item"]') ?? []
+        )
         const firstTop = links[0]?.offsetTop
         let columns = 0
         for (const link of links) {
@@ -44,31 +41,31 @@ export function AppsScene(): JSX.Element {
         return Math.max(columns, 1)
     }
 
-    function handleGridKeyDown(e: React.KeyboardEvent, index: number): void {
-        const links = getGridLinks()
-        const columns = getColumnCount(links)
+    // Arrow keys move the selection while the search field keeps focus, so you can keep typing
+    function handleSearchKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
         let next: number
         switch (e.key) {
             case 'ArrowRight':
-                next = index + 1
+                next = selectedIndex + 1
                 break
             case 'ArrowLeft':
-                next = index - 1
+                next = selectedIndex - 1
                 break
             case 'ArrowDown':
-                next = index + columns
+                next = selectedIndex + getColumnCount()
                 break
             case 'ArrowUp':
-                next = index - columns
+                next = selectedIndex - getColumnCount()
                 break
             default:
                 return
         }
         e.preventDefault()
-        if (next < 0) {
-            searchRef.current?.focus()
-        } else if (next < links.length) {
-            links[next].focus()
+        if (next >= 0 && next < filteredAppItems.length) {
+            setSelectedIndex(next)
+            gridRef.current
+                ?.querySelectorAll<HTMLAnchorElement>('[data-attr="apps-grid-item"]')
+                [next]?.scrollIntoView({ block: 'nearest' })
         }
     }
 
@@ -84,18 +81,12 @@ export function AppsScene(): JSX.Element {
                     value={searchTerm}
                     onChange={setSearchTerm}
                     onPressEnter={() => {
-                        const first = filteredAppItems[0]
-                        if (first?.href) {
-                            router.actions.push(first.href)
+                        const selected = filteredAppItems[selectedIndex]
+                        if (selected?.href) {
+                            router.actions.push(selected.href)
                         }
                     }}
-                    onKeyDown={(e) => {
-                        if (e.key === 'ArrowDown') {
-                            e.preventDefault()
-                            getGridLinks()[0]?.focus()
-                        }
-                    }}
-                    inputRef={searchRef}
+                    onKeyDown={handleSearchKeyDown}
                     autoFocus
                     data-attr="apps-scene-search"
                 />
@@ -108,10 +99,9 @@ export function AppsScene(): JSX.Element {
                             to={item.href}
                             className={cn(
                                 'flex flex-col items-center justify-center gap-2 rounded-lg p-4 bg-surface-primary hover:bg-surface-secondary transition-colors text-primary hover:text-primary',
-                                // Enter opens the first match, so point it out while searching
-                                hasSearch && index === 0 && 'ring-1 ring-accent'
+                                // Arrow keys move this selection, Enter opens it
+                                index === selectedIndex && 'ring-1 ring-accent'
                             )}
-                            onKeyDown={(e) => handleGridKeyDown(e, index)}
                             data-attr="apps-grid-item"
                         >
                             <span className="text-2xl [&_svg]:size-8">

@@ -95,6 +95,42 @@ export function GlobalShortcuts(): null {
     })
 
     useShortcut({
+        name: 'HomeLaunchpad',
+        keybind: [keyBinds.homeLaunchpad],
+        intent: 'Go home',
+        interaction: 'function',
+        callback: () => {
+            if (removeProjectIdIfPresent(router.values.location.pathname) !== urls.projectHomepage()) {
+                router.actions.push(urls.projectHomepage())
+            }
+        },
+    })
+
+    useShortcut({
+        name: 'HomeApps',
+        keybind: [keyBinds.homeApps],
+        intent: 'Open apps',
+        interaction: 'function',
+        callback: () => {
+            if (removeProjectIdIfPresent(router.values.location.pathname) !== urls.apps()) {
+                router.actions.push(urls.apps())
+            }
+        },
+    })
+
+    useShortcut({
+        name: 'HomeFiles',
+        keybind: [keyBinds.homeFiles],
+        intent: 'Open files',
+        interaction: 'function',
+        callback: () => {
+            if (removeProjectIdIfPresent(router.values.location.pathname) !== urls.files()) {
+                router.actions.push(urls.files())
+            }
+        },
+    })
+
+    useShortcut({
         name: 'toggle-context-panel',
         keybind: [keyBinds.toggleRightNav],
         intent: 'Toggle context panel',
