@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.models import Team, User
+from posthog.models import Organization, Team, User
 
 from products.customer_analytics.backend.logic import relationships as relationships_logic
 from products.customer_analytics.backend.logic.usage_spike_notifications import notify_managers_of_usage_spike
@@ -92,6 +92,19 @@ class TestNotifyManagersOfUsageSpike(BaseTest):
         create_account(team_id=self.team.id, name="Acme Corp", external_id="org-123")
         self._notify_managers(organization_id="org-123")
         mock_create.assert_not_called()
+
+    def test_relationship_holder_outside_the_organization_is_not_notified(self, mock_create, _mock_dispatched):
+        customer_org = Organization.objects.create(name="Customer Org")
+        customer_user = User.objects.create_and_join(customer_org, "owner@customer.com", None)
+        owner_definition = self._create_definition("Account owner")
+        account = create_account(team_id=self.team.id, name="Acme Corp", external_id="org-123")
+        self._assign(account, self.csm_definition, self.csm_user)
+        self._assign(account, owner_definition, customer_user)
+
+        self._notify_managers(organization_id="org-123")
+
+        mock_create.assert_called_once()
+        assert mock_create.call_args.args[0].target_id == str(self.csm_user.id)
 
     def test_ended_assignment_is_not_notified(self, mock_create, _mock_dispatched):
         account = create_account(team_id=self.team.id, name="Acme Corp", external_id="org-123")

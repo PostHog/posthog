@@ -126,9 +126,18 @@ def _is_csp_enabled(account: Account) -> bool:
 
 
 def _get_manager_user_ids(account: Account) -> list[int]:
+    # Only members of the organization that owns the accounts workspace. Relationship
+    # holders outside it (e.g. a customer assigned as account owner, or a teammate whose
+    # membership lapsed after assignment) must never receive internal usage-spike
+    # notifications.
     return list(
         AccountRelationship.objects.for_team(account.team_id)
-        .filter(account=account, ended_at__isnull=True, user__isnull=False)
+        .filter(
+            account=account,
+            ended_at__isnull=True,
+            user__isnull=False,
+            user__organization_membership__organization_id=account.team.organization_id,
+        )
         .values_list("user_id", flat=True)
         .distinct()
     )
