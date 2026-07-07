@@ -1698,6 +1698,39 @@ describe('dashboardLogic', () => {
             expect(logic.values.textTiles).toEqual([])
         })
 
+        it('optimistically shows a new text tile before the save resolves', async () => {
+            await expectLogic(logic, () => {
+                dashboardsModel.actions.updateDashboard({
+                    id: 5,
+                    tiles: [{ text: { body: 'brand new' } }] as any,
+                })
+            }).toDispatchActions([logic.actionTypes.addOptimisticTiles])
+
+            // the tile is in state (with a temporary negative id) without waiting for the server
+            const optimistic = logic.values.tiles.find((t) => t.text?.body === 'brand new')
+            expect(optimistic).not.toBeUndefined()
+            expect(optimistic!.id).toBeLessThan(0)
+        })
+
+        it('rolls the optimistic tile back if the save fails', async () => {
+            silenceKeaLoadersErrors()
+            jest.spyOn(api, 'update').mockRejectedValueOnce(new Error('boom'))
+
+            await expectLogic(logic, () => {
+                dashboardsModel.actions.updateDashboard({
+                    id: 5,
+                    tiles: [{ text: { body: 'doomed' } }] as any,
+                })
+            }).toDispatchActions([
+                logic.actionTypes.addOptimisticTiles,
+                dashboardsModel.actionTypes.updateDashboardFailure,
+                logic.actionTypes.removeOptimisticTiles,
+            ])
+
+            expect(logic.values.tiles.some((t) => t.text?.body === 'doomed')).toBe(false)
+            resumeKeaLoadersErrors()
+        })
+
         it('shows undo toast when removing a text tile', async () => {
             const { render } = await import('@testing-library/react')
 

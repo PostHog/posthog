@@ -400,6 +400,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         }),
         duplicateTile: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
         removeTile: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
+        addOptimisticTiles: (tiles: DashboardTile<QueryBasedInsightModel>[]) => ({ tiles }),
+        removeOptimisticTiles: (tileIds: number[]) => ({ tileIds }),
         moveToDashboard: (
             tile: DashboardTile<QueryBasedInsightModel>,
             fromDashboard: number,
@@ -915,6 +917,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         ...state,
                         tiles: state?.tiles?.filter((t) => t.id !== tile.id),
                     } as DashboardType<QueryBasedInsightModel>
+                },
+                addOptimisticTiles: (state, { tiles }) => {
+                    // Show freshly-added tiles before the save round-trips; the server response replaces them.
+                    return state
+                        ? ({
+                              ...state,
+                              tiles: [...(state.tiles || []), ...tiles],
+                          } as DashboardType<QueryBasedInsightModel>)
+                        : state
+                },
+                removeOptimisticTiles: (state, { tileIds }) => {
+                    return state
+                        ? ({
+                              ...state,
+                              tiles: (state.tiles || []).filter((t) => !tileIds.includes(t.id)),
+                          } as DashboardType<QueryBasedInsightModel>)
+                        : state
                 },
                 [dashboardsModel.actionTypes.tileMovedToDashboard]: (state, { tile, dashboardId }) => {
                     if (state?.id === dashboardId) {
@@ -2157,6 +2176,34 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.loadDashboard({ action: DashboardLoadAction.Update })
             }
         },
+        [dashboardsModel.actionTypes.updateDashboard]: ({ id, tiles }) => {
+            // Render newly-created text tiles right away; the save response replaces them, failure rolls them back.
+            if (id !== props.id || !Array.isArray(tiles)) {
+                return
+            }
+            const newTextTiles = tiles.filter((tile) => !!tile?.text && tile?.id == null)
+            if (!newTextTiles.length) {
+                return
+            }
+            const optimisticTiles = newTextTiles.map((tile) => {
+                cache.nextOptimisticTileId = (cache.nextOptimisticTileId ?? 0) - 1
+                return {
+                    id: cache.nextOptimisticTileId,
+                    text: tile.text,
+                    transparent_background: tile.transparent_background,
+                    layouts: tile.layouts || {},
+                    color: null,
+                } as DashboardTile<QueryBasedInsightModel>
+            })
+            cache.optimisticTileIds = [...(cache.optimisticTileIds || []), ...optimisticTiles.map((t) => t.id)]
+            actions.addOptimisticTiles(optimisticTiles)
+        },
+        [dashboardsModel.actionTypes.updateDashboardFailure]: () => {
+            if (cache.optimisticTileIds?.length) {
+                actions.removeOptimisticTiles(cache.optimisticTileIds)
+                cache.optimisticTileIds = []
+            }
+        },
         setPendingInsertion: ({ pendingInsertion }) => {
             // Snapshot current tile ids so we can identify the tile the add flow appends afterwards.
             cache.tileIdsBeforeInsertion = pendingInsertion ? new Set((values.tiles || []).map((t) => t.id)) : undefined
@@ -2242,6 +2289,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         [dashboardsModel.actionTypes.updateDashboardSuccess]: ({ dashboard }) => {
             // Text/button (via updateDashboard) and widget (client-merged) tiles arrive through here.
             if (dashboard?.id === props.id) {
+                // The server response already replaced any optimistic tiles with their saved equivalents.
+                cache.optimisticTileIds = []
                 actions.applyPendingInsertion()
             }
         },
