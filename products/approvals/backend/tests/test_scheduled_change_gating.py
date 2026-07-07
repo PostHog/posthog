@@ -448,13 +448,14 @@ class TestScheduledChangeGating(APIBaseTest):
 
         process_scheduled_changes()
 
-        scheduled.refresh_from_db()
+        # Reload into a fresh instance so the narrowed type from the earlier `is None` assert is widened.
+        reloaded = ScheduledChange.objects.get(pk=scheduled.pk)
         # The next occurrence is now gated: re-gating bound a fresh pending CR during the advance.
-        assert scheduled.change_request is not None
-        assert scheduled.change_request.state == ChangeRequestState.PENDING
+        assert reloaded.change_request is not None
+        assert reloaded.change_request.state == ChangeRequestState.PENDING
         # Still an active recurring schedule pointed at a future fire (not completed).
-        assert scheduled.executed_at is None
-        assert scheduled.scheduled_at > timezone.now()
+        assert reloaded.executed_at is None
+        assert reloaded.scheduled_at > timezone.now()
 
     def test_recurring_regate_conflict_stops_advancing_schedule(self, _mock_enabled):
         # If the next occurrence would match more than one enabled policy, re-gating raises
