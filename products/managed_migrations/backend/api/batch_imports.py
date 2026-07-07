@@ -5,6 +5,7 @@ from datetime import timedelta
 from django.conf import settings
 
 import boto3
+import structlog
 import posthoganalytics
 from botocore.exceptions import BotoCoreError, ClientError
 from django_filters.rest_framework import DjangoFilterBackend
@@ -25,6 +26,8 @@ from products.managed_migrations.backend.models.batch_imports import (
     DateRangeExportSource,
     get_aws_external_id,
 )
+
+logger = structlog.get_logger(__name__)
 
 S3_ROLE_ARN_REGEX = r"^arn:aws:iam::\d{12}:role\/[\w+=,.@\/-]+$"
 
@@ -214,17 +217,43 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
             raise serializers.ValidationError(
                 "IAM role authentication only works with AWS S3; S3-compatible storage must use access keys"
             )
-        if has_role and settings.MANAGED_MIGRATIONS_VALIDATE_ROLE_ON_CREATE:
+        if (
+            has_role
+            and settings.MANAGED_MIGRATIONS_VALIDATE_ROLE_ON_CREATE
+            and settings.MANAGED_MIGRATIONS_IMPORT_ROLE_ARN
+        ):
             self._validate_role_access(data)
 
         return data
 
     def _validate_role_access(self, data: dict) -> None:
-        """Assume the customer's role and probe the bucket so misconfiguration fails at create time."""
+        """Assume the customer's role the same way the worker will, so misconfiguration fails at create time.
+
+        Customers trust the import role, not the Django pods, so validation role-chains:
+        first assume the import role, then the customer's role with those credentials.
+        """
         external_id = get_aws_external_id(self.context["get_team"]())
         try:
             sts = boto3.client("sts")
-            credentials = sts.assume_role(
+            import_role = sts.assume_role(
+                RoleArn=settings.MANAGED_MIGRATIONS_IMPORT_ROLE_ARN,
+                RoleSessionName="posthog-managed-migration-validation",
+                DurationSeconds=900,
+            )["Credentials"]
+        except (ClientError, BotoCoreError):
+            # Our own role chain is misconfigured - not the customer's fault, so don't block
+            # the create; the worker's eager credential check remains the backstop.
+            logger.exception("managed_migrations_import_role_assume_failed")
+            return
+
+        customer_sts = boto3.client(
+            "sts",
+            aws_access_key_id=import_role["AccessKeyId"],
+            aws_secret_access_key=import_role["SecretAccessKey"],
+            aws_session_token=import_role["SessionToken"],
+        )
+        try:
+            credentials = customer_sts.assume_role(
                 RoleArn=data["role_arn"],
                 RoleSessionName="posthog-managed-migration-validation",
                 ExternalId=external_id,

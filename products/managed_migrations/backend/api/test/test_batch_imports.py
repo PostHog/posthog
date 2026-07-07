@@ -786,15 +786,17 @@ class TestBatchImportAPI(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.json()["available"])
 
-    def test_create_time_role_validation_blocks_unassumable_role(self):
+    def _post_role_import_with_mocked_sts(self, assume_role_side_effect):
         with (
-            self.settings(MANAGED_MIGRATIONS_VALIDATE_ROLE_ON_CREATE=True),
+            self.settings(
+                MANAGED_MIGRATIONS_VALIDATE_ROLE_ON_CREATE=True,
+                MANAGED_MIGRATIONS_IMPORT_ROLE_ARN="arn:aws:iam::999999999999:role/k8s-batch-import-worker",
+            ),
             patch("products.managed_migrations.backend.api.batch_imports.boto3.client") as mock_client,
         ):
-            mock_client.return_value.assume_role.side_effect = ClientError(
-                {"Error": {"Code": "AccessDenied", "Message": "Not authorized"}}, "AssumeRole"
-            )
-            response = self.client.post(
+            mock_client.return_value.assume_role.side_effect = assume_role_side_effect
+            mock_client.return_value.list_objects_v2.return_value = {"KeyCount": 0}
+            return self.client.post(
                 f"/api/projects/{self.team.id}/managed_migrations",
                 {
                     "source_type": "s3",
@@ -805,9 +807,25 @@ class TestBatchImportAPI(APIBaseTest):
                 },
             )
 
+    def test_create_time_role_validation_blocks_unassumable_customer_role(self):
+        fake_credentials = {"Credentials": {"AccessKeyId": "a", "SecretAccessKey": "s", "SessionToken": "t"}}
+        response = self._post_role_import_with_mocked_sts(
+            [
+                fake_credentials,  # import role hop succeeds
+                ClientError({"Error": {"Code": "AccessDenied", "Message": "Not authorized"}}, "AssumeRole"),
+            ]
+        )
+
         self.assertEqual(response.status_code, 400)
         self.assertIn("could not assume", response.json()["detail"])
         self.assertEqual(BatchImport.objects.filter(team_id=self.team.id).count(), 0)
+
+    def test_create_time_role_validation_fails_open_when_import_role_unavailable(self):
+        response = self._post_role_import_with_mocked_sts(
+            ClientError({"Error": {"Code": "AccessDenied", "Message": "Not authorized"}}, "AssumeRole")
+        )
+
+        self.assertEqual(response.status_code, 201)
 
     @parameterized.expand([("s3",), ("s3_gzip",)])
     def test_s3_import_with_endpoint_url(self, source_type):
