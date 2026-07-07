@@ -500,6 +500,18 @@ class TestTeamAdminAIGatewayWallet(BaseTest):
         assert context.get("reason") == "goodwill"
         assert context.get("balance_usd") == "35.000000"
 
+    def test_add_credit_impersonated_session_is_captured_and_displayed(self) -> None:
+        request = self._post({"amount_usd": "5", "reason": "x", "form_nonce": "n1"})
+        result = CreditResult(team_id=self.team.id, entry_id="e1", amount_usd="5", balance_usd="5", duplicate=False)
+        with patch("posthog.admin.admins.team_admin.is_impersonated_session", return_value=True):
+            with patch("posthog.admin.admins.team_admin.add_credit", return_value=result):
+                self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
+
+        entry = ActivityLog.objects.get(scope="AIGatewayCredit", team_id=self.team.id)
+        assert entry.was_impersonated is True
+        rendered = str(self.admin.ai_gateway_credit_history(self.team))
+        assert "(impersonated)" in rendered
+
     def test_add_credit_duplicate_backfills_missing_audit(self) -> None:
         # A replay whose original audit was lost after the money moved backfills it.
         request = self._post({"amount_usd": "5", "reason": "x"})
