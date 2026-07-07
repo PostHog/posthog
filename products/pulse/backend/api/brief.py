@@ -185,8 +185,8 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
             period_days=period_days,
         )
 
-        temporal = sync_connect()
         try:
+            temporal = sync_connect()
             asyncio.run(
                 temporal.start_workflow(
                     GENERATE_BRIEF_WORKFLOW_NAME,
