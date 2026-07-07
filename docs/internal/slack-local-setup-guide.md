@@ -98,7 +98,7 @@ features:
     always_online: true
   app_home:
     home_tab_enabled: true
-    messages_tab_enabled: false
+    messages_tab_enabled: true
     messages_tab_read_only_enabled: false
 oauth_config:
   redirect_urls:
@@ -111,9 +111,13 @@ oauth_config:
       - groups:read
       - channels:history
       - groups:history
+      - channels:join
+      - channels:manage
       - chat:write
       - canvases:write
       - files:write
+      - im:history
+      - assistant:write
       - reactions:write
       - users:read
       - users:read.email
@@ -126,6 +130,9 @@ settings:
     bot_events:
       - app_mention
       - app_home_opened
+      - message.im
+      - assistant_thread_started
+      - assistant_thread_context_changed
   interactivity:
     is_enabled: true
     request_url: https://<you>-posthog.ngrok.dev/slack/interactivity-callback
@@ -145,6 +152,15 @@ Django must be up at that moment.
 > sign-in-with-Slack flow needs `user` scopes `identity.basic` + `identity.email` and the second
 > redirect URL (`/complete/slack-link/`). Drop those if you don't want either feature locally —
 > they're behind the `slack-app-home` and `slack-app-oauth` flags.
+
+> The DM assistant + persona onboarding surface needs `im:history` + `assistant:write`, the
+> `message.im` / `assistant_thread_*` events, and the messages tab enabled — plus the **Agents &
+> AI Apps** toggle switched on in the app's settings UI (the manifest alone doesn't flip it).
+> `channels:join` lets onboarding add the bot to a picked public channel by itself — without it
+> every channel pick falls back to the `/invite` + Verify flow. `channels:manage` powers the
+> "Create #posthog-inbox" button; the button is hidden when the scope is missing. Optionally add
+> `search:read.public` for persona/tool detection from workspace messages — detection silently
+> degrades to profile-title matching without it.
 
 ## Step 3 — backend credentials and `SITE_URL`
 
@@ -197,6 +213,12 @@ If you already sync flags the usual way locally, it's likely on already — noth
 Slack mention webhook itself is not flag-gated — once the `slack` integration is
 connected, `@PostHog` events reach the agent unconditionally.
 
+The Slack-app surfaces are gated by remote-evaluated flags (create them in your local
+PostHog and target your team — `products/slack_app/backend/feature_flags.py`):
+`slack-app-home` (App Home tab), `slack-app-assistant` (DM assistant kill-switch), and
+`slack-app-persona-onboarding` (the CSM onboarding conversation + home card). Persona
+onboarding needs all three: home for the card, assistant for the DM surface, and its own flag.
+
 ## Step 5 — connect the integrations
 
 **Slack.** PostHog Code piggybacks on the regular Slack notifications install — there's no
@@ -241,6 +263,33 @@ when the repo-discovery agent has to choose among repos (a no-repo prompt skips 
 
 Follow-ups — reply in-thread with another `@mention` — are forwarded to the running sandbox and
 should react 👀 → 🦔 (or ❌ if the sandbox is gone). Expected from the code; not verified in our run.
+
+## Step 8 — CSM persona onboarding smoke test
+
+With the three flags from Step 4 on and the app reinstalled with the Step 2 scopes:
+
+1. Open the bot's **Home tab** — until you onboard it shows only the welcome + **Start
+   onboarding** card (settings appear after onboarding). Click it; the card flips to
+   _Onboarding in progress_ with an **Open our conversation** button that deep-links into the DM.
+2. Walk the DM flow: confirm **Customer success (CSM)** → fleet reveal → pick a channel and tap
+   **Add PostHog**. With `channels:join` granted the bot joins public channels itself; without
+   it (or for channels it can't join) you get the `/invite @posthog-slack-dev` + Verify fallback.
+3. Completion fires each scout's first run through Temporal immediately — the `temporal-worker`
+   mprocs process must be up. A real run additionally needs the agent-sandbox stack
+   (`SANDBOX_PROVIDER=docker` + `SANDBOX_LLM_GATEWAY_URL` in `.env.local`; see the
+   `debugging-local-task-agent-runs` skill) and CSM-shaped data — with no accounts/tickets/billing
+   data the scouts close out empty by design, so no finding appears. Note the scout coordinator's
+   30-minute schedule is not registered under `DEBUG`; only these provisioning-fired first runs
+   and manual runs happen locally.
+4. To see a finding land in the delivery channel without a real scout run:
+
+   ```bash
+   python manage.py simulate_scout_finding --team-id 1
+   ```
+
+   posts a clearly-labeled simulated finding through the exact production delivery path
+   (config lookup, owner tagging, Block Kit compose, `chat.postMessage`) to the channel that
+   onboarding configured.
 
 ## Debugging
 
