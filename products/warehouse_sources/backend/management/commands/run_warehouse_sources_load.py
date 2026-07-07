@@ -178,6 +178,7 @@ class Command(BaseCommand):
             connect_timeout=config.connect_timeout_seconds,
             lease_ttl=config.lease_ttl_seconds,
             recovery_grace=config.recovery_grace_seconds,
+            poll_failure_liveness_threshold=config.poll_failure_liveness_threshold,
         )
 
         health_state = HealthState(timeout_seconds=health_timeout)
