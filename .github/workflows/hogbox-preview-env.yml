@@ -87,6 +87,31 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 40
         steps:
+            # SECURITY GATE — manual dispatch takes a bare pr_number and the tool
+            # later checks out `pull/<n>/head` INSIDE the box and EXECUTES it with
+            # the tailnet + a minted hogland token in scope. The `pull_request`
+            # path is same-repo-gated by the job `if`, but a dispatched number is
+            # not — dispatching a FORK PR's number would run fork code against real
+            # credentials. So resolve the PR via the API and hard-fail unless its
+            # head lives in this repo (never a fork). Runs first, before any
+            # checkout / credential mint, so a fork number dies before anything
+            # sensitive comes online.
+            - name: Guard dispatch against fork PRs
+              if: github.event_name == 'workflow_dispatch'
+              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+              with:
+                  script: |
+                      const pr = Number(process.env.PR);
+                      const { data } = await github.rest.pulls.get({ ...context.repo, pull_number: pr });
+                      const head = data.head?.repo?.full_name;
+                      const base = `${context.repo.owner}/${context.repo.repo}`;
+                      if (head !== base) {
+                          core.setFailed(
+                              `Refusing to build a preview for PR #${pr}: its head is ${head || '(deleted fork)'}, ` +
+                              `not ${base}. Manual dispatch only runs same-repo PRs — fork code must never run ` +
+                              `with the hogland token in scope.`);
+                      }
+
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             # Announce immediately: open a GitHub Deployment (in_progress) and a
