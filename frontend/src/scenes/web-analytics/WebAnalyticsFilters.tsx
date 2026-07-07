@@ -34,6 +34,8 @@ import { shareNudgeLogic } from 'scenes/web-analytics/shareNudgeLogic'
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { PropertyFilterType, PropertyMathType } from '~/types'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { ProductTab, faviconUrl } from './common'
 import { webAnalyticsDateMapping } from './constants'
 import { PathCleaningToggle } from './PathCleaningToggle'
@@ -161,6 +163,20 @@ const WebAnalyticsAIFilters = ({ children }: { children: JSX.Element }): JSX.Ele
     } = useValues(webAnalyticsLogic)
     const { setDates, setWebAnalyticsFilters, setIsPathCleaningEnabled, setCompareFilter } =
         useActions(webAnalyticsLogic)
+
+    useAttachedContext([
+        {
+            type: 'web_analytics_filters',
+            value: JSON.stringify({
+                date_from: dateFrom,
+                date_to: dateTo,
+                properties: rawWebAnalyticsFilters,
+                doPathCleaning: isPathCleaningEnabled,
+                compareFilter,
+            }),
+            label: 'Current filters',
+        },
+    ])
 
     return (
         <MaxTool

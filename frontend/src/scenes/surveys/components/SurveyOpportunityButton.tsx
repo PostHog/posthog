@@ -25,6 +25,8 @@ import {
 } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { SURVEY_CREATED_SOURCE } from '../constants'
 import { QuickSurveyType } from '../quick-create/types'
 import { QuickSurveyModal } from '../QuickSurveyModal'
@@ -103,6 +105,22 @@ export function SurveyOpportunityButton({
             }
         },
     })
+
+    useAttachedContext(
+        funnelContext
+            ? [
+                  { type: 'insight', key: insight.id, label: funnelContext.insightName },
+                  {
+                      type: 'survey_opportunity_funnel_context',
+                      value: JSON.stringify({
+                          conversionRate: funnelContext.conversionRate,
+                          steps: funnelContext.steps,
+                      }),
+                      label: 'Funnel conversion context',
+                  },
+              ]
+            : null
+    )
 
     const handleClick = (): void => {
         posthog.capture('survey opportunity clicked', {

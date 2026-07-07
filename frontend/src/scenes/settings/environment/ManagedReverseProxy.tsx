@@ -29,6 +29,8 @@ import { isKeyOf } from 'lib/utils/guards'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { DiagnosticCheckResult, DiagnosticCheckStatus, DiagnosticReport, ProxyRecord, proxyLogic } from './proxyLogic'
 import { ProxySDKSetup } from './ProxySDKSetup'
 
@@ -87,6 +89,19 @@ export function ManagedReverseProxy(): JSX.Element {
             return proxyRecords.length > 0 ? [`Diagnose ${proxyRecords[0].domain}`] : []
         }, [proxyRecords]),
     })
+
+    useAttachedContext(
+        [
+            {
+                type: 'proxy_records',
+                value: JSON.stringify(
+                    proxyRecords.map((r) => ({ id: r.id, domain: r.domain, status: r.status, message: r.message }))
+                ),
+                label: 'Reverse proxy records',
+            },
+        ],
+        { active: proxyRecords.length > 0 && !restrictionReason }
+    )
 
     const columns: LemonTableColumns<ProxyRecord> = [
         {

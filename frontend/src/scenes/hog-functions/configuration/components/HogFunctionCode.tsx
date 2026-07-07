@@ -11,6 +11,8 @@ import MaxTool from 'scenes/max/MaxTool'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
 import { HogFunctionTemplateOptions } from './HogFunctionTemplateOptions'
 
@@ -38,6 +40,10 @@ export function HogFunctionCode(): JSX.Element {
     } = useActions(hogFunctionConfigurationLogic)
 
     const sourceCodeRef = useRef<HTMLDivElement>(null)
+
+    useAttachedContext([
+        { type: 'hog_code', value: JSON.stringify(configuration.hog ?? ''), label: 'Current Hog code' },
+    ])
 
     const content = (
         <div
