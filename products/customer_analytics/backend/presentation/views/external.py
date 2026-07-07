@@ -13,6 +13,7 @@ capture live behind ``facade.api``.
 import uuid
 import hashlib
 from typing import Any
+from uuid import UUID
 
 from django.db.models import Q
 
@@ -257,6 +258,70 @@ class ExternalAccountView(APIView):
             return _update_error_response(result)
 
         return Response(_external_account_body(result.account))
+
+
+def _external_assignment_body(assignment: contracts.ExternalAccountAssignment | None) -> dict[str, Any] | None:
+    if assignment is None:
+        return None
+    return {"id": assignment.id, "email": assignment.email, "name": assignment.name}
+
+
+def _external_account_list_item_body(item: contracts.ExternalAccountListItem) -> dict[str, Any]:
+    return {
+        "external_id": item.external_id,
+        "name": item.name,
+        "csm": _external_assignment_body(item.csm),
+        "account_executive": _external_assignment_body(item.account_executive),
+        "account_owner": _external_assignment_body(item.account_owner),
+    }
+
+
+class ExternalAccountListView(APIView):
+    """
+    GET /api/customer_analytics/external/accounts — List accounts with their role assignments
+
+    Cursor-paginated by account id. ``assigned_only=true`` restricts the listing
+    to accounts with at least one of csm / account_executive / account_owner set,
+    which is what the billing service's ownership sync consumes.
+
+    Authenticated via Bearer token (team secret_api_token) in the Authorization header.
+    """
+
+    authentication_classes: list = []
+    permission_classes = [AllowAny]
+    throttle_classes = [ExternalAccountBurstThrottle, ExternalAccountSustainedThrottle]
+
+    MAX_LIMIT = 100
+
+    def get(self, request: Request) -> Response:
+        team, error = _authenticate_team(request)
+        if error:
+            return error
+
+        assert team is not None
+
+        try:
+            limit = int(request.query_params.get("limit", str(self.MAX_LIMIT)))
+        except ValueError:
+            return Response({"error": "limit must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
+        limit = max(1, min(limit, self.MAX_LIMIT))
+
+        cursor = request.query_params.get("cursor", "").strip() or None
+        if cursor:
+            try:
+                UUID(cursor)
+            except ValueError:
+                return Response({"error": "cursor must be a valid account id"}, status=status.HTTP_400_BAD_REQUEST)
+
+        assigned_only = request.query_params.get("assigned_only", "").strip().lower() in ("1", "true", "yes")
+
+        page = facade.list_external_accounts(team.id, cursor=cursor, limit=limit, assigned_only=assigned_only)
+        return Response(
+            {
+                "results": [_external_account_list_item_body(item) for item in page.results],
+                "next_cursor": page.next_cursor,
+            }
+        )
 
 
 @extend_schema_field({"oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}]})

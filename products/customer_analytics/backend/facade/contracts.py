@@ -151,6 +151,41 @@ class ExternalAccount:
     custom_properties: dict[str, float | bool | str | None] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class ExternalAccountAssignment:
+    """A role assignment on the external list wire shape.
+
+    Carries the stored ``{id, email}`` plus the user's current display name so
+    external consumers (the billing service's ownership sync) don't need a
+    second lookup. ``name`` is None when the user has been deleted or has no
+    name set.
+    """
+
+    id: int
+    email: str
+    name: str | None = None
+
+
+@dataclass(frozen=True)
+class ExternalAccountListItem:
+    """One account row on the external list wire shape — identity plus role assignments."""
+
+    external_id: str
+    name: str
+    csm: ExternalAccountAssignment | None = None
+    account_executive: ExternalAccountAssignment | None = None
+    account_owner: ExternalAccountAssignment | None = None
+
+
+@dataclass(frozen=True)
+class ExternalAccountListPage:
+    """A page of external account rows. ``next_cursor`` is the last account id
+    of a full page, or None when the listing is exhausted."""
+
+    results: list[ExternalAccountListItem] = field(default_factory=list)
+    next_cursor: str | None = None
+
+
 class ExternalAccountUpdateError(Enum):
     """Failure modes of the external account write, each mapping to a distinct
     HTTP response in the view."""
