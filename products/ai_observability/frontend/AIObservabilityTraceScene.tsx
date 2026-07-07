@@ -61,6 +61,8 @@ import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, SidePanelTab } from '~/types'
 
+import type { CommitPRMatchApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
+
 import { EnrichedTraceTreeNode, findNodeForEvent, aiObservabilityTraceDataLogic } from './aiObservabilityTraceDataLogic'
 import { DisplayOption, TraceViewMode, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
 import { ClustersTabContent } from './components/ClustersTabContent'
@@ -996,6 +998,42 @@ function TraceWorkflowPanel({ traceId }: { traceId: string }): JSX.Element {
     )
 }
 
+function TraceGitChip({
+    branch,
+    repo,
+    commitPRMatches,
+    engineeringAnalyticsEnabled,
+}: {
+    branch: string
+    repo: string | null
+    commitPRMatches: CommitPRMatchApi[]
+    engineeringAnalyticsEnabled: boolean
+}): JSX.Element {
+    // Repo lives in the tooltip only; the chip content is the branch name.
+    const repoPrefix = repo ? `${repo} - ` : ''
+
+    // While the resolution request is in flight matches is empty, so this renders the plain chip.
+    const match = engineeringAnalyticsEnabled ? commitPRMatches[0] : undefined
+    if (match) {
+        const [owner, name] = match.repo.split('/')
+        const prTitle = match.title ? `: ${match.title}` : ''
+        const tooltip = `${repoPrefix}Branch - click to view PR #${match.number} in engineering analytics${prTitle}`
+        return (
+            <Chip title="Branch" tooltipTitle={tooltip}>
+                <Link to={urls.engineeringAnalyticsPullRequest(owner, name, match.number)} subtle>
+                    <span className="font-mono">{branch}</span>
+                </Link>
+            </Chip>
+        )
+    }
+
+    return (
+        <Chip title="Branch" tooltipTitle={repoPrefix ? `${repoPrefix}Branch` : 'Branch'}>
+            <span className="font-mono">{branch}</span>
+        </Chip>
+    )
+}
+
 function TraceMetadata({
     trace,
     metricEvents,
@@ -1014,6 +1052,9 @@ function TraceMetadata({
     showBillingInfo?: boolean
 }): JSX.Element {
     const { personsCache } = useValues(llmPersonsLazyLoaderLogic)
+    const { traceGitMetadata } = useValues(aiObservabilityTraceDataLogic)
+    const { commitPRMatches } = useValues(aiObservabilityTraceLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const sentimentResult = trace.sentiment
 
     const traceCostContext = costContextFromTrace(trace)
@@ -1039,6 +1080,14 @@ function TraceMetadata({
                         <span className="font-mono">{trace.aiSessionId.slice(0, 8)}...</span>
                     </Link>
                 </Chip>
+            )}
+            {traceGitMetadata?.branch && (
+                <TraceGitChip
+                    branch={traceGitMetadata.branch}
+                    repo={traceGitMetadata.repo}
+                    commitPRMatches={commitPRMatches}
+                    engineeringAnalyticsEnabled={!!featureFlags[FEATURE_FLAGS.ENGINEERING_ANALYTICS]}
+                />
             )}
             <UsageChip event={trace} />
             {traceCostContext && (

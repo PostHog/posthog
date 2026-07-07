@@ -19,7 +19,7 @@ import {
 import { InsightLogicProps } from '~/types'
 
 import type { aiObservabilityTraceDataLogicType } from './aiObservabilityTraceDataLogicType'
-import { aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
+import { type TraceGitMetadata, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { captureNormalizationFailure, normalizeMessages } from './messageNormalization'
 import {
@@ -178,6 +178,25 @@ export function reportTraceNormalizationFailures(trace: LLMTrace): void {
             captureNormalizationFailure(output)
         }
     }
+}
+
+function nonEmptyStringProp(value: unknown): string | null {
+    return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+// A coding-agent session stamps the same git ref on every event; take the first event that carries any.
+export function deriveTraceGitMetadata(trace: LLMTrace | undefined): TraceGitMetadata | null {
+    if (!trace) {
+        return null
+    }
+    for (const event of trace.events) {
+        const branch = nonEmptyStringProp(event.properties.$ai_git_branch)
+        const repo = nonEmptyStringProp(event.properties.$ai_git_repo)
+        if (branch || repo) {
+            return { branch, repo }
+        }
+    }
+    return null
 }
 
 export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicType>([
@@ -343,6 +362,7 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
             (trace): LLMTraceEvent[] | undefined =>
                 trace?.events.filter((event) => event.event === '$ai_feedback' && event.properties.$ai_feedback_text),
         ],
+        traceGitMetadata: [(s) => [s.trace], (trace): TraceGitMetadata | null => deriveTraceGitMetadata(trace)],
         metricsAndFeedbackEvents: [
             (s) => [s.metricEvents, s.feedbackEvents],
             (metricEvents, feedbackEvents): { metric: string; value: any }[] =>
@@ -502,6 +522,8 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
             if (trace?.distinctId) {
                 llmPersonsLazyLoaderLogic.actions.ensurePersonLoaded(trace.distinctId)
             }
+
+            aiObservabilityTraceLogic.actions.loadCommitPRMatches(deriveTraceGitMetadata(trace))
 
             actions.reportSingleTraceLoadIfReady()
         },
