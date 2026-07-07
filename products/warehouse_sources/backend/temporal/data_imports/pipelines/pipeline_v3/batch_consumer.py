@@ -277,7 +277,11 @@ class BatchConsumer:
         # statement_timeout inside the `options` startup parameter.
         timeout_ms = self._statement_timeout_ms(statement_timeout_seconds)
         if timeout_ms is not None:
-            await conn.execute(f"SET statement_timeout = {timeout_ms}")
+            try:
+                await conn.execute(f"SET statement_timeout = {timeout_ms}")
+            except psycopg.Error:
+                await conn.close()
+                raise
         return conn
 
     async def _drop_conn(self, attr: str) -> None:
