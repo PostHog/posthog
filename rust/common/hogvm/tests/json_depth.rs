@@ -4,7 +4,7 @@
 //! event properties. Accessing a nested global runs it through `json_to_hog`, so this exercises the
 //! guard end to end.
 
-use hogvm::{sync_execute, ExecutionContext, Program};
+use hogvm::{sync_execute, ExecutionContext, Program, MAX_JSON_SERDE_DEPTH};
 use serde_json::{json, Value};
 
 const OP_GET_GLOBAL: i64 = 1;
@@ -37,19 +37,19 @@ fn return_deep_global(globals: Value) -> Result<Value, hogvm::VmFailure> {
 }
 
 #[test]
-fn nesting_past_the_old_64_cap_deserializes() {
-    // 100 deep tripped the old cap of 64; it must now round-trip unchanged.
-    let value = nested_array(100);
+fn nesting_within_the_cap_deserializes() {
+    // Just under the cap (and well past the old value of 64): must round-trip unchanged.
+    let value = nested_array(MAX_JSON_SERDE_DEPTH - 50);
     let result = return_deep_global(json!({ "deep": value.clone() })).expect("execution succeeds");
     assert_eq!(result, value);
 }
 
 #[test]
-fn nesting_past_the_new_cap_still_errors() {
+fn nesting_past_the_cap_still_errors() {
     // The guard is raised, not removed — pathologically deep input still errors rather than risking
     // native stack exhaustion.
     assert!(
-        return_deep_global(json!({ "deep": nested_array(300) })).is_err(),
+        return_deep_global(json!({ "deep": nested_array(MAX_JSON_SERDE_DEPTH + 50) })).is_err(),
         "nesting beyond MAX_JSON_SERDE_DEPTH should still error"
     );
 }
