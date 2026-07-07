@@ -1,6 +1,7 @@
 from posthog.test.base import BaseTest
 
 from django.http import QueryDict
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -291,6 +292,11 @@ class TestIpAddressFilter(BaseTest):
         filtered = self.filter_manager.apply_filters(queryset, {"ip_addresses": ["198.51.100.7", "203.0.*"]})
         self.assertEqual(set(filtered.values_list("id", flat=True)), {exact_match.id, wildcard_match.id})
 
+
+class TestAdvancedActivityLogFiltersSerializerValidation(SimpleTestCase):
+    # Pure field-level validation (the serializer has no validate() and no context),
+    # so no DB is needed. The viewset wiring is guarded by an endpoint test in
+    # TestOrganizationAdvancedActivityLogsViewSet (test_activity_log.py).
     @parameterized.expand(
         [
             ("ipv4", "203.0.113.42", True),

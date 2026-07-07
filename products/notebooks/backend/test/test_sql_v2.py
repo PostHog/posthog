@@ -8,16 +8,20 @@ import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 from types import SimpleNamespace
+from typing import Any
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core import signing
+from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
+from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 
 from products.notebooks.backend.kernel_package import kernel_package_bytes_and_hash
@@ -38,6 +42,7 @@ from products.notebooks.backend.sql_v2 import (
     mint_callback_token,
     mint_command_token,
     mint_data_plane_token,
+    sql_v2_page_lock_key,
     verify_data_plane_token,
 )
 from products.notebooks.backend.sql_v2_data_plane import _rows_to_arrow_bytes
@@ -46,6 +51,27 @@ from products.notebooks.backend.temporal.sql_v2 import (
     dispatch_sql_v2_run_activity,
     mark_sql_v2_run_failed_activity,
 )
+
+from ee.models.rbac.access_control import AccessControl
+
+
+def _restrict_query_access(test: APIBaseTest) -> None:
+    # Demote from owner (owner bypasses access control) to member, turn on the ACCESS_CONTROL
+    # feature, and write an explicit query "none" row so the user falls below query-read.
+    test.organization.available_product_features = [
+        {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+    ]
+    test.organization.save(update_fields=["available_product_features"])
+    test.organization_membership.level = OrganizationMembership.Level.MEMBER
+    test.organization_membership.save(update_fields=["level"])
+    AccessControl.objects.create(
+        team=test.team,
+        resource="query",
+        resource_id=None,
+        organization_member=test.organization_membership,
+        access_level="none",
+    )
+    cache.clear()
 
 
 class TestSQLV2Callback(APIBaseTest):
@@ -148,6 +174,16 @@ class TestSQLV2Run(APIBaseTest):
         self.assertEqual(run.code, "select 1")
         mock_start.assert_called_once()
         self.assertEqual(str(mock_start.call_args.args[0].run_id), run_id)
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_query_restricted_member_cannot_run(self, _mock_enabled, mock_start):
+        # A notebook editor whose query access is denied must not execute HogQL through the node.
+        _restrict_query_access(self)
+        response = self.client.post(self.run_url, data={"node_id": "n1", "code": "select 1"}, format="json")
+        self.assertEqual(response.status_code, 403)
+        mock_start.assert_not_called()
+        self.assertFalse(NotebookNodeRun.objects.for_team(self.team.id).exists())
 
     @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
@@ -418,6 +454,34 @@ class TestSQLV2RunPage(APIBaseTest):
         run = self._create_run(status=status)
         self.assertEqual(self._get(str(run.id)).status_code, expected)
 
+    @patch("products.notebooks.backend.presentation.views.notebook.fetch_sql_v2_page")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_query_restricted_member_cannot_page(self, _mock_enabled, mock_fetch):
+        # Paging returns analytics rows, so a query-denied notebook reader must not fetch pages.
+        run = self._create_run()
+        _restrict_query_access(self)
+        self.assertEqual(self._get(str(run.id)).status_code, 403)
+        mock_fetch.assert_not_called()
+
+    @patch("products.notebooks.backend.presentation.views.notebook.fetch_sql_v2_page")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_one_in_flight_page_fetch_per_user(self, _mock_enabled, mock_fetch):
+        # Each out-of-cache page fetch holds a web worker for up to the kernel timeout, so a
+        # user with a fetch already in flight must be rejected instead of stacking workers.
+        mock_fetch.return_value = {"columns": [], "types": [], "rows": [], "has_more": False}
+        run = self._create_run()
+        lock_key = sql_v2_page_lock_key(self.team.id, self.user.id)
+        cache.add(lock_key, True, timeout=10)
+        try:
+            response = self._get(str(run.id))
+            self.assertEqual(response.status_code, 429)
+            mock_fetch.assert_not_called()
+        finally:
+            cache.delete(lock_key)
+        # A finished fetch releases the lock, so back-to-back sequential pages keep working.
+        self.assertEqual(self._get(str(run.id)).status_code, 200)
+        self.assertEqual(self._get(str(run.id)).status_code, 200)
+
 
 class TestSQLV2PageDispatch(APIBaseTest):
     def setUp(self):
@@ -528,6 +592,13 @@ class TestSQLV2RunResult(APIBaseTest):
             )
         self.assertEqual(self.client.get(self._url(str(other_run.id))).status_code, 404)
 
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_query_restricted_member_cannot_read_result(self, _mock_enabled):
+        # The result envelope is analytics rows, so a query-denied notebook reader must not read them back.
+        run = self._create_run(NotebookNodeRun.Status.DONE, envelope={"first_page": [[42]]})
+        _restrict_query_access(self)
+        self.assertEqual(self.client.get(self._url(str(run.id))).status_code, 403)
+
 
 class TestSQLV2Activities(APIBaseTest):
     def setUp(self):
@@ -637,7 +708,7 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         self.notebook = Notebook.objects.create(team=self.team, short_id="nbdp001")
 
     def _post(self, body: dict, token: str | None = None):
-        kwargs = {"data": json.dumps(body), "content_type": "application/json"}
+        kwargs: dict[str, Any] = {"data": json.dumps(body), "content_type": "application/json"}
         if token is not None:
             kwargs["HTTP_AUTHORIZATION"] = f"Bearer {token}"
         return self.client.post(self.URL, **kwargs)  # type: ignore[arg-type]

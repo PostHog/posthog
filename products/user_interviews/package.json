@@ -10,6 +10,7 @@
         "posthog-js": "catalog:"
     },
     "peerDependencies": {
+        "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
         "@storybook/react": "catalog:",
         "@types/react": "*",

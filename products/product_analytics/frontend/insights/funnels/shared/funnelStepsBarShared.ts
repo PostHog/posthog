@@ -68,6 +68,9 @@ export interface FunnelStepsBarVariant<TMeta = unknown> {
     /** `data[stepIndex]` is the conversion from the first step, as a percent (0–100). The `track: true`
      *  bar config draws the drop-off remainder up to 100%. */
     data: number[]
+    /** Compare only: per-step track ceiling (percent) — caps the drop-off track at this period's entry
+     *  level so the volume gap above it is left blank. Omit for the default full-height track. */
+    trackData?: number[]
 }
 
 export interface FunnelStepsBarsModel<TMeta = unknown> {
@@ -104,6 +107,7 @@ export function buildFunnelStepsBars<TMeta = unknown>(
         data: variant.data,
         color: variant.color,
         meta: variant.meta,
+        trackData: variant.trackData,
     }))
     return {
         series,

@@ -1,37 +1,26 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import { NotebookNodeType } from '../types'
+import { NotebookOperation, notebookOperationsLogic } from '../Notebook/notebookOperationsLogic'
+import { collectSqlV2Nodes } from './notebookNodeContent'
 import { NotebookNodeSQLV2Result } from './NotebookNodeSQLV2'
 import type { notebookNodeSQLV2LogicType } from './notebookNodeSQLV2LogicType'
 
-// Walk the notebook document for every named SQLV2 node (except this one) and return
-// its dataframe name -> node id. The backend resolves each referenced node to its
-// last-run query and inlines it as a CTE — the frontend only supplies the wiring.
-export function collectSqlV2Refs(doc: unknown, selfNodeId: string): Record<string, string> {
+// Map every SQLV2 sibling's dataframe name -> node id, excluding the running node itself.
+// Delegates to collectSqlV2Nodes so duplicate names get the same disambiguated form the
+// dependency graph shows (sql_df, sql_df_2, …) — raw attributes would let a later duplicate
+// silently shadow the node the user actually referenced. The backend resolves each referenced
+// node to its last-run query and inlines it as a CTE — the frontend only supplies the wiring.
+export function collectSqlV2Refs(doc: JSONContent | null | undefined, selfNodeId: string): Record<string, string> {
     const refs: Record<string, string> = {}
-    const visit = (node: unknown): void => {
-        if (!node || typeof node !== 'object') {
-            return
-        }
-        const { type, attrs, content } = node as {
-            type?: string
-            attrs?: { nodeId?: string; returnVariable?: string }
-            content?: unknown[]
-        }
-        if (type === NotebookNodeType.SQLV2 && attrs && attrs.nodeId && attrs.nodeId !== selfNodeId) {
-            const name = attrs.returnVariable?.trim()
-            if (name) {
-                refs[name] = attrs.nodeId
-            }
-        }
-        if (Array.isArray(content)) {
-            content.forEach(visit)
+    for (const node of collectSqlV2Nodes(doc)) {
+        if (node.nodeId && node.nodeId !== selfNodeId) {
+            refs[node.returnVariable] = node.nodeId
         }
     }
-    visit(doc)
     return refs
 }
 
@@ -58,13 +47,24 @@ export interface NotebookNodeSQLV2LogicProps {
     // Current node attributes, so a fresh mount can recover an in-flight/finished run by its runId.
     runId?: string | null
     hasResult?: boolean
-    updateAttributes: (attrs: { runId?: string | null; result?: NotebookNodeSQLV2Result | null }) => void
+    updateAttributes: (attrs: {
+        nodeId?: string
+        runId?: string | null
+        result?: NotebookNodeSQLV2Result | null
+    }) => void
 }
 
 export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
     path((key) => ['scenes', 'notebooks', 'Nodes', 'notebookNodeSQLV2Logic', key]),
     props({} as NotebookNodeSQLV2LogicProps),
     key((props) => props.nodeId),
+    connect((props: NotebookNodeSQLV2LogicProps) => ({
+        values: [notebookOperationsLogic({ shortId: props.notebookShortId }), ['activeOperation', 'isBusy']],
+        actions: [
+            notebookOperationsLogic({ shortId: props.notebookShortId }),
+            ['startOperation', 'finishOperation', 'finishNodeOperations'],
+        ],
+    })),
     actions({
         // refs maps each named sibling node's dataframe name to its node id. A hogql node
         // inlines the referenced ones as CTEs (Journey 3); a python node materializes the
@@ -137,6 +137,11 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
         ],
     }),
     listeners(({ props, actions, cache, values }) => {
+        // One operation at a time across the whole notebook (see notebookOperationsLogic);
+        // ids are per node + kind so re-registering our own operation stays idempotent.
+        const runOperation: NotebookOperation = { id: `${props.nodeId}:run`, nodeId: props.nodeId, kind: 'run' }
+        const pageOperation: NotebookOperation = { id: `${props.nodeId}:page`, nodeId: props.nodeId, kind: 'page' }
+
         const loadCurrentPage = async (): Promise<void> => {
             const { page, pageSize } = values
             const runId = props.runId
@@ -148,6 +153,14 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                 actions.setPageResult(null)
                 return
             }
+            // The pagination UI is disabled while the notebook is busy; this guards the
+            // programmatic path. A same-node re-page supersedes (stale response discarded below).
+            if (values.isBusy && values.activeOperation?.id !== pageOperation.id) {
+                lemonToast.info('Another operation is running in this notebook — wait for it to finish.')
+                actions.resetPaging()
+                return
+            }
+            actions.startOperation(pageOperation)
             const fetchId = (cache.pageFetchId = (cache.pageFetchId ?? 0) + 1)
             actions.setPageLoading(true)
             try {
@@ -171,8 +184,10 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                 // first page rather than showing old rows under a new page number.
                 actions.resetPaging()
             } finally {
+                // A superseding fetch re-registered the same operation id — leave the release to it.
                 if (cache.pageFetchId === fetchId) {
                     actions.setPageLoading(false)
+                    actions.finishOperation(pageOperation.id)
                 }
             }
         }
@@ -186,6 +201,14 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     actions.setIsRunning(false)
                     return
                 }
+                // The run button is disabled while the notebook is busy; this guards Cmd+Enter
+                // and programmatic dispatch. Re-running our own node supersedes as before.
+                if (values.isBusy && values.activeOperation?.nodeId !== props.nodeId) {
+                    lemonToast.info('Another operation is running in this notebook — wait for it to finish.')
+                    actions.setIsRunning(false)
+                    return
+                }
+                actions.startOperation(runOperation)
                 try {
                     const { run_id } = await api.notebooks.sqlV2Run(props.notebookShortId, {
                         node_id: props.nodeId,
@@ -194,14 +217,24 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                         node_type: opts.nodeType,
                         output_name: opts.outputName,
                     })
-                    props.updateAttributes({ runId: run_id, result: null })
+                    // Mark this as the active run so a still-in-flight poll from a previous run
+                    // can't overwrite this result or stop this run's poller once it resolves.
+                    cache.activeRunId = run_id
+                    // Persisting nodeId pins the cell's identity: markdown-notebook cell ids are
+                    // content fingerprints otherwise, so without the pin any later prop change
+                    // would orphan this run's node_id and break refs to this cell.
+                    props.updateAttributes({ nodeId: props.nodeId, runId: run_id, result: null })
                     actions.startPolling(run_id)
                 } catch (error) {
                     actions.setRunError(error instanceof Error ? error.message : 'Failed to run query')
                     actions.setIsRunning(false)
+                    actions.finishOperation(runOperation.id)
                 }
             },
             startPolling: ({ runId }) => {
+                // Idempotent re-register: also covers a remount resuming a persisted in-flight run.
+                actions.startOperation(runOperation)
+                cache.activeRunId = runId
                 cache.pollAttempts = 0
                 actions.pollResult(runId)
                 // Same key auto-disposes any previous poller; disposables clean up on unmount and pause on hidden tab.
@@ -223,6 +256,11 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                 cache.pollInFlight = true
                 try {
                     const { status, result, error } = await api.notebooks.sqlV2RunResult(props.notebookShortId, runId)
+                    // A newer run started while this poll was in flight — its result and poller
+                    // must win, so drop this stale response instead of overwriting/stopping it.
+                    if (runId !== cache.activeRunId) {
+                        return
+                    }
                     if (status === 'done') {
                         props.updateAttributes({
                             result: result
@@ -247,6 +285,9 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     }
                     // 'running' → keep polling
                 } catch (error) {
+                    if (runId !== cache.activeRunId) {
+                        return
+                    }
                     actions.setRunError(error instanceof Error ? error.message : 'Failed to fetch result')
                     actions.stopPolling()
                 } finally {
@@ -256,14 +297,29 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
             stopPolling: () => {
                 cache.disposables.dispose('pollResult')
                 actions.setIsRunning(false)
+                actions.finishOperation(runOperation.id)
             },
         }
     }),
+    selectors(({ props }) => ({
+        // Set while another node's operation is in flight — wire into disabledReason props.
+        operationBlockReason: [
+            (s) => [s.activeOperation],
+            (activeOperation): string | null =>
+                activeOperation && activeOperation.nodeId !== props.nodeId
+                    ? 'Another operation is running in this notebook'
+                    : null,
+        ],
+    })),
     afterMount(({ props, actions }) => {
         // Recover after a reload/remount: a persisted runId with no result means the run may still be
         // in flight or already finished — poll to catch up rather than lose the result.
         if (props.runId && !props.hasResult) {
             actions.startPolling(props.runId)
         }
+    }),
+    beforeUnmount(({ props, actions }) => {
+        // A deleted or unmounted cell must never leave the notebook wedged as busy.
+        actions.finishNodeOperations(props.nodeId)
     }),
 ])

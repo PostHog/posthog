@@ -35,6 +35,7 @@ _SELECT = f"""
         coalesce(ci.passing, 0) AS passing,
         coalesce(ci.failing, 0) AS failing,
         coalesce(ci.pending, 0) AS pending,
+        ci.failing_workflows AS failing_workflows,
         coalesce(rp.pushes, 0) AS pushes,
         coalesce(rp.rerun_cycles, 0) AS rerun_cycles
     FROM __PR_SOURCE__ AS pr
@@ -94,6 +95,7 @@ def _map_row(row: tuple, cost_by_pr: dict[tuple[str, str, int], PRCostAggregate]
         passing,
         failing,
         pending,
+        failing_workflows,
         pushes,
         rerun_cycles,
     ) = row
@@ -114,7 +116,15 @@ def _map_row(row: tuple, cost_by_pr: dict[tuple[str, str, int], PRCostAggregate]
         merged_at=merged_at,
         open_to_merge_seconds=open_to_merge_seconds,
         labels=list(labels),
-        ci=CIStatusRollup(runs=runs, passing=passing, failing=failing, pending=pending),
+        # A PR with no CI misses the LEFT JOIN; the array column then comes back empty or NULL
+        # depending on join_use_nulls — normalize both to [].
+        ci=CIStatusRollup(
+            runs=runs,
+            passing=passing,
+            failing=failing,
+            pending=pending,
+            failing_workflows=list(failing_workflows or []),
+        ),
         pushes=pushes,
         rerun_cycles=rerun_cycles,
         estimated_cost_usd=cost.estimated_cost_usd if cost else None,

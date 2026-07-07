@@ -2,6 +2,8 @@ from django.db import models
 
 from posthog.models.utils import UUIDModel
 
+from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
+
 
 class ObservationStatus(models.TextChoices):
     PENDING = "pending", "Pending"
@@ -42,16 +44,7 @@ class ReplayObservation(UUIDModel):
     )
 
     status = models.CharField(max_length=16, choices=ObservationStatus.choices, default=ObservationStatus.PENDING)
-    error_reason = models.TextField(
-        blank=True,
-        default="",
-        help_text=(
-            "Populated on terminal non-success statuses; formatted as `kind:human-readable message`. "
-            "For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events. "
-            "For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / "
-            "validation_failed / internal_error."
-        ),
-    )
+    error_reason = models.TextField(blank=True, default="", help_text=ERROR_REASON_HELP_TEXT)
     workflow_id = models.CharField(
         max_length=255,
         blank=True,

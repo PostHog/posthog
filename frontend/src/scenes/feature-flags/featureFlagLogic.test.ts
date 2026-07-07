@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import {
+    FeatureFlagGroupType,
     FeatureFlagType,
     PropertyFilterType,
     PropertyOperator,
@@ -542,6 +543,29 @@ describe('featureFlagLogic', () => {
             expect(changes).toContain('Release condition rollout percentage changed')
         })
 
+        it('does not throw and detects changes when a filter value is a bigint', () => {
+            // Property values can be bigint (PropertyFilterBaseValue); raw JSON.stringify throws on them.
+            const filtersWithBigIntId = (value: bigint): FeatureFlagFilters => ({
+                groups: [
+                    {
+                        properties: [
+                            { key: 'id', value, type: PropertyFilterType.Person, operator: PropertyOperator.Exact },
+                        ],
+                        rollout_percentage: 100,
+                        variant: null,
+                    },
+                ],
+            })
+            const originalFlag = { ...MOCK_FEATURE_FLAG, filters: filtersWithBigIntId(BigInt('9007199254740993')) }
+            const changedFlag = { ...MOCK_FEATURE_FLAG, filters: filtersWithBigIntId(BigInt('9007199254740994')) }
+
+            let changes: string[] = []
+            expect(() => {
+                changes = detectFeatureFlagChanges(originalFlag, changedFlag)
+            }).not.toThrow()
+            expect(changes).toContain('Release conditions changed')
+        })
+
         it('returns no changes for new flags', () => {
             const newFlag = { ...NEW_FLAG, key: 'new-flag', name: 'New Flag' }
             const changes = detectFeatureFlagChanges(null, newFlag)
@@ -686,6 +710,56 @@ describe('featureFlagLogic', () => {
             await expectLogic(logic, () => {
                 router.actions.push(urls.featureFlag(1))
             }).toDispatchActions(['loadFeatureFlag'])
+        })
+    })
+
+    describe('default release conditions on new flags', () => {
+        const groupDefault: FeatureFlagGroupType = {
+            properties: [
+                {
+                    key: 'is_dev',
+                    type: PropertyFilterType.Group,
+                    value: ['true'],
+                    operator: PropertyOperator.Exact,
+                    group_type_index: 1,
+                },
+            ],
+            rollout_percentage: 100,
+            variant: null,
+            aggregation_group_type_index: 1,
+        }
+
+        async function mountNewFlag(defaultConditions: {
+            enabled: boolean
+            default_groups: FeatureFlagGroupType[]
+        }): Promise<ReturnType<typeof featureFlagLogic.build>> {
+            // Seed the shared singleton's cache before the new-flag loader reads it; useMocks lands
+            // too late since the logic is warmed to a disabled value on mount in beforeEach.
+            defaultReleaseConditionsLogic.actions.loadDefaultReleaseConditionsSuccess(defaultConditions)
+            // Park at a non-matching path so the `new`-keyed logic doesn't prefetch off stale params.
+            router.actions.push('/')
+            const newLogic = featureFlagLogic({ id: 'new' })
+            newLogic.mount()
+            await expectLogic(newLogic).toFinishAllListeners()
+            return newLogic
+        }
+
+        it('applies an enabled group-targeted default and mirrors the aggregation onto the new flag', async () => {
+            const newLogic = await mountNewFlag({ enabled: true, default_groups: [groupDefault] })
+
+            expect(newLogic.values.featureFlag.filters.groups).toEqual([groupDefault])
+            expect(newLogic.values.featureFlag.filters.aggregation_group_type_index).toBe(1)
+            newLogic.unmount()
+        })
+
+        it('leaves a new flag on user targeting when the default config is disabled', async () => {
+            const newLogic = await mountNewFlag({ enabled: false, default_groups: [groupDefault] })
+
+            expect(newLogic.values.featureFlag.filters.groups).toEqual([
+                { properties: [], rollout_percentage: 0, variant: null },
+            ])
+            expect(newLogic.values.featureFlag.filters.aggregation_group_type_index).toBeUndefined()
+            newLogic.unmount()
         })
     })
 

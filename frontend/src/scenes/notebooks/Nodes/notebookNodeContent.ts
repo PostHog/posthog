@@ -1,5 +1,7 @@
+import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 
+import { NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG } from '../Notebook/markdownNotebookV2'
 import { NotebookNodeType } from '../types'
 
 export type PythonNodeSummary = {
@@ -281,6 +283,36 @@ export const getUniqueSqlV2ReturnVariable = (
     return resolvedReturnVariable
 }
 
+// Markdown notebooks hold their cells as component tags inside a single markdown attribute,
+// so walking the tiptap JSON alone never finds them. Expand `<SQLV2 …>` tags into
+// tiptap-shaped nodes so the collectors and the dependency graph see the same cells in both
+// notebook formats. Scoped to SQLV2: expanding the other node types here would change their
+// (currently markdown-blind) summaries and disambiguated naming.
+const expandMarkdownNotebookSqlV2Nodes = (node: any): JSONContent[] => {
+    if (typeof node?.attrs?.markdown !== 'string') {
+        return []
+    }
+    return parseMarkdownNotebook(node.attrs.markdown).nodes.flatMap((block) =>
+        block.type === 'component' && block.tagName === NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG[NotebookNodeType.SQLV2]
+            ? [
+                  {
+                      type: NotebookNodeType.SQLV2,
+                      attrs: {
+                          ...block.props,
+                          // Prefer the persisted nodeId prop: the parsed block id is a content
+                          // fingerprint, which drifts from the live cell id as soon as any prop
+                          // changes (running a cell writes runId/result into its props).
+                          nodeId:
+                              typeof block.props.nodeId === 'string' && block.props.nodeId
+                                  ? block.props.nodeId
+                                  : block.id,
+                      },
+                  },
+              ]
+            : []
+    )
+}
+
 export const collectSqlV2Nodes = (content?: JSONContent | null): SqlV2NodeSummary[] => {
     if (!content || typeof content !== 'object') {
         return []
@@ -309,6 +341,9 @@ export const collectSqlV2Nodes = (content?: JSONContent | null): SqlV2NodeSummar
                 sqlV2Index: nodes.length + 1,
                 title: typeof attrs.title === 'string' ? attrs.title : '',
             })
+        }
+        if (node.type === NotebookNodeType.MarkdownNotebook) {
+            expandMarkdownNotebookSqlV2Nodes(node).forEach(walk)
         }
         if (Array.isArray(node.content)) {
             node.content.forEach(walk)
@@ -542,6 +577,10 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
                 code,
                 returnVariable,
             })
+        }
+
+        if (node.type === NotebookNodeType.MarkdownNotebook) {
+            expandMarkdownNotebookSqlV2Nodes(node).forEach(walk)
         }
 
         if (Array.isArray(node.content)) {

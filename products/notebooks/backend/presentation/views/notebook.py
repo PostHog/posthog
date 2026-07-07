@@ -4,6 +4,7 @@ from datetime import timedelta
 from typing import Any, cast
 
 from django.conf import settings
+from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Q, QuerySet
@@ -21,6 +22,7 @@ from drf_spectacular.utils import (
     extend_schema_view,
 )
 from rest_framework import serializers, viewsets
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -52,10 +54,12 @@ from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookN
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
 from products.notebooks.backend.query_validation import InvalidNotebookQueryError, normalize_notebook_query_nodes
 from products.notebooks.backend.sql_v2 import (
+    PAGE_LOCK_TTL_SECONDS,
     SQLV2KernelNotRunning,
     SQLV2PageError,
     fetch_sql_v2_page,
     is_sql_v2_enabled,
+    sql_v2_page_lock_key,
 )
 from products.notebooks.backend.sql_v2_references import (
     SQLV2ReferenceError,
@@ -291,6 +295,15 @@ class NotebookSerializer(NotebookMinimalSerializer):
             return normalize_notebook_query_nodes(value)
         except InvalidNotebookQueryError as err:
             raise serializers.ValidationError(str(err))
+
+
+class NotebookMarkdownSerializer(serializers.Serializer):
+    markdown = serializers.CharField(
+        allow_blank=True,
+        allow_null=True,
+        read_only=True,
+        help_text="Markdown source for markdown notebooks, or `null` for legacy rich-text notebooks.",
+    )
 
 
 class NotebookKernelExecuteSerializer(serializers.Serializer):
@@ -529,8 +542,25 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         return self.get_object()
 
+    def _require_query_access(self) -> None:
+        # SQLV2 runs arbitrary HogQL and returns analytics rows, so notebook access alone is not
+        # enough — a notebook editor whose query access is denied must not read data through it.
+        # Mirrors ee/api/subscription.py: the query:read scope gates tokens, this gates sessions
+        # (which carry no scopes) and enforces real RBAC for tokens too.
+        if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+            raise PermissionDenied("You need query access to run SQL in a notebook.")
+
     def _current_user(self) -> User | None:
         return self.request.user if isinstance(self.request.user, User) else None
+
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], url_path="markdown", detail=True, required_scopes=["notebook:read"])
+    def markdown(self, request: Request, **kwargs) -> Response:
+        notebook = self.get_object()
+        serializer = NotebookMarkdownSerializer(
+            {"markdown": markdown_collab.get_markdown_notebook_markdown(notebook.content)}
+        )
+        return Response(serializer.data)
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         if not self.action.endswith("update"):
@@ -850,7 +880,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 yield f"event: error\ndata: {payload_json}\n\n".encode()
 
         streaming_content = SyncIterableToAsync(stream()) if SERVER_GATEWAY_INTERFACE == "ASGI" else stream()
-        return sse_streaming_response(streaming_content)
+        return sse_streaming_response(streaming_content, endpoint="notebook_stream")
 
     @action(methods=["GET"], url_path="kernel/dataframe", detail=True)
     def kernel_dataframe(self, request: Request, **kwargs):
@@ -882,7 +912,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
     # Experimental, flag-gated slice — kept out of the public OpenAPI schema (no generated FE/MCP types yet).
     @extend_schema(exclude=True)
-    @action(methods=["POST"], url_path="sql_v2/run", detail=True)
+    @action(methods=["POST"], url_path="sql_v2/run", detail=True, required_scopes=["notebook:write", "query:read"])
     def sql_v2_run(self, request: Request, **kwargs):
         user = self._current_user()
         # Server-side gate is permissive in local dev (frontend still gates the UI); prod is flag-gated.
@@ -892,21 +922,23 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         serializer = NotebookSQLV2RunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         notebook = self._get_notebook_for_kernel()
+        self._require_query_access()
 
         # Resolve each referenced node to its last-run query (not its live editor text), so a
         # join recomputes against the definitions that produced the results on screen. Inlining
         # happens once here, so the run stores a self-contained query and paging re-queries it
         # without re-resolving refs.
         ref_node_ids: dict[str, str] = serializer.validated_data.get("refs") or {}
+        # One DISTINCT ON query fetches the latest DONE run for every referenced node at once.
+        code_by_node_id: dict[str, str] = dict(
+            NotebookNodeRun.objects.for_team(self.team_id)
+            .filter(notebook=notebook, node_id__in=set(ref_node_ids.values()), status=NotebookNodeRun.Status.DONE)
+            .order_by("node_id", "-created_at")
+            .distinct("node_id")
+            .values_list("node_id", "code")
+        )
         last_run_code: dict[str, str | None] = {
-            name: (
-                NotebookNodeRun.objects.for_team(self.team_id)
-                .filter(notebook=notebook, node_id=node_id, status=NotebookNodeRun.Status.DONE)
-                .order_by("-created_at")
-                .values_list("code", flat=True)
-                .first()
-            )
-            for name, node_id in ref_node_ids.items()
+            name: code_by_node_id.get(node_id) for name, node_id in ref_node_ids.items()
         }
         node_type = serializer.validated_data["node_type"]
         code = serializer.validated_data["code"]
@@ -951,7 +983,12 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         return Response({"run_id": str(run.id)})
 
     @extend_schema(exclude=True)
-    @action(methods=["GET"], url_path="sql_v2/runs/(?P<run_id>[^/.]+)", detail=True)
+    @action(
+        methods=["GET"],
+        url_path="sql_v2/runs/(?P<run_id>[^/.]+)",
+        detail=True,
+        required_scopes=["notebook:read", "query:read"],
+    )
     def sql_v2_run_result(self, request: Request, run_id: str | None = None, **kwargs):
         # The node short-polls this durable read to learn when its run finishes. One indexed
         # query, no held connection — resilient to reloads/remounts (see sql_v2_result_delivery.md).
@@ -962,6 +999,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # Scope to the notebook (via get_object → per-notebook access control), not just the
         # team: a team-only lookup lets a user read a run from a notebook they can't access.
         notebook = self._get_notebook_for_kernel()
+        # The result envelope is analytics rows, so gate reads on query access too — a
+        # notebook-reader whose query access is denied must not read the rows back.
+        self._require_query_access()
         try:
             run = NotebookNodeRun.objects.for_team(self.team_id).filter(id=run_id, notebook=notebook).first()
         except DjangoValidationError:  # malformed run_id (not a UUID)
@@ -978,7 +1018,12 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         )
 
     @extend_schema(exclude=True)
-    @action(methods=["GET"], url_path="sql_v2/runs/(?P<run_id>[^/.]+)/page", detail=True)
+    @action(
+        methods=["GET"],
+        url_path="sql_v2/runs/(?P<run_id>[^/.]+)/page",
+        detail=True,
+        required_scopes=["notebook:read", "query:read"],
+    )
     def sql_v2_run_page(self, request: Request, run_id: str | None = None, **kwargs):
         # A page fetch is not a run (see sql_v2_result_delivery.md): a bounded synchronous
         # re-query of the run's code with LIMIT/OFFSET, proxied through the running kernel.
@@ -989,6 +1034,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         serializer = NotebookSQLV2PageRequestSerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
         notebook = self._get_notebook_for_kernel()
+        # Paging re-queries ClickHouse and returns analytics rows, so gate it on query access
+        # too — a notebook editor whose query access is denied must not read rows through it.
+        self._require_query_access()
 
         try:
             run = NotebookNodeRun.objects.for_team(self.team_id).filter(id=run_id, notebook=notebook).first()
@@ -1023,6 +1071,12 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 status=400,
             )
 
+        # An out-of-cache page holds this worker synchronously for up to the kernel timeout,
+        # so cap each user at one in-flight page fetch — otherwise parallel paging requests
+        # could occupy many web workers at once.
+        lock_key = sql_v2_page_lock_key(self.team_id, user.id if isinstance(user, User) else None)
+        if not cache.add(lock_key, True, timeout=PAGE_LOCK_TTL_SECONDS):
+            return Response({"detail": "Another page fetch is already in progress — try again shortly."}, status=429)
         try:
             page = fetch_sql_v2_page(
                 notebook,
@@ -1038,6 +1092,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         except Exception:
             logger.exception("notebook_sql_v2_page_failed", notebook_short_id=notebook.short_id)
             return Response({"detail": "Failed to fetch page."}, status=503)
+        finally:
+            cache.delete(lock_key)
 
         return Response(page)
 
@@ -1283,7 +1339,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             if SERVER_GATEWAY_INTERFACE == "ASGI"
             else async_to_sync(
                 lambda: collab_stream.stream_collab_sse(team_id, notebook_id, last_event_id=last_event_id)
-            )
+            ),
+            endpoint="notebook_collab",
         )
 
     @action(methods=["GET"], detail=False)

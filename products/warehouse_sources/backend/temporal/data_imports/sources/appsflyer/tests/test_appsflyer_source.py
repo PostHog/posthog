@@ -56,6 +56,7 @@ class TestAppsFlyerSource:
             "401 Client Error: Unauthorized for url: https://hq1.appsflyer.com/api/agg-data/export/app/id123/daily_report/v5",
             "403 Client Error: Forbidden for url: https://hq1.appsflyer.com/api/agg-data/export/app/id123/geo_by_date_report/v5",
             "404 Client Error: Not Found for url: https://hq1.appsflyer.com/api/agg-data/export/app/nope/daily_report/v5",
+            "416 Client Error: Requested Range Not Satisfiable for url: https://hq1.appsflyer.com/api/agg-data/export/app/id123/geo_by_date_report/v5?from=2024-01-01&to=2024-01-05",
         ],
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error):

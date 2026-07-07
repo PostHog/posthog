@@ -52,6 +52,7 @@ import {
 import { isNotebookPropValue, toSerializablePropValue } from 'lib/components/MarkdownNotebook/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { uuid } from 'lib/utils/dom'
 
 import { NODE_ICONS } from '../nodeIcons'
 import { NotebookNodeContext } from '../Nodes/NotebookNodeContext'
@@ -151,7 +152,18 @@ export const MARKDOWN_NODE_DEFINITIONS: {
     { tagName: 'HogQLSQL', category: 'SQL', label: 'SQL (HogQL)' },
     // insertCommand makes it show in the markdown insert menu; the feature-flag gate in
     // getMarkdownRegistryForFeatureFlags strips it when revamped-py-notebooks is off.
-    { tagName: 'SQLV2', category: 'SQL', label: 'SQL (v2)', insertCommand: { aliases: ['data', 'sql'] } },
+    {
+        tagName: 'SQLV2',
+        category: 'SQL',
+        label: 'SQL (v2)',
+        insertCommand: {
+            aliases: ['data', 'sql'],
+            // New cells get a durable nodeId up front: parsed markdown block ids are content
+            // fingerprints, so without a persisted id every prop change (running the cell
+            // writes runId/result) would orphan the cell's run history and cross-cell refs.
+            defaultProps: () => ({ ...getDefaultPropsForNodeType(NotebookNodeType.SQLV2), nodeId: uuid() }),
+        },
+    },
     { tagName: 'RecordingPlaylist', category: 'Data', label: 'Session recordings' },
     { tagName: 'Experiment', category: 'Experiment' },
     { tagName: 'Image', category: 'Media', EditComponent: ImageEdit },
@@ -520,6 +532,14 @@ export function MountedRealNotebookNodeComponent({
         isResizeable || attributes.height
             ? { height: attributes.height ?? options.heightEstimate, minHeight: options.minHeight }
             : undefined
+    // Nodes that declare their own minHeight (e.g. LaTeX) size to their content instead of the 8rem default
+    const nodeStyle: CSSProperties | undefined =
+        options.minHeight !== undefined
+            ? ({
+                  '--markdown-notebook-real-node-min-height':
+                      typeof options.minHeight === 'number' ? `${options.minHeight}px` : options.minHeight,
+              } as CSSProperties)
+            : undefined
 
     // Native CSS resize writes to style.height; the new height is persisted on mouseup so the
     // table or visualization keeps its size after reloads.
@@ -575,7 +595,7 @@ export function MountedRealNotebookNodeComponent({
     return (
         <NotebookNodeContext.Provider value={nodeLogic}>
             <BindLogic logic={notebookNodeLogic} props={logicProps}>
-                <div className="MarkdownNotebook__real-node">
+                <div className="MarkdownNotebook__real-node" style={nodeStyle}>
                     {showSettings ? (
                         <div className="MarkdownNotebook__real-node-settings">
                             <Settings attributes={attributes} updateAttributes={updateAttributes} />

@@ -33,8 +33,10 @@ from posthog.schema import (
 
 from posthog.hogql.constants import LimitContext
 
+from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, QueryTags
 from posthog.models.utils import UUIDT
 
@@ -44,6 +46,20 @@ from products.product_analytics.backend.models.insight_variable import InsightVa
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
     ENDPOINT = "query"
+
+    def test_concurrency_limit_returns_friendly_message_without_internal_key(self):
+        # A concurrency block must surface as a 429 with a user-facing message — not str(exc),
+        # which embeds the limiter's internal Redis key + task id and used to leak into the UI.
+        raw = "Exceeded maximum concurrency limit: 30 for key: app:query:per-org:abc and task: def"
+        with patch("posthog.api.query.process_query_model", side_effect=ConcurrencyLimitExceeded(raw)):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/query/",
+                {"query": HogQLQuery(query="select 1").model_dump()},
+            )
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        detail = response.json()["detail"]
+        self.assertEqual(detail, CONCURRENCY_LIMIT_USER_MESSAGE)
+        self.assertNotIn("app:query:per-org", detail)
 
     @snapshot_clickhouse_queries
     def test_select_hogql_expressions(self):

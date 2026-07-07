@@ -41,8 +41,10 @@ import {
     AlertType,
     AlertTypeWrite,
     AnomalyPoint,
+    isFunnelsAlertConfig,
     isHogQLAlertConfig,
     isTrendsAlertConfig,
+    supportsOngoingInterval,
 } from './types'
 
 export { THRESHOLD_BOUNDS_FORM_ERROR, thresholdAlertHasBounds } from './alertFormSchema'
@@ -70,7 +72,16 @@ export type AlertFormType = Pick<
     insight?: QueryBasedInsightModel['id']
 }
 
-export function canCheckOngoingInterval(alert?: AlertType | AlertFormType): boolean {
+export function canCheckOngoingInterval(
+    alert?: AlertType | AlertFormType,
+    { isTrendsFunnel = false }: { isTrendsFunnel?: boolean } = {}
+): boolean {
+    // A funnel conversion rate isn't biased low over a partial period, so a trends funnel can always
+    // check the ongoing one (steps funnels have no periods). A trends count is cumulative, so it's only
+    // safe for an absolute/increase check above an upper bound.
+    if (isFunnelsAlertConfig(alert?.config)) {
+        return isTrendsFunnel
+    }
     const upper = alert?.threshold?.configuration?.bounds?.upper
     return (
         (alert?.condition?.type === AlertConditionType.ABSOLUTE_VALUE ||
@@ -78,6 +89,32 @@ export function canCheckOngoingInterval(alert?: AlertType | AlertFormType): bool
         upper != null &&
         !isNaN(upper)
     )
+}
+
+const ONGOING_DISABLED_REASON =
+    'Can only alert for ongoing period when checking for absolute value/increase above a set upper threshold.'
+const ONGOING_TOOLTIP_FUNNEL =
+    'By default the alert uses the most recently completed period. Enable this to evaluate the current, still-in-progress period instead — useful to be alerted sooner, at the cost of a partial datapoint.'
+const ONGOING_TOOLTIP_TRENDS =
+    "Checks the insight value for the ongoing period (current week/month) that hasn't yet completed. Use this if you want to be alerted right away when the insight value rises/increases above threshold"
+
+export interface OngoingIntervalField {
+    show: boolean
+    checked: boolean
+    disabledReason?: string
+    tooltip: string
+}
+
+/** State of the "Check ongoing period" advanced-option, keyed on alert kind — so the per-kind
+ * branching lives here rather than growing inside the component as more alert types are added. */
+export function ongoingIntervalField(config: AlertConfig | null | undefined, canCheck: boolean): OngoingIntervalField {
+    return {
+        // Trends alerts show the toggle even when ineligible (disabled); funnels only when eligible.
+        show: supportsOngoingInterval(config) && (isTrendsAlertConfig(config) || canCheck),
+        checked: supportsOngoingInterval(config) && !!config.check_ongoing_interval && canCheck,
+        disabledReason: canCheck ? undefined : ONGOING_DISABLED_REASON,
+        tooltip: isFunnelsAlertConfig(config) ? ONGOING_TOOLTIP_FUNNEL : ONGOING_TOOLTIP_TRENDS,
+    }
 }
 
 /** The insight query kind an alert is built for; selects the default config type for new alerts. */
@@ -91,6 +128,9 @@ export interface AlertFormLogicProps {
     insightInterval?: IntervalType
     /** Selects the default config type for new alerts based on the insight's query kind. */
     insightAlertKind?: InsightAlertKind
+    /** For funnel insights: whether it's a trends (historical) funnel, which alerts on the overall
+     * conversion rate over time rather than a single step snapshot. Drives the preview shape. */
+    insightIsTrendsFunnel?: boolean
 }
 
 const defaultConfigForInsight = (kind: AlertFormLogicProps['insightAlertKind']): AlertConfig => {
@@ -332,6 +372,14 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 if (payload.condition.type === AlertConditionType.ABSOLUTE_VALUE) {
                     payload.threshold.configuration.type = InsightThresholdType.ABSOLUTE
                 }
+                // Funnels express relative change as a percentage of the prior period; the absolute (#)
+                // unit is hidden in the funnel UI, so persist PERCENTAGE for any funnel relative condition.
+                if (
+                    isFunnelsAlertConfig(payload.config) &&
+                    payload.condition.type !== AlertConditionType.ABSOLUTE_VALUE
+                ) {
+                    payload.threshold.configuration.type = InsightThresholdType.PERCENTAGE
+                }
 
                 const upsertToParent = (updatedAlert: AlertType): void => {
                     if (props.insightVizDataLogicProps) {
@@ -422,13 +470,26 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 s.insightData,
                 (state, logicProps) => s.alertForm(state, logicProps)?.config,
                 (state, logicProps) => s.alertForm(state, logicProps)?.threshold?.configuration?.bounds,
+                (state, logicProps) => s.alertForm(state, logicProps)?.condition?.type,
+                (state, logicProps) => s.alertForm(state, logicProps)?.threshold?.configuration?.type,
             ],
             (
                 insightData: Record<string, any> | null,
                 config: AlertConfig | null | undefined,
-                bounds: InsightsThresholdBounds | null | undefined
+                bounds: InsightsThresholdBounds | null | undefined,
+                conditionType: AlertConditionType | undefined,
+                thresholdType: InsightThresholdType | undefined
             ): FunnelAlertPreview | null =>
-                props.insightAlertKind === 'funnels' ? deriveFunnelAlertPreview(insightData, config, bounds) : null,
+                props.insightAlertKind === 'funnels'
+                    ? deriveFunnelAlertPreview(
+                          insightData,
+                          config,
+                          bounds,
+                          !!props.insightIsTrendsFunnel,
+                          conditionType,
+                          thresholdType
+                      )
+                    : null,
         ],
         /** Result column names of the SQL insight, for the column pickers. */
         hogqlResultColumns: [
