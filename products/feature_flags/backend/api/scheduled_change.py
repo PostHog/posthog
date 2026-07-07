@@ -323,8 +323,12 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
         would otherwise let any editor PATCH in a gated payload that stays unbound and applies
         unapproved.
         """
-        new_change_request = gate_scheduled_change(feature_flag, new_payload, self.context["request"].user)
         existing = instance.change_request
+        # Pass the schedule's own bound CR so re-gating an unchanged action rediscovers and reuses it
+        # instead of failing closed on its own pending binding.
+        new_change_request = gate_scheduled_change(
+            feature_flag, new_payload, self.context["request"].user, current_change_request=existing
+        )
         if (
             existing is not None
             and existing.state == ChangeRequestState.PENDING

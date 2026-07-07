@@ -410,6 +410,38 @@ class TestScheduledChangeGating(APIBaseTest):
         flag.refresh_from_db()
         assert flag.active is False
 
+    def test_second_schedule_cannot_bind_an_unapproved_pending_change_request(self, _mock_enabled):
+        # A second schedule for the same flag+action must not ride the first schedule's still-pending
+        # CR: once that CR is approved, the earlier-timed second schedule would fire it before the
+        # window the approval was created for. Binding across schedules must fail closed.
+        self._enable_policy()
+        flag = self._disabled_flag()
+
+        first = self._schedule(
+            flag,
+            {"operation": "update_status", "value": True},
+            timezone.now() + timedelta(hours=2),
+        )
+        cr = first.change_request
+        assert cr is not None and cr.state == ChangeRequestState.PENDING
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/scheduled_changes/",
+            {
+                "record_id": str(flag.id),
+                "model_name": "FeatureFlag",
+                "payload": {"operation": "update_status", "value": True},
+                "scheduled_at": (timezone.now() + timedelta(minutes=5)).isoformat(),
+            },
+            format="json",
+        )
+
+        assert response.status_code == 409, response.content
+        assert response.json()["code"] == "change_request_pending"
+        # The second schedule is not created, and no new CR bound to the first's pending request.
+        assert ScheduledChange.objects.filter(record_id=str(flag.id)).count() == 1
+        assert ChangeRequest.objects.filter(resource_id=str(flag.id)).count() == 1
+
     def _recurring_enable_schedule(self, flag: FeatureFlag, *, gated: bool) -> ScheduledChange:
         payload = {"operation": "update_status", "value": True}
         return ScheduledChange.objects.create(

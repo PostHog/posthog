@@ -44,7 +44,12 @@ def scheduled_change_serializer_data(flag: "FeatureFlag", payload: dict[str, Any
     return build_scheduled_change_serializer_data(flag, payload)
 
 
-def gate_scheduled_change(flag: "FeatureFlag", payload: dict[str, Any], user) -> Optional[ChangeRequest]:
+def gate_scheduled_change(
+    flag: "FeatureFlag",
+    payload: dict[str, Any],
+    user,
+    current_change_request: Optional[ChangeRequest] = None,
+) -> Optional[ChangeRequest]:
     """Evaluate the approval gate for a scheduled change and create a pending CR if required.
 
     Returns the created ``ChangeRequest`` when an enabled policy gates the change the scheduled
@@ -52,13 +57,20 @@ def gate_scheduled_change(flag: "FeatureFlag", payload: dict[str, Any], user) ->
     match any gated action). Reuses the request-time gate's action detection and CR creation so
     creation-time gating and request-time gating stay in lockstep.
 
+    ``current_change_request`` is the CR already bound to the schedule being (re)gated, if any.
+    Re-gating an unchanged action after a payload edit legitimately rediscovers that same pending
+    CR; passing it here lets us tell "reuse my own binding" apart from "bind to someone else's
+    pending request" (see the duplicate handling below).
+
     Raises ``PolicyConflict`` when the change matches more than one enabled policy: a single
     ``ChangeRequest`` can only carry one approval, so binding one would let the other policy's
     gated change ride along unapproved. We fail closed rather than save the row ungated — callers
     surface this as a 400 (creation/update) or skip the change (copy / recurring re-gate).
 
-    Raises ``ApprovalRequired`` when the only matching request is an already-approved duplicate:
-    binding it would let this schedule fire that approval at a moment it never covered. Fail closed.
+    Raises ``ApprovalRequired`` when the only matching request is a pending or approved duplicate
+    that is not this schedule's own binding: binding it would let this schedule fire another
+    change's approval at a moment that approval never covered (the second-schedule / immediate-
+    change-then-schedule bypass). Fail closed.
     """
     # Deferred: feature_flags' serializer/actions transitively import posthog.tasks, which imports
     # this module — eager imports would create a circular import at startup.
@@ -146,22 +158,34 @@ def gate_scheduled_change(flag: "FeatureFlag", payload: dict[str, Any], user) ->
 
     if result.action == "duplicate":
         existing = result.change_request
-        # A PENDING duplicate is safe to bind — the change still needs approval before it can fire.
-        # An APPROVED duplicate is not: binding it would let this schedule fire an already-approved
-        # change at a time its own approval never covered (e.g. bind a second schedule to another
-        # schedule's approved CR, or rebind an edited payload onto a stale approval). Fail closed so
-        # the caller surfaces a 409 (creation/update) or skips the change (recurring re-gate).
-        if existing is not None and existing.state == ChangeRequestState.APPROVED:
+        # Reusing a pending CR is only safe when it is *this* schedule's own binding — e.g. re-gating
+        # an unchanged action after a payload edit rediscovers the CR already bound to the row. Any
+        # other duplicate must fail closed:
+        #   - A pending CR belonging to another schedule (or an immediate change) would, once bound
+        #     here, let this schedule fire that approval at a time it never covered — e.g. create a
+        #     future gated schedule, then a second schedule for the same flag/action at an earlier
+        #     time that rides the same pending CR and applies early once approved.
+        #   - An approved CR is likewise not ours to fire on our own timing.
+        # The caller surfaces this as a 409 (creation/update) or skips the change (copy / recurring
+        # re-gate).
+        if (
+            existing is not None
+            and existing.state == ChangeRequestState.PENDING
+            and current_change_request is not None
+            and existing.id == current_change_request.id
+        ):
+            return existing
+        if existing is not None:
             raise ApprovalRequired(
                 change_request=existing,
                 message=(
-                    "An approved change for this feature flag is already awaiting its scheduled "
-                    "application. Wait for it to apply before scheduling another change."
+                    "A change for this feature flag is already awaiting approval or its scheduled "
+                    "application. Wait for it to resolve before scheduling another change."
                 ),
                 required_approvers={},
                 error_code="change_request_pending",
             )
-        return existing
+        return None
 
     return None
 
