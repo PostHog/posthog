@@ -3,7 +3,6 @@ import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { projectLogic } from 'scenes/projectLogic'
 
 import type { onboardingEventUsageLogicType } from './onboardingEventUsageLogicType'
 import { resolveOnboardingFlowVariant } from './onboardingVariants'
@@ -45,11 +44,6 @@ function wizardSyncEventProps(featureFlags: FeatureFlagsSet): {
     }
 }
 
-// One exposure per project per pageload: the install step remounts on navigation, and a re-fired
-// exposure would inflate the denominator, but a project switch mid-session is a fresh exposure.
-// Module-scoped, mirroring the wizard tracker's once-per-session report guards.
-const reportedCloudRunExperimentExposures = new Set<string>()
-
 // Once-per-run guards for the completed-handoff funnel (exposure → CTA shown → CTA clicked). The
 // same run renders on several surfaces (inline panel, FAB card, dialog) and those remount freely —
 // deduping here, keyed by run, keeps the funnel's denominators honest without every surface
@@ -58,7 +52,6 @@ const reportedHandoffShownRuns = new Set<string>()
 const reportedDashboardCtaShownRuns = new Set<string>()
 
 export function resetCloudRunExperimentExposureForTests(): void {
-    reportedCloudRunExperimentExposures.clear()
     reportedHandoffShownRuns.clear()
     reportedDashboardCtaShownRuns.clear()
 }
@@ -73,7 +66,7 @@ export function resetCloudRunExperimentExposureForTests(): void {
 export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
     path(['scenes', 'onboarding', 'onboardingEventUsageLogic']),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], projectLogic, ['currentProjectId']],
+        values: [featureFlagLogic, ['featureFlags']],
     })),
     actions({
         reportContextOnboardingStarted: true,
@@ -99,9 +92,6 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
             prOpened: boolean
             prUrl: string | null
         }) => props,
-        // Exposure marker for the cloud-wizard AB test (GROW-117): fired when a user reaches the
-        // surface where the arms diverge (the install step on cloud/dev instances).
-        reportWizardCloudRunExperimentExposed: true,
         // Engagement with the shared wizard sync surface (FAB card / launcher / dialog), fired for
         // both variants and both run modes (GROW-121).
         reportWizardSyncExpanded: (props: { runKey: string; mode: 'cloud' | 'local'; phase: string }) => props,
@@ -203,24 +193,6 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
                 status,
                 duration_seconds: durationSeconds,
                 pr_opened: prOpened,
-                ...wizardSyncEventProps(values.featureFlags),
-            })
-        },
-        reportWizardCloudRunExperimentExposed: () => {
-            // Enrollment-gated: callers fire on readiness (preflight + receivedFeatureFlags), and a
-            // null arm means the user is not in the experiment — no exposure, no guard, so a later
-            // dispatch after enrollment resolves can still count them. Never stamp a guessed arm:
-            // a mis-bucketed exposure cannot be repaired retroactively.
-            const arm = resolveCloudRunExperimentArm(values.featureFlags)
-            if (arm === null) {
-                return
-            }
-            const projectKey = String(values.currentProjectId ?? 'unknown')
-            if (reportedCloudRunExperimentExposures.has(projectKey)) {
-                return
-            }
-            reportedCloudRunExperimentExposures.add(projectKey)
-            posthog.capture('wizard cloud run experiment exposed', {
                 ...wizardSyncEventProps(values.featureFlags),
             })
         },
