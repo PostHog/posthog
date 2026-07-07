@@ -185,6 +185,11 @@ const MediaBlock = ({ media }: { media: PythonExecutionMedia }): JSX.Element | n
 
 const DEFAULT_PYTHON_NODE_HEIGHT = 100
 const MAX_PYTHON_NODE_HEIGHT = 500
+// The output area and footer are laid out in a `gap-2` flex column, so the applied node height must
+// include that gap for the measured content to fit without a scrollbar (Tailwind `gap-2` = 8px).
+const CONTENT_GAP_PX = 8
+// Ignore sub-pixel and scrollbar-toggle jitter so a write can't reflow the content back into another write.
+const HEIGHT_UPDATE_TOLERANCE_PX = 2
 
 const Component = ({
     attributes,
@@ -206,6 +211,7 @@ const Component = ({
     const { navigateToNode, setDataframePage, setDataframePageSize } = useActions(nodeLogic)
     const outputRef = useRef<HTMLDivElement | null>(null)
     const footerRef = useRef<HTMLDivElement | null>(null)
+    const lastAppliedHeightRef = useRef<number | null>(null)
 
     const hasResult = pythonExecution?.result !== undefined && pythonExecution?.result !== null
     const hasExecution =
@@ -226,14 +232,25 @@ const Component = ({
             return
         }
         const footerHeight = footerRef.current?.offsetHeight ?? 0
-        const desiredHeight = Math.min(MAX_PYTHON_NODE_HEIGHT, output.scrollHeight + footerHeight)
+        const gap = footerRef.current ? CONTENT_GAP_PX : 0
+        const desiredHeight = Math.min(MAX_PYTHON_NODE_HEIGHT, output.scrollHeight + footerHeight + gap)
         const currentHeight = typeof attributes.height === 'number' ? attributes.height : DEFAULT_PYTHON_NODE_HEIGHT
 
-        if (desiredHeight !== currentHeight) {
+        // Writing `height` re-lays-out the node, which toggles the output scrollbar and reflows wrapped
+        // text, re-running this effect. Only write on a meaningful change and never re-apply a value we
+        // just wrote, so the measurement can settle instead of oscillating (React error #185).
+        if (
+            Math.abs(desiredHeight - currentHeight) > HEIGHT_UPDATE_TOLERANCE_PX &&
+            lastAppliedHeightRef.current !== desiredHeight
+        ) {
+            lastAppliedHeightRef.current = desiredHeight
             updateAttributes({ height: desiredHeight })
         }
+        // `attributes.height` is intentionally omitted: it is read for the comparison above but must not
+        // re-trigger this effect, or our own write would restart the measure loop. The deps below are the
+        // rendered output fields that change what we measure.
     }, [
-        attributes.height,
+        attributes.autoHeight,
         hasExecution,
         pythonExecution?.media?.length,
         pythonExecution?.result,
