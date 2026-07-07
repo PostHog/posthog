@@ -508,7 +508,8 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                     file_types: imageFiles.map((file) => file.type),
                     is_markdown: true,
                 })
-                return Promise.all(
+                // allSettled so one failed upload doesn't discard the files that uploaded fine.
+                return Promise.allSettled(
                     imageFiles.map(async (file): Promise<NotebookBlockNode> => {
                         const media = await uploadFile(file)
                         return {
@@ -518,10 +519,27 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                             props: { src: media.image_location, alt: media.name },
                         }
                     })
-                ).catch((error: unknown): null => {
-                    const { detail, message } = (error ?? {}) as { detail?: string; message?: string }
-                    lemonToast.error(`Image upload failed: ${detail ?? message ?? 'unknown error'}`)
-                    return null
+                ).then((results): NotebookBlockNode[] | null => {
+                    const uploadedNodes = results
+                        .filter(
+                            (result): result is PromiseFulfilledResult<NotebookBlockNode> =>
+                                result.status === 'fulfilled'
+                        )
+                        .map((result) => result.value)
+                    const firstRejection = results.find(
+                        (result): result is PromiseRejectedResult => result.status === 'rejected'
+                    )
+                    if (firstRejection) {
+                        const failedCount = results.length - uploadedNodes.length
+                        const { detail, message } = (firstRejection.reason ?? {}) as {
+                            detail?: string
+                            message?: string
+                        }
+                        lemonToast.error(
+                            `${failedCount === 1 ? 'Image upload' : `${failedCount} image uploads`} failed: ${detail ?? message ?? 'unknown error'}`
+                        )
+                    }
+                    return uploadedNodes.length ? uploadedNodes : null
                 })
             }
 

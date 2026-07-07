@@ -5530,7 +5530,7 @@ export function MarkdownNotebook({
                         aria-multiline={mode === 'edit' ? true : undefined}
                         aria-label={mode === 'edit' ? 'Notebook editor' : undefined}
                         aria-controls={activeInsertMenuOptionDomId ? insertMenuDomId : undefined}
-                        aria-expanded={mode === 'edit' ? !!activeInsertMenuOptionDomId : undefined}
+                        aria-expanded={activeInsertMenuOptionDomId ? true : undefined}
                         aria-activedescendant={activeInsertMenuOptionDomId}
                         onInput={handleRootEditableInput}
                         onKeyDown={handleRootEditableKeyDown}
