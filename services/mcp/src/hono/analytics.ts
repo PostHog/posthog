@@ -3,7 +3,6 @@ import { randomUUID } from 'node:crypto'
 import type { MCPAnalyticsIntentSource } from '@posthog/mcp-analytics'
 
 import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
-import { maskEmails, maskSqlLiterals } from '@/lib/pii-scrub'
 import { getPostHogClient } from '@/lib/posthog'
 import {
     buildMCPAnalyticsGroups,
@@ -156,8 +155,7 @@ export interface ExecuteSqlGenerationMeta {
  * authored the query; this server is the observer that sees intent and output
  * together. Lands in LLM analytics, where online evaluations (LLM judge / Hog) can
  * score it for anti-patterns on live traffic. `$ai_trace_id` is the MCP session
- * uuid, so a session's queries group into one trace. Query literals and intent
- * emails are masked before capture — both can carry end-user PII.
+ * uuid, so a session's queries group into one trace.
  */
 export async function trackExecuteSqlGeneration(
     toolName: string,
@@ -187,8 +185,8 @@ export async function trackExecuteSqlGeneration(
                 ...(sessionUuid ? { $session_id: sessionUuid } : {}),
                 $ai_trace_id: sessionUuid ?? randomUUID(),
                 $ai_span_name: EXECUTE_SQL_TOOL_NAME,
-                $ai_input: [{ role: 'user', content: maskEmails(intentMeta?.intent ?? '') }],
-                $ai_output_choices: [{ role: 'assistant', content: maskSqlLiterals(query) }],
+                $ai_input: [{ role: 'user', content: intentMeta?.intent ?? '' }],
+                $ai_output_choices: [{ role: 'assistant', content: query }],
                 $ai_latency: meta.durationMs / 1000,
                 $ai_is_error: meta.isError,
                 ...(meta.errorMessage ? { $ai_error: meta.errorMessage } : {}),

@@ -176,26 +176,5 @@ describe('Hono MCP analytics contexts', () => {
 
             expect(mockCapture).not.toHaveBeenCalled()
         })
-
-        it('masks query string literals and intent emails before capture', async () => {
-            await trackExecuteSqlGeneration(
-                'execute-sql',
-                {
-                    query: "SELECT count() FROM events WHERE properties.email = 'john@acme.com' AND event ILIKE '%signup%'",
-                },
-                makeState(),
-                { durationMs: 10, isError: false },
-                { intent: 'find events for john@acme.com' }
-            )
-
-            const properties = mockCapture.mock.calls[0]![0].properties
-            expect(properties.$ai_output_choices).toEqual([
-                {
-                    role: 'assistant',
-                    content: "SELECT count() FROM events WHERE properties.email = '***' AND event ILIKE '%***%'",
-                },
-            ])
-            expect(properties.$ai_input).toEqual([{ role: 'user', content: 'find events for <email>' }])
-        })
     })
 })
