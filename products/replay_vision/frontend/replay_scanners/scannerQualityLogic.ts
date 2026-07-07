@@ -196,11 +196,12 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
     }),
 
     listeners(({ actions, props, values }) => ({
-        loadObservations: async () => {
+        loadObservations: async (_, breakpoint) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
                 return
             }
+            let response: Awaited<ReturnType<typeof visionScannersObservationsList>>
             try {
                 // Only succeeded observations carry an output to judge.
                 const params: VisionScannersObservationsListParams = {
@@ -223,13 +224,16 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                         params.order_by = values.sort.order === -1 ? `-${orderKey}` : orderKey
                     }
                 }
-                const response = await visionScannersObservationsList(String(teamId), props.scannerId, params)
-                actions.loadObservationsSuccess(response.results ?? [], response.count ?? 0)
+                response = await visionScannersObservationsList(String(teamId), props.scannerId, params)
             } catch {
                 // Without this the table shows its filter-specific empty state, which reads as "all rated".
                 lemonToast.error("Couldn't load results to rate. Refresh to try again.")
                 actions.loadObservationsFailure()
+                return
             }
+            // Outside the try so the catch can't swallow it: a newer load supersedes this response.
+            breakpoint()
+            actions.loadObservationsSuccess(response.results ?? [], response.count ?? 0)
         },
 
         setPage: () => actions.loadObservations(),

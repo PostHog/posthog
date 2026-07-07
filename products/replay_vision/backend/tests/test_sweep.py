@@ -291,6 +291,8 @@ async def _run_sweep(mocks: _SweepMocks, inputs: SweepScannerInputs | None = Non
         patch("temporalio.workflow.execute_activity", side_effect=mocks.execute_activity),
         patch("temporalio.workflow.start_child_workflow", side_effect=mocks.start_child_workflow),
         patch("temporalio.workflow.logger", fake_logger),
+        # `workflow.patched` also needs the runtime; new executions take the patched branch.
+        patch("temporalio.workflow.patched", return_value=True),
     ):
         await SweepScannerWorkflow().run(inputs or _sweep_inputs())
 

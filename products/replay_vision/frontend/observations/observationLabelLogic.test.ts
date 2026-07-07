@@ -68,4 +68,29 @@ describe('observationLabelLogic feedback autosave', () => {
             feedback: '',
         })
     })
+
+    it('adopts a remote label change from props but keeps the draft on a same-label re-render', async () => {
+        mountLogic(false)
+        logic.actions.setFeedbackDraft('half-typed local edit')
+
+        // Parent re-renders with the unchanged label: the local draft must survive.
+        observationLabelLogic({
+            observationId: 'obs-1',
+            initialLabel: { is_correct: false, feedback: 'old feedback' },
+            onChange,
+        })
+        expect(logic.values.feedbackDraft).toEqual('half-typed local edit')
+
+        // Observation reloads with a teammate's newer label: adopt it and drop the pending autosave.
+        observationLabelLogic({
+            observationId: 'obs-1',
+            initialLabel: { is_correct: true, feedback: 'teammate feedback' },
+            onChange,
+        })
+        await jest.advanceTimersByTimeAsync(900)
+
+        expect(visionObservationsLabelCreate).not.toHaveBeenCalled()
+        expect(logic.values.label).toEqual({ is_correct: true, feedback: 'teammate feedback' })
+        expect(logic.values.feedbackDraft).toEqual('teammate feedback')
+    })
 })

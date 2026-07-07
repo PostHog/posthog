@@ -190,7 +190,8 @@ class ReplayScannerPromptSuggestionViewSet(
         responses={200: ReplayScannerPromptSuggestionSerializer},
         description=(
             "Apply this suggestion: write its prompt to the scanner (bumping the scanner version) and mark "
-            "the suggestion applied. Requires session recording edit access."
+            "the suggestion applied. Only the current pending suggestion can be applied. Requires session "
+            "recording edit access."
         ),
     )
     @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
@@ -198,16 +199,21 @@ class ReplayScannerPromptSuggestionViewSet(
         scanner = self._scanner_for_url()
         self._require_editor()
         suggestion = self.get_object()
-        # A stale tab can submit an old suggestion id, silently rolling the prompt back.
-        if suggestion.status not in (SuggestionStatus.PENDING, SuggestionStatus.DISMISSED):
-            raise ValidationError("Only the current recommendation can be applied.")
-        if suggestion.scanner_version != scanner.scanner_version:
-            raise ValidationError("The scanner prompt changed since this was generated. Generate a fresh one.")
-        config = dict(scanner.scanner_config or {})
-        config["prompt"] = suggestion.suggested_prompt
-        scanner.scanner_config = config
-        # One transaction so the scanner can't end up changed while the suggestion stays pending.
+        # Guards must run on locked rows: unlocked reads let two concurrent applies both pass,
+        # and the second silently overwrites the first.
         with transaction.atomic():
+            scanner = ReplayScanner.objects.select_for_update().get(team_id=self.team_id, id=scanner.id)
+            suggestion = ReplayScannerPromptSuggestion.objects.select_for_update().get(
+                team_id=self.team_id, id=suggestion.id
+            )
+            # A stale tab can submit an old or dismissed suggestion id, silently rolling the prompt back.
+            if suggestion.status != SuggestionStatus.PENDING:
+                raise ValidationError("Only the current recommendation can be applied.")
+            if suggestion.scanner_version != scanner.scanner_version:
+                raise ValidationError("The scanner prompt changed since this was generated. Generate a fresh one.")
+            config = dict(scanner.scanner_config or {})
+            config["prompt"] = suggestion.suggested_prompt
+            scanner.scanner_config = config
             scanner.save(update_fields=["scanner_config"])
             suggestion.status = SuggestionStatus.APPLIED
             suggestion.applied_at = timezone.now()
@@ -218,13 +224,23 @@ class ReplayScannerPromptSuggestionViewSet(
     @extend_schema(
         request=None,
         responses={200: ReplayScannerPromptSuggestionSerializer},
-        description="Dismiss this suggestion without applying it. Requires session recording edit access.",
+        description=(
+            "Dismiss this suggestion without applying it. Only the current pending suggestion can be "
+            "dismissed. Requires session recording edit access."
+        ),
     )
     @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
     def dismiss(self, request: Request, **kwargs: Any) -> Response:
         self._scanner_for_url()
         self._require_editor()
         suggestion = self.get_object()
-        suggestion.status = SuggestionStatus.DISMISSED
-        suggestion.save(update_fields=["status"])
+        with transaction.atomic():
+            suggestion = ReplayScannerPromptSuggestion.objects.select_for_update().get(
+                team_id=self.team_id, id=suggestion.id
+            )
+            # Dismissing an applied suggestion would mark the scanner's live prompt as rejected.
+            if suggestion.status != SuggestionStatus.PENDING:
+                raise ValidationError("Only the current recommendation can be dismissed.")
+            suggestion.status = SuggestionStatus.DISMISSED
+            suggestion.save(update_fields=["status"])
         return Response(ReplayScannerPromptSuggestionSerializer(suggestion).data)

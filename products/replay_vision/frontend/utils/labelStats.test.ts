@@ -17,6 +17,8 @@ describe('fillLabelDays', () => {
         )
 
         expect(result.labels).toEqual(['Jun 29', 'Jun 30', 'Jul 1', 'Jul 2', 'Jul 3'])
+        // Version markers match bars on these, so they must be full dates, not year-less labels.
+        expect(result.dates).toEqual(['2026-06-29', '2026-06-30', '2026-07-01', '2026-07-02', '2026-07-03'])
         expect(result.up).toEqual([0, 0, 2, 0, 0])
         expect(result.down).toEqual([0, 0, 1, 0, 3])
     })

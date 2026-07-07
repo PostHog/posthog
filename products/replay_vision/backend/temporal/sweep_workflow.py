@@ -70,18 +70,20 @@ class SweepScannerWorkflow(PostHogWorkflow):
 
         # Same heartbeat keeps the prompt recommendation fresh. The activity self-gates to at most one
         # regeneration per day and only when ratings changed, so the 5-minute sweep cadence is fine.
-        # Best-effort: an LLM hiccup must never block the session scan.
-        try:
-            await wf.execute_activity(
-                refresh_prompt_suggestion_activity,
-                RefreshPromptSuggestionInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id),
-                start_to_close_timeout=REFRESH_PROMPT_SUGGESTION_TIMEOUT,
-                retry_policy=common.RetryPolicy(maximum_attempts=1),
-            )
-        except Exception:
-            wf.logger.warning(
-                "replay_vision.prompt_suggestion_refresh_failed", extra={"scanner_id": str(inputs.scanner_id)}
-            )
+        # Best-effort: an LLM hiccup must never block the session scan. wf.patched keeps sweeps
+        # in flight across the deploy replaying deterministically.
+        if wf.patched("prompt-suggestion-refresh"):
+            try:
+                await wf.execute_activity(
+                    refresh_prompt_suggestion_activity,
+                    RefreshPromptSuggestionInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id),
+                    start_to_close_timeout=REFRESH_PROMPT_SUGGESTION_TIMEOUT,
+                    retry_policy=common.RetryPolicy(maximum_attempts=1),
+                )
+            except Exception:
+                wf.logger.warning(
+                    "replay_vision.prompt_suggestion_refresh_failed", extra={"scanner_id": str(inputs.scanner_id)}
+                )
 
         # Hard per-scanner concurrency cap: don't fetch more than the in-flight headroom, and skip entirely
         # when saturated. Keeps one bad config from flooding the shared rasterizer + provider concurrency.
