@@ -123,12 +123,16 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
     forms(({ values }) => ({
         actionForm: {
             defaults: NEW_ACTION_FORM(),
-            errors: ({ name, cadence, integration_id, channel }: VisionActionForm) => ({
+            errors: ({ name, cadence, integration_id, channel, min_score, max_score }: VisionActionForm) => ({
                 name: !name?.trim() ? 'Give this summary a name' : undefined,
                 // kea-forms can't carry a string error on the weekdays array, so hang it on `hour` to
                 // mark the form invalid and block Enter-to-submit; the visible copy is the inline text.
                 cadence: cadence.weekdays.length === 0 ? { hour: 'Pick at least one day' } : undefined,
                 channel: integration_id && !channel ? 'Pick a channel' : undefined,
+                min_score:
+                    min_score != null && max_score != null && min_score > max_score
+                        ? "Min score can't exceed max score"
+                        : undefined,
             }),
             submit: async (form: VisionActionForm) => {
                 const teamId = teamLogic.values.currentTeamId
@@ -205,6 +209,10 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 prompt_guide: action.synthesis_config?.prompt_guide ?? '',
                 integration_id: action.delivery_config?.[0]?.integration_id ?? null,
                 channel: action.delivery_config?.[0]?.channel ?? '',
+                verdict: action.selection?.verdict ?? [],
+                tags: action.selection?.tags ?? [],
+                min_score: action.selection?.min_score ?? null,
+                max_score: action.selection?.max_score ?? null,
             })
         },
 

@@ -16,6 +16,7 @@ const existingAction = {
     scanner: 's1',
     enabled: true,
     trigger_config: { rrule: 'FREQ=WEEKLY;BYDAY=MO,WE;BYHOUR=14;BYMINUTE=30', timezone: 'Europe/Prague' },
+    selection: { verdict: ['yes'], min_score: 2 },
     synthesis_config: { prompt_guide: 'focus on checkout' },
     delivery_config: [{ type: 'slack', integration_id: 5, channel: 'C123' }],
 } as unknown as VisionActionApi
@@ -67,6 +68,10 @@ describe('actionEditorSceneLogic', () => {
                     prompt_guide: 'focus on checkout',
                     integration_id: 5,
                     channel: 'C123',
+                    verdict: ['yes'],
+                    tags: [],
+                    min_score: 2,
+                    max_score: null,
                 },
             })
     })

@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useMemo } from 'react'
 
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonInputSelect } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { NotFound } from 'lib/components/NotFound'
@@ -25,6 +25,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { actionEditorSceneLogic } from './actionEditorSceneLogic'
 import { DEFAULT_CADENCE } from './cadence'
+import { replayScannerLogic } from './replayScannerLogic'
 
 export const scene: SceneExport = {
     component: ActionEditorSceneComponent,
@@ -145,6 +146,132 @@ function ScheduleSection(): JSX.Element {
     )
 }
 
+const VERDICT_OPTIONS: { value: 'yes' | 'no' | 'inconclusive'; label: string }[] = [
+    { value: 'yes', label: 'Yes' },
+    { value: 'no', label: 'No' },
+    { value: 'inconclusive', label: 'Inconclusive' },
+]
+
+// Type-specific "run this on…" targeting controls. Empty controls mean the action runs on all of the
+// scanner's observations; the selected values narrow it (verdicts for monitors, tags for classifiers,
+// a score range for scorers). Summarizers have no outcome to filter on.
+function TargetingSection({ scannerId }: { scannerId: string }): JSX.Element | null {
+    const { actionForm, actionFormErrors } = useValues(actionEditorSceneLogic)
+    const { setActionFormValue } = useActions(actionEditorSceneLogic)
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
+
+    if (!scanner) {
+        return null
+    }
+
+    const toNumberOrNull = (val: number | undefined): number | null => (val === undefined || isNaN(val) ? null : val)
+
+    let controls: JSX.Element
+    switch (scanner.scanner_type) {
+        case 'monitor':
+            controls = (
+                <div className="flex flex-col gap-1">
+                    <div className="flex gap-1">
+                        {VERDICT_OPTIONS.map(({ value, label }) => (
+                            <LemonButton
+                                key={value}
+                                size="small"
+                                type={actionForm.verdict.includes(value) ? 'primary' : 'secondary'}
+                                onClick={() =>
+                                    setActionFormValue(
+                                        'verdict',
+                                        actionForm.verdict.includes(value)
+                                            ? actionForm.verdict.filter((v) => v !== value)
+                                            : [...actionForm.verdict, value]
+                                    )
+                                }
+                                data-attr={`vision-action-targeting-verdict-${value}`}
+                            >
+                                {label}
+                            </LemonButton>
+                        ))}
+                    </div>
+                    <span className="text-xs text-muted">
+                        Only run on observations with these verdicts. Leave all unselected to run on every observation.
+                    </span>
+                </div>
+            )
+            break
+        case 'classifier': {
+            const configuredTags: string[] = scanner.scanner_config?.tags ?? []
+            const allowFreeform = !!scanner.scanner_config?.allow_freeform_tags
+            controls = (
+                <div className="flex flex-col gap-1">
+                    <LemonInputSelect
+                        mode="multiple"
+                        allowCustomValues={allowFreeform}
+                        placeholder="Pick tags…"
+                        value={actionForm.tags}
+                        onChange={(tags) => setActionFormValue('tags', tags)}
+                        options={[...new Set([...configuredTags, ...actionForm.tags])].map((t) => ({
+                            key: t,
+                            label: t,
+                        }))}
+                        data-attr="vision-action-targeting-tags"
+                    />
+                    <span className="text-xs text-muted">
+                        Only run on observations tagged with any of these. Leave empty to run on every observation.
+                    </span>
+                </div>
+            )
+            break
+        }
+        case 'scorer': {
+            const scale = scanner.scanner_config?.scale
+            controls = (
+                <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-2">
+                        <LemonInput
+                            type="number"
+                            placeholder={scale ? String(scale.min) : 'Min'}
+                            value={actionForm.min_score ?? undefined}
+                            onChange={(val) => setActionFormValue('min_score', toNumberOrNull(val))}
+                            className="w-24"
+                            data-attr="vision-action-targeting-min-score"
+                        />
+                        <span className="text-muted">to</span>
+                        <LemonInput
+                            type="number"
+                            placeholder={scale ? String(scale.max) : 'Max'}
+                            value={actionForm.max_score ?? undefined}
+                            onChange={(val) => setActionFormValue('max_score', toNumberOrNull(val))}
+                            className="w-24"
+                            data-attr="vision-action-targeting-max-score"
+                        />
+                    </div>
+                    {actionFormErrors?.min_score ? (
+                        <span className="text-xs text-danger">{String(actionFormErrors.min_score)}</span>
+                    ) : null}
+                    <span className="text-xs text-muted">
+                        Only run on observations scored in this range (inclusive
+                        {scale ? `; this scanner scores ${scale.min}–${scale.max}` : ''}). Leave empty to run on every
+                        observation.
+                    </span>
+                </div>
+            )
+            break
+        }
+        default:
+            controls = (
+                <span className="text-xs text-muted">
+                    Runs on all of this scanner's summaries — summarizers have no outcome to filter on.
+                </span>
+            )
+    }
+
+    return (
+        <div>
+            <h4 className="mb-1">Run this on</h4>
+            {controls}
+        </div>
+    )
+}
+
 function DeliverySection(): JSX.Element {
     const { actionForm } = useValues(actionEditorSceneLogic)
     const { setActionFormValue } = useActions(actionEditorSceneLogic)
@@ -249,6 +376,8 @@ export function ActionEditorSceneComponent(): JSX.Element {
                                 <h4 className="mb-1">Schedule</h4>
                                 <ScheduleSection />
                             </div>
+
+                            {effectiveScannerId ? <TargetingSection scannerId={effectiveScannerId} /> : null}
 
                             <LemonField
                                 name="prompt_guide"
