@@ -1,4 +1,4 @@
-import { dropTelemetryTimeouts } from './toolbarPosthogJS'
+import { dropTelemetryTimeouts } from './dropTelemetryTimeouts'
 
 describe('dropTelemetryTimeouts', () => {
     it('drops the self-inflicted posthog-js telemetry timeout AbortError', () => {

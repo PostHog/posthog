@@ -3,28 +3,13 @@ import { useEffect, useState } from 'react'
 
 import { FeatureFlagKey } from 'lib/constants'
 
+import { dropTelemetryTimeouts } from './dropTelemetryTimeouts'
+
 const DEFAULT_API_KEY = 'sTMFPsFhdP1Ssg'
 
 const runningOnPosthog = !!window.POSTHOG_APP_CONTEXT
 const apiKey = runningOnPosthog ? window.JS_POSTHOG_API_KEY : DEFAULT_API_KEY
 const apiHost = runningOnPosthog ? window.JS_POSTHOG_HOST : 'https://internal-j.posthog.com'
-
-// The toolbar's bundled posthog-js aborts its own telemetry requests after the SDK's
-// request timeout and reports the resulting AbortError as an exception. That's a benign
-// network blip on our own analytics, not a broken user flow, so we drop it before capture
-// rather than let it pollute error tracking. Exported for unit testing.
-export function dropTelemetryTimeouts<T extends { event?: string; properties?: Record<string, any> } | null>(
-    event: T
-): T | null {
-    if (!event || event.event !== '$exception') {
-        return event
-    }
-    const list = (event.properties?.$exception_list ?? []) as Array<{ type?: string; value?: string }>
-    if (list.some((ex) => ex?.type === 'AbortError' && ex?.value?.includes('PostHog request timed out'))) {
-        return null
-    }
-    return event
-}
 
 const initResult = posthog.init(
     apiKey || DEFAULT_API_KEY,
