@@ -73,7 +73,7 @@ class ConfigProtocol(_Dataclass, typing.Protocol):
     """
 
     @classmethod
-    def from_dict(cls: type[_T], d: dict[str, typing.Any]) -> _T: ...
+    def from_dict(cls: type[_T], d: dict[str, typing.Any] | str) -> _T: ...
 
     @classmethod
     def validate_dict(cls: type[_T], d: dict[str, typing.Any]) -> tuple[bool, list[str]]: ...
@@ -106,7 +106,7 @@ class Config(ConfigProtocol):
     """
 
     @classmethod
-    def from_dict(cls: type[_T], d: dict[str, typing.Any]) -> _T:
+    def from_dict(cls: type[_T], d: dict[str, typing.Any] | str) -> _T:
         raise NotImplementedError
 
     @classmethod
@@ -583,7 +583,7 @@ def config(
     """
 
     def wrap(cls: type[_T]) -> type[_T]:
-        def from_dict(cls, d: dict[str, typing.Any]):
+        def from_dict(cls, d: dict[str, typing.Any] | str):
             if isinstance(d, str):
                 # Stored config (an `EncryptedJSONField`) can come back double-encoded: a JSON
                 # string holding the mapping rather than the mapping itself. Recover by decoding
