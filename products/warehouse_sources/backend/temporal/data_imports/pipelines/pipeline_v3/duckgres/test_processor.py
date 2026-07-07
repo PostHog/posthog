@@ -1,8 +1,10 @@
+import sys
 from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, Mock, patch
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres import processor
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor import (
     DuckgresColumn,
     _ensure_duckgres_apply_table,
@@ -555,3 +557,47 @@ class TestBackfillProcessing:
             _process_backfill_batch(conn, batch, _make_schema())
 
         insert.assert_not_called()
+
+
+class TestExtractReadCredentialCache:
+    @pytest.fixture(autouse=True)
+    def _reset_cache(self, monkeypatch):
+        monkeypatch.setattr(processor, "_extract_read_credentials", None)
+
+    def test_credential_chain_resolved_once_across_batches(self, monkeypatch):
+        # The per-batch boto3.Session() construction is what this cache removes:
+        # each Session builds a fresh resolver (an STS/metadata round trip on
+        # IRSA chains), coupling every apply to STS availability.
+        creds = Mock()
+        creds.get_frozen_credentials.return_value = Mock(access_key="ak", secret_key="sk", token="tok")
+        session = Mock(region_name="us-east-1")
+        session.get_credentials.return_value = creds
+        session_factory = Mock(return_value=session)
+        monkeypatch.setitem(sys.modules, "boto3", Mock(Session=session_factory))
+
+        first = processor._resolve_extract_read_credentials()
+        second = processor._resolve_extract_read_credentials()
+
+        session_factory.assert_called_once()
+        assert first[0].access_key == second[0].access_key == "ak"
+        # Refreshable chains re-mint inside get_frozen_credentials on every call.
+        assert creds.get_frozen_credentials.call_count == 2
+
+    def test_failed_resolve_is_not_cached(self, monkeypatch):
+        # A transient chain failure (STS blip at pod start) must not poison the
+        # cache; the next batch retries the chain and succeeds.
+        good_creds = Mock()
+        good_creds.get_frozen_credentials.return_value = Mock(access_key="ak", secret_key="sk", token=None)
+        bad_session = Mock(region_name=None)
+        bad_session.get_credentials.return_value = None
+        good_session = Mock(region_name="eu-west-1")
+        good_session.get_credentials.return_value = good_creds
+        session_factory = Mock(side_effect=[bad_session, good_session])
+        monkeypatch.setitem(sys.modules, "boto3", Mock(Session=session_factory))
+
+        with pytest.raises(RuntimeError, match="No AWS credentials"):
+            processor._resolve_extract_read_credentials()
+
+        frozen, region = processor._resolve_extract_read_credentials()
+        assert frozen.access_key == "ak"
+        assert region == "eu-west-1"

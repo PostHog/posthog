@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -169,6 +170,39 @@ def _connect_to_duckgres(team_id: int) -> psycopg.Connection[Any]:
     )
 
 
+# Resolved once per process, not per batch: constructing a boto3.Session builds
+# a fresh credential resolver, which for IRSA/web-identity chains re-reads the
+# token file and can hit the STS/metadata endpoint — a per-batch fixed cost that
+# dominates small live batches and couples every apply to STS availability.
+# botocore's RefreshableCredentials refresh themselves (thread-safely) inside
+# get_frozen_credentials() when inside the mandatory-refresh window, so a cached
+# resolver still hands every batch a token with expiry headroom. A failed
+# resolve is NOT cached — the next batch retries the chain.
+_extract_read_credentials: Any | None = None
+_extract_read_region: str = "us-east-1"
+_extract_read_credentials_lock = threading.Lock()
+
+
+def _resolve_extract_read_credentials() -> tuple[Any, str]:
+    global _extract_read_credentials, _extract_read_region
+    if _extract_read_credentials is None:
+        with _extract_read_credentials_lock:
+            if _extract_read_credentials is None:
+                import boto3  # noqa: PLC0415 — keeps boto3 off the import path for local setups
+
+                session = boto3.Session()
+                creds = session.get_credentials()
+                if creds is None:
+                    raise RuntimeError("No AWS credentials available to read the extract bucket from duckgres")
+                _extract_read_region = session.region_name or "us-east-1"
+                _extract_read_credentials = creds
+    # Refreshable chains re-mint here when close to expiry; static chains no-op.
+    frozen = _extract_read_credentials.get_frozen_credentials()
+    if not frozen.access_key or not frozen.secret_key:
+        raise RuntimeError("AWS credential chain resolved without an access key pair")
+    return frozen, _extract_read_region
+
+
 def _create_extract_read_secret(conn: psycopg.Connection[Any]) -> None:
     """Grant this duckgres session read access to PostHog's extract bucket.
 
@@ -192,20 +226,12 @@ def _create_extract_read_secret(conn: psycopg.Connection[Any]) -> None:
             f"SCOPE {_sql_str(scope)}",
         ]
     else:
-        import boto3
-
-        session = boto3.Session()
-        creds = session.get_credentials()
-        if creds is None:
-            raise RuntimeError("No AWS credentials available to read the extract bucket from duckgres")
-        frozen = creds.get_frozen_credentials()
-        if not frozen.access_key or not frozen.secret_key:
-            raise RuntimeError("AWS credential chain resolved without an access key pair")
+        frozen, region = _resolve_extract_read_credentials()
         parts = [
             "TYPE S3",
             f"KEY_ID {_sql_str(frozen.access_key)}",
             f"SECRET {_sql_str(frozen.secret_key)}",
-            f"REGION {_sql_str(session.region_name or 'us-east-1')}",
+            f"REGION {_sql_str(region)}",
             f"SCOPE {_sql_str(scope)}",
         ]
         if frozen.token:
