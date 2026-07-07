@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { exceptionAutocaptureFilters } from 'lib/exceptionAutocaptureFilters'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { setReadOnlyGetter, setReadOnlyNotifier } from 'lib/readOnlyGuard'
 
@@ -85,10 +86,12 @@ export const selfReadOnlyModeLogic = kea<selfReadOnlyModeLogicType>([
         setReadOnlyGetter(() => selfReadOnlyModeLogic.findMounted()?.values.isReadOnly ?? false)
         setReadOnlyNotifier((method) => actions.notifyBlocked(method))
 
-        // The `$exception` events raised by read-only blocks are dropped centrally by
-        // `dropReadOnlyExceptions`, wired into posthog-js's `before_send` at init
-        // (see `lib/exceptionAutocaptureFilters` + `loadPostHogJS`).
-        //
+        // Central error-tracking filters — drop `$exception` events for read-only blocks
+        // (by design) and for deliberate request cancellations (aborted fetches). See
+        // `lib/exceptionAutocaptureFilters`. This is the single owner of the `before_send`
+        // config slot; the filters compose as an array rather than clobbering each other.
+        posthog.set_config({ before_send: exceptionAutocaptureFilters })
+
         // The user-facing toast for blocked writes is shown by the standard
         // `e instanceof ApiError → lemonToast.error(e.detail)` pattern that
         // every write call-site already implements. ReadOnlyModeError extends
@@ -99,5 +102,7 @@ export const selfReadOnlyModeLogic = kea<selfReadOnlyModeLogicType>([
     beforeUnmount(() => {
         setReadOnlyGetter(null)
         setReadOnlyNotifier(null)
+        // Releasing ownership of `before_send`.
+        posthog.set_config({ before_send: undefined })
     }),
 ])

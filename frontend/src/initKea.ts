@@ -103,7 +103,7 @@ export function initKea({
                 // condition already suppresses the toast for load actions, and write actions
                 // get a toast with the read-only `detail` as the message. The
                 // `posthog.captureException` event is dropped by the central
-                // `before_send` filters in `lib/exceptionAutocaptureFilters`.
+                // `before_send` filter in `selfReadOnlyModeLogic`.
                 // Toast if it's a fetch error or a specific API update error
                 const isLoadAction = typeof actionKey === 'string' && /^(load|get|fetch)[A-Z]/.test(actionKey)
                 if (
