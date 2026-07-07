@@ -42,7 +42,11 @@ export interface NotebookNodeSQLV2LogicProps {
     // Current node attributes, so a fresh mount can recover an in-flight/finished run by its runId.
     runId?: string | null
     hasResult?: boolean
-    updateAttributes: (attrs: { runId?: string | null; result?: NotebookNodeSQLV2Result | null }) => void
+    updateAttributes: (attrs: {
+        nodeId?: string
+        runId?: string | null
+        result?: NotebookNodeSQLV2Result | null
+    }) => void
 }
 
 export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
@@ -204,7 +208,10 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     // Mark this as the active run so a still-in-flight poll from a previous run
                     // can't overwrite this result or stop this run's poller once it resolves.
                     cache.activeRunId = run_id
-                    props.updateAttributes({ runId: run_id, result: null })
+                    // Persisting nodeId pins the cell's identity: markdown-notebook cell ids are
+                    // content fingerprints otherwise, so without the pin any later prop change
+                    // would orphan this run's node_id and break refs to this cell.
+                    props.updateAttributes({ nodeId: props.nodeId, runId: run_id, result: null })
                     actions.startPolling(run_id)
                 } catch (error) {
                     actions.setRunError(error instanceof Error ? error.message : 'Failed to run query')

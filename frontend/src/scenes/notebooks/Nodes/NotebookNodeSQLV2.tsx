@@ -265,7 +265,9 @@ const Settings = ({
             attributes={attributes}
             updateAttributes={updateAttributes}
             tabIdSuffix="datav2"
-            onRunQuery={(code) => runQuery(code, collectSqlV2Refs(notebookLogic.values.editor?.getJSON(), nodeId))}
+            // Refs come from the notebook content, not the tiptap editor: markdown notebooks
+            // (the only surface with SQLV2 cells) have no tiptap editor at all.
+            onRunQuery={(code) => runQuery(code, collectSqlV2Refs(notebookLogic.values.content, nodeId))}
             runQueryLoading={isRunning}
             runQueryDisabledReason={operationBlockReason ?? undefined}
             runQueryTooltip="Run SQL (v2) query"

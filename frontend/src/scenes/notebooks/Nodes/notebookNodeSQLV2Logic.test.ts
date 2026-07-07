@@ -5,6 +5,7 @@ import { JSONContent } from 'lib/components/RichContentEditor/types'
 
 import { initKeaTests } from '~/test/init'
 
+import { buildMarkdownNotebookContent, serializeMarkdownNotebookComponent } from '../Notebook/markdownNotebookV2'
 import { NotebookNodeType } from '../types'
 import { collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
 
@@ -67,6 +68,23 @@ describe('notebookNodeSQLV2Logic', () => {
             const document = doc({ type: 'column', content: [sqlNode('a', 'df1')] })
             expect(collectSqlV2Refs(document, 'self')).toEqual({ df1: 'a' })
         })
+
+        it('collects refs from markdown notebook cells, preferring their persisted nodeId', () => {
+            // Markdown notebooks (the only surface with SQLV2 cells) hold cells as tags inside
+            // one markdown attribute — a tiptap-only walk returns {} and every ref breaks with
+            // "Unknown table". Persisted nodeIds must win over parsed ids: parsed block ids are
+            // content fingerprints that drift from the run's recorded node_id on any prop change.
+            const markdown = [
+                serializeMarkdownNotebookComponent('SQLV2', { nodeId: 'a', returnVariable: 'df1', code: 'select 1' }),
+                serializeMarkdownNotebookComponent('SQLV2', { nodeId: 'self', returnVariable: 'df2', code: '' }),
+                serializeMarkdownNotebookComponent('SQLV2', { returnVariable: 'df3', code: 'select 3' }),
+            ].join('\n\n')
+            const refs = collectSqlV2Refs(buildMarkdownNotebookContent(markdown), 'self')
+            expect(refs.df1).toEqual('a')
+            expect(refs.df2).toBeUndefined()
+            // Without a persisted nodeId the cell falls back to its parsed fingerprint id.
+            expect(refs.df3).toMatch(/^mdn-/)
+        })
     })
 
     it('rejects blank code before dispatching a run', async () => {
@@ -83,8 +101,9 @@ describe('notebookNodeSQLV2Logic', () => {
         logic.actions.runQuery('select 1')
         await expectLogic(logic).toDispatchActions(['runQuery', 'startPolling', 'pollResult'])
         expect(runSpy).toHaveBeenCalledWith('nb1', { node_id: 'n1', code: 'select 1', refs: {} })
-        // The run id is persisted so a reload/remount can recover the in-flight run.
-        expect(updateAttributes).toHaveBeenCalledWith({ runId: 'r1', result: null })
+        // runId is persisted so a reload/remount can recover the in-flight run; nodeId is
+        // pinned so the markdown cell's fingerprint id can't drift away from the run's node_id.
+        expect(updateAttributes).toHaveBeenCalledWith({ nodeId: 'n1', runId: 'r1', result: null })
     })
 
     it('maps a done envelope into the node result and stops the spinner', async () => {

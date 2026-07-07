@@ -1,3 +1,4 @@
+import { buildMarkdownNotebookContent, serializeMarkdownNotebookComponent } from '../Notebook/markdownNotebookV2'
 import { NotebookNodeType } from '../types'
 import { buildNotebookDependencyGraph } from './notebookNodeContent'
 
@@ -33,5 +34,25 @@ describe('buildNotebookDependencyGraph', () => {
         expect(graph.nodesById['b'].exports).toEqual(['sql_df_2'])
         expect(graph.downstreamUsageByNode['a'].sql_df.map((usage) => usage.nodeId)).toEqual(['c'])
         expect(graph.upstreamSourcesByNode['c'].sql_df.nodeId).toEqual('a')
+    })
+
+    it('links SQLV2 cells inside a markdown notebook', () => {
+        // Markdown notebooks hold cells as tags inside one markdown attribute; without
+        // expanding them the graph is empty and the "Used in" back-links never render.
+        const markdown = [
+            serializeMarkdownNotebookComponent('SQLV2', {
+                nodeId: 'a',
+                returnVariable: 'df1',
+                code: 'select id from events',
+            }),
+            serializeMarkdownNotebookComponent('SQLV2', {
+                nodeId: 'b',
+                returnVariable: 'joined',
+                code: 'select * from df1',
+            }),
+        ].join('\n\n')
+        const graph = buildNotebookDependencyGraph(buildMarkdownNotebookContent(markdown))
+        expect(graph.downstreamUsageByNode['a'].df1.map((usage) => usage.nodeId)).toEqual(['b'])
+        expect(graph.upstreamSourcesByNode['b'].df1.nodeId).toEqual('a')
     })
 })
