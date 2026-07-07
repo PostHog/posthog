@@ -12,6 +12,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { MarkerSeverity, editor } from 'monaco-editor'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isNetworkError } from 'lib/utils/isNetworkError'
 
 import { performQuery } from '~/queries/query'
 import {
@@ -67,7 +68,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
     })),
-    loaders(({ props }) => ({
+    loaders(({ props, values }) => ({
         metadata: [
             null as null | [string, HogQLMetadataResponse],
             {
@@ -94,21 +95,32 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                             : undefined
                     const sourceQuery = getContextSourceQuery(props.sourceQuery, query)
 
-                    const response = await performQuery<HogQLMetadata>(
-                        setLatestVersionsOnQuery(
-                            {
-                                kind: NodeKind.HogQLMetadata,
-                                language: props.language as HogLanguage,
-                                query: query,
-                                filters: props.metadataFilters,
-                                globals: props.globals,
-                                sourceQuery,
-                                variables,
-                                connectionId,
-                            },
-                            { recursion: false }
+                    let response: HogQLMetadataResponse
+                    try {
+                        response = await performQuery<HogQLMetadata>(
+                            setLatestVersionsOnQuery(
+                                {
+                                    kind: NodeKind.HogQLMetadata,
+                                    language: props.language as HogLanguage,
+                                    query: query,
+                                    filters: props.metadataFilters,
+                                    globals: props.globals,
+                                    sourceQuery,
+                                    variables,
+                                    connectionId,
+                                },
+                                { recursion: false }
+                            )
                         )
-                    )
+                    } catch (error) {
+                        // Transient network failures (connection blip, offline, aborted/blocked request) are
+                        // benign here, so swallow them instead of cluttering error tracking, and keep the last
+                        // known metadata so existing markers stay put. The editor retries on the next keystroke.
+                        if (isNetworkError(error)) {
+                            return values.metadata
+                        }
+                        throw error
+                    }
                     breakpoint()
                     props.onMetadata?.(response)
                     return [query, response]
