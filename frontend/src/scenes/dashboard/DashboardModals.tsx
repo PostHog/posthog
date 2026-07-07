@@ -28,6 +28,7 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
         subscriptionId,
         showTextTileModal,
         textTileId,
+        pendingInsertion,
         showButtonTileModal,
         buttonTileId,
         terraformModalOpen,
@@ -63,6 +64,7 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
                         onClose={() => push(urls.dashboard(dashboard.id))}
                         dashboard={dashboard}
                         textTileId={textTileId}
+                        pendingInsertion={pendingInsertion}
                     />
                     <ButtonTileCardModal
                         isOpen={showButtonTileModal}

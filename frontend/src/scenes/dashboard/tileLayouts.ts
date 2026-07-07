@@ -27,6 +27,9 @@ const MIN_WIDGET_TILE_HEIGHT_ROWS = 4
 /** Fallback tile dimensions (half-width, standard height) when a tile has no known layout yet. */
 export const DEFAULT_INSERTED_TILE_SIZE = { w: 6, h: 5 } as const
 
+/** Default text-tile dimensions the grid assigns when a text tile has no stored layout. */
+export const DEFAULT_TEXT_TILE_SIZE = { w: 2, h: 2 } as const
+
 type WidgetCatalogLayout = DashboardWidgetCatalogEntry['defaultLayout']
 
 /**
@@ -242,8 +245,8 @@ export const calculateLayouts = (
             let defaultH = 5
             // Content-adjusted constraints (note that widths should be factors of 12)
             if (tile.text) {
-                defaultW = 2
-                defaultH = 2
+                defaultW = DEFAULT_TEXT_TILE_SIZE.w
+                defaultH = DEFAULT_TEXT_TILE_SIZE.h
             } else if (isFunnelsQuery(query)) {
                 defaultW = 4
                 defaultH = 4

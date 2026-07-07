@@ -9,6 +9,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { DialogClose, DialogPrimitive, DialogPrimitiveTitle } from 'lib/ui/DialogPrimitive/DialogPrimitive'
 import { cn } from 'lib/utils/css-classes'
+import type { PendingInsertion } from 'scenes/dashboard/dashboardLogic'
 
 import { DashboardType, QueryBasedInsightModel } from '~/types'
 
@@ -17,14 +18,16 @@ export function TextCardModal({
     onClose,
     dashboard,
     textTileId,
+    pendingInsertion,
 }: {
     isOpen: boolean
     onClose: () => void
     dashboard: DashboardType<QueryBasedInsightModel>
     textTileId: number | 'new' | null
+    pendingInsertion?: PendingInsertion | null
 }): JSX.Element {
     const resolvedTileId = textTileId ?? 'new'
-    const modalLogicProps = { dashboard, textTileId: resolvedTileId, onClose }
+    const modalLogicProps = { dashboard, textTileId: resolvedTileId, onClose, pendingInsertion }
     const modalLogic = textCardModalLogic(modalLogicProps)
     // Form `body` + validation drive updates while typing; splitting useValues does not reduce rerenders.
     const { isTextTileSubmitting, textTileValidationErrors, textTile } = useValues(modalLogic)
