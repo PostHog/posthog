@@ -570,6 +570,7 @@ export function DashboardItems(): JSX.Element {
                                         placement={placement}
                                         dashboard={dashboard}
                                         dashboardId={dashboard?.id}
+                                        canEditDashboard={canEditDashboard}
                                         onEdit={() => {
                                             if (dashboard?.id) {
                                                 push(urls.dashboardTextTile(dashboard.id, tile.id))

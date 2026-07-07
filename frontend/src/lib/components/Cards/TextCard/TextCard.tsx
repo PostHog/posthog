@@ -4,12 +4,15 @@ import { EditorContent } from '@tiptap/react'
 import clsx from 'clsx'
 import React, { memo, useEffect, useMemo } from 'react'
 
+import { IconPencil } from '@posthog/icons'
+
 import 'lib/components/Cards/CardMeta.scss'
 import 'lib/components/MarkdownEditor/shared/RichMarkdownEditor.scss'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { DashboardResizeHandles } from 'lib/components/Cards/handles'
 import { EditModeEdge, EditModeEdgeOverlay } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { useRichContentEditor } from 'lib/components/RichContentEditor'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More, MoreProps } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
@@ -105,7 +108,7 @@ function TextCardInternal(
     return (
         <div
             className={clsx(
-                'DashboardTileCard TextCard rounded flex flex-col',
+                'DashboardTileCard TextCard group rounded flex flex-col',
                 !isTransparent && 'bg-surface-primary border',
                 isTransparent && showResizeHandles && 'border border-dashed border-border',
                 className
@@ -114,9 +117,20 @@ function TextCardInternal(
             {...divProps}
             ref={ref}
         >
-            {moreButtonOverlay && !shouldHideMoreButton && !editingContent && (
-                <div className="absolute right-4 top-4">
-                    <More overlay={moreButtonOverlay} />
+            {!shouldHideMoreButton && !editingContent && (
+                <div className="absolute right-4 top-4 flex items-center gap-1">
+                    {onStartInlineEdit && (
+                        <LemonButton
+                            size="small"
+                            icon={<IconPencil />}
+                            onClick={onStartInlineEdit}
+                            tooltip="Double-click to edit"
+                            className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                            data-attr="text-card-inline-edit-pencil"
+                            aria-label="Edit text"
+                        />
+                    )}
+                    {moreButtonOverlay && <More overlay={moreButtonOverlay} />}
                 </div>
             )}
 

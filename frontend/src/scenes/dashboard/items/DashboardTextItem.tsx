@@ -18,6 +18,7 @@ interface DashboardTextItemProps extends Omit<BaseTextCardProps, 'textTile' | 'p
     placement: DashboardPlacement
     dashboard?: DashboardType<QueryBasedInsightModel> | null
     dashboardId?: number | null
+    canEditDashboard?: boolean
     onEdit: () => void
     onMoveToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
     onCopyToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
@@ -31,6 +32,7 @@ function DashboardTextItemInternal(
         placement,
         dashboard,
         dashboardId,
+        canEditDashboard,
         onEdit,
         onMoveToDashboard,
         onCopyToDashboard,
@@ -53,13 +55,10 @@ function DashboardTextItemInternal(
 
     // Legacy markdown that can't round-trip through the rich editor still edits via the modal
     const canEditInline = !!dashboard && isTextCardMarkdownRoundTripSafe(tile.text?.body)
-    const startEditing = (): void => {
-        if (canEditInline) {
-            setIsEditingInline(true)
-        } else {
-            onEdit()
-        }
-    }
+    // Only editors get the inline affordance, mirroring insight cards (InsightMeta) and drag-to-edit
+    const startEditing = canEditDashboard
+        ? (): void => (canEditInline ? setIsEditingInline(true) : onEdit())
+        : undefined
 
     return (
         <TextCard
