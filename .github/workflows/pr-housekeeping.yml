@@ -12,10 +12,10 @@ on:
 # Keyed by event action so a new push (synchronize) cancels the previous
 # push's run without cancelling runs fired by other event types on the PR.
 concurrency:
-    group: pr-housekeeping-${{ github.event.action }}-${{ github.head_ref || github.ref }}
+    group: pr-housekeeping-${{ github.event.action }}-${{ github.event.pull_request.number }}
     cancel-in-progress: true
 
-# Union of the callees' needs; a called workflow can only downgrade these.
+# Parent defaults stay read-only; jobs that need more request it explicitly.
 permissions:
     contents: read
     pull-requests: read
@@ -43,6 +43,8 @@ jobs:
         # every push wasted the run and fought manual card moves.
         if: contains(fromJSON('["opened", "reopened", "ready_for_review", "review_requested", "converted_to_draft"]'), github.event.action) && github.event.pull_request.head.repo.full_name == github.repository
         uses: PostHog/.github/.github/workflows/flags-project-board.yml@2db3d3b946aeb9e479ce9f0078139a67f8ef38ce
+        permissions:
+            contents: read
         with:
             pr_number: ${{ github.event.pull_request.number }}
             pr_node_id: ${{ github.event.pull_request.node_id }}
