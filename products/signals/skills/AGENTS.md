@@ -233,7 +233,7 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   `revenue-analytics` watches the lagging revenue/MRR signal; neither scores an
   individual account's engagement trajectory. Acquisition is the web-analytics
   scout's territory.
-- `signals-scout-csm-*/` — the customer-success fleet, provisioned per-team by the Slack
+- `signals-scout-slack-csm-*/` — the customer-success fleet, provisioned per-team by the Slack
   co-worker's persona onboarding rather than the general enrollment path, and the first scouts
   to use the **Slack delivery** channel: each lists `send_slack_message` in `allowed_tools` and,
   after filing an inbox report, calls `signals-scout-notify` to ping the scout config's Slack

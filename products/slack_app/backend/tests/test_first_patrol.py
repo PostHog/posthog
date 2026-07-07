@@ -21,13 +21,13 @@ class TestFirstPatrolDigestComposition:
         digest = _collect(
             [
                 ScoutRunDigest(
-                    skill_name="signals-scout-csm-account-pulse",
+                    skill_name="signals-scout-slack-csm-account-pulse",
                     summary="Initech's weekly active users dropped 60% vs baseline. Fleet otherwise steady.",
                     notifications_sent=1,
                     reports_filed=1,
                 ),
                 ScoutRunDigest(
-                    skill_name="signals-scout-csm-support-watch",
+                    skill_name="signals-scout-slack-csm-support-watch",
                     summary="Queue quiet.",
                     notifications_sent=0,
                     reports_filed=0,
@@ -44,13 +44,16 @@ class TestFirstPatrolDigestComposition:
         digest = _collect(
             [
                 ScoutRunDigest(
-                    skill_name="signals-scout-csm-account-pulse",
+                    skill_name="signals-scout-slack-csm-account-pulse",
                     summary="Checked 214 accounts, all within baseline.",
                     notifications_sent=0,
                     reports_filed=0,
                 ),
                 ScoutRunDigest(
-                    skill_name="signals-scout-csm-revenue-watch", summary="", notifications_sent=0, reports_filed=0
+                    skill_name="signals-scout-slack-csm-revenue-watch",
+                    summary="",
+                    notifications_sent=0,
+                    reports_filed=0,
                 ),
             ]
         )
@@ -64,7 +67,7 @@ class TestFirstPatrolDigestComposition:
         digest = _collect(
             [
                 ScoutRunDigest(
-                    skill_name="signals-scout-csm-account-pulse",
+                    skill_name="signals-scout-slack-csm-account-pulse",
                     summary=long_summary,
                     notifications_sent=1,
                     reports_filed=1,
@@ -78,13 +81,13 @@ class TestFirstPatrolDigestComposition:
         digest = _collect(
             [
                 ScoutRunDigest(
-                    skill_name="signals-scout-csm-account-pulse",
+                    skill_name="signals-scout-slack-csm-account-pulse",
                     summary="A slid.",
                     notifications_sent=1,
                     reports_filed=1,
                 ),
                 ScoutRunDigest(
-                    skill_name="signals-scout-csm-support-watch",
+                    skill_name="signals-scout-slack-csm-support-watch",
                     summary="B spiked.",
                     notifications_sent=1,
                     reports_filed=1,

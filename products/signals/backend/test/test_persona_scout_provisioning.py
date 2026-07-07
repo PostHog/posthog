@@ -14,9 +14,9 @@ from products.signals.backend.test.test_scout_harness_api import _make_run
 from products.skills.backend.models.skills import LLMSkill
 
 CSM_SKILLS = [
-    "signals-scout-csm-account-pulse",
-    "signals-scout-csm-support-watch",
-    "signals-scout-csm-revenue-watch",
+    "signals-scout-slack-csm-account-pulse",
+    "signals-scout-slack-csm-support-watch",
+    "signals-scout-slack-csm-revenue-watch",
 ]
 FIRE_PATH = "products.signals.backend.facade.api._fire_first_scout_runs"
 

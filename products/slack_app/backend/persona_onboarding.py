@@ -268,7 +268,7 @@ class ScoutSpec:
 PERSONA_SCOUT_CATALOG: dict[str, tuple[ScoutSpec, ...]] = {
     PERSONA_CSM: (
         ScoutSpec(
-            skill_name="signals-scout-csm-account-pulse",
+            skill_name="signals-scout-slack-csm-account-pulse",
             title="Account pulse",
             description=(
                 "Watches each account's product usage and flags the ones sliding toward churn or "
@@ -279,7 +279,7 @@ PERSONA_SCOUT_CATALOG: dict[str, tuple[ScoutSpec, ...]] = {
             gap_line="works best with account data like PostHog customer analytics accounts or a connected CRM.",
         ),
         ScoutSpec(
-            skill_name="signals-scout-csm-support-watch",
+            skill_name="signals-scout-slack-csm-support-watch",
             title="Support watch",
             description=(
                 "Watches support tickets for spikes, escalations, and accounts going loud (or silent) "
@@ -290,7 +290,7 @@ PERSONA_SCOUT_CATALOG: dict[str, tuple[ScoutSpec, ...]] = {
             gap_line="works best with a ticketing tool.",
         ),
         ScoutSpec(
-            skill_name="signals-scout-csm-revenue-watch",
+            skill_name="signals-scout-slack-csm-revenue-watch",
             title="Renewal & billing watch",
             description=(
                 "Watches billing data for failed payments, cancellations, and contraction on the accounts you own."
