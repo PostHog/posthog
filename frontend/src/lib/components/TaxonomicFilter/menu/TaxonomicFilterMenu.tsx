@@ -651,6 +651,7 @@ export function TaxonomicFilterMenu({
                         <DropdownMenuTrigger render={triggerEl} data-attr="taxonomic-filter-menu-trigger" />
                     )}
                     <PopoverTrigger
+                        nativeButton={false}
                         render={<span aria-hidden tabIndex={-1} className="absolute inset-0 pointer-events-none" />}
                     />
                     {triggerAccessory}

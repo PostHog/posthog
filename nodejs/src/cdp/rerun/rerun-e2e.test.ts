@@ -375,7 +375,10 @@ describe('CDP hog invocation rerun e2e', () => {
         }, 30_000)
 
         // ── 6. The hog function's fetch was called twice — once original, once rerun ─
-        expect(mockFetch.mock.calls.length).toBeGreaterThanOrEqual(2)
+        // The wait above can pass on the paginator's running row, before the worker executes; poll for the fetch.
+        await waitForExpect(() => {
+            expect(mockFetch.mock.calls.length).toBeGreaterThanOrEqual(2)
+        }, 30_000)
     })
 
     it('reruns successfully when person rehydration misses and the input reads person.properties', async () => {
@@ -508,8 +511,13 @@ describe('CDP hog invocation rerun e2e', () => {
         // Pre-fix, the input eval crashed on `undefined.properties` and this
         // count stayed at 1 (just the original). Post-fix, it's 2 (original +
         // rerun), and the rerun's body carries `foo=from-event`.
+        // Job 'completed' only means the paginator finished re-enqueueing; the worker executes asynchronously, so poll.
+        await waitForExpect(() => {
+            expect(
+                mockFetch.mock.calls.filter(([url]) => String(url).startsWith(FALLBACK_WEBHOOK_URL)).length
+            ).toBeGreaterThanOrEqual(2)
+        }, 30_000)
         const ourCalls = mockFetch.mock.calls.filter(([url]) => String(url).startsWith(FALLBACK_WEBHOOK_URL))
-        expect(ourCalls.length).toBeGreaterThanOrEqual(2)
         const rerunBody = String((ourCalls[ourCalls.length - 1] as any)[1]?.body ?? '')
         expect(rerunBody).toContain('foo=from-event')
     })

@@ -38,6 +38,7 @@ export function WizardCloudRunBlock({
     const { githubIntegration, selectedRepository, cloudRunStatus, connectGitHubUrl } = useValues(wizardCloudRunLogic)
     const { activeCloudRun } = useValues(activeCloudRunLogic)
     const { setSelectedRepository, startCloudRun } = useActions(wizardCloudRunLogic)
+    const { clearActiveCloudRun } = useActions(activeCloudRunLogic)
 
     // Fire onQueued once per kickoff, the moment the run is handed off. It advances the install step
     // (GROW-96), so it must not repeat while the status stays 'queued' (the callback identity changes
@@ -69,6 +70,7 @@ export function WizardCloudRunBlock({
                 runId={activeCloudRun.runId}
                 taskId={activeCloudRun.taskId}
                 onRetryLocally={onRetryLocally}
+                onDismiss={clearActiveCloudRun}
             />
         )
     }
@@ -105,7 +107,7 @@ export function WizardCloudRunBlock({
     return (
         <WizardModeShell hideHog={hideHog} data-attr="wizard-cloud-run-block">
             <p className="text-sm text-muted mb-0">
-                We'll run the wizard against your repo and open a pull request with the SDK installed and your context
+                We'll run the wizard against your repo and open a pull request with the SDK installed and events
                 flowing. Review it and merge whenever you're ready.
             </p>
 

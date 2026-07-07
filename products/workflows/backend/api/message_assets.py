@@ -1,38 +1,10 @@
 import dataclasses
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import Any, Optional, cast
 
-import posthoganalytics
 from rest_framework import serializers
 
 from posthog.clickhouse.client.execute import sync_execute
-
-if TYPE_CHECKING:
-    from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
-
-    from posthog.models import Team
-
-
-WORKFLOW_EMAIL_ASSETS_UI_FLAG = "workflow-email-assets-ui"
-
-
-def workflow_email_assets_ui_enabled(team: "Team", user: "AbstractBaseUser | AnonymousUser") -> bool:
-    # DRF's `request.user` is User | AnonymousUser. Permissions reject anonymous before
-    # we get here, but typing it broadly lets callers pass `request.user` without casting.
-    distinct_id = getattr(user, "distinct_id", None)
-    if not distinct_id:
-        return False
-    return bool(
-        posthoganalytics.feature_enabled(
-            WORKFLOW_EMAIL_ASSETS_UI_FLAG,
-            str(distinct_id),
-            groups={"organization": str(team.organization_id), "project": str(team.id)},
-            group_properties={"organization": {"id": str(team.organization_id)}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-    )
-
 
 # `latest_` prefix on the argMax aliases prevents collision with the raw column
 # names in any outer WHERE — ClickHouse resolves the bare name to the aggregate
