@@ -444,11 +444,13 @@ function ScreenNameField({
         existingFilter && 'operator' in existingFilter ? (existingFilter.operator as ScreenNameMatching) : undefined
 
     // Keep the selected operator even when the value is empty (an empty filter isn't persisted, so we can't
-    // read it back off the step) — otherwise picking "matches exactly" before typing would snap back to the default
+    // read it back off the step) — otherwise picking "matches exactly" before typing would snap back to the default.
+    // Only seeded once: safe because this component remounts when the step's event type changes away from $screen.
     const [operator, setOperator] = useState<ScreenNameMatching>(filterOperator ?? PropertyOperator.IContains)
 
     // Only "matches exactly" supports multiple values (translated to an IN() query); the rest take a single string
     const isMulti = operator === PropertyOperator.Exact
+    const singleValue = screenNames[0] ?? ''
 
     const setFilter = (value: string | string[], op: ScreenNameMatching): void => {
         const otherProperties = (step.properties || []).filter((p) => !isScreenNameFilter(p))
@@ -473,7 +475,7 @@ function ScreenNameField({
 
     const handleOperatorChange = (op: ScreenNameMatching): void => {
         setOperator(op)
-        const nextValue = op === PropertyOperator.Exact ? screenNames : (screenNames[0] ?? '')
+        const nextValue = op === PropertyOperator.Exact ? screenNames : singleValue
         setFilter(nextValue, op)
     }
 
@@ -511,7 +513,7 @@ function ScreenNameField({
                     data-attr="edit-action-screen-name-input"
                     allowClear
                     onChange={(val) => setFilter(val, operator)}
-                    value={screenNames[0] ?? ''}
+                    value={singleValue}
                     placeholder="e.g. HomeScreen"
                     disabledReason={disabledReason}
                 />
