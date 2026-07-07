@@ -409,6 +409,7 @@ function TypeSwitcher({
                     {
                         value: '$screen',
                         label: 'Screen',
+                        tooltip: 'Screen views from mobile apps ($screen events sent by the mobile SDKs)',
                         'data-attr': 'action-type-screen',
                         disabledReason,
                     },
@@ -479,7 +480,9 @@ function ScreenNameField({
     return (
         <div className="deprecated-space-y-1">
             <div className="flex flex-wrap gap-1">
-                <LemonLabel>Screen name</LemonLabel>
+                <LemonLabel info="Matches the $screen_name property on $screen events sent by the mobile SDKs (iOS, Android, React Native, Flutter). This is the mobile equivalent of a pageview URL.">
+                    Screen name
+                </LemonLabel>
                 <div className="flex flex-1 justify-end">
                     <LemonSegmentedButton
                         onChange={(value) => handleOperatorChange(value as ScreenNameMatching)}
