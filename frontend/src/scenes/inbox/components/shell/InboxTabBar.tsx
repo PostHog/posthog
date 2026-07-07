@@ -55,7 +55,8 @@ type InboxTabBarKey = InboxTabKey | typeof WELCOME_TAB_KEY
  *
  * In `onboarding` mode (self-driving not set up, empty inbox) a locked "Welcome" tab is shown and
  * selected, while the real tabs stay visible but disabled – the user can see what's coming, but the
- * inbox only opens up once self-driving is set up.
+ * inbox only opens up once self-driving is set up. Code review is the exception: it works without
+ * self-driving, so its tab stays clickable.
  */
 export function InboxTabBar({
     showConfigTab,
@@ -83,7 +84,8 @@ export function InboxTabBar({
                 )}
             </span>
         ),
-        disabledReason: onboarding ? 'Set up self-driving to open your inbox' : undefined,
+        // Code review doesn't need self-driving, so it stays clickable during the takeover.
+        disabledReason: onboarding && key !== 'code-review' ? 'Set up self-driving to open your inbox' : undefined,
         content: <></>,
     }))
 

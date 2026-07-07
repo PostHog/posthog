@@ -87,7 +87,8 @@ function InboxListView(): JSX.Element {
     // Self-driving isn't set up and the inbox is empty: the inbox becomes a single locked "Welcome"
     // tab (the other tabs are visible but disabled) whose body is the onboarding card. The setup rail
     // is dropped too, so the onboarding is the whole story – just run the one command.
-    const onboarding = onboardingMode === 'takeover'
+    // Code review runs independently of self-driving, so its tab stays reachable during the takeover.
+    const onboarding = onboardingMode === 'takeover' && activeTab !== 'code-review'
     const showRail = wide && !onboarding
     // The rail and the Configuration tab are mutually exclusive – never leave 'config' active
     // (e.g. via a deep link) while the rail shows, or the rail and a config body would both appear.
@@ -192,9 +193,10 @@ export function InboxScene(): JSX.Element {
                 <SceneTitleSection
                     name="Inbox"
                     // The description explains the active tab so new users can orient themselves.
-                    // In the onboarding takeover the tabs are locked, so keep the overall pitch.
+                    // In the onboarding takeover the tabs are locked, so keep the overall pitch –
+                    // except on Code review, which stays open regardless of self-driving.
                     description={
-                        onboardingMode === 'takeover'
+                        onboardingMode === 'takeover' && activeTab !== 'code-review'
                             ? 'Self-driving for your product. Look through work done by PostHog agents – code changes and reports.'
                             : INBOX_TAB_DESCRIPTION[activeTab]
                     }
