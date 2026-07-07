@@ -4,7 +4,6 @@ name: PR housekeeping
 # (500 runs/10s/repo) counts workflow runs, and a run that calls reusable
 # workflows counts once, so folding the small always-fire PR workflows
 # under this parent divides the burst budget every push consumes.
-# See docs/internal/ci-capacity-limits.md for the capacity analysis.
 
 on:
     pull_request:
