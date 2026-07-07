@@ -21,6 +21,7 @@ from posthog.api.event_definition_generators.typescript import TypeScriptGenerat
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import (
+    BulkTagActivityContext,
     BulkUpdateTagsUUIDRequestSerializer,
     BulkUpdateTagsUUIDResponseSerializer,
     TaggedItemSerializerMixin,
@@ -478,7 +479,16 @@ class EventDefinitionViewSet(
         found_ids = {obj.id for obj in objects}
         skipped = [{"id": obj_id, "reason": "Not found"} for obj_id in validated_ids if obj_id not in found_ids]
 
-        updated = apply_bulk_tag_changes(objects, validated["action"], validated["tags"])
+        activity_context = BulkTagActivityContext(
+            scope="EventDefinition",
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated(request),
+            # The single-object event-definition update path logs under the "changed" verb.
+            activity="changed",
+        )
+        updated = apply_bulk_tag_changes(
+            objects, validated["action"], validated["tags"], activity_context=activity_context
+        )
         return response.Response({"updated": updated, "skipped": skipped})
 
     def perform_create(self, serializer):

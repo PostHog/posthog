@@ -307,6 +307,16 @@ export namespace Schemas {
       readonly ended_at: string | null;
     }
 
+    /**
+     * Input for assigning a user to an account relationship.
+     */
+    export interface AccountRelationshipWrite {
+      /** Id of the relationship definition to assign. */
+      definition: string;
+      /** PostHog user id of the assignee. Must be a member of the account's organization. */
+      user: number;
+    }
+
     export type BounceRatePageViewMode = typeof BounceRatePageViewMode[keyof typeof BounceRatePageViewMode];
 
 
@@ -19155,6 +19165,11 @@ export namespace Schemas {
          * @nullable
          */
       tags?: string[] | null;
+      /**
+         * Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of that breakdown. Defaults to [] — every breakdown variable is required.
+         * @nullable
+         */
+      optional_breakdown_properties?: string[] | null;
     }
 
     /**
@@ -19232,6 +19247,8 @@ export namespace Schemas {
       columns: EndpointColumn[];
       /** Tag names associated with this endpoint. */
       tags: string[];
+      /** Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of that breakdown. */
+      optional_breakdown_properties: string[];
     }
 
     /**
@@ -19365,6 +19382,8 @@ export namespace Schemas {
       columns: EndpointColumn[];
       /** Tag names associated with this endpoint. */
       tags: string[];
+      /** Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of that breakdown. */
+      optional_breakdown_properties: string[];
       /** Version number. */
       version: number;
       /** Version unique identifier (UUID). */
@@ -37971,6 +37990,11 @@ export namespace Schemas {
          * @nullable
          */
       tags?: string[] | null;
+      /**
+         * Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of that breakdown. Defaults to [] — every breakdown variable is required.
+         * @nullable
+         */
+      optional_breakdown_properties?: string[] | null;
     }
 
     /**
@@ -44055,6 +44079,30 @@ export namespace Schemas {
          * @nullable
          */
       created_at: string | null;
+    }
+
+    export interface ProductPushCampaign {
+      /** Campaign id. Stable for the campaign's lifetime — key per-user dismissal state on it. */
+      readonly id: string;
+      /** ProductKey value of the product being pushed (e.g. 'session_replay'). */
+      readonly product_key: string;
+      /**
+         * Sidebar path of the pushed product in the product catalog, for display resolution. Null when the key maps to no released catalog item.
+         * @nullable
+         */
+      readonly product_path: string | null;
+      /**
+         * Custom promo copy written by the TAM. Null means the client should use its default copy.
+         * @nullable
+         */
+      readonly reason_text: string | null;
+      /** When this campaign started. */
+      readonly started_at: string;
+      /**
+         * When this campaign is planned to end.
+         * @nullable
+         */
+      readonly ends_at: string | null;
     }
 
     /**
@@ -61900,6 +61948,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type ProductPushCampaignActiveRetrieveParams = {
+    /**
+     * Team id of the project the caller is viewing. When that project already uses the campaign's product, the response is 204 so the promo isn't shown there.
+     */
+    team_id?: number;
     };
 
     export type OrganizationsProjectsListParams = {
