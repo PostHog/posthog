@@ -152,6 +152,7 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "vercel-screenshot/1.0",
     ],
     "monitoring": [
+        "Mozilla/5.0 AppleWebKit/537.36 Chrome/149.0.7827.200 Safari/537.36 Google-Ads-Conversions",
         "Pingdom.com_bot_version_1.4_(http://www.pingdom.com/)",
         "Mozilla/5.0 (compatible; UptimeRobot/2.0; http://www.uptimerobot.com/)",
         "Site24x7 (https://www.site24x7.com)",
@@ -225,6 +226,7 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 zgrab/0.x",
     ],
     "headless_browser": [
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/116.0.0.0 Safari/537.36",
         "Mozlila/5.0 (Linux; Android 7.0; SM-G892A Bulid/NRD90M; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/60.0.3112.107 Moblie Safari/537.36",
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/114.0.5735.198 Safari/537.36",
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) PhantomJS/2.1.1 Safari/537.36",

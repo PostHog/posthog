@@ -13665,6 +13665,21 @@
                 "explicitDate": {
                     "type": "boolean"
                 },
+                "filterTestAccounts": {
+                    "description": "Tri-state test-account override. Null/absent = inherit; true = force on; false = force off.",
+                    "type": ["boolean", "null"]
+                },
+                "interval": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/IntervalType"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Time granularity forced onto every insight that supports one. Absent/null = inherit."
+                },
                 "properties": {
                     "anyOf": [
                         {
@@ -43838,6 +43853,19 @@
                 },
                 "explicitDate": {
                     "type": "boolean"
+                },
+                "filterTestAccounts": {
+                    "type": ["boolean", "null"]
+                },
+                "interval": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/IntervalType"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "properties": {
                     "anyOf": [

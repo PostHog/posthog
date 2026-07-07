@@ -10,7 +10,7 @@ import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils/numbers
 import type { LogMessage } from '~/queries/schema/schema-general'
 
 import { LogTag } from 'products/logs/frontend/components/LogTag'
-import type { _LogPatternApi } from 'products/logs/frontend/generated/api.schemas'
+import type { _LogPatternApi, _LogPatternExampleApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsPatternsLogic } from './logsPatternsLogic'
 
@@ -64,6 +64,47 @@ function dominantSeverity(severityCounts: Record<string, number>): string | null
         }
     }
     return best
+}
+
+function PatternExampleRow({ example }: { example: _LogPatternExampleApi }): JSX.Element {
+    return (
+        <div className="flex items-baseline gap-2 py-0.5">
+            <span className="shrink-0">
+                <TZLabel time={example.timestamp} className="text-muted text-xs whitespace-nowrap" />
+            </span>
+            <span className="shrink-0">
+                <LogTag level={example.severity_text as LogMessage['severity_text']} />
+            </span>
+            <span className="text-muted text-xs shrink-0">{example.service_name}</span>
+            <span className="font-mono text-xs break-all">{example.body}</span>
+        </div>
+    )
+}
+
+function PatternExpandedRow({ row }: { row: _LogPatternApi }): JSX.Element {
+    return (
+        <div className="px-2 py-2 flex flex-col gap-2" data-attr="logs-pattern-expanded">
+            <div>{renderPatternTemplate(row.pattern)}</div>
+            <div className="text-muted text-xs">
+                First seen <TZLabel time={row.first_seen} /> · last seen <TZLabel time={row.last_seen} />
+                {row.services.length ? <> · {row.services.join(', ')}</> : null}
+            </div>
+            {row.examples.length ? (
+                <>
+                    <div className="border rounded bg-bg-light p-2 flex flex-col divide-y">
+                        {row.examples.map((example, i) => (
+                            <PatternExampleRow key={i} example={example} />
+                        ))}
+                    </div>
+                    <div className="text-muted text-xs">
+                        Examples are sampled lines, shown as mined (whitespace-collapsed and truncated).
+                    </div>
+                </>
+            ) : (
+                <span className="text-muted text-xs">No examples were retained for this pattern.</span>
+            )}
+        </div>
+    )
 }
 
 // Highlight Drain's `<*>` wildcard and the masking placeholders (`<ip>`, `<num>`, `<uuid>`,
@@ -208,6 +249,9 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
                 columns={columns}
                 dataSource={patterns}
                 loading={patternsResponseLoading}
+                expandable={{
+                    expandedRowRender: (row) => <PatternExpandedRow row={row} />,
+                }}
                 defaultSorting={{ columnKey: 'estimated_count', order: -1 }}
                 emptyState={
                     patternsError
