@@ -224,6 +224,7 @@ function isUrlAttr(name: string): boolean {
     switch (name) {
         case 'href':
         case 'src':
+        case 'rr_src':
         case 'srcset':
         case 'action':
         case 'formaction':
