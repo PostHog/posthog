@@ -192,6 +192,7 @@ describe('session recording integration', () => {
             teamId,
             consoleLogIngestionEnabled: false,
             aiTrainingOptedIn: true,
+            firstPartyHosts: [],
         },
         message: {
             distinct_id: 'distinct_id',

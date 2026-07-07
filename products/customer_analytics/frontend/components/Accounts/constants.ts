@@ -56,4 +56,4 @@ export const AccountsEvents = {
     NotesTabAccountClicked: 'customer analytics notes tab account clicked',
 } as const
 
-export type NotesTabFilterType = 'created_by' | 'account' | 'my_notes'
+export type NotesTabFilterType = 'created_by' | 'account' | 'my_notes' | 'my_accounts'

@@ -2016,12 +2016,42 @@ class TestAccountNotesViewSet(APIBaseTest):
             ("account_id", "not-a-uuid"),
             ("created_by", "alice"),
             ("created_by", "alice,bob"),
+            ("assigned_to", "alice"),
         ]
     )
     def test_list_rejects_malformed_filter(self, param, value):
         response = self.client.get(f"{self.endpoint_base}?{param}={value}")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_list_filter_by_assigned_to(self):
+        # "My accounts" on the Notes tab: notes on accounts where the user is CSM or AE.
+        # account_owner is deliberately not treated as "assigned" (mirrors the accounts list).
+        csm_account = Account.objects.unscoped().create(
+            team=self.team, name="CSM Co", _properties={"csm": {"id": self.user.id, "email": self.user.email}}
+        )
+        ae_account = Account.objects.unscoped().create(
+            team=self.team,
+            name="AE Co",
+            _properties={"account_executive": {"id": self.user.id, "email": self.user.email}},
+        )
+        owner_account = Account.objects.unscoped().create(
+            team=self.team,
+            name="Owner Co",
+            _properties={"account_owner": {"id": self.user.id, "email": self.user.email}},
+        )
+        other_account = Account.objects.unscoped().create(
+            team=self.team, name="Other Co", _properties={"csm": {"id": 999999, "email": "someone@x.com"}}
+        )
+        self._link_note(title="CSM note", account=csm_account)
+        self._link_note(title="AE note", account=ae_account)
+        self._link_note(title="Owner note", account=owner_account)
+        self._link_note(title="Other note", account=other_account)
+
+        response = self.client.get(f"{self.endpoint_base}?assigned_to={self.user.id}")
+
+        titles = {n["title"] for n in response.json()["results"]}
+        self.assertEqual(titles, {"CSM note", "AE note"})
 
     @parameterized.expand(
         [
