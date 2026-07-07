@@ -6,8 +6,8 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 
-import { WebVitalsToolbarMenu } from './WebVitalsToolbarMenu'
 import { webVitalsToolbarLogic } from './webVitalsToolbarLogic'
+import { WebVitalsToolbarMenu } from './WebVitalsToolbarMenu'
 
 describe('WebVitalsToolbarMenu', () => {
     beforeEach(() => {

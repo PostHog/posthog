@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { useMocks } from '~/mocks/jest'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { FeatureFlagTestEvaluationResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'

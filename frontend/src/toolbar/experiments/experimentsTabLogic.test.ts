@@ -12,7 +12,6 @@ jest.mock('~/toolbar/toolbarLogger', () => ({
     toolbarLogger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }))
 
-
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'

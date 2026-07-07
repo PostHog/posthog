@@ -4,8 +4,8 @@ import { expectLogic, partial } from 'kea-test-utils'
 
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
-import { useMocks } from '~/mocks/jest'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import type { Experiment } from '~/types'
 

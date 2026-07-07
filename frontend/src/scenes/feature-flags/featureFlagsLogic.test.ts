@@ -15,8 +15,8 @@ import {
 } from 'scenes/feature-flags/featureFlagsLogic'
 import { urls } from 'scenes/urls'
 
-import { useMocks } from '~/mocks/jest'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FeatureFlagType } from '~/types'
 

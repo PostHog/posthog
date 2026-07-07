@@ -4,8 +4,8 @@ import { expectLogic } from 'kea-test-utils'
 
 import { teamLogic } from 'scenes/teamLogic'
 
-import { useMocks } from '~/mocks/jest'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { featureFlagConfirmationSettingsLogic } from './featureFlagConfirmationSettingsLogic'
