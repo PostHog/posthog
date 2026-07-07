@@ -215,45 +215,35 @@ jobs:
 
             - name: Compute schema cache keys
               id: schema-key
-              if: steps.decide.outputs.shouldRun == 'true'
+              # PRs only: master pushes deliberately skip the schema cache and run the
+              # full migration history, so the canonical run never relies on this
+              # optimization.
+              if: steps.decide.outputs.shouldRun == 'true' && github.event_name == 'pull_request'
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
-                  EVENT_BEFORE: ${{ github.event.before }}
                   # Manual cache-bust knob — keep in sync with SCHEMA_CACHE_EPOCH in
                   # ci-backend.yml, which saves these caches on master pushes.
                   SCHEMA_CACHE_EPOCH: v1
               run: |
-                  if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-                      # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
-                      SCHEMA_REF=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
-                      if [ -z "$SCHEMA_REF" ]; then
-                          echo "key=" >> $GITHUB_OUTPUT
-                          echo "migrations_key=" >> $GITHUB_OUTPUT
-                          echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
-                          exit 0
-                      fi
-                      echo "key=posthog-schema-master-${SCHEMA_REF}" >> $GITHUB_OUTPUT
-                  else
-                      # push / workflow_dispatch: key the schema off HEAD's migration set,
-                      # falling back to the previous master tip's SHA key (saved by that
-                      # push's ci-backend run).
-                      SCHEMA_REF=HEAD
-                      zero=0000000000000000000000000000000000000000
-                      if [ -n "$EVENT_BEFORE" ] && [ "$EVENT_BEFORE" != "$zero" ]; then
-                          echo "key=posthog-schema-master-${EVENT_BEFORE}" >> $GITHUB_OUTPUT
-                      else
-                          echo "key=" >> $GITHUB_OUTPUT
-                      fi
+                  # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
+                  MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
+                  if [ -z "$MERGE_BASE" ]; then
+                      echo "key=" >> $GITHUB_OUTPUT
+                      echo "migrations_key=" >> $GITHUB_OUTPUT
+                      echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
+                      exit 0
                   fi
+                  echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
                   # Shared migration-set key: mirrors the save-side computation in
                   # ci-backend.yml (same inputs, hash, and prefix) so it hits whenever
-                  # master's migration files are unchanged — far more stable than the
-                  # per-SHA key, which needs the exact commit's cache to still be alive.
-                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$SCHEMA_REF" \
+                  # the merge-base's migration files match a saved master schema — far
+                  # more stable than the per-SHA key, which needs the exact merge-base
+                  # commit's cache to still be alive.
+                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
                       | grep -vE '/(clickhouse|async_migrations)/migrations/' \
                       | LC_ALL=C sort) || true
-                  PG_IMAGE=$(git show "${SCHEMA_REF}:docker-compose.base.yml" 2>/dev/null \
+                  PG_IMAGE=$(git show "${MERGE_BASE}:docker-compose.base.yml" 2>/dev/null \
                       | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
                   if [ -z "$MIG_FILES" ]; then
                       echo "migrations_key=" >> $GITHUB_OUTPUT
@@ -495,11 +485,12 @@ jobs:
               uses: ./.github/actions/setup-sqlx-cli
 
             - name: Restore schema cache from master
+              # PRs only — master pushes run the full migration history on purpose.
               # Both keys are produced by ci-backend on master push. Prefer the shared
               # migration-set key (stable while master's migration files are unchanged);
-              # fall back to the exact SHA key (merge-base for PRs, previous master tip
-              # for pushes). Cache miss falls through to a full migrate below.
-              if: needs.changes.outputs.schema_migrations_key != '' || needs.changes.outputs.schema_cache_key != ''
+              # fall back to the exact merge-base SHA key. Cache miss falls through to
+              # a full migrate below.
+              if: github.event_name == 'pull_request' && (needs.changes.outputs.schema_migrations_key != '' || needs.changes.outputs.schema_cache_key != '')
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               id: schema-cache
               with:
@@ -517,6 +508,7 @@ jobs:
               # the historical migration work. Treat cache/restore problems as misses:
               # restore-schema-fresh leaves a fresh empty db on failure, so the migrate
               # step below runs the full history.
+              if: github.event_name == 'pull_request'
               env:
                   TARGET_DB: posthog_e2e_test
               run: |
