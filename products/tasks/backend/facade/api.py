@@ -26,6 +26,7 @@ from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import CharField, Count, Exists, F, Min, OuterRef, Q, QuerySet, Subquery
 from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import Lower
 from django.utils import timezone as django_timezone
 
 import posthoganalytics
@@ -37,6 +38,7 @@ from posthog.models.integration import Integration
 from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS, is_blocked_sandbox_env_key
 from products.tasks.backend.logic.code_workstreams.default_workflow import build_default_bindings
 from products.tasks.backend.logic.code_workstreams.validation import validate_bindings
+from products.tasks.backend.mentions import extract_mention_emails
 from products.tasks.backend.models import (
     Channel,
     CodeInvite,
@@ -49,6 +51,7 @@ from products.tasks.backend.models import (
     TaskAutomation,
     TaskRun,
     TaskThreadMessage,
+    TaskThreadMessageMention,
 )
 from products.tasks.backend.prompts import WIZARD_PR_AGENT_PROMPT
 from products.tasks.backend.visibility import task_control_q, task_run_visibility_q, task_visibility_q
@@ -4175,8 +4178,75 @@ def create_thread_message(
     if _visible_task(task_id, team_id, user_id) is None:
         return None
     message = TaskThreadMessage.objects.create(team_id=team_id, task_id=task_id, author_id=user_id, content=content)
+    try:
+        _index_thread_message_mentions(message)
+    except Exception:
+        # Mentions are best-effort: an indexing failure must never fail message creation.
+        logger.exception("Failed to index thread message mentions", extra={"message_id": str(message.id)})
     # Fresh message: forwarded_by is None (no query) and author lazy-loads once.
     return _thread_message_to_dto(message)
+
+
+def _index_thread_message_mentions(message: TaskThreadMessage) -> None:
+    """Create mention index rows for @[Name](email) tokens in the message content.
+
+    Emails resolve case-insensitively, only to members of the team's organization;
+    self-mentions are skipped (they are never notifications).
+    """
+    emails = extract_mention_emails(message.content)
+    if not emails:
+        return
+    mentioned_user_ids = (
+        User.objects.annotate(_email_lower=Lower("email"))
+        .filter(organizations__team__id=message.team_id, _email_lower__in=list(emails))
+        .values_list("id", flat=True)
+        .distinct()
+    )
+    TaskThreadMessageMention.objects.bulk_create(
+        [
+            TaskThreadMessageMention(
+                team_id=message.team_id,
+                message_id=message.id,
+                task_id=message.task_id,
+                mentioned_user_id=mentioned_user_id,
+                created_at=message.created_at,
+            )
+            for mentioned_user_id in mentioned_user_ids
+            if mentioned_user_id != message.author_id
+        ],
+        ignore_conflicts=True,
+    )
+
+
+def list_mentions(
+    team_id: int, user_id: int | None, *, since: datetime | None = None, limit: int = 100
+) -> list[contracts.TaskMentionDTO]:
+    """Thread-message mentions of the requester across tasks they can see, newest first."""
+    if user_id is None:
+        return []
+    qs = TaskThreadMessageMention.objects.filter(
+        team_id=team_id,
+        mentioned_user_id=user_id,
+        # task__in keeps the visibility rules single-sourced in _visible_task_qs.
+        task__in=_visible_task_qs(team_id, user_id),
+    )
+    if since is not None:
+        qs = qs.filter(created_at__gt=since)
+    mentions = qs.select_related("message__author", "task__channel").order_by("-created_at")[:limit]
+    return [
+        contracts.TaskMentionDTO(
+            id=mention.id,
+            message_id=mention.message_id,
+            task_id=mention.task_id,
+            task_title=mention.task.title,
+            channel_id=mention.task.channel_id,
+            channel_name=mention.task.channel.name if mention.task.channel_id else None,
+            content=mention.message.content,
+            created_at=mention.created_at,
+            author=_user_basic_info(mention.message.author if mention.message.author_id else None),
+        )
+        for mention in mentions
+    ]
 
 
 def delete_thread_message(message_id: str | UUID, task_id: str | UUID, team_id: int, user_id: int | None) -> str:

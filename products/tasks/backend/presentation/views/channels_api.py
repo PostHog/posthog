@@ -1,6 +1,9 @@
 from uuid import UUID
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from django.utils.dateparse import parse_datetime
+
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -16,6 +19,7 @@ from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.presentation.serializers import (
     ChannelSerializer,
     ChannelWriteSerializer,
+    TaskMentionSerializer,
     TaskThreadMessageSerializer,
     TaskThreadMessageWriteSerializer,
 )
@@ -90,6 +94,51 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if result == "personal":
             raise PermissionDenied("Personal channels cannot be deleted")
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class TaskMentionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """
+    API for the requester's mentions feed — thread messages across the team's tasks
+    that @-mention them, indexed at write time.
+    """
+
+    authentication_classes = [
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "task"
+    http_method_names = ["get", "head", "options"]
+    serializer_class = TaskMentionSerializer
+
+    def _user_id(self) -> int | None:
+        return getattr(self.request.user, "id", None)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "since",
+                OpenApiTypes.DATETIME,
+                description="Only return mentions created after this ISO 8601 timestamp.",
+            )
+        ],
+        responses={
+            200: OpenApiResponse(response=TaskMentionSerializer(many=True), description="Mentions, newest first"),
+            400: OpenApiResponse(description="Unparseable since timestamp"),
+        },
+        summary="List mentions of the requester",
+        description="Thread messages that @-mention the requester, newest first, restricted to tasks they can see.",
+    )
+    def list(self, request, *args, **kwargs):
+        since = None
+        since_param = request.query_params.get("since")
+        if since_param:
+            since = parse_datetime(since_param)
+            if since is None:
+                return Response({"detail": "Invalid since timestamp"}, status=status.HTTP_400_BAD_REQUEST)
+        mentions = tasks_facade.list_mentions(self.team_id, self._user_id(), since=since)
+        return Response(TaskMentionSerializer(mentions, many=True).data)
 
 
 class TaskThreadMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
