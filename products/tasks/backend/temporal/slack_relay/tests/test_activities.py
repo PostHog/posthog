@@ -321,12 +321,24 @@ class TestNeutralizeApproxTildes(unittest.TestCase):
             # A genuine ``~~strikethrough~~`` run must survive untouched — its tildes are
             # adjacent to each other, not to a quantity.
             ("strikethrough_run_preserved", "~~$5 off~~", "~~$5 off~~"),
+            # A tilde glued to a preceding word is a git ref or range, not "approximately".
+            ("git_ref_left_alone", "rebase onto HEAD~2", "rebase onto HEAD~2"),
+            ("numeric_range_left_alone", "5~10 items", "5~10 items"),
             # Paths, standalone tildes, and non-quantity tildes are literal characters that
             # never form an accidental strikethrough, so they are left alone.
             ("path_left_alone", "see ~/notes/report.md", "see ~/notes/report.md"),
             ("tilde_before_letter_left_alone", "~foo", "~foo"),
             ("tilde_before_space_left_alone", "~ $5", "~ $5"),
             ("plain_text_unchanged", "no tildes here", "no tildes here"),
+            # Code spans/fences hold literal content Slack never strikes through, so a tilde
+            # there stays ASCII even when it looks like an approximation.
+            ("inline_code_left_alone", "run `git reset HEAD~1` and `~$5`", "run `git reset HEAD~1` and `~$5`"),
+            (
+                "fenced_block_left_alone",
+                "```\ninstall foo@~1.2.0\ncost ~$5\n```",
+                "```\ninstall foo@~1.2.0\ncost ~$5\n```",
+            ),
+            ("approx_outside_code_still_converted", "about ~$5 for `~$9`", "about ∼$5 for `~$9`"),
         ]
     )
     def test_neutralize(self, _name, text, expected):

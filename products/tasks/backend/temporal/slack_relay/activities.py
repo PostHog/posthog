@@ -40,17 +40,24 @@ _RE_LINK_TRAILING_MARKER = re.compile(r"(?<![*_~])(\*+|_+|~+)<([^<>]+?)\1>(?![*_
 # left alone.
 _RE_BARE_URL_IN_EMPHASIS = re.compile(r"(?<![*_~])(\*+|_+|~+)(https?://[^\s<>]+?)\1(?![*_~])")
 
-# A lone ``~`` directly in front of a quantity (``~$36k``, ``~2pm``, ``~10%``) is the agent
-# writing "approximately". In Markdown a single tilde is a literal character, but Slack mrkdwn
-# uses a single tilde as its strikethrough delimiter, so two such approximations on one line
-# pair up and strike through everything between them. The negative lookbehind skips the first
-# ``~`` of a ``~~strikethrough~~`` run (its neighbour is a tilde, not a quantity), and the
-# lookahead leaves paths (``~/dir``) and standalone tildes alone.
-_RE_APPROX_TILDE = re.compile(r"(?<!~)~(?=[$€£¥₹]?\d)")
+# A ``~`` on a word boundary directly in front of a quantity (``~$36k``, ``~2pm``, ``~10%``)
+# is the agent writing "approximately". In Markdown a single tilde is a literal character, but
+# Slack mrkdwn uses a single tilde as its strikethrough delimiter, so two such approximations
+# on one line pair up and strike through everything between them. The lookbehind requires a
+# non-word, non-tilde char before the tilde so a git ref (``HEAD~1``), a range (``5~10``), and
+# the first ``~`` of a ``~~strikethrough~~`` run are left alone; the lookahead leaves paths
+# (``~/dir``) and standalone tildes alone.
+_RE_APPROX_TILDE = re.compile(r"(?<![\w~])~(?=[$€£¥₹]?\d)")
 
 # Unicode "tilde operator" — visually a tilde, but not the ASCII strikethrough delimiter, so
 # Slack renders it literally.
 _APPROX_TILDE = "∼"
+
+# Fenced blocks and inline code spans, kept whole so the tilde substitution skips them: inside
+# a code span Slack has no strikethrough semantics anyway, and rewriting ``~`` there would alter
+# literal content (``HEAD~1``, npm ranges like ``~1.2.0``). Triple backticks are matched before
+# the single-backtick form so a fence isn't split at its inner backticks.
+_RE_CODE_SEGMENT = re.compile(r"(```[\s\S]*?```|`[^`\n]*`)")
 
 
 class _RelayAlreadyRecorded(Exception):
@@ -103,9 +110,15 @@ def _neutralize_approx_tildes(text: str) -> str:
     means "approximately", but Slack mrkdwn reads a single ``~`` as a strikethrough
     delimiter, so two of them on one line strike through the text in between. The tilde
     operator looks the same and carries no formatting meaning. ``~~strikethrough~~``,
-    paths (``~/dir``), and standalone tildes are left alone.
+    git refs (``HEAD~1``), paths (``~/dir``), and standalone tildes are left alone, and
+    code spans/fences are skipped so literal code is never rewritten.
     """
-    return _RE_APPROX_TILDE.sub(_APPROX_TILDE, text)
+    # ``re.split`` with a capturing group yields alternating text/code segments; the odd
+    # (code) segments pass through untouched.
+    return "".join(
+        segment if index % 2 else _RE_APPROX_TILDE.sub(_APPROX_TILDE, segment)
+        for index, segment in enumerate(_RE_CODE_SEGMENT.split(text))
+    )
 
 
 def _tables_to_fenced_code_blocks(text: str) -> str:
