@@ -47,14 +47,15 @@ def apply_bulk_tag_changes(objects: Sequence, tag_action: str, tags: list[str]) 
 
     Callers are responsible for team-scoping and access-checking ``objects`` first. When a
     ``prefetched_tags`` attribute is present it is used to avoid a per-object tag query.
-    Orphaned tags are cleaned up once at the end.
+    Orphaned tags are cleaned up per affected team, since ``objects`` may span multiple teams
+    when the caller scopes by project (e.g. event definitions across environments).
     """
     normalized_tags = {tagify(t) for t in tags}
     updated: list[dict[str, Any]] = []
-    team_id = None
+    team_ids: set[int] = set()
 
     for obj in objects:
-        team_id = obj.team_id
+        team_ids.add(obj.team_id)
         current_tags = {
             ti.tag.name
             for ti in (
@@ -72,7 +73,7 @@ def apply_bulk_tag_changes(objects: Sequence, tag_action: str, tags: list[str]) 
         set_tags_on_object(list(new_tags), obj)
         updated.append({"id": obj.id, "tags": sorted(new_tags)})
 
-    if team_id is not None:
+    for team_id in team_ids:
         cleanup_orphan_tags(team_id)
 
     return updated

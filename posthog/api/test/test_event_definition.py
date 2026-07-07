@@ -16,7 +16,7 @@ from rest_framework import status
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.models import ActivityLog, EventDefinition, Organization, Team
+from posthog.models import ActivityLog, EventDefinition, Organization, Tag, Team
 
 from products.actions.backend.models.action import Action
 
@@ -491,43 +491,6 @@ class TestEventDefinitionAPI(APIBaseTest):
         other_team_event_exists = EventDefinition.objects.filter(name="team_specific_event", team=other_team).exists()
         assert not other_team_event_exists
 
-
-class TestEventDefinitionExcludeStale(APIBaseTest):
-    """Stale filter tests need real wall-clock times so the Postgres NOW() comparison
-    in `exclude_stale` matches the fixture last_seen_at values. The other test class is
-    wrapped in freeze_time which Postgres NOW() does not respect."""
-
-    @parameterized.expand(
-        [
-            (
-                "default keeps stale events",
-                "",
-                {"fresh_event", "stale_event", "ancient_event", "never_seen_event"},
-            ),
-            (
-                "explicit false keeps stale events",
-                "?exclude_stale=false",
-                {"fresh_event", "stale_event", "ancient_event", "never_seen_event"},
-            ),
-            (
-                "true hides stale events but keeps never-seen",
-                "?exclude_stale=true",
-                {"fresh_event", "never_seen_event"},
-            ),
-        ]
-    )
-    def test_exclude_stale_filter(self, _description: str, query_string: str, expected_names: set[str]) -> None:
-        now = timezone.now()
-        EventDefinition.objects.create(team=self.team, name="fresh_event", last_seen_at=now - timedelta(days=1))
-        EventDefinition.objects.create(team=self.team, name="stale_event", last_seen_at=now - timedelta(days=45))
-        EventDefinition.objects.create(team=self.team, name="ancient_event", last_seen_at=now - timedelta(days=365))
-        EventDefinition.objects.create(team=self.team, name="never_seen_event", last_seen_at=None)
-
-        response = self.client.get(f"/api/projects/{self.team.pk}/event_definitions/{query_string}")
-        assert response.status_code == status.HTTP_200_OK
-        names = {row["name"] for row in response.json()["results"]}
-        assert names == expected_names
-
     def test_bulk_update_tags_with_uuid_ids(self):
         # Event definitions have UUID PKs and are not an object-level access-controlled resource, so the
         # inherited mixin action (integer PKs + per-object access filter) can't be reused. If that override
@@ -565,6 +528,67 @@ class TestEventDefinitionExcludeStale(APIBaseTest):
         assert data["updated"] == []
         assert data["skipped"] == [{"id": str(foreign.id), "reason": "Not found"}]
         assert foreign.tagged_items.count() == 0
+
+    def test_bulk_update_tags_cleans_orphan_tags_for_every_team_in_project(self):
+        # Project-scoped bulk updates can span multiple environments (teams) in one project, so orphan
+        # cleanup must run for each affected team — not just the last object's, which would leave orphan
+        # Tag rows behind in every other environment.
+        other_env = Team.objects.create(
+            organization=self.organization, project_id=self.demo_team.project_id, name="staging env"
+        )
+        ed_a = EventDefinition.objects.create(team=self.demo_team, name="env_a_event")
+        ed_b = EventDefinition.objects.create(team=other_env, name="env_b_event")
+        bulk_url = f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_tags/"
+        # Seed a distinct tag in each environment that the batch below then orphans.
+        self.client.post(bulk_url, {"ids": [str(ed_a.id)], "action": "set", "tags": ["orphan_a"]})
+        self.client.post(bulk_url, {"ids": [str(ed_b.id)], "action": "set", "tags": ["orphan_b"]})
+        assert Tag.objects.filter(name="orphan_a", team=self.demo_team).exists()
+        assert Tag.objects.filter(name="orphan_b", team=other_env).exists()
+
+        response = self.client.post(
+            bulk_url, {"ids": [str(ed_a.id), str(ed_b.id)], "action": "set", "tags": ["shared"]}
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert not Tag.objects.filter(name="orphan_a", team=self.demo_team).exists()
+        assert not Tag.objects.filter(name="orphan_b", team=other_env).exists()
+
+
+class TestEventDefinitionExcludeStale(APIBaseTest):
+    """Stale filter tests need real wall-clock times so the Postgres NOW() comparison
+    in `exclude_stale` matches the fixture last_seen_at values. The other test class is
+    wrapped in freeze_time which Postgres NOW() does not respect."""
+
+    @parameterized.expand(
+        [
+            (
+                "default keeps stale events",
+                "",
+                {"fresh_event", "stale_event", "ancient_event", "never_seen_event"},
+            ),
+            (
+                "explicit false keeps stale events",
+                "?exclude_stale=false",
+                {"fresh_event", "stale_event", "ancient_event", "never_seen_event"},
+            ),
+            (
+                "true hides stale events but keeps never-seen",
+                "?exclude_stale=true",
+                {"fresh_event", "never_seen_event"},
+            ),
+        ]
+    )
+    def test_exclude_stale_filter(self, _description: str, query_string: str, expected_names: set[str]) -> None:
+        now = timezone.now()
+        EventDefinition.objects.create(team=self.team, name="fresh_event", last_seen_at=now - timedelta(days=1))
+        EventDefinition.objects.create(team=self.team, name="stale_event", last_seen_at=now - timedelta(days=45))
+        EventDefinition.objects.create(team=self.team, name="ancient_event", last_seen_at=now - timedelta(days=365))
+        EventDefinition.objects.create(team=self.team, name="never_seen_event", last_seen_at=None)
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/event_definitions/{query_string}")
+        assert response.status_code == status.HTTP_200_OK
+        names = {row["name"] for row in response.json()["results"]}
+        assert names == expected_names
 
 
 @dataclasses.dataclass
