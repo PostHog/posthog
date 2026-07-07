@@ -24,8 +24,6 @@ import dataclasses
 from dataclasses import dataclass
 from datetime import timedelta
 
-from django.conf import settings
-from django.db import transaction
 from django.utils import timezone
 
 import structlog
@@ -36,7 +34,6 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
-from slack_sdk.errors import SlackApiError
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.mixins import validated_request
@@ -48,7 +45,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 # password-only user in a 2FA-enforced org read scout runs/scratchpad without
 # completing 2FA.
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
-from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.team.team import Team
 from posthog.permissions import APIScopePermission
 from posthog.temporal.common.client import sync_connect
@@ -111,6 +107,7 @@ from products.signals.backend.scout_harness.serializers import (
     SignalScoutRunSummarySerializer,
 )
 from products.signals.backend.scout_harness.skill_loader import SkillNotFoundError, load_skill_for_run
+from products.signals.backend.scout_harness.slack_delivery import ScoutSlackDeliveryError, send_scout_slack_notification
 from products.signals.backend.scout_harness.team_limits import (
     DAILY_BUDGET_WINDOW,
     _canonicalize_team_config_keys,
@@ -991,8 +988,9 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         run = self._resolve_in_progress_run(kwargs, required_tool="send_slack_message")
         data = request.validated_data
 
-        delivery = ((run.scout_config.delivery_config or {}) if run.scout_config else {}).get("slack") or {}
-        if not delivery.get("integration_id") or not delivery.get("channel_id"):
+        config = run.scout_config
+        delivery = ((config.delivery_config or {}) if config else {}).get("slack") or {}
+        if config is None or not delivery.get("integration_id") or not delivery.get("channel_id"):
             raise exceptions.ValidationError(
                 "This scout has no Slack delivery channel configured. Do not retry; note it in your run summary.",
                 code="no_delivery_config",
@@ -1015,85 +1013,28 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     code="unknown_report_id",
                 )
 
-        integration = Integration.objects.filter(
-            id=delivery["integration_id"], team_id=run.team_id, kind="slack"
-        ).first()
-        if integration is None:
-            raise exceptions.ValidationError(
-                "The Slack integration behind this scout's delivery channel no longer exists. Do not retry.",
-                code="slack_integration_missing",
-            )
-        slack = SlackIntegration(integration)
-
-        owner_tagged = False
-        owner_prefix = str(data.get("owner_label") or "")
-        if data.get("owner_email"):
-            try:
-                lookup = slack.client.users_lookupByEmail(email=data["owner_email"])
-                owner_slack_id = (lookup.get("user") or {}).get("id")
-                if owner_slack_id:
-                    owner_prefix = f"<@{owner_slack_id}>"
-                    owner_tagged = True
-            except Exception:
-                # Tagging is best-effort — a lookup miss must never block delivery.
-                logger.warning("scout_notify_owner_lookup_failed", exc_info=True)
-            if not owner_tagged and not owner_prefix:
-                owner_prefix = str(data["owner_email"])
-
-        emoji = {"high": ":rotating_light:", "medium": ":warning:", "low": ":mag:"}.get(
-            data.get("severity") or "", ":mag:"
-        )
-        body = f"{owner_prefix} {data['text']}".strip()
-        context_text = f"Sent by `{run.skill_name}`"
-        if report_id is not None:
-            report_url = f"{settings.SITE_URL}/project/{run.team_id}/inbox/reports/{report_id}"
-            context_text += f" · <{report_url}|View report in PostHog>"
-        blocks = [
-            {"type": "section", "text": {"type": "mrkdwn", "text": f"{emoji} *{data['account_name']}*"}},
-            {"type": "section", "text": {"type": "mrkdwn", "text": body}},
-            {"type": "context", "elements": [{"type": "mrkdwn", "text": context_text}]},
-        ]
-
         try:
-            posted = slack.client.chat_postMessage(
-                channel=delivery["channel_id"],
-                text=f"{data['account_name']}: {data['text'][:150]}",
-                blocks=blocks,
-                unfurl_links=False,
+            result = send_scout_slack_notification(
+                config=config,
+                team_id=run.team_id,
+                text=data["text"],
+                account_name=data["account_name"],
+                context_label=f"Sent by `{run.skill_name}`",
+                owner_email=data.get("owner_email"),
+                owner_label=data.get("owner_label"),
+                severity=data.get("severity"),
+                report_id=str(report_id) if report_id is not None else None,
+                run=run,
             )
-        except SlackApiError as exc:
-            slack_error = (getattr(exc, "response", None) or {}).get("error", "unknown_error")
-            raise exceptions.ValidationError(
-                f"Slack rejected the delivery ({slack_error}) — the bot may have been removed from the "
-                "channel. Mention this in your run summary and do not retry.",
-                code="channel_unavailable",
-            )
-
-        entry = {
-            "channel_id": delivery["channel_id"],
-            "ts": posted.get("ts"),
-            "account_name": data["account_name"],
-            "owner_email": data.get("owner_email"),
-            "owner_tagged": owner_tagged,
-            "report_id": str(report_id) if report_id is not None else None,
-            "sent_at": timezone.now().isoformat(),
-        }
-        # Re-read the row under lock before appending: concurrent `notify` tool calls within one
-        # run otherwise read the same `notifications` snapshot and the last save clobbers the
-        # other's entry (and the cap check above). The lock serializes the append so no audit
-        # entry is lost — the same pattern `scout_report/persistence._record_report_emit` uses.
-        # (The message is already posted, so we never hold the lock across the Slack call.)
-        with transaction.atomic():
-            locked = SignalScoutRun.objects.select_for_update().get(pk=run.pk)
-            locked.notifications = [*(locked.notifications or []), entry]
-            locked.save(update_fields=["notifications"])
+        except ScoutSlackDeliveryError as exc:
+            raise exceptions.ValidationError(str(exc), code=exc.code)
 
         return Response(
             ScoutNotifyResponseSerializer(
                 {
                     "sent": True,
-                    "owner_tagged": owner_tagged,
-                    "channel": f"#{delivery.get('channel_name') or delivery['channel_id']}",
+                    "owner_tagged": result.owner_tagged,
+                    "channel": result.channel,
                 }
             ).data,
             status=status.HTTP_200_OK,

@@ -106,6 +106,15 @@ ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's
 - `serializers.py`
   DRF serializers for the harness HTTP surface (runs, scratchpad, project profile).
   Annotated for drf-spectacular so the generated MCP tools have informative schemas.
+- `slack_delivery.py`
+  `send_scout_slack_notification` — the compose+send core behind the run-scoped `notify`
+  action: resolves the config's `delivery_config["slack"]` target, best-effort owner
+  tagging via `users.lookupByEmail`, Block Kit composition, `chat.postMessage`, and
+  (when a run is passed) the locked audit append to `SignalScoutRun.notifications`.
+  Raises code-carrying `ScoutSlackDeliveryError` on failure. Also powers the
+  `simulate_scout_finding` management command, which calls it with `run=None` so
+  developers can verify channel delivery locally without an LLM run
+  (see `../management/AGENTS.md`).
 - `views.py`
   `SignalScoutRunViewSet`, `SignalScoutConfigViewSet`, `SignalScratchpadViewSet`,
   `SignalProjectProfileViewSet`, `SignalScoutMetadataViewSet`, `SignalScoutMembersViewSet`.
@@ -134,7 +143,8 @@ ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's
   via `send_slack_message` in the skill's `allowed_tools` (gated by the shared `_assert_tool_opted_in`
   that also gates the report tools), destination taken from config not the request, owner tagged via
   `users.lookupByEmail`, capped at `MAX_SLACK_NOTIFICATIONS_PER_RUN` and audited on
-  `SignalScoutRun.notifications`.
+  `SignalScoutRun.notifications`. The action owns the request validation and error semantics;
+  compose+send (and the run-scoped audit append) delegate to `slack_delivery.py`.
 
 ## Mental model
 

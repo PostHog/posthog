@@ -103,7 +103,7 @@ Uses synthetic JS SDK signals by default. The agent uses `gh` CLI to explore can
 
 ## Signals agent (headless scout)
 
-Two commands cover the day-to-day loop on the headless `signals-scout-*` scouts.
+Three commands cover the day-to-day loop on the headless `signals-scout-*` scouts.
 Background and architecture: `../scout_harness/AGENTS.md` and `../../skills/AGENTS.md`.
 
 ### Running one scout locally
@@ -130,6 +130,36 @@ The team must have a `SignalScoutConfig` row for the scout (the coordinator auto
 one; the command also seeds it). Configs default to `emit=False` — the scout runs and
 logs but `emit_finding` writes nothing, so no finding reaches the Signals inbox until you
 flip `emit=True` on that scout's config (e.g. via the `signals-scout-config-update` MCP tool).
+
+### Testing Slack delivery locally
+
+`simulate_scout_finding` posts a clearly-labeled simulated finding through the exact
+compose+send path the scout's `notify` tool uses (`../scout_harness/slack_delivery.py`),
+without a sandboxed LLM run — the fastest way to see a finding land in the real
+configured channel.
+
+```bash
+# After CSM onboarding has provisioned scout configs (delivery_config["slack"] set)
+python manage.py simulate_scout_finding --team-id 1
+
+# Customize the finding
+python manage.py simulate_scout_finding --team-id 1 \
+    --skill-name signals-scout-slack-csm-account-pulse \
+    --account-name "Acme Corp (simulated)" \
+    --owner-email jane@example.com --severity high
+```
+
+Requires the target scout's `SignalScoutConfig` to carry `delivery_config["slack"]` —
+CSM onboarding (`provision_persona_scouts` in `../facade/api.py`) writes it.
+The command creates no `SignalScoutRun`/`TaskRun` rows and appends no run audit;
+the alert's context line is labeled as simulated so nobody mistakes it for a real finding.
+On failure it prints the delivery error code (e.g. `channel_unavailable`) with a remediation hint.
+
+For the full real-run path instead (`run_signals_scout` above), you additionally need:
+a Temporal worker on `development-task-queue`; `DEBUG=1`, `SANDBOX_PROVIDER=docker`, and
+`SANDBOX_LLM_GATEWAY_URL` in `.env.local`; and seeded CSM data (otherwise the scout closes
+out without a finding). The scout coordinator schedule does not run under DEBUG —
+first runs are fired directly by provisioning.
 
 ### Canonical skill sync
 
