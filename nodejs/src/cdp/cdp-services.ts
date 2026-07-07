@@ -160,7 +160,6 @@ export type CdpCoreServicesConfig = Pick<
         | 'HOG_INVOCATION_RESULTS_ENABLED'
         | 'MESSAGE_ASSETS_TOPIC'
         | 'MESSAGE_ASSETS_PRODUCER'
-        | 'MESSAGE_ASSETS_CAPTURE_ENABLED'
         | 'CDP_PREFILTERED_EVENTS_TOPIC'
         | 'CDP_PREFILTERED_EVENTS_PRODUCER'
         | 'CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC'
@@ -395,7 +394,7 @@ export function createCdpCoreServices(
     const trackingCodeSigner = new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)
     const teamWorkflowsConfigService = new TeamWorkflowsConfigService(deps.postgres)
     const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, config)
-    const messageAssetsService = new MessageAssetsService(outputs, config)
+    const messageAssetsService = new MessageAssetsService(outputs)
     const emailService = new EmailService(
         {
             sesAccessKeyId: config.SES_ACCESS_KEY_ID,

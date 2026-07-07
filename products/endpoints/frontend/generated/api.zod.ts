@@ -159,6 +159,18 @@ export const EndpointsMaterializationPreviewCreateBody = /* @__PURE__ */ zod.obj
 })
 
 /**
+ * Ask AI to rewrite the endpoint's query into a semantically equivalent form that can be materialized. Only applicable to SQL (HogQL) endpoints that currently fail the materialization checks. The suggestion is validated against the live checks before being returned; nothing is saved. Requires the organization's AI data processing approval.
+ */
+export const EndpointsMaterializationSuggestionCreateBody = /* @__PURE__ */ zod
+    .object({
+        version: zod
+            .number()
+            .nullish()
+            .describe('Endpoint version to suggest a fix for. Defaults to the latest version.'),
+    })
+    .describe('Request body for the AI materialization-fix suggestion action.')
+
+/**
  * Execute endpoint with optional materialization. Supports version parameter, runs latest version if not set.
  */
 export const EndpointsRunCreateBody = /* @__PURE__ */ zod

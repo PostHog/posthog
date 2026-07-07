@@ -24,6 +24,7 @@ describe('createRecordSessionEventStep', () => {
         teamId: 1,
         consoleLogIngestionEnabled: false,
         aiTrainingOptedIn: true,
+        firstPartyHosts: [],
     }
 
     const createParsedMessage = (overrides: Partial<ParsedMessageData> = {}): ParsedMessageData => ({

@@ -7663,15 +7663,54 @@ export interface ActivityLogPaginatedResponseApi {
     total_count: number
 }
 
+export interface InsightBulkDeleteRequestApi {
+    /**
+     * Insight IDs to soft-delete (or restore). At most 1000 ids per request. Soft-deleted insights can be brought back via the bulk_restore endpoint.
+     * @maxItems 1000
+     * @items.minimum 1
+     */
+    ids: number[]
+}
+
+export interface InsightBulkOperationResultApi {
+    /** ID of the insight that was soft-deleted or restored. */
+    id: number
+    /**
+     * The insight's name (or derived name) at the time of the operation; null when it has neither.
+     * @nullable
+     */
+    name: string | null
+}
+
+export interface InsightBulkOperationSkippedApi {
+    /** ID of the insight that was skipped. */
+    id: number
+    /** Human-readable reason the insight was skipped (for example, not found or no edit permission). */
+    reason: string
+}
+
+export interface InsightBulkDeleteResponseApi {
+    /** Insights that were successfully soft-deleted. */
+    deleted: InsightBulkOperationResultApi[]
+    /** Insights that were not deleted, with the reason for each. */
+    skipped: InsightBulkOperationSkippedApi[]
+}
+
+export interface InsightBulkRestoreResponseApi {
+    /** Insights that were successfully restored. */
+    restored: InsightBulkOperationResultApi[]
+    /** Insights that were not restored, with the reason for each. */
+    skipped: InsightBulkOperationSkippedApi[]
+}
+
 /**
  * * `add` - add
  * * `remove` - remove
  * * `set` - set
  */
-export type BulkUpdateTagsRequestActionEnumApi =
-    (typeof BulkUpdateTagsRequestActionEnumApi)[keyof typeof BulkUpdateTagsRequestActionEnumApi]
+export type BulkUpdateTagsActionEnumApi = (typeof BulkUpdateTagsActionEnumApi)[keyof typeof BulkUpdateTagsActionEnumApi]
 
-export const BulkUpdateTagsRequestActionEnumApi = {
+export const BulkUpdateTagsActionEnumApi = {
     Add: 'add',
     Remove: 'remove',
     Set: 'set',
@@ -7688,7 +7727,7 @@ export interface BulkUpdateTagsRequestApi {
      * * `add` - add
      * * `remove` - remove
      * * `set` - set */
-    action: BulkUpdateTagsRequestActionEnumApi
+    action: BulkUpdateTagsActionEnumApi
     /** Tag names to add, remove, or set. */
     tags: string[]
 }
@@ -8130,6 +8169,30 @@ export type InsightsAllActivityRetrieveFormat =
     (typeof InsightsAllActivityRetrieveFormat)[keyof typeof InsightsAllActivityRetrieveFormat]
 
 export const InsightsAllActivityRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type InsightsBulkDeleteCreateParams = {
+    format?: InsightsBulkDeleteCreateFormat
+}
+
+export type InsightsBulkDeleteCreateFormat =
+    (typeof InsightsBulkDeleteCreateFormat)[keyof typeof InsightsBulkDeleteCreateFormat]
+
+export const InsightsBulkDeleteCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type InsightsBulkRestoreCreateParams = {
+    format?: InsightsBulkRestoreCreateFormat
+}
+
+export type InsightsBulkRestoreCreateFormat =
+    (typeof InsightsBulkRestoreCreateFormat)[keyof typeof InsightsBulkRestoreCreateFormat]
+
+export const InsightsBulkRestoreCreateFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const

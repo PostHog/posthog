@@ -1,6 +1,6 @@
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Optional
 
 import structlog
@@ -54,7 +54,7 @@ def create_internal_event(
     if data.event.uuid is None:
         data.event.uuid = str(uuid.uuid4())
     if data.event.timestamp is None:
-        data.event.timestamp = datetime.now().isoformat()
+        data.event.timestamp = datetime.now(UTC).isoformat()
 
     return data
 

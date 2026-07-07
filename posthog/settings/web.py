@@ -522,6 +522,10 @@ SPECTACULAR_SETTINGS = {
         "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
+        # bulk_update_tags exposes an identical add/remove/set `action` ChoiceField on both
+        # BulkUpdateTagsRequest and its UUID subclass, so the shared enum can't be component-prefixed
+        # unambiguously and auto-resolves to a hash name. Pin it to a stable name.
+        "BulkUpdateTagsActionEnum": ["add", "remove", "set"],
         # Full signal taxonomy on the report `signals` endpoint; the source-config serializer's
         # subset enums keep their own auto-resolved names.
         "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",
@@ -888,6 +892,9 @@ ERROR_TRACKING_WEEKLY_DIGEST_ORG_IDS = get_list(get_from_env("ERROR_TRACKING_WEE
 # Comma-separated list of email addresses allowed to receive the Error Tracking weekly digest
 # "*" for all
 ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS = get_list(get_from_env("ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS", ""))
+
+# webhook secret used initially for ET weekly digest workflow webhook but feel free to adopt it
+WORKFLOWS_WEBHOOK_SECRET = get_from_env("WORKFLOWS_WEBHOOK_SECRET", "")
 
 ####
 # OAuth
