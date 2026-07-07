@@ -1,11 +1,10 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-07-07 11:00:38 UTC
+// Generated at: 2026-07-07 20:32:49 UTC
 
 export type CanonicalProvider =
     | 'default'
     | 'ai21-fp8'
     | 'aion-labs'
-    | 'aion-labs-bf16'
     | 'akashml-fp8'
     | 'alibaba'
     | 'alibaba-opensource'
@@ -155,6 +154,7 @@ export type CanonicalProvider =
     | 'wandb-fp16'
     | 'wandb-fp4'
     | 'wandb-fp8'
+    | 'wandb-int4'
     | 'xai'
     | 'xai-zdr'
     | 'xiaomi-fp8'
