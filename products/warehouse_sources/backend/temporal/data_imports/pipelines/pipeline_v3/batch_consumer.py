@@ -200,6 +200,12 @@ class BatchConsumerAdapter(Protocol):
         batch: PendingBatch,
     ) -> bool: ...
 
+    def is_retryable_error(self, err: Exception) -> bool:
+        """Whether a processing error can plausibly succeed on retry — deterministic
+        data/config errors fail identically every attempt, so retrying only delays
+        the run's terminal state."""
+        ...
+
     async def after_batch_processed(
         self,
         conn: psycopg.AsyncConnection[Any],
@@ -772,7 +778,18 @@ class BatchConsumer:
         status_conn: psycopg.AsyncConnection[Any],
     ) -> None:
         """Write the retry/terminal state after a processing error."""
-        if attempt >= self._config.max_attempts:
+        if not self._adapter.is_retryable_error(err):
+            # Deterministic failure: retrying repeats the same outcome. The raw
+            # message is the customer-visible latest_error, so keep it unwrapped.
+            logger.exception(
+                self._event("batch_failed_non_retryable"),
+                batch_id=batch.id,
+                run_uuid=batch.run_uuid,
+                attempt=attempt,
+            )
+            capture_exception(err)
+            await self._fail_run(batch, reason=str(err), conn=lock_conn)
+        elif attempt >= self._config.max_attempts:
             logger.exception(
                 self._event("batch_failed_no_retries_left"),
                 batch_id=batch.id,

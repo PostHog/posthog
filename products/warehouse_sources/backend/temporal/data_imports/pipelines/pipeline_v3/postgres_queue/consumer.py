@@ -55,6 +55,15 @@ ConsumerConfig = BatchConsumerConfig
 # timeout so a degraded probe can't starve the reconcile sweep it rides on.
 FRESHNESS_PROBE_TIMEOUT_SECONDS = 30.0
 
+# Errors that fail identically on every attempt. Substring-matched because they
+# surface as generic exceptions; keep entries specific so transients can't match.
+NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
+    # delta-rs decimal precision overflow — the batch's data cannot fit the column
+    "is too large to store in a Decimal128",
+    # schema configured as incremental without a primary key — config error
+    "Primary key required for incremental syncs",
+)
+
 
 class DeltaBatchConsumerAdapter:
     log_prefix: str = ""
@@ -302,6 +311,10 @@ class DeltaBatchConsumerAdapter:
         batch: PendingBatch,
     ) -> bool:
         return True
+
+    def is_retryable_error(self, err: Exception) -> bool:
+        message = str(err)
+        return not any(pattern in message for pattern in NON_RETRYABLE_ERROR_PATTERNS)
 
     async def after_batch_processed(
         self,

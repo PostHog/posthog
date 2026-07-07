@@ -137,6 +137,35 @@ class TestProcessSingle:
 
         assert states == [SourceBatchStatus.State.EXECUTING, SourceBatchStatus.State.WAITING_RETRY]
 
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "20009.59457503306999908717 is too large to store in a Decimal128 of precision 24.",
+            "Primary key required for incremental syncs",
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_non_retryable_error_fails_run_on_first_attempt(self, message: str):
+        # Deterministic data/config errors fail identically every attempt;
+        # retrying them wastes all attempts on every scheduled run.
+        consumer = _make_consumer(max_attempts=3)
+        batch = _make_batch(latest_attempt=0)
+        consumer._process_batch = AsyncMock(side_effect=ValueError(message))
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                new_callable=AsyncMock,
+            ) as mock_status,
+            patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_fail,
+        ):
+            await consumer._process_single(batch)
+
+        mock_fail.assert_called_once()
+        assert mock_fail.call_args[1]["reason"] == message  # customer-visible error stays actionable
+        states = [call[1]["job_state"] for call in mock_status.call_args_list]
+        assert SourceBatchStatus.State.WAITING_RETRY not in states
+
     @pytest.mark.asyncio
     async def test_max_attempts_exceeded_fails_run(self):
         consumer = _make_consumer(max_attempts=3)
