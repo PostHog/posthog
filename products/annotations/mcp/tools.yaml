@@ -23,8 +23,8 @@ tools:
             Create an annotation to mark an important change (for example, a deployment) on charts and trends. Provide a
             note in `content`, when it happened in `date_marker` (ISO 8601), and whether it is scoped to the current
             `project`, the whole `organization`, or a set of `tags` (scope `tag` shows it on every dashboard and insight
-            carrying one of the given `tags`). Optionally set an `emoji` to show in place of the default badge on
-            the chart.
+            carrying one of the given `tags`). Optionally set an `emoji` to show in place of the default badge on the
+            chart.
         include_params:
             - content
             - date_marker
