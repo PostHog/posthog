@@ -86,7 +86,6 @@ function validateTargetValue(target_type: string, target_value: string | undefin
     return undefined
 }
 
-// Typed `any` for the same DeepPartialMap reason as the ai window errors above.
 function validateDashboardExportInsights(
     subscription: Partial<SubscriptionType>,
     dashboardId: number | undefined
