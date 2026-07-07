@@ -50,19 +50,22 @@ export function LemonRadio<T extends React.Key>({
                             }
                         )}
                     >
-                        <input
-                            type="radio"
-                            className="cursor-pointer"
-                            checked={value === selectedValue}
-                            value={String(value)}
-                            onChange={() => {
-                                if (!disabledReason) {
-                                    onChange(value)
-                                }
-                            }}
-                            disabled={!!disabledReason}
-                            {...optionProps}
-                        />
+                        {/* h-5 matches the text-sm line-height, so the radio centers on the label's first line */}
+                        <span className="flex items-center h-5">
+                            <input
+                                type="radio"
+                                className="cursor-pointer"
+                                checked={value === selectedValue}
+                                value={String(value)}
+                                onChange={() => {
+                                    if (!disabledReason) {
+                                        onChange(value)
+                                    }
+                                }}
+                                disabled={!!disabledReason}
+                                {...optionProps}
+                            />
+                        </span>
                         <span>{label}</span>
                         {description && (
                             <div className="text-secondary font-normal row-start-2 col-start-2 text-pretty text-xs">
