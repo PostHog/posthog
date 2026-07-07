@@ -128,6 +128,7 @@ async def aupsert_notebook(
     last_modified_by_id: int | None,
     title: str,
     content: dict[str, Any],
+    text_content: str | None = None,
 ) -> tuple[contracts.NotebookData, bool]:
     notebook, created = await logic.aupsert_notebook(
         team_id,
@@ -136,6 +137,7 @@ async def aupsert_notebook(
         last_modified_by_id=last_modified_by_id,
         title=title,
         content=content,
+        text_content=text_content,
     )
     return _to_notebook_data(notebook), created
 

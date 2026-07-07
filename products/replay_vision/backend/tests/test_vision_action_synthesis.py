@@ -19,9 +19,14 @@ from products.replay_vision.backend.tests.helpers import snapshot_for
 _SYNTH_PATH = "products.replay_vision.backend.temporal.vision_actions.synthesis"
 
 
-def _mock_genai(content: str):
+def _mock_genai(content: str, captured: list[str] | None = None):
     # genai.Client(...).models.generate_content(...) → object with .text
-    client = SimpleNamespace(models=SimpleNamespace(generate_content=lambda **_kwargs: SimpleNamespace(text=content)))
+    def _generate(**kwargs) -> SimpleNamespace:
+        if captured is not None:
+            captured.append(kwargs.get("contents", ""))
+        return SimpleNamespace(text=content)
+
+    client = SimpleNamespace(models=SimpleNamespace(generate_content=_generate))
     return SimpleNamespace(Client=lambda **_kwargs: client)
 
 
@@ -51,7 +56,13 @@ class TestVisionActionSynthesis(BaseTest):
             triggered_by=ObservationTrigger.SCHEDULE,
             status=ObservationStatus.SUCCEEDED,
             completed_at=timezone.now(),
-            scanner_result={"model_output": {"summary": summary, **({"title": title} if title else {})}},
+            scanner_result={
+                "model_output": {
+                    "scanner_type": ScannerType.SUMMARIZER,
+                    "summary": summary,
+                    **({"title": title} if title else {}),
+                }
+            },
         )
 
     def _action(self, **overrides) -> VisionAction:
@@ -72,10 +83,16 @@ class TestVisionActionSynthesis(BaseTest):
         run.save()
         return run
 
-    def _synthesize(self, action: VisionAction, run: VisionActionRun, llm_content: str = "# Themes\nAll good."):
+    def _synthesize(
+        self,
+        action: VisionAction,
+        run: VisionActionRun,
+        llm_content: str = "# Themes\nAll good.",
+        captured_prompts: list[str] | None = None,
+    ):
         with (
             patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=False),
-            patch(f"{_SYNTH_PATH}.genai", _mock_genai(llm_content)),
+            patch(f"{_SYNTH_PATH}.genai", _mock_genai(llm_content, captured_prompts)),
         ):
             return _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id, team_id=self.team.id))
 
@@ -113,6 +130,19 @@ class TestVisionActionSynthesis(BaseTest):
         )
         # The header rides into the Slack payload too (bold header → *bold*).
         self.assertIn("*Summary for summarizer*", run.output["slack"])
+
+    def test_header_flags_sampling_when_window_exceeds_cap(self) -> None:
+        # When the period holds more observations than the cap, the header must say the summary covers
+        # only a sample — otherwise a capped summary reads as if it saw everything.
+        for i in range(3):
+            self._observation(f"obs {i}", session_id=f"s{i}")
+        action = self._action(max_observations=2)
+        run = self._run_for(action)
+
+        self._synthesize(action, run)
+
+        run.refresh_from_db()
+        self.assertIn("sampled 2 of 3 recordings", run.synthesized_markdown)
 
     def test_summary_header_sanitizes_scanner_name(self) -> None:
         # A scanner name is free text; markdown/mrkdwn control chars must be stripped so they can't
@@ -281,6 +311,72 @@ class TestVisionActionSynthesis(BaseTest):
 
         result = self._synthesize(action, run)
         self.assertEqual(result.observation_count, 1)
+
+    def test_summarizes_reasoning_and_outcome_when_no_summary(self) -> None:
+        # Non-summarizer scanners (monitor/classifier/scorer) emit `reasoning`, not `summary`. The group
+        # summary must fall back to reasoning so those actions don't skip as empty — and must feed the model
+        # the actual outcome (verdict/score/tags) too, not just reasoning it would otherwise have to infer.
+        ReplayObservation.objects.create(
+            scanner=self.scanner,
+            session_id="classified",
+            scanner_snapshot=snapshot_for(self.scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+            scanner_result={
+                "model_output": {
+                    "scanner_type": ScannerType.CLASSIFIER,
+                    "reasoning": "user abandoned at the payment step",
+                    "tags": ["abandoned"],
+                }
+            },
+        )
+        action = self._action()
+        run = self._run_for(action)
+
+        prompts: list[str] = []
+        result = self._synthesize(action, run, captured_prompts=prompts)
+
+        self.assertEqual(result.status, SynthesisStatus.SYNTHESIZED)
+        self.assertEqual(result.observation_count, 1)
+        # The observation's outcome (tags) and its reasoning both reach the model.
+        self.assertIn("tags=abandoned", prompts[0])
+        self.assertIn("user abandoned at the payment step", prompts[0])
+
+    def test_excludes_scanners_the_creator_cannot_read(self) -> None:
+        # The action's bound scanner_ids are user-supplied, so synthesis must filter them through the
+        # creator's RBAC. Without that a creator could bind a same-team scanner they can't read and pull
+        # its recording-derived reasoning/outcome into the summary.
+        hidden = ReplayScanner.objects.create(
+            team=self.team,
+            name="hidden",
+            scanner_type=ScannerType.CLASSIFIER,
+            scanner_config={"prompt": "classify"},
+            model=ScannerModel.GEMINI_3_FLASH,
+        )
+        self._observation("visible scanner output", session_id="visible")
+        ReplayObservation.objects.create(
+            scanner=hidden,
+            session_id="hidden",
+            scanner_snapshot=snapshot_for(hidden),
+            triggered_by=ObservationTrigger.SCHEDULE,
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+            scanner_result={"model_output": {"scanner_type": ScannerType.CLASSIFIER, "reasoning": "leaked reasoning"}},
+        )
+        action = self._action(selection={"scanner_ids": [str(self.scanner.id), str(hidden.id)]})
+        run = self._run_for(action)
+
+        prompts: list[str] = []
+        with patch(
+            "posthog.rbac.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda qs, **_: qs.exclude(pk=hidden.pk),
+        ):
+            result = self._synthesize(action, run, captured_prompts=prompts)
+
+        self.assertEqual(result.observation_count, 1)
+        self.assertIn("visible scanner output", prompts[0])
+        self.assertNotIn("leaked reasoning", prompts[0])
 
     def test_external_links_are_stripped(self) -> None:
         self._observation("something")

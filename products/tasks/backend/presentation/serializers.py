@@ -466,6 +466,31 @@ class TaskWriteSerializer(serializers.Serializer):
         write_only=True,
         help_text="Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.",
     )
+    pending_user_message = serializers.CharField(
+        required=False,
+        default=None,
+        allow_null=True,
+        allow_blank=True,
+        write_only=True,
+        help_text=(
+            "First user message to forward when creation reuses a pre-warmed Run. Write-only and not "
+            "persisted on the task: lets clients deliver a message that differs from `description` "
+            "(e.g. a resolved skill invocation with channel context folded in). Ignored when no warm "
+            "Run is reused — cold creation takes the first message via the run start endpoint instead."
+        ),
+    )
+    pending_user_artifact_ids = serializers.ListField(
+        required=False,
+        default=list,
+        child=serializers.CharField(max_length=128),
+        write_only=True,
+        help_text=(
+            "Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded "
+            "first message when creation reuses that warm Run, e.g. skill bundles or file attachments. "
+            "If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is "
+            "created cold. Ignored when no warm Run is matched."
+        ),
+    )
     channel = TeamScopedPrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
         queryset=Integration.objects.none(),
         required=False,

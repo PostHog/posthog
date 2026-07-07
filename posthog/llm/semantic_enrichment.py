@@ -101,7 +101,7 @@ def enrichment_enabled(team: Team, flag_key: str) -> bool:
 def capture_enrichment_event(team: Team, event: str, properties: dict[str, Any]) -> None:
     """Best-effort product-analytics capture, attributed to the team's org/project groups.
 
-    Telemetry must never break enrichment, so all failures are swallowed (and reported to Sentry).
+    Telemetry must never break enrichment, so all failures are swallowed (and captured for error tracking).
     """
     try:
         posthoganalytics.capture(

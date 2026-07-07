@@ -48,6 +48,8 @@ interface VirtualizedLogsListProps {
     onExpandTimeRange?: () => void
     orderBy?: LogsOrderBy
     onChangeOrderBy?: (orderBy: LogsOrderBy) => void
+    /** Uuids of the latest live-tail batch — these rows play the one-shot arrival highlight. */
+    newLogUuids?: Set<string>
 }
 
 interface LogsListRowProps {
@@ -68,6 +70,7 @@ interface LogsListRowProps {
     prettifiedLogIds: Set<string>
     togglePrettifyLog: (logId: string) => void
     dynamicRowHeight: ReturnType<typeof useDynamicRowHeight>
+    newLogUuids?: Set<string>
 }
 
 function LogsListRow({
@@ -90,6 +93,7 @@ function LogsListRow({
     prettifiedLogIds,
     togglePrettifyLog,
     dynamicRowHeight,
+    newLogUuids,
 }: {
     ariaAttributes: Record<string, unknown>
     index: number
@@ -126,6 +130,7 @@ function LogsListRow({
                 }}
                 isPrettified={prettifiedLogIds.has(log.uuid)}
                 onTogglePrettify={(l) => togglePrettifyLog(l.uuid)}
+                isNew={newLogUuids?.has(log.uuid) ?? false}
             />
         </div>
     )
@@ -146,6 +151,7 @@ export function VirtualizedLogsList({
     onExpandTimeRange,
     orderBy,
     onChangeOrderBy,
+    newLogUuids,
 }: VirtualizedLogsListProps): JSX.Element {
     const {
         id,
@@ -305,6 +311,7 @@ export function VirtualizedLogsList({
             prettifiedLogIds,
             togglePrettifyLog,
             dynamicRowHeight,
+            newLogUuids,
         }),
         [
             dataSource,
@@ -323,6 +330,7 @@ export function VirtualizedLogsList({
             prettifiedLogIds,
             togglePrettifyLog,
             dynamicRowHeight,
+            newLogUuids,
         ]
     )
 

@@ -106,7 +106,7 @@ function TaskRunChatContent({ logicProps }: { logicProps: RunInteractionLogicPro
                                 <Composer.Placeholder>
                                     {isTerminal ? 'Send a message to start a new run…' : 'Send a follow-up message…'}
                                 </Composer.Placeholder>
-                                <Composer.Textarea data-attr="sandbox-composer-input" submitShortcut="cmd-enter" />
+                                <Composer.Textarea data-attr="sandbox-composer-input" />
                             </Composer.Field>
                             <Composer.Footer>
                                 {/* Model/effort picker: selection lives in the bound runInteractionLogic and is
