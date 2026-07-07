@@ -8,16 +8,23 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY, SESSION_KEY
-from django.test import Client as DjangoClient
+from django.contrib.sessions.middleware import SessionMiddleware
+from django.test import (
+    Client as DjangoClient,
+    RequestFactory,
+    override_settings,
+)
 from django.urls import reverse
 from django.utils import timezone
 
 from posthog.api.authentication import password_reset_token_generator
 from posthog.api.email_verification import email_verification_token_generator
 from posthog.models import User
+from posthog.models.activity_logging.signal_handlers import post_login
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.session.activity import session_public_id
 from posthog.session.models import Session
+from posthog.session.risk import RiskFlags
 
 
 class TestSessionEngineActivity(APIBaseTest):
@@ -155,8 +162,11 @@ class TestUserAuthSessionAPI(APIBaseTest):
         self.assertIn(response.status_code, (401, 403))
 
     def _make_session_stale(self) -> None:
+        stale = time.time() - settings.SESSION_SENSITIVE_ACTIONS_AGE - 100
         session = self.client.session
-        session[settings.SESSION_COOKIE_CREATED_AT_KEY] = time.time() - settings.SESSION_SENSITIVE_ACTIONS_AGE - 100
+        session[settings.SESSION_COOKIE_CREATED_AT_KEY] = stale
+        # login() stamps last_reauth_at; age it out too or the window stays fresh.
+        session["last_reauth_at"] = stale
         session.save()
 
     def test_revoke_requires_reauth_on_stale_session(self):
@@ -187,6 +197,93 @@ class TestUserAuthSessionAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 200, response.content)
 
+    def test_step_up_required_blocks_sensitive_action(self):
+        other = self._other_session()
+        session = self.client.session
+        session["step_up_required"] = True
+        session.save()
+
+        response = self.client.delete(self._revoke_url(other))
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["code"], "sensitive_action_required_reauth")
+        self.assertTrue(Session.objects.filter(session_key=other.session_key).exists())
+
+    def test_step_up_does_not_block_reads(self):
+        self._other_session()
+        session = self.client.session
+        session["step_up_required"] = True
+        session.save()
+
+        self.assertEqual(self.client.get("/api/users/@me/login_sessions/").status_code, 200)
+
+    def test_step_up_blocks_allowlisted_field_write(self):
+        # The low-risk field allow-list (theme_mode etc.) must not bypass a step-up: the anomaly gate
+        # sits above allow_if_only_fields, so even a whitelisted write requires re-auth.
+        session = self.client.session
+        session["step_up_required"] = True
+        session.save()
+
+        response = self.client.patch("/api/users/@me/", {"theme_mode": "dark"})
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["code"], "sensitive_action_required_reauth")
+
+    def test_stale_session_still_allows_allowlisted_field_write(self):
+        # Without a step-up, the allow-list still relaxes the time-based freshness window — guards that
+        # the step-up reordering didn't break the normal allow_if_only_fields path.
+        self._make_session_stale()
+
+        response = self.client.patch("/api/users/@me/", {"theme_mode": "dark"})
+
+        self.assertEqual(response.status_code, 200, response.content)
+
+    def test_step_up_nulls_reported_sensitive_session_expiry(self):
+        # The API-reported expiry must reflect that sensitive actions are blocked now, not advertise a
+        # fresh window the permission layer will reject (the two used to disagree).
+        self.assertIsNotNone(self.client.get("/api/users/@me/").json()["sensitive_session_expires_at"])
+
+        session = self.client.session
+        session["step_up_required"] = True
+        session.save()
+
+        self.assertIsNone(self.client.get("/api/users/@me/").json()["sensitive_session_expires_at"])
+
+    @override_settings(SESSION_RISK_ENABLED=True)
+    @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(detection=True, step_up=False, session_end=True))
+    @patch(
+        "posthog.session.risk.get_geoip_location",
+        return_value={"latitude": 35.6, "longitude": 139.7, "country_code": "JP"},
+    )
+    def test_high_risk_request_redirects_and_flushes_through_middleware_stack(self, _geoip, _flags):
+        # End-to-end through the real middleware stack: a seeded NYC baseline plus a Tokyo geo on this
+        # request is impossible travel (HIGH); with session-end on, SessionRiskMiddleware flushes the
+        # session server-side and redirects. Only the geoip DB and flag service (true boundaries) are
+        # mocked — evaluate_session_risk, current_request_context, and evaluate_signals run for real.
+        key = self.client.session.session_key
+        Session.objects.filter(session_key=key).update(
+            latitude=40.7,
+            longitude=-74.0,
+            country_code="US",
+            ua_signature="chrome|mac os x|pc",
+            baseline_at=timezone.now() - timedelta(minutes=30),
+        )
+
+        response = self.client.get("/api/users/@me/")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/login?reason=session_risk")
+        self.assertFalse(Session.objects.filter(session_key=key).exists())
+
+    def test_last_reauth_at_refreshes_window(self):
+        other = self._other_session()
+        self._make_session_stale()
+        session = self.client.session
+        session["last_reauth_at"] = time.time()
+        session.save()
+
+        self.assertIn(self.client.delete(self._revoke_url(other)).status_code, (200, 204))
+
     def test_actions_are_self_only_even_for_staff(self):
         self.user.is_staff = True
         self.user.save()
@@ -201,6 +298,61 @@ class TestUserAuthSessionAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, 404)
         self.assertTrue(Session.objects.filter(session_key=victim.session_key).exists())
+
+
+class TestPostLoginReauthBaseline(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    def setUp(self):
+        super().setUp()
+        self.engine = import_module(settings.SESSION_ENGINE)
+
+    def _login(self):
+        return self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+
+    def test_login_sets_last_reauth_at(self):
+        before = time.time()
+
+        response = self._login()
+
+        self.assertEqual(response.status_code, 200, response.content)
+        last_reauth_at = self.client.session.get("last_reauth_at")
+        assert last_reauth_at is not None
+        self.assertGreaterEqual(last_reauth_at, before)
+
+    def test_login_clears_step_up_required(self):
+        session = self.client.session
+        session["step_up_required"] = True
+        session.save()
+
+        response = self._login()
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertIsNone(self.client.session.get("step_up_required"))
+
+    def test_post_login_resets_session_risk_baseline(self):
+        request = RequestFactory().get("/", HTTP_USER_AGENT="BrowserA/1.0", REMOTE_ADDR="1.2.3.4")
+        SessionMiddleware(lambda r: r).process_request(request)
+        request.session[BACKEND_SESSION_KEY] = "django.contrib.auth.backends.ModelBackend"
+        request.session.save()
+        Session.objects.filter(session_key=request.session.session_key).update(
+            latitude=12.34,
+            longitude=56.78,
+            country_code="US",
+            ua_signature="chrome|mac os x|pc",
+            baseline_at=timezone.now(),
+            last_activity=timezone.now(),
+        )
+
+        post_login(None, self.user, request)
+
+        row = Session.objects.get(session_key=request.session.session_key)
+        self.assertIsNone(row.latitude)
+        self.assertIsNone(row.longitude)
+        self.assertIsNone(row.country_code)
+        self.assertIsNone(row.ua_signature)
+        self.assertIsNone(row.baseline_at)
+        self.assertIsNotNone(row.last_activity)  # display field is preserved; only the security baseline resets
 
 
 class TestUserAuthSessionImpersonation(APIBaseTest):

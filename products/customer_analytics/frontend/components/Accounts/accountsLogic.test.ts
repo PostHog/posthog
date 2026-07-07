@@ -10,7 +10,11 @@ import type { AccountsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { UserBasicType, UserType } from '~/types'
 
-import { accountsPartialUpdate, accountsRetrieve } from 'products/customer_analytics/frontend/generated/api'
+import {
+    accountsPartialUpdate,
+    accountsRetrieve,
+    customPropertyDefinitionsList,
+} from 'products/customer_analytics/frontend/generated/api'
 import type { AccountApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
@@ -27,12 +31,20 @@ import { accountsLogic, savingRoleKey } from './accountsLogic'
 const orderByOf = (source: unknown): AccountsQuery['orderBy'] => (source as AccountsQuery).orderBy
 
 jest.mock('products/customer_analytics/frontend/generated/api', () => ({
+    // Keep the real module for everything else — connected logics (e.g. column config's
+    // customPropertyDefinitionsList) call other generated functions on mount, and an
+    // absent export makes their loaders throw on every test.
+    ...jest.requireActual('products/customer_analytics/frontend/generated/api'),
     accountsRetrieve: jest.fn(),
     accountsPartialUpdate: jest.fn(),
+    customPropertyDefinitionsList: jest.fn(),
 }))
 
 const mockAccountsRetrieve = accountsRetrieve as jest.MockedFunction<typeof accountsRetrieve>
 const mockAccountsPartialUpdate = accountsPartialUpdate as jest.MockedFunction<typeof accountsPartialUpdate>
+const mockCustomPropertyDefinitionsList = customPropertyDefinitionsList as jest.MockedFunction<
+    typeof customPropertyDefinitionsList
+>
 
 const buildAccount = (overrides: Partial<AccountApi> = {}): AccountApi => ({
     id: 'acc-1',
@@ -66,6 +78,8 @@ describe('accountsLogic', () => {
     beforeEach(() => {
         initKeaTests()
         jest.resetAllMocks()
+        // accountsColumnConfigLogic (connected) loads custom property definitions on mount.
+        mockCustomPropertyDefinitionsList.mockResolvedValue({ count: 0, results: [] })
         // accountsLogic connects to the (localStorage-persisted) shared scene logic;
         // clear it so a "mine only" write in one test can't leak into the next.
         localStorage.clear()

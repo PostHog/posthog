@@ -40,8 +40,8 @@ def inline_css(value: str) -> str:
     Forked from getsentry/sentry
 
     `keep_at_rules=True` preserves at-rules that can't be inlined onto elements — chiefly the
-    `@font-face` that loads our brand font, plus the `@media` responsive block. Without it,
-    css_inline drops every `<style>` block after inlining and the font never loads.
+    `@media` responsive block. Without it, css_inline drops every `<style>` block after
+    inlining and media queries never apply.
     """
     inlined = css_inline.inline(value, keep_at_rules=True)
     tree = lxml_html.document_fromstring(inlined)

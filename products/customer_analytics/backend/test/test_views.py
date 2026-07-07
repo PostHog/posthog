@@ -2211,3 +2211,114 @@ class TestAccountRelationshipDefinitionViewSet(APIBaseTest):
 
         self.assertEqual(self.client.get(self.endpoint_base).status_code, status.HTTP_200_OK)
         self.assertEqual(self._create().status_code, status.HTTP_403_FORBIDDEN)
+
+
+class TestAccountRelationshipViewSet(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.account = create_account(team_id=self.team.id)
+        self.endpoint = f"/api/projects/{self.team.id}/accounts/{self.account.id}/relationships/"
+
+    def _create_relationship_definition(self, name="CSM"):
+        return AccountRelationshipDefinition.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name=name, created_by=self.user
+        )
+
+    def test_lists_active_relationships_by_default(self):
+        csm = self._create_relationship_definition("CSM")
+        fde = self._create_relationship_definition("FDE")
+        active = relationships_logic.assign(
+            team_id=self.team.id, account=self.account, definition=csm, user=self.user, created_by=self.user
+        )
+        ended = relationships_logic.assign(
+            team_id=self.team.id, account=self.account, definition=fde, user=self.user, created_by=self.user
+        )
+        relationships_logic.end_relationship(
+            team_id=self.team.id, account_id=self.account.id, relationship_id=str(ended.id)
+        )
+
+        response = self.client.get(self.endpoint)
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        rows = response.json()
+        self.assertEqual([str(active.id)], [row["id"] for row in rows])
+        self.assertEqual(rows[0]["definition"]["id"], str(csm.id))
+        self.assertEqual(rows[0]["definition"]["name"], "CSM")
+        self.assertEqual(rows[0]["user"], {"id": self.user.id, "email": self.user.email})
+        self.assertIsNone(rows[0]["ended_at"])
+
+    def test_include_history_returns_full_timeline(self):
+        definition = self._create_relationship_definition()
+        successor = User.objects.create_and_join(self.organization, "successor@posthog.com", "testtest")
+        relationships_logic.assign(
+            team_id=self.team.id, account=self.account, definition=definition, user=self.user, created_by=self.user
+        )
+        relationships_logic.assign(
+            team_id=self.team.id, account=self.account, definition=definition, user=successor, created_by=self.user
+        )
+
+        response = self.client.get(f"{self.endpoint}?include_history=true")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        rows = response.json()
+        self.assertEqual(2, len(rows))
+        self.assertEqual(rows[0]["user"]["id"], successor.id)
+        self.assertIsNone(rows[0]["ended_at"])
+        self.assertEqual(rows[1]["user"]["id"], self.user.id)
+        self.assertIsNotNone(rows[1]["ended_at"])
+
+    def test_account_from_another_team_returns_404(self):
+        other_team = Team.objects.create(organization=self.organization)
+        other_account = create_account(team_id=other_team.id)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/accounts/{other_account.id}/relationships/")
+
+        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+
+    def test_assign_and_end_roundtrip(self):
+        definition = self._create_relationship_definition()
+
+        created = self.client.post(self.endpoint, {"definition": str(definition.id), "user": self.user.id})
+        self.assertEqual(status.HTTP_201_CREATED, created.status_code, created.json())
+        self.assertEqual(created.json()["definition"]["id"], str(definition.id))
+        self.assertEqual(created.json()["user"]["id"], self.user.id)
+        self.assertIsNone(created.json()["ended_at"])
+
+        ended = self.client.post(f"{self.endpoint}{created.json()['id']}/end/")
+        self.assertEqual(status.HTTP_200_OK, ended.status_code, ended.json())
+        self.assertIsNotNone(ended.json()["ended_at"])
+        self.assertEqual([], self.client.get(self.endpoint).json())
+
+    def test_assign_with_unknown_definition_returns_400(self):
+        response = self.client.post(
+            self.endpoint, {"definition": "00000000-0000-0000-0000-000000000000", "user": self.user.id}
+        )
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        data = response.json()
+        self.assertEqual(data["attr"], "definition")
+        self.assertEqual(data["type"], "validation_error")
+
+    def test_assign_to_user_outside_organization_returns_400(self):
+        definition = self._create_relationship_definition()
+        outsider = User.objects.create_user("outsider@example.com", None, "")
+
+        response = self.client.post(self.endpoint, {"definition": str(definition.id), "user": outsider.id})
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        data = response.json()
+        self.assertEqual(data["attr"], "user")
+        self.assertEqual(data["type"], "validation_error")
+
+    def test_end_already_ended_relationship_returns_404(self):
+        definition = self._create_relationship_definition()
+        rel = relationships_logic.assign(
+            team_id=self.team.id, account=self.account, definition=definition, user=self.user, created_by=self.user
+        )
+        relationships_logic.end_relationship(
+            team_id=self.team.id, account_id=self.account.id, relationship_id=str(rel.id)
+        )
+
+        response = self.client.post(f"{self.endpoint}{rel.id}/end/")
+
+        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)

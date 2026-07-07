@@ -30,6 +30,7 @@ from hogli_commands.product.isolation import (
     permanent_interface_modules,
     routes_in_turbo_inputs,
     uncovered_permanent_modules,
+    unqualified_permanent_modules,
 )
 
 # ---------------------------------------------------------------------------
@@ -783,6 +784,70 @@ class TestPermanentInterface:
             )
         )
         assert uncovered_permanent_modules(tmp_path, frozenset({"backend.sql", "backend.embedding"})) == set()
+
+
+def _make_ddl_repo(tmp_path: Path, *, migration_body: str = "", schema_body: str = "") -> Path:
+    migrations = tmp_path / "posthog" / "clickhouse" / "migrations"
+    migrations.mkdir(parents=True)
+    (migrations / "0001_x.py").write_text(migration_body)
+    (tmp_path / "posthog" / "clickhouse" / "schema.py").write_text(schema_body)
+    return tmp_path
+
+
+class TestPermanentInterfaceQualification:
+    @pytest.mark.parametrize(
+        "migration_body, schema_body, marked, expected",
+        [
+            # DDL module imported by a frozen migration qualifies.
+            ("from products.foo.backend.sql import CREATE_X", "", {"backend.sql"}, set()),
+            # A reference from the schema registry alone qualifies too.
+            ("", "from products.foo.backend.sql import CREATE_X", {"backend.sql"}, set()),
+            # A submodule import still counts as a reference to the root.
+            ("from products.foo.backend.sql.tables import CREATE_X", "", {"backend.sql"}, set()),
+            # The abuse case: an internal marked permanent with no DDL consumer is flagged.
+            ("", "", {"backend.models"}, {"backend.models"}),
+            # Word boundary: backend.sql_extra must not qualify backend.sql.
+            ("from products.foo.backend.sql_extra import CREATE_X", "", {"backend.sql"}, {"backend.sql"}),
+            # Leaf import form counts as a reference.
+            ("from products.foo.backend import sql", "", {"backend.sql"}, set()),
+            # An unrelated leaf-name token on a later line must not qualify the module.
+            ("from products.foo.backend import models\nsql = 1", "", {"backend.sql"}, {"backend.sql"}),
+            # A path mentioned only in a comment must not qualify — imports come from the AST.
+            ("# depends on products.foo.backend.models\nimport datetime", "", {"backend.models"}, {"backend.models"}),
+            # Same for a string literal (e.g. DDL text or a log message naming the module).
+            ('TABLE_SQL = "see products.foo.backend.models"', "", {"backend.models"}, {"backend.models"}),
+        ],
+    )
+    def test_qualification(
+        self, tmp_path: Path, migration_body: str, schema_body: str, marked: set[str], expected: set[str]
+    ) -> None:
+        repo_root = _make_ddl_repo(tmp_path, migration_body=migration_body, schema_body=schema_body)
+        assert unqualified_permanent_modules("products.foo", frozenset(marked), repo_root=repo_root) == expected
+
+    def test_exempt_product_skips_qualification(self, tmp_path: Path) -> None:
+        # warehouse_sources' marker is justified by a non-DDL channel; dropping the exemption
+        # would turn product:lint --all red for it.
+        repo_root = _make_ddl_repo(tmp_path)
+        assert (
+            unqualified_permanent_modules(
+                "products.warehouse_sources", frozenset({"backend.models"}), repo_root=repo_root
+            )
+            == set()
+        )
+
+    def test_unqualified_exposure_blocks_isolation_chain(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        # A marked module that no migration/schema-registry imports must hard-block, and the issue
+        # must point at tach.toml where the bogus marker lives.
+        _seal_externally(monkeypatch)
+        import hogli_commands.product.isolation as isolation_module
+
+        monkeypatch.setattr(isolation_module, "permanent_interface_modules", lambda *_a, **_k: {"backend.models"})
+        # Controlled corpus — don't let the assertion depend on the real repo's migrations.
+        monkeypatch.setattr(isolation_module, "_clickhouse_ddl_imports", lambda _root: frozenset())
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        result = chain_check.run(ctx)
+        assert any("don't qualify as a permanent interface" in i for i in result.issues)
+        assert result.file == "tach.toml"
 
 
 # ---------------------------------------------------------------------------

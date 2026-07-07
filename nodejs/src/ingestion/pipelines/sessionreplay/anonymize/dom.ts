@@ -8,7 +8,7 @@ import {
     isMediaTag,
 } from './assets'
 import { ScrubContext, isObject } from './config'
-import { scrubCssImages } from './css'
+import { INLINED_STYLESHEET_ATTR, scrubCssImages } from './css'
 import { redactEmails, scrubText } from './text'
 import { scrubUrl } from './url'
 
@@ -168,7 +168,7 @@ function scrubAttrs(ctx: ScrubContext, attrs: Record<string, unknown>, kind: Tag
         let result
         if (isUrlAttr(name)) {
             result = scrubUrl(ctx, value)
-        } else if (name === 'style') {
+        } else if (name === 'style' || name === INLINED_STYLESHEET_ATTR) {
             changed = scrubCssImages(ctx, attrs, name) || changed
             continue
         } else if (isUserTextAttr(name)) {
