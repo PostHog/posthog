@@ -12,6 +12,7 @@ import { NotebookNodeType } from '../types'
 import {
     appendMarkdownNotebookBlock,
     buildMarkdownNotebookContent,
+    convertDroppedRichContentNodeToMarkdownNode,
     convertNotebookContentToMarkdown,
     getMarkdownNotebookMarkdown,
     getMarkdownNotebookTitle,
@@ -727,5 +728,32 @@ Users activated faster.
         expect(notebookArtifactContentToMarkdown(content)).toEqual(`# Existing title
 
 Body`)
+    })
+
+    describe('convertDroppedRichContentNodeToMarkdownNode', () => {
+        it('maps a dragged recording payload to its markdown component', () => {
+            const node = convertDroppedRichContentNodeToMarkdownNode(NotebookNodeType.Recording, {
+                id: 'session-1',
+                noInspector: false,
+            })
+
+            expect(node).toMatchObject({
+                type: 'component',
+                tagName: 'Recording',
+                props: { id: 'session-1', noInspector: false },
+            })
+        })
+
+        it('defaults dropped queries to hidden filters', () => {
+            const node = convertDroppedRichContentNodeToMarkdownNode(NotebookNodeType.Query, {
+                query: { kind: NodeKind.EventsQuery, select: ['event'] },
+            })
+
+            expect(node).toMatchObject({ tagName: 'Query', props: { hideFilters: true } })
+        })
+
+        it('returns null for node types without a markdown counterpart', () => {
+            expect(convertDroppedRichContentNodeToMarkdownNode('ph-not-a-real-node', { id: 1 })).toBeNull()
+        })
     })
 })

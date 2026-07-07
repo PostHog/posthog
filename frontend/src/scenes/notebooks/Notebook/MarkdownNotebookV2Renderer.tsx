@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconFlask, IconGraph } from '@posthog/icons'
+import { lemonToast } from '@posthog/lemon-ui'
 
 import { MarkdownNotebook, parseMarkdownNotebook } from 'lib/components/MarkdownNotebook'
 import type {
@@ -9,6 +11,7 @@ import type {
     MarkdownNotebookAskAIRequest,
     MarkdownNotebookInsertMenuApi,
 } from 'lib/components/MarkdownNotebook'
+import { makeEmptyParagraph } from 'lib/components/MarkdownNotebook/markdown'
 import {
     insertNotebookAIFollowUpPromptAfterResponse,
     rebaseNotebookAIResponseRange,
@@ -18,6 +21,7 @@ import {
 import type { MarkdownNotebookCaretPosition, RemoteNotebookCaret } from 'lib/components/MarkdownNotebook/remoteCarets'
 import type { NotebookBlockNode } from 'lib/components/MarkdownNotebook/types'
 import { getInlineText } from 'lib/components/MarkdownNotebook/utils'
+import { uploadFile } from 'lib/hooks/useUploadFiles'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 
@@ -35,7 +39,11 @@ import {
     getInlineNotebookAIUIContext,
 } from './markdownNotebookRuntime'
 import { MarkdownNotebookSavedInsightPicker } from './MarkdownNotebookSavedInsightPicker'
-import { getMarkdownNotebookMarkdown, notebookArtifactContentToMarkdown } from './markdownNotebookV2'
+import {
+    convertDroppedRichContentNodeToMarkdownNode,
+    getMarkdownNotebookMarkdown,
+    notebookArtifactContentToMarkdown,
+} from './markdownNotebookV2'
 import { notebookLogic } from './notebookLogic'
 import {
     NOTEBOOK_AI_PRESENCE_COLOR,
@@ -465,6 +473,63 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         setExperimentPickerTargetNodeId(null)
     }, [])
 
+    const convertExternalDragToNodes = useCallback(
+        (dataTransfer: DataTransfer): NotebookBlockNode[] | Promise<NotebookBlockNode[] | null> | null => {
+            const nodeType = dataTransfer.getData('node')
+            if (nodeType) {
+                let attrs: Record<string, unknown> = {}
+                const propertiesJson = dataTransfer.getData('properties')
+                if (propertiesJson) {
+                    try {
+                        attrs = JSON.parse(propertiesJson)
+                    } catch {
+                        return null
+                    }
+                }
+
+                const node = convertDroppedRichContentNodeToMarkdownNode(nodeType, attrs)
+                if (node) {
+                    posthog.capture('notebook node dropped', { node_type: nodeType, is_markdown: true })
+                }
+                return node ? [node] : null
+            }
+
+            const files = Array.from(dataTransfer.files ?? [])
+            if (files.length) {
+                const imageFiles = files.filter((file) => file.type.startsWith('image/'))
+                if (imageFiles.length < files.length) {
+                    lemonToast.warning('Only images can be added to notebooks at this time.')
+                }
+                if (!imageFiles.length) {
+                    return null
+                }
+
+                posthog.capture('notebook files dropped', {
+                    file_types: imageFiles.map((file) => file.type),
+                    is_markdown: true,
+                })
+                return Promise.all(
+                    imageFiles.map(async (file): Promise<NotebookBlockNode> => {
+                        const media = await uploadFile(file)
+                        return {
+                            id: makeEmptyParagraph('dropped-image').id,
+                            type: 'component',
+                            tagName: 'Image',
+                            props: { src: media.image_location, alt: media.name },
+                        }
+                    })
+                ).catch((error: unknown): null => {
+                    const { detail, message } = (error ?? {}) as { detail?: string; message?: string }
+                    lemonToast.error(`Image upload failed: ${detail ?? message ?? 'unknown error'}`)
+                    return null
+                })
+            }
+
+            return null
+        },
+        []
+    )
+
     const runtimeContext = useMemo<MarkdownNotebookRuntimeContextValue>(
         () => ({
             notebookShortId: notebook?.short_id ?? null,
@@ -586,6 +651,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                 remoteCarets={remoteCarets}
                 onCaretChange={isEditable ? publishMarkdownCaret : undefined}
                 onAskAI={isEditable ? handleAskAI : undefined}
+                convertExternalDragToNodes={isEditable ? convertExternalDragToNodes : undefined}
                 isAskAIDisabled={inlineAIRequests.length > 0}
                 createAIConversationId={uuid}
                 deferRemoteValue={markdownEditorInteractionActive}

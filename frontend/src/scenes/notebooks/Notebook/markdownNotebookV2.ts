@@ -2,6 +2,7 @@ import {
     escapeCodeSpanText,
     escapeInlineMarkdownText,
     escapeMarkdownBlockLines,
+    makeEmptyParagraph,
     parseMarkdownNotebook,
     sanitizeNotebookLinkHref,
     serializeMarkdownNotebook,
@@ -116,6 +117,27 @@ export function appendMarkdownNotebookBlock(
         [markdown, blockMarkdown].filter((block) => block.trim()).join('\n\n'),
         getMarkdownNotebookNodeId(content)
     )
+}
+
+/** Converts a dragged legacy notebook resource (`node` + `properties` dataTransfer payload, as set
+ * by `useNotebookDrag`) into a markdown component block, or null when the node type has no
+ * markdown counterpart. */
+export function convertDroppedRichContentNodeToMarkdownNode(
+    nodeType: string,
+    attrs: Record<string, unknown>
+): NotebookBlockNode | null {
+    const tagName = NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG[nodeType as NotebookNodeType]
+    if (!tagName) {
+        return null
+    }
+
+    const props = getSerializableAttrs(attrs)
+    return {
+        id: makeEmptyParagraph('dropped').id,
+        type: 'component',
+        tagName,
+        props: tagName === 'Query' ? withDefaultHiddenFilters(props) : props,
+    }
 }
 
 export function serializeMarkdownNotebookComponent(tagName: string, props: NotebookComponentProps): string {

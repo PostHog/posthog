@@ -68,10 +68,11 @@ export function InsertBoundaryButton({
                     )}
                     tooltip="Add block"
                     onClick={() => openInsertMenuAtBoundary(boundaryIndex)}
+                    // Reveal on keyboard focus, mirroring the mouse-hover reveal.
+                    onFocus={() => setActiveBoundaryIndex(boundaryIndex)}
                     aria-label="Add block"
-                    aria-hidden={!isVisible}
                     data-boundary-index={boundaryIndex}
-                    tabIndex={isVisible ? 0 : -1}
+                    tabIndex={0}
                 />
             ) : null}
         </div>

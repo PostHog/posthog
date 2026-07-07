@@ -4192,6 +4192,31 @@ aXbc
 Numbers <ref id="${refId}">look</ref> off here`)
     })
 
+    it('creates a comment thread anchored to a selection inside a code block', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('```js\nconst answer = 42\n```'),
+                onChange,
+            })
+        )
+        const codeBlock = container.querySelector('.MarkdownNotebook__code-block') as HTMLElement
+
+        selectTextAcrossNodes(getFirstTextNode(codeBlock), 6, getFirstTextNode(codeBlock), 'const answer'.length, true)
+        fireEvent.click(container.querySelector('button[aria-label="Comment on selection"]') as HTMLButtonElement)
+
+        const markdown = onChange.mock.calls[onChange.mock.calls.length - 1][0] as string
+        const refId = markdown.match(/<Comment ref="([^"]+)" replies={\[\]} \/>/)?.[1]
+        expect(refId).toBeTruthy()
+        expect(markdown).toEqual(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+<Comment ref="${refId}" replies={[]} />
+
+\`\`\`js ref=${refId}:6-12
+const answer = 42
+\`\`\``)
+    })
+
     it('places a comment on the title row below it, keeping the heading first', () => {
         const onChange = jest.fn()
         const { container } = render(

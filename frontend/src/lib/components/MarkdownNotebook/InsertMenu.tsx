@@ -27,7 +27,13 @@ import {
     NotebookComponentRegistry,
 } from './types'
 
+/** DOM id of a command's option element, referenced by the editor's `aria-activedescendant`. */
+export function getInsertMenuOptionDomId(menuId: string, commandKey: string): string {
+    return `${menuId}-option-${commandKey}`
+}
+
 export function InsertMenu({
+    id,
     query,
     commands,
     targetNodeId,
@@ -35,6 +41,7 @@ export function InsertMenu({
     selectedIndex,
     onClose,
 }: {
+    id?: string
     query: string
     commands: InsertCommand[]
     targetNodeId: string
@@ -45,8 +52,9 @@ export function InsertMenu({
     const selectedItemRef = useRef<HTMLButtonElement | null>(null)
     const filteredCommands = getFilteredInsertCommands(commands, query)
     const commandsByCategory = groupInsertCommandsByCategory(filteredCommands)
-    const selectedCommandKey =
-        filteredCommands[getClampedInsertMenuSelectedIndex(selectedIndex, filteredCommands.length)]?.key
+    const selectedCommandIndex = getClampedInsertMenuSelectedIndex(selectedIndex, filteredCommands.length)
+    const selectedCommand = filteredCommands[selectedCommandIndex]
+    const selectedCommandKey = selectedCommand?.key
     const menuStyle = position
         ? ({
               '--markdown-notebook-insert-menu-left': `${position.left}px`,
@@ -69,10 +77,20 @@ export function InsertMenu({
             )}
             contentEditable={false}
             style={menuStyle}
+            id={id}
+            role="listbox"
+            aria-label="Insert block"
         >
+            {/* Focus stays in the editor while the menu is open, so screen readers may miss the
+                aria-activedescendant change — announce the selection explicitly. */}
+            <div className="sr-only" aria-live="polite">
+                {selectedCommand
+                    ? `${selectedCommand.label}, ${selectedCommandIndex + 1} of ${filteredCommands.length}`
+                    : 'No components found'}
+            </div>
             {Object.entries(commandsByCategory).map(([category, categoryCommands]) => (
-                <div className="MarkdownNotebook__insert-category" key={category}>
-                    <h5>{category}</h5>
+                <div className="MarkdownNotebook__insert-category" key={category} role="group" aria-label={category}>
+                    <h5 aria-hidden="true">{category}</h5>
                     <div className="MarkdownNotebook__insert-grid">
                         {categoryCommands.map((command) => (
                             <button
@@ -82,6 +100,8 @@ export function InsertMenu({
                                     command.key === selectedCommandKey && 'MarkdownNotebook__insert-item--selected'
                                 )}
                                 key={command.key}
+                                id={id ? getInsertMenuOptionDomId(id, command.key) : undefined}
+                                role="option"
                                 aria-selected={command.key === selectedCommandKey}
                                 disabled={command.disabled}
                                 type="button"
