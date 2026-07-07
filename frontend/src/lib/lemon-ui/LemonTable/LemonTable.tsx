@@ -5,17 +5,19 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import React, { HTMLProps, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconInfo } from '@posthog/icons'
+import { IconCopy, IconInfo } from '@posthog/icons'
 import { LemonCheckbox } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { IconWithCount } from 'lib/lemon-ui/icons'
-import { LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { useColumnWidths } from '../../hooks/useColumnWidths'
 import { PaginationAuto, PaginationControl, PaginationManual, usePagination } from '../PaginationControl'
+import { Popover } from '../Popover/Popover'
 import { Tooltip } from '../Tooltip'
 import { BulkSelectionBar } from './BulkSelectionBar'
 import { determineColumnKey, getStickyColumnInfo } from './columnUtils'
@@ -197,6 +199,22 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     const baseColumns = useMemo(() => baseColumnGroups.flatMap((group) => group.children), [baseColumnGroups])
 
     const scrollRef = useRef<HTMLDivElement>(null)
+
+    /** Cell whose right-click "Copy cell contents" menu is currently open, if any. */
+    const [cellContextMenu, setCellContextMenu] = useState<{ element: HTMLElement; text: string } | null>(null)
+
+    // A single stable handler shared by every data cell keeps the per-cell cost to just a prop
+    // reference (no extra components or DOM), so this stays cheap even on very large tables.
+    const handleCellContextMenu = useCallback((event: React.MouseEvent<HTMLTableCellElement>) => {
+        // The full value lives in the DOM even when the cell is visually clipped by `text-overflow`,
+        // so reading `textContent` recovers content a manual highlight-and-copy can't reach.
+        const text = event.currentTarget.textContent?.trim()
+        if (!text) {
+            return // Nothing to copy — fall back to the browser's native context menu
+        }
+        event.preventDefault()
+        setCellContextMenu({ element: event.currentTarget, text })
+    }, [])
 
     // Width calculation for pinned columns
     const { columnWidths: pinnedColumnWidths, tableRef } = useColumnWidths({
@@ -669,6 +687,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                 pinnedColumnWidths={pinnedColumnWidths}
                                                 columns={columns}
                                                 rowActions={rowActions}
+                                                onCellContextMenu={handleCellContextMenu}
                                             />
                                         )
                                     })
@@ -712,6 +731,27 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                     </div>
                 </ScrollableShadows>
             </div>
+            <Popover
+                visible={!!cellContextMenu}
+                referenceElement={cellContextMenu?.element ?? null}
+                onClickOutside={() => setCellContextMenu(null)}
+                placement="bottom-start"
+                overlay={
+                    <LemonButton
+                        icon={<IconCopy />}
+                        fullWidth
+                        size="small"
+                        onClick={() => {
+                            if (cellContextMenu) {
+                                void copyToClipboard(cellContextMenu.text, 'cell contents')
+                            }
+                            setCellContextMenu(null)
+                        }}
+                    >
+                        Copy cell contents
+                    </LemonButton>
+                }
+            />
         </>
     )
 }
