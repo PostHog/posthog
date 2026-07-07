@@ -1,4 +1,11 @@
-WIZARD_PR_AGENT_PROMPT = """
+SHELL_EFFICIENCY_INSTRUCTION = """\
+Shell efficiency: optimize for the fewest shell round trips.
+- Batch related commands into one Bash invocation using `&&` (e.g. `npm run typecheck && npm run lint && npm test`).
+- Emit all independent tool calls in the same response.
+- Read multiple files at once.
+- Never rerun a command solely to reproduce output you already have."""
+
+WIZARD_PR_AGENT_PROMPT = f"""
 PostHog's setup wizard has already run in this repository and integrated PostHog. The working tree
 contains its uncommitted changes (modified source files, an updated package manifest, installed
 dependencies, a `posthog-setup-report.md` summary, and possibly a `.posthog-events.json` plan).
@@ -44,6 +51,8 @@ dashboards, or insights. Your only responsibilities:
 Whenever you mention the pull request in any output, summary, or comment, always hyperlink it to its
 full URL (e.g. a Markdown link like [#123](https://github.com/org/repo/pull/123)) rather than plain
 text, so readers can open it directly.
+
+{SHELL_EFFICIENCY_INSTRUCTION}
 
 Hard limits: stay strictly within the wizard's changes, plus the changes required to automatically
 configure the environment variables in production, plus the minimal fixes needed for CI to pass.
