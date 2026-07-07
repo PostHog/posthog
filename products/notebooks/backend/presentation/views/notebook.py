@@ -925,15 +925,16 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # happens once here, so the run stores a self-contained query and paging re-queries it
         # without re-resolving refs.
         ref_node_ids: dict[str, str] = serializer.validated_data.get("refs") or {}
+        # One DISTINCT ON query fetches the latest DONE run for every referenced node at once.
+        code_by_node_id: dict[str, str] = dict(
+            NotebookNodeRun.objects.for_team(self.team_id)
+            .filter(notebook=notebook, node_id__in=set(ref_node_ids.values()), status=NotebookNodeRun.Status.DONE)
+            .order_by("node_id", "-created_at")
+            .distinct("node_id")
+            .values_list("node_id", "code")
+        )
         last_run_code: dict[str, str | None] = {
-            name: (
-                NotebookNodeRun.objects.for_team(self.team_id)
-                .filter(notebook=notebook, node_id=node_id, status=NotebookNodeRun.Status.DONE)
-                .order_by("-created_at")
-                .values_list("code", flat=True)
-                .first()
-            )
-            for name, node_id in ref_node_ids.items()
+            name: code_by_node_id.get(node_id) for name, node_id in ref_node_ids.items()
         }
         try:
             resolved_code = resolve_sql_v2_references(serializer.validated_data["code"], last_run_code)
