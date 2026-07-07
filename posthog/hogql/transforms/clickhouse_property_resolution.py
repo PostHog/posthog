@@ -16,9 +16,10 @@ never by diffing SQL.
 ClickHouse only: it runs after lowering (`prepare_ast_for_printing`) and emits ClickHouse-specific nodes, so it must
 never run for the warehouse (Postgres / DuckDB) dialects.
 
-One quirk is deliberate: an is-set check (`x IS NULL` / `x = NULL`) over a materialized property reads the column value,
-so it treats both an empty string and the literal text `"null"` as "not set". This over-matches a true "does this key
-exist in the blob" test, but tightening it would change query results.
+An is-set check (`x IS NULL` / `x = NULL`) over an `events.properties` key is deliberately *not* rewritten to read a
+scrubbed materialized column: that column stores '' for both an absent key and a present-but-empty value, so it can't
+tell "not set" from "set to ''". Key existence is answered off the JSON blob instead (`_optimize_materialized_is_null`
+leaves the operand as its raw extract), matching the un-materialized read.
 """
 
 from dataclasses import dataclass
@@ -616,6 +617,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         # printer — it optimizes a real column, not a property.)
         optimized = (
             self._optimize_property_group_compare(node)
+            or self._optimize_materialized_is_null(node)
             or self._optimize_materialized_equals(node)
             or self._optimize_materialized_range(node)
             or self._optimize_materialized_ilike(node)
@@ -626,10 +628,6 @@ class ClickHousePropertyResolver(CloningVisitor):
         if optimized is not None:
             return optimized
 
-        # Intentional gap: nothing above rewrites `property = NULL` / `!= NULL`, so it falls through to super() and the
-        # surviving PropertyAccess reads the scrubbed materialized column. An is-set check therefore treats both an empty
-        # string and the literal text "null" as "not set", which over-matches a true "does this key exist in the blob"
-        # test. Left this way deliberately — tightening it would change query results.
         return super().visit_compare_operation(node)
 
     # --- property operand detection ---
@@ -815,6 +813,54 @@ class ClickHousePropertyResolver(CloningVisitor):
         return _call("and", [prop.group_has(), in_expr])
 
     # --- individually-materialized-column optimizers ---
+
+    def _optimize_materialized_is_null(self, node: ast.CompareOperation) -> ast.Expr | None:
+        """`properties.x = NULL` / `!= NULL` over a scrubbed materialized event column → answer key existence off the blob.
+
+        A non-nullable materialized string column stores '' both for an absent key and for a key whose value is an empty
+        string, and stores 'null' for the literal text "null"; the value read then scrubs '' / 'null' back to NULL. An
+        is-set check over that column therefore counts a present-but-empty (or literal-"null") value as "not set", which
+        over-matches a real "does this key exist in the blob" test. Whether a key exists is only decided correctly by the
+        JSON blob, so leave the property operand as its raw JSON extract (identical to the un-materialized read) instead
+        of substituting the column, making the materialized path agree with the un-materialized one.
+
+        Scoped to `events.properties`: person properties are read through a join subquery under some
+        PersonsOnEventsModes, where the scrubbing is baked into the projected column before this comparison is seen, so a
+        comparison-level rewrite can't reach it — fixing only the direct-column mode would make the modes disagree.
+        """
+        if node.op not in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
+            return None
+
+        if isinstance(node.right, ast.Constant) and node.right.value is None:
+            operand = node.left
+        elif isinstance(node.left, ast.Constant) and node.left.value is None:
+            operand = node.right
+        else:
+            return None
+
+        raw_read = self._lowered_property_operand(operand)
+        if raw_read is None or not self._is_events_properties_blob(_blob_field_type_of(raw_read)):
+            return None
+
+        prop = self._materialized_string_property(operand)
+        if prop is None:
+            return None
+        # A nullable column (and the $ai bloom-filter columns) is read bare, so its is-null already reflects key
+        # existence and stays index-eligible — leave those to the printer / normal read.
+        if prop.source.is_nullable or prop.key in AI_BLOOM_FILTER_PROPERTIES:
+            return None
+
+        return ast.CompareOperation(op=node.op, left=clone_expr(raw_read), right=ast.Constant(value=None))
+
+    def _is_events_properties_blob(self, field_type: ast.FieldType | None) -> bool:
+        """True when the blob operand is the `events.properties` JSON column (the reported is-set symptom's scope)."""
+        if field_type is None:
+            return False
+        table_type = _unwrap_to_table_type(field_type)
+        if table_type is None or table_type.table.to_printed_clickhouse(self.context) != "events":
+            return False
+        field = field_type.resolve_database_field(self.context)
+        return isinstance(field, DatabaseField) and field.name == "properties"
 
     def _optimize_materialized_equals(self, node: ast.CompareOperation) -> ast.Expr | None:
         if node.op not in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):

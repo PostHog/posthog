@@ -1870,22 +1870,19 @@ class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
     # Sentinel to indicate a property should not be included in the event
     NOT_SET: Any = object()
 
-    # Expected is_set value can be True, False, or a callable(is_materialized) -> bool
-    # When materialized, empty string and "null" string become NULL due to nullIf wrapping
-    # (this is a long-standing bug, and it's ok to change these tests if you fix it!)
-    ONLY_WHEN_NOT_MATERIALIZED = staticmethod(lambda m: not m)
-
+    # is-set is keyed on whether the property exists in the JSON blob, so an empty-string value and the literal text
+    # "null" both count as set — identically whether or not the column is materialized. (An absent key and a JSON `null`
+    # value are not set.)
     def setUp(self):
         super().setUp()
         self.event_name = "test_is_set_event"
 
         # (property_name, value, property_type, expected_is_set)
-        # expected_is_set: True, False, or callable(is_materialized) -> bool
-        self.test_cases: list[tuple[str, Any, PropertyType, Any]] = [
+        self.test_cases: list[tuple[str, Any, PropertyType, bool]] = [
             # String type: value, empty, "null" literal, null, not set
             ("string_value_prop", "hello", PropertyType.String, True),
-            ("string_empty_prop", "", PropertyType.String, self.ONLY_WHEN_NOT_MATERIALIZED),
-            ("string_null_literal_prop", "null", PropertyType.String, self.ONLY_WHEN_NOT_MATERIALIZED),
+            ("string_empty_prop", "", PropertyType.String, True),
+            ("string_null_literal_prop", "null", PropertyType.String, True),
             ("string_null_prop", None, PropertyType.String, False),
             ("string_not_set_prop", self.NOT_SET, PropertyType.String, False),
             # Numeric type: zero, non-zero int, non-zero float, string values, null, not set
@@ -1931,17 +1928,11 @@ class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
             properties=properties,
         )
 
-    def _expected_is_set_values(self, is_materialized: bool) -> dict[str, int]:
-        result = {}
-        for prop_name, _, _, expected in self.test_cases:
-            if callable(expected):
-                result[prop_name] = 1 if expected(is_materialized) else 0
-            else:
-                result[prop_name] = 1 if expected else 0
-        return result
+    def _expected_is_set_values(self) -> dict[str, int]:
+        return {prop_name: 1 if expected else 0 for prop_name, _, _, expected in self.test_cases}
 
-    def _expected_is_not_set_values(self, is_materialized: bool) -> dict[str, int]:
-        return {k: 1 - v for k, v in self._expected_is_set_values(is_materialized).items()}
+    def _expected_is_not_set_values(self) -> dict[str, int]:
+        return {k: 1 - v for k, v in self._expected_is_set_values().items()}
 
     @parameterized.expand([("not_materialized", False), ("materialized", True)])
     def test_is_set_operator(self, _name: str, is_materialized: bool):
@@ -1978,7 +1969,7 @@ class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
         assert row
         results = dict(zip(result.columns, row))
 
-        assert results == self._expected_is_set_values(is_materialized)
+        assert results == self._expected_is_set_values()
 
     @parameterized.expand([("not_materialized", False), ("materialized", True)])
     def test_is_not_set_operator(self, _name: str, is_materialized: bool):
@@ -2015,7 +2006,7 @@ class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
         assert row
         results = dict(zip(result.columns, row))
 
-        assert results == self._expected_is_not_set_values(is_materialized)
+        assert results == self._expected_is_not_set_values()
 
 
 class TestPropertyDateOperatorsWithData(APIBaseTest):
