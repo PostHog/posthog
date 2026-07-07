@@ -46,6 +46,7 @@ import { CyclotronJobQueueKafka } from './cdp/services/job-queue/job-queue-kafka
 import { CyclotronJobQueuePostgres } from './cdp/services/job-queue/job-queue-postgres'
 import { CyclotronJobQueuePostgresV2 } from './cdp/services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobQueueRateLimitedPostgresV2 } from './cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
+import { hasEmailSigningKey } from './cdp/services/messaging/helpers/tracking-code'
 import { createSesRateLimiterValkeyPool } from './cdp/services/rate-limiter/rate-limiter-valkey-pool'
 import { RateLimiterService } from './cdp/services/rate-limiter/rate-limiter.service'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
@@ -303,6 +304,17 @@ export class PluginServer implements NodeServer {
                 await worker.start()
                 return worker.service
             })
+        }
+
+        // Boot-time guard: an email-sending deployment must carry a signing key, otherwise every send
+        // would either mint an unsigned tracking link or (now that generate() fails closed) fail. Refuse
+        // to start instead of degrading silently. Both email workers below sign tracking codes.
+        const isEmailWorker = capabilities.cdpCyclotronWorkerEmail || capabilities.cdpCyclotronWorkerEmailLegacyPg
+        if (isEmailWorker && !hasEmailSigningKey(this.config.ENCRYPTION_SALT_KEYS)) {
+            throw new Error(
+                'Email worker requires ENCRYPTION_SALT_KEYS to sign tracking codes — refusing to start. ' +
+                    'Configure ENCRYPTION_SALT_KEYS so outbound emails never mint unsigned tracking links.'
+            )
         }
 
         // Transitional drain for email jobs stranded on the legacy V1 queue — the email worker

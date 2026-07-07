@@ -504,6 +504,27 @@ tools:
             Removes source.ts, compiled.js, schema.json from the bundle. Returns 404 if the tool doesn't exist.
             Draft-only. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch
             → validate → freeze → promote workflow.
+    agent-applications-revisions-tools-dry-run-create:
+        operation: agent_applications_revisions_tools_dry_run_create
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Dry-run a custom tool
+        description: >
+            Execute the persisted `compiled.js` for one tool in a single-shot sandbox with caller-supplied args and a
+            stubbed ctx — the authoring loop's "test this tool" button. Body `{ args, mock_secrets? }`: `args` is
+            free-form JSON (NOT validated against the tool's `args_schema`); `mock_secrets` is an optional `{name →
+            placeholder}` map the sandbox plumbs into `ctx.secrets.ref(name)` so the tool body can run without "secret
+            not provisioned". The real secret value never enters the sandbox. Returns `{ ok, tool_id, result?, error?,
+            duration_ms }`: `ok:true` + `result` when the tool returned cleanly, `ok:false` + `error` when the tool
+            threw or the sandbox rejected. Requires the tool to have been PUT first (it runs the persisted bytes, not a
+            fresh source). Draft-only. Per-call lifecycle — no warm pool today. Playbook: read the
+            `editing-agents-safely` playbook via `agent-resolve-resource` for the broader branch → validate → freeze →
+            promote workflow.
     agent-applications-revisions-tools-update:
         operation: agent_applications_revisions_tools_update
         enabled: true

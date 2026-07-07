@@ -31,6 +31,11 @@
 
 const SLACK_API = 'https://slack.com/api'
 const INCIDENT_EVENT_TYPE = 'master_ci_incident'
+// Per-workflow links point at the engineering analytics workflow-detail page (not GitHub), scoped
+// to master via that product's `?q=` branch filter. Hosted in the team-devex project (347861) for
+// now, before it moves to its final home; it's the project with the PostHog/posthog GitHub source
+// synced. `owner`/`repo` come from the run context; the workflow's GitHub display name is the path key.
+const ENG_ANALYTICS_BASE = 'https://us.posthog.com/project/347861/engineering-analytics'
 // One page of channel history. #alerts-devex is low-traffic, so the open anchor
 // reliably stays within the newest 100 messages; a busier channel would need paging.
 const HISTORY_LIMIT = 100
@@ -292,9 +297,10 @@ function formatDuration(mins) {
 // Slack mrkdwn requires escaping these three in user-supplied text.
 const slackEscape = (text) => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
-// A workflow's run history on master — where you can see all of its runs at a glance.
-function runsUrlFor(owner, repo, workflowFile) {
-    return `https://github.com/${owner}/${repo}/actions/workflows/${workflowFile}?query=branch%3Amaster`
+// A workflow's run history on master, in engineering analytics — where you can see all of its
+// runs at a glance. The path key is the workflow's GitHub display name (e.g. "Backend CI").
+function runsUrlFor(owner, repo, workflowName) {
+    return `${ENG_ANALYTICS_BASE}/${owner}/${repo}/actions/workflows/${encodeURIComponent(workflowName)}?q=master`
 }
 
 // Read-boundary normalizer for persisted incident workflows: tolerate an older
@@ -442,7 +448,7 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
             const redForMins = Math.round((now.getTime() - new Date(f.since).getTime()) / 60000)
             return {
                 ...f,
-                runsUrl: runsUrlFor(owner, repo, f.workflow_file),
+                runsUrl: runsUrlFor(owner, repo, f.name),
                 redForMins, // detection: byDuration + open/resolve thresholds
                 displayRedForMins: Math.round((now.getTime() - new Date(f.displaySince).getTime()) / 60000),
                 byCount: f.consecutive_failures >= workflowThreshold,

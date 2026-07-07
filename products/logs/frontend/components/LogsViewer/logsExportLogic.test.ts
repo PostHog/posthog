@@ -43,6 +43,10 @@ describe('logsExportLogic', () => {
             localStorage.clear()
             initKeaTests()
             jest.clearAllMocks()
+            // logsViewerLogic fetches on mount; the automocked api.logs must resolve the
+            // shapes the loaders destructure (hasMore, maxExportableLogs).
+            ;(api.logs.query as jest.Mock).mockResolvedValue({ results: [], hasMore: false, maxExportableLogs: 10000 })
+            ;(api.logs.sparkline as jest.Mock).mockResolvedValue([])
 
             viewerLogic = logsViewerLogic({ id: 'test-tab' })
             viewerLogic.mount()

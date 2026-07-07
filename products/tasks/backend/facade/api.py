@@ -457,6 +457,20 @@ def task_exists(task_id: str | UUID, team_id: int) -> bool:
     return Task.objects.filter(id=task_id, team_id=team_id).exists()
 
 
+def count_in_progress_runs_for_github_integration(team_id: int, integration_id: int) -> int:
+    """In-progress runs whose task uses this team GitHub integration.
+
+    Used by core's integration API to block disconnecting a GitHub integration while
+    live runs still depend on it for credential refresh — deleting the row SET_NULLs
+    ``Task.github_integration`` and permanently orphans every live sandbox's token.
+    """
+    return TaskRun.objects.filter(
+        team_id=team_id,
+        status=TaskRun.Status.IN_PROGRESS,
+        task__github_integration_id=integration_id,
+    ).count()
+
+
 def is_task_controllable_by_user(task_id: str | UUID, user_id: int | None) -> bool:
     """Whether the user may mutate the task under the task control rules.
 
