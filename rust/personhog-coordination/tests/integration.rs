@@ -1626,13 +1626,14 @@ async fn late_joining_router_during_warming_begins_stash() {
     cancel.cancel();
 }
 
-/// When a Freezing handoff has a dead `old_owner` (one that's not a
-/// registered pod), `cleanup_stale_handoffs` should delete it so the
-/// handoff doesn't stall waiting for a `PodDrainedAck` that will never
-/// come. Verified by injecting a stale handoff into etcd and triggering
-/// a pod-change event.
+/// A Freezing handoff whose `old_owner` is dead (not a registered pod)
+/// must still run to completion: the old owner plays no role in Freezing
+/// (routers ack the freeze), and Draining treats an absent old owner as
+/// vacuously drained. The handoff advances Freezing → Draining → Warming
+/// → Complete on the live new owner and is cleaned up by completion, not
+/// by `cleanup_stale_handoffs`.
 #[tokio::test]
-async fn dead_old_owner_in_freezing_triggers_cleanup() {
+async fn dead_old_owner_in_freezing_advances_to_completion() {
     use personhog_coordination::types::{HandoffPhase, HandoffState};
 
     let store = test_store("dead-old-owner-freezing").await;
@@ -1640,10 +1641,8 @@ async fn dead_old_owner_in_freezing_triggers_cleanup() {
 
     store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
 
-    // Inject a stale Freezing handoff: old_owner=phantom-old (never
-    // registered as a pod), new_owner=writer-0 (will be registered next).
-    // The DrainedAck for phantom-old will never be written, so without
-    // cleanup the handoff would stall in Freezing forever.
+    // Inject a Freezing handoff: old_owner=phantom-old (never registered
+    // as a pod), new_owner=writer-0 (will be registered next).
     let stale = HandoffState {
         partition: 4,
         old_owner: Some("phantom-old".to_string()),
@@ -1656,22 +1655,17 @@ async fn dead_old_owner_in_freezing_triggers_cleanup() {
     let strategy: Arc<dyn AssignmentStrategy> = Arc::new(StickyBalancedStrategy);
     let _coord = start_coordinator(Arc::clone(&store), strategy, cancel.clone());
     let _router = start_router(Arc::clone(&store), "router-0", cancel.clone());
-
-    // Starting writer-0 fires a pod-change event which calls
-    // handle_pod_change_static → cleanup_stale_handoffs. The dead
-    // old_owner check should detect the phantom and delete the handoff.
     let _pod = start_pod(Arc::clone(&store), "writer-0", cancel.clone());
 
-    // Wait for the stale handoff to be deleted and the system to settle.
+    // router-0 acks the freeze, the absent old owner drains vacuously,
+    // writer-0 warms and acks, and completion deletes the handoff. The
+    // deferred rebalance then assigns the remaining partitions.
     let check_store = Arc::clone(&store);
     wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
         let store = Arc::clone(&check_store);
         async move {
             let handoffs = store.list_handoffs().await.unwrap_or_default();
             let assignments = store.list_assignments().await.unwrap_or_default();
-            // The stale handoff for partition 4 should be gone; full set
-            // of assignments should be present once normal bootstrap
-            // completes (independent of partition 4's stale handoff).
             !handoffs
                 .iter()
                 .any(|h| h.partition == 4 && h.old_owner.as_deref() == Some("phantom-old"))
@@ -2016,11 +2010,12 @@ async fn draining_old_owner_blocks_phase_advance() {
     cancel.cancel();
 }
 
-/// `cleanup_stale_handoffs` must use registration presence, not Ready
-/// status, when judging whether a pod is gone. Otherwise a `Draining` pod
-/// in the middle of a handoff would have its handoff record deleted
-/// before it could write its `DrainedAck`. Regression test for that
-/// scenario.
+/// `cleanup_stale_handoffs` judges only the new owner; the old owner's
+/// state — Draining, or even fully deregistered — must never cause a
+/// handoff deletion. A `Draining` old owner mid-handoff is the most
+/// failure-prone shape: it still owes the protocol a `DrainedAck`, and
+/// deleting its handoff record would strand the drain. Regression test
+/// for cleanup wrongly keying off old-owner liveness.
 #[tokio::test]
 async fn draining_old_owner_does_not_trigger_cleanup() {
     use personhog_coordination::types::{HandoffPhase, HandoffState, PodStatus, RegisteredPod};
@@ -2030,8 +2025,7 @@ async fn draining_old_owner_does_not_trigger_cleanup() {
 
     store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
 
-    // Register a Draining pod with no DrainedAck written yet — the most
-    // failure-prone state for `cleanup_stale_handoffs`.
+    // Register a Draining pod with no DrainedAck written yet.
     let lease = store.grant_lease(30).await.unwrap();
     let draining_pod = RegisteredPod {
         pod_name: "writer-draining".to_string(),
@@ -2054,10 +2048,9 @@ async fn draining_old_owner_does_not_trigger_cleanup() {
     store.put_handoff(&handoff).await.unwrap();
 
     // Start the coordinator and a real pod. The new pod registering
-    // triggers a pod-change event and runs `cleanup_stale_handoffs`. With
-    // the bug, the Draining pod is "not active" and the handoff is
-    // deleted as stuck-on-dead-old-owner. With the fix, the handoff
-    // survives because the Draining pod's etcd key is still present.
+    // triggers a pod-change event and runs `cleanup_stale_handoffs`,
+    // which must leave the handoff alone: the new owner is live, and the
+    // old owner's state is not cleanup's concern.
     let strategy: Arc<dyn AssignmentStrategy> = Arc::new(StickyBalancedStrategy);
     let _coord = start_coordinator(Arc::clone(&store), strategy, cancel.clone());
     let _new_pod = start_pod(Arc::clone(&store), "writer-new", cancel.clone());
@@ -2095,9 +2088,10 @@ async fn freezing_blocks_until_routers_ack_before_draining() {
 
     store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
 
-    // Register both old and new owner pods so `cleanup_stale_handoffs`
-    // doesn't delete the injected handoff. They don't run real
-    // handlers — we just need their etcd registrations to exist.
+    // Register both owner pods: the new owner so `cleanup_stale_handoffs`
+    // doesn't delete the injected handoff, the old owner so the scenario
+    // matches a live in-flight handoff. They don't run real handlers — we
+    // just need their etcd registrations to exist.
     let old_lease = store.grant_lease(60).await.unwrap();
     let new_lease = store.grant_lease(60).await.unwrap();
     for (name, lease) in [("writer-old", old_lease), ("writer-new", new_lease)] {
@@ -2239,17 +2233,11 @@ async fn initial_assignment_skips_draining_phase() {
 }
 
 /// If the old owner dies *during* Draining (lease expiry, pod crash),
-/// the handoff must still progress — either by advancing via
-/// `check_phase_advance`'s "old_owner not registered" branch, or by
-/// being cleaned up and replaced via rebalance. Either way the
-/// partition must end up assigned to a healthy pod, not stuck in
-/// Draining indefinitely.
-///
-/// The actual path is racy: pod-change events run
-/// `cleanup_stale_handoffs` (which may delete) while ack-watch events
-/// can fire `check_phase_advance` (which may advance). The test
-/// asserts the end state — partition has an active assignment and no
-/// lingering Draining handoff — which both paths converge to.
+/// the handoff must still progress: `check_phase_advance`'s "old_owner
+/// not registered" branch treats the drain as vacuously complete, and
+/// the reconcile tick guarantees re-evaluation even if no watch event
+/// fires. The partition must end up assigned to a healthy pod, not
+/// stuck in Draining indefinitely.
 #[tokio::test]
 async fn dead_old_owner_in_draining_recovers() {
     use personhog_coordination::types::{HandoffPhase, HandoffState, PodStatus, RegisteredPod};
@@ -2259,8 +2247,8 @@ async fn dead_old_owner_in_draining_recovers() {
 
     store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
 
-    // Register both old and new owner. We need both initially so the
-    // injected Draining handoff isn't immediately cleaned up.
+    // Register both owners so the injected handoff starts as a live
+    // in-flight Draining handoff waiting on a real DrainedAck.
     let old_lease = store.grant_lease(60).await.unwrap();
     let new_lease = store.grant_lease(60).await.unwrap();
     for (name, lease) in [("writer-old", old_lease), ("writer-new", new_lease)] {
@@ -2302,10 +2290,8 @@ async fn dead_old_owner_in_draining_recovers() {
     })
     .await;
 
-    // Kill the old owner. From this point, recovery must converge
-    // regardless of which mechanism wins — direct advance via
-    // check_phase_advance OR cleanup_stale_handoffs followed by
-    // rebalance.
+    // Kill the old owner. The next re-evaluation (pod-change event or
+    // reconcile tick) must advance the drain vacuously.
     store.delete_pod("writer-old").await.unwrap();
 
     // End-state assertion: no Draining handoff lingers for partition

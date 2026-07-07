@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use etcd_client::EventType;
+use etcd_client::{EventType, WatchStream};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
@@ -119,9 +119,19 @@ impl RoutingTable {
         let lease_id = self.store.grant_lease(self.config.lease_ttl).await?;
         self.register_router(lease_id).await?;
 
-        self.load_initial(&handler).await?;
+        let snapshot_revision = self.load_initial(&handler).await?;
 
-        // Run heartbeat, assignment watch, and handoff watch concurrently
+        // Anchor the handoff watch to the snapshot's revision: every event
+        // at or before it was handled by `load_initial`, every later one
+        // is replayed by the watch regardless of when it attaches. Without
+        // the anchor, an event landing between the snapshot read and the
+        // watch attaching is in neither and is never redelivered.
+        let handoff_stream = self
+            .store
+            .watch_handoffs_from(snapshot_revision + 1)
+            .await?;
+
+        // Run heartbeat and handoff watch concurrently
         let mut tasks = tokio::task::JoinSet::new();
 
         {
@@ -140,7 +150,8 @@ impl RoutingTable {
             let router_name = self.config.router_name.clone();
             let token = cancel.child_token();
             tasks.spawn(async move {
-                Self::watch_handoffs_loop(store, table, handler, router_name, token).await
+                Self::watch_handoffs_loop(store, table, handler, router_name, token, handoff_stream)
+                    .await
             });
         }
 
@@ -167,21 +178,23 @@ impl RoutingTable {
         self.store.register_router(&router, lease_id).await
     }
 
-    async fn load_initial(&self, handler: &Arc<dyn StashHandler>) -> Result<()> {
-        let assignments = self.store.list_assignments().await?;
-        let mut table = self.table.write().await;
-        for a in assignments {
-            table.insert(a.partition, a.owner);
-        }
-        tracing::info!(count = table.len(), "loaded initial routing table");
-        drop(table);
-
-        // Catch up on any in-progress handoffs. A late-joining router that
-        // observes a non-terminal handoff needs to begin stashing — and if
-        // we're still in Freezing, also write a FreezeAck so the
-        // coordinator's quorum can progress. Handoffs already at Complete
-        // arrive as a normal Put event through the watch loop below.
-        let handoffs = self.store.list_handoffs().await?;
+    /// Returns the etcd revision of the handoff snapshot, so the caller
+    /// can anchor the handoff watch to it.
+    async fn load_initial(&self, handler: &Arc<dyn StashHandler>) -> Result<i64> {
+        // Catch up on any in-progress handoffs BEFORE populating the
+        // routing table. The table starts empty, so every lookup fails
+        // closed until it is loaded; opening the stashes first guarantees
+        // that by the time a mid-handoff partition becomes routable it is
+        // already stashing. In the reverse order there is a window where a
+        // write routes to the old owner with no stash open — potentially
+        // after the old owner has already drained.
+        //
+        // A late-joining router that observes a non-terminal handoff needs
+        // to begin stashing — and if we're still in Freezing, also write a
+        // FreezeAck so the coordinator's quorum can progress. Handoffs
+        // already at Complete arrive as a normal Put event through the
+        // watch loop below.
+        let (handoffs, snapshot_revision) = self.store.list_handoffs_with_revision().await?;
         for handoff in handoffs {
             if matches!(
                 handoff.phase,
@@ -216,7 +229,15 @@ impl RoutingTable {
             }
         }
 
-        Ok(())
+        let assignments = self.store.list_assignments().await?;
+        let mut table = self.table.write().await;
+        for a in assignments {
+            table.insert(a.partition, a.owner);
+        }
+        tracing::info!(count = table.len(), "loaded initial routing table");
+        drop(table);
+
+        Ok(snapshot_revision)
     }
 
     async fn watch_handoffs_loop(
@@ -225,9 +246,8 @@ impl RoutingTable {
         handler: Arc<dyn StashHandler>,
         router_name: String,
         cancel: CancellationToken,
+        mut stream: WatchStream,
     ) -> Result<()> {
-        let mut stream = store.watch_handoffs().await?;
-
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),

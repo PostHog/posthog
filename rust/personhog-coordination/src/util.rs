@@ -21,8 +21,14 @@ pub async fn run_lease_keepalive(
             _ = cancel.cancelled() => return Ok(()),
             _ = tokio::time::sleep(interval) => {
                 keeper.keep_alive().await?;
-                if stream.message().await?.is_none() {
-                    return Err(Error::leadership_lost());
+                match stream.message().await? {
+                    None => return Err(Error::leadership_lost()),
+                    // etcd answers keepalives for a revoked or expired
+                    // lease with a normal response carrying TTL 0 — the
+                    // stream stays open, so stream-end alone never
+                    // detects lease loss.
+                    Some(resp) if resp.ttl() <= 0 => return Err(Error::leadership_lost()),
+                    Some(_) => {}
                 }
             }
         }

@@ -1,8 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-use etcd_client::EventType;
+use etcd_client::{EventType, WatchStream};
 use tokio_util::sync::CancellationToken;
 
 use assignment_coordination::store::parse_watch_value;
@@ -28,6 +28,14 @@ pub struct CoordinatorConfig {
     /// How long to wait after the first pod event before rebalancing, to batch
     /// rapid pod registrations into a single rebalance.
     pub rebalance_debounce_interval: Duration,
+    /// How often to re-evaluate in-flight handoffs regardless of watch
+    /// events. Phase advancement is normally event-driven, but some state
+    /// changes produce no watched event at all — a router departing
+    /// (nothing watches router registrations) can newly satisfy a freeze
+    /// quorum. The tick backstops those so handoffs cannot stall
+    /// indefinitely, and doubles as defense-in-depth for anything else
+    /// that slips through the event-driven paths.
+    pub reconcile_interval: Duration,
 }
 
 impl Default for CoordinatorConfig {
@@ -38,6 +46,7 @@ impl Default for CoordinatorConfig {
             keepalive_interval: Duration::from_secs(5),
             election_retry_interval: Duration::from_secs(5),
             rebalance_debounce_interval: Duration::from_secs(1),
+            reconcile_interval: Duration::from_secs(5),
         }
     }
 }
@@ -126,12 +135,22 @@ impl Coordinator {
     }
 
     async fn run_coordination_loop(&self, cancel: CancellationToken) -> Result<()> {
-        // Spawn all watch loops BEFORE doing any work that produces etcd
-        // events. The new protocol requires the coordinator itself to
-        // observe ack writes (PodDrainedAck, PodWarmedAck, RouterFreezeAck)
-        // to advance handoffs through their phases. If we did initial
-        // bootstrap before attaching watches, events fired during bootstrap
-        // would be missed and handoffs would stall in their initial phase.
+        // Anchor every watch to a single revision taken BEFORE bootstrap.
+        // The coordinator must observe ack writes (PodDrainedAck,
+        // PodWarmedAck, RouterFreezeAck) to advance handoffs; anchoring
+        // guarantees that any event from this revision on is delivered
+        // even if it lands before a watch finishes attaching, so nothing
+        // written during (or racing) bootstrap can be missed. Bootstrap
+        // reads happen after this point and may double-observe events the
+        // watches also deliver — all downstream work is idempotent
+        // (CAS-guarded phase transitions, tolerant cleanup).
+        let anchor = self.store.current_revision().await? + 1;
+        let pods_stream = self.store.watch_pods_from(anchor).await?;
+        let handoffs_stream = self.store.watch_handoffs_from(anchor).await?;
+        let freeze_acks_stream = self.store.watch_freeze_acks_from(anchor).await?;
+        let drained_acks_stream = self.store.watch_drained_acks_from(anchor).await?;
+        let warmed_acks_stream = self.store.watch_warmed_acks_from(anchor).await?;
+
         let mut tasks = tokio::task::JoinSet::new();
 
         {
@@ -141,8 +160,15 @@ impl Coordinator {
             let debounce_interval = self.config.rebalance_debounce_interval;
             let token = cancel.child_token();
             tasks.spawn(async move {
-                Self::watch_pods_loop(store, strategy, k8s_awareness, debounce_interval, token)
-                    .await
+                Self::watch_pods_loop(
+                    store,
+                    strategy,
+                    k8s_awareness,
+                    debounce_interval,
+                    token,
+                    pods_stream,
+                )
+                .await
             });
         }
 
@@ -152,32 +178,42 @@ impl Coordinator {
             let k8s_awareness = self.k8s_awareness.clone();
             let token = cancel.child_token();
             tasks.spawn(async move {
-                Self::watch_handoffs_loop(store, strategy, k8s_awareness, token).await
+                Self::watch_handoffs_loop(store, strategy, k8s_awareness, token, handoffs_stream)
+                    .await
             });
         }
 
         {
             let store = Arc::clone(&self.store);
             let token = cancel.child_token();
-            tasks.spawn(async move { Self::watch_freeze_acks_loop(store, token).await });
+            tasks.spawn(async move {
+                Self::run_ack_watch("freeze", freeze_acks_stream, &store, token).await
+            });
         }
 
         {
             let store = Arc::clone(&self.store);
             let token = cancel.child_token();
-            tasks.spawn(async move { Self::watch_drained_acks_loop(store, token).await });
+            tasks.spawn(async move {
+                Self::run_ack_watch("drained", drained_acks_stream, &store, token).await
+            });
         }
 
         {
             let store = Arc::clone(&self.store);
             let token = cancel.child_token();
-            tasks.spawn(async move { Self::watch_warmed_acks_loop(store, token).await });
+            tasks.spawn(async move {
+                Self::run_ack_watch("warmed", warmed_acks_stream, &store, token).await
+            });
         }
 
-        // Watches are now attached at the current etcd revision.
-        // Any handoff/ack events produced from this point forward will be
-        // observed by the relevant watch loops.
-        //
+        {
+            let store = Arc::clone(&self.store);
+            let interval = self.config.reconcile_interval;
+            let token = cancel.child_token();
+            tasks.spawn(async move { Self::reconcile_tick_loop(store, interval, token).await });
+        }
+
         // Reconcile any handoffs that already have full ack quorum.
         // This handles acks that arrived before this coordinator took leadership.
         self.reconcile_pending_handoffs().await?;
@@ -204,9 +240,8 @@ impl Coordinator {
         k8s_awareness: Option<Arc<K8sAwareness>>,
         debounce_interval: Duration,
         cancel: CancellationToken,
+        mut stream: WatchStream,
     ) -> Result<()> {
-        let mut stream = store.watch_pods().await?;
-
         loop {
             // Wait for the first pod event
             tokio::select! {
@@ -249,9 +284,8 @@ impl Coordinator {
         strategy: Arc<dyn AssignmentStrategy>,
         k8s_awareness: Option<Arc<K8sAwareness>>,
         cancel: CancellationToken,
+        mut stream: WatchStream,
     ) -> Result<()> {
-        let mut stream = store.watch_handoffs().await?;
-
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
@@ -294,36 +328,11 @@ impl Coordinator {
         }
     }
 
-    /// Watch for router freeze acks (routers confirming they have begun stashing).
-    async fn watch_freeze_acks_loop(
-        store: Arc<PersonhogStore>,
-        cancel: CancellationToken,
-    ) -> Result<()> {
-        let mut stream = store.watch_freeze_acks().await?;
-        Self::run_ack_watch("freeze", &mut stream, &store, cancel).await
-    }
-
-    /// Watch for the old owner's drained acks.
-    async fn watch_drained_acks_loop(
-        store: Arc<PersonhogStore>,
-        cancel: CancellationToken,
-    ) -> Result<()> {
-        let mut stream = store.watch_drained_acks().await?;
-        Self::run_ack_watch("drained", &mut stream, &store, cancel).await
-    }
-
-    /// Watch for the new owner's warmed acks.
-    async fn watch_warmed_acks_loop(
-        store: Arc<PersonhogStore>,
-        cancel: CancellationToken,
-    ) -> Result<()> {
-        let mut stream = store.watch_warmed_acks().await?;
-        Self::run_ack_watch("warmed", &mut stream, &store, cancel).await
-    }
-
+    /// Consume an ack watch stream (freeze, drained, or warmed), nudging
+    /// phase advancement for the acked partition on every event.
     async fn run_ack_watch(
         kind: &str,
-        stream: &mut etcd_client::WatchStream,
+        mut stream: WatchStream,
         store: &PersonhogStore,
         cancel: CancellationToken,
     ) -> Result<()> {
@@ -343,6 +352,32 @@ impl Coordinator {
                                 Self::check_phase_advance(store, partition).await?;
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Periodically re-evaluate every in-flight handoff, mirroring what
+    /// the ack watches do on events. This is the liveness backstop for
+    /// state changes that fire no watched event — a router departing
+    /// (nothing watches router registrations) can newly satisfy a freeze
+    /// quorum. All the work it drives is idempotent: phase transitions
+    /// use CAS and completed-handoff cleanup tolerates already-deleted
+    /// records.
+    async fn reconcile_tick_loop(
+        store: Arc<PersonhogStore>,
+        interval: Duration,
+        cancel: CancellationToken,
+    ) -> Result<()> {
+        let mut tick = tokio::time::interval(interval);
+        loop {
+            tokio::select! {
+                _ = cancel.cancelled() => return Ok(()),
+                _ = tick.tick() => {
+                    for handoff in store.list_handoffs().await? {
+                        Self::handle_handoff_update_static(&store, &handoff).await?;
+                        Self::check_phase_advance(&store, handoff.partition).await?;
                     }
                 }
             }
@@ -373,11 +408,22 @@ impl Coordinator {
                 let routers = store.list_routers().await?;
                 let freeze_acks = store.list_freeze_acks(partition).await?;
 
+                // Identity-based quorum: every currently registered router
+                // must have acked this partition's freeze. A count
+                // comparison would let a stale ack from a departed router
+                // (acks are not lease-bound) stand in for a live router
+                // that hasn't stashed yet — advancing to Draining while
+                // that router still forwards writes to the old owner.
+                //
                 // With zero routers there is no traffic to stash, so the
                 // freeze quorum is vacuously met. This keeps bootstrap and
                 // router-less configurations (e.g. tests exercising only
                 // the coordinator+pod) unblocked.
-                let all_routers_frozen = freeze_acks.len() >= routers.len();
+                let acked: HashSet<&str> =
+                    freeze_acks.iter().map(|a| a.router_name.as_str()).collect();
+                let all_routers_frozen = routers
+                    .iter()
+                    .all(|r| acked.contains(r.router_name.as_str()));
 
                 if all_routers_frozen {
                     // Initial assignments (no old owner) skip Draining
@@ -571,9 +617,8 @@ impl Coordinator {
         // cache hasn't been warmed.
         //
         // Partitions that already have the correct owner are skipped.
-        let assigned_partitions: std::collections::HashSet<u32> =
-            new_assignments.keys().copied().collect();
-        let reassignment_partitions: std::collections::HashSet<u32> =
+        let assigned_partitions: HashSet<u32> = new_assignments.keys().copied().collect();
+        let reassignment_partitions: HashSet<u32> =
             reassignments.iter().map(|(p, _, _)| *p).collect();
 
         // Fresh partitions = assigned but neither in current nor being reassigned.
@@ -624,7 +669,7 @@ impl Coordinator {
         // already) still need to be written to etcd, but reassignments and
         // fresh assignments defer their PartitionAssignment writes until the
         // handoff reaches Complete.
-        let handoff_partitions: std::collections::HashSet<u32> =
+        let handoff_partitions: HashSet<u32> =
             handoff_objects.iter().map(|h| h.partition).collect();
         let assignment_objects: Vec<PartitionAssignment> = new_assignments
             .iter()
@@ -655,46 +700,34 @@ impl Coordinator {
         Ok(())
     }
 
-    /// Delete handoffs that cannot progress because either the new_owner is
-    /// gone, or the old_owner is gone before it wrote a DrainedAck.
+    /// Delete handoffs that cannot progress because the new_owner is gone —
+    /// no `WarmedAck` will ever arrive, so the handoff can never complete,
+    /// and deleting it lets the next rebalance pick a healthy owner.
+    ///
+    /// A dead *old* owner is deliberately not grounds for cleanup: Freezing
+    /// waits on routers rather than the old owner, and `check_phase_advance`
+    /// treats an absent old owner in Draining as vacuously drained, so such
+    /// handoffs advance on their own (the reconcile tick guarantees
+    /// re-evaluation). Deleting them here would race that advance path and
+    /// tear down a healthy in-flight warm on the new owner.
     ///
     /// "Gone" here means the pod's etcd registration is absent — its lease
     /// expired or it deregistered. A `Draining` pod is *not* gone: it is
     /// still alive, still heartbeating, and still capable of running its
-    /// handoff handler. We deliberately don't reuse the assignment-eligible
-    /// pod set (which is `Ready`-only) for liveness here, because a Draining
-    /// pod that's mid-drain still owes the protocol a `DrainedAck` and must
-    /// be allowed to write it.
+    /// handoff handler.
     async fn cleanup_stale_handoffs(store: &PersonhogStore) -> Result<()> {
         let handoffs = store.list_handoffs().await?;
         let pods = store.list_pods().await?;
-        let registered_set: std::collections::HashSet<&str> =
-            pods.iter().map(|p| p.pod_name.as_str()).collect();
+        let registered_set: HashSet<&str> = pods.iter().map(|p| p.pod_name.as_str()).collect();
 
         for handoff in &handoffs {
-            let new_owner_gone = !registered_set.contains(handoff.new_owner.as_str());
-
-            // Check if old_owner is gone and hasn't acked its drain yet.
-            // A dead old_owner with a DrainedAck already present is fine —
-            // the protocol has all it needs to advance. Without the ack the
-            // handoff is stuck in Freezing forever.
-            let stuck_on_dead_old_owner = match &handoff.old_owner {
-                Some(name) if !registered_set.contains(name.as_str()) => {
-                    let drained = store.list_drained_acks(handoff.partition).await?;
-                    !drained.iter().any(|a| a.pod_name == *name)
-                }
-                _ => false,
-            };
-
-            if new_owner_gone || stuck_on_dead_old_owner {
+            if !registered_set.contains(handoff.new_owner.as_str()) {
                 tracing::warn!(
                     partition = handoff.partition,
                     new_owner = %handoff.new_owner,
                     old_owner = ?handoff.old_owner,
                     phase = ?handoff.phase,
-                    new_owner_gone,
-                    stuck_on_dead_old_owner,
-                    "cleaning up stale handoff"
+                    "cleaning up handoff targeting a dead new owner"
                 );
                 store.delete_all_handoff_acks(handoff.partition).await?;
                 store.delete_handoff(handoff.partition).await?;

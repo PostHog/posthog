@@ -9,11 +9,14 @@ use common::{
     create_leader_client, create_local_kafka_producer, create_test_kafka,
     create_test_kafka_with_partitions, seed_person, start_coordinator, start_leader_pod,
     start_leader_pod_with_lease_ttl, start_leader_with_pg_fallback, start_router,
-    test_cached_person, test_store, wait_for_condition, CHANGELOG_TOPIC, KAFKA_BOOTSTRAP,
-    NUM_PARTITIONS, POLL_INTERVAL, WAIT_TIMEOUT,
+    test_cached_person, test_store, test_warming_config, wait_for_condition, CHANGELOG_TOPIC,
+    KAFKA_BOOTSTRAP, NUM_PARTITIONS, POLL_INTERVAL, WAIT_TIMEOUT,
 };
+use personhog_coordination::pod::HandoffHandler;
 use personhog_coordination::strategy::StickyBalancedStrategy;
 use personhog_leader::cache::{CacheLookup, PartitionedCache};
+use personhog_leader::coordination::LeaderHandoffHandler;
+use personhog_leader::inflight::InflightTracker;
 use personhog_leader::service::PersonHogLeaderService;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
 use personhog_proto::personhog::leader::v1::LeaderGetPersonRequest;
@@ -208,6 +211,204 @@ async fn unowned_partition_returns_failed_precondition() {
         .await;
     assert!(result.is_err());
     assert_eq!(result.unwrap_err().code(), tonic::Code::NotFound);
+
+    cancel.cancel();
+}
+
+// ============================================================
+// Test 2b: Post-drain write fencing
+// (no etcd needed)
+// ============================================================
+
+/// Once the old owner has drained a partition, every router has acked the
+/// freeze — so a later write can only come from a router serving with a
+/// stale table (an expired lease it hasn't noticed, a missed freeze).
+/// Accepting it would produce to Kafka past the HWM that warming
+/// snapshots, silently losing the write from the new owner's cache. After
+/// draining, the old owner must reject writes for the partition while
+/// continuing to serve reads: the frozen state remains the latest until
+/// cutover. Releasing the partition clears the fence with it.
+#[tokio::test]
+async fn writes_fenced_after_drain_reads_still_served() {
+    let cache = Arc::new(PartitionedCache::new(100));
+    let (_mock_cluster, kafka_producer) = create_test_kafka().await;
+    let inflight = Arc::new(InflightTracker::new());
+    let service = PersonHogLeaderService::new(
+        Arc::clone(&cache),
+        kafka_producer,
+        CHANGELOG_TOPIC.to_string(),
+        None,
+        Arc::new(DashMap::new()),
+        Arc::clone(&inflight),
+    );
+    // The handler shares the cache and inflight tracker with the service,
+    // exactly as main.rs wires them.
+    let handler = LeaderHandoffHandler::new(
+        Arc::clone(&cache),
+        Arc::clone(&inflight),
+        test_warming_config("fence-pod", KAFKA_BOOTSTRAP),
+    );
+
+    cache.create_partition(0);
+    seed_person(&cache, 0, test_cached_person());
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let cancel = CancellationToken::new();
+    let token = cancel.child_token();
+
+    tokio::spawn(async move {
+        Server::builder()
+            .add_service(PersonHogLeaderServer::new(service))
+            .serve_with_incoming_shutdown(
+                tokio_stream::wrappers::TcpListenerStream::new(listener),
+                token.cancelled(),
+            )
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    let mut client = create_leader_client(addr).await;
+
+    let update = |email: &str| UpdatePersonPropertiesRequest {
+        team_id: 1,
+        person_id: 42,
+        partition: 0,
+        event_name: "$set".to_string(),
+        set_properties: serde_json::to_vec(&serde_json::json!({ "email": email })).unwrap(),
+        set_once_properties: vec![],
+        unset_properties: vec![],
+    };
+
+    // Pre-drain: writes flow normally.
+    let response = client
+        .update_person_properties(update("before@example.com"))
+        .await
+        .unwrap();
+    assert!(response.into_inner().updated);
+
+    // Drain the partition, as the pod does on observing Draining.
+    handler.drain_partition_inflight(0).await.unwrap();
+
+    // Post-drain: writes must be fenced…
+    let status = client
+        .update_person_properties(update("after@example.com"))
+        .await
+        .expect_err("write after drain must be rejected");
+    assert_eq!(status.code(), tonic::Code::FailedPrecondition);
+
+    // …while reads keep serving the frozen, still-latest state.
+    let response = client
+        .get_person(LeaderGetPersonRequest {
+            team_id: 1,
+            person_id: 42,
+            partition: 0,
+        })
+        .await
+        .expect("reads must keep serving after drain");
+    let props: serde_json::Value =
+        serde_json::from_slice(&response.into_inner().person.unwrap().properties).unwrap();
+    assert_eq!(props["email"], "before@example.com");
+
+    // Releasing clears the fence along with the partition: when the same
+    // pod later re-acquires the partition (fresh warm), writes flow again.
+    handler.release_partition(0).await.unwrap();
+    cache.create_partition(0);
+    seed_person(&cache, 0, test_cached_person());
+    let response = client
+        .update_person_properties(update("rewarmed@example.com"))
+        .await
+        .expect("writes must flow again after release + re-warm");
+    assert!(response.into_inner().updated);
+
+    cancel.cancel();
+}
+
+/// The fence must go up before the drain starts waiting on inflight
+/// handlers — fencing only after `wait_until_empty` returns would leave a
+/// window where a write lands between the inflight count hitting zero and
+/// the DrainedAck being written, advancing the Kafka HWM past what
+/// warming will read. With an inflight write held open, new writes must
+/// already be rejected while the drain is still waiting.
+#[tokio::test]
+async fn drain_fences_before_waiting_on_inflight() {
+    let cache = Arc::new(PartitionedCache::new(100));
+    let (_mock_cluster, kafka_producer) = create_test_kafka().await;
+    let inflight = Arc::new(InflightTracker::new());
+    let service = PersonHogLeaderService::new(
+        Arc::clone(&cache),
+        kafka_producer,
+        CHANGELOG_TOPIC.to_string(),
+        None,
+        Arc::new(DashMap::new()),
+        Arc::clone(&inflight),
+    );
+    let handler = Arc::new(LeaderHandoffHandler::new(
+        Arc::clone(&cache),
+        Arc::clone(&inflight),
+        test_warming_config("fence-race-pod", KAFKA_BOOTSTRAP),
+    ));
+
+    cache.create_partition(0);
+    seed_person(&cache, 0, test_cached_person());
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let cancel = CancellationToken::new();
+    let token = cancel.child_token();
+
+    tokio::spawn(async move {
+        Server::builder()
+            .add_service(PersonHogLeaderServer::new(service))
+            .serve_with_incoming_shutdown(
+                tokio_stream::wrappers::TcpListenerStream::new(listener),
+                token.cancelled(),
+            )
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    let mut client = create_leader_client(addr).await;
+
+    // Hold a simulated in-flight write so the drain parks in
+    // wait_until_empty rather than completing immediately.
+    let guard = inflight.begin(0);
+
+    let drain_handler = Arc::clone(&handler);
+    let drain = tokio::spawn(async move { drain_handler.drain_partition_inflight(0).await });
+
+    // Give the drain a moment to start waiting.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(
+        !drain.is_finished(),
+        "drain must wait for the held inflight"
+    );
+
+    // A write arriving mid-drain must already be fenced.
+    let status = client
+        .update_person_properties(UpdatePersonPropertiesRequest {
+            team_id: 1,
+            person_id: 42,
+            partition: 0,
+            event_name: "$set".to_string(),
+            set_properties: serde_json::to_vec(&serde_json::json!({"email": "mid@example.com"}))
+                .unwrap(),
+            set_once_properties: vec![],
+            unset_properties: vec![],
+        })
+        .await
+        .expect_err("write during drain must be rejected");
+    assert_eq!(status.code(), tonic::Code::FailedPrecondition);
+
+    // Releasing the held write lets the drain complete.
+    drop(guard);
+    tokio::time::timeout(Duration::from_secs(5), drain)
+        .await
+        .expect("drain must complete once inflight reaches zero")
+        .expect("drain task must not panic")
+        .expect("drain must succeed");
 
     cancel.cancel();
 }

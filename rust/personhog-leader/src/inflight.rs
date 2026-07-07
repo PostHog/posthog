@@ -2,21 +2,31 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use dashmap::DashMap;
+use dashmap::{DashMap, DashSet};
 
-/// Per-partition inflight request counter used by the handoff protocol to
+/// Per-partition write-admission state used by the handoff protocol to
 /// prove that all writes this pod ever acked are durably in Kafka.
 ///
-/// Because `produce_person_changelog` awaits the Kafka delivery future before
-/// the handler returns success, "no inflight handlers for partition p" implies
-/// "every write for p that this pod ever acknowledged is in Kafka."
+/// Two pieces work together:
 ///
-/// Callers obtain a guard via `begin(partition)` and drop it when the handler
-/// completes; the handoff protocol calls `wait_until_empty(partition)` to
-/// block until all inflight handlers have returned.
+/// * An inflight counter. Because `produce_person_changelog` awaits the
+///   Kafka delivery future before the handler returns success, "no
+///   inflight handlers for partition p" implies "every write for p that
+///   this pod ever acknowledged is in Kafka."
+/// * A write fence. Once a partition drains for handoff, no further write
+///   may be admitted: every router acked the freeze before the drain
+///   began, so a late write can only come from a router serving with a
+///   stale view — accepting it would advance the Kafka HWM past the point
+///   warming snapshots, silently losing the write from the new owner.
+///
+/// Callers obtain a guard via `begin(partition)` and drop it when the
+/// handler completes; the handoff protocol fences the partition, then
+/// calls `wait_until_empty(partition)` to block until all inflight
+/// handlers have returned.
 #[derive(Default)]
 pub struct InflightTracker {
     partitions: DashMap<u32, Arc<AtomicUsize>>,
+    fenced: DashSet<u32>,
 }
 
 impl InflightTracker {
@@ -48,6 +58,25 @@ impl InflightTracker {
             }
             tokio::time::sleep(poll_interval).await;
         }
+    }
+
+    /// Reject new writes for the partition. Must be set before the drain
+    /// starts waiting on the inflight count, so no write can slip in
+    /// between the count reaching zero and the drained ack being written.
+    pub fn fence(&self, partition: u32) {
+        self.fenced.insert(partition);
+    }
+
+    /// Re-admit writes for the partition: the handoff completed (the
+    /// partition was released), was cancelled, or this pod re-acquired
+    /// the partition through a fresh warm. Idempotent.
+    pub fn unfence(&self, partition: u32) {
+        self.fenced.remove(&partition);
+    }
+
+    /// Whether writes for the partition are currently rejected.
+    pub fn is_fenced(&self, partition: u32) -> bool {
+        self.fenced.contains(&partition)
     }
 
     #[cfg(test)]
@@ -125,5 +154,25 @@ mod tests {
         let _g = tracker.begin(1);
         tracker.wait_until_empty(2, Duration::from_millis(10)).await;
         assert_eq!(tracker.count(1), 1);
+    }
+
+    /// Fences are per-partition, idempotent, and reversible — the exact
+    /// lifecycle the handoff handler drives (fence on drain, unfence on
+    /// release/cancel/re-warm).
+    #[test]
+    fn fence_lifecycle() {
+        let tracker = InflightTracker::new();
+        assert!(!tracker.is_fenced(5));
+
+        tracker.fence(5);
+        assert!(tracker.is_fenced(5));
+        assert!(!tracker.is_fenced(6), "fences are per-partition");
+
+        tracker.fence(5); // idempotent
+        tracker.unfence(5);
+        assert!(!tracker.is_fenced(5));
+
+        tracker.unfence(5); // idempotent on already-clear
+        assert!(!tracker.is_fenced(5));
     }
 }

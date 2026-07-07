@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use etcd_client::EventType;
+use etcd_client::{Event, EventType, WatchStream};
 use tokio::sync::{Mutex, Notify};
 use tokio_util::sync::CancellationToken;
 
@@ -12,7 +12,7 @@ use k8s_awareness::types::{ControllerKind, ControllerRef};
 use k8s_awareness::{DepartureReason, K8sAwareness};
 
 use crate::error::{Error, Result};
-use crate::store::PersonhogStore;
+use crate::store::{self, PersonhogStore};
 use crate::types::{
     HandoffPhase, HandoffState, PodDrainedAck, PodStatus, PodWarmedAck, RegisteredPod,
 };
@@ -44,6 +44,17 @@ pub trait HandoffHandler: Send + Sync {
     ///
     /// Called when this pod is `old_owner` and handoff phase reaches `Complete`.
     async fn release_partition(&self, partition: u32) -> Result<()>;
+
+    /// The handoff for a partition this pod still owns was cancelled before
+    /// completing (e.g. the new owner died mid-warm and the coordinator
+    /// deleted the record). The pod remains the owner and must resume
+    /// normal service — in particular, re-admit any writes it fenced when
+    /// it drained.
+    ///
+    /// Called when a handoff record is deleted while this pod still holds
+    /// the partition (a delete after `Complete` is normal cleanup and does
+    /// not trigger this).
+    async fn resume_partition(&self, partition: u32) -> Result<()>;
 }
 
 #[derive(Debug, Clone)]
@@ -122,7 +133,7 @@ impl PodHandle {
         // This keeps the lease alive so the coordinator sees a Draining pod
         // (not a crashed one with an expired lease).
         let heartbeat_cancel = CancellationToken::new();
-        let heartbeat_handle = {
+        let mut heartbeat_handle = {
             let store = Arc::clone(&self.store);
             let interval = self.config.heartbeat_interval;
             let token = heartbeat_cancel.child_token();
@@ -144,22 +155,70 @@ impl PodHandle {
         // re-polled. Racing the cancel token at this level drops the
         // in-flight loop future via cancel-by-drop, unwinding any stuck
         // handler and letting the pod proceed to drain + lease revoke.
+        //
+        // The heartbeat task is raced here too: the coordinator treats
+        // lease expiry as pod death and hands this pod's partitions to
+        // new owners, so a pod that outlives its lease is a zombie — it
+        // would keep accepting writes for partitions the protocol has
+        // already moved. Losing the lease therefore terminates the run
+        // loop (self-fence) and the process restarts through the normal
+        // lifecycle.
+        let mut lease_lost = false;
         let result = tokio::select! {
-            r = self.watch_handoff_loop(cancel.clone()) => r,
+            r = async {
+                // Catch up on handoffs that already exist before watching
+                // for new ones. A pod that crash-restarts within its lease
+                // TTL keeps its registration, so the coordinator never
+                // cleans up its in-flight handoffs and no further Put
+                // arrives — without this scan the restarted pod never
+                // plays its part and the handoff stalls forever. The watch
+                // is anchored to the scan's revision, so an event landing
+                // between the scan and the watch attaching is replayed
+                // rather than lost.
+                let snapshot_revision = self.catch_up_on_handoffs().await?;
+                let stream = self.store.watch_handoffs_from(snapshot_revision + 1).await?;
+                self.watch_handoff_loop(stream, cancel.clone()).await
+            } => r,
+            r = &mut heartbeat_handle => {
+                lease_lost = true;
+                let err = match r {
+                    Ok(Ok(())) => {
+                        Error::invalid_state("lease keepalive exited unexpectedly".to_string())
+                    }
+                    Ok(Err(e)) => e,
+                    Err(join_err) => {
+                        Error::invalid_state(format!("keepalive task panicked: {join_err}"))
+                    }
+                };
+                tracing::error!(
+                    pod = %self.config.pod_name,
+                    error = %err,
+                    "lease keepalive failed; self-fencing"
+                );
+                Err(err)
+            }
             _ = cancel.cancelled() => Ok(()),
         };
 
-        // Phase 2: If cancelled externally (SIGTERM), drain gracefully
-        if cancel.is_cancelled() {
+        // Phase 2: If cancelled externally (SIGTERM), drain gracefully.
+        // Skipped on lease loss: the coordinator already considers this
+        // pod dead and is reassigning its partitions via the dead-owner
+        // path — a graceful drain would race it, and every status write
+        // would fail against the expired lease anyway.
+        if cancel.is_cancelled() && !lease_lost {
             if let Err(e) = self.drain(lease_id).await {
                 tracing::warn!(pod = %self.config.pod_name, error = %e, "drain failed");
             }
         }
 
-        // Cleanup: stop heartbeat and revoke lease
-        heartbeat_cancel.cancel();
-        drop(heartbeat_handle.await);
-        drop(self.store.revoke_lease(lease_id).await);
+        // Cleanup: stop heartbeat and revoke lease. On lease loss the
+        // heartbeat task has already exited (its handle must not be
+        // awaited twice) and there is no lease left to revoke.
+        if !lease_lost {
+            heartbeat_cancel.cancel();
+            drop(heartbeat_handle.await);
+            drop(self.store.revoke_lease(lease_id).await);
+        }
 
         result
     }
@@ -230,11 +289,18 @@ impl PodHandle {
         }
 
         // Keep watching handoffs during drain so we can release partitions
-        // when the coordinator completes them.
+        // when the coordinator completes them. Catch up first — a Complete
+        // written while the main loop was winding down would otherwise be
+        // missed — and anchor the fresh watch to the snapshot's revision.
         let drain_cancel = CancellationToken::new();
+        let snapshot_revision = self.catch_up_on_handoffs().await?;
+        let stream = self
+            .store
+            .watch_handoffs_from(snapshot_revision + 1)
+            .await?;
 
         tokio::select! {
-            r = self.watch_handoff_loop(drain_cancel.clone()) => {
+            r = self.watch_handoff_loop(stream, drain_cancel.clone()) => {
                 r?;
             },
             _ = self.wait_for_drain() => {
@@ -265,29 +331,75 @@ impl PodHandle {
         }
     }
 
-    async fn watch_handoff_loop(&self, cancel: CancellationToken) -> Result<()> {
-        let mut stream = self.store.watch_handoffs().await?;
+    /// Replay handoffs that already exist in etcd through the normal
+    /// event dispatch. `handle_handoff_event` is phase- and role-aware,
+    /// so this is a no-op for handoffs that don't involve this pod, and
+    /// its actions (drain, warm, release) are idempotent for ones it
+    /// already acted on before a restart. Returns the etcd revision of
+    /// the snapshot so the caller can anchor the handoff watch to it.
+    async fn catch_up_on_handoffs(&self) -> Result<i64> {
+        let (handoffs, snapshot_revision) = self.store.list_handoffs_with_revision().await?;
+        for handoff in handoffs {
+            self.handle_handoff_event(&handoff).await?;
+        }
+        Ok(snapshot_revision)
+    }
 
+    async fn watch_handoff_loop(
+        &self,
+        mut stream: WatchStream,
+        cancel: CancellationToken,
+    ) -> Result<()> {
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 msg = stream.message() => {
                     let resp = msg?.ok_or_else(|| Error::invalid_state("handoff watch stream ended".to_string()))?;
                     for event in resp.events() {
-                        if event.event_type() == EventType::Put {
-                            match parse_watch_value::<HandoffState>(event) {
-                                Ok(handoff) => {
-                                    self.handle_handoff_event(&handoff).await?;
+                        match event.event_type() {
+                            EventType::Put => {
+                                match parse_watch_value::<HandoffState>(event) {
+                                    Ok(handoff) => {
+                                        self.handle_handoff_event(&handoff).await?;
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(pod = %self.config.pod_name, error = %e, "failed to parse handoff");
+                                    }
                                 }
-                                Err(e) => {
-                                    tracing::error!(pod = %self.config.pod_name, error = %e, "failed to parse handoff");
-                                }
+                            }
+                            EventType::Delete => {
+                                self.handle_handoff_delete(event).await?;
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    /// A handoff record was deleted. After `Complete` this is normal
+    /// cleanup — the release already ran and the partition is no longer
+    /// owned. A delete while this pod still holds the partition means the
+    /// handoff was cancelled (`cleanup_stale_handoffs`); the pod stays the
+    /// owner and must resume normal service for the partition.
+    async fn handle_handoff_delete(&self, event: &Event) -> Result<()> {
+        let Some(kv) = event.kv() else {
+            return Ok(());
+        };
+        let key = std::str::from_utf8(kv.key()).unwrap_or("");
+        let Some(partition) = store::extract_partition_from_key(key) else {
+            return Ok(());
+        };
+
+        if self.owned_partitions.lock().await.contains(&partition) {
+            tracing::warn!(
+                pod = %self.config.pod_name,
+                partition,
+                "handoff cancelled while still owning partition; resuming"
+            );
+            self.handler.resume_partition(partition).await?;
+        }
+        Ok(())
     }
 
     async fn handle_handoff_event(&self, handoff: &HandoffState) -> Result<()> {

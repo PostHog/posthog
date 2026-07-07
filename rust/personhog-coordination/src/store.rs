@@ -132,6 +132,19 @@ impl PersonhogStore {
         Ok(self.inner.watch(&key).await?)
     }
 
+    /// Watch pod registrations from an explicit revision (inclusive),
+    /// replaying events since that revision even if they predate the
+    /// watch's creation.
+    pub async fn watch_pods_from(&self, start_revision: i64) -> Result<WatchStream> {
+        let key = self.key(StoreKey::PodsPrefix);
+        Ok(self.inner.watch_from(&key, start_revision).await?)
+    }
+
+    /// The current etcd store revision, for anchoring watches.
+    pub async fn current_revision(&self) -> Result<i64> {
+        Ok(self.inner.current_revision().await?)
+    }
+
     // ── Router operations ────────────────────────────────────────
 
     pub async fn register_router(&self, router: &RegisteredRouter, lease_id: i64) -> Result<()> {
@@ -188,6 +201,14 @@ impl PersonhogStore {
     pub async fn list_handoffs(&self) -> Result<Vec<HandoffState>> {
         let key = self.key(StoreKey::HandoffsPrefix);
         Ok(self.inner.list(&key).await?)
+    }
+
+    /// Like `list_handoffs`, but also returns the etcd revision of the
+    /// snapshot. Pair with `watch_handoffs_from(revision + 1)` for a
+    /// gap-free snapshot-then-watch handshake.
+    pub async fn list_handoffs_with_revision(&self) -> Result<(Vec<HandoffState>, i64)> {
+        let key = self.key(StoreKey::HandoffsPrefix);
+        Ok(self.inner.list_with_revision(&key).await?)
     }
 
     pub async fn put_handoff(&self, handoff: &HandoffState) -> Result<()> {
@@ -247,6 +268,14 @@ impl PersonhogStore {
         Ok(self.inner.watch(&key).await?)
     }
 
+    /// Watch handoffs from an explicit revision (inclusive), replaying
+    /// events since that revision even if they predate the watch's
+    /// creation.
+    pub async fn watch_handoffs_from(&self, start_revision: i64) -> Result<WatchStream> {
+        let key = self.key(StoreKey::HandoffsPrefix);
+        Ok(self.inner.watch_from(&key, start_revision).await?)
+    }
+
     // ── Freeze ack operations (router -> coordinator) ────────────
 
     pub async fn put_freeze_ack(&self, ack: &RouterFreezeAck) -> Result<()> {
@@ -270,6 +299,11 @@ impl PersonhogStore {
     pub async fn watch_freeze_acks(&self) -> Result<WatchStream> {
         let key = self.key(StoreKey::FreezeAcksPrefix);
         Ok(self.inner.watch(&key).await?)
+    }
+
+    pub async fn watch_freeze_acks_from(&self, start_revision: i64) -> Result<WatchStream> {
+        let key = self.key(StoreKey::FreezeAcksPrefix);
+        Ok(self.inner.watch_from(&key, start_revision).await?)
     }
 
     // ── Drained ack operations (old owner -> coordinator) ────────
@@ -297,6 +331,11 @@ impl PersonhogStore {
         Ok(self.inner.watch(&key).await?)
     }
 
+    pub async fn watch_drained_acks_from(&self, start_revision: i64) -> Result<WatchStream> {
+        let key = self.key(StoreKey::DrainedAcksPrefix);
+        Ok(self.inner.watch_from(&key, start_revision).await?)
+    }
+
     // ── Warmed ack operations (new owner -> coordinator) ─────────
 
     pub async fn put_warmed_ack(&self, ack: &PodWarmedAck) -> Result<()> {
@@ -320,6 +359,11 @@ impl PersonhogStore {
     pub async fn watch_warmed_acks(&self) -> Result<WatchStream> {
         let key = self.key(StoreKey::WarmedAcksPrefix);
         Ok(self.inner.watch(&key).await?)
+    }
+
+    pub async fn watch_warmed_acks_from(&self, start_revision: i64) -> Result<WatchStream> {
+        let key = self.key(StoreKey::WarmedAcksPrefix);
+        Ok(self.inner.watch_from(&key, start_revision).await?)
     }
 
     /// Clean up every handoff-related ack for a partition. Called when a

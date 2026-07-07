@@ -84,6 +84,7 @@ pub fn start_coordinator(
             keepalive_interval: Duration::from_secs(3),
             election_retry_interval: Duration::from_secs(1),
             rebalance_debounce_interval: Duration::from_millis(100),
+            reconcile_interval: Duration::from_millis(500),
         },
         strategy,
         None,

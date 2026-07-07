@@ -179,6 +179,19 @@ impl PersonHogLeader for PersonHogLeaderService {
     ) -> Result<Response<UpdatePersonPropertiesResponse>, Status> {
         let req = request.into_inner();
 
+        // A fenced partition has drained for handoff: every router acked
+        // the freeze, so this write can only come from a router with a
+        // stale view. Accepting it would produce past the Kafka HWM that
+        // the new owner's warming snapshots, silently losing the write.
+        // Reads are unaffected — the frozen state stays the latest until
+        // cutover.
+        if self.inflight.is_fenced(req.partition) {
+            return Err(Status::failed_precondition(format!(
+                "partition {} is fenced for handoff; writes are rejected",
+                req.partition
+            )));
+        }
+
         // Track this write as inflight for its partition. The handoff protocol
         // waits for the per-partition inflight count to drop to zero before
         // advancing Freezing -> Warming. Combined with sync-acked produces, a
