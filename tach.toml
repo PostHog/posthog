@@ -205,7 +205,7 @@ layer = "modules"
 path = "products.conversations"
 depends_on = [
     "ee",
-    "posthog", "products.tasks", "products.business_knowledge",
+    "posthog", "products.tasks", "products.business_knowledge", "products.warehouse_sources",
 ]
 layer = "modules"
 
@@ -337,7 +337,6 @@ depends_on = [
     "products.ai_observability",
     "products.analytics_platform",
     "products.data_tools",
-    "products.data_warehouse",
     "products.event_definitions",
     "products.feature_flags",
     "products.notifications",
@@ -517,7 +516,6 @@ depends_on = [
     "products.actions",
     "products.alerts",
     "products.dashboards",
-    "products.data_warehouse",
     "products.event_definitions",
     "products.annotations",
     "products.warehouse_sources",
@@ -571,8 +569,7 @@ layer = "modules"
 path = "products.revenue_analytics"
 depends_on = [
     "ee",
-    "posthog",
-    "products.data_warehouse", "products.warehouse_sources", "products.data_modeling", "products.data_tools",
+    "posthog", "products.warehouse_sources", "products.data_modeling", "products.data_tools",
 ]
 layer = "modules"
 
@@ -641,7 +638,6 @@ path = "products.customer_analytics"
 depends_on = [
     "ee",
     "posthog",
-    "products.data_warehouse",
     "products.notebooks",
     "products.notifications",
     "products.product_analytics",
@@ -657,8 +653,7 @@ depends_on = [
     "posthog",
     "products.access_control",
     "products.actions",
-    "products.analytics_platform",
-    "products.data_warehouse", "products.warehouse_sources",
+    "products.analytics_platform", "products.warehouse_sources",
 ]
 layer = "modules"
 
