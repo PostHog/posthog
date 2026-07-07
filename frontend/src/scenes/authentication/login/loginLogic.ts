@@ -162,6 +162,10 @@ export const loginLogic = kea<loginLogicType>([
                 return nextParam ? `/signup?next=${encodeURIComponent(nextParam)}` : '/signup'
             },
         ],
+        wasSignedOutForSessionRisk: [
+            () => [router.selectors.searchParams],
+            (searchParams: Record<string, string>): boolean => searchParams['reason'] === 'session_risk',
+        ],
     })),
     forms(({ actions }) => ({
         login: {

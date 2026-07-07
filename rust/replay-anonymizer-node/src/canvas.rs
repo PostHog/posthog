@@ -107,7 +107,7 @@ fn blur_canvas_arg(ctx: &Ctx<'_>, value: &mut Value<'_>) -> bool {
             obj.insert(key("src"), string_value(b));
             return true;
         }
-        return match scrub_url(ctx.allow, &src) {
+        return match scrub_url(ctx, &src) {
             Some(v) => {
                 obj.insert(key("src"), string_value(v));
                 true
