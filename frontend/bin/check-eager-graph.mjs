@@ -125,7 +125,9 @@ if (assertReportIndex !== -1) {
                 `Signals scout tracks eager-graph regressions from the PR comment. Trim the eager closure when you can.`
         )
     } else {
-        console.info('\nAll eager graph budgets respected.')
+        // Neutral wording: warnings (e.g. a stale forbidden pattern) may have printed above
+        // without counting as violations, so don't declare an unqualified all-clear.
+        console.info('\nNo eager graph budget violations.')
     }
     process.exit(0)
 }
