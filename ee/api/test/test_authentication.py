@@ -602,6 +602,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_cannot_login_with_improperly_signed_payload(self):
         config = self.organization_domain.identity_provider_config
+        assert config is not None
         config.saml_x509_cert = """MIIDPjCCAiYCCQC864/0fftWQTANBgkqhkiG9w0BAQsFADBhMQswCQYDVQQGEwJV
 UzELMAkGA1UECAwCVVMxCzAJBgNVBAcMAlVTMQswCQYDVQQKDAJVUzELMAkGA1UE
 CwwCVVMxCzAJBgNVBAMMAlVTMREwDwYJKoZIhvcNAQkBFgJVUzAeFw0yMTA4MjYw
@@ -872,6 +873,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
             jit_provisioning_enabled=True,
         )
         my_config = self.organization_domain.identity_provider_config
+        assert my_config is not None
         other_domain.identity_provider_config = IdentityProviderConfig.objects.create(
             organization=other_org,
             saml_entity_id=my_config.saml_entity_id,
