@@ -66,7 +66,7 @@
 - Do NOT claim manual testing you haven't done.
 - GitHub PR descriptions render markdown, not fixed-width text. Do not hard-wrap prose at a column width or use space-aligned tables — use real markdown tables, headings, and fenced code blocks, and let GitHub flow the text.
 - Use GitHub's rich markdown when it makes review faster, never as decoration:
-  - If the change alters a flow or topology (CI wiring, pipelines, state machines, request paths), include before/after mermaid diagrams as two separate `flowchart LR` blocks, before first. Keep them simple: a syntax error renders as an error block. Skip diagrams for trivial changes.
+  - If the change alters a flow or topology (CI wiring, pipelines, state machines, request paths), include before/after mermaid diagrams as two separate `flowchart LR` blocks, with the before diagram first. Keep them simple: a syntax error renders as an error block. Skip diagrams for trivial changes.
   - Use alerts (`> [!WARNING]`, `> [!NOTE]`) for behavior changes and risk callouts.
   - If you have to include long supporting content (test output, logs), collapse it in `<details>` blocks.
   - Use fenced `diff` code blocks for config before/after.
