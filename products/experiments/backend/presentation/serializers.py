@@ -682,6 +682,13 @@ class EndExperimentSerializer(serializers.Serializer):
         max_length=4000,
         help_text="Optional comment about the experiment conclusion.",
     )
+    open_cleanup_pr = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "When true, open a draft pull request that removes the experiment's feature-flag code "
+            "from the linked repository. Only acts for allowlisted teams; ignored otherwise."
+        ),
+    )
 
 
 class ArchiveExperimentSerializer(serializers.Serializer):

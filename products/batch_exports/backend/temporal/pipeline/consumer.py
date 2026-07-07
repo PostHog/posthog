@@ -7,10 +7,15 @@ import collections.abc
 
 import pyarrow as pa
 import temporalio.common
+from opentelemetry import trace
 
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
-from products.batch_exports.backend.temporal.metrics import get_bytes_exported_metric, get_rows_exported_metric
+from products.batch_exports.backend.temporal.metrics import (
+    CumulativeTimer,
+    get_bytes_exported_metric,
+    get_rows_exported_metric,
+)
 from products.batch_exports.backend.temporal.pipeline.transformer import ChunkTransformerProtocol
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, raise_on_task_failure
@@ -18,6 +23,7 @@ from products.batch_exports.backend.temporal.utils import cast_record_batch_json
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
+TRACER = trace.get_tracer(__name__)
 
 # Determines how frequently we log export progress.
 PROGRESS_LOG_STEP_PCT = 10
@@ -56,6 +62,13 @@ class Consumer:
         self._start_monotonic: float | None = None
         self._next_progress_pct = PROGRESS_LOG_STEP_PCT
 
+        # Stage-attribution timers, reported as span attributes:
+        # Queue-get wait is time spent starved waiting for the producer
+        self._queue_get_wait_timer = CumulativeTimer()
+        # consume time is time spent handing chunks to the destination consumer
+        # (`consume_chunk`/`finalize_file`/`finalize`).
+        self._consume_timer = CumulativeTimer()
+
     @property
     def rows_exported_counter(self) -> temporalio.common.MetricCounter:
         """Access the rows exported metric counter."""
@@ -74,6 +87,8 @@ class Consumer:
         self.records_failed_count = 0
         self._start_monotonic = None
         self._next_progress_pct = PROGRESS_LOG_STEP_PCT
+        self._queue_get_wait_timer = CumulativeTimer()
+        self._consume_timer = CumulativeTimer()
 
     async def start(
         self,
@@ -102,28 +117,35 @@ class Consumer:
         """
 
         self.reset_tracking()
-        self._start_monotonic = time.monotonic()
+        start_monotonic = time.monotonic()
+        self._start_monotonic = start_monotonic
 
         self.logger.info("Starting consumer from internal S3 stage")
 
-        try:
-            async for chunk, is_eof in transformer.iter(
-                self.generate_record_batches_from_queue(queue, producer_task, json_columns),
-            ):
-                chunk_size = len(chunk)
-                self.total_file_bytes_count += chunk_size
+        with TRACER.start_as_current_span("batch_export.consumer") as span:
+            try:
+                async for chunk, is_eof in transformer.iter(
+                    self.generate_record_batches_from_queue(queue, producer_task, json_columns),
+                ):
+                    chunk_size = len(chunk)
+                    self.total_file_bytes_count += chunk_size
 
-                await self.consume_chunk(data=chunk)
-                self.bytes_exported_counter.add(chunk_size)
+                    with self._consume_timer.time():
+                        await self.consume_chunk(data=chunk)
+                    self.bytes_exported_counter.add(chunk_size)
 
-                if is_eof:
-                    await self.finalize_file()
+                    if is_eof:
+                        with self._consume_timer.time():
+                            await self.finalize_file()
 
-            await self.finalize()
+                with self._consume_timer.time():
+                    await self.finalize()
 
-        except Exception:
-            self.logger.exception("Unexpected error occurred while consuming record batches")
-            raise
+            except Exception:
+                self.logger.exception("Unexpected error occurred while consuming record batches")
+                raise
+            finally:
+                self._set_stage_attribution_span_attributes(span, elapsed=time.monotonic() - start_monotonic)
 
         self.logger.info(
             f"Finished consuming {self.total_records_count:,} records, {self.total_record_batch_bytes_count / 1024**2:.2f} MiB "
@@ -131,6 +153,29 @@ class Consumer:
             f"Total file MiB: {self.total_file_bytes_count / 1024**2:.2f}"
         )
         return BatchExportResult(self.total_records_count, self.total_file_bytes_count)
+
+    def _set_stage_attribution_span_attributes(self, span: trace.Span, elapsed: float) -> None:
+        """Report where consumer time went as attributes on the consumer span.
+
+        It's unrealistic to create spans for each individual call to queue.get(), consume_chunk(),
+        etc. as there could be thousands of these for larger batch exports. However, tracking and
+        reporting the cumulative time spent in each of these tasks is useful for monitoring where
+        potential bottlenecks lie.
+        """
+        consume_seconds = self._consume_timer.total_seconds
+        queue_get_wait_seconds = self._queue_get_wait_timer.total_seconds
+        # What's left after subtracting consume time and queue starvation is
+        # transformation time, plus a small amount of loop overhead.
+        transform_seconds = max(0.0, elapsed - consume_seconds - queue_get_wait_seconds)
+        span.set_attributes(
+            {
+                "batch_export.consumer.records_consumed": self.total_records_count,
+                "batch_export.consumer.bytes_exported": self.total_file_bytes_count,
+                "batch_export.consumer.total_queue_get_wait_seconds": queue_get_wait_seconds,
+                "batch_export.consumer.total_consume_seconds": consume_seconds,
+                "batch_export.consumer.total_transform_seconds": transform_seconds,
+            }
+        )
 
     def collect_result(self) -> BatchExportResult:
         """Collect the result of the consumer.
@@ -170,7 +215,8 @@ class Consumer:
 
         while True:
             get_task = asyncio.create_task(queue.get())
-            _ = await asyncio.wait((get_task, producer_task), return_when=asyncio.FIRST_COMPLETED)
+            with self._queue_get_wait_timer.time():
+                _ = await asyncio.wait((get_task, producer_task), return_when=asyncio.FIRST_COMPLETED)
 
             wait_result = _WaitResult((get_task.done(), producer_task.done()))
             match wait_result:
@@ -185,7 +231,8 @@ class Consumer:
                         get_task.cancel()
                         break
                     else:
-                        record_batch = await get_task
+                        with self._queue_get_wait_timer.time():
+                            record_batch = await get_task
 
                 case _:
                     typing.assert_never(wait_result)

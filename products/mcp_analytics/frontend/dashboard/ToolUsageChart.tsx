@@ -9,6 +9,8 @@ import {
 } from '@posthog/quill-charts'
 import { Skeleton } from '@posthog/quill-primitives'
 
+import { useChartConfig } from 'lib/charts/hooks'
+
 import { type ToolDailySeries } from '../mcpDashboardOverviewLogic'
 import { Card, CardState } from './Card'
 
@@ -35,12 +37,14 @@ export function ToolUsageChart({
             })),
         [data, theme]
     )
-    const config = useMemo<TimeSeriesBarChartConfig>(
+    const config = useChartConfig<TimeSeriesBarChartConfig>(
         () => ({
             barLayout: 'stacked',
-            barCornerRadius: 2,
-            yAxis: { showGrid: false },
+            barCornerRadius: 4,
             showAxisLines: true,
+            showTickMarks: true,
+            showCrosshair: true,
+            showGrid: true,
             xAxis: { interval, timezone },
             tooltip: { placement: 'cursor' },
         }),

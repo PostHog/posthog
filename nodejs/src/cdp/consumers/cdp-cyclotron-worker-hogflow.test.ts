@@ -356,6 +356,20 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             expect(results[0].invocation.filterGlobals?.person?.id).toBe(personUuid)
         })
 
+        it('persists the resolved person UUID into state so a re-parked wait keeps its person_id', async () => {
+            const results = (await processor.processInvocations(
+                invocations
+            )) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+
+            // invocation1 (distinct_A_1) resolves to Person A 1 — its UUID is written back into
+            // state.personId, so a later re-park keeps person_id even if re-resolution transiently misses.
+            // clickhouse_person wakes match on person_id only, so this is what lets a person-property
+            // change wake the wait without relying on the polling backstop.
+            expect(results[0].invocation.state.personId).toBe('dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1')
+            // invocation4 (missing_person) resolves to nothing — no person_id to persist.
+            expect(results[3].invocation.state.personId).toBeUndefined()
+        })
+
         it('should skip invocations when workflow is disabled after being queued', async () => {
             const hogFlow = hogFlows[0]
 
