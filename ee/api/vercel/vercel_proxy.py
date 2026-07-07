@@ -179,6 +179,17 @@ class VercelProxyViewSet(viewsets.ViewSet):
         if response.status_code == 404:
             return None
 
+        if response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN):
+            # EU rejects the US-signed billing JWT: HS256 tokens are signed with per-region
+            # license secrets, so EU can never validate a US-issued token. Treat this as
+            # "no integration anywhere" and let the US region return its own 404 instead of
+            # surfacing a misleading auth failure to the billing service.
+            logger.warning(
+                "Cross-region proxy to EU failed authentication; treating as no integration",
+                status_code=response.status_code,
+            )
+            return None
+
         try:
             data = response.json() if response.content else {}
         except ValueError:

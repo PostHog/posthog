@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import jwt
 import requests as req
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -409,6 +410,40 @@ class TestVercelProxyCrossRegion(APIBaseTest):
         mock_eu_response.status_code = 404
         mock_eu_response.content = b'{"error": "No Vercel integration found for this organization"}'
         mock_eu_response.json.return_value = {"error": "No Vercel integration found for this organization"}
+        mock_post.return_value = mock_eu_response
+
+        response = self.unauthenticated_client.post(
+            "/api/vercel/proxy/",
+            {"path": "/billing/invoices", "method": "POST", "body": {}},
+            format="json",
+            **self._get_auth_headers(),
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json() == {"error": "No Vercel integration found for this organization"}
+
+    @parameterized.expand(
+        [
+            ("unauthorized", status.HTTP_401_UNAUTHORIZED),
+            ("forbidden", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    @patch("ee.api.vercel.vercel_proxy.requests.post")
+    @patch("ee.api.vercel.vercel_proxy.django_settings")
+    def test_cross_region_returns_404_when_eu_rejects_auth(
+        self, _name, eu_status, mock_settings, mock_post, mock_license
+    ):
+        # EU can never validate a US-signed billing JWT (per-region HS256 secrets), so it
+        # replies 401/403. The US region must surface its own 404, not the auth failure.
+        mock_license.return_value = self.license
+        mock_settings.SITE_URL = "https://us.posthog.com"
+        mock_settings.REGION_US_DOMAIN = "us.posthog.com"
+        mock_settings.REGION_EU_DOMAIN = "eu.posthog.com"
+
+        mock_eu_response = MagicMock()
+        mock_eu_response.status_code = eu_status
+        mock_eu_response.content = b'{"detail": "Invalid authentication token"}'
+        mock_eu_response.json.return_value = {"detail": "Invalid authentication token"}
         mock_post.return_value = mock_eu_response
 
         response = self.unauthenticated_client.post(
