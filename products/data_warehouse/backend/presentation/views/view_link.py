@@ -1,3 +1,4 @@
+import logging
 from typing import Optional, cast
 
 from clickhouse_driver.errors import ServerException
@@ -25,15 +26,22 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from products.data_tools.backend.facade.models import DataWarehouseJoin
 
+logger = logging.getLogger(__name__)
+
 
 class ViewLinkValidationMixin:
-    def _database(self, team_id: int) -> Database:
+    def _database(self, team_id: int) -> Optional[Database]:
         database = self.context.get("database", None)  # type: ignore[attr-defined]
         if not database:
-            database = Database.create_for(
-                team_id=team_id,
-                user=cast(User, self.context["request"].user),  # type: ignore[attr-defined]
-            )
+            try:
+                database = Database.create_for(
+                    team_id=team_id,
+                    user=cast(User, self.context["request"].user),  # type: ignore[attr-defined]
+                )
+            except Exception:
+                capture_exception()
+                logger.exception("Failed to build HogQL database for team %s", team_id)
+                return None
             # Cache on the shared context so a list response builds the database at most
             # once instead of once per serialized row.
             self.context["database"] = database  # type: ignore[attr-defined]
@@ -43,7 +51,7 @@ class ViewLinkValidationMixin:
         team_id = self.context["team_id"]  # type: ignore[attr-defined]
         database = self._database(team_id)
 
-        if not database.has_table(table_name):
+        if database is None or not database.has_table(table_name):
             return table_name
 
         table = database.get_table(table_name)
