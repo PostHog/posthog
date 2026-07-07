@@ -101,6 +101,14 @@ HIDDEN_COLUMNS: frozenset[str] = frozenset({"_dlt_id", "_dlt_load_id", "_ph_debu
 # subprocess lets us kill it and degrade to the ClickHouse-cluster fallback.
 CHDB_QUERY_TIMEOUT_SECONDS = 30.0
 
+
+# Subclasses RuntimeError so callers that classify chdb failures by type keep working, while
+# letting them distinguish the hard timeout — an expected degradation that falls back to the
+# cluster — from a genuine chdb failure worth surfacing to error tracking.
+class ChdbQueryTimeout(RuntimeError):
+    pass
+
+
 _CHDB_SUBPROCESS_SCRIPT = """
 import sys
 
@@ -129,7 +137,7 @@ def run_chdb_query(query: str, timeout: float = CHDB_QUERY_TIMEOUT_SECONDS) -> s
             timeout=timeout,
         )
     except subprocess.TimeoutExpired:
-        raise RuntimeError(f"chdb query timed out after {timeout}s")
+        raise ChdbQueryTimeout(f"chdb query timed out after {timeout}s")
 
     if process.returncode != 0:
         raise RuntimeError(process.stderr.strip() or f"chdb subprocess exited with code {process.returncode}")
@@ -301,6 +309,11 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             return False
 
     def _is_suppressed_chdb_error(self, err: Exception) -> bool:
+        # Errors with a working cluster fallback that are expected degradations rather than
+        # actionable exceptions: the hard timeout (killed a wedged S3 read) and a chdb type
+        # the cluster can still read. Don't surface these to error tracking as noise.
+        if isinstance(err, ChdbQueryTimeout):
+            return True
         return isinstance(err, RuntimeError) and "unsupported deltalake type: timestamp_ntz" in str(err).lower()
 
     def get_columns(
@@ -457,7 +470,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             reader = csv.reader(StringIO(chdb_result))
             result = [tuple(row) for row in reader]
         except Exception as chdb_error:
-            capture_exception(chdb_error)
+            if self._is_suppressed_chdb_error(chdb_error):
+                structlog.get_logger(__name__).debug(chdb_error)
+            else:
+                capture_exception(chdb_error)
 
             try:
                 tag_queries(
