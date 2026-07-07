@@ -24,8 +24,9 @@ import { useTracesQueryContext } from '../AIObservabilityTracesScene'
 import { MarkdownOutline } from '../components/MarkdownOutline'
 import { CreatePromptExperimentModal } from './CreatePromptExperimentModal'
 import { createPromptExperimentModalLogic } from './createPromptExperimentModalLogic'
-import { PROMPT_NAME_MAX_LENGTH, PromptAnalyticsScope, isPrompt, llmPromptLogic } from './llmPromptLogic'
+import { PromptAnalyticsScope, isPrompt, llmPromptLogic } from './llmPromptLogic'
 import { promptExperimentsLogic } from './promptExperimentsLogic'
+import { PROMPT_NAME_MAX_LENGTH } from './utils'
 
 const MonacoDiffEditor = lazy(() => import('lib/components/MonacoDiffEditor'))
 
@@ -570,6 +571,7 @@ export function PromptVersionSidebar({
     canLoadMoreVersions,
     loadMoreVersions,
     searchParams,
+    readOnly = false,
 }: {
     promptName: string
     prompt: LLMPrompt | null
@@ -578,6 +580,7 @@ export function PromptVersionSidebar({
     canLoadMoreVersions: boolean
     loadMoreVersions: () => void
     searchParams: Record<string, any>
+    readOnly?: boolean
 }): JSX.Element {
     const { compareVersion } = useValues(llmPromptLogic)
     const { setCompareVersion } = useActions(llmPromptLogic)
@@ -598,22 +601,11 @@ export function PromptVersionSidebar({
                     {versions.map((versionPrompt) => {
                         const selected = prompt?.id === versionPrompt.id
                         const isCompareTarget = compareVersion === versionPrompt.version
-                        const canCompare = prompt?.version !== versionPrompt.version
+                        const canCompare = !readOnly && prompt?.version !== versionPrompt.version
                         const versionUrl = buildPromptUrl(promptName, searchParams, versionPrompt.version)
 
-                        return (
-                            <Link
-                                key={versionPrompt.id}
-                                to={versionUrl}
-                                className={`block rounded border p-3 no-underline ${
-                                    selected
-                                        ? 'border-primary bg-primary-highlight'
-                                        : isCompareTarget
-                                          ? 'border-warning bg-warning-highlight'
-                                          : 'border-primary/10 hover:bg-fill-secondary'
-                                }`}
-                                data-attr={`llma-prompt-version-link-${versionPrompt.version}`}
-                            >
+                        const cardContent = (
+                            <>
                                 <div className="mb-1 flex items-center justify-between">
                                     <div className="flex items-center gap-2">
                                         <span className="font-mono text-sm">v{versionPrompt.version}</span>
@@ -653,6 +645,35 @@ export function PromptVersionSidebar({
                                 {versionPrompt.created_by?.email ? (
                                     <div className="mt-1 text-xs text-secondary">{versionPrompt.created_by.email}</div>
                                 ) : null}
+                            </>
+                        )
+
+                        const cardClassName = `block rounded border p-3 no-underline ${
+                            selected
+                                ? 'border-primary bg-primary-highlight'
+                                : isCompareTarget
+                                  ? 'border-warning bg-warning-highlight'
+                                  : readOnly
+                                    ? 'border-primary/10 opacity-75'
+                                    : 'border-primary/10 hover:bg-fill-secondary'
+                        }`
+
+                        if (readOnly) {
+                            return (
+                                <div key={versionPrompt.id} className={cardClassName}>
+                                    {cardContent}
+                                </div>
+                            )
+                        }
+
+                        return (
+                            <Link
+                                key={versionPrompt.id}
+                                to={versionUrl}
+                                className={cardClassName}
+                                data-attr={`llma-prompt-version-link-${versionPrompt.version}`}
+                            >
+                                {cardContent}
                             </Link>
                         )
                     })}

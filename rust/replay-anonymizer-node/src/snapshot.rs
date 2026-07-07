@@ -29,7 +29,8 @@ use simd_json::prelude::Writable;
 use crate::allow_lists::AllowLists;
 use crate::context::Ctx;
 use crate::event::{
-    route_data, route_event, SOURCE_CANVAS_MUTATION, SOURCE_INPUT, SOURCE_MUTATION, TYPE_CUSTOM,
+    route_data, route_event, SOURCE_ADOPTED_STYLESHEET, SOURCE_CANVAS_MUTATION, SOURCE_INPUT,
+    SOURCE_MUTATION, SOURCE_STYLESHEET_RULE, SOURCE_STYLE_DECLARATION, TYPE_CUSTOM,
     TYPE_FULL_SNAPSHOT, TYPE_INCREMENTAL, TYPE_META, TYPE_PLUGIN,
 };
 use crate::json::{
@@ -217,18 +218,19 @@ pub fn anonymize_kafka_payload(
     allow: &AllowLists,
     payload: &mut [u8],
 ) -> SResult<AnonymizedMessage> {
-    anonymize_kafka_payload_opts(allow, payload, AnonymizeOpts::default())
+    anonymize_kafka_payload_opts(allow, payload, AnonymizeOpts::default(), Vec::new())
 }
 
 pub fn anonymize_kafka_payload_opts(
     allow: &AllowLists,
     payload: &mut [u8],
     opts: AnonymizeOpts,
+    first_party_hosts: Vec<String>,
 ) -> SResult<AnonymizedMessage> {
     if let Some((distinct_id_span, data_span)) = scan_outer_envelope(payload) {
         // Resolve distinct_id to an owned string first — the unescape below rewrites the buffer.
         let Ok(distinct_id) = scan::unescape(payload, distinct_id_span) else {
-            return anonymize_kafka_payload_via_parse(allow, payload, opts);
+            return anonymize_kafka_payload_via_parse(allow, payload, opts, first_party_hosts);
         };
         let distinct_id = distinct_id.into_owned();
         // Point of no return: the in-place unescape consumes the buffer, so failures past here are
@@ -246,9 +248,9 @@ pub fn anonymize_kafka_payload_opts(
                 "invalid utf-8 in data string",
             ));
         }
-        return anonymize_snapshot_data_opts(allow, &distinct_id, inner, opts);
+        return anonymize_snapshot_data_opts(allow, &distinct_id, inner, opts, first_party_hosts);
     }
-    anonymize_kafka_payload_via_parse(allow, payload, opts)
+    anonymize_kafka_payload_via_parse(allow, payload, opts, first_party_hosts)
 }
 
 /// Locate the `distinct_id` + `data` string spans by scanning the outer object. `None` means "let
@@ -323,6 +325,7 @@ fn anonymize_kafka_payload_via_parse(
     allow: &AllowLists,
     payload: &mut [u8],
     opts: AnonymizeOpts,
+    first_party_hosts: Vec<String>,
 ) -> SResult<AnonymizedMessage> {
     reject_if_too_deep(payload, "kafka payload")
         .map_err(|e| Failure::new(FailKind::InvalidJson, e.to_string()))?;
@@ -348,7 +351,7 @@ fn anonymize_kafka_payload_via_parse(
     };
     // Rare path (the scanner bailed): one owned copy buys the in-place processing a mutable buffer.
     let mut data_bytes = data.as_bytes().to_vec();
-    anonymize_snapshot_data_opts(allow, distinct_id, &mut data_bytes, opts)
+    anonymize_snapshot_data_opts(allow, distinct_id, &mut data_bytes, opts, first_party_hosts)
 }
 
 /// Anonymize the inner `$snapshot_items` event JSON (the payload's `data` string). The buffer is
@@ -359,7 +362,13 @@ pub fn anonymize_snapshot_data(
     distinct_id: &str,
     inner: &mut [u8],
 ) -> SResult<AnonymizedMessage> {
-    anonymize_snapshot_data_opts(allow, distinct_id, inner, AnonymizeOpts::default())
+    anonymize_snapshot_data_opts(
+        allow,
+        distinct_id,
+        inner,
+        AnonymizeOpts::default(),
+        Vec::new(),
+    )
 }
 
 pub fn anonymize_snapshot_data_opts(
@@ -367,11 +376,12 @@ pub fn anonymize_snapshot_data_opts(
     distinct_id: &str,
     inner: &mut [u8],
     opts: AnonymizeOpts,
+    first_party_hosts: Vec<String>,
 ) -> SResult<AnonymizedMessage> {
     // No whole-message depth pre-pass here: the byte walk bounds its own recursion and declines
     // past its limit, and every recursive parse below is preceded by a span-local
     // reject_if_too_deep — so the common all-walked path never pays a depth scan at all.
-    let ctx = Ctx::new(allow);
+    let ctx = Ctx::with_first_party_hosts(allow, first_party_hosts);
     match stream_message(&ctx, distinct_id, inner, opts)? {
         Some(msg) => Ok(msg),
         // Escaped/duplicate envelope keys: only a real parse resolves them, and nothing was
@@ -984,7 +994,7 @@ fn process_event_at(
         return Ok(end);
     }
 
-    // Incremental events only route to a scrubber for mutation/input/canvas sources.
+    // Incremental events only route to a scrubber for mutation/input/canvas/stylesheet sources.
     let source = es
         .source
         .and_then(|s| scan::parse_number(inner, s))
@@ -992,7 +1002,12 @@ fn process_event_at(
     if ty == Some(TYPE_INCREMENTAL)
         && !matches!(
             source,
-            Some(SOURCE_MUTATION) | Some(SOURCE_INPUT) | Some(SOURCE_CANVAS_MUTATION)
+            Some(SOURCE_MUTATION)
+                | Some(SOURCE_INPUT)
+                | Some(SOURCE_CANVAS_MUTATION)
+                | Some(SOURCE_STYLESHEET_RULE)
+                | Some(SOURCE_STYLE_DECLARATION)
+                | Some(SOURCE_ADOPTED_STYLESHEET)
         )
     {
         pass_through(inner, span, ts, ty, Some(&es), sink);
