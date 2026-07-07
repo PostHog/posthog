@@ -108,8 +108,12 @@ function planBufferAheadBatch(
         return { sourceIndices: truncateToContiguous(aheadIndices.slice(0, batchSize)), reason: 'buffer_ahead' }
     }
 
-    // A playhead with no usable FullSnapshot can't progress to pull the buffer window along, so scan forward until the player clamps to a recovery FullSnapshot or everything is loaded.
-    if (playbackPosition !== undefined && store.findNearestFullSnapshot(playbackPosition, playbackWindowId) === null) {
+    // A playhead with no usable FullSnapshot can't progress to pull the buffer window along, so scan forward until the player clamps to a recovery FullSnapshot or everything is loaded. A loaded later FullSnapshot is already the clamp target, so skip the scan then — otherwise a playhead parked epsilon-before its window's first FullSnapshot (any paused-at-start mount) sweeps the entire recording.
+    if (
+        playbackPosition !== undefined &&
+        store.findNearestFullSnapshot(playbackPosition, playbackWindowId) === null &&
+        !store.hasFullSnapshotAfter(playbackPosition, playbackWindowId)
+    ) {
         const forwardIndices = store.getUnfetchedIndicesInRange(bufferEnd + 1, store.sourceCount - 1)
         if (forwardIndices.length > 0) {
             return { sourceIndices: truncateToContiguous(forwardIndices.slice(0, batchSize)), reason: 'seek_forward' }

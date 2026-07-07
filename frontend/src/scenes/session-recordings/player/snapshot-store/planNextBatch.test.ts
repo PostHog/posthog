@@ -113,6 +113,16 @@ describe('planNextBatch', () => {
             expect(plan(store, { playbackPosition: tsForMinute(0) })).toBeNull()
         })
 
+        it('does not sweep the recording when the playhead is parked just before the first FullSnapshot', () => {
+            // A paused-at-start mount (autoPlay={false} or ?pause=true&t=0) parks the playhead at the
+            // meta start, epsilon before the window's first FullSnapshot — the loaded later FullSnapshot
+            // is the clamp target, so nothing beyond the buffer window may be fetched
+            const loaded = Array.from({ length: 30 }, (_, i) => i)
+            const store = createLoadedStore(50, loaded, [0])
+            expect(plan(store, { playbackPosition: tsForMinute(0) - 50 })).toBeNull()
+            expect(plan(store, { playbackPosition: tsForMinute(0) - 50, playbackWindowId: 1 })).toBeNull()
+        })
+
         it('scans forward when the playhead window has no FullSnapshot even though another window does', () => {
             // The FullSnapshot at source 0 belongs to window 2 — it can't render
             // window-1 content at the playhead, so the scan must still fire
