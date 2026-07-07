@@ -1674,7 +1674,7 @@ describe('funnelDataLogic', () => {
             expect(steps[1].count).toBe(70) // 50 Chrome + 20 Safari
         })
 
-        it('shares each period’s height across its breakdown values at the first step (larger period fills)', async () => {
+        it('shares each period’s height across its breakdown values (larger period fills), keeping the first-step basis at later steps', async () => {
             await loadBreakdownCompare(funnelResultStepsBreakdownCompare.result)
 
             const [baselineCur, baselinePrev, chromeCur, chromePrev, safariCur, safariPrev] =
@@ -1689,6 +1689,15 @@ describe('funnelDataLogic', () => {
             expect(chromePrev.conversionRates.fromBasisStep).toBe(105 / 140)
             expect(safariCur.conversionRates.fromBasisStep).toBe(1)
             expect(safariPrev.conversionRates.fromBasisStep).toBe(105 / 140)
+
+            // Later steps keep the first-step denominator (largest period's entrants, 140), so each
+            // baseline bar reads as the share of that starting cohort still left: not a per-step
+            // rescale, and not silently dropped past step 0.
+            const [baselineCur1, baselinePrev1] = logic.values.visibleStepsWithConversionMetrics[1].nested_breakdown!
+            expect(baselineCur1.count).toBe(70)
+            expect(baselineCur1.conversionRates.fromBasisStep).toBe(70 / 140)
+            expect(baselinePrev1.count).toBe(40)
+            expect(baselinePrev1.conversionRates.fromBasisStep).toBe(40 / 140)
         })
 
         it('colors each breakdown value distinctly, desaturates its previous-period bar, and matches the table', async () => {
