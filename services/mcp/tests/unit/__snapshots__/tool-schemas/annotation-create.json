@@ -50,8 +50,8 @@
             "description": "When true, the annotation is hidden from the PostHog UI (charts and the annotations list) but still readable over the API and MCP. Use for high-frequency markers like deployments that would otherwise crowd the UI. Null (the default) means the annotation is shown."
         },
         "scope": {
-            "description": "Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.\n\n* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording",
-            "enum": ["dashboard_item", "dashboard", "project", "organization", "recording"],
+            "description": "Annotation visibility scope: `project`, `organization`, `dashboard`, `dashboard_item`, or `tag`. With `tag`, the annotation shows on every dashboard and insight carrying one of the annotation's `tags`. `recording` is deprecated and rejected.\n\n* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `tag` - tag\n* `recording` - recording",
+            "enum": ["dashboard_item", "dashboard", "project", "organization", "tag", "recording"],
             "type": "string"
         }
     },
