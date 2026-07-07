@@ -5,12 +5,17 @@
 //! Requires SeaweedFS running at localhost:8333 with a `posthog` bucket (docker-compose.dev.yml).
 //! Skips if unreachable. No MinIO dependency.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use batch_import_worker::extractor::ExtractorType;
+use batch_import_worker::source::date_range_export::{AuthConfig, DateRangeExportSource};
+use batch_import_worker::source::{DataSource, RemoteStaging};
 use batch_import_worker::staging::{open_plaintext_stream, StagingBackend, TempBucketBackend};
+use chrono::{TimeZone, Utc};
 use flate2::write::GzEncoder;
 use flate2::Compression;
+use httpmock::MockServer;
 use object_store::aws::AmazonS3Builder;
 use object_store::{ObjectStore, ObjectStoreExt};
 use std::io::Write;
@@ -41,14 +46,21 @@ fn gzip(data: &[u8]) -> Vec<u8> {
 }
 
 /// Probe SeaweedFS: a head on a missing key returns NotFound when reachable, and a
-/// transport error when the dev stack isn't running (in which case we skip).
+/// transport error when the dev stack isn't running. Unreachable is a silent skip
+/// locally (developer convenience) but a hard failure in CI, where the dev compose
+/// stack (including SeaweedFS) is always booted — a down store must produce a red
+/// build, never a silently-skipped green one.
 async fn seaweedfs_reachable(store: &Arc<dyn ObjectStore>) -> bool {
     let probe = object_store::path::Path::from("__reachability_probe__");
     let result = tokio::time::timeout(std::time::Duration::from_secs(3), store.head(&probe)).await;
-    matches!(
+    let reachable = matches!(
         result,
         Ok(Ok(_)) | Ok(Err(object_store::Error::NotFound { .. }))
-    )
+    );
+    if !reachable && std::env::var("CI").is_ok() {
+        panic!("SeaweedFS unreachable at {SEAWEEDFS_ENDPOINT} in CI — the dev stack must be up");
+    }
+    reachable
 }
 
 #[tokio::test]
@@ -116,4 +128,95 @@ fn open_plaintext_stream_from_bytes(data: &[u8]) -> batch_import_worker::staging
     batch_import_worker::staging::PlaintextStream::from_chunks(vec![bytes::Bytes::copy_from_slice(
         data,
     )])
+}
+
+/// End-to-end remote staging through a real source: a DateRangeExportSource in
+/// temp-bucket mode downloads from an httpmock origin, ingests via the pipeline into
+/// live SeaweedFS, serves ranged reads back, resumes without re-download, and sweeps
+/// its job prefix on cleanup.
+#[tokio::test]
+async fn test_remote_staged_source_round_trip_on_seaweedfs() {
+    let store = seaweedfs_store();
+    if !seaweedfs_reachable(&store).await {
+        eprintln!("SeaweedFS unreachable at {SEAWEEDFS_ENDPOINT}, skipping test");
+        return;
+    }
+
+    let body = b"{\"event\":\"a\"}\n{\"event\":\"b\"}\n{\"event\":\"c\"}";
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(httpmock::Method::GET).path("/export");
+        then.status(200).body(gzip(body));
+    });
+
+    // Unique job id so repeated runs don't collide.
+    let job_id = format!("job-{}", Uuid::now_v7());
+    let build = |staging: &std::path::Path| {
+        DateRangeExportSource::builder(
+            server.url("/export"),
+            Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap(),
+            Utc.with_ymd_and_hms(2023, 1, 1, 1, 0, 0).unwrap(),
+            3600,
+            ExtractorType::PlainGzip.create_extractor(),
+            staging.to_path_buf(),
+        )
+        .with_auth(AuthConfig::None)
+        .with_date_format("%Y-%m-%dT%H:%M:%SZ".to_string())
+        .with_headers(HashMap::new())
+        .with_remote_staging(Some(RemoteStaging {
+            backend: Arc::new(TempBucketBackend::new(
+                Arc::clone(&store),
+                "batch-import-staging/",
+                job_id.clone(),
+            )),
+            extractor_type: ExtractorType::PlainGzip,
+            max_plaintext_bytes: 0,
+        }))
+        .build()
+        .unwrap()
+    };
+
+    // The pipeline appends the missing trailing newline.
+    let expected = b"{\"event\":\"a\"}\n{\"event\":\"b\"}\n{\"event\":\"c\"}\n";
+
+    let staging = tempfile::TempDir::new().unwrap();
+    let source = build(staging.path());
+    source.prepare_for_job().await.unwrap();
+    let key = source.keys().await.unwrap().remove(0);
+
+    source.prepare_key(&key).await.unwrap();
+    assert_eq!(mock.hits(), 1);
+    assert_eq!(
+        source.size(&key).await.unwrap(),
+        Some(expected.len() as u64)
+    );
+
+    // Ranged reads reconstruct the body across record-misaligned boundaries.
+    let mut out = Vec::new();
+    let mut offset = 0u64;
+    loop {
+        let chunk = source.get_chunk(&key, offset, 7).await.unwrap();
+        if chunk.is_empty() {
+            break;
+        }
+        offset += chunk.len() as u64;
+        out.extend_from_slice(&chunk);
+    }
+    assert_eq!(out, expected);
+
+    // A fresh source (cold process) attaches via head without re-downloading.
+    let staging_b = tempfile::TempDir::new().unwrap();
+    let resumed = build(staging_b.path());
+    resumed.prepare_for_job().await.unwrap();
+    resumed.prepare_key(&key).await.unwrap();
+    assert_eq!(mock.hits(), 1, "resume must not re-hit the origin");
+    assert_eq!(
+        resumed.get_chunk(&key, 14, 14).await.unwrap(),
+        &expected[14..28]
+    );
+
+    // Job cleanup sweeps the staged object.
+    resumed.cleanup_after_job().await.unwrap();
+    let fresh = build(tempfile::TempDir::new().unwrap().path());
+    assert_eq!(fresh.size(&key).await.unwrap(), None);
 }
