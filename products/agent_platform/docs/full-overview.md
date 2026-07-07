@@ -50,7 +50,7 @@ flowchart TB
 
     %% ============ TOOL DISPATCH ============
     subgraph dispatch["Tool dispatch (inside runner loop)"]
-        meta_tools["meta (always-on)<br/>end-turn · end-session · emit-event"]
+        meta_tools["meta (always-on)<br/>meta-end-turn · meta-end-session<br/>load-skill (if skills)"]
         native_disp["native<br/>in-process @posthog/*"]
         custom_disp["custom<br/>sandbox.invoke(toolId, args, nonces)"]
         client_disp["client<br/>dispatch over Redis bus → caller"]
