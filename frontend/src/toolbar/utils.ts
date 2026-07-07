@@ -177,7 +177,7 @@ function computeElementQuery(element: HTMLElement, dataAttributes: string[]): st
             attr: (name, value) => {
                 // preference to data attributes if they exist
                 // that aren't in the PostHog preferred list - they were returned early above
-                return name.startsWith('data-') && !containsUnstableGeneratedId(value)
+                return name.startsWith('data-') && value.length < 100 && !containsUnstableGeneratedId(value)
             },
             // the combination guard tripped and cut the candidate search short -
             // the selector may degrade to a brittle positional path - record host
@@ -659,11 +659,21 @@ export function getHeatMapHue(count: number, maxCount: number): number {
  * or [data-id="base-ui-\:rg\:-viewport"]. That's valid CSS, but our action/element matching compares
  * raw attribute values, so the escapes must be removed. This handles single-character escapes
  * (\. -> ., \: -> :) and hex code-point escapes (\31 -> 1) without being a fully general CSS unescaper.
+ *
+ * Safety: this only works correctly because finder's wordLike gate rejects id/class tokens that
+ * contain ':', so unescaping outside quoted attribute values never produces pseudo-class collisions.
+ * If that gate is ever relaxed, this function will need to become attribute-value-aware.
  */
 export function unescapeCssSelector(foundSelector: string): string {
-    return foundSelector.replace(/\\([0-9a-fA-F]{1,6} ?|.)/g, (_, escaped: string) =>
-        escaped.length > 1 || /[0-9a-fA-F]/.test(escaped) ? String.fromCodePoint(parseInt(escaped, 16)) : escaped
-    )
+    return foundSelector.replace(/\\([0-9a-fA-F]{1,6} ?|.)/g, (_, escaped: string) => {
+        if (escaped.length > 1 || /[0-9a-fA-F]/.test(escaped)) {
+            // a single escaped hex digit is still a hex code-point escape, not a literal char
+            const codePoint = parseInt(escaped, 16)
+            // guard invalid code points (> U+10FFFF or 0) per CSS spec — fall back to U+FFFD
+            return codePoint === 0 || codePoint > 0x10ffff ? '�' : String.fromCodePoint(codePoint)
+        }
+        return escaped
+    })
 }
 
 // React's useId() emits per-render identifiers like ":r5:" (React <= 18) or "«r5»" (React 19),

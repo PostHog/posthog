@@ -105,6 +105,16 @@ describe('utils', () => {
                 input: '[data-id="\\31 23-foo"]',
                 expected: '[data-id="123-foo"]',
             },
+            {
+                // code point 0 is invalid per the CSS spec — fall back to U+FFFD
+                input: '[data-id="\\0 foo"]',
+                expected: '[data-id="�foo"]',
+            },
+            {
+                // code point above U+10FFFF is invalid — fall back to U+FFFD
+                input: '[data-id="\\ffffff foo"]',
+                expected: '[data-id="�foo"]',
+            },
         ]
         testCases.forEach(({ input, expected }) => {
             it(`should unescape "${input}" to "${expected}"`, () => {
