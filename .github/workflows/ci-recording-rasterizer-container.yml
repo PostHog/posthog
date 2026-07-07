@@ -2,7 +2,27 @@ name: Build and deploy recording-rasterizer container image
 
 on:
     workflow_dispatch:
+    # paths mirror the changes job's dorny filter, which still gates push and
+    # merge_group events (merge_group triggers don't support paths).
     pull_request:
+        paths:
+            - 'nodejs/**'
+            - 'common/hogvm/typescript/**'
+            - 'common/plugin_transpiler/**'
+            - 'common/esbuilder/**'
+            - 'common/replay-shared/**'
+            - 'common/replay-headless/**'
+            - 'rust/cyclotron-node/**'
+            - 'rust/cyclotron-core/**'
+            - 'Dockerfile.recording-rasterizer'
+            - '.github/workflows/ci-recording-rasterizer-container.yml'
+            - 'bin/turbo'
+            - 'patches/**'
+            - 'turbo.json'
+            - 'tsconfig.json'
+            - 'package.json'
+            - 'pnpm-lock.yaml'
+            - 'pnpm-workspace.yaml'
     merge_group:
     push:
         branches:

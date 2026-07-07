@@ -13,8 +13,13 @@ on:
         paths:
             - 'services/mcp/**'
             - '.github/workflows/cd-mcp-image.yml'
+    # paths mirror the push trigger; the build-mcp-image label only forces a
+    # build on PRs touching these paths — use workflow_dispatch otherwise.
     pull_request:
         types: [opened, synchronize, reopened, labeled]
+        paths:
+            - 'services/mcp/**'
+            - '.github/workflows/cd-mcp-image.yml'
     workflow_dispatch:
 
 jobs:
