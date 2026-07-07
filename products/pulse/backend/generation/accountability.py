@@ -182,7 +182,7 @@ def _current_window(
     values = series_daily_values(results[series_index], period_days)
     if values is None:
         return None
-    windows = split_score_windows(values, period_days)
+    windows = split_score_windows(values)
     if windows is None:
         return None
     return windows[1]
