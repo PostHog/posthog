@@ -27,6 +27,26 @@ from products.warehouse_sources.backend.temporal.data_imports.row_tracking impor
 )
 
 
+@pytest.mark.asyncio
+async def test_row_tracking_degrades_silently_when_redis_ping_fails():
+    # Regression: a failing ping used to leave a truthy-but-broken client, defeating the
+    # `if not redis: return` guards and raising an uncaught error out of the import activity.
+    broken_client = mock.AsyncMock()
+    broken_client.ping.side_effect = ConnectionError("redis unreachable")
+
+    with (
+        override_settings(DATA_WAREHOUSE_REDIS_HOST="localhost", DATA_WAREHOUSE_REDIS_PORT="6379"),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.row_tracking.get_async_client",
+            return_value=broken_client,
+        ),
+    ):
+        # Must not raise, and must not fall through to any operation on the broken client.
+        await setup_row_tracking(team_id=1, schema_id=str(uuid.uuid4()))
+
+    broken_client.hset.assert_not_called()
+
+
 @pytest.mark.timeout(600)
 @mock.patch(
     "products.warehouse_sources.backend.temporal.data_imports.row_tracking.database_sync_to_async_pool",

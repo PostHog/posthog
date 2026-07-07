@@ -41,6 +41,10 @@ async def _get_redis():
         redis = get_async_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
         await redis.ping()
     except Exception as e:
+        # Best-effort: if client creation or ping fails, reset to None so the
+        # `if not redis: return` guards in callers actually short-circuit instead
+        # of falling through to a broken client and raising an uncaught error.
+        redis = None
         capture_exception(e)
 
     yield redis
