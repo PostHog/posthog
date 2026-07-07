@@ -63,6 +63,7 @@ import {
     DataVisualizationNode,
     InsightVizNode,
     MarketingAnalyticsColumnsSchemaNames,
+    MarketingAnalyticsTrendsQuery,
     NodeKind,
     ProductIntentContext,
     ProductKey,
@@ -856,7 +857,10 @@ export const MarketingAnalyticsTrendTile = ({
     insightProps,
     attachTo,
     uniqueKey,
-}: QueryWithInsightProps<InsightVizNode> & { showIntervalTile?: boolean; uniqueKey: string }): JSX.Element => {
+}: QueryWithInsightProps<InsightVizNode | MarketingAnalyticsTrendsQuery> & {
+    showIntervalTile?: boolean
+    uniqueKey: string
+}): JSX.Element => {
     const { setDateInterval, setChartDisplayType, setTileColumnSelection } = useActions(marketingAnalyticsLogic)
     const { dateFilter, chartDisplayType, tileColumnSelection } = useValues(marketingAnalyticsLogic)
 
@@ -1495,7 +1499,10 @@ export const WebQuery = ({
         )
     }
 
-    if (query.kind === NodeKind.InsightVizNode && tileId === TileId.MARKETING) {
+    if (
+        tileId === TileId.MARKETING &&
+        (query.kind === NodeKind.InsightVizNode || query.kind === NodeKind.MarketingAnalyticsTrendsQuery)
+    ) {
         return (
             <MarketingAnalyticsTrendTile
                 attachTo={attachTo}

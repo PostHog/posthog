@@ -43,6 +43,7 @@ import {
     LifecycleDataWarehouseNode,
     LifecycleQuery,
     MarketingAnalyticsAggregatedQuery,
+    MarketingAnalyticsTrendsQuery,
     MarketingAnalyticsTableQuery,
     MathType,
     Node,
@@ -306,6 +307,12 @@ export function isMarketingAnalyticsAggregatedQuery(
     node?: Record<string, any> | null
 ): node is MarketingAnalyticsAggregatedQuery {
     return node?.kind === NodeKind.MarketingAnalyticsAggregatedQuery
+}
+
+export function isMarketingAnalyticsTrendsQuery(
+    node?: Record<string, any> | null
+): node is MarketingAnalyticsTrendsQuery {
+    return node?.kind === NodeKind.MarketingAnalyticsTrendsQuery
 }
 
 export function isNonIntegratedConversionsTableQuery(

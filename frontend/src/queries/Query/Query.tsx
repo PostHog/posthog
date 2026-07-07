@@ -5,6 +5,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { HogDebug } from 'scenes/debug/HogDebug'
 import { MarketingAnalyticsOverview } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsOverview/MarketingAnalyticsOverview'
+import { MarketingAnalyticsTrends } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsTrends/MarketingAnalyticsTrends'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
@@ -42,6 +43,7 @@ import {
     isHogQuery,
     isInsightVizNode,
     isMarketingAnalyticsAggregatedQuery,
+    isMarketingAnalyticsTrendsQuery,
     isRevenueAnalyticsGrossRevenueQuery,
     isRevenueAnalyticsMRRQuery,
     isRevenueAnalyticsMetricsQuery,
@@ -263,6 +265,16 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
     } else if (isMarketingAnalyticsAggregatedQuery(query)) {
         component = (
             <MarketingAnalyticsOverview
+                attachTo={props.attachTo}
+                query={query}
+                cachedResults={props.cachedResults}
+                context={queryContext}
+                uniqueKey={uniqueKey}
+            />
+        )
+    } else if (isMarketingAnalyticsTrendsQuery(query)) {
+        component = (
+            <MarketingAnalyticsTrends
                 attachTo={props.attachTo}
                 query={query}
                 cachedResults={props.cachedResults}
