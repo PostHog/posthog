@@ -511,12 +511,25 @@ def report_workflows_email_unsubscribed(team_id: int, identifier: str, category_
         team = Team.objects.get(id=team_id)
         if not team.workflows_config.capture_workflows_engagement_events:
             return
+
+        # The form POST accepts arbitrary category id strings; only emit for the team's real
+        # categories (or "$all") so a token bearer can't inject junk property values
+        known_category_ids: set[str] = set()
+        if any(category_id != ALL_MESSAGE_PREFERENCE_CATEGORY_ID for category_id in category_ids):
+            known_category_ids = {
+                str(category_id)
+                for category_id in MessageCategory.objects.filter(team_id=team_id, deleted=False).values_list(
+                    "id", flat=True
+                )
+            }
     except Exception as e:
         capture_exception(e)
         return
 
     # Each category is independently best-effort: one failed capture must not skip the rest
     for category_id in category_ids:
+        if category_id != ALL_MESSAGE_PREFERENCE_CATEGORY_ID and category_id not in known_category_ids:
+            continue
         properties: dict[str, Any] = {
             "$email": identifier,
             "category": category_id,

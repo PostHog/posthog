@@ -229,7 +229,8 @@ class TestMessagePreferencesViews(BaseTest):
         self, mock_validate_messaging_preferences_token, mock_capture_internal
     ):
         self._enable_engagement_events()
-        # category is already opted out, so only category2 and $all are genuine transitions
+        # category is already opted out, so only category2 and $all are genuine transitions;
+        # the bogus id must be dropped because it isn't one of the team's categories
         self.recipient.preferences = {
             str(self.category.id): PreferenceStatus.OPTED_OUT.value,
             str(self.category2.id): PreferenceStatus.OPTED_IN.value,
@@ -239,7 +240,14 @@ class TestMessagePreferencesViews(BaseTest):
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
         )
 
-        data = {"token": self.token, "preferences[]": [f"{self.category.id}:false", f"{self.category2.id}:false"]}
+        data = {
+            "token": self.token,
+            "preferences[]": [
+                f"{self.category.id}:false",
+                f"{self.category2.id}:false",
+                "not-a-real-category:false",
+            ],
+        }
         response = self.client.post(reverse("message_preferences_update"), data)
 
         self.assertEqual(response.status_code, 200)
