@@ -4435,6 +4435,38 @@ class TestIntegrationMembershipPermissions(APIBaseTest):
         assert existing.config["project_id"] == "original-project"
         assert Integration.objects.filter(team=self.team, kind="google-cloud-service-account").count() == 1
 
+    @patch("posthog.models.integration.GitHubIntegration.verify_user_installation_access", return_value=True)
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_member_cannot_overwrite_existing_github_integration_via_link_existing(
+        self, mock_from_installation_id, _mock_verify_access
+    ):
+        existing = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345", "account": {"name": "original"}},
+            sensitive_config={"access_token": "original-token"},
+        )
+        UserIntegration.objects.create(
+            user=self.user,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345"},
+            sensitive_config={"access_token": "gho_member"},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/integrations/github/link_existing/",
+            {"installation_id": "12345"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        mock_from_installation_id.assert_not_called()
+        existing.refresh_from_db()
+        assert existing.config["account"]["name"] == "original"
+        assert existing.sensitive_config["access_token"] == "original-token"
+
 
 class TestGoogleSearchConsoleSitesEndpoint:
     _SESSION_PATH = (

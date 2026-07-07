@@ -10,7 +10,7 @@ from django.utils.crypto import get_random_string
 
 import requests
 import structlog
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 
 from posthog.api.github_callback import (
@@ -407,6 +407,7 @@ def link_existing_team_github_integration(
     installation_id = (source.config or {}).get("installation_id")
     if not installation_id:
         raise ValidationError("Source integration is missing installation_id")
+    installation_id_str = str(installation_id)
 
     user_github_integration = UserIntegration.objects.filter(user=user, kind="github").order_by("-created_at").first()
     user_access_token = (
@@ -427,7 +428,13 @@ def link_existing_team_github_integration(
             code=GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
         )
 
-    instance = GitHubIntegration.integration_from_installation_id(str(installation_id), team_id, user)
+    existing_target = Integration.objects.first_github_for_team_installation(team_id, installation_id_str)
+    if existing_target is not None:
+        target_team = Team.objects.get(id=team_id)
+        if not github_callback_state.has_team_management_access(user, target_team):
+            raise PermissionDenied("You need project admin access to update an existing GitHub integration.")
+
+    instance = GitHubIntegration.integration_from_installation_id(installation_id_str, team_id, user)
 
     source_login = (source.config or {}).get("connecting_user_github_login")
     if source_login and not (instance.config or {}).get("connecting_user_github_login"):
