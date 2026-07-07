@@ -103,6 +103,15 @@ export class Filter {
             `Expected [key:string]= pattern:string | string[], but [${key}:${typeof key}]= ${pattern}:${typeof pattern} found`
           )
         }
+        // A '!' pattern only becomes an exclude when it's a top-level filter entry (the
+        // string branch above). Inside this array form it would silently fall through to
+        // picomatch's raw array-negation semantics instead — matching nearly every file
+        // rather than excluding one — so reject it instead of matching the wrong thing.
+        if (Array.isArray(pattern) && pattern.some(p => isNegatedPattern(p))) {
+          this.throwInvalidFormatError(
+            `'!' patterns are not supported inside a change-status array (key '${key}') — write them as separate top-level filter entries instead`
+          )
+        }
         const negated = typeof pattern === 'string' && isNegatedPattern(pattern)
         return {
           status: key

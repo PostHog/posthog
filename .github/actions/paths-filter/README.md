@@ -50,16 +50,17 @@ For a filter with only positive patterns this behaves exactly like upstream's de
 ### Limitation: excludes must be top-level entries
 
 An exclude is only recognised when the `!` pattern is its own entry in the filter list.
-A `!` pattern nested inside a change-status array is **not** treated as an exclude — it
-falls through to picomatch's raw negation (matching every file outside the pattern), which
-is the upstream footgun this fork exists to avoid. Write excludes as separate entries:
+A `!` pattern nested inside a change-status array is rejected with an error rather than
+silently falling through to picomatch's raw negation (which would match every file outside
+the pattern) — that fallthrough is the upstream footgun this fork exists to avoid. Write
+excludes as separate entries:
 
 ```yaml
 # do this
 changed:
   - added|modified: 'src/**'
   - '!src/vendor/**'
-# not this — the '!' entry is not an exclude here
+# not this — throws "'!' patterns are not supported inside a change-status array"
 changed:
   - added|modified: ['src/**', '!src/vendor/**']
 ```

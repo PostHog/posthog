@@ -17,6 +17,14 @@ describe('yaml filter parsing tests', () => {
     const t = () => new Filter(yaml)
     expect(t).toThrow(/^Invalid filter.*/)
   })
+  test('throws on a "!" pattern nested inside a change-status array instead of silently over-matching', () => {
+    const yaml = `
+    changed:
+      - added|modified: ['src/**', '!src/vendor/**']
+    `
+    const t = () => new Filter(yaml)
+    expect(t).toThrow(/^Invalid filter.*/)
+  })
 })
 
 describe('matching tests', () => {
