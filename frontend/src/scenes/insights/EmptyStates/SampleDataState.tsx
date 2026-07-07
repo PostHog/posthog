@@ -43,7 +43,7 @@ const TABLE_ROWS = [
 const SAMPLE_NUMBERS = [1284, 1327, 1291, 1362, 1408, 1373]
 
 const LINE_CONFIG: LineChartConfig = { showGrid: true, showCrosshair: true }
-const BAR_CONFIG: BarChartConfig = { bars: { cornerRadius: 2 } }
+const BAR_CONFIG: BarChartConfig = { barCornerRadius: 2 }
 
 function SampleNumber({ animate }: { animate: boolean }): JSX.Element {
     const [valueIndex, setValueIndex] = useState(0)
