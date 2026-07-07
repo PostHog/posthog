@@ -1,7 +1,9 @@
 import { actions, connect, kea, listeners, path } from 'kea'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { projectLogic } from 'scenes/projectLogic'
 
 import type { onboardingEventUsageLogicType } from './onboardingEventUsageLogicType'
 import { resolveOnboardingFlowVariant } from './onboardingVariants'
@@ -15,13 +17,41 @@ export type ContextOnboardingStepId = 'welcome' | 'install' | 'sources' | 'wareh
 // `eventUsageLogic`, stamped `{version: 1, flow_variant: 'legacy'}`.
 const CONTEXT_ONBOARDING_EVENT_PROPS = { version: 2, flow_variant: 'context_first' } as const
 
+/** Arm of the cloud-wizard AB test (GROW-117): `test` offers the cloud run, `control` is local-only. */
+export type CloudRunExperimentArm = 'control' | 'test'
+
+/**
+ * The user's experiment arm, or null when they are not enrolled: an unset/boolean flag value (not
+ * rolled out, targeting excludes them, flags not loaded yet) must NOT be collapsed into `control`,
+ * or never-enrolled users pollute the control cohort and bias the readout toward "no effect".
+ */
+export function resolveCloudRunExperimentArm(featureFlags: FeatureFlagsSet): CloudRunExperimentArm | null {
+    const value = featureFlags[FEATURE_FLAGS.ONBOARDING_WIZARD_CLOUD_RUN]
+    return value === 'test' || value === 'control' ? value : null
+}
+
 // Wizard-sync events fire from BOTH onboarding variants (GROW-121): same v2 event shape, but
-// flow_variant reflects whichever flow the user is actually in so the AB test can split on it.
-function wizardSyncEventProps(featureFlags: FeatureFlagsSet): { version: 2; flow_variant: string } {
+// flow_variant reflects whichever flow the user is actually in, and the cloud-run experiment arm
+// rides along (GROW-117) so downstream metrics can split on either without a flag-persons join.
+function wizardSyncEventProps(featureFlags: FeatureFlagsSet): {
+    version: 2
+    flow_variant: string
+    cloud_run_experiment_arm: CloudRunExperimentArm | null
+} {
     return {
         version: 2,
         flow_variant: resolveOnboardingFlowVariant(featureFlags) === 'self-driving' ? 'context_first' : 'legacy',
+        cloud_run_experiment_arm: resolveCloudRunExperimentArm(featureFlags),
     }
+}
+
+// One exposure per project per pageload: the install step remounts on navigation, and a re-fired
+// exposure would inflate the denominator, but a project switch mid-session is a fresh exposure.
+// Module-scoped, mirroring the wizard tracker's once-per-session report guards.
+const reportedCloudRunExperimentExposures = new Set<string>()
+
+export function resetCloudRunExperimentExposureForTests(): void {
+    reportedCloudRunExperimentExposures.clear()
 }
 
 /**
@@ -34,7 +64,7 @@ function wizardSyncEventProps(featureFlags: FeatureFlagsSet): { version: 2; flow
 export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
     path(['scenes', 'onboarding', 'onboardingEventUsageLogic']),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], projectLogic, ['currentProjectId']],
     })),
     actions({
         reportContextOnboardingStarted: true,
@@ -60,6 +90,9 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
             prOpened: boolean
             prUrl: string | null
         }) => props,
+        // Exposure marker for the cloud-wizard AB test (GROW-117): fired when a user reaches the
+        // surface where the arms diverge (the install step on cloud/dev instances).
+        reportWizardCloudRunExperimentExposed: true,
         // Engagement with the shared wizard sync surface (FAB card / launcher / dialog), fired for
         // both variants and both run modes (GROW-121).
         reportWizardSyncExpanded: (props: { runKey: string; mode: 'cloud' | 'local'; phase: string }) => props,
@@ -125,22 +158,41 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
                 ...CONTEXT_ONBOARDING_EVENT_PROPS,
             })
         },
-        reportContextOnboardingCloudRunQueued: ({ taskId, runId, repository }) => {
+        // Deliberately NOT capturing the repository name or PR URL: they identify customers'
+        // (often private) repos and this event lands in the shared app analytics project. The
+        // backend task_run_* lifecycle events carry them server-side; task_id/run_id join to them.
+        reportContextOnboardingCloudRunQueued: ({ taskId, runId }) => {
             posthog.capture('onboarding cloud run queued', {
                 task_id: taskId,
                 run_id: runId,
-                repository,
                 ...wizardSyncEventProps(values.featureFlags),
             })
         },
-        reportContextOnboardingCloudRunCompleted: ({ taskId, runId, status, durationSeconds, prOpened, prUrl }) => {
+        reportContextOnboardingCloudRunCompleted: ({ taskId, runId, status, durationSeconds, prOpened }) => {
             posthog.capture('onboarding cloud run completed', {
                 task_id: taskId,
                 run_id: runId,
                 status,
                 duration_seconds: durationSeconds,
                 pr_opened: prOpened,
-                pr_url: prUrl,
+                ...wizardSyncEventProps(values.featureFlags),
+            })
+        },
+        reportWizardCloudRunExperimentExposed: () => {
+            // Enrollment-gated: callers fire on readiness (preflight + receivedFeatureFlags), and a
+            // null arm means the user is not in the experiment — no exposure, no guard, so a later
+            // dispatch after enrollment resolves can still count them. Never stamp a guessed arm:
+            // a mis-bucketed exposure cannot be repaired retroactively.
+            const arm = resolveCloudRunExperimentArm(values.featureFlags)
+            if (arm === null) {
+                return
+            }
+            const projectKey = String(values.currentProjectId ?? 'unknown')
+            if (reportedCloudRunExperimentExposures.has(projectKey)) {
+                return
+            }
+            reportedCloudRunExperimentExposures.add(projectKey)
+            posthog.capture('wizard cloud run experiment exposed', {
                 ...wizardSyncEventProps(values.featureFlags),
             })
         },
