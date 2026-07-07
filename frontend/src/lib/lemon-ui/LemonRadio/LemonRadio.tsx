@@ -45,27 +45,26 @@ export function LemonRadio<T extends React.Key>({
                             'grid gap-x-2 grid-cols-[min-content_auto] text-sm',
                             disabledReason ? 'text-secondary cursor-not-allowed' : 'cursor-pointer',
                             {
-                                'items-start': radioPosition === 'top',
+                                // baseline tracks the label's first text line even when the
+                                // label JSX uses its own font size or line-height
+                                'items-baseline': radioPosition === 'top',
                                 'items-center': radioPosition === 'center' || !radioPosition,
                             }
                         )}
                     >
-                        {/* h-5 matches the text-sm line-height, so the radio centers on the label's first line */}
-                        <span className="flex items-center h-5">
-                            <input
-                                type="radio"
-                                className="cursor-pointer"
-                                checked={value === selectedValue}
-                                value={String(value)}
-                                onChange={() => {
-                                    if (!disabledReason) {
-                                        onChange(value)
-                                    }
-                                }}
-                                disabled={!!disabledReason}
-                                {...optionProps}
-                            />
-                        </span>
+                        <input
+                            type="radio"
+                            className="cursor-pointer"
+                            checked={value === selectedValue}
+                            value={String(value)}
+                            onChange={() => {
+                                if (!disabledReason) {
+                                    onChange(value)
+                                }
+                            }}
+                            disabled={!!disabledReason}
+                            {...optionProps}
+                        />
                         <span>{label}</span>
                         {description && (
                             <div className="text-secondary font-normal row-start-2 col-start-2 text-pretty text-xs">
