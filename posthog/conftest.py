@@ -33,6 +33,7 @@ def create_clickhouse_tables():
         CREATE_MERGETREE_TABLE_QUERIES,
         CREATE_MV_TABLE_QUERIES,
         CREATE_VIEW_QUERIES,
+        SEED_DATA_TABLES,
         build_query,
         get_table_name,
     )
@@ -79,8 +80,6 @@ def create_clickhouse_tables():
     # Derived from SEED_DATA_TABLES in schema.py, which also drives CREATE_DATA_QUERIES,
     # so a new seed table added there is automatically picked up here.
     # TRUNCATE-based resets go through reset_clickhouse_tables, which reloads unconditionally.
-    from posthog.clickhouse.schema import SEED_DATA_TABLES  # noqa: PLC0415
-
     for table_name, query_fn in SEED_DATA_TABLES:
         count = sync_execute(f"SELECT count() FROM {table_name}")[0][0]
         if not count:
