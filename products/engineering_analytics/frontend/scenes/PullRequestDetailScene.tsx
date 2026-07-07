@@ -34,7 +34,7 @@ import { RunConclusionTag } from '../components/runTables'
 import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
 import { Section, SectionNav } from '../components/Section'
 import type { WorkflowJobApi } from '../generated/api.schemas'
-import { compactUsd } from '../lib/format'
+import { compactCount, compactUsd } from '../lib/format'
 import { githubCommitUrl, githubPrUrl } from '../lib/github'
 import { LifecycleSummary, WorkflowRun, isPassingConclusion } from '../lib/lifecycle'
 import {
@@ -758,6 +758,16 @@ export function PullRequestDetailScene(): JSX.Element {
                             value={prCost?.jobs_available ? compactUsd(prCost.estimated_cost_usd) : '—'}
                             sub={prCost?.jobs_available ? undefined : 'Job-level source not synced'}
                         />
+                        {prCost?.llm_spend && (
+                            <MetricTile
+                                label="LLM spend"
+                                tooltip="Token spend from AI coding/review sessions on this PR's branch (matched via $ai_git_branch)."
+                                value={compactUsd(prCost.llm_spend.cost_usd)}
+                                sub={`${compactCount(
+                                    prCost.llm_spend.input_tokens + prCost.llm_spend.output_tokens
+                                )} tokens · ${pluralize(prCost.llm_spend.generations, 'generation')}`}
+                            />
+                        )}
                         <MetricTile
                             label={
                                 summary?.mergedAt ? 'Open → merge' : summary?.closedAt ? 'Open → close' : 'Open so far'
