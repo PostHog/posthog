@@ -67,8 +67,6 @@ export const teamLogic = kea<teamLogicType>([
             ['loadCurrentOrganization'],
             customProductsLogic,
             ['loadCustomProducts'],
-            projectLogic,
-            ['loadCurrentProject'],
         ],
     })),
     actions({
@@ -362,8 +360,6 @@ export const teamLogic = kea<teamLogicType>([
         updateCurrentTeamSuccess: () => {
             // Reload user after team update to keep user object in sync
             actions.loadUser()
-            // Keep currentProject in sync too, so a rename is reflected without a page refresh
-            actions.loadCurrentProject()
         },
         createTeamSuccess: ({ currentTeam }) => {
             if (currentTeam) {
