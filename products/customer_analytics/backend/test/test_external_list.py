@@ -1,11 +1,13 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import Organization, Team, User
-from posthog.models.utils import generate_random_token_secret
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+from posthog.models.utils import generate_random_token_secret, hash_key_value, mask_key_value
 
 from products.customer_analytics.backend.models.account import AccountAssignment, AccountProperties
 from products.customer_analytics.backend.test.factories import create_account
@@ -14,8 +16,7 @@ from products.customer_analytics.backend.test.factories import create_account
 class TestExternalAccountListAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.team.secret_api_token = generate_random_token_secret()
-        self.team.save(update_fields=["secret_api_token"])
+        self.psak_token = self._create_psak_token(scopes=["account:read"])
         # Fresh client so requests are unauthenticated unless they carry the Bearer token.
         self.client = APIClient()
         self.url = "/api/customer_analytics/external/accounts"
@@ -26,8 +27,19 @@ class TestExternalAccountListAPI(APIBaseTest):
         self.mock_csp_enabled = csp_enabled.start()
         self.addCleanup(csp_enabled.stop)
 
+    def _create_psak_token(self, scopes, label="external-list"):
+        token = generate_random_token_secret()
+        ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label=label,
+            mask_value=mask_key_value(token),
+            secure_value=hash_key_value(token),
+            scopes=scopes,
+        )
+        return token
+
     def _auth_headers(self, token=None):
-        return {"HTTP_AUTHORIZATION": f"Bearer {token or self.team.secret_api_token}"}
+        return {"HTTP_AUTHORIZATION": f"Bearer {token or self.psak_token}"}
 
     def _get(self, params=None, token=None):
         return self.client.get(self.url, data=params or {}, **self._auth_headers(token))
@@ -47,6 +59,23 @@ class TestExternalAccountListAPI(APIBaseTest):
     def test_rejects_public_api_token(self):
         response = self._get(token=self.team.api_token)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_rejects_team_secret_api_token(self):
+        # The team-wide secret token is readable by any project member, so it must
+        # not unlock this bulk export; only a scoped project secret API key may.
+        self.team.secret_api_token = generate_random_token_secret()
+        self.team.save(update_fields=["secret_api_token"])
+
+        response = self._get(token=self.team.secret_api_token)
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_rejects_key_without_account_read_scope(self):
+        token = self._create_psak_token(scopes=["endpoint:read"], label="wrong-scope")
+
+        response = self._get(token=token)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_rejects_team_without_customer_analytics_enabled(self):
         self.mock_csp_enabled.return_value = False
@@ -162,16 +191,15 @@ class TestExternalAccountListAPI(APIBaseTest):
 
     # -- Validation -------------------------------------------------------
 
-    def test_rejects_invalid_cursor(self):
-        response = self._get({"cursor": "not-a-uuid"})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_rejects_non_integer_limit(self):
-        response = self._get({"limit": "abc"})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_rejects_invalid_assigned_only(self):
-        response = self._get({"assigned_only": "banana"})
+    @parameterized.expand(
+        [
+            ("invalid_cursor", {"cursor": "not-a-uuid"}),
+            ("non_integer_limit", {"limit": "abc"}),
+            ("invalid_assigned_only", {"assigned_only": "banana"}),
+        ]
+    )
+    def test_rejects_invalid_query_param(self, _name, params):
+        response = self._get(params)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_clamps_limit(self):

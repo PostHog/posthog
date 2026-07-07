@@ -1,8 +1,11 @@
 """
 External API endpoints for the Customer analytics product.
 
-These endpoints are used by the CDP worker for workflow actions. Authenticated
-via the team secret API token passed as a Bearer token in the Authorization header.
+The single-account endpoints are used by the CDP worker for workflow actions and
+authenticate via the team secret API token passed as a Bearer token in the
+Authorization header. The bulk account list instead authenticates via a project
+secret API key carrying the ``account:read`` scope, because the team token is
+readable by every project member and must not unlock a team-wide account export.
 
 The view holds only HTTP concerns — Bearer auth, throttles, the feature-flag gate,
 request validation, and mapping facade results to responses. Data access, the
@@ -12,7 +15,7 @@ capture live behind ``facade.api``.
 
 import uuid
 import hashlib
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from django.db.models import Q
@@ -28,7 +31,9 @@ from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.views import APIView
 
+from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.models import Team
+from posthog.permissions import is_authenticated_via_project_secret_api_key
 
 from products.customer_analytics.backend.facade import (
     api as facade,
@@ -39,6 +44,7 @@ from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYT
 logger = structlog.get_logger(__name__)
 
 EXTERNAL_ACCOUNT_LIST_MAX_LIMIT = 100
+EXTERNAL_ACCOUNT_LIST_REQUIRED_SCOPE = "account:read"
 
 
 class _ExternalAccountThrottle(SimpleRateThrottle):
@@ -116,6 +122,27 @@ def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Resp
         return None, Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
 
     return team, None
+
+
+def _authenticate_psak_team(request: Request) -> tuple[Team, None] | tuple[None, Response]:
+    """Resolve the team from a project secret API key with the ``account:read`` scope."""
+    if not is_authenticated_via_project_secret_api_key(request):
+        return None, Response({"error": "Missing or invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
+
+    authenticator = cast(ProjectSecretAPIKeyAuthentication, request.successful_authenticator)
+    psak = authenticator.project_secret_api_key
+    if EXTERNAL_ACCOUNT_LIST_REQUIRED_SCOPE not in (psak.scopes or []):
+        return None, Response(
+            {"error": f"API key missing required scope '{EXTERNAL_ACCOUNT_LIST_REQUIRED_SCOPE}'"},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    # Same 401 as an unknown key: a valid key for a team without customer
+    # analytics enabled must not be usable to read account data.
+    if not _customer_analytics_enabled(psak.team):
+        return None, Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
+
+    return psak.team, None
 
 
 def _external_account_body(account: contracts.ExternalAccount) -> dict[str, Any]:
@@ -360,10 +387,14 @@ class ExternalAccountListView(APIView):
     to accounts with at least one of csm / account_executive / account_owner set,
     which is what the billing service's ownership sync consumes.
 
-    Authenticated via Bearer token (team secret_api_token) in the Authorization header.
+    Authenticated via a project secret API key (Bearer ``phs_...``) carrying the
+    ``account:read`` scope, not the team secret_api_token the sibling views
+    accept. The team token is readable by any project member, so it must not
+    grant this team-wide export; a PSAK is a service credential minted with an
+    explicit scope.
     """
 
-    authentication_classes: list = []
+    authentication_classes = [ProjectSecretAPIKeyAuthentication]
     permission_classes = [AllowAny]
     throttle_classes = [ExternalAccountBurstThrottle, ExternalAccountSustainedThrottle]
 
@@ -373,12 +404,19 @@ class ExternalAccountListView(APIView):
             200: OpenApiResponse(response=ExternalAccountListPageSerializer, description="Page of external accounts."),
             400: OpenApiResponse(description="Invalid query parameters."),
             401: OpenApiResponse(response=ExternalAccountErrorSerializer, description="Authentication failed."),
+            403: OpenApiResponse(
+                response=ExternalAccountErrorSerializer,
+                description="API key does not carry the account:read scope.",
+            ),
         },
         summary="List external customer analytics accounts",
-        description="List accounts with external IDs and their account ownership assignments.",
+        description=(
+            "List accounts with external IDs and their account ownership assignments. "
+            "Requires a project secret API key with the `account:read` scope."
+        ),
     )
     def get(self, request: Request) -> Response:
-        team, error = _authenticate_team(request)
+        team, error = _authenticate_psak_team(request)
         if error:
             return error
 

@@ -162,6 +162,10 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # SDK local evaluation and remote config. The Rust feature-flags service already
     # validates feature_flag:read PSAKs on the flag-definitions path; this makes them creatable.
     ("feature_flag", "read"),
+    # Customer analytics external account list, a bulk export for service integrations.
+    # Gated on a PSAK so the team-wide secret_api_token (readable by any project member)
+    # can't be used to sidestep per-user account access controls.
+    ("account", "read"),
 ]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope

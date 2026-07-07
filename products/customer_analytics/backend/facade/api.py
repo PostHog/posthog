@@ -363,7 +363,7 @@ def list_external_accounts(
         if (assignment := getattr(account.properties, field)) is not None
     }
     names_by_user_id: dict[int, str | None] = {}
-    if user_ids and accounts:
+    if user_ids:
         memberships = OrganizationMembership.objects.filter(
             organization_id=accounts[0].team.organization_id,
             user_id__in=user_ids,
