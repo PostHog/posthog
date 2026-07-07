@@ -150,26 +150,32 @@ class KernelSession:
             name = spec["name"]
             kind = spec.get("kind")
             if kind == "hogql":
-                # mmap the server-streamed frame and register it zero-copy in DuckDB; for a
-                # Python node additionally bind pandas (the one step that materializes in RAM).
-                table = pa.ipc.open_file(spec["path"]).read_all()
+                # mmap the server-streamed frame and register it zero-copy in DuckDB (the
+                # buffers keep referencing the map after the handle closes); for a Python
+                # node additionally bind pandas (the one step that materializes in RAM).
+                with pa.memory_map(spec["path"]) as source:
+                    table = pa.ipc.open_file(source).read_all()
                 self._register_duck(name, table)
                 if bind_pandas:
                     self.shell.user_ns[name] = table.to_pandas()
             elif kind == "local":
-                # Made by an earlier node in this kernel; it must already be present.
-                frame = self.shell.user_ns.get(name)
-                if isinstance(frame, pd.DataFrame):
-                    # Re-register every run so SQL sees the frame's current value.
-                    self._register_duck(name, frame)
-                elif name in self.shell.user_ns:
-                    # Rebound to a non-frame since it was registered: drop the stale DuckDB
-                    # entry so SQL can't silently read old data. Python code can still use
-                    # the object as-is; SQL over it is a clear error instead of wrong rows.
+                # Made by an earlier node in this kernel; it must currently be present.
+                if name in self.shell.user_ns:
+                    frame = self.shell.user_ns[name]
+                    if isinstance(frame, pd.DataFrame):
+                        # Re-register every run so SQL sees the frame's current value.
+                        self._register_duck(name, frame)
+                    else:
+                        # Rebound to a non-frame since it was registered: drop the stale DuckDB
+                        # entry so SQL can't silently read old data. Python code can still use
+                        # the object as-is; SQL over it is a clear error instead of wrong rows.
+                        self._unregister_duck(name)
+                        if node_type == "duckdb":
+                            raise TypeError(f"'{name}' is not a dataframe in the kernel (it is {type(frame).__name__})")
+                else:
+                    # Never made — or deleted since it was registered, in which case the stale
+                    # registration must go so SQL can't keep reading the old frame.
                     self._unregister_duck(name)
-                    if node_type == "duckdb":
-                        raise TypeError(f"'{name}' is not a dataframe in the kernel (it is {type(frame).__name__})")
-                elif name not in self._registered:
                     raise KeyError(f"local frame '{name}' is not in the kernel — run the node that creates it first")
             else:
                 raise ValueError(f"unknown input kind '{kind}' for '{name}'")
@@ -194,10 +200,16 @@ class KernelSession:
             result_df = relation.df() if relation is not None else None
         except Exception as exc:  # noqa: BLE001 — any DuckDB failure must still produce an envelope
             return envelope.from_python_execution(status="error", error=f"{type(exc).__name__}: {exc}")
-        if result_df is not None and output_name:
-            # Bind for downstream nodes: pandas in the namespace (Python) and a DuckDB entry (SQL).
-            self.shell.user_ns[output_name] = result_df
-            self._register_duck(output_name, result_df)
+        if output_name:
+            if result_df is not None:
+                # Bind for downstream nodes: pandas in the namespace (Python) and a DuckDB entry (SQL).
+                self.shell.user_ns[output_name] = result_df
+                self._register_duck(output_name, result_df)
+            else:
+                # A frameless run (DDL etc.) invalidates any previous binding under this name —
+                # downstream nodes must not silently keep reading the previous run's frame.
+                self.shell.user_ns.pop(output_name, None)
+                self._unregister_duck(output_name)
         columns, types, rows, row_count, has_more = self._preview(result_df, preview_rows)
         result_id = self._write_result_frame(result_df) if result_df is not None else None
         return envelope.from_python_execution(

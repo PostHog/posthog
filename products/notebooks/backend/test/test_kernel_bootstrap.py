@@ -165,3 +165,27 @@ class TestKernelSessionRunNode(SimpleTestCase):
         envelope = self._run_duckdb("select * from new_events", inputs=[{"name": "new_events", "kind": "local"}])
         self.assertEqual(envelope["status"], "error")
         self.assertIn("not a dataframe", envelope["error"])
+
+    def test_duckdb_over_a_deleted_name_errors_instead_of_reading_stale_rows(self):
+        # `del` leaves the name in DuckDB's registry but not the namespace — the third silent
+        # state: neither re-registered nor rejected, serving the previous run's rows.
+        self._run("import pandas as pd\nnew_events = pd.DataFrame({'id': [1, 2, 3]})")
+        self._run_duckdb("select count(*) as c from new_events", inputs=[{"name": "new_events", "kind": "local"}])
+        self._run("del new_events")
+        envelope = self._run_duckdb(
+            "select count(*) as c from new_events", inputs=[{"name": "new_events", "kind": "local"}]
+        )
+        self.assertEqual(envelope["status"], "error")
+        self.assertIn("new_events", envelope["error"])
+
+    def test_frameless_duckdb_rerun_invalidates_its_previous_output_binding(self):
+        # A SELECT run binds output_name; a later frameless (DDL) run of the same node must
+        # drop that binding, or downstream nodes keep reading the stale frame.
+        self._run("import pandas as pd\nnew_events = pd.DataFrame({'id': [1]})")
+        self._run_duckdb(
+            "select * from new_events", inputs=[{"name": "new_events", "kind": "local"}], output_name="out"
+        )
+        self._run_duckdb("create table scratch as select 1", output_name="out")
+        envelope = self._run_duckdb("select * from out", inputs=[{"name": "out", "kind": "local"}])
+        self.assertEqual(envelope["status"], "error")
+        self.assertIn("out", envelope["error"])

@@ -253,6 +253,33 @@ class TestSQLV2Run(APIBaseTest):
 
     @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_hogql_ref_whose_latest_run_was_duckdb_is_treated_as_not_run(self, _mock_enabled, mock_start):
+        # A SQL node's runs can alternate engines; a duckdb run's code is raw SQL naming
+        # kernel frames, so inlining it as a CTE would ship it to ClickHouse. The stale older
+        # hogql run must not be used either — the node's latest result is a local frame.
+        with freeze_time("2026-07-04T00:00:00Z"):
+            self._record_done_run("node-c", "select id from events")
+        with freeze_time("2026-07-04T00:01:00Z"):
+            with team_scope(self.team.id):
+                NotebookNodeRun.objects.create(
+                    team=self.team,
+                    notebook=self.notebook,
+                    node_id="node-c",
+                    code="select * from df2 join new_events on true",
+                    node_type=NotebookNodeRun.NodeType.DUCKDB,
+                    status=NotebookNodeRun.Status.DONE,
+                )
+        response = self.client.post(
+            self.run_url,
+            data={"node_id": "d", "code": "select * from sql_df", "refs": {"sql_df": {"node_id": "node-c"}}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("has not been run", response.json()["detail"])
+        mock_start.assert_not_called()
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_hogql_typo_with_refs_present_is_a_400_not_a_500(self, _mock_enabled, mock_start):
         # With refs present the user's code is parsed at dispatch, so a plain typo raises
         # ExposedHogQLError there — it must surface as a bad request, not a server error.

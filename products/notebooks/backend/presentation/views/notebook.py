@@ -934,13 +934,20 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         ref_specs: dict[str, dict] = serializer.validated_data.get("refs") or {}
         hogql_node_ids = {spec["node_id"] for spec in ref_specs.values() if spec["kind"] == "hogql"}
         # One DISTINCT ON query fetches the latest DONE run for every referenced node at once.
-        code_by_node_id: dict[str, str] = dict(
+        latest_runs = (
             NotebookNodeRun.objects.for_team(self.team_id)
             .filter(notebook=notebook, node_id__in=hogql_node_ids, status=NotebookNodeRun.Status.DONE)
             .order_by("node_id", "-created_at")
             .distinct("node_id")
-            .values_list("node_id", "code")
+            .values_list("node_id", "code", "node_type")
         )
+        # A SQL node's runs can alternate between hogql and duckdb (Journey 5 rerouting), so a
+        # kind=hogql ref is only trustworthy when the node's LATEST result really is hogql —
+        # a duckdb run's code is raw, non-self-contained SQL naming kernel frames, and inlining
+        # it as a CTE would ship it to ClickHouse. Treat that node as not-run instead.
+        code_by_node_id: dict[str, str] = {
+            node_id: code for node_id, code, run_type in latest_runs if run_type == NotebookNodeRun.NodeType.HOGQL
+        }
         refs: dict[str, SQLV2Ref] = {
             name: (
                 SQLV2Ref(kind="local")
