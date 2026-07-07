@@ -98,6 +98,11 @@ def set_default_modifier_values(modifiers: "HogQLQueryModifiers", team: "Team"):
     if modifiers.optimizeJoinedFilters is None:
         modifiers.optimizeJoinedFilters = False
 
+    # Off by default while the rollout is per-team via team.modifiers; flipping this default is a
+    # deliberate follow-up that carries the emitted-SQL snapshot churn for review.
+    if modifiers.typeAwareCastSimplification is None:
+        modifiers.typeAwareCastSimplification = False
+
     if modifiers.bounceRatePageViewMode is None:
         modifiers.bounceRatePageViewMode = BounceRatePageViewMode.COUNT_PAGEVIEWS
 

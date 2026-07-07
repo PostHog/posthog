@@ -4989,6 +4989,14 @@ class HogQLQueryModifiers(BaseModel):
     sessionTableVersion: SessionTableVersion | None = None
     sessionsV2JoinMode: SessionsV2JoinMode | None = None
     timings: bool | None = None
+    typeAwareCastSimplification: bool | None = Field(
+        default=None,
+        description=(
+            "Remove provably redundant casts and nullability wrappers (e.g."
+            " `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull`"
+            " fallbacks) using inferred expression types *"
+        ),
+    )
     useMaterializedViews: bool | None = None
     usePreaggregatedIntermediateResults: bool | None = None
     usePreaggregatedTableTransforms: bool | None = Field(

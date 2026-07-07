@@ -24475,6 +24475,10 @@
                 "timings": {
                     "type": "boolean"
                 },
+                "typeAwareCastSimplification": {
+                    "description": "Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types *",
+                    "type": "boolean"
+                },
                 "useMaterializedViews": {
                     "type": "boolean"
                 },

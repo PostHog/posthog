@@ -193,7 +193,9 @@ def prepare_ast_for_printing(
                 resolver_factory=resolver_factory,
             )
 
-    if context.enable_type_aware_cast_simplification:
+    # Modifier drives the production rollout (per-team override / staged default); the context flag
+    # remains as the direct opt-in for tests and internal callers.
+    if context.enable_type_aware_cast_simplification or context.modifiers.typeAwareCastSimplification:
         with context.timings.measure("type_aware_cast_simplification"):
             node = simplify_redundant_type_operations(node, context, dialect)
 

@@ -593,6 +593,24 @@ class TestPrinter(BaseTest):
                 "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
             )
 
+    @parameterized.expand([(True,), (False,)])
+    def test_type_aware_simplification_modifier_drives_prepare_pipeline(self, modifier_enabled: bool):
+        # The production rollout path: the typeAwareCastSimplification modifier (not the internal
+        # context flag) must reach the simplifier inside prepare_ast_for_printing.
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=HogQLQueryModifiers(typeAwareCastSimplification=modifier_enabled),
+        )
+        sql = self._select("SELECT assumeNotNull(1) AS a, toString('x') AS b FROM events", context)
+
+        if modifier_enabled:
+            assert "assumeNotNull(" not in sql
+            assert "toString(" not in sql
+        else:
+            assert "assumeNotNull(" in sql
+            assert "toString(" in sql
+
     def test_hogql_properties(self):
         self.assertEqual(
             self._expr("event", HogQLContext(team_id=self.team.pk), "hogql"),
