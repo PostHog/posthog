@@ -34,11 +34,7 @@ function SubscribeIcon({ dashboardId }: { dashboardId: number }): JSX.Element {
     )
 }
 
-/**
- * A/B tests surfacing dashboard subscriptions outside the side panel. `button` renders an explicit
- * header button; `menu` renders a hamburger menu to the right of Add. Only the slot matching the
- * assigned flag variant renders — the other returns null so both placements can live in the header.
- */
+// Both placements mount in the header; each renders only when it matches the assigned variant.
 export function DashboardSubscribeExperiment({ placement }: { placement: SubscribePlacement }): JSX.Element | null {
     const { dashboard, canEditDashboard } = useValues(dashboardLogic)
     const { push } = useActions(router)
