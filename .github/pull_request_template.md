@@ -65,6 +65,12 @@
 - Agent-authored PRs always require human review — do not self-merge or auto-approve.
 - Do NOT claim manual testing you haven't done.
 - GitHub PR descriptions render markdown, not fixed-width text. Do not hard-wrap prose at a column width or use space-aligned tables — use real markdown tables, headings, and fenced code blocks, and let GitHub flow the text.
+- Use GitHub's rich markdown when it makes review faster, never as decoration:
+  - If the change alters a flow or topology (CI wiring, pipelines, state machines, request paths), include before/after mermaid diagrams as two separate `flowchart LR` blocks, before first. Keep them simple: a syntax error renders as an error block. Skip diagrams for trivial changes.
+  - Use alerts (`> [!WARNING]`, `> [!NOTE]`) for behavior changes and risk callouts.
+  - Collapse long supporting content (test output, logs) in `<details>` blocks.
+  - Use fenced `diff` code blocks for config before/after.
+  - Line-range permalinks to code in this repo render as embedded snippets: prefer them over pasting existing code.
 - Write with a crisp, direct Silicon Valley communication style. Use concise language that gets straight to the point. Sentences that are easy on the reader, paragraphs that are each about one thing. Prioritize clarity and brevity over elaborate explanations. Avoid corporate jargon, buzzwords, and unnecessary embellishments. Communicate as if you're explaining a complex concept to a smart colleague over coffee, keeping the tone light but substantive. No em-dashes, only en-dashes if needed. Spare use of inline code. Limited use of the colon and semicolon.
 - Write from a first person perspective of the author of a human-driven PR. Although if something was done by an agent (i.e. you), make that clear with something like "I (or, actually Claude/Codex/etc.) did blah".
 - For titles, headings, or bolded parts use "Sentence case" rather than "Title Case" (i.e. only capitalize the first word of the title/heading/bold text).
