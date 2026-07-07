@@ -79,6 +79,7 @@ function WizardSyncDialog({
     isOpen,
     onClose,
     onClear,
+    onDashboardClick,
 }: {
     progress: InstallationProgress
     elapsedSeconds: number
@@ -87,6 +88,7 @@ function WizardSyncDialog({
     isOpen: boolean
     onClose: () => void
     onClear?: () => void
+    onDashboardClick?: () => void
 }): JSX.Element {
     const isTerminal = progress.phase === 'completed' || progress.phase === 'error'
     return (
@@ -98,7 +100,12 @@ function WizardSyncDialog({
                         {mode === 'cloud' ? 'Cloud run' : 'On your machine'} · {formatElapsed(elapsedSeconds)}
                     </span>
                 </div>
-                <InstallationProgressContent progress={progress} mode={mode} dashboard={dashboard} />
+                <InstallationProgressContent
+                    progress={progress}
+                    mode={mode}
+                    dashboard={dashboard}
+                    onDashboardClick={onDashboardClick}
+                />
                 {isTerminal && onClear && (
                     <LemonButton type="secondary" onClick={onClear} className="self-end">
                         Dismiss this run
@@ -135,6 +142,9 @@ function WizardSyncSurface({
         reportWizardSyncMinimized,
         reportWizardSyncRestored,
         reportWizardSyncRunDismissed,
+        reportWizardSyncHandoffShown,
+        reportWizardSyncDashboardCtaShown,
+        reportWizardSyncDashboardCtaClicked,
     } = useActions(onboardingEventUsageLogic)
     const now = useNow()
     const { detectedDashboard } = useValues(wizardDashboardLogic)
@@ -144,6 +154,23 @@ function WizardSyncSurface({
     const isTerminal = progress.phase === 'completed' || progress.phase === 'error'
     const dashboard = progress.phase === 'completed' ? detectedDashboard : null
     const eventProps = { runKey, mode, phase: progress.phase }
+
+    // The completed-handoff funnel (exposure + CTA impression) — deduped per run inside the events
+    // logic, so this fires safely even when the inline panel reported the same run first.
+    const completed = progress.phase === 'completed'
+    const prOpened = !!progress.prUrl
+    useEffect(() => {
+        if (completed) {
+            reportWizardSyncHandoffShown({ runKey, mode, surface: 'fab', prOpened })
+        }
+    }, [completed, runKey, mode, prOpened, reportWizardSyncHandoffShown])
+    const dashboardVisible = !!dashboard
+    useEffect(() => {
+        if (dashboardVisible) {
+            reportWizardSyncDashboardCtaShown({ runKey, mode, surface: 'fab' })
+        }
+    }, [dashboardVisible, runKey, mode, reportWizardSyncDashboardCtaShown])
+    const handleDashboardClick = (): void => reportWizardSyncDashboardCtaClicked({ runKey, mode, surface: 'fab' })
     // One-shot: a double-click can land two dispatches before the surface unmounts, which would
     // double-fire the dismissal telemetry and re-run onClear.
     const clearedRef = useRef(false)
@@ -182,6 +209,7 @@ function WizardSyncSurface({
                         elapsedSeconds={elapsedSeconds}
                         mode={mode}
                         dashboard={dashboard}
+                        onDashboardClick={handleDashboardClick}
                         onExpand={() => {
                             reportWizardSyncExpanded(eventProps)
                             openDialog()
@@ -199,6 +227,7 @@ function WizardSyncSurface({
                 elapsedSeconds={elapsedSeconds}
                 mode={mode}
                 dashboard={dashboard}
+                onDashboardClick={handleDashboardClick}
                 isOpen={dialogOpen}
                 onClose={closeDialog}
                 onClear={handleClear}

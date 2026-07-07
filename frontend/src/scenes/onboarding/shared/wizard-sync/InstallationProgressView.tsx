@@ -16,6 +16,7 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
+import { onboardingEventUsageLogic } from '../../onboardingEventUsageLogic'
 import { activeCloudRunLogic } from './activeCloudRunLogic'
 import { finishedLocalRunLogic } from './finishedLocalRunLogic'
 import { prNameLabel } from './helpers'
@@ -65,6 +66,7 @@ export function InstallationProgressContent({
     progress,
     mode,
     dashboard,
+    onDashboardClick,
     onDismiss,
     onRetryLocally,
 }: {
@@ -73,6 +75,8 @@ export function InstallationProgressContent({
     mode?: InstallationMode
     /** Dashboard the wizard built, when detected — surfaced as the completed state's payoff. */
     dashboard?: DetectedDashboard | null
+    /** Telemetry hook for the dashboard CTA — navigation itself rides the button's `to`. */
+    onDashboardClick?: () => void
     onDismiss?: () => void
     /** When set, a failed run offers a "Run it yourself" button (switches the install step to the local
      * command). Omitted where no local fallback exists (e.g. the floating FAB), which shows only docs. */
@@ -265,6 +269,7 @@ export function InstallationProgressContent({
                         icon={<IconDashboard />}
                         center
                         tooltip={dashboard.name ?? undefined}
+                        onClick={onDashboardClick}
                     >
                         Preview your dashboard
                     </LemonButton>
@@ -302,6 +307,8 @@ export function InstallationProgressView({
     const { setPanelMounted } = useActions(activeCloudRunLogic)
     const { detectedDashboard } = useValues(wizardDashboardLogic)
     const { dismissLocalRun } = useActions(finishedLocalRunLogic)
+    const { reportWizardSyncHandoffShown, reportWizardSyncDashboardCtaShown, reportWizardSyncDashboardCtaClicked } =
+        useActions(onboardingEventUsageLogic)
 
     // While shown inline on the install step, hide the floating FAB so the same run isn't in two places.
     useEffect(() => {
@@ -311,6 +318,25 @@ export function InstallationProgressView({
         setPanelMounted(true)
         return () => setPanelMounted(false)
     }, [floating, setPanelMounted])
+
+    const runKey = mode === 'cloud' ? runId : latestSession?.session_id
+    const completed = installationProgress.phase === 'completed'
+    const dashboard = completed ? detectedDashboard : null
+    const prOpened = !!installationProgress.prUrl
+
+    // The completed-handoff funnel (exposure + CTA impression), deduped per run inside the events
+    // logic so remounts and the FAB showing the same run don't double count.
+    useEffect(() => {
+        if (completed && runKey) {
+            reportWizardSyncHandoffShown({ runKey, mode, surface: 'inline', prOpened })
+        }
+    }, [completed, runKey, mode, prOpened, reportWizardSyncHandoffShown])
+    const dashboardVisible = !!dashboard
+    useEffect(() => {
+        if (dashboardVisible && runKey) {
+            reportWizardSyncDashboardCtaShown({ runKey, mode, surface: 'inline' })
+        }
+    }, [dashboardVisible, runKey, mode, reportWizardSyncDashboardCtaShown])
 
     // Local runs always get a dismissal: it releases the install-step takeover and the FAB in one
     // move, and nothing else knows the session to clear. Cloud dismissal stays with the caller
@@ -322,7 +348,10 @@ export function InstallationProgressView({
         <InstallationProgressContent
             progress={installationProgress}
             mode={mode}
-            dashboard={installationProgress.phase === 'completed' ? detectedDashboard : null}
+            dashboard={dashboard}
+            onDashboardClick={
+                runKey ? () => reportWizardSyncDashboardCtaClicked({ runKey, mode, surface: 'inline' }) : undefined
+            }
             onDismiss={onDismiss ?? defaultLocalDismiss}
             onRetryLocally={onRetryLocally}
         />

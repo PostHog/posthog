@@ -50,8 +50,17 @@ function wizardSyncEventProps(featureFlags: FeatureFlagsSet): {
 // Module-scoped, mirroring the wizard tracker's once-per-session report guards.
 const reportedCloudRunExperimentExposures = new Set<string>()
 
+// Once-per-run guards for the completed-handoff funnel (exposure → CTA shown → CTA clicked). The
+// same run renders on several surfaces (inline panel, FAB card, dialog) and those remount freely —
+// deduping here, keyed by run, keeps the funnel's denominators honest without every surface
+// carrying its own guard.
+const reportedHandoffShownRuns = new Set<string>()
+const reportedDashboardCtaShownRuns = new Set<string>()
+
 export function resetCloudRunExperimentExposureForTests(): void {
     reportedCloudRunExperimentExposures.clear()
+    reportedHandoffShownRuns.clear()
+    reportedDashboardCtaShownRuns.clear()
 }
 
 /**
@@ -103,6 +112,25 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
             mode: 'cloud' | 'local'
             phase: string
             elapsedSeconds: number
+        }) => props,
+        // The completed-handoff funnel: exposure (a run's completed state rendered anywhere), the
+        // dashboard CTA becoming visible, and the CTA click. Deduped per run per pageload here, so
+        // surfaces can report unconditionally. No dashboard names or ids — same rule as repo names.
+        reportWizardSyncHandoffShown: (props: {
+            runKey: string
+            mode: 'cloud' | 'local'
+            surface: 'inline' | 'fab'
+            prOpened: boolean
+        }) => props,
+        reportWizardSyncDashboardCtaShown: (props: {
+            runKey: string
+            mode: 'cloud' | 'local'
+            surface: 'inline' | 'fab'
+        }) => props,
+        reportWizardSyncDashboardCtaClicked: (props: {
+            runKey: string
+            mode: 'cloud' | 'local'
+            surface: 'inline' | 'fab'
         }) => props,
     }),
     listeners(({ values }) => ({
@@ -226,6 +254,41 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
                 mode,
                 phase,
                 elapsed_seconds: elapsedSeconds,
+                ...wizardSyncEventProps(values.featureFlags),
+            })
+        },
+        reportWizardSyncHandoffShown: ({ runKey, mode, surface, prOpened }) => {
+            if (reportedHandoffShownRuns.has(runKey)) {
+                return
+            }
+            reportedHandoffShownRuns.add(runKey)
+            posthog.capture('wizard sync handoff shown', {
+                run_key: runKey,
+                mode,
+                surface,
+                pr_opened: prOpened,
+                ...wizardSyncEventProps(values.featureFlags),
+            })
+        },
+        reportWizardSyncDashboardCtaShown: ({ runKey, mode, surface }) => {
+            if (reportedDashboardCtaShownRuns.has(runKey)) {
+                return
+            }
+            reportedDashboardCtaShownRuns.add(runKey)
+            posthog.capture('wizard sync dashboard cta shown', {
+                run_key: runKey,
+                mode,
+                surface,
+                ...wizardSyncEventProps(values.featureFlags),
+            })
+        },
+        // Clicks are NOT deduped: a user returning to the dashboard through the CTA twice is real
+        // engagement, and the shown-event denominator is already stable.
+        reportWizardSyncDashboardCtaClicked: ({ runKey, mode, surface }) => {
+            posthog.capture('wizard sync dashboard cta clicked', {
+                run_key: runKey,
+                mode,
+                surface,
                 ...wizardSyncEventProps(values.featureFlags),
             })
         },

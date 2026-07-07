@@ -60,6 +60,7 @@ export function WizardSyncCard({
     elapsedSeconds,
     mode,
     dashboard,
+    onDashboardClick,
     onExpand,
     onDismiss,
     dismissTooltip = 'Dismiss',
@@ -69,6 +70,8 @@ export function WizardSyncCard({
     mode: WizardSyncMode
     /** Dashboard the wizard built, when detected — the completed card's payoff for runs with no PR. */
     dashboard?: DetectedDashboard | null
+    /** Telemetry hook for the dashboard CTA — navigation itself rides the button's `to`. */
+    onDashboardClick?: () => void
     onExpand: () => void
     onDismiss?: () => void
     /** What the X actually does here — "Minimize" while the run is live, "Dismiss" once terminal. */
@@ -161,7 +164,10 @@ export function WizardSyncCard({
                             type="primary"
                             to={urls.dashboard(dashboard.id)}
                             icon={<IconDashboard />}
-                            onClick={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                onDashboardClick?.()
+                            }}
                             tooltip="The wizard set this up for you – it fills up once you deploy"
                         >
                             Preview dashboard
