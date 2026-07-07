@@ -480,6 +480,65 @@ class TestVisionActionSynthesis(BaseTest):
         # block stays the last thing the model reads.
         self.assertLess(human.index("focus on rage clicks"), human.index("<observations>"))
 
+    def _typed_observation(self, model_output: dict, session_id: str) -> ReplayObservation:
+        return ReplayObservation.objects.create(
+            scanner=self.scanner,
+            session_id=session_id,
+            scanner_snapshot=snapshot_for(self.scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+            scanner_result={"model_output": model_output},
+        )
+
+    def test_targeting_verdict_only_feeds_matching_observations(self) -> None:
+        matching = self._typed_observation(
+            {"scanner_type": "monitor", "verdict": "yes", "reasoning": "user rage clicked"}, session_id="s1"
+        )
+        self._typed_observation(
+            {"scanner_type": "monitor", "verdict": "no", "reasoning": "calm session"}, session_id="s2"
+        )
+        action = self._action(selection={"verdict": ["yes"]})
+        run = self._run_for(action)
+
+        result = self._synthesize(action, run)
+
+        self.assertEqual(result.observation_count, 1)
+        run.refresh_from_db()
+        self.assertEqual(run.observation_ids, [str(matching.id)])
+
+    def test_targeting_score_bounds_compare_numerically(self) -> None:
+        # score 10 must satisfy min_score 9 — catches the jsonb bound regressing to text
+        # comparison, where "10" < "9" lexicographically.
+        self._typed_observation({"scanner_type": "scorer", "score": 2, "reasoning": "meh"}, session_id="s1")
+        high = self._typed_observation({"scanner_type": "scorer", "score": 10, "reasoning": "great"}, session_id="s2")
+        action = self._action(selection={"min_score": 9})
+        run = self._run_for(action)
+
+        result = self._synthesize(action, run)
+
+        self.assertEqual(result.observation_count, 1)
+        run.refresh_from_db()
+        self.assertEqual(run.observation_ids, [str(high.id)])
+
+    def test_targeting_tags_match_fixed_or_freeform(self) -> None:
+        fixed = self._typed_observation(
+            {"scanner_type": "classifier", "tags": ["bug"], "reasoning": "hit a bug"}, session_id="s1"
+        )
+        freeform = self._typed_observation(
+            {"scanner_type": "classifier", "tags": [], "tags_freeform": ["slow"], "reasoning": "felt slow"},
+            session_id="s2",
+        )
+        self._typed_observation({"scanner_type": "classifier", "tags": ["ux"], "reasoning": "ux note"}, session_id="s3")
+        action = self._action(selection={"tags": ["bug", "slow"]})
+        run = self._run_for(action)
+
+        result = self._synthesize(action, run)
+
+        self.assertEqual(result.observation_count, 2)
+        run.refresh_from_db()
+        self.assertEqual(set(run.observation_ids), {str(fixed.id), str(freeform.id)})
+
 
 class TestMarkdownToSlack(BaseTest):
     @parameterized.expand(

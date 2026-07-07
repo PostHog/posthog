@@ -37097,26 +37097,34 @@ export namespace Schemas {
     }
 
     /**
-     * Observation filter applied at synthesis time. All keys optional; this typed shape is the
-     * allowlist, so unknown input keys are dropped rather than persisted.
+     * * `yes` - yes
+     * * `no` - no
+     * * `inconclusive` - inconclusive
+     */
+    export type VerdictEnum = typeof VerdictEnum[keyof typeof VerdictEnum];
+
+
+    export const VerdictEnum = {
+      Yes: 'yes',
+      No: 'no',
+      Inconclusive: 'inconclusive',
+    } as const;
+
+    /**
+     * The action's targeting predicate ("run this on…") applied when gathering observations. All keys
+     * optional; this typed shape is the allowlist, so unknown input keys are dropped rather than persisted.
      */
     export interface Selection {
-      /** Filter observations by scanner type (monitor/classifier/scorer/summarizer). */
-      scanner_type?: string;
-      /** Restrict to observations produced by these scanner IDs. */
+      /** Restrict to observations produced by these scanner IDs. Defaults to the bound scanner. */
       scanner_ids?: string[];
-      /** Filter to observations with this monitor verdict. */
-      verdict?: string;
-      /** Filter to observations carrying any of these classifier tags. */
+      /** Only run on monitor observations with one of these verdicts (yes/no/inconclusive). */
+      verdict?: VerdictEnum[];
+      /** Only run on classifier observations carrying any of these tags (fixed or freeform). */
       tags?: string[];
-      /** Lower bound (inclusive) on scorer score. */
+      /** Only run on scorer observations with a score at or above this value (inclusive). */
       min_score?: number;
-      /** Upper bound (inclusive) on scorer score. */
+      /** Only run on scorer observations with a score at or below this value (inclusive). */
       max_score?: number;
-      /** Filter to observations with this processing status. */
-      status?: string;
-      /** Lookback window in days for the observations gathered at synthesis time. */
-      window_days?: number;
     }
 
     /**
@@ -37153,7 +37161,7 @@ export namespace Schemas {
       mode?: VisionActionModeEnum;
       /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
       trigger_config?: TriggerConfig;
-      /** Observation filter applied at synthesis time. */
+      /** Targeting predicate: which of the scanner's observations this action runs on. */
       selection?: Selection;
       /** Synthesis options for the group summary, e.g. {prompt_guide}. */
       synthesis_config?: SynthesisConfig;
@@ -44289,7 +44297,7 @@ export namespace Schemas {
       mode?: VisionActionModeEnum;
       /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
       trigger_config?: TriggerConfig;
-      /** Observation filter applied at synthesis time. */
+      /** Targeting predicate: which of the scanner's observations this action runs on. */
       selection?: Selection;
       /** Synthesis options for the group summary, e.g. {prompt_guide}. */
       synthesis_config?: SynthesisConfig;
