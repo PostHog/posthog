@@ -12,6 +12,7 @@ import { onboardingEventUsageLogic } from '../../onboardingEventUsageLogic'
 import { useWizardCommand } from '../SetupWizardBanner'
 import { activeCloudRunLogic } from './activeCloudRunLogic'
 import { WizardCloudRunBlock } from './WizardCloudRunBlock'
+import { WizardFrameworkBadges } from './WizardModeShell'
 
 export type WizardInstallMode = 'cloud' | 'local'
 
@@ -72,18 +73,32 @@ export function WizardInstallOptions({
         setMode('local')
     }
 
+    // The frameworks are the same whichever way (and in whichever variant) the wizard runs, so the
+    // badge list rides with the options everywhere. Self-hosted gets no wizard, so no badges either.
+    const badges = isCloudOrDev && (
+        <div className="pb-2">
+            <WizardFrameworkBadges />
+        </div>
+    )
+
     if (!offerCloud) {
         // A persisted run outlives the experiment arm: keep rendering its progress (with the local
         // fallback) even when the flag no longer offers new cloud runs, so nothing is stranded.
-        return activeCloudRun ? (
-            <WizardCloudRunBlock hideHog={hideHog} onRetryLocally={runItYourself} onQueued={onQueued} />
-        ) : (
-            <>{localBlock}</>
+        return (
+            <div className="flex flex-col gap-4">
+                {badges}
+                {activeCloudRun ? (
+                    <WizardCloudRunBlock hideHog={hideHog} onRetryLocally={runItYourself} onQueued={onQueued} />
+                ) : (
+                    localBlock
+                )}
+            </div>
         )
     }
 
     return (
         <div className="flex flex-col gap-4">
+            {badges}
             <LemonSegmentedButton
                 fullWidth
                 value={effectiveMode}
