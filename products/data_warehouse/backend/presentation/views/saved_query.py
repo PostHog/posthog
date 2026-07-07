@@ -592,7 +592,9 @@ class DataWarehouseSavedQuerySerializer(
                     apply_saved_query_frequency_target,
                 )
 
-                target = None if sync_frequency == "never" else sync_frequency_to_sync_frequency_interval(sync_frequency)
+                target = (
+                    None if sync_frequency == "never" else sync_frequency_to_sync_frequency_interval(sync_frequency)
+                )
                 try:
                     # Validates inside the transaction (a rejected frequency rolls the whole
                     # update back) and queues the schedule reconcile for after commit.
