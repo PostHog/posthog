@@ -156,7 +156,7 @@ export function ActionsTable(): JSX.Element {
                                                         </>
                                                     )
                                                 }
-                                                return 'Screen'
+                                                return 'Mobile screen'
                                             }
                                             case '':
                                             case null:

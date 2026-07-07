@@ -408,7 +408,7 @@ function TypeSwitcher({
                     },
                     {
                         value: '$screen',
-                        label: 'Screen',
+                        label: 'Mobile screen',
                         tooltip: 'Screen views from mobile apps ($screen events sent by the mobile SDKs)',
                         'data-attr': 'action-type-screen',
                         disabledReason,
