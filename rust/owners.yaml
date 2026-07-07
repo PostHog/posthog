@@ -49,3 +49,5 @@ rules:
       owners: [team-ingestion]
     - match: '/property-vals-rs/'
       owners: [team-ingestion]
+    - match: '/replay-anonymizer-node/'
+      owners: [team-ai-research]
