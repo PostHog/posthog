@@ -76,7 +76,6 @@ export function initAnonymizer(allow: AllowListsInput): void {
 export function anonymizeKafkaPayload(
     payload: Buffer,
     contentEncoding?: string | null,
-    /** Lowercase registrable-domain patterns; matching hosts (and their subdomains) are collapsed as first-party by the URL scrub. */
     firstPartyHosts?: string[] | null
 ): Promise<AnonymizeKafkaPayloadResult> {
     return native.anonymizeKafkaPayload(

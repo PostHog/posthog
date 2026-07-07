@@ -20,8 +20,8 @@ const CV_MESSAGE_DECOMPRESSION_BUDGET: usize = 256 * 1024 * 1024;
 
 pub struct Ctx<'a> {
     pub allow: &'a AllowLists,
-    /// Lowercase first-party host patterns (from the team's recording domains; `*.` wildcards
-    /// allowed). Matching hosts collapse to example.com in the URL scrub.
+    /// Registrable-domain patterns (computed TS-side from the team's recording domains);
+    /// matching hosts and their subdomains collapse to example.com in the URL scrub.
     pub first_party_hosts: Vec<String>,
     pub cv_budget: Cell<usize>,
     // key: the original data URI (data-image blur), or `raw:{w}x{h}:{base64}` (raw RGBA pixelate).

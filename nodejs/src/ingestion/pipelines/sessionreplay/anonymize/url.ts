@@ -152,24 +152,29 @@ function scrubTail(ctx: ScrubContext, tail: string): string {
  * Registrable-domain patterns from a team's `recording_domains` origins. Scheme, path, port,
  * and every subdomain (including `*.` wildcards) are dropped via the public-suffix list, so
  * recording on `www.example.com` also collapses `app.example.com:5000`. Hosts without a
- * registrable domain (IPs, `localhost`) keep the full host. Bare `*` entries are ignored.
+ * registrable domain (IPs, `localhost`) keep the full host. Unparseable and bare `*` entries
+ * are ignored.
  */
 export function firstPartyHostPatterns(recordingDomains: string[] | null | undefined): string[] {
     const patterns: string[] = []
     for (const domain of recordingDomains ?? []) {
-        let host = domain.trim().toLowerCase()
-        const schemeEnd = host.indexOf('://')
-        if (schemeEnd !== -1) {
-            host = host.slice(schemeEnd + 3)
-        }
-        host = host.split('/')[0].replace(/:\d+$/, '')
-        if (host.startsWith('*.')) {
-            host = host.slice(2)
-        }
-        if (host === '' || host === '*') {
+        const trimmed = domain.trim()
+        if (trimmed === '') {
             continue
         }
-        patterns.push(getDomain(host) ?? host)
+        let hostname: string
+        try {
+            hostname = new URL(trimmed.includes('://') ? trimmed : `https://${trimmed}`).hostname
+        } catch {
+            continue
+        }
+        if (hostname.startsWith('*.')) {
+            hostname = hostname.slice(2)
+        }
+        if (hostname === '' || hostname === '*') {
+            continue
+        }
+        patterns.push(getDomain(hostname) ?? hostname)
     }
     return patterns
 }

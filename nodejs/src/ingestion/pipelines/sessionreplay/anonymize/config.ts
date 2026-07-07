@@ -20,7 +20,6 @@ export interface ScrubTiming {
 /** Per-scrub context: the active allow lists plus tunables read by the scrubbers. */
 export interface ScrubContext {
     allow: AllowLists
-    /** Lowercase first-party host patterns (from the team's recording domains; `*.` wildcards allowed). Matching hosts collapse to example.com. */
     firstPartyHosts?: string[]
     /** Optional collector for deferred image-blur jobs (see {@link BlurJob}). */
     blurJobs?: BlurJob[]
