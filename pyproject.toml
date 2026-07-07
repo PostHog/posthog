@@ -67,7 +67,7 @@ dependencies = [
     "grimp~=3.14",
     "grpcio~=1.71.0",
     "gspread==6.2.1",
-    "hogql-parser==1.3.77",
+    "hogql-parser==1.3.78",
     "hogql-parser-rs==1.3.107",  # built from rust/hogql/parser via the build-hogql-parser-rs workflow + published to PyPI; rebuild locally with `uv pip install -e rust/hogql/parser` when iterating
     "humanize~=4.12.3",
     "infi-clickhouse-orm",
