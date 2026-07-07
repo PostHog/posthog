@@ -78,13 +78,13 @@ describe('TaxonomicFilterMenu input trigger', () => {
 
         expect(screen.getByTestId('taxonomic-filter-menu-input')).toBeInTheDocument()
         expect(screen.getByRole('textbox')).toBeInTheDocument()
-        expect(screen.getByRole('button', { name: 'Open filter menu' })).toBeInTheDocument()
+        expect(screen.getByLabelText('Open filter menu')).toBeInTheDocument()
     })
 
     it('opens the dropdown menu (without a redundant "New filter…" item) when the filter icon is clicked', async () => {
         renderInputTriggerMenu()
 
-        await userEvent.click(screen.getByRole('button', { name: 'Open filter menu' }))
+        await userEvent.click(screen.getByLabelText('Open filter menu'))
 
         // The menu opens — its always-present "HogQL expression" entry confirms it.
         await waitFor(() => {
@@ -124,7 +124,7 @@ describe('TaxonomicFilterMenu input trigger', () => {
         expect(screen.queryByTestId('taxonomic-filter-menu-input')).not.toBeInTheDocument()
         // The search field renders in the trigger row beside the filter-icon
         // button (chrome opens around it), not adrift in the popover.
-        const iconButton = screen.getByRole('button', { name: 'Open filter menu' })
+        const iconButton = screen.getByLabelText('Open filter menu')
         const searchInput = screen.getByTestId('menu-filter-search')
         expect(iconButton.closest('.LemonInput')).toContainElement(searchInput)
     })

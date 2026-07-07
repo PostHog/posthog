@@ -7,4 +7,6 @@ module.exports = {
     testEnvironment: 'node',
     clearMocks: true,
     testMatch: ['<rootDir>/src/**/*.test.ts'],
+    // CI sets JEST_JUNIT_OUTPUT_DIR to collect junit for the Trunk quarantine gate.
+    reporters: process.env.JEST_JUNIT_OUTPUT_DIR ? ['default', 'jest-junit'] : ['default'],
 }

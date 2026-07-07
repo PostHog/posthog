@@ -22,11 +22,12 @@ import {
 import type {
     CustomPropertyDefinitionApi,
     CustomPropertyDisplayTypeEnumApi,
+    CustomPropertyOptionApi,
     CustomPropertyReferenceApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import type { customPropertyDefinitionsLogicType } from './customPropertyDefinitionsLogicType'
-import { isNumericDisplayType } from './customPropertyTypes'
+import { NEW_OPTION_ID_PREFIX, isNumericDisplayType, optionLabelError } from './customPropertyTypes'
 
 export type CustomPropertySourceMode = 'manual' | 'data_warehouse' | 'workflow'
 
@@ -35,6 +36,7 @@ export interface CustomPropertyFormValues {
     description: string
     displayType: CustomPropertyDisplayTypeEnumApi
     isBigNumber: boolean
+    options: CustomPropertyOptionApi[]
     sourceMode: CustomPropertySourceMode
     savedQuery: string | null
     sourceColumn: string | null
@@ -47,6 +49,7 @@ const DEFAULT_FORM_VALUES: CustomPropertyFormValues = {
     description: '',
     displayType: 'text',
     isBigNumber: false,
+    options: [],
     sourceMode: 'manual',
     savedQuery: null,
     sourceColumn: null,
@@ -59,17 +62,29 @@ const serializeDefinition = ({
     description,
     displayType,
     isBigNumber,
+    options,
 }: CustomPropertyFormValues): {
     name: string
     description: string | null
     display_type: CustomPropertyDisplayTypeEnumApi
     is_big_number: boolean
+    options?: CustomPropertyOptionApi[]
 } => ({
     name: name.trim(),
     description: description?.trim() || null,
     display_type: displayType,
     // The switch is hidden for non-numeric types, so never send a stale flag for them.
     is_big_number: isNumericDisplayType(displayType) ? isBigNumber : false,
+    // Options only apply to select; the backend clears them for other types.
+    ...(displayType === 'select'
+        ? {
+              options: options.map(({ id, label, color }) => ({
+                  ...(id && !id.startsWith(NEW_OPTION_ID_PREFIX) ? { id } : {}),
+                  label: label.trim(),
+                  color,
+              })),
+          }
+        : {}),
 })
 
 const handleNameConflict = (error: unknown, setManualErrors: (errors: { name: string }) => void): boolean => {
@@ -170,8 +185,20 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
     forms(({ actions, values }) => ({
         customPropertyForm: {
             defaults: DEFAULT_FORM_VALUES,
-            errors: ({ name, sourceMode, savedQuery, sourceColumn, keyColumn }: CustomPropertyFormValues) => ({
+            errors: ({
+                name,
+                displayType,
+                options,
+                sourceMode,
+                savedQuery,
+                sourceColumn,
+                keyColumn,
+            }: CustomPropertyFormValues) => ({
                 name: !name?.trim() ? 'Name is required' : undefined,
+                options:
+                    displayType === 'select'
+                        ? options.map((_, index) => ({ label: optionLabelError(options, index) }))
+                        : undefined,
                 savedQuery: sourceMode === 'data_warehouse' && !savedQuery ? 'Select a view' : undefined,
                 sourceColumn: sourceMode === 'data_warehouse' && !sourceColumn ? 'Select the value column' : undefined,
                 keyColumn: sourceMode === 'data_warehouse' && !keyColumn ? 'Select the key column' : undefined,
@@ -257,6 +284,7 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 description: definition.description ?? '',
                 displayType: definition.display_type,
                 isBigNumber: definition.is_big_number ?? false,
+                options: definition.options ?? [],
                 sourceMode: definition.source
                     ? 'data_warehouse'
                     : definition.references?.length
