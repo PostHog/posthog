@@ -94,6 +94,14 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     hogFlowInvocationState.event.distinct_id = person.distinct_id
                 }
 
+                // Persist the resolved person UUID into state so a re-parked wait keeps its person_id
+                // even when a later re-resolution transiently misses. clickhouse_person wakes match on
+                // person_id only, so a wait parked with person_id = null could never be woken by a
+                // person-property change — it would depend entirely on the polling backstop.
+                if (person?.id && !hogFlowInvocationState.personId) {
+                    hogFlowInvocationState.personId = person.id
+                }
+
                 const filterGlobals = convertToHogFunctionFilterGlobal({
                     event: hogFlowInvocationState.event,
                     person: person ?? undefined,

@@ -45,6 +45,8 @@ GITHUB_REPOSITORY_CACHE_TTL_SECONDS = 60 * 60
 GITHUB_BRANCH_CACHE_TTL_SECONDS = 60 * 10
 GITHUB_BRANCH_CACHE_TIMEOUT_SECONDS = 60 * 60 * 24
 
+INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY = "installation_unavailable_since"
+
 
 @dataclass(frozen=True)
 class GitHubCommitAuthor:
@@ -338,11 +340,13 @@ class GitHubIntegrationBase:
         except ValueError as e:
             raise Exception(f"Invalid expires_at format from GitHub: {e}")
 
-        self.integration.config = {
+        config = {
             **self.integration.config,
             "expires_in": expires_in,
             "refreshed_at": int(time.time()),
         }
+        config.pop(INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY, None)
+        self.integration.config = config
         self.integration.sensitive_config = {
             **(self.integration.sensitive_config or {}),
             "access_token": data["token"],
@@ -380,19 +384,32 @@ class GitHubIntegrationBase:
         ``access_token_expired()`` returns False when ``config`` lacks ``expires_in``/``refreshed_at``,
         so dropping those two keys permanently disarms proactive refresh for this row. Only fires for a
         permanently-gone installation (404 uninstalled / 403 suspended), never a transient failure.
+        Also stamps ``installation_unavailable_since`` so callers can distinguish a dead installation's
+        stale stored token from a usable one (see :meth:`installation_unavailable`).
         Self-healing: if the installation is later restored, a real API call 401s and ``api_request``'s
-        refresh-retry mints successfully and re-persists the fields. Mutates ``config`` in memory and
-        returns whether anything changed; the caller owns the save.
+        refresh-retry mints successfully, re-persists the fields, and clears the marker. Mutates
+        ``config`` in memory and returns whether anything changed; the caller owns the save.
         """
         if not self._installation_permanently_unavailable(response):
             return False
         config = {**self.integration.config}
-        if "expires_in" not in config and "refreshed_at" not in config:
-            return False
-        config.pop("expires_in", None)
-        config.pop("refreshed_at", None)
-        self.integration.config = config
-        return True
+        changed = False
+        if "expires_in" in config or "refreshed_at" in config:
+            config.pop("expires_in", None)
+            config.pop("refreshed_at", None)
+            changed = True
+        if INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY not in config:
+            config[INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY] = int(time.time())
+            changed = True
+        if changed:
+            self.integration.config = config
+        return changed
+
+    def installation_unavailable(self) -> bool:
+        """Whether a failed mint marked this installation permanently gone (uninstalled or
+        suspended) and no mint has succeeded since. While True, the stored access token is
+        stale — it survives disarming but GitHub will reject it once it expires server-side."""
+        return bool(self.integration.config.get(INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY))
 
     def _on_token_refresh_failed(self, response: requests.Response) -> None:
         """Called when the installation token refresh request fails.
@@ -437,6 +454,40 @@ class GitHubIntegrationBase:
             return self.api_request("GET", path, endpoint=endpoint, params=params, timeout=timeout)
         except GitHubIntegrationError:
             logger.warning("GitHubIntegration: installation GET failed", url=url, exc_info=True)
+            return None
+
+    def _installation_authenticated_patch(
+        self,
+        url: str,
+        *,
+        endpoint: str,
+        json_body: Mapping[str, object],
+        timeout: int = 10,
+    ) -> requests.Response | None:
+        """PATCH with installation token via :meth:`api_request`; ``None`` instead of raising, for the
+        success/error-dict verbs built on top."""
+        path = url.removeprefix("https://api.github.com")
+        try:
+            return self.api_request("PATCH", path, endpoint=endpoint, json_body=json_body, timeout=timeout)
+        except GitHubIntegrationError:
+            logger.warning("GitHubIntegration: installation PATCH failed", url=url, exc_info=True)
+            return None
+
+    def _installation_authenticated_post(
+        self,
+        url: str,
+        *,
+        endpoint: str,
+        json_body: Mapping[str, object],
+        timeout: int = 10,
+    ) -> requests.Response | None:
+        """POST with installation token via :meth:`api_request`; ``None`` instead of raising, for the
+        success/error-dict verbs built on top."""
+        path = url.removeprefix("https://api.github.com")
+        try:
+            return self.api_request("POST", path, endpoint=endpoint, json_body=json_body, timeout=timeout)
+        except GitHubIntegrationError:
+            logger.warning("GitHubIntegration: installation POST failed", url=url, exc_info=True)
             return None
 
     def installation_can_access_repository(self, repository: str) -> bool:
@@ -649,6 +700,73 @@ class GitHubIntegrationBase:
             return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
         owner, repo, pr_number = parsed
         return self.get_pull_request(f"{owner}/{repo}", pr_number)
+
+    def close_pull_request(self, repository: str, pr_number: int) -> dict[str, Any]:
+        """Close a pull request (``PATCH`` state=closed). ``repository`` is ``owner/repo`` or a bare repo.
+
+        Idempotent: an already-closed or merged PR reports success without reopening it (GitHub
+        ignores a closed→closed transition, and closing a merged PR is a no-op).
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        response = self._installation_authenticated_patch(
+            f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}",
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+            json_body={"state": "closed"},
+        )
+        if response is None:
+            return {"success": False, "error": "Network error closing pull request"}
+        if response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"Failed to close pull request: {response.text}",
+                "status_code": response.status_code,
+            }
+
+        try:
+            pr = response.json()
+        except Exception:
+            pr = {}
+
+        return {"success": True, "number": pr.get("number", pr_number), "state": pr.get("state")}
+
+    def close_pull_request_from_url(self, pr_url: str) -> dict[str, Any]:
+        """Close a pull request by its HTML URL (e.g. ``https://github.com/owner/repo/pull/123``)."""
+        parsed = self.parse_pull_request_url(pr_url)
+        if parsed is None:
+            return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
+        owner, repo, pr_number = parsed
+        return self.close_pull_request(f"{owner}/{repo}", pr_number)
+
+    def comment_on_pull_request(self, repository: str, pr_number: int, body: str) -> dict[str, Any]:
+        """Post a comment on a pull request. ``repository`` is ``owner/repo`` or a bare repo.
+
+        PR comments use the issues endpoint (a PR is an issue for commenting purposes).
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        response = self._installation_authenticated_post(
+            f"https://api.github.com/repos/{repo_path}/issues/{pr_number}/comments",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
+            json_body={"body": body},
+        )
+        if response is None:
+            return {"success": False, "error": "Network error commenting on pull request"}
+        if response.status_code != 201:
+            return {
+                "success": False,
+                "error": f"Failed to comment on pull request: {response.text}",
+                "status_code": response.status_code,
+            }
+        return {"success": True}
+
+    def comment_on_pull_request_from_url(self, pr_url: str, body: str) -> dict[str, Any]:
+        """Post a comment on a pull request by its HTML URL."""
+        parsed = self.parse_pull_request_url(pr_url)
+        if parsed is None:
+            return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
+        owner, repo, pr_number = parsed
+        return self.comment_on_pull_request(f"{owner}/{repo}", pr_number, body)
 
     def find_pull_request_urls_for_branch(self, repository: str, branch: str) -> list[str]:
         """Return the HTML URLs of open or closed PRs whose head is ``branch`` in ``repository``.

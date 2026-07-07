@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 12 enabled ops
+ * PostHog API - MCP 14 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -227,6 +227,27 @@ export const EndpointsMaterializationStatusRetrieveParams = /* @__PURE__ */ zod.
 })
 
 /**
+ * Ask AI to rewrite the endpoint's query into a semantically equivalent form that can be materialized. Only applicable to SQL (HogQL) endpoints that currently fail the materialization checks. The suggestion is validated against the live checks before being returned; nothing is saved. Requires the organization's AI data processing approval.
+ */
+export const EndpointsMaterializationSuggestionCreateParams = /* @__PURE__ */ zod.object({
+    name: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const EndpointsMaterializationSuggestionCreateBody = /* @__PURE__ */ zod
+    .object({
+        version: zod
+            .number()
+            .nullish()
+            .describe('Endpoint version to suggest a fix for. Defaults to the latest version.'),
+    })
+    .describe('Request body for the AI materialization-fix suggestion action.')
+
+/**
  * Get OpenAPI 3.0 specification for this endpoint. Use this to generate typed SDK clients.
  */
 export const EndpointsOpenapiSpecRetrieveParams = /* @__PURE__ */ zod.object({
@@ -375,6 +396,16 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                 date_from: zod.union([zod.string(), zod.null()]).optional(),
                 date_to: zod.union([zod.string(), zod.null()]).optional(),
                 explicitDate: zod.union([zod.boolean(), zod.null()]).optional(),
+                filterTestAccounts: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Tri-state test-account override. Null/absent = inherit; true = force on; false = force off.'
+                    ),
+                interval: zod
+                    .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                    .optional()
+                    .describe('Time granularity forced onto every insight that supports one. Absent/null = inherit.'),
                 properties: zod
                     .union([
                         zod.array(
@@ -1475,4 +1506,15 @@ export const EndpointsLastExecutionTimesCreateParams = /* @__PURE__ */ zod.objec
 
 export const EndpointsLastExecutionTimesCreateBody = /* @__PURE__ */ zod.object({
     names: zod.array(zod.string()),
+})
+
+/**
+ * Get the source code of the live materialization checks, plus the rewrite contract. Lets an agent rewrite a rejected endpoint query itself: fetch these conditions, produce a semantically equivalent query that passes every check, update the endpoint with it, then confirm via materialization_status. The source is read from the running system, so it always matches the checks this instance enforces.
+ */
+export const EndpointsMaterializationConditionsRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
 })

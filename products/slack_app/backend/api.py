@@ -26,6 +26,7 @@ from posthog.git import extract_explicit_repo
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,
+    GitHubIntegration,
     Integration,
     SlackIntegration,
     SlackIntegrationError,
@@ -53,6 +54,7 @@ from posthog.utils import get_instance_region
 from products.slack_app.backend import inbox_channel, onboarding
 from products.slack_app.backend.feature_flags import (
     is_slack_app_assistant_enabled,
+    is_slack_app_bot_prs_enabled,
     is_slack_app_oauth_enabled,
     is_slack_app_untagged_thread_followups_enabled,
 )
@@ -849,13 +851,16 @@ def _extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
 
 
 def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> list[str]:
-    """Return canonical org/repo names from the mentioning user's GitHub install, or [] if unavailable.
+    """Repo names available to the mentioner: their personal install, plus the team install when bot PRs are on."""
+    user_repos = _get_user_repo_names(integration, user_id=user_id)
+    if not is_slack_app_bot_prs_enabled(integration.team):
+        return user_repos
+    combined = set(user_repos) | set(_get_team_repo_names(integration))
+    return sorted(combined)[:_MAX_GITHUB_REPOS]
 
-    Repos are scoped to the user's personal GitHub integration so the picker matches the
-    identity that will author the resulting pull request. Users without a personal install
-    see an empty list; the downstream personal-GitHub gate posts the connect-GitHub prompt.
-    A `None` user_id (e.g. a workflow replay predating per-user scoping) also returns [].
-    """
+
+def _get_user_repo_names(integration: Integration, *, user_id: int | None) -> list[str]:
+    """Repo names from the mentioner's personal GitHub install, or []. Cached per user."""
     if user_id is None:
         return []
     cache_key = _user_repo_list_cache_key(user_id)
@@ -893,6 +898,17 @@ def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> li
     if result:
         cache.set(cache_key, result, timeout=REPO_LIST_CACHE_TTL_SECONDS)
     return result
+
+
+def _get_team_repo_names(integration: Integration) -> list[str]:
+    """Repo names from the team's org-owned GitHub install (cached JSONField read), or []."""
+    team_integration = Integration.objects.filter(
+        team=integration.team, kind=Integration.IntegrationKind.GITHUB
+    ).first()
+    if team_integration is None:
+        return []
+    github = GitHubIntegration(team_integration)
+    return [repo["full_name"] for repo in github.list_all_cached_repositories(max_repos=_MAX_GITHUB_REPOS)]
 
 
 def _replace_repo_picker_message_with_selection(
@@ -2595,9 +2611,10 @@ def _extract_picker_hints(payload: dict) -> tuple[int | None, str | None]:
     return integration_id, mentioning_slack_user_id
 
 
-def _extract_terminate_hints(payload: dict) -> tuple[int | None, str | None]:
+def _extract_action_value_hints(payload: dict, action_id: str) -> tuple[int | None, str | None]:
+    """Pull (integration_id, mentioning_slack_user_id) from a block action's JSON value, or (None, None)."""
     actions = payload.get("actions", [])
-    action = next((a for a in actions if a.get("action_id") == "posthog_code_terminate_task"), None)
+    action = next((a for a in actions if a.get("action_id") == action_id), None)
     if not action:
         return None, None
 
@@ -2617,6 +2634,10 @@ def _extract_terminate_hints(payload: dict) -> tuple[int | None, str | None]:
     if mentioning_user_id is not None and not isinstance(mentioning_user_id, str):
         mentioning_user_id = None
     return integration_id, mentioning_user_id
+
+
+def _extract_terminate_hints(payload: dict) -> tuple[int | None, str | None]:
+    return _extract_action_value_hints(payload, "posthog_code_terminate_task")
 
 
 def _handle_repo_picker_options(payload: dict) -> JsonResponse:
@@ -2866,6 +2887,73 @@ def _handle_no_repo_needed_submit(payload: dict) -> HttpResponse:
     except Exception as e:
         logger.warning("slack_app_repo_none_signal_failed", workflow_id=workflow_id, error=str(e))
         return HttpResponse(status=200)
+
+
+def _handle_continue_as_bot(payload: dict) -> HttpResponse:
+    action = next(
+        (a for a in payload.get("actions", []) if a.get("action_id") == "posthog_code_continue_as_bot"),
+        None,
+    )
+    if not action:
+        return HttpResponse(status=200)
+
+    try:
+        value = json.loads(action.get("value") or "{}")
+    except (TypeError, ValueError):
+        value = {}
+
+    workflow_id = value.get("workflow_id")
+    integration_id = value.get("integration_id")
+    expected_user_id = value.get("mentioning_slack_user_id")
+
+    if not workflow_id:
+        logger.info("slack_app_continue_as_bot_missing_workflow_id")
+        return HttpResponse(status=200)
+
+    clicker_id = payload.get("user", {}).get("id")
+    if not expected_user_id or clicker_id != expected_user_id:
+        logger.info(
+            "slack_app_continue_as_bot_user_mismatch",
+            workflow_id=workflow_id,
+            expected_user_id=expected_user_id,
+            clicker_id=clicker_id,
+        )
+        return HttpResponse(status=200)
+
+    try:
+        client = sync_connect()
+        handle = client.get_workflow_handle(workflow_id)
+        asyncio.run(handle.signal(PostHogCodeSlackMentionWorkflow.authorship_confirmed))
+    except Exception as e:
+        logger.warning("slack_app_continue_as_bot_signal_failed", workflow_id=workflow_id, error=str(e))
+        return HttpResponse(status=200)
+
+    # Best-effort: replace the prompt so it can't be clicked twice.
+    slack_team_id = payload.get("team", {}).get("id")
+    channel = payload.get("channel", {}).get("id")
+    message_ts = payload.get("message", {}).get("ts")
+    if integration_id and slack_team_id and channel and message_ts:
+        try:
+            # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
+            integration = Integration.objects.get(
+                id=integration_id, kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
+            )
+            text = "Continuing as PostHog — the PR will be authored by the PostHog bot."
+            SlackIntegration(integration).client.chat_update(
+                channel=channel,
+                ts=message_ts,
+                text=text,
+                blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": text}}],
+            )
+        except Exception:
+            logger.warning(
+                "slack_app_continue_as_bot_picker_update_failed",
+                workflow_id=workflow_id,
+                channel=channel,
+                message_ts=message_ts,
+            )
+
+    return HttpResponse(status=200)
 
 
 def _delete_ephemeral_via_response_url(response_url: str) -> None:
@@ -3222,6 +3310,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     context = _decode_picker_context(context_token) if context_token else None
     hinted_integration_id, hinted_user_id = _extract_picker_hints(payload)
     terminate_integration_id, terminate_user_id = _extract_terminate_hints(payload)
+    authorship_integration_id, _ = _extract_action_value_hints(payload, "posthog_code_continue_as_bot")
     dismiss_integration_id = _extract_dismiss_hints(payload)
     inbox_integration_id = inbox_interactivity.extract_inbox_hints(payload)
     requesting_user = payload.get("user", {}).get("id", "")
@@ -3245,6 +3334,13 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     elif slack_team_id and terminate_integration_id and (not terminate_user_id or requesting_user == terminate_user_id):
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=terminate_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+            kind=SLACK_INTEGRATION_KIND,
+            integration_id=slack_team_id,
+        ).exists()
+    elif slack_team_id and authorship_integration_id:
+        # Mentioner check lives in the handler, so routing only confirms we own the integration.
+        local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+            id=authorship_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
@@ -3358,6 +3454,8 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return _handle_repo_picker_submit(payload)
             if action_id == "posthog_code_repo_none":
                 return _handle_no_repo_needed_submit(payload)
+            if action_id == "posthog_code_continue_as_bot":
+                return _handle_continue_as_bot(payload)
             if action_id == "posthog_code_terminate_task":
                 return _handle_terminate_task_submit(payload)
             if action_id == CHANNEL_APPROVAL_ACTION_APPROVE:

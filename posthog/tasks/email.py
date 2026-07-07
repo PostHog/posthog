@@ -5,6 +5,7 @@ from typing import Any, Literal, Optional, cast
 from urllib.parse import quote
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import OuterRef, Subquery
 from django.utils import timezone
 
@@ -1873,12 +1874,8 @@ def send_error_tracking_weekly_digest() -> None:
 @shared_task(**EMAIL_TASK_KWARGS, rate_limit="10/s")
 @skip_team_scope_audit
 def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
-    """Send one combined weekly error tracking digest email per user in an org"""
+    """Send one combined weekly error tracking digest per user in an org via the delivery workflow"""
     from posthog.models.organization import Organization
-    from posthog.tasks.email_utils import compute_week_over_week_change
-
-    if not is_email_available(with_absolute_urls=True):
-        return
 
     try:
         org = Organization.objects.get(id=org_id)
@@ -1903,25 +1900,9 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
         if not team:
             continue
 
-        counts = error_tracking_api.get_exception_summary_for_team(team)
-        if not counts or counts["exception_count"] == 0:
-            continue
-
-        team_digest_data[team_id] = {
-            "team": team,
-            "exception_count": counts["exception_count"],
-            "exception_change": compute_week_over_week_change(
-                counts["exception_count"], counts["prev_exception_count"], higher_is_better=False
-            ),
-            "ingestion_failure_count": counts["ingestion_failure_count"],
-            "top_issues": error_tracking_api.get_top_issues_for_team(team),
-            "new_issues": error_tracking_api.get_new_issues_for_team(team),
-            "daily_counts": error_tracking_api.get_daily_exception_counts(team),
-            "crash_free": error_tracking_api.get_crash_free_sessions(team),
-            "source_maps_recommendation": error_tracking_api.get_source_maps_recommendation_for_team(team),
-            "error_tracking_url": f"{settings.SITE_URL}/project/{team_id}/error_tracking?utm_source=error_tracking_weekly_digest",
-            "ingestion_failures_url": error_tracking_api.build_ingestion_failures_url(team_id),
-        }
+        data = error_tracking_api.build_team_digest_data(team)
+        if data:
+            team_digest_data[team_id] = data
 
     excluded_project_count = len(all_org_teams) - len(team_digest_data)
 
@@ -1939,6 +1920,7 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
 
     date_suffix = timezone.now().strftime("%Y-%W")
     sent_count = 0
+    failed_count = 0
 
     for membership in memberships:
         user = membership.user
@@ -1969,29 +1951,45 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
 
         user_team_sections.sort(key=lambda d: d["exception_count"], reverse=True)
 
+        distinct_id = user.distinct_id or str(user.uuid)
+        digest = {
+            "recipient_email": user.email,
+            "org_name": org.name,
+            "project_sections": [error_tracking_api.build_team_section_payload(d) for d in user_team_sections],
+            "disabled_project_names": disabled_team_names,
+            "excluded_project_count": excluded_project_count,
+            "settings_url": f"{settings.SITE_URL}/settings/user-notifications?highlight=et-weekly-digest",
+            "feedback_survey_url": f"https://us.posthog.com/external_surveys/019c7fd6-7cfa-0000-2b03-a8e5d4c03743?distinct_id={distinct_id}",
+        }
+
         campaign_key = f"error_tracking_weekly_digest_{org_id}_{user.uuid}_{date_suffix}"
-        message = EmailMessage(
-            campaign_key=campaign_key,
-            subject=f"Error tracking weekly digest for {org.name}",
-            template_name="error_tracking_weekly_digest",
-            template_context={
-                "organization": org,
-                "project_sections": user_team_sections,
-                "disabled_project_names": disabled_team_names,
-                "excluded_project_count": excluded_project_count,
-                "settings_url": f"{settings.SITE_URL}/settings/user-notifications?highlight=et-weekly-digest",
-                "contact_support_url": "https://posthog.com/support",
-                "feedback_survey_url": f"https://us.posthog.com/external_surveys/019c7fd6-7cfa-0000-2b03-a8e5d4c03743?distinct_id={user.distinct_id}",
-            },
-        )
-        message.add_user_recipient(user)
-        message.send()
-        sent_count += 1
+        # Per-recipient transaction + sent_at guard so an autoretry after a mid-batch
+        # failure skips recipients whose digest was already accepted by the workflow.
+        with transaction.atomic():
+            record, _ = MessagingRecord.objects.get_or_create(raw_email=user.email, campaign_key=campaign_key)
+            record = MessagingRecord.objects.select_for_update().get(pk=record.pk)
+            if record.sent_at:
+                continue
+
+            try:
+                error_tracking_api.send_digest_to_workflow(digest, distinct_id)
+            except Exception:
+                logger.exception(f"Failed to send Error Tracking weekly digest for user {user.uuid} in org {org_id}")
+                failed_count += 1
+                continue
+
+            record.sent_at = timezone.now()
+            record.save()
+            sent_count += 1
 
     logger.info(
         f"Sent Error Tracking weekly digest to {sent_count} members for org {org_id} "
-        f"({len(team_digest_data)} teams with exceptions)"
+        f"({len(team_digest_data)} teams with exceptions, {failed_count} failures)"
     )
+
+    if failed_count:
+        # Trigger celery autoretry; already-sent recipients are skipped via MessagingRecord.
+        raise Exception(f"Error Tracking weekly digest failed for {failed_count} recipients in org {org_id}")
 
 
 def get_integration_display_name(kind: str) -> str:

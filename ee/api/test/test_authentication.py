@@ -14,6 +14,7 @@ from django.core.exceptions import ValidationError
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 from social_core.exceptions import AuthFailed
 from social_django.models import UserSocialAuth
@@ -462,6 +463,41 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         # Test logged in request
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @parameterized.expand(
+        [
+            # Azure AD / Entra omits RelayState entirely for IdP-initiated SSO.
+            ("no_relay_state", None),
+            # Other IdPs send their own RelayState (e.g. an app launch URL) that isn't our UUID.
+            ("url_relay_state", "https://idp.hogflix.io/saml/launch"),
+        ]
+    )
+    @freeze_time("2021-08-25T22:09:14.252Z")  # Ensures the SAML timestamp validation passes
+    def test_can_login_with_idp_initiated_saml(self, _name: str, relay_state: str | None) -> None:
+        # IdP-initiated assertions don't carry the OrganizationDomain UUID in RelayState, so we
+        # route to the tenant via the assertion's <Issuer> instead of rejecting it as "Invalid
+        # RelayState". The fixture's Issuer matches the linked IdP config's saml_entity_id.
+        user = User.objects.create(email="engineering@posthog.com", distinct_id=str(uuid.uuid4()))
+
+        with open(
+            os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"),
+            encoding="utf_8",
+        ) as f:
+            saml_response = f.read()
+
+        # No SP-initiated request preceded this, so there is no PostHog-issued RelayState and no
+        # saml_state in the session — exactly the IdP-initiated case.
+        post_data = {"SAMLResponse": saml_response}
+        if relay_state is not None:
+            post_data["RelayState"] = relay_state
+
+        response = self.client.post("/complete/saml/", post_data, follow=True, format="multipart")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        self.assertRedirects(response, "/")  # redirect to the home page
+
+        _session = self.client.session
+        self.assertEqual(_session.get("_auth_user_id"), str(user.pk))
 
     @freeze_time("2021-08-25T22:09:14.252Z")  # Ensures the SAML timestamp validation passes
     def test_saml_login_redirects_to_next_url_from_relay_state(self):
