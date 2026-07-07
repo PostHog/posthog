@@ -42,6 +42,20 @@ def test_schemeless_url_falls_back(monkeypatch):
 
 
 @pytest.mark.parametrize(
+    "bad_url",
+    [
+        pytest.param("https://gateway.us.posthog.com/v1?x=y", id="query"),
+        pytest.param("https://gateway.us.posthog.com/v1#frag", id="fragment"),
+    ],
+)
+def test_url_with_query_or_fragment_falls_back(monkeypatch, bad_url):
+    # A query/fragment survives /v1 stripping and would corrupt the base URL.
+    monkeypatch.setenv("AI_GATEWAY_URL", bad_url)
+    monkeypatch.setenv("AI_GATEWAY_API_KEY", "phs_secret")
+    assert resolve_gateway_config() is None
+
+
+@pytest.mark.parametrize(
     "configured_url,expected_base",
     [
         pytest.param("https://gateway.us.posthog.com/v1", "https://gateway.us.posthog.com", id="strips-v1"),

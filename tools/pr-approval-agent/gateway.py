@@ -22,6 +22,9 @@ def _misconfig(url: str, api_key: str) -> str | None:
     # pass the /v1 check, arming a broken base instead of falling back.
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         return "AI_GATEWAY_URL must be an absolute http(s) URL, e.g. https://<host>/v1"
+    # A query/fragment survives /v1 stripping and would corrupt the base URL.
+    if parsed.query or parsed.fragment:
+        return "AI_GATEWAY_URL must not contain a query string or fragment"
     if not parsed.path.rstrip("/").endswith("/v1"):
         return "AI_GATEWAY_URL must include the OpenAI base path, e.g. https://<host>/v1"
     return None
@@ -40,9 +43,13 @@ def resolve_gateway_config() -> tuple[str, str] | None:
     if reason:
         print(f"⚠️  ai-gateway misconfigured, falling back to direct Anthropic: {reason}")
         return None
-    anthropic_base = url.rstrip("/")
-    anthropic_base = anthropic_base[: -len("/v1")] if anthropic_base.endswith("/v1") else anthropic_base
-    return anthropic_base, api_key
+    # Rebuild from parsed components (not raw-string slicing) so nothing past the
+    # path can leak into the base; _misconfig already rejected query/fragment.
+    parsed = urlparse(url)
+    path = parsed.path.rstrip("/")
+    if path.endswith("/v1"):
+        path = path[: -len("/v1")]
+    return f"{parsed.scheme}://{parsed.netloc}{path}", api_key
 
 
 def _properties_header(properties: dict[str, object]) -> str:
