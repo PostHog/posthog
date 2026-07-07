@@ -132,6 +132,16 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 deleteOrgComplete: () => false,
             },
         ],
+        // Latched once delete-org succeeds so a status read still reporting `deleted` (provisioner
+        // propagation lag before the record 404s) can't trigger a second delete against the now-gone
+        // org. Cleared on a fresh deprovision so a later cycle can delete again.
+        orgDeletionSucceeded: [
+            false,
+            {
+                deleteOrgComplete: (state, { success }) => success || state,
+                deprovisionWarehouse: () => false,
+            },
+        ],
         // Whether the last delete-org attempt failed, so we notify the user once per failure
         // streak instead of on every 10s retry. Cleared on success and on a new deprovision.
         orgDeletionFailed: [
@@ -404,10 +414,10 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 if (state === 'deleted') {
                     actions.setLastRequestedDatabaseName(null)
                     window.localStorage.removeItem(databaseNameStorageKey(teamLogic.values.currentTeamId))
-                    // Teardown finished, so remove the org row to free the name. Guarded on the
-                    // in-flight flag so only one attempt runs at a time; a failed attempt retries
-                    // on the next poll.
-                    if (!values.isDeletingOrg) {
+                    // Teardown finished, so remove the org row to free the name. Skip if a delete is
+                    // already in flight or has already succeeded (a stale `deleted` read during
+                    // propagation lag must not re-delete); a failed attempt retries on the next poll.
+                    if (!values.isDeletingOrg && !values.orgDeletionSucceeded) {
                         actions.deleteOrg()
                     }
                 }
