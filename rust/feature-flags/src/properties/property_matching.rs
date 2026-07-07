@@ -73,13 +73,62 @@ fn normalize_version_string(version: &str) -> &str {
     version.strip_prefix('v').unwrap_or(version).trim()
 }
 
+/// Canonicalize a version string into strict `MAJOR.MINOR.PATCH` semver so the `semver`
+/// crate can parse the shapes mobile SDKs actually emit. The crate rejects a missing patch
+/// component and any leading zeros, so real versions like "3.10", "3.08", and "2.48" would
+/// otherwise fail to parse and make version-gated flag conditions silently never match.
+///
+/// Two adjustments are made to the numeric core only, leaving any pre-release/build suffix
+/// (e.g. "-alpha.1", "+build.7") untouched:
+/// - pad a missing minor/patch component with 0 ("3" -> "3.0.0", "3.10" -> "3.10.0")
+/// - strip leading zeros from numeric identifiers ("3.08" -> "3.8", "0" stays "0")
+///
+/// Non-numeric components are left as-is so genuinely invalid versions still fail to parse.
+///
+/// Note: this is intentionally more permissive than `STRICT_SEMVER_REGEX` in
+/// `posthog/hogql/property.py`, which gates the ClickHouse `sortableSemver` path used for
+/// insights/cohort analytics. Flag evaluation here cleanly returns `false` on a parse
+/// failure (no ClickHouse array-ordering pitfall), so accepting these formats only turns
+/// silent non-matches into correct matches.
+fn canonicalize_version_string(version: &str) -> String {
+    // Split off any pre-release ("-") or build ("+") suffix; the numeric core precedes it.
+    let (core, suffix) = match version.find(|c: char| c == '-' || c == '+') {
+        Some(idx) => version.split_at(idx),
+        None => (version, ""),
+    };
+
+    let mut components: Vec<&str> = core
+        .split('.')
+        .map(|part| {
+            if !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()) {
+                let trimmed = part.trim_start_matches('0');
+                if trimmed.is_empty() {
+                    "0"
+                } else {
+                    trimmed
+                }
+            } else {
+                part
+            }
+        })
+        .collect();
+
+    // Pad two-component versions ("3.10" -> "3.10.0") so strict semver parsing succeeds.
+    while components.len() < 3 {
+        components.push("0");
+    }
+
+    format!("{}{}", components.join("."), suffix)
+}
+
 pub fn to_semver_representation(value: &Value) -> Option<Version> {
     let version_string = to_string_representation(value);
     let normalized = normalize_version_string(&version_string);
+    let canonical = canonicalize_version_string(normalized);
     // TODO: Build metadata (e.g., "1.0.0+build.1") is not currently supported because
     // our `sortableSemver` method in ClickHouse/HogQL doesn't support it yet.
     // For semver equality checks, use regular string equality operators instead.
-    Version::parse(normalized).ok()
+    Version::parse(&canonical).ok()
 }
 
 pub fn match_property(
@@ -383,8 +432,12 @@ pub fn match_property(
             let normalized_version = normalize_version_string(&version_string);
 
             let requirement_string = match operator {
-                OperatorType::SemverTilde => format!("~{normalized_version}"),
-                OperatorType::SemverCaret => format!("^{normalized_version}"),
+                OperatorType::SemverTilde => {
+                    format!("~{}", canonicalize_version_string(normalized_version))
+                }
+                OperatorType::SemverCaret => {
+                    format!("^{}", canonicalize_version_string(normalized_version))
+                }
                 OperatorType::SemverWildcard => {
                     // For wildcard, replace * with x for semver compatibility.
                     // Supported patterns: "1.*", "1.2.*", "1.*.*", "*"
@@ -2478,32 +2531,33 @@ mod test_match_properties {
         )
         .expect("expected match to exist"));
 
-        // Leading zeros are not valid semver
-        assert!(!match_property(
+        // Zero-padded components are canonicalized ("01.02.03" -> "1.2.3"), which many
+        // mobile SDKs emit. 1.2.3 > 1.0.0, so this matches.
+        assert!(match_property(
             &property,
             &HashMap::from([("version".to_string(), json!("01.02.03"))]),
             true
         )
         .expect("expected match to exist"));
 
-        // Leading zero in a single component is also invalid (was the user-visible HogQL bug
-        // where "3.07" silently became [3, 7] and matched a "version >= 3.7" filter).
-        assert!(!match_property(
+        // A leading zero in a single component is canonicalized too ("3.07" -> "3.7.0").
+        assert!(match_property(
             &property,
             &HashMap::from([("version".to_string(), json!("3.07"))]),
             true
         )
         .expect("expected match to exist"));
 
-        // Two-part versions are not valid semver (must be X.Y.Z)
-        assert!(!match_property(
+        // Two-part versions get a padded patch component ("3.7" -> "3.7.0"), the common
+        // shape mobile SDKs emit. 3.7.0 > 1.0.0, so this matches.
+        assert!(match_property(
             &property,
             &HashMap::from([("version".to_string(), json!("3.7"))]),
             true
         )
         .expect("expected match to exist"));
 
-        assert!(!match_property(
+        assert!(match_property(
             &property,
             &HashMap::from([("version".to_string(), json!("3.0"))]),
             true
@@ -2605,6 +2659,97 @@ mod test_match_properties {
             true
         )
         .is_err());
+    }
+
+    #[test]
+    fn test_semver_mobile_version_formats() {
+        // Mobile SDKs commonly emit two-component versions ("3.10") and zero-padded
+        // components ("3.08"), neither of which is strict semver. Before canonicalization
+        // these silently failed to parse, so version-gated flag conditions never matched.
+
+        // "3.08+" is the reported enterprise case: property "3.08" (-> 3.8.0) satisfies
+        // a SemverGte "3.08" (-> 3.8.0) condition.
+        let gte_308 = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("3.08")),
+            operator: Some(OperatorType::SemverGte),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+
+        for version in ["3.08", "3.8", "3.8.0", "3.9", "3.10", "4.0.0"] {
+            assert!(
+                match_property(
+                    &gte_308,
+                    &HashMap::from([("version".to_string(), json!(version))]),
+                    true
+                )
+                .expect("expected match to exist"),
+                "expected {version} to satisfy SemverGte 3.08"
+            );
+        }
+
+        for version in ["3.07", "3.7", "2.48", "3.0"] {
+            assert!(
+                !match_property(
+                    &gte_308,
+                    &HashMap::from([("version".to_string(), json!(version))]),
+                    true
+                )
+                .expect("expected match to exist"),
+                "expected {version} to not satisfy SemverGte 3.08"
+            );
+        }
+
+        // Two-component ordering: 3.10 (-> 3.10.0) is greater than 3.9 (-> 3.9.0), not a
+        // string comparison where "3.10" < "3.9".
+        let gt_39 = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("3.9")),
+            operator: Some(OperatorType::SemverGt),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+
+        assert!(match_property(
+            &gt_39,
+            &HashMap::from([("version".to_string(), json!("3.10"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Canonicalization also applies to the filter value in tilde/caret ranges.
+        let tilde_308 = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("3.08")),
+            operator: Some(OperatorType::SemverTilde),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+
+        // ~3.08 (-> ~3.8.0) means >=3.8.0 <3.9.0
+        assert!(match_property(
+            &tilde_308,
+            &HashMap::from([("version".to_string(), json!("3.8.5"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &tilde_308,
+            &HashMap::from([("version".to_string(), json!("3.9.0"))]),
+            true
+        )
+        .expect("expected match to exist"));
     }
 
     #[test]
