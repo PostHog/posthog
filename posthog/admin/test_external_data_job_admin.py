@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.admin.admins.external_data_job_admin import ExternalDataJobAdmin
+from posthog.admin.admins.external_data_job_admin import ExternalDataJobAdmin, ExternalDataJobAdminForm
 
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
@@ -282,3 +282,62 @@ class TestExternalDataJobAdminDisplayMethods(BaseTest):
     def test_source_type_returns_pipeline_type(self):
         job = self._create_job()
         self.assertEqual(self.admin.source_type(job), "Stripe")
+
+
+@override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
+class TestExternalDataJobAdminForm(BaseTest):
+    def _create_job(self, **kwargs) -> ExternalDataJob:
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="invoices",
+            team_id=self.team.pk,
+            source=source,
+        )
+        defaults = {
+            "team_id": self.team.pk,
+            "pipeline": source,
+            "schema": schema,
+            "status": ExternalDataJob.Status.RUNNING,
+            "latest_error": "some existing error",
+        }
+        defaults.update(kwargs)
+        return ExternalDataJob.objects.create(**defaults)
+
+    def test_form_accepts_blank_latest_error(self):
+        job = self._create_job()
+        form = ExternalDataJobAdminForm(
+            data={
+                "team": job.team_id,
+                "pipeline": job.pipeline_id,
+                "schema": job.schema_id,
+                "status": ExternalDataJob.Status.COMPLETED,
+                "latest_error": "",
+            },
+            instance=job,
+        )
+        self.assertTrue(form.is_valid(), msg=str(form.errors))
+        self.assertFalse(form.fields["latest_error"].required)
+
+    def test_form_persists_null_when_latest_error_cleared(self):
+        job = self._create_job(latest_error="will be cleared")
+        form = ExternalDataJobAdminForm(
+            data={
+                "team": job.team_id,
+                "pipeline": job.pipeline_id,
+                "schema": job.schema_id,
+                "status": ExternalDataJob.Status.COMPLETED,
+                "latest_error": "",
+            },
+            instance=job,
+        )
+        self.assertTrue(form.is_valid(), msg=str(form.errors))
+        saved = form.save()
+        saved.refresh_from_db()
+        self.assertFalse(saved.latest_error)

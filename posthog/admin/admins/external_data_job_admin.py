@@ -1,3 +1,4 @@
+from django import forms
 from django.conf import settings
 from django.contrib import admin, messages
 from django.db import transaction
@@ -13,8 +14,25 @@ def _change_url(job_id) -> str:
     return reverse("admin:data_warehouse_externaldatajob_change", args=[job_id])
 
 
+class ExternalDataJobAdminForm(forms.ModelForm):
+    # The model has `latest_error = TextField(null=True)` but no `blank=True`, which
+    # is the right shape for the DB (Completed jobs legitimately have no error) but
+    # Django's ModelForm still treats the form field as required. Mark it optional
+    # here so operators can save edits — e.g. clearing a stale error or correcting
+    # a stuck job — without inventing placeholder text.
+    class Meta:
+        model = ExternalDataJob
+        fields = "__all__"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if "latest_error" in self.fields:
+            self.fields["latest_error"].required = False
+
+
 @admin.register(ExternalDataJob)
 class ExternalDataJobAdmin(admin.ModelAdmin):
+    form = ExternalDataJobAdminForm
     list_display = (
         "id",
         "status",
