@@ -36,28 +36,28 @@ describe('labelStats', () => {
             total,
         })
 
-        it('computes thumbs-up share and delta per rated version, marking the active one current', () => {
+        it('computes thumbs-up share per rated version, marking the active one current', () => {
             const strip = versionAccuracyStrip([marker(2, 2, 1, 10), marker(1, 1, 3, 8)], 2)
             expect(strip).toEqual([
-                { version: 1, rated: 4, scanned: 8, pct: 25, delta: null, isCurrent: false },
-                { version: 2, rated: 3, scanned: 10, pct: 67, delta: 42, isCurrent: true },
+                { version: 1, rated: 4, scanned: 8, pct: 25, isCurrent: false },
+                { version: 2, rated: 3, scanned: 10, pct: 67, isCurrent: true },
             ])
         })
 
         it('keeps the active version visible while scanned but unrated', () => {
             const strip = versionAccuracyStrip([marker(1, 1, 1, 4), marker(2, 3, 1, 6), marker(3, 0, 0, 5)], 3)
             expect(strip).toEqual([
-                { version: 1, rated: 2, scanned: 4, pct: 50, delta: null, isCurrent: false },
-                { version: 2, rated: 4, scanned: 6, pct: 75, delta: 25, isCurrent: false },
-                { version: 3, rated: 0, scanned: 5, pct: null, delta: null, isCurrent: true },
+                { version: 1, rated: 2, scanned: 4, pct: 50, isCurrent: false },
+                { version: 2, rated: 4, scanned: 6, pct: 75, isCurrent: false },
+                { version: 3, rated: 0, scanned: 5, pct: null, isCurrent: true },
             ])
         })
 
         it('appends a placeholder for an applied version that has no marker yet', () => {
             const strip = versionAccuracyStrip([marker(1, 2, 0, 3)], 2)
             expect(strip).toEqual([
-                { version: 1, rated: 2, scanned: 3, pct: 100, delta: null, isCurrent: false },
-                { version: 2, rated: 0, scanned: 0, pct: null, delta: null, isCurrent: true },
+                { version: 1, rated: 2, scanned: 3, pct: 100, isCurrent: false },
+                { version: 2, rated: 0, scanned: 0, pct: null, isCurrent: true },
             ])
         })
 

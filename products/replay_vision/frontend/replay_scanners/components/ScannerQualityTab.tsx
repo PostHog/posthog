@@ -514,30 +514,24 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
             {versionAccuracy.length > 0 && (
                 <div className="flex flex-wrap items-center gap-1.5 text-xs tabular-nums">
                     {versionAccuracy.map((entry) => (
-                        <span key={entry.version} className="flex items-center gap-1.5">
-                            {entry.delta !== null && (
-                                <span className={entry.delta >= 0 ? 'text-success' : 'text-danger'}>
-                                    {entry.delta >= 0 ? '↑' : '↓'}
-                                </span>
-                            )}
-                            <Tooltip
-                                title={
-                                    entry.pct !== null
-                                        ? `${entry.rated} rated of ${entry.scanned} scanned on v${entry.version}. Unrated sessions don't count toward the percentage.`
-                                        : entry.scanned > 0
-                                          ? `v${entry.version} has scanned ${entry.scanned} sessions but none are rated yet. Rate results below to compare it with earlier versions.`
-                                          : "This prompt version was applied but hasn't scanned any sessions yet, so it has no ratings or chart marker"
-                                }
-                            >
-                                <LemonTag type={entry.isCurrent ? 'highlight' : 'muted'}>
-                                    {entry.pct !== null
-                                        ? `v${entry.version} · ${entry.pct}% thumbs up (${entry.rated})`
-                                        : entry.scanned > 0
-                                          ? `v${entry.version} · no ratings yet`
-                                          : `v${entry.version} · no scans yet`}
-                                </LemonTag>
-                            </Tooltip>
-                        </span>
+                        <Tooltip
+                            key={entry.version}
+                            title={
+                                entry.pct !== null
+                                    ? `${entry.rated} rated of ${entry.scanned} scanned on v${entry.version}. Unrated sessions don't count toward the percentage.`
+                                    : entry.scanned > 0
+                                      ? `v${entry.version} has scanned ${entry.scanned} sessions but none are rated yet. Rate results below to compare it with earlier versions.`
+                                      : "This prompt version was applied but hasn't scanned any sessions yet, so it has no ratings or chart marker"
+                            }
+                        >
+                            <LemonTag type={entry.isCurrent ? 'highlight' : 'muted'}>
+                                {entry.pct !== null
+                                    ? `v${entry.version} · ${entry.pct}% thumbs up (${entry.rated})`
+                                    : entry.scanned > 0
+                                      ? `v${entry.version} · no ratings yet`
+                                      : `v${entry.version} · no scans yet`}
+                            </LemonTag>
+                        </Tooltip>
                     ))}
                 </div>
             )}

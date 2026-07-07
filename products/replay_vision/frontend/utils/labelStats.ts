@@ -41,8 +41,6 @@ export interface VersionAccuracyEntry {
     scanned: number
     /** Thumbs-up share (0-100) of this version's rated sessions, null while nothing is rated. */
     pct: number | null
-    /** Percentage-point change vs the previous rated version, null when there is no earlier rated version. */
-    delta: number | null
     isCurrent: boolean
 }
 
@@ -61,24 +59,16 @@ export function versionAccuracyStrip(
                 rated,
                 scanned: marker.total,
                 pct: rated > 0 ? Math.round((marker.up / rated) * 100) : null,
-                delta: null,
                 isCurrent: false,
             }
         })
         .filter((entry) => entry.pct !== null || entry.version === activeVersion)
         .sort((a, b) => a.version - b.version)
     if (activeVersion !== undefined && !markers.some((marker) => marker.version === activeVersion)) {
-        entries.push({ version: activeVersion, rated: 0, scanned: 0, pct: null, delta: null, isCurrent: false })
+        entries.push({ version: activeVersion, rated: 0, scanned: 0, pct: null, isCurrent: false })
     }
     if (entries.length < 2) {
         return []
-    }
-    let previousPct: number | null = null
-    for (const entry of entries) {
-        if (entry.pct !== null) {
-            entry.delta = previousPct !== null ? entry.pct - previousPct : null
-            previousPct = entry.pct
-        }
     }
     const current =
         activeVersion !== undefined
