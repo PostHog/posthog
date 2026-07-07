@@ -14668,6 +14668,10 @@ export namespace Schemas {
       date_from?: string | null;
       date_to?: string | null;
       explicitDate?: boolean | null;
+      /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
+      filterTestAccounts?: boolean | null;
+      /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
+      interval?: IntervalType | null;
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
     }
 
@@ -18751,6 +18755,8 @@ export namespace Schemas {
          * @nullable
          */
       conclusion_comment?: string | null;
+      /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Only acts for allowlisted teams; ignored otherwise. */
+      open_cleanup_pr?: boolean;
     }
 
     export interface EndpointBreakdownLimitExceededSignalExtra {
@@ -31339,6 +31345,7 @@ export namespace Schemas {
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
+     * * `experiments` - Experiments
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply
@@ -31357,6 +31364,7 @@ export namespace Schemas {
       SupportQueue: 'support_queue',
       SessionSummaries: 'session_summaries',
       PosthogAi: 'posthog_ai',
+      Experiments: 'experiments',
       SignalReport: 'signal_report',
       SignalsScout: 'signals_scout',
       SupportReply: 'support_reply',
@@ -42296,6 +42304,7 @@ export namespace Schemas {
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
        * * `posthog_ai` - PostHog AI
+       * * `experiments` - Experiments
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
        * * `support_reply` - Support Reply
@@ -49219,6 +49228,8 @@ export namespace Schemas {
          * @nullable
          */
       conclusion_comment?: string | null;
+      /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Only acts for allowlisted teams; ignored otherwise. */
+      open_cleanup_pr?: boolean;
       /** The key of the variant to ship. */
       variant_key: string;
       /** If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them. */
@@ -53500,6 +53511,7 @@ export namespace Schemas {
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
        * * `posthog_ai` - PostHog AI
+       * * `experiments` - Experiments
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
        * * `support_reply` - Support Reply
@@ -55090,6 +55102,17 @@ export namespace Schemas {
      */
     export type _LogPatternSeverityCounts = {[key: string]: number};
 
+    export interface _LogPatternExample {
+      /** Log body as the miner saw it: whitespace-collapsed and truncated to the mining length cap, not the raw stored line. */
+      body: string;
+      /** Severity of the sampled line, e.g. "info", "error". */
+      severity_text: string;
+      /** Service that emitted the sampled line. */
+      service_name: string;
+      /** ISO 8601 timestamp of the sampled line. */
+      timestamp: string;
+    }
+
     export interface _LogPattern {
       /** Mined log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". Tokens: <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary. */
       pattern: string;
@@ -55107,8 +55130,8 @@ export namespace Schemas {
       first_seen: string;
       /** ISO 8601 timestamp of the latest sampled occurrence. */
       last_seen: string;
-      /** Up to 3 distinct raw log bodies (truncated) that produced this pattern. */
-      examples: string[];
+      /** Up to 10 distinct sampled log lines that produced this pattern, with severity, service, and timestamp for display. */
+      examples: _LogPatternExample[];
       /** Up to 4 distinct service names this pattern was observed in. */
       services: string[];
       /** Estimated occurrences per time bucket, aligned index-for-index with the response's `sparkline_buckets`. Extrapolated from the sample like `estimated_count`, so it shows the volume shape over the window, not exact per-bucket tallies. */
