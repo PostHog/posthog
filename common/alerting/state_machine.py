@@ -169,6 +169,11 @@ def evaluate_alert_check(
 
     N-of-M sliding-window trigger for firing, immediate resolution on the first OK
     window, cooldown suppression per policy, and error escalation to BROKEN.
+
+    Under default (logs-style) snooze semantics, a future `snooze_until` only
+    suppresses evaluation when state is also SNOOZED — adopters must set both
+    together on snooze (as logs' apply_snooze path does); a stray future
+    `snooze_until` on a non-SNOOZED alert is not honored here.
     """
     if snapshot.state == AlertState.BROKEN and policy.broken_is_terminal:
         # Terminal until a user reset — schedulers already exclude BROKEN alerts,
