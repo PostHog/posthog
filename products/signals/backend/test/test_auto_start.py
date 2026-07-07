@@ -9,6 +9,7 @@ from social_django.models import UserSocialAuth
 
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
+from posthog.models.scoping import team_scope
 
 from products.signals.backend.auto_start import (
     ReviewerContent,
@@ -20,6 +21,7 @@ from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
     SignalReportTask,
+    SignalScoutRun,
     SignalUserAutonomyConfig,
 )
 from products.signals.backend.report_generation.research import Priority
@@ -168,3 +170,70 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team):
         SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN).count() == 1
     )
     assert signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION) == [str(created_tasks[0].id)]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("authoring_scout_skill", "declared_reason", "expected_reason"),
+    [
+        # System policy: reports authored by the health-check scout are frozen never-billable.
+        ("signals-scout-health-checks", None, "posthog_health_check"),
+        # Other scouts and pipeline reports stay billable.
+        ("signals-scout-general", None, None),
+        (None, None, None),
+        # A caller that knows its PostHog-system origin can declare the exemption explicitly.
+        (None, "posthog_onboarding", "posthog_onboarding"),
+    ],
+)
+def test_create_implementation_task_freezes_billing_exemption(
+    organization, team, authoring_scout_skill, declared_reason, expected_reason
+):
+    # The exemption must be stamped under the same lock that creates the implementation task —
+    # before any billable PR run can exist — so no usage report can observe it flipping.
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    user = _create_org_member_with_github("octocat@example.com", organization, "OctoCat")
+    report = SignalReport.objects.create(
+        team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+    )
+    if authoring_scout_skill is not None:
+        scout_task = Task.objects.create(team=team, title="scout", description="d")
+        scout_task_run = TaskRun.objects.create(team=team, task=scout_task)
+        with team_scope(team.id):
+            SignalScoutRun.objects.create(
+                team=team,
+                task_run=scout_task_run,
+                skill_name=authoring_scout_skill,
+                skill_version=1,
+                emitted_report_ids=[str(report.id)],
+            )
+
+    def _fake_create_and_run_task(**kwargs):
+        task = Task.objects.create(
+            team=team,
+            title=kwargs["title"],
+            description=kwargs["description"],
+            created_by=user,
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        run = TaskRun.objects.create(task=task, team=team)
+        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
+
+    with (
+        patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task),
+        patch("products.signals.backend.auto_start.fetch_source_products_for_reports", return_value={}),
+    ):
+        created = _create_implementation_task_if_absent(
+            team_id=team.id,
+            report_id=str(report.id),
+            title="t",
+            description="d",
+            user_id=user.id,
+            repository="owner/repo",
+            base_branch=None,
+            billing_exempt_reason=declared_reason,
+        )
+
+    assert created is True
+    report.refresh_from_db()
+    assert report.billing_exempt_reason == expected_reason

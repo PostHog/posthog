@@ -1,3 +1,4 @@
+import datetime
 from typing import Any, cast
 from uuid import uuid4
 
@@ -16,6 +17,8 @@ from posthog.api.test.test_team import create_team
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.redis import get_client
+
+from products.signals.backend.models import SignalReport, SignalReportRefund
 
 from ee.billing.quota_limiting import (
     QUOTA_LIMIT_DATA_RETENTION_FLAG,
@@ -2754,3 +2757,83 @@ class TestUpdateOrganizationUsageFields(BaseTest):
         assert fresh.usage["events"]["usage"] == 0
         assert fresh.usage["events"]["limit"] == 10_000_000
         assert fresh.usage["period"] == ["2021-02-01T00:00:00Z", "2021-02-28T23:59:59Z"]
+
+
+class TestSignalsRefundQuotaOffset(BaseTest):
+    # A free-plan signals org: limit == the 4500-credit free allocation (3 PRs).
+    def _set_signals_usage(self, usage: int, *, todays_usage: int = 0) -> None:
+        self.organization.usage = {
+            "signals_credits": {"usage": usage, "todays_usage": todays_usage, "limit": 4500},
+            "period": ["2026-06-01T00:00:00Z", "2026-07-01T00:00:00Z"],
+        }
+        self.organization.customer_trust_scores = {}
+        self.organization.save()
+
+    def _credited_refund(self, *, pr_run_created_at: datetime.datetime) -> None:
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.SUPPRESSED)
+        SignalReportRefund.all_teams.create(
+            team=self.team,
+            report=report,
+            reason=SignalReportRefund.Reason.PR_INCORRECT,
+            billing_path=SignalReportRefund.BillingPath.CREDITED,
+            credits=1500,
+            pr_url="https://github.com/x/y/pull/1",
+            pr_run_created_at=pr_run_created_at,
+        )
+
+    @parameterized.expand(
+        [
+            # At the free-tier limit (3 PRs billed), a credited refund of one PR frees the slot.
+            ("in_period_refund_unlimits", datetime.datetime(2026, 6, 10, tzinfo=datetime.UTC), False),
+            # A refund whose PR run predates the period must not grant this period a free slot.
+            ("out_of_period_refund_keeps_limit", datetime.datetime(2026, 5, 10, tzinfo=datetime.UTC), True),
+        ]
+    )
+    @patch("posthoganalytics.capture")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    @freeze_time("2026-06-15T12:00:00Z")
+    def test_credited_refund_offsets_quota_decision(
+        self, _name, pr_run_created_at, expect_limited, _feature_enabled, _capture
+    ) -> None:
+        self._set_signals_usage(4500)
+        self._credited_refund(pr_run_created_at=pr_run_created_at)
+
+        result = org_quota_limited_until(self.organization, QuotaResource.SIGNALS_CREDITS, [], [])
+
+        if expect_limited:
+            assert result is not None
+            assert result["quota_limited_until"] is not None
+        else:
+            assert result is None
+        # The corruption regression: the offset lives only in the boolean decision — the stored
+        # usage summary (what billing syncs and the UI reads) must stay untouched.
+        self.organization.refresh_from_db()
+        assert self.organization.usage["signals_credits"]["usage"] == 4500
+        assert self.organization.usage["signals_credits"]["todays_usage"] == 0
+
+    @patch("posthoganalytics.capture")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    @freeze_time("2026-06-15T12:00:00Z")
+    def test_refund_lookup_skipped_when_under_limit(self, _feature_enabled, _capture) -> None:
+        # The offset query must not run once per org in the all-orgs cron — only for orgs that
+        # would otherwise be limited.
+        self._set_signals_usage(1000)
+        with patch("ee.billing.quota_limiting.credited_refund_credits_for_org") as mock_offset:
+            result = org_quota_limited_until(self.organization, QuotaResource.SIGNALS_CREDITS, [], [])
+        assert result is None
+        mock_offset.assert_not_called()
+
+    @patch("posthoganalytics.capture")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    @freeze_time("2026-06-15T12:00:00Z")
+    def test_offset_ignores_other_resources(self, _feature_enabled, _capture) -> None:
+        # An over-limit events org must never trigger the signals refund lookup.
+        self.organization.usage = {
+            "events": {"usage": 200, "todays_usage": 0, "limit": 100},
+            "period": ["2026-06-01T00:00:00Z", "2026-07-01T00:00:00Z"],
+        }
+        self.organization.customer_trust_scores = {}
+        self.organization.save()
+        with patch("ee.billing.quota_limiting.credited_refund_credits_for_org") as mock_offset:
+            org_quota_limited_until(self.organization, QuotaResource.EVENTS, [], [])
+        mock_offset.assert_not_called()

@@ -45,6 +45,7 @@ export type InboxReportActionType =
     | 'dismiss'
     | 'restore'
     | 'create_pr'
+    | 'refund'
     | 'add_suggested_reviewer'
     | 'remove_suggested_reviewer'
 

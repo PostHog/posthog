@@ -187,8 +187,18 @@ class SignalReport(UUIDModel):
         DELETED = "deleted"
         SUPPRESSED = "suppressed"
 
+    class BillingExemptReason(models.TextChoices):
+        POSTHOG_HEALTH_CHECK = "posthog_health_check"
+        POSTHOG_ONBOARDING = "posthog_onboarding"
+        POSTHOG_SYSTEM = "posthog_system"
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     status = models.CharField(max_length=20, choices=Status, default=Status.POTENTIAL)
+    # System billing exemption: non-null means this report's implementation PRs must never be
+    # charged (PostHog-system origins, e.g. health-check scout findings). Prospective-only —
+    # set via `billing.mark_report_billing_exempt` while no billable PR run exists, and never
+    # flipped afterwards, so no usage report can observe the value changing. Null = billable.
+    billing_exempt_reason = models.CharField(max_length=30, choices=BillingExemptReason, null=True, blank=True)
     # The status held immediately before the report was suppressed (archived). Lets "restore"
     # return the report to where it was instead of always dropping it back to POTENTIAL.
     # Null for reports that were never suppressed (and cleared again on restore).
@@ -976,6 +986,71 @@ class SignalReportTask(UUIDModel):
         indexes = [
             # Billing and PR-URL lookups traverse this bridge by report filtered on relationship.
             models.Index(fields=["report", "relationship"], name="signals_report_task_rel_idx"),
+        ]
+
+
+class SignalReportRefund(TeamScopedRootMixin, UUIDModel):
+    """One refund per report, ever — the user-facing "Refund" on a billed implementation PR.
+
+    The row freezes everything billing-relevant at refund time: the `billing_path` (decided once
+    by the UTC-day rule in `billing.py`, never recomputed), the flat `credits` charge, and the
+    `pr_url` / `pr_run_created_at` snapshots that make eligibility auditable and the quota offset
+    a pure indexed filter on this table. The `report` OneToOne is the concurrency backstop — a
+    racing second refund hits its unique constraint.
+    """
+
+    class Reason(models.TextChoices):
+        PR_INCORRECT = "pr_incorrect"
+        PR_NOT_USEFUL = "pr_not_useful"
+        DUPLICATE = "duplicate"
+        OTHER = "other"
+
+    class BillingPath(models.TextChoices):
+        # Refund landed on the same UTC day as the first billable PR run: the usage query simply
+        # excludes the report, so billing never learns it existed.
+        EXCLUDED = "excluded"
+        # Refund landed later in the billing period: usage stays truthful and the billing service
+        # issues a Stripe customer-balance credit via the dispute endpoint.
+        CREDITED = "credited"
+
+    # `objects` (TeamScopedManager) inherited from TeamScopedRootMixin stays fail-closed for
+    # explicit user code. `all_teams` is the unscoped sibling for Django framework internals
+    # (admin changelist queryset, related-object access, prefetch_related) that must not
+    # filter by team. `default_manager_name` routes `_default_manager` / `_base_manager`
+    # there. Same pattern as ProductTeamModel — duplicated here because TeamScopedRootMixin
+    # doesn't bake it in (most callers don't need it).
+    all_teams = models.Manager()  # noqa: DJ012
+
+    # FKs to the hot posthog_team / posthog_user tables use db_constraint=False so creating this
+    # table takes no lock on those parents (app-level enforcement only).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    report = models.OneToOneField(SignalReport, on_delete=models.CASCADE, related_name="refund")
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
+    )
+    # Required — the future step-2 refund judge consumes these.
+    reason = models.CharField(max_length=20, choices=Reason)
+    note = models.TextField(blank=True)
+    billing_path = models.CharField(max_length=10, choices=BillingPath)
+    # Snapshot of SIGNALS_CREDITS_PER_REPORT_WITH_PR at refund time.
+    credits = models.IntegerField()
+    pr_url = models.TextField()
+    # The first billable PR run's created_at — the billable moment this refund reverses.
+    pr_run_created_at = models.DateTimeField()
+    # Credited path only: what billing actually credited, written back by the sync task.
+    # Null until billing responds ($0 is a legitimate synced outcome, e.g. free tier).
+    credit_amount_usd = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    billing_synced_at = models.DateTimeField(null=True, blank=True)
+    billing_sync_error = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Signal report refund"
+        verbose_name_plural = "Signal report refunds"
+        default_manager_name = "all_teams"
+        indexes = [
+            # The quota offset sums credited refunds per org billing period; this makes it a seek.
+            models.Index(fields=["team", "billing_path", "pr_run_created_at"], name="signals_refund_path_idx"),
         ]
 
 

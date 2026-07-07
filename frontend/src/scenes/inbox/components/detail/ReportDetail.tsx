@@ -24,6 +24,7 @@ import {
     safeHttpUrl,
 } from '../../utils/reportPresentation'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
+import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import {
@@ -64,6 +65,7 @@ export function ReportDetailBadges({
                 actionability={report.actionability}
                 explanation={actionabilityExplanation}
             />
+            <SignalReportBillingBadge report={report} />
         </>
     )
 }
@@ -127,6 +129,7 @@ function ReportDetailMeta({
                 actionability={report.actionability}
                 explanation={actionabilityExplanation}
             />
+            <SignalReportBillingBadge report={report} />
             <span className="flex items-center gap-2 flex-wrap min-w-0">
                 {stats.map((node, i) => (
                     <span key={i} className="flex items-center gap-2 min-w-0">

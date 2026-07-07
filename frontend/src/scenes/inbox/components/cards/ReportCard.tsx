@@ -1,13 +1,15 @@
 import clsx from 'clsx'
+import { useActions } from 'kea'
 import { router } from 'kea-router'
 
-import { IconArchive, IconPullRequest, IconUndo } from '@posthog/icons'
+import { IconArchive, IconHandMoney, IconPullRequest, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
 import { urls } from 'scenes/urls'
 
+import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { InboxFlatListTabKey, SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
 import { dismissalReasonLabel, DismissalReasonValue } from '../../utils/dismissalReasons'
 import {
@@ -18,6 +20,7 @@ import {
     safeHttpUrl,
 } from '../../utils/reportPresentation'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
+import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import {
@@ -27,6 +30,7 @@ import {
     sourceProductsTooltipTitle,
 } from '../badges/sourceProductIcons'
 import { inboxCardRowClassName, useReportArchive } from './useReportArchive'
+import { useReportRefund } from './useReportRefund'
 
 // ── Shared card sub-components ────────────────────────────────────────────────
 
@@ -185,22 +189,37 @@ export function ReportCard({
         onArchive,
     })
 
+    // Refunding archives the report server-side; broadcast `reportArchived` so every mounted list
+    // reconciles against the server (the row leaves Reports/Pull requests and joins Archived).
+    const { reportArchived } = useActions(inboxBulkActionsLogic)
+    const { canRefund, isRefunding, onRefundClick } = useReportRefund({
+        report,
+        surface: 'list_row',
+        onRefunded: reportArchived,
+    })
+    const isRefunded = !!report.refund
+
     // On the Archive tab, surface why it was dismissed (reason tag + note tooltip) when we have it.
     // Key off the report still being suppressed, not the tab: a report that was dismissed, restored,
     // then resolved keeps its old dismissal artefact, and showing that tag would mislabel finished work.
+    // The dedicated billing badge already marks refunded reports, so skip the duplicate chip there.
     const dismissalLabel =
-        isArchived && report.status === SignalReportStatus.SUPPRESSED
+        isArchived && report.status === SignalReportStatus.SUPPRESSED && !isRefunded
             ? dismissalReasonLabel(report.dismissal_reason)
             : null
 
+    // Permanent billing marker (Refunded / Free) — shown on both PR cards and plain reports.
+    const showBillingBadge = isRefunded || !!report.billing_exempt_reason
+
     // PR cards show repo · source; reports show source · status · actionability.
     const showMeta = hasPr
-        ? repoSlug != null || hasSource
+        ? repoSlug != null || hasSource || showBillingBadge
         : hasSource ||
           !isReady ||
           report.actionability != null ||
           report.is_suggested_reviewer === true ||
-          !!dismissalLabel
+          !!dismissalLabel ||
+          showBillingBadge
 
     return (
         <div className={clsx('relative', inboxCardRowClassName(attached, { dashed: !hasPr }))}>
@@ -273,6 +292,7 @@ export function ReportCard({
                                     </LemonTag>
                                 </Tooltip>
                             )}
+                            <SignalReportBillingBadge report={report} />
                         </div>
                     ) : null}
 
@@ -287,24 +307,41 @@ export function ReportCard({
                 </div>
             </Link>
 
-            {/* Terminal resolved reports carry no row action – skip the action column (and its divider). */}
-            {!isResolved && (
+            {/* Terminal resolved reports carry no row action; a refunded archived report can't be
+                restored or re-refunded, so it carries none either – skip the column (and divider). */}
+            {!isResolved && !(isArchived && isRefunded) && (
                 <div className="flex items-center justify-end gap-2.5 shrink-0 @lg:self-stretch @lg:border-l @lg:border-primary @lg:pl-3">
-                    {isArchived ? (
+                    {canRefund && (
                         <LemonButton
                             type="secondary"
                             size="small"
-                            icon={<IconUndo />}
-                            tooltip="Restore this report to the inbox"
-                            aria-label="Restore this report to the inbox"
-                            onClick={(event) => {
-                                event.preventDefault()
-                                event.stopPropagation()
-                                onRestore?.()
-                            }}
+                            icon={<IconHandMoney />}
+                            tooltip="Refund this PR – you won't pay for it and it won't count toward your included PRs"
+                            aria-label="Refund this PR"
+                            loading={isRefunding}
+                            onClick={onRefundClick}
                         >
-                            Restore
+                            Refund
                         </LemonButton>
+                    )}
+                    {isArchived ? (
+                        // A refunded report can't be restored (its PR can never be billed again).
+                        !isRefunded && (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconUndo />}
+                                tooltip="Restore this report to the inbox"
+                                aria-label="Restore this report to the inbox"
+                                onClick={(event) => {
+                                    event.preventDefault()
+                                    event.stopPropagation()
+                                    onRestore?.()
+                                }}
+                            >
+                                Restore
+                            </LemonButton>
+                        )
                     ) : (
                         <>
                             <LemonButton

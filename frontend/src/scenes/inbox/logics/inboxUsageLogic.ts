@@ -1,11 +1,18 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { calculateFreeTier } from 'scenes/billing/billing-utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { BillingProductV2Type } from '~/types'
+
+import { signalsReportsRefundSummaryRetrieve } from 'products/signals/frontend/generated/api'
+import type { SignalReportRefundSummaryResponseApi } from 'products/signals/frontend/generated/api.schemas'
 
 import type { inboxUsageLogicType } from './inboxUsageLogicType'
 
@@ -38,13 +45,37 @@ function perCreditUsd(product: BillingProductV2Type): number | null {
 export const inboxUsageLogic = kea<inboxUsageLogicType>([
     path(['scenes', 'inbox', 'logics', 'inboxUsageLogic']),
     connect(() => ({
-        values: [billingLogic, ['billing', 'billingLoading', 'canAccessBilling']],
+        values: [
+            billingLogic,
+            ['billing', 'billingLoading', 'canAccessBilling'],
+            featureFlagLogic,
+            ['featureFlags'],
+            teamLogic,
+            ['currentTeamId'],
+        ],
         actions: [billingLogic, ['loadBilling', 'updateBillingLimits']],
     })),
     actions({
         openModal: true,
         closeModal: true,
     }),
+    loaders(({ values }) => ({
+        // Credited-path refund totals for the org's current billing period. Billing usage still
+        // contains credited-refunded PRs (the money comes back as an invoice credit, not lower
+        // usage), so the widget subtracts these to show the net PR count. Excluded-path refunds
+        // never reach billing usage and need no adjustment.
+        refundSummary: [
+            null as SignalReportRefundSummaryResponseApi | null,
+            {
+                loadRefundSummary: async (): Promise<SignalReportRefundSummaryResponseApi | null> => {
+                    if (!values.featureFlags[FEATURE_FLAGS.SIGNALS_PR_REFUNDS] || values.currentTeamId == null) {
+                        return null
+                    }
+                    return await signalsReportsRefundSummaryRetrieve(String(values.currentTeamId))
+                },
+            },
+        ],
+    })),
     reducers({
         isModalOpen: [
             false,
@@ -117,9 +148,17 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
                 product && creditsPerPr ? Math.round(calculateFreeTier(product) / creditsPerPr) : 0,
         ],
         usedPrs: [
-            (s) => [s.product, s.creditsPerPr],
-            (product, creditsPerPr): number =>
-                product && creditsPerPr ? Math.round((product.current_usage ?? 0) / creditsPerPr) : 0,
+            (s) => [s.product, s.creditsPerPr, s.refundSummary],
+            (product, creditsPerPr, refundSummary): number => {
+                if (!product || !creditsPerPr) {
+                    return 0
+                }
+                const billedPrs = Math.round((product.current_usage ?? 0) / creditsPerPr)
+                // Credited-path refunds stay in billing usage; net them out so the widget counts
+                // only PRs the user is actually paying (or using free allowance) for.
+                const refundedPrs = refundSummary ? Math.floor(refundSummary.credited_credits / creditsPerPr) : 0
+                return Math.max(0, billedPrs - refundedPrs)
+            },
         ],
         customLimitUsd: [
             (s) => [s.billing, s.product],
@@ -209,5 +248,6 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
         if (!values.billing) {
             actions.loadBilling()
         }
+        actions.loadRefundSummary()
     }),
 ])

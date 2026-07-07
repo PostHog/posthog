@@ -6,11 +6,18 @@ from typing import TypedDict, TypeVar
 from django.db import transaction
 
 import structlog
+import posthoganalytics
 from pydantic import BaseModel, ValidationError
 
+from posthog.event_usage import groups
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
+from products.signals.backend.billing import (
+    BillingExemptionError,
+    mark_report_billing_exempt,
+    system_billing_exempt_reason,
+)
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
@@ -31,6 +38,7 @@ from products.signals.backend.task_run_artefacts import (
     TASK_RUN_TYPE_IMPLEMENTATION,
     record_implementation_task,
 )
+from products.signals.backend.temporal.signal_queries import fetch_source_products_for_reports
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
@@ -97,6 +105,51 @@ def _build_autostart_task_description(
     )
 
 
+def _stamp_billing_exemption(report: SignalReport, declared_reason: str | None) -> str | None:
+    """Freeze the report's billing exemption (caller-declared origin first, then system policy)
+    under the auto-start row lock, before the implementation task — and therefore any billable PR
+    run — can exist. Prospective-only by construction; returns the reason when the report ends up
+    exempt, None when it stays billable."""
+    reason = declared_reason or system_billing_exempt_reason(report.team_id, str(report.id))
+    if reason:
+        try:
+            mark_report_billing_exempt(report, reason)
+        except BillingExemptionError:
+            # A billable PR run already exists; a late "should have been free" is a refund, never
+            # a flag flip (it would break usage-report determinism). Stay billable.
+            logger.warning(
+                "signals billing exemption skipped: billable PR run already exists",
+                report_id=str(report.id),
+                team_id=report.team_id,
+            )
+    return report.billing_exempt_reason
+
+
+def _capture_billing_exempted(*, team: Team, report_id: str, reason: str, task_id: str) -> None:
+    """`signals_pr_billing_exempted` — exempt volume is a cost signal for the weekly refund review."""
+    try:
+        source_products: list[str] = []
+        meta = fetch_source_products_for_reports(team, [report_id]).get(report_id)
+        if meta is not None:
+            source_products = meta.source_products
+        posthoganalytics.capture(
+            event="signals_pr_billing_exempted",
+            distinct_id=str(team.organization.id),
+            properties={
+                "team_id": team.id,
+                "organization_id": str(team.organization.id),
+                "report_id": report_id,
+                "task_id": task_id,
+                "reason": reason,
+                "source_products": source_products,
+            },
+            groups=groups(team.organization, team),
+        )
+    except Exception:
+        # Analytics must never break auto-start.
+        logger.exception("Failed to capture signals_pr_billing_exempted", report_id=report_id)
+
+
 def _create_implementation_task_if_absent(
     *,
     team_id: int,
@@ -106,6 +159,7 @@ def _create_implementation_task_if_absent(
     user_id: int,
     repository: str,
     base_branch: str | None,
+    billing_exempt_reason: str | None = None,
 ) -> bool:
     """Create the implementation task and record it (gate row + work-log artefact), serialized per report.
 
@@ -116,7 +170,12 @@ def _create_implementation_task_if_absent(
     inside the lock makes the decision atomic: the second evaluation blocks, then sees the gate and
     returns ``False``. Returns ``True`` if it created the task, ``False`` if one already exists / the
     report is gone.
+
+    The same lock is where billing exemptions freeze (`_stamp_billing_exemption`): the reason is
+    decided and written before the task exists, so it can never race a billable PR run.
     """
+    exempt_reason: str | None = None
+    task_id: str | None = None
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
         if report is None:
@@ -131,6 +190,7 @@ def _create_implementation_task_if_absent(
             report_id=report_id, team_id=team_id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION
         ):
             return False
+        exempt_reason = _stamp_billing_exemption(report, billing_exempt_reason)
         team = Team.objects.select_related("organization").get(id=team_id)
         created = tasks_facade.create_and_run_task(
             team=team,
@@ -153,15 +213,20 @@ def _create_implementation_task_if_absent(
         )
         if created.latest_run is None:
             raise RuntimeError(f"Task {created.task_id} auto-started without producing a TaskRun")
+        task_id = str(created.task_id)
         # Written inside the lock so the gate check above and this write are serialized — the
         # `SignalReportTask` gate row must be visible before the lock releases.
         record_implementation_task(
             team_id=team_id,
             report_id=report_id,
-            task_id=str(created.task_id),
+            task_id=task_id,
             run_id=str(created.latest_run.id),
         )
-        return True
+    if exempt_reason and task_id:
+        # After commit: the exempt report's implementation task exists — count it (includes a
+        # best-effort ClickHouse lookup, so it must not run under the lock).
+        _capture_billing_exempted(team=team, report_id=report_id, reason=exempt_reason, task_id=task_id)
+    return True
 
 
 def _resolve_autostart_assignee(
@@ -248,6 +313,7 @@ async def maybe_autostart_implementation_task(
     reviewers_content: list[ReviewerContent],
     priority: PriorityAssessment | None,
     triggering_user_id: int | None = None,
+    billing_exempt_reason: str | None = None,
 ) -> None:
     """Start an implementation Task for a SignalReport if autonomy + priority allow it.
 
@@ -257,6 +323,11 @@ async def maybe_autostart_implementation_task(
     let one user act as another (reviewer impersonation). When ``None`` (the pipeline / custom
     agent / scout, whose reviewers come from commit authorship), the assignee is resolved from
     *reviewers_content*.
+
+    ``billing_exempt_reason`` lets a caller that knows its origin is PostHog-system (e.g. a future
+    report-linked onboarding run) declare the report never-billable up front. Independently of it,
+    system policy (`billing.system_billing_exempt_reason`) marks exempt-origin reports — either
+    way the reason freezes under the row lock before the task (and any billable PR run) exists.
 
     Idempotent: skipped if an implementation task already started for the report
     (a `SignalReportTask` implementation gate row), if the report is not immediately
@@ -331,6 +402,7 @@ async def maybe_autostart_implementation_task(
         user_id=task_user.id,
         repository=repository,
         base_branch=base_branch,
+        billing_exempt_reason=billing_exempt_reason,
     )
     if not created:
         # Another evaluation won the race and already created the implementation task.

@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { type MouseEvent, useState } from 'react'
 
-import { IconArchive, IconMessage, IconPullRequest, IconUndo } from '@posthog/icons'
+import { IconArchive, IconHandMoney, IconMessage, IconPullRequest, IconUndo } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -15,6 +15,7 @@ import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport, SignalReportStatus } from '../../types'
 import { useReportArchive } from '../cards/useReportArchive'
+import { useReportRefund } from '../cards/useReportRefund'
 import { openFeedbackReportDialog } from '../shell/FeedbackReportDialog'
 
 /**
@@ -81,6 +82,28 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         },
     })
 
+    const { canRefund, isRefunding, onRefundClick } = useReportRefund({
+        report,
+        surface: 'detail_pane',
+        // Refunding archives the report server-side, so reconcile the lists the same way and
+        // return to the list — except for resolved reports, which stay where they are.
+        onRefunded: () => {
+            reportArchived()
+            if (report.status !== SignalReportStatus.RESOLVED) {
+                router.actions.push(urls.inbox(activeTab))
+            }
+        },
+    })
+
+    const refund: ReportDetailAction = {
+        key: 'refund',
+        label: 'Refund',
+        icon: <IconHandMoney />,
+        loading: isRefunding,
+        tooltip: "Refund this PR – you won't pay for it and it won't count toward your included PRs",
+        onClick: onRefundClick,
+    }
+
     const onRestoreClick = async (): Promise<void> => {
         // Prefer the mounted Archived list logic so it optimistically drops the row and fixes its
         // count + tab badge synchronously (it also fires the API call + toast). Navigate straight back.
@@ -125,23 +148,31 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
             }),
     }
 
-    // A resolved report is terminal – its PR already merged, so only feedback applies.
+    // A resolved report is terminal – its PR already merged, so only feedback applies. The PR can
+    // still be refunded (auto-approved by design; the weekly review watches refunded-then-merged).
     if (isResolved) {
-        return [feedback]
+        return [feedback, ...(canRefund ? [refund] : [])]
     }
 
-    // An already-archived report offers Restore instead of Archive (and no Create PR).
+    // An already-archived report offers Restore instead of Archive (and no Create PR). A refunded
+    // report can't be restored (its PR can never be billed again), so Restore is hidden for it; an
+    // archived-but-still-charged report can still be refunded.
     if (isArchived) {
         return [
             feedback,
-            {
-                key: 'restore',
-                label: 'Restore',
-                icon: <IconUndo />,
-                loading: isRestoring,
-                tooltip: 'Restore this report to your inbox',
-                onClick: () => void onRestoreClick(),
-            },
+            ...(canRefund ? [refund] : []),
+            ...(report.refund
+                ? []
+                : [
+                      {
+                          key: 'restore',
+                          label: 'Restore',
+                          icon: <IconUndo />,
+                          loading: isRestoring,
+                          tooltip: 'Restore this report to your inbox',
+                          onClick: () => void onRestoreClick(),
+                      },
+                  ]),
         ]
     }
 
@@ -155,6 +186,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
             tooltip: 'Archive this report out of your inbox',
             onClick: onArchiveClick,
         },
+        ...(canRefund ? [refund] : []),
     ]
 
     if (showCreatePr) {

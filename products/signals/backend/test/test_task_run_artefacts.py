@@ -161,6 +161,20 @@ class TestTaskRunArtefacts(BaseTest):
         record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
         assert SignalReportTask.objects.filter(report=report, task=task).count() == 1
 
+    def test_record_implementation_task_declared_billing_exemption_marks_report(self):
+        # A caller that knows its origin is PostHog-system freezes the exemption in the same
+        # transaction that records the task — dropping this plumbing would silently bill it.
+        report = self._report()
+        task = self._task()
+        record_implementation_task(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            task_id=str(task.id),
+            billing_exempt_reason=SignalReport.BillingExemptReason.POSTHOG_ONBOARDING,
+        )
+        report.refresh_from_db()
+        assert report.billing_exempt_reason == SignalReport.BillingExemptReason.POSTHOG_ONBOARDING
+
     def _final_report(self) -> CustomAgentFinalReport:
         return CustomAgentFinalReport(
             title="title",

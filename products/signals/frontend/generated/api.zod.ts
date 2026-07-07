@@ -48,6 +48,30 @@ export const SignalsReportsPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Refund the flat charge for this report's implementation PR and archive the report. Refunds auto-approve: the charge is either excluded from usage before it is ever reported to billing (refund on the same UTC day as the PR run) or returned as a Stripe customer-balance credit on the next invoice. A refunded PR does not count toward the free monthly PR allowance. One refund per report, ever — repeat calls return the existing refund with already_refunded=true. The report is archived as part of the refund (a resolved report stays resolved) and can't be restored afterwards.
+ * @summary Refund a report's implementation PR
+ */
+export const signalsReportsRefundCreateBodyNoteMax = 4000
+
+export const SignalsReportsRefundCreateBody = /* @__PURE__ */ zod.object({
+    reason: zod
+        .enum(['pr_incorrect', 'pr_not_useful', 'duplicate', 'other'])
+        .describe(
+            '\* `pr_incorrect` - Pr Incorrect\n\* `pr_not_useful` - Pr Not Useful\n\* `duplicate` - Duplicate\n\* `other` - Other'
+        )
+        .describe(
+            "Why this PR is being refunded. One of: pr_incorrect (the PR doesn't address what the report promised), pr_not_useful (technically fine but not worth paying for), duplicate (covers work already charged elsewhere), other. Required — refund reviews key on it.\n\n\* `pr_incorrect` - Pr Incorrect\n\* `pr_not_useful` - Pr Not Useful\n\* `duplicate` - Duplicate\n\* `other` - Other"
+        ),
+    note: zod
+        .string()
+        .max(signalsReportsRefundCreateBodyNoteMax)
+        .optional()
+        .describe(
+            "Optional free-form context for the refund; stored on the refund and echoed in the report's dismissal artefact. Capped at 4000 characters."
+        ),
+})
+
+/**
  * Transition a report to a new state. The model validates allowed transitions.
  *
  * The request body is validated by SignalReportStateRequestSerializer — only the

@@ -10,8 +10,16 @@ from parameterized import parameterized
 from posthog.models import Team
 
 from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION, TASK_RUN_TYPE_RESEARCH
-from products.signals.backend.billing import SIGNALS_CREDITS_PER_REPORT_WITH_PR, get_signals_billing_credits_by_team
-from products.signals.backend.models import SignalReport, SignalReportTask
+from products.signals.backend.billing import (
+    SIGNALS_CREDITS_PER_REPORT_WITH_PR,
+    BillingExemptionError,
+    FirstBillablePrRun,
+    first_billable_pr_run,
+    get_signals_billing_credits_by_team,
+    mark_report_billing_exempt,
+    system_billing_exempt_reason,
+)
+from products.signals.backend.models import SignalReport, SignalReportRefund, SignalReportTask, SignalScoutRun
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import (
@@ -41,9 +49,43 @@ def _task_run_model() -> type["TaskRunModel"]:
     return apps.get_model("tasks", "TaskRun")
 
 
+def _make_report(team: Team, *, status: str = SignalReport.Status.READY) -> SignalReport:
+    return SignalReport.objects.create(team=team, status=status, signal_count=1, total_weight=1.0)
+
+
+def _make_pr_run(
+    team: Team,
+    report: SignalReport,
+    *,
+    created_at: datetime,
+    pr_url: str | None = "https://github.com/x/y/pull/1",
+    relationship: str = TASK_RUN_TYPE_IMPLEMENTATION,
+    output: object = _UNSET,
+) -> "TaskRunModel":
+    Task, TaskRun = _task_model(), _task_run_model()
+    task = Task.objects.create(
+        team=team, title="impl", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
+    )
+    SignalReportTask.objects.create(team=team, report=report, task=task, relationship=relationship)
+    run_output = output if output is not _UNSET else ({"pr_url": pr_url} if pr_url is not None else {})
+    return TaskRun.objects.create(team=team, task=task, output=run_output, created_at=created_at)
+
+
+def _make_refund(report: SignalReport, *, billing_path: str, pr_run_created_at: datetime | None = None) -> None:
+    SignalReportRefund.objects.create(
+        team=report.team,
+        report=report,
+        reason=SignalReportRefund.Reason.PR_INCORRECT,
+        billing_path=billing_path,
+        credits=SIGNALS_CREDITS_PER_REPORT_WITH_PR,
+        pr_url="https://github.com/x/y/pull/1",
+        pr_run_created_at=pr_run_created_at or _at(10),
+    )
+
+
 class TestSignalsBilling(BaseTest):
     def _report(self, *, team: Team | None = None, status: str = SignalReport.Status.READY) -> SignalReport:
-        return SignalReport.objects.create(team=team or self.team, status=status, signal_count=1, total_weight=1.0)
+        return _make_report(team or self.team, status=status)
 
     def _pr_run(
         self,
@@ -55,14 +97,9 @@ class TestSignalsBilling(BaseTest):
         relationship: str = TASK_RUN_TYPE_IMPLEMENTATION,
         output: object = _UNSET,
     ) -> "TaskRunModel":
-        team = team or self.team
-        Task, TaskRun = _task_model(), _task_run_model()
-        task = Task.objects.create(
-            team=team, title="impl", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        return _make_pr_run(
+            team or self.team, report, created_at=created_at, pr_url=pr_url, relationship=relationship, output=output
         )
-        SignalReportTask.objects.create(team=team, report=report, task=task, relationship=relationship)
-        run_output = output if output is not _UNSET else ({"pr_url": pr_url} if pr_url is not None else {})
-        return TaskRun.objects.create(team=team, task=task, output=run_output, created_at=created_at)
 
     def _credits(self) -> dict[int, int]:
         return dict(get_signals_billing_credits_by_team(PERIOD_START, PERIOD_END))
@@ -258,6 +295,127 @@ class TestSignalsBilling(BaseTest):
         self._pr_run(report, created_at=datetime(2026, 5, 3, tzinfo=UTC), pr_url=None)
         self._pr_run(report, created_at=_at(21))
         self.assertEqual(self._credits(), {self.team.id: 1500})
+
+    def test_excluded_refund_removes_report_from_usage_deterministically(self) -> None:
+        # The excluded path promises billing never learns the report existed — and every send
+        # covering the day (scheduled, delayed-org re-send, manual re-run) must agree.
+        report = self._report()
+        self._pr_run(report, created_at=_at(10))
+        _make_refund(report, billing_path=SignalReportRefund.BillingPath.EXCLUDED)
+        self.assertEqual(self._credits(), {})
+        self.assertEqual(self._credits(), {})
+
+    def test_credited_refund_leaves_usage_truthful(self) -> None:
+        # The credited path fixes the money via a billing-service credit; usage must stay intact.
+        report = self._report()
+        self._pr_run(report, created_at=_at(10))
+        _make_refund(report, billing_path=SignalReportRefund.BillingPath.CREDITED)
+        self.assertEqual(self._credits(), {self.team.id: 1500})
+
+    def test_excluded_refund_only_affects_its_own_report(self) -> None:
+        refunded = self._report()
+        self._pr_run(refunded, created_at=_at(10))
+        _make_refund(refunded, billing_path=SignalReportRefund.BillingPath.EXCLUDED)
+        other = self._report()
+        self._pr_run(other, created_at=_at(11))
+        self.assertEqual(self._credits(), {self.team.id: 1500})
+
+    @parameterized.expand(
+        [
+            ("excluded", SignalReportRefund.BillingPath.EXCLUDED),
+            ("credited", SignalReportRefund.BillingPath.CREDITED),
+        ]
+    )
+    def test_refunded_report_with_later_second_pr_never_bills(self, _name: str, billing_path: str) -> None:
+        # Pins the emergent never-billed-again semantic: the refunded report's first PR run
+        # predates any later period, so a second PR run is always caught by `billed_earlier` —
+        # which is why the API blocks restoring refunded reports.
+        report = self._report()
+        self._pr_run(report, created_at=_at(10))
+        _make_refund(report, billing_path=billing_path)
+        self._pr_run(report, created_at=datetime(2026, 7, 15, tzinfo=UTC))
+        july_credits = dict(get_signals_billing_credits_by_team(PERIOD_END, datetime(2026, 8, 1, tzinfo=UTC)))
+        self.assertEqual(july_credits, {})
+
+    def test_exempt_report_never_appears_in_any_usage_window(self) -> None:
+        report = self._report()
+        report.billing_exempt_reason = SignalReport.BillingExemptReason.POSTHOG_HEALTH_CHECK
+        report.save(update_fields=["billing_exempt_reason"])
+        self._pr_run(report, created_at=_at(10))
+        self._pr_run(report, created_at=datetime(2026, 7, 15, tzinfo=UTC))
+        self.assertEqual(self._credits(), {})
+        self.assertEqual(self._credits(), {})
+        self.assertEqual(get_signals_billing_credits_by_team(PERIOD_END, datetime(2026, 8, 1, tzinfo=UTC)), [])
+
+    def test_first_billable_pr_run_snapshots_earliest_billable_run(self) -> None:
+        # The refund action snapshots this run's timestamp + URL and decides the billing path from
+        # it — returning the latest (or a non-billable) run would replay the wrong charge.
+        report = self._report()
+        self._pr_run(report, created_at=_at(3), pr_url=None)  # not billable, must not win
+        self._pr_run(report, created_at=_at(5), pr_url="https://github.com/x/y/pull/1")
+        self._pr_run(report, created_at=_at(12), pr_url="https://github.com/x/y/pull/2")
+        self.assertEqual(
+            first_billable_pr_run(report.id),
+            FirstBillablePrRun(created_at=_at(5), pr_url="https://github.com/x/y/pull/1"),
+        )
+
+    def test_first_billable_pr_run_none_without_billable_run(self) -> None:
+        report = self._report()
+        self._pr_run(report, created_at=_at(3), pr_url=None)
+        self.assertIsNone(first_billable_pr_run(report.id))
+
+
+class TestBillingExemptions(BaseTest):
+    def test_mark_report_billing_exempt_sets_reason_before_billable_run(self) -> None:
+        report = _make_report(self.team)
+        changed = mark_report_billing_exempt(report, SignalReport.BillingExemptReason.POSTHOG_SYSTEM)
+        report.refresh_from_db()
+        self.assertTrue(changed)
+        self.assertEqual(report.billing_exempt_reason, SignalReport.BillingExemptReason.POSTHOG_SYSTEM)
+
+    def test_mark_report_billing_exempt_refuses_once_billable_run_exists(self) -> None:
+        # The freeze rule: anything already billable is a refund, never a late exemption —
+        # flipping the flag after a usage send may have observed the run breaks determinism.
+        report = _make_report(self.team)
+        _make_pr_run(self.team, report, created_at=_at(10))
+        with self.assertRaises(BillingExemptionError):
+            mark_report_billing_exempt(report, SignalReport.BillingExemptReason.POSTHOG_SYSTEM)
+        report.refresh_from_db()
+        self.assertIsNone(report.billing_exempt_reason)
+
+    def test_mark_report_billing_exempt_never_rewrites_existing_reason(self) -> None:
+        report = _make_report(self.team)
+        mark_report_billing_exempt(report, SignalReport.BillingExemptReason.POSTHOG_HEALTH_CHECK)
+        changed = mark_report_billing_exempt(report, SignalReport.BillingExemptReason.POSTHOG_SYSTEM)
+        report.refresh_from_db()
+        self.assertFalse(changed)
+        self.assertEqual(report.billing_exempt_reason, SignalReport.BillingExemptReason.POSTHOG_HEALTH_CHECK)
+
+    def _scout_run(self, skill_name: str, emitted_report_ids: list[str]) -> SignalScoutRun:
+        Task, TaskRun = _task_model(), _task_run_model()
+        task = Task.objects.create(team=self.team, title="scout", description="d")
+        task_run = TaskRun.objects.create(team=self.team, task=task)
+        return SignalScoutRun.objects.create(
+            team=self.team,
+            task_run=task_run,
+            skill_name=skill_name,
+            skill_version=1,
+            emitted_report_ids=emitted_report_ids,
+        )
+
+    def test_system_policy_exempts_health_check_scout_reports_only(self) -> None:
+        health_check_report = _make_report(self.team)
+        other_scout_report = _make_report(self.team)
+        pipeline_report = _make_report(self.team)
+        self._scout_run("signals-scout-health-checks", [str(health_check_report.id)])
+        self._scout_run("signals-scout-general", [str(other_scout_report.id)])
+
+        self.assertEqual(
+            system_billing_exempt_reason(self.team.id, health_check_report.id),
+            SignalReport.BillingExemptReason.POSTHOG_HEALTH_CHECK,
+        )
+        self.assertIsNone(system_billing_exempt_reason(self.team.id, other_scout_report.id))
+        self.assertIsNone(system_billing_exempt_reason(self.team.id, pipeline_report.id))
 
     def test_aggregates_across_teams_and_reports(self) -> None:
         team_b = Team.objects.create(organization=self.organization, name="team-b")

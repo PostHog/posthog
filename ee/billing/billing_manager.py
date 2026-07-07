@@ -554,6 +554,25 @@ class BillingManager:
 
         return res.json()
 
+    def dispute_signals_pr(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
+        """Ask billing to credit back a refunded Signals PR (idempotent on data['refund_id']).
+
+        Billing returns 200 for every handled business outcome, including $0 credits; any other
+        status means "not handled" and must raise so the caller retries. The default valid_codes
+        would swallow 404 (endpoint not deployed) and 401 (auth failure) as success and record an
+        error body as a synced credit, hence the explicit (200,).
+        """
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/signals/dispute-pr",
+            headers=self.get_auth_headers(organization),
+            json=data,
+            timeout=30,
+        )
+
+        handle_billing_service_error(res, valid_codes=(200,))
+
+        return res.json()
+
     def activate_trial(self, organization: Organization, data: dict[str, Any]):
         res = requests.post(
             f"{BILLING_SERVICE_URL}/api/trials/activate",

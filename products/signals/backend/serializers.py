@@ -20,6 +20,7 @@ from .models import (
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
+    SignalReportRefund,
     SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
@@ -273,6 +274,58 @@ class SignalUserAutonomyConfigCreateSerializer(serializers.Serializer):
     )
 
 
+class SignalReportRefundSerializer(serializers.ModelSerializer):
+    billing_synced = serializers.SerializerMethodField(
+        help_text=(
+            "Whether the billing service has acknowledged this refund. Always relevant for the "
+            "credited path (the Stripe credit is issued asynchronously); excluded-path refunds "
+            "need no billing sync and report false."
+        ),
+    )
+
+    class Meta:
+        model = SignalReportRefund
+        fields = [
+            "id",
+            "reason",
+            "note",
+            "billing_path",
+            "credits",
+            "pr_url",
+            "pr_run_created_at",
+            "credit_amount_usd",
+            "billing_synced",
+            "created_at",
+        ]
+        read_only_fields = fields
+        extra_kwargs = {
+            "reason": {"help_text": "Why the user refunded this PR (feeds the refund review)."},
+            "note": {"help_text": "Optional free-form note captured with the refund."},
+            "billing_path": {
+                "help_text": (
+                    "How the refund was executed, frozen at refund time: 'excluded' (same UTC day as "
+                    "the billable PR run — the report never reaches billing) or 'credited' (billing "
+                    "issues a Stripe customer-balance credit)."
+                )
+            },
+            "credits": {"help_text": "Signals credits refunded (flat per-PR charge snapshot; 1 credit = $0.01)."},
+            "pr_url": {"help_text": "The refunded implementation PR's GitHub URL, snapshotted at refund time."},
+            "pr_run_created_at": {
+                "help_text": "When the first billable PR run was created — the charge this reverses."
+            },
+            "credit_amount_usd": {
+                "help_text": (
+                    "USD amount the billing service credited (credited path only). Null until the sync "
+                    "completes; '0.00' is a legitimate outcome (e.g. the PR was inside the free tier)."
+                )
+            },
+            "created_at": {"help_text": "When the refund was created."},
+        }
+
+    def get_billing_synced(self, obj: SignalReportRefund) -> bool:
+        return obj.billing_synced_at is not None
+
+
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
     priority = serializers.SerializerMethodField(
@@ -300,6 +353,9 @@ class SignalReportSerializer(serializers.ModelSerializer):
     implementation_pr_url = serializers.SerializerMethodField(
         help_text="PR URL from the latest implementation task run, if available.",
     )
+    refund = serializers.SerializerMethodField(
+        help_text="The report's PR refund, when one exists. One refund per report, ever.",
+    )
 
     class Meta:
         model = SignalReport
@@ -323,8 +379,19 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "source_products",
             "scout_name",
             "implementation_pr_url",
+            "refund",
+            "billing_exempt_reason",
         ]
         read_only_fields = fields
+        extra_kwargs = {
+            "billing_exempt_reason": {
+                "help_text": (
+                    "Non-null when this report is system-marked never-billable (PostHog-system origin, "
+                    "e.g. a health-check scout finding) — its implementation PRs are free and cannot be "
+                    "refunded because nothing was charged."
+                )
+            },
+        }
 
     def _get_actionability_artefact_data(self, obj: SignalReport) -> dict | None:
         prefetched = getattr(obj, "prefetched_actionability_artefacts", None)
@@ -426,6 +493,15 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return implementation_pr_url_map.get(str(obj.id))
         value = getattr(obj, "implementation_pr_url", None)
         return value if isinstance(value, str) else None
+
+    @extend_schema_field(SignalReportRefundSerializer(allow_null=True))
+    def get_refund(self, obj: SignalReport) -> dict | None:
+        # Reverse OneToOne: RelatedObjectDoesNotExist subclasses AttributeError, so getattr
+        # degrades to None for unrefunded reports. The viewset select_related()s the relation.
+        refund = getattr(obj, "refund", None)
+        if refund is None:
+            return None
+        return SignalReportRefundSerializer(refund).data
 
 
 # ── Report `signals` action ─────────────────────────────────────────────────────

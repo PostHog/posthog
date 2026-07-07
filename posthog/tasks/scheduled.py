@@ -93,6 +93,7 @@ from products.feature_flags.backend.tasks import (
 )
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
 from products.reminders.backend.tasks import process_due_reminders
+from products.signals.backend.tasks import sync_pending_signals_refund_credits
 from products.streamlit_apps.backend.facade.api import (
     auto_restart_crashed_streamlit_sandboxes,
     cleanup_deleted_streamlit_app_zips,
@@ -257,6 +258,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/2"),
         redispatch_orphaned_queued_task_runs.s(),
         name="redispatch orphaned queued task runs",
+    )
+
+    # Re-enqueue signals PR refunds whose billing credit sync hasn't landed - hourly at minute 25
+    sender.add_periodic_task(
+        crontab(hour="*", minute="25"),
+        sync_pending_signals_refund_credits.s(),
+        name="sync pending signals refund credits",
     )
 
     # Flags cache sync - hourly
