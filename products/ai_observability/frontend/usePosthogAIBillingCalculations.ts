@@ -7,8 +7,42 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { EnrichedTraceTreeNode } from './aiObservabilityTraceDataLogic'
 import { isLLMEvent } from './utils'
 
-// AI billing markup: 20% markup on top of cost
+// AI billing markup: 20% markup on top of cost. Some products bill model costs as
+// pure pass-through (no markup) — keep in sync with posthog/tasks/usage_report.py.
 const AI_COST_MARKUP_PERCENT = 0.2
+const PASS_THROUGH_AI_PRODUCTS = new Set(['posthog_code'])
+
+export function getMarkupPercentForProduct(aiProduct: unknown): number {
+    return typeof aiProduct === 'string' && PASS_THROUGH_AI_PRODUCTS.has(aiProduct) ? 0 : AI_COST_MARKUP_PERCENT
+}
+
+export function computeBillingTotals(enrichedTree: EnrichedTraceTreeNode[]): {
+    totalCostUsd: number
+    markupUsd: number
+} {
+    let totalCostUsd = 0
+    let markupUsd = 0
+    const sumBilled = (node: EnrichedTraceTreeNode): void => {
+        const ev = node.event
+        if (isLLMEvent(ev) && ev.event === '$ai_generation' && !!ev.properties?.$ai_billable) {
+            const cost = Number(ev.properties.$ai_total_cost_usd ?? 0)
+            if (!isNaN(cost)) {
+                totalCostUsd += cost
+                markupUsd += cost * getMarkupPercentForProduct(ev.properties.ai_product)
+            }
+        }
+        if (node.children) {
+            for (const child of node.children) {
+                sumBilled(child)
+            }
+        }
+    }
+
+    for (const node of enrichedTree) {
+        sumBilled(node)
+    }
+    return { totalCostUsd, markupUsd }
+}
 
 // Banker's rounding
 function roundBankers(value: number): number {
@@ -38,33 +72,16 @@ export function usePosthogAIBillingCalculations(enrichedTree: EnrichedTraceTreeN
 
     const showBillingInfo = !!featureFlags[FEATURE_FLAGS.POSTHOG_AI_BILLING_DISPLAY]
 
-    // Compute total billed USD across billed generations in the tree
-    const totalCostUsd = useMemo(() => {
+    // Compute total billed USD and per-product markup across billed generations in the tree
+    const { totalCostUsd, markupUsd } = useMemo(() => {
         if (!showBillingInfo || !enrichedTree) {
-            return 0
+            return { totalCostUsd: 0, markupUsd: 0 }
         }
-
-        const sumBilled = (node: EnrichedTraceTreeNode): number => {
-            const ev = node.event
-            let total = 0
-            if (isLLMEvent(ev) && ev.event === '$ai_generation' && !!ev.properties?.$ai_billable) {
-                const cost = Number(ev.properties.$ai_total_cost_usd ?? 0)
-                total += isNaN(cost) ? 0 : cost
-            }
-            if (node.children) {
-                for (const child of node.children) {
-                    total += sumBilled(child)
-                }
-            }
-            return total
-        }
-
-        return enrichedTree.reduce((acc, n) => acc + sumBilled(n), 0)
+        return computeBillingTotals(enrichedTree)
     }, [enrichedTree, showBillingInfo])
 
-    const markupUsd = showBillingInfo ? totalCostUsd * AI_COST_MARKUP_PERCENT : 0
-    const billedTotalUsd = showBillingInfo ? totalCostUsd + markupUsd : 0 // Total cost + markup
-    const billedCredits = showBillingInfo ? roundBankers(billedTotalUsd * 100) : 0
+    const billedTotalUsd = totalCostUsd + markupUsd // Total cost + markup
+    const billedCredits = roundBankers(billedTotalUsd * 100)
 
     return {
         showBillingInfo,

@@ -195,3 +195,43 @@ class TestEnforceThrottles:
             auth_method="personal_api_key",
         )
         assert context.end_user_id is None
+
+
+class TestResolvePlanAndQuota:
+    """The ai_credits quota resolver roundtrip is skipped for products that don't
+    bill into the ai_credits bucket — unbilled ones, and products billing into a
+    bucket without gateway-side quota enforcement (e.g. posthog_code)."""
+
+    async def _run(self, product: str) -> tuple:
+        from unittest.mock import AsyncMock
+
+        from llm_gateway.dependencies import resolve_plan_and_quota
+        from llm_gateway.services.plan_resolver import PlanInfo
+        from llm_gateway.services.quota_resolver import QuotaResourceStatus
+
+        plan_info = PlanInfo(plan_key="pro", seat_created_at=None)
+        plan_mock = AsyncMock(return_value=plan_info)
+        quota_mock = AsyncMock(return_value=QuotaResourceStatus(limited=True))
+        with (
+            patch("llm_gateway.dependencies.resolve_plan_info", plan_mock),
+            patch("llm_gateway.dependencies.resolve_quota_status", quota_mock),
+        ):
+            result = await resolve_plan_and_quota(_make_request(), user_id=1, team_id=42, product=product)
+        return result, quota_mock
+
+    @pytest.mark.asyncio
+    async def test_ai_credits_billed_product_resolves_quota(self) -> None:
+        (_, quota_status), quota_mock = await self._run("slack_app")
+
+        quota_mock.assert_awaited_once()
+        assert quota_status.limited is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("product", ["posthog_code", "wizard"])
+    async def test_ungated_products_skip_quota_resolver(self, product: str) -> None:
+        # posthog_code bills into its own bucket (no gateway quota enforcement);
+        # wizard is unbilled. Neither should pay for the quota resolver roundtrip.
+        (_, quota_status), quota_mock = await self._run(product)
+
+        quota_mock.assert_not_awaited()
+        assert quota_status.limited is False

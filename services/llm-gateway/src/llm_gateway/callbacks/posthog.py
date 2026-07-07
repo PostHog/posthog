@@ -64,11 +64,12 @@ _TRUNCATABLE_FIELDS = ("$ai_output_choices", "$ai_input")
 
 
 def _is_product_billable(product: str) -> bool:
-    """Look up the product's billable flag in the central registry. False for
-    unknown products so we never accidentally bill calls we can't attribute.
+    """A product is billable iff it bills into a credit bucket in the central
+    registry. False for unknown products so we never accidentally bill calls we
+    can't attribute.
     """
     config = get_product_config(product)
-    return bool(config and config.billable)
+    return config is not None and config.credit_bucket is not None
 
 
 def _apply_owned_event_properties(properties: dict[str, Any], product: str, team_id: int | None) -> None:
