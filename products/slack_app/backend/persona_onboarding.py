@@ -319,6 +319,10 @@ class CsmDataReadiness:
     def as_dict(self) -> dict:
         return dataclasses.asdict(self)
 
+    def analytics_props(self) -> dict:
+        # ready_details is presentation-only with variable keys — keep it out of the flat event schema.
+        return {key: value for key, value in self.as_dict().items() if key != "ready_details"}
+
 
 def _active_source_kinds(team_id: int) -> set[str]:
     from products.warehouse_sources.backend.models.external_data_source import (  # noqa: PLC0415 — keeps the warehouse stack off the slack import path
@@ -1190,7 +1194,7 @@ def _handle_persona_select(payload: dict, action: dict) -> None:
         EVENT_FLEET_SHOWN,
         slack_user_id=ctx.slack_user_id,
         detected_tools=detected_tools,
-        **readiness.as_dict(),
+        **readiness.analytics_props(),
     )
 
 
@@ -1390,7 +1394,8 @@ def _provision_and_complete(ctx: _FlowContext, channel_id: str, channel_name: st
         scouts_provisioned=len([result for result in results if result.config_id]),
         first_runs_fired=len([result for result in results if result.first_run_started]),
         channel_conflict=bool(channel_conflict),
-        **readiness,
+        # readiness still carries ready_details for the Block Kit render above; keep it out of analytics.
+        **{key: value for key, value in readiness.items() if key != "ready_details"},
     )
     _republish_home(ctx.integration, ctx.slack_user_id)
     _start_first_patrol_digest(ctx, results, channel_name)

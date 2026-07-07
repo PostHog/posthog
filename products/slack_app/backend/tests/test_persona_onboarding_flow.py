@@ -66,9 +66,9 @@ def _no_temporal_digest_dispatch():
 @pytest.fixture(autouse=True)
 def _mute_analytics():
     # Every handler fires capture_slack_event, whose ph_scoped_capture flushes on a blocking
-    # network shutdown — no flow test asserts analytics, so mock it to keep the suite fast.
-    with patch("products.slack_app.backend.persona_onboarding.capture_slack_event"):
-        yield
+    # network shutdown — mock it to keep the suite fast; the mock also lets tests inspect kwargs.
+    with patch("products.slack_app.backend.persona_onboarding.capture_slack_event") as mock_capture:
+        yield mock_capture
 
 
 class _FlowTestBase:
@@ -276,7 +276,7 @@ class TestPersonaSelection(_FlowTestBase):
         assert persona_onboarding.ENGINEER_COMPLETION_TEXT in self._posted_text(client)
 
     @patch(WEBCLIENT)
-    def test_csm_select_reveals_fleet_then_asks_for_channel(self, mock_webclient):
+    def test_csm_select_reveals_fleet_then_asks_for_channel(self, mock_webclient, _mute_analytics):
         client = self._client(mock_webclient)
         row = self._seed_state(persona_onboarding.STEP_AWAITING_PERSONA)
 
@@ -294,6 +294,12 @@ class TestPersonaSelection(_FlowTestBase):
             "accounts_count",
             "ready_details",
         }
+        # ready_details is presentation-only — it must stay out of the flat analytics event schema.
+        fleet_shown = next(
+            call for call in _mute_analytics.call_args_list if call.args[1] == persona_onboarding.EVENT_FLEET_SHOWN
+        )
+        assert "ready_details" not in fleet_shown.kwargs
+        assert "account_pulse" in fleet_shown.kwargs
         assert state["detected_tools"] == []
         # The post-OAuth return leg needs this pointer to flip the reveal's ⚠️ lines to ✅.
         assert state["fleet_message_ts"] == "111.222"
