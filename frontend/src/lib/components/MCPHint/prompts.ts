@@ -16,6 +16,8 @@ export const SURFACE_KEYS = [
     'early_access_features.create',
     'sql.execute',
     'workflows.create',
+    'data_warehouse_sources.create',
+    'data_warehouse_sources.update',
 ] as const
 
 export type SurfaceKey = (typeof SURFACE_KEYS)[number]
@@ -146,6 +148,22 @@ export const FALLBACK_PROMPTS: Record<SurfaceKey, SurfacePrompts> = {
             '"Trigger a reminder push 7 days after onboarding starts but never completes"',
         ],
     },
+    'data_warehouse_sources.create': {
+        toast: '"Connect a Stripe source and sync invoices daily"',
+        examples: [
+            '"Connect a Stripe source and sync invoices daily"',
+            '"Import my Postgres orders table incrementally"',
+            '"Set up a Hubspot source for contacts and companies"',
+        ],
+    },
+    'data_warehouse_sources.update': {
+        toast: '"Update the credentials on my Stripe source"',
+        examples: [
+            '"Update the credentials on my Stripe source"',
+            '"Resync the orders table on my Postgres source"',
+            '"Switch my Stripe source to sync hourly"',
+        ],
+    },
 }
 
 // Roles we tailor prompts for. Not every role is catered to; fallback to defaults for `sales`, `other`, and null.
@@ -197,6 +215,22 @@ const PROMPT_OVERRIDES: Record<TailoredRole, Partial<Record<SurfaceKey, SurfaceP
                 '"Survey: would you recommend us to another founder?"',
             ],
         },
+        'data_warehouse_sources.create': {
+            toast: '"Connect Stripe and sync invoices and subscriptions daily"',
+            examples: [
+                '"Connect Stripe and sync invoices and subscriptions daily"',
+                '"Import Stripe charges so I can track MRR in PostHog"',
+                '"Set up Stripe to see revenue next to product usage"',
+            ],
+        },
+        'data_warehouse_sources.update': {
+            toast: '"Sync my Stripe source hourly so revenue stays fresh"',
+            examples: [
+                '"Sync my Stripe source hourly so revenue stays fresh"',
+                '"Resync this month\'s Stripe invoices"',
+                '"Update the credentials on my Stripe source"',
+            ],
+        },
     },
     product: {
         'feature_flags.create': {
@@ -237,6 +271,22 @@ const PROMPT_OVERRIDES: Record<TailoredRole, Partial<Record<SurfaceKey, SurfaceP
                 '"Open the new editor as an early-access feature"',
                 '"Promote ai-suggestions to GA and show me who\'s opted in"',
                 '"Pull the list of people in the v2 beta"',
+            ],
+        },
+        'data_warehouse_sources.create': {
+            toast: '"Connect Postgres and sync the subscriptions table incrementally"',
+            examples: [
+                '"Connect Postgres and sync the subscriptions table incrementally"',
+                '"Import my product roadmap from a Google Sheet"',
+                '"Set up a Postgres source for the accounts table"',
+            ],
+        },
+        'data_warehouse_sources.update': {
+            toast: '"Resync my Google Sheet after I updated the roadmap"',
+            examples: [
+                '"Resync my Google Sheet after I updated the roadmap"',
+                '"Sync my Postgres accounts table hourly"',
+                '"Switch my Postgres source to incremental sync on updated_at"',
             ],
         },
     },
@@ -307,6 +357,22 @@ const PROMPT_OVERRIDES: Record<TailoredRole, Partial<Record<SurfaceKey, SurfaceP
                 '"Track LinkedIn-sourced users from signup to activation"',
             ],
         },
+        'data_warehouse_sources.create': {
+            toast: '"Connect Google Ads and sync campaign spend daily"',
+            examples: [
+                '"Connect Google Ads and sync campaign spend daily"',
+                '"Import Meta Ads and LinkedIn Ads to compare channel ROI"',
+                '"Set up Hubspot to sync marketing contacts"',
+            ],
+        },
+        'data_warehouse_sources.update': {
+            toast: '"Sync my Google Ads spend hourly"',
+            examples: [
+                '"Sync my Google Ads spend hourly"',
+                '"Resync this week\'s Meta Ads campaigns"',
+                '"Also start syncing conversions from my Google Ads source"',
+            ],
+        },
     },
     engineering: {
         'feature_flags.create': {
@@ -365,6 +431,22 @@ const PROMPT_OVERRIDES: Record<TailoredRole, Partial<Record<SurfaceKey, SurfaceP
                 '"Auto-create a Jira ticket when a new critical error appears"',
             ],
         },
+        'data_warehouse_sources.create': {
+            toast: '"Connect our production Postgres and sync the orders table incrementally"',
+            examples: [
+                '"Connect our production Postgres and sync orders incrementally"',
+                '"Set up a Stripe source and sync charges hourly"',
+                '"Import the users table from MySQL with a staging prefix"',
+            ],
+        },
+        'data_warehouse_sources.update': {
+            toast: '"Rotate the credentials on our production Postgres source"',
+            examples: [
+                '"Rotate the credentials on our production Postgres source"',
+                '"Point my Postgres source at the new read replica"',
+                '"Resync the orders table after the schema migration"',
+            ],
+        },
     },
     data: {
         'sql.execute': {
@@ -397,6 +479,22 @@ const PROMPT_OVERRIDES: Record<TailoredRole, Partial<Record<SurfaceKey, SurfaceP
                 '"Data quality dashboard: events/hour, ingestion lag, error rate"',
                 '"Retention curves by signup-month cohort"',
                 '"Churn-prediction dashboard for paid plans"',
+            ],
+        },
+        'data_warehouse_sources.create': {
+            toast: '"Connect Snowflake and sync the fct_orders table incrementally"',
+            examples: [
+                '"Connect Snowflake and sync fct_orders incrementally"',
+                '"Import the Stripe charges table and join it to events in SQL"',
+                '"Set up a Postgres source for the dim_users table"',
+            ],
+        },
+        'data_warehouse_sources.update': {
+            toast: '"Switch my Postgres source to incremental sync on updated_at"',
+            examples: [
+                '"Switch my Postgres source to incremental sync on updated_at"',
+                '"Bump the Stripe source to sync hourly"',
+                '"Resync the orders table from Snowflake"',
             ],
         },
     },

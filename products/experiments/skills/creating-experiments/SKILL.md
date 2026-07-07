@@ -45,6 +45,8 @@ If the user doesn't mention rollout specifics, use defaults: 50/50 control/test,
 ### Step 3: How to measure impact?
 
 This is about analytics and metrics. **Load the `configuring-experiment-analytics` skill** for guidance.
+That skill's first step checks for an existing **shared metric** to reuse before building a new one —
+don't duplicate a metric the project already has set up.
 
 **Do NOT configure metrics on creation.** Metrics are not passed to `experiment-create` — they are added
 afterwards via `experiment-update`. This keeps the creation call lightweight.

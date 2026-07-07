@@ -62,6 +62,7 @@ function AddWidgetCatalogPicker({
     return (
         <WidgetTypePickerCard
             label={entry.label}
+            badge={entry.badge}
             description={entry.description}
             selected={selected}
             preview={WidgetPreview ? <WidgetPreview /> : <div />}
@@ -122,6 +123,7 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
                         loading={loading}
                         disabledReason={getAddWidgetDisabledReason(loading, selectedCount)}
                         onClick={handleAddWidgets}
+                        data-attr="add-widget-submit"
                     >
                         {getAddButtonLabel(selectedCount)}
                     </LemonButton>

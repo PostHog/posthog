@@ -41,6 +41,7 @@ import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
+import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
 import { Node, ProductKey } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode } from '~/queries/utils'
 import {
@@ -200,6 +201,9 @@ export function InsightMeta({
     })
 
     const showDisplayOptionsMenu = isUsedAsDashboardTile && canEditInsight && !!persistDisplayOptions
+    // Hoist the hook out of the More overlay so kea logics it mounts don't do so lazily inside a
+    // portal, which cascades into closing the dropdown before the user can interact with it.
+    const { items: displayOptionItems } = useInsightDisplayOptions()
 
     const hasTileStyleActions = !!(showCompactTile && toggleShowDescription && insight.description) || !!updateColor
     const canShowCopyToDashboardTile = showCompactTile && !!copyToDashboard && canViewInsight
@@ -461,7 +465,7 @@ export function InsightMeta({
                                 Alerts
                             </LemonButton>
                         ) : null}
-                        {showDisplayOptionsMenu && <DashboardInsightDisplayOptions />}
+                        {showDisplayOptionsMenu && <DashboardInsightDisplayOptions items={displayOptionItems} />}
 
                         {canShowCopyToDashboardTile && !canEditDashboard && (
                             <>
@@ -609,6 +613,7 @@ export function InsightMeta({
                     insightId={insight.id}
                     insightShortId={short_id as InsightShortId}
                     canCreateAlertForInsight={canCreateAlertForInsight}
+                    insightQuery={query}
                     deferInitialAlertsLoad
                 />
             ) : null}

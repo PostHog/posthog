@@ -1,6 +1,6 @@
 from posthog.schema import RevenueAnalyticsEventItem, RevenueCurrencyPropertyConfig
 
-from products.warehouse_sources.backend.models.util import CLICKHOUSE_HOGQL_MAPPING
+from products.warehouse_sources.backend.facade.hogql import CLICKHOUSE_HOGQL_MAPPING
 
 
 def _convert_columns(basic_types: dict[str, str]):

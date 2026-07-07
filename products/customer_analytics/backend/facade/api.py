@@ -15,13 +15,16 @@ Do NOT:
 - Import DRF, serializers, or HTTP concerns
 """
 
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, Optional, cast
 from uuid import UUID
 
+from django.apps import apps
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Prefetch, Q
 
+from celery import current_app
 from pydantic import ValidationError as PydanticValidationError
 
 from posthog.api.tagged_item import set_tags_on_object
@@ -33,16 +36,28 @@ from posthog.models.tagged_item import TaggedItem
 
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
 from products.customer_analytics.backend.constants import ACCOUNT_ASSIGNMENT_ROLE_FIELDS
-from products.customer_analytics.backend.logic import custom_property_values as _custom_property_values_logic
-from products.customer_analytics.backend.logic.custom_property_definitions import coerce_is_big_number
+from products.customer_analytics.backend.logic import (
+    custom_property_values as _custom_property_values_logic,
+    relationships as _relationships_logic,
+)
+from products.customer_analytics.backend.logic.custom_property_definitions import (
+    InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
+    apply_option_side_effects,
+    coerce_is_big_number,
+    normalize_options,
+)
 from products.customer_analytics.backend.logic.usage_spike_notifications import (
     notify_managers_of_usage_spike as notify_managers_of_usage_spike,
 )
 from products.customer_analytics.backend.models import (
     Account,
+    AccountRelationship,
+    AccountRelationshipDefinition,
     CustomerJourney,
     CustomerProfileConfig,
     CustomPropertyDefinition,
+    CustomPropertySource,
+    DisplayType,
 )
 from products.customer_analytics.backend.models.account import AccountProperties as _ModelAccountProperties
 from products.notebooks.backend.facade import (
@@ -54,8 +69,14 @@ from products.notebooks.backend.facade import (
 # account -> ResourceNotebook -> notebook relation can't cross a data facade. All account-notebook
 # CRUD goes through `notebooks` (the facade). Tracked by the notebooks legacy-leak interface block.
 from products.notebooks.backend.models import ResourceNotebook
+from products.workflows.backend.services.template_input_usage import get_hog_flows_referencing_template_input_keys
 
 from . import contracts
+
+# The "Update account property" workflow action (Hog template) stores the custom property values it
+# sets keyed by definition id under its ``properties`` input — the link we resolve into references.
+_ACCOUNT_PROPERTY_TEMPLATE_ID = "template-posthog-update-account-property"
+_ACCOUNT_PROPERTY_INPUT_KEY = "properties"
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -315,6 +336,7 @@ def _apply_external_role_assignments(
         return contracts.ExternalAccountUpdateResult(error=contracts.ExternalAccountUpdateError.INVALID_PROPERTIES)
 
     account.save(update_fields=["_properties", "updated_at"])
+    _relationships_logic.sync_from_account_properties(account)
     return None
 
 
@@ -350,6 +372,64 @@ def update_external_account(
 
     account.refresh_from_db()
     return contracts.ExternalAccountUpdateResult(account=_to_external_account(account))
+
+
+def set_external_account_custom_properties(
+    team_id: int,
+    external_id: str,
+    *,
+    properties: dict[str, Any],
+    created_by_id: int | None = None,
+) -> contracts.ExternalAccountCustomPropertiesResult:
+    """Set custom property values on an account by definition id, for the external API.
+
+    Resolves the account by external id, then applies every ``{definition_id: value}`` pair
+    transactionally — a bad value or unknown definition rolls the whole batch back. Returns a result
+    the view maps to the exact HTTP status/body: account not found, unknown definition, invalid
+    value, a concurrent-write conflict, a generic write failure, or success carrying the set values.
+    """
+    account = _get_external_account_by_external_id(team_id, external_id)
+    if account is None:
+        return contracts.ExternalAccountCustomPropertiesResult(
+            error=contracts.ExternalAccountCustomPropertiesError.ACCOUNT_NOT_FOUND
+        )
+
+    source_backed = _source_backed_definition_ids(team_id, list(properties.keys()))
+    if source_backed:
+        return contracts.ExternalAccountCustomPropertiesResult(
+            error=contracts.ExternalAccountCustomPropertiesError.SOURCE_MANAGED,
+            error_field=str(next(iter(source_backed))),
+        )
+
+    try:
+        with transaction.atomic():
+            rows = _custom_property_values_logic.set_account_custom_properties_by_id(
+                team_id=team_id,
+                account_id=account.id,
+                properties=properties,
+                created_by_id=created_by_id,
+            )
+    except _custom_property_values_logic.CustomPropertyDefinitionNotFound as exc:
+        return contracts.ExternalAccountCustomPropertiesResult(
+            error=contracts.ExternalAccountCustomPropertiesError.DEFINITION_NOT_FOUND,
+            error_field=str(exc.identifier),
+        )
+    except _custom_property_values_logic.InvalidCustomPropertyValue as exc:
+        return contracts.ExternalAccountCustomPropertiesResult(
+            error=contracts.ExternalAccountCustomPropertiesError.INVALID_VALUE,
+            error_field=exc.field,
+        )
+    except _custom_property_values_logic.CustomPropertyValueConflict:
+        return contracts.ExternalAccountCustomPropertiesResult(
+            error=contracts.ExternalAccountCustomPropertiesError.CONFLICT
+        )
+    except Exception as e:
+        capture_exception(e, {"external_id": external_id})
+        return contracts.ExternalAccountCustomPropertiesResult(
+            error=contracts.ExternalAccountCustomPropertiesError.UPDATE_FAILED
+        )
+
+    return contracts.ExternalAccountCustomPropertiesResult(values=[_to_custom_property_value(row) for row in rows])
 
 
 # ---------------------------------------------------------------------------
@@ -603,6 +683,7 @@ def delete_customer_profile_config(
 
 def _to_custom_property_definition_view(
     definition: CustomPropertyDefinition,
+    references: list[contracts.CustomPropertyReference] | None = None,
 ) -> contracts.CustomPropertyDefinitionView:
     return contracts.CustomPropertyDefinitionView(
         id=definition.id,
@@ -613,22 +694,88 @@ def _to_custom_property_definition_view(
         created_at=definition.created_at,
         created_by=definition.created_by_id,
         updated_at=definition.updated_at,
+        references=references or [],
+        source=_definition_source_view(definition),
+        options=_to_custom_property_options(definition.options),
     )
 
 
+def _to_custom_property_options(
+    options: list[dict[str, Any]] | None,
+) -> list[contracts.CustomPropertyOption] | None:
+    if options is None:
+        return None
+    return [contracts.CustomPropertyOption(**option) for option in options]
+
+
+def _can_read_workflow_references(user_access_control: "UserAccessControl") -> bool:
+    """Whether the caller may see the workflows that reference a custom property.
+
+    ``references`` exposes HogFlow metadata (id, name, status), so it's gated on the caller
+    having at least viewer access to the ``hog_flow`` resource — the property-definition API is
+    authorized as ``account``, and a caller without workflow read access must not enumerate
+    workflows through it. Without RBAC restrictions this resolves to the default (allowed)."""
+    return user_access_control.check_access_level_for_resource("hog_flow", "viewer")
+
+
+def _custom_property_references_by_definition_id(
+    team_id: int, definition_id: str | None = None
+) -> dict[str, list[contracts.CustomPropertyReference]]:
+    """Map each referenced definition id to the workflows that set it via the "Update account
+    property" action. One scan of the team's workflows, matched by definition id. Pass
+    ``definition_id`` to scan for just that one definition (the single-definition lookup)."""
+    usage = get_hog_flows_referencing_template_input_keys(
+        team_id, _ACCOUNT_PROPERTY_TEMPLATE_ID, _ACCOUNT_PROPERTY_INPUT_KEY, only_value_key=definition_id
+    )
+    return {
+        referenced_id: [
+            contracts.CustomPropertyReference(id=ref.id, name=ref.name, status=ref.status, type="workflow")
+            for ref in refs
+        ]
+        for referenced_id, refs in usage.items()
+    }
+
+
+def _definition_source_view(definition: CustomPropertyDefinition) -> contracts.CustomPropertySourceView | None:
+    """The source bound to this definition (reverse one-to-one ``source``), or None. List reads
+    ``select_related("source")`` so this stays a cache hit; detail reads pay one extra query."""
+    try:
+        source = definition.source
+    except CustomPropertySource.DoesNotExist:
+        return None
+    return _to_custom_property_source_view(source)
+
+
 def list_custom_property_definitions(
-    team_id: int, offset: int, limit: int
+    team_id: int, offset: int, limit: int, *, user_access_control: "UserAccessControl"
 ) -> tuple[list[contracts.CustomPropertyDefinitionView], int]:
-    """Custom property definitions for the team, ordered by name. Returns ``(page, total_count)``."""
-    queryset = CustomPropertyDefinition.objects.filter(team_id=team_id).order_by("name")
+    """Custom property definitions for the team, ordered by name. Returns ``(page, total_count)``.
+
+    ``references`` (the workflows referencing each definition) is included only when the caller can
+    read workflows — see ``_can_read_workflow_references``."""
+    queryset = CustomPropertyDefinition.objects.filter(team_id=team_id).select_related("source").order_by("name")
     total_count = queryset.count()
     page = queryset[offset : offset + limit]
-    return [_to_custom_property_definition_view(d) for d in page], total_count
+    references = (
+        _custom_property_references_by_definition_id(team_id)
+        if _can_read_workflow_references(user_access_control)
+        else {}
+    )
+    return [_to_custom_property_definition_view(d, references.get(str(d.id), [])) for d in page], total_count
 
 
-def get_custom_property_definition(team_id: int, definition_id: str) -> contracts.CustomPropertyDefinitionView | None:
+def get_custom_property_definition(
+    team_id: int, definition_id: str, *, user_access_control: "UserAccessControl"
+) -> contracts.CustomPropertyDefinitionView | None:
     definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
-    return _to_custom_property_definition_view(definition) if definition is not None else None
+    if definition is None:
+        return None
+    references: list[contracts.CustomPropertyReference] = []
+    if _can_read_workflow_references(user_access_control):
+        references = _custom_property_references_by_definition_id(team_id, definition_id=str(definition.id)).get(
+            str(definition.id), []
+        )
+    return _to_custom_property_definition_view(definition, references)
 
 
 def create_custom_property_definition(
@@ -638,6 +785,7 @@ def create_custom_property_definition(
     description: str | None,
     display_type: str,
     is_big_number: bool,
+    options: list[dict[str, Any]] | None = None,
     organization_id,
     user: "User",
     was_impersonated: bool,
@@ -650,6 +798,7 @@ def create_custom_property_definition(
             description=description,
             display_type=display_type,
             is_big_number=coerce_is_big_number(display_type, is_big_number),
+            options=normalize_options(DisplayType(display_type), options),
         )
     except IntegrityError:
         raise CustomPropertyDefinitionConflictError("A custom property with this name already exists for this team.")
@@ -686,8 +835,21 @@ def update_custom_property_definition(
     # Re-coerce against the effective display type: a PATCH that only flips the type to a
     # non-numeric one must clear a previously-set is_big_number (the partial-update case).
     definition.is_big_number = coerce_is_big_number(definition.display_type, definition.is_big_number)
+    definition.options = normalize_options(
+        DisplayType(definition.display_type),
+        definition.options,
+        existing_ids=frozenset(option["id"] for option in previous.options or []),
+    )
     try:
-        definition.save()
+        with transaction.atomic():
+            definition.save()
+            if DisplayType(definition.display_type) == DisplayType.SELECT:
+                apply_option_side_effects(
+                    team_id=team_id,
+                    definition_id=definition.id,
+                    previous_options=previous.options,
+                    new_options=definition.options,
+                )
     except IntegrityError:
         raise CustomPropertyDefinitionConflictError("A custom property with this name already exists for this team.")
     _log_activity_swallowing(
@@ -728,6 +890,138 @@ def delete_custom_property_definition(
     )
     definition.delete()
     return True
+
+
+# --- CustomPropertySource ---
+
+
+class CustomPropertySourceValidationError(Exception):
+    """Raised when a source's saved_query isn't a usable view for the team, or the definition is
+    already source-backed (→ 400)."""
+
+
+def _to_custom_property_source_view(source: CustomPropertySource) -> contracts.CustomPropertySourceView:
+    return contracts.CustomPropertySourceView(
+        id=source.id,
+        definition=source.definition_id,
+        saved_query=source.saved_query_id,
+        source_column=source.source_column,
+        key_column=source.key_column,
+        is_enabled=source.is_enabled,
+        consecutive_failures=source.consecutive_failures,
+        last_synced_at=source.last_synced_at,
+        last_sync_error=source.last_sync_error,
+        created_at=source.created_at,
+        created_by=source.created_by_id,
+        updated_at=source.updated_at,
+    )
+
+
+def _saved_query_belongs_to_team(team_id: int, saved_query_id) -> bool:
+    """Whether the saved query exists for this team and isn't soft-deleted. Uses ``apps.get_model`` so
+    customer_analytics never imports data_modeling (which isn't a dependency)."""
+    saved_query_model = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
+    return saved_query_model.objects.filter(id=saved_query_id, team_id=team_id).exclude(deleted=True).exists()
+
+
+def _enqueue_custom_property_sync(team_id: int, saved_query_id: str) -> None:
+    """Dispatch the sync task by name. Enqueue failure must not fail the originating write, so it's swallowed."""
+    try:
+        current_app.send_task(
+            "customer_analytics.process_custom_property_sync",
+            kwargs={"team_id": team_id, "saved_query_id": saved_query_id},
+        )
+    except Exception as e:
+        capture_exception(e)
+
+
+def _enqueue_sync_if_enabled(source: CustomPropertySource) -> None:
+    """Run an initial sync after the source is saved so its values populate immediately rather than
+    waiting for the next materialization. Skips disabled sources and ones whose view was deleted."""
+    if not source.is_enabled or source.saved_query_id is None:
+        return
+    team_id, saved_query_id = source.team_id, str(source.saved_query_id)
+    transaction.on_commit(lambda: _enqueue_custom_property_sync(team_id, saved_query_id))
+
+
+def list_custom_property_sources(
+    team_id: int, offset: int, limit: int
+) -> tuple[list[contracts.CustomPropertySourceView], int]:
+    """Custom-property sources for the team, newest first. Returns ``(page, total_count)``."""
+    queryset = CustomPropertySource.objects.for_team(team_id).order_by("-created_at")
+    total_count = queryset.count()
+    page = queryset[offset : offset + limit]
+    return [_to_custom_property_source_view(s) for s in page], total_count
+
+
+def get_custom_property_source(team_id: int, source_id: str) -> contracts.CustomPropertySourceView | None:
+    source = CustomPropertySource.objects.for_team(team_id).filter(id=source_id).first()
+    return _to_custom_property_source_view(source) if source is not None else None
+
+
+def create_custom_property_source(
+    *,
+    team_id: int,
+    definition_id: str | UUID,
+    saved_query_id: str | UUID,
+    source_column: str,
+    key_column: str,
+    is_enabled: bool,
+    user: "User",
+) -> contracts.CustomPropertySourceView:
+    if not _saved_query_belongs_to_team(team_id, saved_query_id):
+        raise CustomPropertySourceValidationError("Saved query not found for this team.")
+    if _get_team_scoped(CustomPropertyDefinition, team_id, definition_id) is None:
+        raise CustomPropertySourceValidationError("Custom property definition not found for this team.")
+    try:
+        source = CustomPropertySource.objects.for_team(team_id).create(
+            team_id=team_id,
+            created_by=user,
+            definition_id=definition_id,
+            saved_query_id=saved_query_id,
+            source_column=source_column,
+            key_column=key_column,
+            is_enabled=is_enabled,
+        )
+    except IntegrityError as exc:
+        # Both FKs are team-validated above, so the only expected violation is the definition's
+        # one-to-one uniqueness; re-raise anything else instead of mislabeling it as a duplicate.
+        if "unique" not in str(exc).lower() and "duplicate" not in str(exc).lower():
+            raise
+        raise CustomPropertySourceValidationError("This custom property already has a source.")
+    _enqueue_sync_if_enabled(source)
+    return _to_custom_property_source_view(source)
+
+
+def update_custom_property_source(
+    *, team_id: int, source_id: str, fields: dict[str, Any]
+) -> contracts.CustomPropertySourceView | None:
+    """Apply ``fields`` (source_column / key_column / is_enabled) to a team-scoped source. Re-enabling
+    (is_enabled False→True) resets the failure streak and clears the last error. Returns None (→ 404)
+    when no source matches."""
+    source = CustomPropertySource.objects.for_team(team_id).filter(id=source_id).first()
+    if source is None:
+        return None
+    reenabling = fields.get("is_enabled") is True and not source.is_enabled
+    columns_changed = any(
+        attr in fields and fields[attr] != getattr(source, attr) for attr in ("source_column", "key_column")
+    )
+    for attr, value in fields.items():
+        setattr(source, attr, value)
+    if reenabling:
+        source.consecutive_failures = 0
+        source.last_sync_error = None
+    source.save()
+    # Only re-sync on a change that affects what gets written — not on every (possibly no-op) PATCH.
+    if reenabling or columns_changed:
+        _enqueue_sync_if_enabled(source)
+    return _to_custom_property_source_view(source)
+
+
+def delete_custom_property_source(*, team_id: int, source_id: str) -> bool:
+    """Delete a team-scoped source. Returns False when none matched (→ 404)."""
+    deleted, _ = CustomPropertySource.objects.for_team(team_id).filter(id=source_id).delete()
+    return deleted > 0
 
 
 # --- CustomerJourney ---
@@ -996,6 +1290,8 @@ def create_account_for_view(
                 properties=input.properties,
             )
             _set_tags(input.tags, account)
+            if any(field in (account._properties or {}) for field in ACCOUNT_ASSIGNMENT_ROLE_FIELDS):
+                _relationships_logic.sync_from_account_properties(account, created_by=user)
     except PydanticValidationError as exc:
         raise AccountPropertiesValidationError(_format_pydantic_errors(exc))
     except IntegrityError:
@@ -1040,6 +1336,8 @@ def update_account_for_view(
         with transaction.atomic():
             account = Account.objects.update_account(account, **update_kwargs)
             _set_tags(input.tags, account)
+            if input.properties_provided:
+                _relationships_logic.sync_from_account_properties(account, created_by=user)
     except PydanticValidationError as exc:
         raise AccountPropertiesValidationError(_format_pydantic_errors(exc))
     except IntegrityError:
@@ -1182,6 +1480,44 @@ def list_account_notebooks(
     ]
 
 
+def list_account_notes_for_view(
+    *,
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    offset: int,
+    limit: int,
+    search: str | None = None,
+    account_id: UUID | str | None = None,
+    created_by_ids: list[int] | None = None,
+) -> tuple[list[contracts.AccountNoteView], int]:
+    """Team-wide account notes (internal notebooks linked to accounts), newest-modified first,
+    restricted to accounts the caller can read. ``search`` matches note title/content (full-text)
+    and account name (substring). ``account_id`` narrows to one account, ``created_by_ids`` to
+    notes authored by the given users. Returns ``(page, total_count)``."""
+    accessible_account_ids = _accounts_queryset(team_id, user_access_control).values_list("id", flat=True)
+    notes, count = notebooks.list_team_account_notes(
+        team_id,
+        account_ids=accessible_account_ids,
+        account_id=account_id,
+        created_by_ids=created_by_ids,
+        search=search,
+        offset=offset,
+        limit=limit,
+    )
+    return [
+        contracts.AccountNoteView(
+            short_id=note.short_id,
+            title=note.title,
+            created_at=note.created_at,
+            last_modified_at=note.last_modified_at,
+            account_id=note.account_id,
+            account_name=note.account_name,
+            created_by=_notebook_user_to_basic_info(note.created_by),
+        )
+        for note in notes
+    ], count
+
+
 def get_account_notebook(
     team_id: int, account_id: str, short_id: str, user_access_control: "UserAccessControl"
 ) -> contracts.AccountNotebookView | None:
@@ -1246,7 +1582,7 @@ def delete_account_notebook(
 # --- shared resolution / access helpers for the CRUD paths ---
 
 
-def _get_team_scoped(model, team_id: int, pk: str):
+def _get_team_scoped(model, team_id: int, pk: str | UUID):
     """Fetch a team-scoped row by pk, or None (malformed/absent). Used by the
     profile-config path, whose old viewset returned 404 for both."""
     try:
@@ -1288,6 +1624,23 @@ CustomPropertyValueConflict = _custom_property_values_logic.CustomPropertyValueC
 InvalidCustomPropertyValue = _custom_property_values_logic.InvalidCustomPropertyValue
 
 
+def _source_backed_definition_ids(team_id: int, definition_ids: Iterable[str | UUID]) -> set[UUID]:
+    """Definition ids from ``definition_ids`` that are backed by a view sync. Manual writes to these
+    are closed at the API layer (the sync writes them through the logic directly), so callers can't
+    fight the sync over the value."""
+    return set(
+        CustomPropertySource.objects.for_team(team_id)
+        .filter(definition_id__in=definition_ids)
+        .values_list("definition_id", flat=True)
+    )
+
+
+class CustomPropertyValueSourceManaged(Exception):
+    """Raised when a manual write targets a source-backed definition. The view sync writes such
+    definitions through the logic layer directly; the manual API path is closed so the two can't
+    fight over the value (→ 400)."""
+
+
 def _to_custom_property_value(row: "CustomPropertyValue") -> contracts.CustomPropertyValue:
     return contracts.CustomPropertyValue(
         id=row.id,
@@ -1307,6 +1660,10 @@ def set_custom_property_value(
     *,
     created_by_id: int | None = None,
 ) -> contracts.CustomPropertyValue:
+    if _source_backed_definition_ids(team_id, [definition_id]):
+        raise CustomPropertyValueSourceManaged(
+            "This custom property is managed by a data warehouse source and can't be set manually."
+        )
     row = _custom_property_values_logic.set_custom_property_value(
         team_id=team_id,
         account_id=account_id,
@@ -1321,3 +1678,84 @@ def list_active_custom_property_values(team_id: int, account_id: str | UUID) -> 
     """The account's current (non-deleted) custom property values as contracts, newest first."""
     rows = _custom_property_values_logic.list_active_custom_property_values(team_id=team_id, account_id=account_id)
     return [_to_custom_property_value(row) for row in rows]
+
+
+# --- Account relationships ---
+
+
+class AccountRelationshipDefinitionConflictError(Exception):
+    """Raised when a relationship definition violates the per-team unique name constraint."""
+
+
+def _to_account_relationship_definition(
+    definition: AccountRelationshipDefinition,
+) -> contracts.AccountRelationshipDefinition:
+    return contracts.AccountRelationshipDefinition(
+        id=definition.id,
+        name=definition.name,
+        description=definition.description,
+        is_single_holder=definition.is_single_holder,
+    )
+
+
+def _to_account_relationship(relationship: AccountRelationship) -> contracts.AccountRelationship:
+    user = relationship.user
+    return contracts.AccountRelationship(
+        id=relationship.id,
+        definition=_to_account_relationship_definition(relationship.definition),
+        user=contracts.AccountAssignment(id=user.id, email=user.email) if user is not None else None,
+        started_at=relationship.started_at,
+        ended_at=relationship.ended_at,
+    )
+
+
+def list_account_relationship_definitions(team_id: int) -> list[contracts.AccountRelationshipDefinition]:
+    return [
+        _to_account_relationship_definition(definition)
+        for definition in AccountRelationshipDefinition.objects.for_team(team_id).order_by("name")
+    ]
+
+
+def create_account_relationship_definition(
+    *,
+    team_id: int,
+    name: str,
+    description: str | None = None,
+    is_single_holder: bool = True,
+    created_by: "User",
+) -> contracts.AccountRelationshipDefinition:
+    try:
+        definition = AccountRelationshipDefinition.objects.for_team(team_id).create(
+            team_id=team_id,
+            name=name,
+            description=description,
+            is_single_holder=is_single_holder,
+            created_by=created_by,
+        )
+    except IntegrityError:
+        raise AccountRelationshipDefinitionConflictError(
+            "A relationship definition with this name already exists for this team."
+        )
+    return _to_account_relationship_definition(definition)
+
+
+def delete_account_relationship_definition(*, team_id: int, definition_id: str | UUID) -> bool:
+    """Hard-deletes the definition and (by cascade) its assignment history. Returns False when
+    no definition matches the id for this team (→ 404)."""
+    deleted, _ = AccountRelationshipDefinition.objects.for_team(team_id).filter(id=definition_id).delete()
+    return deleted > 0
+
+
+def list_account_relationships(
+    *, team_id: int, account_id: str | UUID, include_history: bool = False
+) -> list[contracts.AccountRelationship]:
+    """The account's active relationships, or its full assignment timeline with ``include_history``."""
+    queryset = (
+        AccountRelationship.objects.for_team(team_id)
+        .filter(account_id=account_id)
+        .select_related("definition", "user")
+        .order_by("definition__name", "-started_at")
+    )
+    if not include_history:
+        queryset = queryset.filter(ended_at__isnull=True)
+    return [_to_account_relationship(relationship) for relationship in queryset]

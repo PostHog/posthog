@@ -42,6 +42,27 @@ import { maxGlobalLogic } from './maxGlobalLogic'
 import { QUESTION_SUGGESTIONS_DATA, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 
+// Storybook can mount a story with two concurrent component instances that share the same
+// (conversation-keyed) maxThreadLogic. A plain per-instance effect would then auto-send the
+// first message twice, duplicating the human bubble in the thread. This guard is shared across
+// instances so each conversation auto-sends exactly once; it's released on unmount so navigating
+// back to the story re-triggers the send.
+const autoSentConversationIds = new Set<string>()
+function useAutoSendOnce(conversationId: string, ready: boolean, send: () => void): void {
+    useEffect(() => {
+        if (!ready || autoSentConversationIds.has(conversationId)) {
+            return
+        }
+        autoSentConversationIds.add(conversationId)
+        const timer = setTimeout(send, 0)
+        return () => {
+            clearTimeout(timer)
+            autoSentConversationIds.delete(conversationId)
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [ready])
+}
+
 const meta: Meta = {
     title: 'Scenes-App/PostHog AI',
     decorators: [
@@ -135,14 +156,10 @@ export const Thread: Story = {
         )
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax(humanMessage.content)
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax(humanMessage.content)
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -172,14 +189,10 @@ export const EmptyThreadLoading: Story = {
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax(humanMessage.content)
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax(humanMessage.content)
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -212,14 +225,10 @@ export const GenerationFailureThread: Story = {
         const { threadRaw, threadLoading } = useValues(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax(humanMessage.content)
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax(humanMessage.content)
+        })
 
         useEffect(() => {
             if (threadRaw.length === 2 && !threadLoading) {
@@ -251,14 +260,10 @@ export const ThreadWithFailedGeneration: Story = {
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax(humanMessage.content)
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax(humanMessage.content)
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -287,14 +292,10 @@ export const ThreadWithRateLimit: Story = {
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax(humanMessage.content)
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax(humanMessage.content)
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -322,14 +323,10 @@ export const ThreadWithRateLimitNoRetryAfter: Story = {
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax(humanMessage.content)
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax(humanMessage.content)
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -362,14 +359,10 @@ export const ThreadWithBillingLimitExceeded: Story = {
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax(humanMessage.content)
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax(humanMessage.content)
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -396,14 +389,10 @@ export const ThreadWithQuickReplies: Story = {
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax(humanMessage.content)
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax(humanMessage.content)
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -806,16 +795,11 @@ export const ChatWithUIContext: Story = {
             }
         }, [addOrUpdateContextEvent, dataProcessingAccepted])
 
-        useEffect(() => {
-            // After event is added, start a new conversation
-            if (dataProcessingAccepted && contextEvents.length > 0) {
-                setTimeout(() => {
-                    // This simulates starting a new chat which changes the URL
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Tell me about the $pageview event')
-                }, 100)
-            }
-        }, [contextEvents.length, setConversationId, askMax, dataProcessingAccepted])
+        // After the event is added, start a new conversation (changing the URL) exactly once.
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted && contextEvents.length > 0, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Tell me about the $pageview event')
+        })
 
         useEffect(() => {
             // Verify context is still present after conversation starts
@@ -910,14 +894,10 @@ export const PlanningComponent: Story = {
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Create a comprehensive analysis plan')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Create a comprehensive analysis plan')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -969,14 +949,10 @@ export const ReasoningComponent: Story = {
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Analyze user engagement')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Analyze user engagement')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -1121,14 +1097,10 @@ export const TaskExecutionComponent: Story = {
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    askMax('Execute analysis tasks')
-                    setConversationId('in_progress')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            askMax('Execute analysis tasks')
+            setConversationId('in_progress')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -1244,14 +1216,10 @@ export const TaskExecutionWithFailure: Story = {
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Execute analysis with some failures')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Execute analysis with some failures')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -1355,14 +1323,10 @@ export const MultiVisualizationInThread: Story = {
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Analyze our product metrics comprehensively')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Analyze our product metrics comprehensively')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -1389,14 +1353,10 @@ export const ThreadWithSQLQueryOverflow: Story = {
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Show me a complex SQL query')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Show me a complex SQL query')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -1509,14 +1469,10 @@ export const SearchSessionRecordingsEmpty: Story = {
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Show me recordings where users are on Chrome with Mac OR Firefox with Windows')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Show me recordings where users are on Chrome with Mac OR Firefox with Windows')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -1614,14 +1570,10 @@ export const SearchSessionRecordingsWithResults: Story = {
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Show me recordings where users are on Microsoft Edge with Linux')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Show me recordings where users are on Microsoft Edge with Linux')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -1718,14 +1670,10 @@ export const SearchErrorTrackingIssuesEmpty: Story = {
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Show me active payment errors from the last week')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Show me active payment errors from the last week')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -1846,14 +1794,10 @@ export const SearchErrorTrackingIssuesWithResults: Story = {
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Show me all payment-related errors from the last month, sorted by occurrences')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Show me all payment-related errors from the last month, sorted by occurrences')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -1963,14 +1907,10 @@ export const DangerousOperationPendingApproval: Story = {
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Update my Sales Analytics dashboard with new metrics')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Update my Sales Analytics dashboard with new metrics')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -2155,14 +2095,10 @@ The following services will need to be notified:
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Run the database migration')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Run the database migration')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -2266,14 +2202,10 @@ export const ThreadWithMultiQuestionForm: Story = {
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Help me get started with PostHog')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Help me get started with PostHog')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -2362,14 +2294,10 @@ export const ThreadWithMultiFieldQuestion: Story = {
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Help me set up an A/B test')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Help me set up an A/B test')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -2444,14 +2372,10 @@ export const ThreadWithSingleQuestionForm: Story = {
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('What pricing plan should I choose?')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('What pricing plan should I choose?')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -2597,16 +2521,12 @@ export const ThreadWithMultiQuestionFormLongContent: Story = {
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax(
-                        'Can you help me understand why our user retention has been declining? I need a comprehensive analysis.'
-                    )
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax(
+                'Can you help me understand why our user retention has been declining? I need a comprehensive analysis.'
+            )
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -2696,14 +2616,10 @@ export const ThreadWithMultiQuestionFormNoCustomAnswer: Story = {
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Help me prioritize my analytics work')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Help me prioritize my analytics work')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -2784,14 +2700,10 @@ export const NotebookArtifactMarkdownOnly: Story = {
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Create a retention analysis notebook')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Create a retention analysis notebook')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -2875,14 +2787,10 @@ export const NotebookArtifactWithVisualizations: Story = {
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Create a dashboard analysis notebook with charts')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Create a dashboard analysis notebook with charts')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -2987,14 +2895,10 @@ export const NotebookArtifactMixedContent: Story = {
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Create a comprehensive product analysis notebook')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Create a comprehensive product analysis notebook')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -3083,14 +2987,10 @@ export const NotebookArtifactWithLoadingAndErrors: Story = {
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Show me an analysis with loading and error states')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Show me an analysis with loading and error states')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -3233,14 +3133,10 @@ export const ThreadWithMixedFieldTypeForm: Story = {
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Help me set up analytics for my team')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Help me set up analytics for my team')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -3331,14 +3227,10 @@ export const ThreadWithTextAndNumberForm: Story = {
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('I want to set up event tracking for my project')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('I want to set up event tracking for my project')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -3411,14 +3303,10 @@ export const ThreadWithSliderForm: Story = {
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Help me set up an A/B test experiment')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Help me set up an A/B test experiment')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>

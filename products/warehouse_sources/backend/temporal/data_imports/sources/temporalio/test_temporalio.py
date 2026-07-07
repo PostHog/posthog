@@ -11,7 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.temporalio
 from products.warehouse_sources.backend.temporal.data_imports.sources.temporalio.temporalio import (
     FakeSettings,
     _get_temporal_client,
-    _with_rate_limit_retry,
+    _with_transient_rpc_retry,
 )
 
 
@@ -105,37 +105,51 @@ class TestTemporalIONonRetryableErrors:
         )
 
 
-class TestRateLimitRetry:
+class TestTransientRPCRetry:
+    @pytest.mark.parametrize(
+        "message,status",
+        [
+            ("namespace rate limit exceeded", RPCStatusCode.RESOURCE_EXHAUSTED),
+            ("downstream duration timeout", RPCStatusCode.DEADLINE_EXCEEDED),
+        ],
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.temporalio.temporalio.asyncio.sleep",
         new_callable=AsyncMock,
     )
-    async def test_rides_out_transient_rate_limit(self, sleep):
+    async def test_rides_out_transient_error(self, sleep, message, status):
         calls = {"n": 0}
 
         async def operation():
             calls["n"] += 1
             if calls["n"] <= 2:
-                raise _rpc_error("namespace rate limit exceeded", RPCStatusCode.RESOURCE_EXHAUSTED)
+                raise _rpc_error(message, status)
             return "ok"
 
-        result = await _with_rate_limit_retry(operation, MagicMock())
+        result = await _with_transient_rpc_retry(operation, MagicMock())
 
         assert result == "ok"
         assert calls["n"] == 3
         # Backoff grows per attempt per `min(2 * attempt, 30)`: 2s after the 1st failure, 4s after the 2nd.
         assert sleep.await_args_list == [call(2), call(4)]
 
+    @pytest.mark.parametrize(
+        "message,status",
+        [
+            ("namespace rate limit exceeded", RPCStatusCode.RESOURCE_EXHAUSTED),
+            ("downstream duration timeout", RPCStatusCode.DEADLINE_EXCEEDED),
+        ],
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.temporalio.temporalio.asyncio.sleep",
         new_callable=AsyncMock,
     )
-    async def test_persistent_rate_limit_is_reraised(self, sleep):
+    async def test_persistent_transient_error_is_reraised(self, sleep, message, status):
         async def operation():
-            raise _rpc_error("namespace rate limit exceeded", RPCStatusCode.RESOURCE_EXHAUSTED)
+            raise _rpc_error(message, status)
 
         with pytest.raises(RPCError):
-            await _with_rate_limit_retry(operation, MagicMock(), max_attempts=4)
+            await _with_transient_rpc_retry(operation, MagicMock(), max_attempts=4)
 
         # Bounded attempts leave Temporal to retry; backs off between attempts but not after the last.
         assert sleep.await_args_list == [call(2), call(4), call(6)]
@@ -144,11 +158,11 @@ class TestRateLimitRetry:
         "products.warehouse_sources.backend.temporal.data_imports.sources.temporalio.temporalio.asyncio.sleep",
         new_callable=AsyncMock,
     )
-    async def test_non_rate_limit_rpc_error_is_not_retried(self, sleep):
+    async def test_non_transient_rpc_error_is_not_retried(self, sleep):
         async def operation():
             raise _rpc_error("workflow execution not found for", RPCStatusCode.NOT_FOUND)
 
         with pytest.raises(RPCError):
-            await _with_rate_limit_retry(operation, MagicMock())
+            await _with_transient_rpc_retry(operation, MagicMock())
 
         assert sleep.await_count == 0

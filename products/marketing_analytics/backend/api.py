@@ -1,4 +1,5 @@
 from dataclasses import asdict
+from typing import cast
 
 import structlog
 from asgiref.sync import async_to_sync
@@ -19,6 +20,7 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.team.team import DEFAULT_CURRENCY
+from posthog.models.user import User
 
 from products.marketing_analytics.backend.hogql_queries.adapters.base import ExternalConfig, QueryContext
 from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
@@ -489,7 +491,9 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         date_to = request.validated_query_data["date_to"]
 
         try:
-            audit_response = run_utm_audit(self.team, date_from=date_from, date_to=date_to)
+            audit_response = run_utm_audit(
+                self.team, date_from=date_from, date_to=date_to, user=cast(User, request.user)
+            )
             response_data = UtmAuditResponseSerializer(asdict(audit_response)).data
             return Response(response_data)
         except Exception:
@@ -512,7 +516,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     @action(methods=["GET"], detail=False, url_path="conversion_goals", required_scopes=["marketing_analytics:read"])
     def conversion_goals(self, request: Request, *args, **kwargs) -> Response:
         try:
-            response = async_to_sync(list_conversion_goals)(self.team)
+            response = async_to_sync(list_conversion_goals)(self.team, user=cast(User, request.user))
             return Response(ConversionGoalsListResponseSerializer(response.to_dict()).data)
         except Exception:
             logger.exception("list_conversion_goals_failed", team_id=self.team.pk)
@@ -654,6 +658,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 source_type=source_type,
                 include_conversion_goals=include_conversion_goals,
                 attribution_lookback_days=attribution_lookback_days,
+                user=cast(User, request.user),
             )
             return Response(MarketingDiagnosticResponseSerializer(response.to_dict()).data)
         except Exception:
@@ -710,7 +715,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
             query.limit = ast.Constant(value=10)
 
-            result = execute_hogql_query(query, self.team)
+            result = execute_hogql_query(query, self.team, user=cast(User, request.user))
 
             return Response(
                 {

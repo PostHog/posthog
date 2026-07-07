@@ -34,6 +34,7 @@ _REPORT_COLUMNS = {
     "conversion_roas": "Return on ad spend from conversions.",
     "conversion_purchase_total_items": "Total number of items purchased from conversions.",
     "conversion_purchase_total_value": "Total value of purchase conversions.",
+    "conversion_purchase_total_value_all": "Total value of purchase conversions across all attribution windows (click and view-through).",
     "conversion_sign_up_views": "Number of sign-up view conversions.",
     "conversion_signup_total_value": "Total value of sign-up conversions.",
     "app_install_install_count": "Number of app installs attributed to ads.",

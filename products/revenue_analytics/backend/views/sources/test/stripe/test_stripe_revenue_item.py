@@ -13,7 +13,7 @@ from products.revenue_analytics.backend.views.sources.stripe.revenue_item import
     build,
 )
 from products.revenue_analytics.backend.views.sources.test.stripe.base import StripeSourceBaseTest
-from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
+from products.warehouse_sources.backend.facade.sources import (
     CHARGE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,

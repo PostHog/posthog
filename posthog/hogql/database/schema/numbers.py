@@ -8,11 +8,16 @@ from posthog.hogql.database.models import (
 )
 
 NUMBERS_TABLE_FIELDS: dict[str, FieldOrTable] = {
-    "number": IntegerDatabaseField(name="number", nullable=False),
+    "number": IntegerDatabaseField(name="number", nullable=False, description="The generated integer value."),
 }
 
 
 class NumbersTable(FunctionCallTable, DANGEROUS_NoTeamIdCheckTable):
+    description: str = (
+        "Utility table function generating a sequence of consecutive integers. "
+        "Call as numbers(N) for 0..N-1, or numbers(start, count) for `count` integers starting at `start`. "
+        "Often used to generate rows for joins or date series."
+    )
     fields: dict[str, FieldOrTable] = NUMBERS_TABLE_FIELDS
 
     name: str = "numbers"

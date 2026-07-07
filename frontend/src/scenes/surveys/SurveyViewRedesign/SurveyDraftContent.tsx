@@ -1,9 +1,9 @@
 import { useValues } from 'kea'
 
+import { HedgehogConstruction1 } from '@posthog/brand/hoggies'
 import { IconCheck, IconRocket } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { BuilderHog1 } from 'lib/components/hedgehogs'
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
@@ -77,7 +77,7 @@ export function SurveyDraftContent({ onSeeSurveyDetails }: { onSeeSurveyDetails?
                             <path d="M0.5 0 L7 5.5 L13.5 0" stroke="var(--color-border)" strokeWidth="1" fill="none" />
                         </svg>
                     </div>
-                    <BuilderHog1 className="absolute bottom-0 left-1/2 block size-36 -translate-x-1/2" />
+                    <HedgehogConstruction1 className="absolute bottom-0 left-1/2 block size-36 -translate-x-1/2" />
                 </div>
 
                 <div className="flex flex-col items-center gap-3">

@@ -69,7 +69,7 @@ class TestAuthorizeView:
             slack_team_id=SLACK_TEAM_ID,
             posthog_team_id=workspace_integration.team_id,
         ).encode()
-        with patch("products.slack_app.backend.views.slack_user_link.slack_oauth_link_enabled", return_value=False):
+        with patch("products.slack_app.backend.views.slack_user_link.is_slack_app_oauth_enabled", return_value=False):
             response = client.get(f"/complete/slack-link/start/?state={token}")
         self._assert_settings_redirect_error(response, "flag_off")
 
@@ -83,7 +83,7 @@ class TestAuthorizeView:
             thread_ts="1.2",
         ).encode()
         with (
-            patch("products.slack_app.backend.views.slack_user_link.slack_oauth_link_enabled", return_value=True),
+            patch("products.slack_app.backend.views.slack_user_link.is_slack_app_oauth_enabled", return_value=True),
             patch(
                 "products.slack_app.backend.services.slack_user_oauth.get_instance_settings",
                 return_value={"SLACK_APP_CLIENT_ID": "cid", "SLACK_APP_CLIENT_SECRET": "csecret"},
@@ -169,7 +169,7 @@ class TestCallbackView:
         state = self._state_for(user, workspace_integration.team_id)
 
         with (
-            patch("products.slack_app.backend.views.slack_user_link.slack_oauth_link_enabled", return_value=True),
+            patch("products.slack_app.backend.views.slack_user_link.is_slack_app_oauth_enabled", return_value=True),
             patch("products.slack_app.backend.views.slack_user_link.exchange_code", return_value=self._identity()),
             patch("posthog.models.integration.WebClient"),
         ):
@@ -189,7 +189,7 @@ class TestCallbackView:
         state = self._state_for(user, workspace_integration.team_id)
 
         with (
-            patch("products.slack_app.backend.views.slack_user_link.slack_oauth_link_enabled", return_value=True),
+            patch("products.slack_app.backend.views.slack_user_link.is_slack_app_oauth_enabled", return_value=True),
             patch(
                 "products.slack_app.backend.views.slack_user_link.exchange_code",
                 return_value=self._identity(slack_team_id="T-DIFFERENT", slack_team_name=None, slack_email=None),
@@ -206,7 +206,7 @@ class TestCallbackView:
         state = self._state_for(user, workspace_integration.team_id)
 
         with (
-            patch("products.slack_app.backend.views.slack_user_link.slack_oauth_link_enabled", return_value=True),
+            patch("products.slack_app.backend.views.slack_user_link.is_slack_app_oauth_enabled", return_value=True),
             patch(
                 "products.slack_app.backend.views.slack_user_link.exchange_code",
                 side_effect=SlackUserOAuthError("invalid_code"),
@@ -234,7 +234,7 @@ class TestCallbackView:
         state = self._state_for(attacker, workspace_integration.team_id)
 
         with (
-            patch("products.slack_app.backend.views.slack_user_link.slack_oauth_link_enabled", return_value=True),
+            patch("products.slack_app.backend.views.slack_user_link.is_slack_app_oauth_enabled", return_value=True),
             patch("products.slack_app.backend.views.slack_user_link.exchange_code", return_value=self._identity()),
         ):
             response = client.get(f"/complete/slack-link/?code=abc&state={state}")
@@ -254,7 +254,7 @@ class TestCallbackView:
         state = self._state_for(outsider, workspace_integration.team_id)
 
         with (
-            patch("products.slack_app.backend.views.slack_user_link.slack_oauth_link_enabled", return_value=True),
+            patch("products.slack_app.backend.views.slack_user_link.is_slack_app_oauth_enabled", return_value=True),
             patch("products.slack_app.backend.views.slack_user_link.exchange_code", return_value=self._identity()),
         ):
             response = client.get(f"/complete/slack-link/?code=abc&state={state}")

@@ -71,9 +71,16 @@ pub fn find_debug_image<'a>(
     Err(NativeError::NoMatchingDebugImage)
 }
 
-/// Offset of `instruction_addr` from the image's runtime load address. The
-/// symcache contains addresses relative to the binary's VM base, so the load
-/// offset is all that's needed for lookup.
+/// Offset of `instruction_addr` from the image's runtime load address, i.e. the
+/// address the symcache is keyed by.
+///
+/// `image_vmaddr` is intentionally NOT added here. `symbolic` rebases symcache
+/// entries to the image's preferred base, and the SDK reports `image_addr` as
+/// the *actual* load address (preferred base + ASLR slide), so
+/// `instruction_addr - image_addr` already yields the symcache-relative address.
+/// Adding `image_vmaddr` would double-count the preferred base and break every
+/// image with a nonzero one — see
+/// `test_native_symbolication_is_load_relative_with_nonzero_vmaddr`.
 pub fn calculate_relative_addr(
     instruction_addr: u64,
     debug_image: &DebugImage,
@@ -916,6 +923,58 @@ mod test {
         // inside inner_function with the image loaded at 0x100000000.
         let frame = RawFrame::Native(native_frame_at(0x100000334, 0x100000000));
         let debug_images = vec![debug_image_at(chunk_id, 0x100000000)];
+
+        let resolved = frame
+            .resolve(1, &catalog, &debug_images, 15)
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+
+        assert!(resolved.resolved, "{:?}", resolved.resolve_failure);
+        assert_eq!(resolved.resolved_name.as_deref(), Some("inner_function"));
+    }
+
+    /// Symbolication must be purely load-relative: `image_vmaddr` (the image's
+    /// stated/preferred base) must NOT be added to the lookup address.
+    ///
+    /// `symbolic` rebases every symcache entry relative to the object's
+    /// preferred base at conversion time, so the symcache is keyed by
+    /// `svma - image_vmaddr`. The SDK already folds the preferred base into
+    /// `image_addr` (it reports the *actual* runtime load address), so
+    /// `instruction_addr - image_addr` recovers that same relative address and
+    /// the `image_vmaddr` term cancels out. Re-adding it would push every
+    /// lookup past the end of the symcache and break symbolication for all
+    /// images with a nonzero preferred base — every macOS/iOS Mach-O binary and
+    /// every non-PIE ELF.
+    ///
+    /// This exercises an ASLR-slid Mach-O image (nonzero `__TEXT` vmaddr *and* a
+    /// nonzero slide, so `image_addr != image_vmaddr`) — the case no other test
+    /// covers and the one a spurious `+ image_vmaddr` "fix" would silently break.
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn test_native_symbolication_is_load_relative_with_nonzero_vmaddr(db: sqlx::PgPool) {
+        use crate::frames::RawFrame;
+
+        const DSYM_ZIP: &[u8] =
+            include_bytes!("../../../../tests/static/apple/test_binary.dSYM.zip");
+        let wrapped = posthog_symbol_data::write_symbol_data(posthog_symbol_data::AppleDsym {
+            data: DSYM_ZIP.to_vec(),
+        })
+        .unwrap();
+
+        let chunk_id = "f70b89dc-3eb9-d3aa-d6a0-3b0c87cb0c45";
+        let catalog = catalog_for_chunk(&db, chunk_id, wrapped).await;
+
+        // __TEXT preferred base 0x100000000, inner_function at relative 0x334.
+        // Simulate an ASLR slide: the image actually loaded 0x1000000 higher, so
+        // the SDK reports image_addr = actual base and image_vmaddr = stated base.
+        let preferred_base = 0x100000000u64;
+        let actual_base = preferred_base + 0x1000000;
+
+        let frame = RawFrame::Native(native_frame_at(actual_base + 0x334, actual_base));
+        let mut image = debug_image_at(chunk_id, actual_base);
+        image.image_vmaddr = Some(format!("0x{preferred_base:x}"));
+        let debug_images = vec![image];
 
         let resolved = frame
             .resolve(1, &catalog, &debug_images, 15)

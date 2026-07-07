@@ -49,7 +49,6 @@ PRODUCTS_APPS = [
     "products.surveys.backend.apps.SurveysConfig",
     "products.data_warehouse.backend.apps.DataWarehouseConfig",
     "products.data_modeling.backend.apps.DataModelingConfig",
-    "products.desktop_recordings.backend.apps.DesktopRecordingsConfig",
     "products.live_debugger.backend.apps.LiveDebuggerConfig",
     "products.experiments.backend.apps.ExperimentsConfig",
     "products.feature_flags.backend.apps.FeatureFlagsConfig",
@@ -95,6 +94,7 @@ PRODUCTS_APPS = [
     "products.cohorts.backend.apps.CohortsConfig",
     "products.growth.backend.apps.GrowthConfig",
     "products.reminders.backend.apps.RemindersConfig",
+    "products.approvals.backend.apps.ApprovalsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -140,7 +140,6 @@ MIDDLEWARE = [
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
-    "posthog.personhog_client.middleware.PersonHogGateMiddleware",
     "posthog.middleware.Fix204Middleware",
     "django.middleware.security.SecurityMiddleware",
     "posthog.middleware.OAuthCoopMiddleware",
@@ -156,9 +155,10 @@ MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "posthog.middleware.CSPMiddleware",
     "django.middleware.common.CommonMiddleware",
-    # Below CorsMiddleware so redirects get CORS headers; above auth/CSRF since a
-    # redirect needs neither — clients re-send credentials to the rewritten path.
-    "posthog.middleware.EnvironmentsRedirectMiddleware",
+    # Below CorsMiddleware so responses get CORS headers; above auth/CSRF and URL
+    # resolution so the /api/environments → /api/projects rewrite is in place before the
+    # request is routed and authenticated.
+    "posthog.middleware.EnvironmentsRewriteMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -344,6 +344,12 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "posthog.auth.ZxcvbnValidator"},
 ]
 
+if TEST:
+    # PBKDF2 is deliberately slow (~150ms per hash), which adds up because every
+    # per-test user creation hashes a password. MD5 keeps the same hasher API with
+    # none of the cost. Never used outside tests.
+    PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
+
 PASSWORD_RESET_TIMEOUT = 86_400  # 1 day
 
 ####
@@ -485,16 +491,17 @@ SPECTACULAR_SETTINGS = {
         "ConversationType": "products.posthog_ai.backend.models.assistant.Conversation.Type",
         "DetailModeEnum": "products.ai_observability.backend.summarization.models.SummarizationMode",
         "SavedQueryStatusEnum": "products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.Status",
-        "DesktopRecordingStatusEnum": "products.desktop_recordings.backend.models.DesktopRecording.Status",
-        "MeetingPlatformEnum": "products.desktop_recordings.backend.models.DesktopRecording.Platform",
         "PushTokenPlatformEnum": "posthog.models.user_push_token.UserPushToken.Platform",
         "PropertyDefinitionTypeEnum": "products.event_definitions.backend.models.property_definition.PropertyType",
         "ExternalDataSourceTypeEnum": "products.warehouse_sources.backend.types.ExternalDataSourceType",
         "ExperimentMetricKindEnum": "products.ai_observability.backend.models.score_definitions.ScoreDefinition.Kind",
+        "EvaluationTargetEnum": "products.ai_observability.backend.models.evaluations.EvaluationTarget",
         "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
         "TicketStatusEnum": "products.conversations.backend.models.constants.Status",
         "HealthIssueStatusEnum": "posthog.models.health_issue.HealthIssue.Status",
         "HealthIssueSeverityEnum": "posthog.models.health_issue.HealthIssue.Severity",
+        # Disambiguates from the same-valued inline enum on the signals LogsAlertStateChangeSignalExtra contract.
+        "LogsAlertThresholdOperatorEnum": "products.logs.backend.models.LogsAlertConfiguration.ThresholdOperator",
         "LLMProviderEnum": "products.ai_observability.backend.models.provider_keys.LLMProvider",
         "HogFlowStatusEnum": "products.workflows.backend.models.hog_flow.hog_flow.HogFlow.State",
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
@@ -508,13 +515,30 @@ SPECTACULAR_SETTINGS = {
         "ObservationStatusEnum": "products.replay_vision.backend.models.replay_observation.ObservationStatus",
         "ObservationTriggerEnum": "products.replay_vision.backend.models.replay_observation.ObservationTrigger",
         "ExportedRecordingStatusEnum": "products.replay.backend.models.exported_recording.ExportedRecording.Status",
+        "VisionActionRunStatusEnum": "products.replay_vision.backend.models.vision_action.VisionActionRunStatus",
         "AutonomyPriorityEnum": "products.signals.backend.models.AutonomyPriority",
         "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
         "BatchExportRunStatusEnum": "products.batch_exports.backend.models.batch_export.BatchExportRun.Status",
         "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
-        "CustomPropertyDisplayTypeEnum": ["text", "number", "currency", "percent", "date", "datetime", "boolean"],
+        # Full signal taxonomy on the report `signals` endpoint; the source-config serializer's
+        # subset enums keep their own auto-resolved names.
+        "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",
+        "SignalSourceType": "products.signals.backend.enums.SIGNAL_SOURCE_TYPE_VALUES",
+        "CustomPropertyDisplayTypeEnum": [
+            "text",
+            "number",
+            "currency",
+            "percent",
+            "date",
+            "datetime",
+            "boolean",
+            "select",
+        ],
+        # Pinned pre-emptively: the auto-name would be the collision-prone "ColorEnum", and adding a
+        # palette color later would change the hash and silently rename the generated type.
+        "CustomPropertyOptionColorEnum": [f"preset-{i}" for i in range(1, 11)],
         # Experiment now has two serializers (full ExperimentSerializer + ExperimentBasicSerializer
         # for the list endpoint) that both expose `type`/`status`. Pin both to their pre-existing
         # generated names so the shared enums don't get component-prefixed auto-names on collision.
@@ -573,6 +597,7 @@ SPECTACULAR_SETTINGS = {
             "event_metadata",
             "feature",
             "person",
+            "person_metadata",
             "cohort",
             "element",
             "static-cohort",
@@ -603,6 +628,8 @@ SPECTACULAR_SETTINGS = {
         "FileFormatEnum": ["Parquet", "JSONLines"],
         "MetricAttributeScopeEnum": ["resource", "attribute", "auto"],
         "MetricQueryIntervalEnum": ["second", "minute", "minute_5", "minute_15", "hour", "hour_6", "day", "week"],
+        "MetricAnomalyDirectionEnum": ["up", "down", "flat"],
+        "WoWChangeDirectionEnum": ["Up", "Down"],
         "BatchExportIntervalEnum": ["hour", "day", "week", "every 5 minutes", "every 15 minutes"],
         "ErrorTrackingIssueOrderByEnum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
         "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
@@ -615,6 +642,7 @@ SPECTACULAR_SETTINGS = {
         "SessionReplayListWidgetTypeEnum": ["session_replay_list"],
         "ExperimentsListWidgetTypeEnum": ["experiments_list"],
         "ExperimentResultsWidgetTypeEnum": ["experiment_results"],
+        "SurveyResultsWidgetTypeEnum": ["survey_results"],
         "LogsListWidgetTypeEnum": ["logs_list"],
         "OrderByEnum": ["latest", "earliest"],
         "PropertyGroupTypeEnum": ["cohort", "person", "group"],
@@ -634,6 +662,7 @@ SPECTACULAR_SETTINGS = {
             "artifact",
             "tree_snapshot",
             "user_attachment",
+            "skill_bundle",
         ],
         # Same-value collisions: identical choice sets appear on fields with different names.
         # href_matching, text_matching, url_matching on ActionStep all share the same choices.
@@ -704,7 +733,6 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/?api/(environments|projects)/\\d+/uploaded_media/?$",
                 "^/uploaded_media/.*$",
                 "^/api/element/stats/?$",
-                "^/api/(environments|projects)/\\d+/groups/property_definitions/?$",
                 "^/api/(environments|projects)/\\d+/cohorts/?$",
                 "^/api/(environments|projects)/\\d+/persons/?$",
                 "^/api/organizations/@current/plugins/?$",
@@ -793,9 +821,9 @@ API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_t
 ####
 # /api/environments deprecation
 
-# Requests to /api/environments/* get a method-preserving 307 redirect to the equivalent
-# /api/projects/* path, gated by the `api-environments-redirect` feature flag — see
-# posthog.middleware.EnvironmentsRedirectMiddleware.
+# Requests to /api/environments/* are served through the equivalent /api/projects/*
+# viewset via an in-process path rewrite, gated by the `api-environments-redirect`
+# feature flag — see posthog.middleware.EnvironmentsRewriteMiddleware.
 # ISO date announced to integrators via the `Sunset` response header (RFC 8594) on
 # /api/environments/* responses. Empty string omits the header.
 API_ENVIRONMENTS_SUNSET_DATE = get_from_env("API_ENVIRONMENTS_SUNSET_DATE", "2026-07-31")
@@ -844,12 +872,13 @@ HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS = get_list(get_from_env("HOG_FUNCTIONS_DAILY
 
 # Maximum audience size for HogFlow batch triggers. Default that applies to all teams unless they
 # opt in to the elevated value below. Only used to inform the frontend UI; no backend enforcement.
-HOGFLOW_BATCH_TRIGGER_LIMIT = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT", 5000))
+HOGFLOW_BATCH_TRIGGER_LIMIT = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT", 50000))
 # Elevated maximum audience size, returned for teams listed in HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS.
-HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED", 50000))
+HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED", 100000))
 # Comma-separated list of team IDs that get the elevated batch trigger limit instead of the default.
+# Empty by default — everyone gets the 50k tier. Opt-in via env override for teams needing 100k.
 HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS: set[int] = {
-    int(team_id) for team_id in get_list(get_from_env("HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS", "2"))
+    int(team_id) for team_id in get_list(get_from_env("HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS", ""))
 }
 
 # Comma-separated list of org ids allowed to receive the Error Tracking weekly digest
@@ -969,6 +998,11 @@ ELEMENT_STATS_DEFAULT_LIMIT = get_from_env("ELEMENT_STATS_DEFAULT_LIMIT", 50_000
 # Server-side shared secret; never expose the token to the browser.
 AI_GATEWAY_INTERNAL_URL = get_from_env("AI_GATEWAY_INTERNAL_URL", "")
 AI_GATEWAY_INTERNAL_TOKEN = get_from_env("AI_GATEWAY_INTERNAL_TOKEN", "")
+
+# AI gateway inference endpoint: OpenAI-compatible URL (include /v1) + phs_ project
+# secret for routing LLM calls through the gateway. Unset = direct to the provider.
+AI_GATEWAY_URL = get_from_env("AI_GATEWAY_URL", "")
+AI_GATEWAY_API_KEY = get_from_env("AI_GATEWAY_API_KEY", "")
 
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes

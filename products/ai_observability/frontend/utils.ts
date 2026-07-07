@@ -326,20 +326,41 @@ export function getSessionID(event: LLMTrace | LLMTraceEvent, childEvents?: LLMT
     return sessionIdFromEvents(childEvents ?? event.events)
 }
 
-export function getEventType(event: LLMTrace | LLMTraceEvent): string {
-    if (isLLMEvent(event)) {
-        switch (event.event) {
-            case '$ai_generation':
-                return 'generation'
-            case '$ai_embedding':
-                return 'embedding'
-            case '$ai_trace':
-                return 'trace'
-            default:
-                return 'span'
-        }
+export type LLMEventKind = 'generation' | 'embedding' | 'trace' | 'span'
+
+export function getLLMEventKind(event: LLMTraceEvent): LLMEventKind {
+    switch (event.event) {
+        case '$ai_generation':
+            return 'generation'
+        case '$ai_embedding':
+            return 'embedding'
+        case '$ai_trace':
+            return 'trace'
+        default:
+            return 'span'
     }
-    return 'trace'
+}
+
+export function getEventType(event: LLMTrace | LLMTraceEvent): string {
+    return isLLMEvent(event) ? getLLMEventKind(event) : 'trace'
+}
+
+// Clamp AFTER the seconds-to-ms conversion: a finite-but-huge latency (1e306s)
+// overflows to Infinity when multiplied, which would hang the axis tick loop.
+export function latencyMs(event: LLMTraceEvent): number {
+    const ms = Number(event.properties?.$ai_latency) * 1000
+    return isFinite(ms) && ms > 0 ? ms : 0
+}
+
+/**
+ * Epoch ms when the operation behind an event began. PostHog AI SDKs capture an
+ * event when the operation finishes (timestamp = end, $ai_latency = duration),
+ * while OTel-ingested spans keep the span's start time. Shared by the timeline,
+ * the trace tree, and the drawer's event list so they all order events the same way.
+ */
+export function operationStartMs(event: LLMTraceEvent): number {
+    const t = new Date(event.createdAt).getTime()
+    return event.properties?.$ai_ingestion_source === 'otel' ? t : t - latencyMs(event)
 }
 
 export function getRecordingStatus(event: LLMTrace | LLMTraceEvent): string | null {

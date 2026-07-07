@@ -204,14 +204,16 @@ class MarketingAnalyticsAggregatedQueryRunner(
             date_to=previous_date_range.date_to().isoformat(),
         )
 
-        # Create a new runner for the previous period
+        # user= is required: a user-less previous runner loses warehouse access (empties the cost) and runs RBAC user-less.
         previous_runner = MarketingAnalyticsAggregatedQueryRunner(
             query=previous_query,
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            user=self.user,
         )
+        previous_runner.__dict__["_shared_hogql_database"] = self._shared_hogql_database
 
         previous_period_query = previous_runner.to_query()
         current_period_query = self.to_query()

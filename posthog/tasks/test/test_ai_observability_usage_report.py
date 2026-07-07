@@ -91,12 +91,18 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         self._create_ai_events(self.team, distinct_id, "$ai_metric", 1)
         self._create_ai_events(self.team, distinct_id, "$ai_feedback", 4)
         self._create_ai_events(
-            self.team, distinct_id, "$ai_evaluation", 3, properties={"$ai_evaluation_key_type": "posthog"}
+            self.team,
+            distinct_id,
+            "$ai_evaluation",
+            3,
+            properties={"$ai_evaluation_key_type": "posthog", "$ai_evaluation_runtime": "llm_judge"},
         )
         self._create_ai_events(
-            self.team, distinct_id, "$ai_evaluation", 2, properties={"$ai_evaluation_key_type": "byok"}
+            self.team, distinct_id, "$ai_evaluation", 2, properties={"$ai_evaluation_runtime": "hog"}
         )
-        self._create_ai_events(self.team, distinct_id, "$ai_evaluation", 1)
+        self._create_ai_events(
+            self.team, distinct_id, "$ai_evaluation", 1, properties={"$ai_evaluation_runtime": "sentiment"}
+        )
         self._create_ai_events(self.team, distinct_id, "$ai_trace_summary", 7)
         self._create_ai_events(self.team, distinct_id, "$ai_generation_summary", 12)
         self._create_ai_events(self.team, distinct_id, "$ai_trace_clusters", 2)
@@ -141,6 +147,9 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         assert metrics.ai_feedback_count == 4
         assert metrics.ai_evaluation_count == 6
         assert metrics.ai_trial_evaluation_count == 3
+        assert metrics.ai_llm_judge_evaluation_count == 3
+        assert metrics.ai_hog_evaluation_count == 2
+        assert metrics.ai_sentiment_evaluation_count == 1
         assert metrics.ai_trace_summary_count == 7
         assert metrics.ai_generation_summary_count == 12
         assert metrics.ai_trace_clusters_count == 2
@@ -483,10 +492,17 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         # Create comprehensive AI events for team 1
         self._create_ai_events(self.team, distinct_id_1, "$ai_generation", 10)
         self._create_ai_events(
-            self.team, distinct_id_1, "$ai_evaluation", 3, properties={"$ai_evaluation_key_type": "posthog"}
+            self.team,
+            distinct_id_1,
+            "$ai_evaluation",
+            3,
+            properties={"$ai_evaluation_key_type": "posthog", "$ai_evaluation_runtime": "llm_judge"},
         )
         self._create_ai_events(
-            self.team, distinct_id_1, "$ai_evaluation", 2, properties={"$ai_evaluation_key_type": "byok"}
+            self.team, distinct_id_1, "$ai_evaluation", 1, properties={"$ai_evaluation_runtime": "hog"}
+        )
+        self._create_ai_events(
+            self.team, distinct_id_1, "$ai_evaluation", 1, properties={"$ai_evaluation_runtime": "sentiment"}
         )
         self._create_ai_events(
             self.team,
@@ -558,6 +574,9 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         assert org_1_report["ai_generation_count"] == 13  # 10 + 3
         assert org_1_report["ai_evaluation_count"] == 5
         assert org_1_report["ai_trial_evaluation_count"] == 3
+        assert org_1_report["ai_llm_judge_evaluation_count"] == 3
+        assert org_1_report["ai_hog_evaluation_count"] == 1
+        assert org_1_report["ai_sentiment_evaluation_count"] == 1
         assert org_1_report["ai_trace_summary_count"] == 6
         assert org_1_report["ai_generation_summary_count"] == 8
         assert org_1_report["ai_trace_clusters_count"] == 1
@@ -589,6 +608,9 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         assert org_2_report["organization_name"] == org_2.name
         assert org_2_report["ai_embedding_count"] == 7
         assert org_2_report["ai_generation_count"] == 2
+        assert org_2_report["ai_llm_judge_evaluation_count"] == 0
+        assert org_2_report["ai_hog_evaluation_count"] == 0
+        assert org_2_report["ai_sentiment_evaluation_count"] == 0
         assert org_2_report["llm_prompt_fetched_count"] == 1
         assert org_2_report["total_ai_cost_usd"] == pytest.approx(0.050, rel=1e-6)  # 2 * 0.025
         assert org_2_report["ai_trace_summary_count"] == 0
@@ -664,6 +686,9 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         assert org_report["ai_metric_count"] == 0
         assert org_report["ai_feedback_count"] == 0
         assert org_report["ai_evaluation_count"] == 0
+        assert org_report["ai_llm_judge_evaluation_count"] == 0
+        assert org_report["ai_hog_evaluation_count"] == 0
+        assert org_report["ai_sentiment_evaluation_count"] == 0
         assert org_report["ai_trace_summary_count"] == 0
         assert org_report["ai_generation_summary_count"] == 0
         assert org_report["ai_trace_clusters_count"] == 0
@@ -686,10 +711,14 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         self._create_ai_events(self.team, distinct_id_1, "$ai_generation", 10)
         self._create_ai_events(team_2, distinct_id_2, "$ai_generation", 5)
         self._create_ai_events(
-            self.team, distinct_id_1, "$ai_evaluation", 3, properties={"$ai_evaluation_key_type": "posthog"}
+            self.team,
+            distinct_id_1,
+            "$ai_evaluation",
+            3,
+            properties={"$ai_evaluation_key_type": "posthog", "$ai_evaluation_runtime": "llm_judge"},
         )
         self._create_ai_events(
-            team_2, distinct_id_2, "$ai_evaluation", 2, properties={"$ai_evaluation_key_type": "posthog"}
+            team_2, distinct_id_2, "$ai_evaluation", 2, properties={"$ai_evaluation_runtime": "sentiment"}
         )
 
         # Generate reports
@@ -702,7 +731,10 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         # Counts should be aggregated across both teams
         assert org_report["ai_generation_count"] == 15  # 10 + 5
         assert org_report["ai_evaluation_count"] == 5  # 3 + 2
-        assert org_report["ai_trial_evaluation_count"] == 5  # 3 + 2
+        assert org_report["ai_trial_evaluation_count"] == 3
+        assert org_report["ai_llm_judge_evaluation_count"] == 3
+        assert org_report["ai_hog_evaluation_count"] == 0
+        assert org_report["ai_sentiment_evaluation_count"] == 2
 
     def test_dimension_breakdown_aggregation_across_teams(self) -> None:
         """Test that dimension breakdowns are correctly aggregated across teams in the same org."""

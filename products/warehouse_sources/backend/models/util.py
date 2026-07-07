@@ -20,7 +20,7 @@ from posthog.hogql.database.models import (
 )
 
 if TYPE_CHECKING:
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
@@ -31,7 +31,7 @@ class DatabaseFieldFactory(Protocol):
 
 
 def get_view_or_table_by_name(team, name) -> Union["DataWarehouseSavedQuery", "DataWarehouseTable", None]:
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
     table_names = [name]
@@ -471,6 +471,41 @@ def mysql_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dict[s
     return {
         column_name: mysql_column_to_dwh_column(column_name, mysql_type, nullable)
         for column_name, mysql_type, nullable in columns
+    }
+
+
+def snowflake_column_to_dwh_column(_column_name: str, snowflake_type: str, nullable: bool) -> dict[str, Any]:
+    normalized_type = snowflake_type.lower()
+
+    if normalized_type.startswith("number"):
+        clickhouse_type = "Decimal"
+    elif normalized_type.startswith("float"):
+        clickhouse_type = "Float64"
+    elif normalized_type.startswith("boolean"):
+        clickhouse_type = "Bool"
+    elif normalized_type.startswith("date"):
+        clickhouse_type = "Date"
+    elif normalized_type.startswith("timestamp"):
+        clickhouse_type = "DateTime64"
+    else:
+        # variant/object/array (and anything unrecognized) map to String.
+        clickhouse_type = "String"
+
+    if nullable:
+        clickhouse_type = f"Nullable({clickhouse_type})"
+
+    raw_clickhouse_type = clean_type(clickhouse_type)
+    return {
+        "clickhouse": clickhouse_type,
+        "hogql": CLICKHOUSE_TYPE_TO_HOGQL_LABEL.get(raw_clickhouse_type, "string"),
+        "valid": True,
+    }
+
+
+def snowflake_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dict[str, dict[str, Any]]:
+    return {
+        column_name: snowflake_column_to_dwh_column(column_name, snowflake_type, nullable)
+        for column_name, snowflake_type, nullable in columns
     }
 
 

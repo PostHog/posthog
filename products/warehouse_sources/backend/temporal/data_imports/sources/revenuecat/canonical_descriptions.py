@@ -55,6 +55,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             display_name="Human-readable display name of the product.",
             app_id="ID of the app the product belongs to.",
             subscription="Subscription configuration for the product, if it is a subscription.",
+            one_time="One-time purchase configuration for the product, if it is a one-time purchase.",
         ),
     },
     ENTITLEMENT_RESOURCE_NAME: {
@@ -100,6 +101,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "currency": "Three-letter ISO currency code of the transaction.",
             "price": "Price of the transaction.",
             "price_in_purchased_currency": "Price in the currency the purchase was made in.",
+            "is_family_share": "Whether the purchase was shared via Family Sharing; always false outside the App Store.",
             "purchased_at_ms": "Time of the purchase, in milliseconds since epoch.",
             "expiration_at_ms": "Time the subscription expires, in milliseconds since epoch.",
             "event_timestamp_ms": "Time the event occurred, in milliseconds since epoch.",

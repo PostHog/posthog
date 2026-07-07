@@ -144,7 +144,7 @@ export const getDisplayNameFromEntityNode = (
           ? node.event
           : isGroupNode(node)
             ? undefined
-            : node.id
+            : node?.id
 
     // Return custom name. If that doesn't exist then the name, then the id, then just null.
     return (isCustom ? customName : null) ?? name ?? (id ? `${id}` : null)
@@ -625,7 +625,7 @@ export function getFunnelDatasetPosition(
         return disableFunnelBreakdownBaseline ? (dataset.order ?? 0) + 1 : (dataset.order ?? 0)
     }
 
-    return dataset?.breakdownIndex ?? 0
+    return dataset?.colorIndex ?? dataset?.breakdownIndex ?? 0
 }
 
 export function getTrendResultCustomizationKey(

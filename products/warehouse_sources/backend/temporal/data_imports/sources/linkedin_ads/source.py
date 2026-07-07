@@ -3,6 +3,7 @@ from typing import Optional, cast
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -81,6 +82,11 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             # never succeeds, so fail fast and tell the user to fix the configured Account ID. Match on
             # the stable prefix only — the offending value that follows varies per source.
             "Array parameter 'accounts' value 'urn:li:sponsoredAccount:": "The LinkedIn Ads Account ID is invalid. Please check the Account ID in your source configuration — it should be the numeric account ID from your LinkedIn Campaign Manager.",
+            # Integration.DoesNotExist raised by `_get_integration` when the stored OAuth integration
+            # row has been deleted/disconnected before the sync runs. Retrying cannot recover — the
+            # user must re-authorize. Model-specific so we don't swallow unrelated `DoesNotExist`
+            # errors from other models, which may be real bugs.
+            "Integration matching query does not exist": "Your LinkedIn Ads connection is no longer available — it may have been disconnected. Please re-authorize the LinkedIn Ads integration.",
         }
 
     @property
@@ -88,10 +94,11 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
         return SourceConfig(
             name=SchemaExternalDataSourceType.LINKEDIN_ADS,
             category=DataWarehouseSourceCategory.ADVERTISING,
+            featured=True,
             keywords=["linkedin advertising"],
             label="LinkedIn Ads",
             caption="Ensure you have granted PostHog access to your LinkedIn Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/linkedin-ads).",
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/linkedin.png",
             docsUrl="https://posthog.com/docs/cdp/sources/linkedin-ads",
             fields=cast(

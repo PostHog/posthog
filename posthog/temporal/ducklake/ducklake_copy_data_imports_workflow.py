@@ -17,12 +17,11 @@ from posthog.ducklake.common import (
     _get_org_id_for_team,
     attach_catalog,
     duckgres_data_imports_schema,
+    duckgres_data_imports_table_name,
     get_config,
+    get_duckgres_server_by_team_org,
     get_duckgres_server_for_organization,
-    get_ducklake_catalog_by_team_org,
-    get_ducklake_catalog_for_organization,
     is_dev_mode,
-    sanitize_ducklake_identifier,
 )
 from posthog.ducklake.storage import (
     cleanup_staged_files,
@@ -52,9 +51,7 @@ from posthog.temporal.ducklake.metrics import (
 )
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.enablement import (
-    DUCKGRES_BATCH_SINK_FLAG,
-)
+from products.warehouse_sources.backend.facade.pipelines import DUCKGRES_BATCH_SINK_FLAG
 
 LOGGER = get_logger(__name__)
 DATA_IMPORTS_DUCKLAKE_WORKFLOW_PREFIX = "data_imports"
@@ -149,7 +146,13 @@ class DuckLakeCopyDataImportsVerificationResult:
 
 @activity.defn
 async def ducklake_copy_data_imports_gate_activity(inputs: DuckLakeCopyWorkflowGateInputs) -> bool:
-    """Evaluate whether the DuckLake data imports copy workflow should run for a team."""
+    """Evaluate whether the DuckLake data imports copy workflow should run for a team.
+
+    The mutual exclusion with the Duckgres v3 batch sink is per-source and lives in
+    prepare_data_imports_ducklake_metadata_activity (v3 sources the sink owns are
+    dropped there), not here: the sink only follows a team's v3 sources, so a
+    sink-enabled team can still have non-v3 sources that this workflow must copy.
+    """
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
@@ -158,28 +161,6 @@ async def ducklake_copy_data_imports_gate_activity(inputs: DuckLakeCopyWorkflowG
     except Team.DoesNotExist:
         await logger.aerror("Team does not exist when evaluating DuckLake data imports gate")
         return False
-
-    # Mutual exclusion with the Duckgres v3 batch sink: both writers target the
-    # same posthog_data_imports_team_{id} tables with zero coordination, so a
-    # team must never have both enabled. The sink wins.
-    try:
-        if feature_enabled_or_false(
-            DUCKGRES_BATCH_SINK_FLAG,
-            str(team.uuid),
-            groups={
-                "organization": str(team.organization_id),
-                "project": str(team.id),
-            },
-            send_feature_flag_events=False,
-        ):
-            await logger.ainfo("DuckLake copy workflow skipped: duckgres batch sink owns this team's tables")
-            return False
-    except Exception as error:
-        await logger.awarning(
-            "Failed to evaluate duckgres batch sink flag; continuing with copy-workflow gate",
-            error=str(error),
-        )
-        capture_exception(error)
 
     try:
         return feature_enabled_or_false(
@@ -226,6 +207,31 @@ async def prepare_data_imports_ducklake_metadata_activity(
     # batch belong to one team, so this is loop-invariant — resolve it once.
     ducklake_schema_name = await database_sync_to_async(duckgres_data_imports_schema)(inputs.team_id)
 
+    # Per-source mutual exclusion with the Duckgres v3 batch sink. The sink owns a
+    # team's v3 sources (it mirrors them live + backfills history), so drop those
+    # here; non-v3 sources stay on the copy workflow — the sink never touches them.
+    # is_pipeline_v3_enabled is the same gate the v3 router uses, so "copy" and
+    # "sink" never disagree on who owns a source (and both fail to "copy owns it").
+    # Lazy import: create_job_model pulls in temporalio.activity + the data_warehouse
+    # facade, which we don't want on this module's import path.
+    from products.warehouse_sources.backend.facade.pipelines import (  # noqa: PLC0415 — keeps the heavy temporal/facade deps off the import path
+        is_pipeline_v3_enabled,
+    )
+
+    sink_enabled = False
+    try:
+        gate_team = await database_sync_to_async(Team.objects.only("uuid", "organization_id").get)(id=inputs.team_id)
+        sink_enabled = feature_enabled_or_false(
+            DUCKGRES_BATCH_SINK_FLAG,
+            str(gate_team.uuid),
+            groups={"organization": str(gate_team.organization_id), "project": str(gate_team.id)},
+            send_feature_flag_events=False,
+        )
+    except Exception as error:
+        await logger.awarning("Failed to evaluate duckgres batch sink flag; copying all schemas", error=str(error))
+        capture_exception(error)
+    sink_owns_source_type: dict[str, bool] = {}
+
     model_list: list[DuckLakeCopyDataImportsMetadata] = []
 
     for schema_id in inputs.schema_ids:
@@ -235,6 +241,19 @@ async def prepare_data_imports_ducklake_metadata_activity(
 
         normalized_name = schema.normalized_name
         source_type = schema.source.source_type
+
+        if sink_enabled:
+            if source_type not in sink_owns_source_type:
+                sink_owns_source_type[source_type] = await database_sync_to_async(is_pipeline_v3_enabled)(
+                    inputs.team_id, source_type
+                )
+            if sink_owns_source_type[source_type]:
+                await logger.ainfo(
+                    "Skipping schema owned by the duckgres batch sink (v3 source)",
+                    schema_id=str(schema.id),
+                    source_type=source_type,
+                )
+                continue
         source_table_uri = f"{settings.BUCKET_URL}/{schema.folder_path()}/{normalized_name}"
         staging_uri = await database_sync_to_async(_resolve_data_imports_staging_uri)(
             source_table_uri, team_id=inputs.team_id
@@ -253,12 +272,7 @@ async def prepare_data_imports_ducklake_metadata_activity(
                 source_normalized_name=normalized_name,
                 source_table_uri=source_table_uri,
                 ducklake_schema_name=ducklake_schema_name,
-                ducklake_table_name=sanitize_ducklake_identifier(
-                    f"{source_type}_{schema.source.prefix}_{normalized_name}"
-                    if schema.source.prefix
-                    else f"{source_type}_{normalized_name}",
-                    default_prefix="data_import",
-                ),
+                ducklake_table_name=duckgres_data_imports_table_name(schema),
                 verification_queries=list(get_data_imports_verification_queries(normalized_name)),
                 source_partition_column=partition_column,
                 staging_uri=staging_uri,
@@ -310,12 +324,12 @@ def _copy_data_imports_via_duckdb(inputs: DuckLakeCopyDataImportsActivityInputs,
 def _copy_data_imports_via_duckgres(inputs: DuckLakeCopyDataImportsActivityInputs, logger: typing.Any) -> None:
     """Stage Delta files and create the DuckLake table via duckgres."""
     org_id = _get_org_id_for_team(inputs.team_id)
-    catalog = get_ducklake_catalog_for_organization(org_id)
     server = get_duckgres_server_for_organization(org_id)
-    if catalog is None:
-        raise ApplicationError(f"No DuckLakeCatalog configured for team {inputs.team_id}", non_retryable=True)
     if server is None:
         raise ApplicationError(f"No DuckgresServer configured for team {inputs.team_id}", non_retryable=True)
+    bucket = server.bucket
+    if not bucket:
+        raise ApplicationError(f"No S3 bucket configured for team {inputs.team_id}", non_retryable=True)
     if not inputs.model.staging_uri:
         raise ApplicationError(f"No staging_uri for model {inputs.model.model_label}", non_retryable=True)
 
@@ -326,7 +340,7 @@ def _copy_data_imports_via_duckgres(inputs: DuckLakeCopyDataImportsActivityInput
     )
     stage_delta_table(
         source_uri=inputs.model.source_table_uri,
-        catalog_bucket=catalog.bucket,
+        catalog_bucket=bucket,
         organization_id=org_id,
     )
 
@@ -358,8 +372,8 @@ class DuckLakeDataImportsStagingCleanupInputs:
 def cleanup_data_imports_staging_activity(inputs: DuckLakeDataImportsStagingCleanupInputs) -> None:
     """Clean up staged Delta files after successful verification."""
     bind_contextvars(team_id=inputs.team_id)
-    catalog = get_ducklake_catalog_by_team_org(inputs.team_id)
-    if catalog is None:
+    server = get_duckgres_server_by_team_org(inputs.team_id)
+    if server is None:
         return
     cleanup_staged_files(
         staging_uri=inputs.staging_uri,
@@ -371,11 +385,13 @@ def _resolve_data_imports_staging_uri(source_uri: str, *, team_id: int) -> str |
     if is_dev_mode():
         return None
 
-    catalog = get_ducklake_catalog_by_team_org(team_id)
-    if catalog is None:
-        raise ApplicationError(f"No DuckLakeCatalog configured for team {team_id}", non_retryable=True)
+    server = get_duckgres_server_by_team_org(team_id)
+    if server is None:
+        raise ApplicationError(f"No DuckgresServer configured for team {team_id}", non_retryable=True)
+    if not server.bucket:
+        raise ApplicationError(f"No S3 bucket configured for team {team_id}", non_retryable=True)
 
-    return compute_staging_uri(source_uri, catalog.bucket)
+    return compute_staging_uri(source_uri, server.bucket)
 
 
 def _detect_data_imports_partition_column(table_uri: str, *, team_id: int) -> str | None:

@@ -618,9 +618,9 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         ]
     )
     def test_ad_levels_compare_join_uses_id(self, level, expected_id_column):
-        """Compare mode at AD_GROUP / AD must join on the platform ID, not the name —
+        """Compare mode at AD_GROUP / AD must key the pivot on the platform ID, not the name —
         otherwise two rows with the same ad-group / ad name across different campaigns
-        would cross-product, and renames between periods would lose continuity.
+        would group together, and renames between periods would lose continuity.
         """
         query = MarketingAnalyticsTableQuery(
             dateRange=self.default_date_range,
@@ -638,30 +638,13 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
             # to config. Avoids binding the test to the internal `_apply_drill_down_level`
             # method name / call site.
             runner.to_query()
-            current = runner._build_main_select_query(conversion_aggregator=None)
-            previous = runner._build_main_select_query(conversion_aggregator=None)
-            join = runner._build_compare_join(current, previous)
+            pivot_keys = runner._get_compare_pivot_keys()
 
-        # Walk the join condition AST and collect every Field chain mentioned. The
-        # AD_GROUP_ID / AD_ID column must appear — that's how we know we're joining
-        # by the platform ID, not by the (ambiguous) name.
-        constraint = join.next_join.constraint if join.next_join else None
-        assert constraint is not None
-        referenced_fields: list[str] = []
-
-        def _collect_fields(node: ast.Expr) -> None:
-            if isinstance(node, ast.Field) and node.chain:
-                referenced_fields.append(str(node.chain[-1]))
-            elif isinstance(node, ast.CompareOperation):
-                _collect_fields(node.left)
-                _collect_fields(node.right)
-            elif isinstance(node, (ast.And, ast.Or)):
-                for child in node.exprs:
-                    _collect_fields(child)
-
-        _collect_fields(constraint.expr)
-        assert expected_id_column.value in referenced_fields, (
-            f"Expected compare join at {level} to reference {expected_id_column.value}, got fields: {referenced_fields}"
+        # The compare pivot groups current/previous rows by these keys. The AD_GROUP_ID /
+        # AD_ID column must be among them — that's how we know we key by the platform ID,
+        # not by the (ambiguous) name.
+        assert expected_id_column.value in pivot_keys, (
+            f"Expected compare pivot at {level} to key on {expected_id_column.value}, got keys: {pivot_keys}"
         )
 
     @parameterized.expand(

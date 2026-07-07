@@ -503,6 +503,17 @@ export interface BreakdownFilterApi {
     breakdowns?: BreakdownApi[] | null
 }
 
+export type IntervalTypeApi = (typeof IntervalTypeApi)[keyof typeof IntervalTypeApi]
+
+export const IntervalTypeApi = {
+    Second: 'second',
+    Minute: 'minute',
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+} as const
+
 export type PropertyOperatorApi = (typeof PropertyOperatorApi)[keyof typeof PropertyOperatorApi]
 
 export const PropertyOperatorApi = {
@@ -557,6 +568,15 @@ export interface PersonPropertyFilterApi {
     operator: PropertyOperatorApi
     /** Person properties */
     type?: 'person'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface PersonMetadataPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Top-level columns on the persons table (e.g. created_at), not properties JSON */
+    type?: 'person_metadata'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
@@ -748,10 +768,15 @@ export interface DashboardFilterApi {
     date_from?: string | null
     date_to?: string | null
     explicitDate?: boolean | null
+    /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
+    filterTestAccounts?: boolean | null
+    /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
+    interval?: IntervalTypeApi | null
     properties?:
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi

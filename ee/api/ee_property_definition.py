@@ -1,10 +1,10 @@
 from django.utils import timezone
 
-from loginas.utils import is_impersonated_session
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import PropertyDefinition
 from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, log_activity
 
@@ -104,7 +104,7 @@ class EnterprisePropertyDefinitionSerializer(TaggedItemSerializerMixin, serializ
             organization_id=None,
             team_id=self.context["team_id"],
             user=self.context["request"].user,
-            was_impersonated=is_impersonated_session(self.context["request"]),
+            was_impersonated=is_impersonated(self.context["request"]),
             item_id=str(property_definition.id),
             scope="PropertyDefinition",
             activity="changed",

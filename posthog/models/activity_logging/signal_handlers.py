@@ -1,5 +1,5 @@
+import sys
 import time
-import inspect
 import dataclasses
 from collections.abc import Callable
 from datetime import timedelta
@@ -15,14 +15,13 @@ from django.http import HttpRequest
 
 import structlog
 from loginas import settings as la_settings
-from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
 
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
-from posthog.helpers.impersonation import get_original_user_from_session
+from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated
 from posthog.models import Organization, PersonalAPIKey, Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import (
     ActivityContextBase,
@@ -76,7 +75,7 @@ class UserLogoutContext(ActivityContextBase):
 
 def _get_logout_user_context(user, request):
     """Determine the correct user context and attribution for logout activity logging."""
-    was_impersonated = is_impersonated_session(request)
+    was_impersonated = is_impersonated(request)
     log_user = user
     item_id = str(user.id)
 
@@ -95,18 +94,22 @@ def _detect_impersonation_for_login(user, request):
         hasattr(request, "session") and request.session and la_settings.USER_SESSION_FLAG in request.session
     )
 
-    for frame in inspect.stack():
-        if "loginas" in frame.filename:
+    # Walk raw frames instead of inspect.stack(): the latter resolves source context for
+    # every frame (linecache + sys.modules scans), which costs ~200ms per login.
+    frame = sys._getframe().f_back
+    while frame is not None:
+        if "loginas" in frame.f_code.co_filename:
             try:
-                if "original_user_pk" in frame.frame.f_locals:
+                if "original_user_pk" in frame.f_locals:
                     User = get_user_model()
-                    original_user_pk = frame.frame.f_locals["original_user_pk"]
+                    original_user_pk = frame.f_locals["original_user_pk"]
                     admin_user = User.objects.get(pk=original_user_pk)
                     return True, admin_user, str(user.id), "impersonation"
             except Exception:
                 pass
 
             return True, user, str(user.id), "impersonation"
+        frame = frame.f_back
 
     if has_impersonation_session:
         try:

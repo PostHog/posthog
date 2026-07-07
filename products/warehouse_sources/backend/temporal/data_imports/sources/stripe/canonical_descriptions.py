@@ -64,6 +64,9 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             failure_code="Error code explaining the reason for a failed charge, if applicable.",
             failure_message="Human-readable message explaining the reason for a failed charge, if applicable.",
             receipt_email="Email address to which the charge's receipt is sent.",
+            dispute="ID of the dispute associated with the charge, if one exists.",
+            shipping="Shipping information (recipient, address, carrier) for the charge.",
+            source="The payment source (e.g. card) that was charged; this legacy field is being deprecated in favor of payment_method.",
         ),
     },
     CUSTOMER_RESOURCE_NAME: {
@@ -100,6 +103,9 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             number="Unique, user-facing reference number assigned to the invoice.",
             period_start="Start of the billing period covered by this invoice, as a Unix timestamp.",
             period_end="End of the billing period covered by this invoice, as a Unix timestamp.",
+            amount_shipping="Total amount of shipping charged on the invoice, in the smallest currency unit.",
+            default_source="ID of the default payment source used to pay this invoice, if set.",
+            subtotal_excluding_tax="Subtotal of the invoice excluding tax, in the smallest currency unit.",
         ),
     },
     INVOICE_ITEM_RESOURCE_NAME: {
@@ -117,6 +123,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             subscription="ID of the subscription this invoice item was created for, if any.",
             unit_amount="Per-unit amount of the invoice item, in the smallest currency unit.",
             date="Date the invoice item was created, as a Unix timestamp.",
+            subscription_item="ID of the subscription item this invoice item is associated with, if any.",
         ),
     },
     SUBSCRIPTION_RESOURCE_NAME: {
@@ -133,6 +140,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             currency="Three-letter ISO currency code the subscription bills in, in lowercase.",
             trial_start="Start of the subscription's trial period, as a Unix timestamp, if any.",
             trial_end="End of the subscription's trial period, as a Unix timestamp, if any.",
+            application="ID of the Connect application that created the subscription, if any.",
         ),
     },
     PRODUCT_RESOURCE_NAME: {
@@ -156,6 +164,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             active="Whether the price can be used for new purchases.",
             type="Whether the price is for a one_time purchase or a recurring subscription.",
             nickname="Brief internal description of the price, not shown to customers.",
+            lookup_key="A lookup key used to retrieve the price dynamically from a static string.",
         ),
     },
     BALANCE_TRANSACTION_RESOURCE_NAME: {
@@ -212,6 +221,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             description="Free-form description attached to the payout.",
             failure_code="Error code explaining why the payout failed, if applicable.",
             failure_message="Human-readable message explaining why the payout failed, if applicable.",
+            balance_transaction="ID of the balance transaction that describes the impact of this payout on your account balance.",
         ),
     },
     CREDIT_NOTE_RESOURCE_NAME: {
@@ -228,6 +238,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             type="Whether the credit note was issued pre_payment or post_payment.",
             total="Total amount of the credit note including tax, in the smallest currency unit.",
             memo="Free-form memo shown to the customer on the credit note.",
+            post_payment_amount="Amount of the credit note that was issued after payment and refunded to the customer, in the smallest currency unit.",
         ),
     },
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME: {
@@ -241,6 +252,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             description="Free-form description of the balance transaction.",
             ending_balance="The customer's balance after this transaction, in the smallest currency unit.",
             invoice="ID of the invoice this transaction was applied to, if any.",
+            checkout_session="ID of the Checkout Session that created this balance transaction, if any.",
         ),
     },
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME: {

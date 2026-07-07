@@ -25,6 +25,8 @@ import { AccountBillingExpansion } from './AccountBillingExpansion'
 import { accountBillingLogic } from './accountBillingLogic'
 import { accountLinksLogic } from './accountLinksLogic'
 import { accountNotebooksLogic } from './accountNotebooksLogic'
+import { AccountOpportunitiesExpansion } from './AccountOpportunitiesExpansion'
+import { accountOpportunitiesLogic } from './accountOpportunitiesLogic'
 import { AccountRelatedUsersExpansion } from './AccountRelatedUsersExpansion'
 import { accountRelatedUsersLogic } from './accountRelatedUsersLogic'
 import { accountsExpansionLogic } from './accountsExpansionLogic'
@@ -106,6 +108,7 @@ export function AccountNotebooksExpansion({
     useMountedLogic(accountRelatedUsersLogic({ externalId }))
     useMountedLogic(accountBillingLogic({ accountId, externalId, kind: 'usage' }))
     useMountedLogic(accountBillingLogic({ accountId, externalId, kind: 'spend' }))
+    useMountedLogic(accountOpportunitiesLogic({ accountId }))
     const { setSearchTerm, setSorting, createNote } = useActions(logic)
     const { activeTabFor } = useValues(accountsExpansionLogic)
     const { setActiveTab } = useActions(accountsExpansionLogic)
@@ -174,7 +177,10 @@ export function AccountNotebooksExpansion({
     ]
 
     return (
-        <div className="sticky left-0 w-[100cqw] max-w-full overflow-x-hidden p-3 bg-bg-light">
+        <div
+            className="sticky left-0 w-[100cqw] max-w-full overflow-x-hidden p-3 bg-bg-light"
+            data-attr="account-expansion"
+        >
             <div className="flex gap-4">
                 <div className="w-fit shrink-0">
                     <UsefulLinks accountId={accountId} />
@@ -256,6 +262,11 @@ export function AccountNotebooksExpansion({
                                         kind="spend"
                                     />
                                 ),
+                            },
+                            {
+                                key: 'opportunities',
+                                label: 'Opportunities',
+                                content: <AccountOpportunitiesExpansion accountId={accountId} />,
                             },
                         ]}
                     />

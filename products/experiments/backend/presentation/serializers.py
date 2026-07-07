@@ -6,6 +6,7 @@ All serializer classes and custom field classes live here.
 ViewSet remains in experiments.py.
 """
 
+from copy import deepcopy
 from typing import Any
 
 from drf_spectacular.utils import extend_schema_field
@@ -38,7 +39,6 @@ from products.experiments.backend.models.experiment import (
     ExperimentHoldout,
     ExperimentMetricsRecalculation,
     experiment_has_legacy_metrics,
-    get_excluded_variants,
 )
 from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
@@ -153,10 +153,9 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
         help_text=(
             "Experiment parameters JSON. Supported keys include "
             "`feature_flag_variants`, `rollout_percentage`, "
-            "`custom_exposure_filter`, `excluded_variants` "
-            "(list of variant keys to drop from statistical analysis; "
-            "the baseline variant and holdout pseudo-variants cannot be excluded), "
-            "and `variant_notes` (free-text notes per variant, keyed by variant key)."
+            "`custom_exposure_filter`, and `variant_notes` "
+            "(free-text notes per variant, keyed by variant key). "
+            "Excluded variants live on the top-level `excluded_variants` field, not here."
         ),
     )
     running_time_calculation = ExperimentRunningTimeCalculationField(
@@ -176,7 +175,7 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "Variant keys to exclude from metric result calculations. Excluded variants are still "
             "served to users but omitted from statistical analysis. The baseline variant and holdout "
             "pseudo-variants cannot be excluded. Canonical home for what historically lived in "
-            "`parameters.excluded_variants`; kept in sync with `parameters` during the deprecation window."
+            "`parameters.excluded_variants`."
         ),
     )
     conclusion = serializers.ChoiceField(
@@ -235,6 +234,47 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
         if annotated is not None:
             return annotated
         return experiment_has_legacy_metrics(obj)
+
+    def to_representation(self, instance: Experiment) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        self._project_feature_flag_config(data, instance.feature_flag)
+        return data
+
+    @staticmethod
+    def _project_feature_flag_config(data: dict[str, Any], flag: FeatureFlag | None) -> None:
+        """Source feature-flag config in the deprecated `parameters` projection from the linked flag.
+
+        The flag is the source of truth for variants/rollout/aggregation group type — `parameters`
+        is a deprecated compatibility surface (see the experiment model's `parameters` comment).
+        Reading these keys from the flag instead of the stored column lets us stop persisting the
+        `parameters` mirror without changing the API response. The linked flag is already serialized
+        into `data["feature_flag"]`, so this adds no queries.
+        """
+        if flag is None:
+            return
+        parameters = dict(data.get("parameters") or {})
+
+        variants = deepcopy(flag.variants)
+        for variant in variants:
+            # Mirror ExperimentParametersField.to_representation: the UI edits splits via split_percent.
+            if isinstance(variant, dict) and "rollout_percentage" in variant:
+                variant["split_percent"] = variant["rollout_percentage"]
+        parameters["feature_flag_variants"] = variants
+
+        filters = flag.get_filters()
+        aggregation_group_type_index = filters.get("aggregation_group_type_index")
+        if aggregation_group_type_index is not None:
+            parameters["aggregation_group_type_index"] = aggregation_group_type_index
+        else:
+            parameters.pop("aggregation_group_type_index", None)
+
+        groups = filters.get("groups") or []
+        if groups and groups[0].get("rollout_percentage") is not None:
+            parameters["rollout_percentage"] = groups[0]["rollout_percentage"]
+        else:
+            parameters.pop("rollout_percentage", None)
+
+        data["parameters"] = parameters
 
 
 class ExperimentSerializer(ExperimentBaseSerializer):
@@ -421,7 +461,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
                         get_experiment_stats_method(instance),
                         instance.exposure_criteria,
                         only_count_matured_users=instance.only_count_matured_users,
-                        excluded_variants=get_excluded_variants(instance),
+                        excluded_variants=instance.excluded_variants or [],
                     )
 
         return data
@@ -641,6 +681,13 @@ class EndExperimentSerializer(serializers.Serializer):
         allow_blank=True,
         max_length=4000,
         help_text="Optional comment about the experiment conclusion.",
+    )
+    open_cleanup_pr = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "When true, open a draft pull request that removes the experiment's feature-flag code "
+            "from the linked repository. Only acts for allowlisted teams; ignored otherwise."
+        ),
     )
 
 

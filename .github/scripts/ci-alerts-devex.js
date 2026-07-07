@@ -37,45 +37,122 @@ const HISTORY_LIMIT = 100
 // Attachment side-bar colors (Slack's red / green).
 const ACTIVE_COLOR = '#E01E5A'
 const RESOLVED_COLOR = '#2EB67D'
+// Caps the *displayed* red duration only (not detection): the shown span won't bridge a gap this
+// wide between kept failures, so it can't anchor to a stale run.
+const STREAK_MAX_GAP_MINUTES = 180
+// Runs-index freshness bound (see fetchWorkflowRuns): fresh pages trail master's newest commit by
+// minutes, stale ones by days. Staleness is per-request, so retry before giving up.
+const RUN_INDEX_MAX_LAG_MINUTES = 180
+const STALE_PAGE_RETRIES = 2
+const STALE_PAGE_RETRY_DELAY_MS = 15000
+
+const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 // ---------------------------------------------------------------------------
 // GitHub data
 // ---------------------------------------------------------------------------
 
-async function fetchWorkflowRuns(github, owner, repo, workflowFile, perPage) {
-    const { data } = await github.rest.actions.listWorkflowRuns({
-        owner,
-        repo,
-        workflow_id: workflowFile,
-        branch: 'master',
-        event: 'push',
-        per_page: perPage,
-        status: 'completed',
-    })
+// The single definition of a "red" run conclusion, shared by the streak and commit checks.
+const isFailure = (run) => run.conclusion === 'failure' || run.conclusion === 'timed_out'
 
-    // Filter out cancelled/skipped — only real conclusions count
-    return data.workflow_runs
-        .filter((run) => run.conclusion !== 'cancelled' && run.conclusion !== 'skipped')
-        .map((run) => ({
-            name: run.name,
-            conclusion: run.conclusion,
-            sha: run.head_sha,
-            run_url: run.html_url,
-            updated_at: run.updated_at,
-            workflow_file: workflowFile,
-        }))
+// The freshest settled runs for a workflow, newest-first; throws (staleIndex) when the page can't
+// be trusted.
+//
+// The runs-list index is eventually consistent and intermittently serves pages anchored days back —
+// trusting it produced the "red 70h"/"red 141h" phantom incidents, and dropping status=completed
+// didn't fix it (the branch/event filters hit the same index). So freshness is verified against
+// `freshAsOf` (master's newest commit, strongly consistent): every gating workflow runs on every
+// master push, so a page head trailing it by more than RUN_INDEX_MAX_LAG_MINUTES is stale —
+// retry, then unreadable, never green.
+//
+// Paging: `per_page` truncates the raw page BEFORE the client-side filter, so page until the
+// leading streak is settled (a kept non-failure bounds the walk) or the cap.
+async function fetchWorkflowRuns(github, owner, repo, workflowFile, perPage, { freshAsOf = null, sleep = defaultSleep } = {}) {
+    for (let attempt = 0; ; attempt++) {
+        try {
+            return await fetchSettledRuns(github, owner, repo, workflowFile, perPage, freshAsOf)
+        } catch (err) {
+            if (!err.staleIndex || attempt >= STALE_PAGE_RETRIES) throw err
+            await sleep(STALE_PAGE_RETRY_DELAY_MS)
+        }
+    }
+}
+
+async function fetchSettledRuns(github, owner, repo, workflowFile, perPage, freshAsOf) {
+    const MAX_PAGES = 5
+    const settled = []
+    for (let page = 1; page <= MAX_PAGES; page++) {
+        const { data } = await github.rest.actions.listWorkflowRuns({
+            owner,
+            repo,
+            workflow_id: workflowFile,
+            branch: 'master',
+            event: 'push',
+            per_page: perPage,
+            page,
+        })
+        // Freshness is judged on the raw page-1 head (any status) before paging deeper; an empty
+        // page is the same anomaly — every gating workflow has master-push history.
+        if (page === 1 && freshAsOf) {
+            const head = data.workflow_runs[0]
+            // Empty page → Infinity (stale); NaN (unparseable dates) falls through to fresh.
+            const lagMins = head
+                ? (new Date(freshAsOf).getTime() - new Date(head.created_at).getTime()) / 60000
+                : Infinity
+            if (lagMins > RUN_INDEX_MAX_LAG_MINUTES) {
+                const err = new Error(
+                    `stale runs index: newest run ${head?.created_at || 'absent'} trails newest master commit ${freshAsOf}`
+                )
+                err.staleIndex = true
+                throw err
+            }
+        }
+        for (const run of data.workflow_runs) {
+            // In-progress/queued must neither count as nor break a failure streak (mirroring how
+            // unreported commits classify 'unknown'); cancelled/skipped never reflect real health.
+            if (run.status !== 'completed') continue
+            if (run.conclusion === 'cancelled' || run.conclusion === 'skipped') continue
+            settled.push({
+                name: run.name,
+                conclusion: run.conclusion,
+                sha: run.head_sha,
+                run_url: run.html_url,
+                updated_at: run.updated_at,
+                created_at: run.created_at, // immutable; updated_at is bumped by re-runs
+                workflow_file: workflowFile,
+            })
+        }
+        // Once a kept run is a non-failure it terminates the leading streak, so we have all we need.
+        // A short raw page means there are no older runs to fetch.
+        const streakBounded = settled.some((r) => !isFailure(r))
+        if (streakBounded || data.workflow_runs.length < perPage) break
+    }
+    return settled
 }
 
 function countConsecutiveFailures(runs) {
     let count = 0
     for (const run of runs) {
-        if (run.conclusion === 'failure' || run.conclusion === 'timed_out') {
+        if (isFailure(run)) {
             count++
         } else {
             break
         }
     }
     return count
+}
+
+// Display-only "red since": oldest failure reachable from the newest without crossing a gap wider
+// than STREAK_MAX_GAP_MINUTES. Uses immutable created_at so re-runs can't collapse the span.
+function contiguousFailureSince(runs, count) {
+    const dispatchedAt = (run) => run.created_at || run.updated_at
+    let oldest = runs[0]
+    for (let i = 1; i < count; i++) {
+        const gapMins = (new Date(dispatchedAt(runs[i - 1])).getTime() - new Date(dispatchedAt(runs[i])).getTime()) / 60000
+        if (!(gapMins <= STREAK_MAX_GAP_MINUTES)) break // NaN-safe
+        oldest = runs[i]
+    }
+    return dispatchedAt(oldest)
 }
 
 // Workflows whose newest run starts a failure streak, keyed by display name.
@@ -89,7 +166,8 @@ function buildFailingMap(allWorkflowRuns) {
             const oldest = runs[count - 1]
             failing[latest.name] = {
                 name: latest.name,
-                since: oldest.updated_at,
+                since: oldest.updated_at, // detection (full streak)
+                displaySince: contiguousFailureSince(runs, count), // display only (gap-bounded)
                 run_url: latest.run_url,
                 workflow_file: latest.workflow_file,
                 consecutive_failures: count,
@@ -111,7 +189,9 @@ async function fetchRecentCommits(github, owner, repo, perPage) {
         html_url: c.html_url,
         message: (c.commit?.message || '').split('\n')[0],
         author: c.author?.login || c.commit?.author?.name || 'unknown',
-        date: c.commit?.author?.date || null,
+        // Committer date = push time; squash-merge author dates can be days older and would
+        // suppress the activity gate and backdate durations.
+        date: c.commit?.committer?.date || c.commit?.author?.date || null,
     }))
 }
 
@@ -129,7 +209,7 @@ function classifyCommits(commits, allWorkflowRuns) {
     return commits.map((commit) => {
         const runs = runsBySha.get(commit.sha) || []
         if (runs.length === 0) return { ...commit, status: 'unknown' }
-        const red = runs.some((r) => r.conclusion === 'failure' || r.conclusion === 'timed_out')
+        const red = runs.some(isFailure)
         return { ...commit, status: red ? 'red' : 'green' }
     })
 }
@@ -237,8 +317,8 @@ function buildAnchorMessage({
     // Duration-only blockers show just the red time — no sub-threshold "N failed runs" count.
     const lines = blocking.map((wf) =>
         wf.byCount
-            ? `• ${workflowLink(wf)} — ${plural(wf.consecutive_failures, 'failed run')} in a row · red for ${formatDuration(wf.redForMins)}`
-            : `• ${workflowLink(wf)} — red for ${formatDuration(wf.redForMins)}`
+            ? `• ${workflowLink(wf)} — ${plural(wf.consecutive_failures, 'failed run')} in a row · red for ${formatDuration(wf.displayRedForMins)}`
+            : `• ${workflowLink(wf)} — red for ${formatDuration(wf.displayRedForMins)}`
     )
     if (commitActive) {
         lines.push(`• _${plural(commitStreakCount, 'commit')} in a row failed a required check_`)
@@ -305,8 +385,9 @@ function buildRecoveryReply(durationMins) {
 // Main
 // ---------------------------------------------------------------------------
 
-module.exports = async ({ context, github, core }, { now: _now, slack: _slack, fetch: _fetch } = {}) => {
+module.exports = async ({ context, github, core }, { now: _now, slack: _slack, fetch: _fetch, sleep: _sleep } = {}) => {
     const now = _now || new Date()
+    const sleep = _sleep || defaultSleep
     const owner = context.repo.owner
     const repo = context.repo.repo
     const channel = process.env.SLACK_CHANNEL
@@ -317,30 +398,44 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
     const minutesThreshold = parseInt(process.env.WORKFLOW_FAILURE_MINUTES_THRESHOLD || '20', 10)
     const activityWindowMins = parseInt(process.env.ACTIVITY_WINDOW_MINUTES || '120', 10)
     const commitThreshold = parseInt(process.env.COMMIT_FAILURE_STREAK_THRESHOLD || '10', 10)
-    // Over-fetch to survive cancelled/skipped runs (force-pushes, concurrency cancels).
-    const perPage = Math.max(workflowThreshold * 3, 20)
+    // Page size for the run fetch. fetchWorkflowRuns pages until the streak is settled, so this only
+    // trades round-trips against page size; keep it wide enough to resolve the common case in one page
+    // despite the in-progress/cancelled runs it now drops client-side. Clamp to GitHub's per_page max
+    // of 100 (silently capped otherwise) so a tuned-up streak threshold can't quietly lose capacity.
+    const perPage = Math.min(Math.max(workflowThreshold * 6, 40), 100)
     const commitsToFetch = Math.max(commitThreshold * 2, 25)
 
-    // Recompute master health from the API and read the Slack incident state (the
-    // source of truth for whether an incident is open). All three are independent
-    // network calls, so run them concurrently.
-    const [allWorkflowRuns, commits, active] = await Promise.all([
-        Promise.all(
-            workflowFiles.map((wf) =>
-                fetchWorkflowRuns(github, owner, repo, wf, perPage).catch((err) => {
-                    core.warning(`Failed to fetch ${wf}: ${err.message}`)
-                    return []
-                })
-            )
-        ),
-        fetchRecentCommits(github, owner, repo, commitsToFetch).catch((err) => {
-            core.warning(`Failed to fetch commits: ${err.message}`)
-            return []
-        }),
-        findActiveIncident(slack, channel),
-    ])
+    // Slack read is independent — start it first to overlap the GitHub reads.
+    const activePromise = findActiveIncident(slack, channel)
 
-    const failing = buildFailingMap(allWorkflowRuns)
+    // Commits (strongly consistent) anchor the runs freshness check, so fetch them first. null
+    // (not []) on failure: with no anchor nothing is verifiable → every workflow is unreadable.
+    const commits = await fetchRecentCommits(github, owner, repo, commitsToFetch).catch((err) => {
+        core.warning(`Failed to fetch commits: ${err.message}`)
+        return null
+    })
+    const freshAsOf = commits?.[0]?.date || null
+
+    // null = unreadable (API error or persistently stale page), distinct from "no failures".
+    const [fetchedRuns, active] = await Promise.all([
+        commits === null
+            ? workflowFiles.map(() => null)
+            : Promise.all(
+                  workflowFiles.map((wf) =>
+                      fetchWorkflowRuns(github, owner, repo, wf, perPage, { freshAsOf, sleep }).catch((err) => {
+                          core.warning(`No usable runs for ${wf}: ${err.message}`)
+                          return null
+                      })
+                  )
+              ),
+        activePromise,
+    ])
+    const knownRuns = fetchedRuns.filter((runs) => runs !== null)
+    // Reconciling an open incident on incomplete reads would let a stale page or a failed fetch
+    // masquerade as recovery.
+    const dataComplete = commits !== null && knownRuns.length === fetchedRuns.length
+
+    const failing = buildFailingMap(knownRuns)
     // byDuration catches slow-velocity breakage that never stacks up a full failure streak.
     const blocking = Object.values(failing)
         .map((f) => {
@@ -348,21 +443,22 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
             return {
                 ...f,
                 runsUrl: runsUrlFor(owner, repo, f.workflow_file),
-                redForMins,
+                redForMins, // detection: byDuration + open/resolve thresholds
+                displayRedForMins: Math.round((now.getTime() - new Date(f.displaySince).getTime()) / 60000),
                 byCount: f.consecutive_failures >= workflowThreshold,
                 byDuration: redForMins >= minutesThreshold,
             }
         })
         .filter((f) => f.byCount || f.byDuration)
-        .sort((a, b) => b.redForMins - a.redForMins) // longest red first
+        .sort((a, b) => b.redForMins - a.redForMins) // most-severe (longest true red) first
 
-    const latestCommit = commits[0] || null
+    const latestCommit = commits?.[0] || null
     // Fail closed: no dated commit → not recent → the wall-clock arm won't open.
     const recentActivity =
         latestCommit?.date != null && now.getTime() - new Date(latestCommit.date).getTime() <= activityWindowMins * 60000
 
     const { count: commitStreakCount, since: commitStreakSince } = leadingRedStreak(
-        classifyCommits(commits, allWorkflowRuns)
+        classifyCommits(commits || [], knownRuns)
     )
     const commitActive = commitStreakCount >= commitThreshold
     // Sustains/resolves an open incident — ungated, so a stale-red master stays unhealthy
@@ -373,9 +469,9 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
 
     const allFailingRunsUrl = `https://github.com/${owner}/${repo}/actions?query=branch%3Amaster+is%3Afailure`
 
-    // Earliest start across both active signals (preserve original on update).
+    // Earliest start across both active signals (preserve original on update); gap-bounded displaySince.
     const computeSince = () => {
-        const times = blocking.map((b) => new Date(b.since).getTime())
+        const times = blocking.map((b) => new Date(b.displaySince).getTime())
         if (commitActive && commitStreakSince) times.push(new Date(commitStreakSince).getTime())
         return times.length ? new Date(Math.min(...times)).toISOString() : now.toISOString()
     }
@@ -385,7 +481,11 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
     // Open incident: sustain while unhealthy, else resolve. No incident: open only if shouldOpen.
     const shouldWriteAnchor = active ? unhealthy : shouldOpen
 
-    if (shouldWriteAnchor) {
+    if (active && !dataComplete) {
+        // Unreadable data can't distinguish recovery from a stale read — hold; next tick reconciles.
+        core.warning('Incomplete CI data with an open incident — holding, no reconcile this tick')
+        action = 'hold'
+    } else if (shouldWriteAnchor) {
         // Carry name + runs link in metadata so later ticks can diff and re-link by name.
         const workflows = blocking.map((b) => ({ name: b.name, runsUrl: b.runsUrl }))
         const since = active?.payload?.since || computeSince()
@@ -454,3 +554,4 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
 }
 
 module.exports.formatDuration = formatDuration
+module.exports.fetchWorkflowRuns = fetchWorkflowRuns

@@ -36,6 +36,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             net_term_days="Number of days within which payment is due for invoices.",
             allow_direct_debit="Whether the customer can pay using direct debit.",
             taxability="Whether the customer is taxable or exempt.",
+            excess_payments="Total unused payments (excess credits) available for the customer, in the smallest currency unit.",
             deleted="Whether the customer record has been deleted.",
         ),
     },
@@ -69,6 +70,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             due_date="Date by which the invoice payment is due, as a Unix timestamp.",
             paid_at="Time at which the invoice was fully paid, as a Unix timestamp.",
             recurring="Whether the invoice was generated from a recurring subscription.",
+            resource_version="Version number that increments whenever the invoice is modified, as a Unix timestamp in milliseconds.",
         ),
     },
     "Orders": {
@@ -117,6 +119,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             currency_code="Three-letter ISO currency code of the transaction.",
             date="Date the transaction occurred, as a Unix timestamp.",
             gateway="Payment gateway that processed the transaction.",
+            id_at_gateway="Identifier of the transaction at the payment gateway.",
             amount_unused="Unused amount remaining from the transaction, in the smallest currency unit.",
         ),
     },

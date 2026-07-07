@@ -50,6 +50,7 @@ import {
     AgentApplicationsSessionsListQueryParams,
     AgentApplicationsSessionsRetrieveParams,
     AgentApplicationsSessionsRetrieveQueryParams,
+    AgentApplicationsSpecSchemaQueryParams,
     AgentRevisionsEnvKeysClearParams,
     AgentRevisionsEnvKeysGetParams,
     AgentRevisionsEnvKeysListParams,
@@ -168,6 +169,22 @@ const agentApplicationsList = (): ToolBase<
                 limit: params.limit,
                 offset: params.offset,
             },
+        })
+        return result
+    },
+})
+
+const AgentApplicationsModelsSchema = z.object({})
+
+const agentApplicationsModels = (): ToolBase<typeof AgentApplicationsModelsSchema, Schemas.AgentApplication> => ({
+    name: 'agent-applications-models',
+    schema: AgentApplicationsModelsSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof AgentApplicationsModelsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AgentApplication>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/models/`,
         })
         return result
     },
@@ -831,6 +848,27 @@ const agentApplicationsSessionsRetrieve = (): ToolBase<
     },
 })
 
+const AgentApplicationsSpecSchemaSchema = AgentApplicationsSpecSchemaQueryParams
+
+const agentApplicationsSpecSchema = (): ToolBase<
+    typeof AgentApplicationsSpecSchemaSchema,
+    Schemas.AgentApplication
+> => ({
+    name: 'agent-applications-spec-schema',
+    schema: AgentApplicationsSpecSchemaSchema,
+    handler: async (context: Context, params: z.infer<typeof AgentApplicationsSpecSchemaSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AgentApplication>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/spec_schema/`,
+            query: {
+                section: params.section,
+            },
+        })
+        return result
+    },
+})
+
 const AgentNativeToolsListSchema = z.object({})
 
 const agentNativeToolsList = (): ToolBase<
@@ -857,6 +895,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'agent-applications-env-keys-get': agentApplicationsEnvKeysGet,
     'agent-applications-env-keys-list': agentApplicationsEnvKeysList,
     'agent-applications-list': agentApplicationsList,
+    'agent-applications-models': agentApplicationsModels,
     'agent-applications-partial-update': agentApplicationsPartialUpdate,
     'agent-applications-preview-proxy': agentApplicationsPreviewProxy,
     'agent-applications-retrieve': agentApplicationsRetrieve,
@@ -884,5 +923,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'agent-applications-session-logs': agentApplicationsSessionLogs,
     'agent-applications-sessions-list': agentApplicationsSessionsList,
     'agent-applications-sessions-retrieve': agentApplicationsSessionsRetrieve,
+    'agent-applications-spec-schema': agentApplicationsSpecSchema,
     'agent-native-tools-list': agentNativeToolsList,
 }

@@ -277,11 +277,16 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         ],
     }),
 
-    listeners(({ actions, props, values, cache }) => ({
-        setDisplayUrl: ({ url }) => {
+    listeners(({ actions, props, values, cache, selectors }) => ({
+        setDisplayUrl: ({ url }, _, __, previousState) => {
             // Don't clobber a separately edited data URL when the page URL changes.
             if (!values.userTouchedDataUrl) {
                 actions.setDataUrl(url?.trim() ?? null)
+            }
+            // the iframe loads displayUrl, so only an actual change produces a load
+            // event; arming on anything else leaves a timer nothing can cancel
+            if (url?.trim().length && url !== selectors.displayUrl(previousState)) {
+                actions.startTrackingLoading()
             }
         },
         setReplayIframeData: ({ replayIframeData }) => {
@@ -319,6 +324,8 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         },
 
         onIframeLoad: () => {
+            actions.stopTrackingLoading()
+
             // it should be impossible to load an iframe without a dataUrl
             // right?!
             const url = values.dataUrl ?? ''
@@ -356,8 +363,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         setDataUrl: ({ url }) => {
             actions.maybeLoadTopUrls()
             if (url?.trim().length) {
-                actions.startTrackingLoading()
-
                 let normalizedUrl = url.trim()
 
                 const isPattern = isUrlPattern(normalizedUrl)
@@ -376,6 +381,14 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
 
             cache.disposables.add(() => {
                 const timerId = setTimeout(() => {
+                    // this timer also runs on scenes that never mount an iframe
+                    // (screenshot detail, the new-heatmap form), where a load-failure
+                    // banner would be a false positive
+                    if (!document.getElementById('heatmap-iframe')) {
+                        actions.stopTrackingLoading()
+                        return
+                    }
+                    posthog.capture('in-app heatmap load failed')
                     actions.setIframeBanner({
                         level: 'error',
                         message: 'The heatmap failed to load (or is very slow).',

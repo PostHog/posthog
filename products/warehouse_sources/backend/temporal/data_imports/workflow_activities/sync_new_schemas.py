@@ -8,7 +8,7 @@ from temporalio import activity
 
 from posthog.temporal.common.logger import get_logger
 
-from products.data_warehouse.backend.data_load.service import delete_discover_schemas_schedule
+from products.data_warehouse.backend.facade.api import delete_discover_schemas_schedule
 from products.warehouse_sources.backend.models.external_data_schema import sync_old_schemas_with_new_schemas
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry

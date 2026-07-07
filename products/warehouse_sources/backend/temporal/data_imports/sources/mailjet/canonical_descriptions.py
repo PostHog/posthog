@@ -24,6 +24,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "LastActivityAt": "Time of the contact's last activity.",
             "LastUpdateAt": "Time the contact was last updated.",
             "DeliveredCount": "The number of messages successfully delivered to the contact.",
+            "delivered_count": "The number of messages successfully delivered to the contact.",
         },
     },
     "contactslist": {
@@ -49,6 +50,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "IsActive": "Whether the subscription is active.",
             "SubscribedAt": "Time the contact subscribed to the list.",
             "UnsubscribedAt": "Time the contact unsubscribed from the list, if applicable.",
+            "list_name": "The name of the contact list the subscription belongs to.",
         },
     },
     "campaign": {
@@ -94,6 +96,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "SpamassassinScore": "The SpamAssassin score assigned to the message.",
             "IsOpenTracked": "Whether open tracking is enabled for the message.",
             "IsClickTracked": "Whether click tracking is enabled for the message.",
+            "attachment_count": "The number of attachments included in the message.",
+            "is_html_part_included": "Whether the message included an HTML part.",
         },
     },
     "contactmetadata": {
@@ -112,6 +116,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "columns": {
             "ID": "Unique identifier for the template.",
             "Name": "The name of the template.",
+            "name": "The name of the template.",
             "Author": "The author of the template.",
             "Purposes": "The intended purposes of the template (marketing, transactional, automation).",
             "OwnerType": "The ownership type of the template (user, global, apikey).",

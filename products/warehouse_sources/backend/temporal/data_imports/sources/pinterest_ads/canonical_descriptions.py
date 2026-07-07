@@ -29,6 +29,12 @@ _ANALYTICS_COLUMNS = {
     "CHECKOUT_ROAS": "Return on ad spend for checkout conversions.",
     "TOTAL_VIDEO_3SEC_VIEWS": "Number of 3-second video views.",
     "TOTAL_VIDEO_P100_COMPLETE": "Number of times the video was watched to completion.",
+    # Normalized (snake_case) metric column names as stored after sync.
+    "paid_impression": "Number of paid impressions served.",
+    "engagement_rate": "Engagements divided by impressions.",
+    "cpc_in_micro_dollar": "Cost per click, in micro-units of the profile currency.",
+    "ecpc_in_micro_dollar": "Effective cost per click, in micro-units of the profile currency.",
+    "ecpc_in_dollar": "Effective cost per click, in the profile currency.",
 }
 
 
@@ -42,6 +48,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "name": "The campaign's name.",
             "status": "Status of the campaign (e.g. ACTIVE, PAUSED, ARCHIVED).",
             "objective_type": "The campaign's advertising objective (e.g. AWARENESS, CONSIDERATION, WEB_CONVERSION).",
+            "summary_status": "Read-only effective delivery status of the campaign (e.g. RUNNING, PAUSED, COMPLETED).",
             "daily_spend_cap": "Daily spend cap for the campaign, in micro-currency.",
             "lifetime_spend_cap": "Lifetime spend cap for the campaign, in micro-currency.",
             "created_time": "Time at which the campaign was created, as a Unix timestamp.",
@@ -59,6 +66,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "campaign_id": "ID of the campaign the ad group belongs to.",
             "name": "The ad group's name.",
             "status": "Status of the ad group (e.g. ACTIVE, PAUSED, ARCHIVED).",
+            "performance_plus_ad_group_type": "The Performance+ ad group type, when the ad group uses Pinterest Performance+ automation.",
             "budget_in_micro_currency": "Budget for the ad group, in micro-currency.",
             "bid_in_micro_currency": "Bid amount for the ad group, in micro-currency.",
             "billable_event": "The event the ad group is billed on (e.g. CLICKTHROUGH, IMPRESSION).",

@@ -1,8 +1,9 @@
 import posthog from 'posthog-js'
+import { useState } from 'react'
 
+import { HedgehogExperiment } from '@posthog/brand/hoggies'
 import { LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { ExperimentsHog } from 'lib/components/hedgehogs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
@@ -79,7 +80,7 @@ function ExperimentResultsWidgetMessage({
                     className="flex max-w-xs flex-col items-center gap-2 px-2 text-balance"
                     data-attr="experiment-results-widget-message"
                 >
-                    <ExperimentsHog className="size-20 shrink-0" />
+                    <HedgehogExperiment className="size-20 shrink-0" />
                     <p className="m-0 text-base font-semibold text-primary">{title}</p>
                     <p className="m-0 text-sm text-muted">{message}</p>
                     {cta}
@@ -172,6 +173,9 @@ export function ExperimentResultsWidget({
 }: DashboardWidgetComponentProps): JSX.Element {
     const payload = result as ExperimentResultsWidgetResult | null | undefined
 
+    // Reflect the empty-state pick immediately rather than waiting for the persist + refresh round-trip.
+    const [optimisticExperimentId, setOptimisticExperimentId] = useState<number | null>(null)
+
     if (loading) {
         return <ExperimentResultsLoadingSkeleton />
     }
@@ -207,10 +211,16 @@ export function ExperimentResultsWidget({
             <div className="w-64 max-w-full">
                 <ExperimentPickerSelect
                     pickerKey={`results-tile-${tileId}`}
-                    value={null}
+                    value={optimisticExperimentId}
                     fullWidth
-                    onChange={(value) => {
-                        void onUpdateConfig(patchExperimentResultsWidgetConfig(config, value))
+                    onChange={async (value) => {
+                        setOptimisticExperimentId(value)
+                        try {
+                            await onUpdateConfig(patchExperimentResultsWidgetConfig(config, value))
+                        } catch {
+                            // Persist failed — drop the optimistic pick so we don't show a selection that wasn't saved.
+                            setOptimisticExperimentId((current) => (current === value ? null : current))
+                        }
                     }}
                     dataAttr="experiment-results-widget-empty-state-select"
                 />
@@ -247,13 +257,20 @@ export function ExperimentResultsWidget({
         <WidgetCardContent>
             <div className="flex flex-col gap-3 p-2" data-attr="experiment-results-widget-body">
                 <div className="flex items-center justify-between gap-2">
+                    {/* The experiment name already shows in the tile filter bar, so link out rather than repeat it. */}
                     <Link
                         to={urls.experiment(experiment.id)}
                         target="_blank"
-                        className="truncate font-semibold text-primary"
-                        title={experiment.name}
+                        className="text-sm font-medium"
+                        onClick={() =>
+                            posthog.capture('dashboard widget open experiment clicked', {
+                                widget_type: 'experiment_results',
+                                tile_id: tileId,
+                                experiment_id: experiment.id,
+                            })
+                        }
                     >
-                        {experiment.name}
+                        See more
                     </Link>
                     <StatusTag status={experiment.status as ExperimentStatus} />
                 </div>

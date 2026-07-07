@@ -146,7 +146,8 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         timings = []
 
         # TODO: can we get this from execute_hogql_query as well?
-        hogql = to_printed_hogql(query, self.team)
+        # Display-only response HogQL (never executed); bypass warehouse ACL so printing doesn't fail closed userless.
+        hogql = to_printed_hogql(query, self.team, bypass_warehouse_access_control=True)
 
         response = execute_hogql_query(
             query_type="FunnelsQuery",
@@ -163,12 +164,16 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         )
 
         results = funnel_class._format_results(response.results)
+        total_median_conversion_time = funnel_class._extract_total_median_conversion_time(
+            response.results, response.columns
+        )
 
         if response.timings is not None:
             timings.extend(response.timings)
 
         return FunnelsQueryResponse(
             results=results,
+            total_median_conversion_time=total_median_conversion_time,
             timings=timings,
             hogql=hogql,
             modifiers=self.modifiers,

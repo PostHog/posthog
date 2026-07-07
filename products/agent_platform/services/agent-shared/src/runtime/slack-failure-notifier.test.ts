@@ -4,6 +4,7 @@ import { AgentApplication, AgentRevision, AgentSession } from '../spec/spec'
 import { HttpFetcher } from './http-client'
 import { SecretResolver } from './secret-resolver'
 import { SlackFailureNotifier } from './slack-failure-notifier'
+import type { TriggerMetadata } from './trigger-metadata'
 
 const APP: AgentApplication = {
     id: 'app-1',
@@ -29,7 +30,7 @@ const REV: AgentRevision = {
     encrypted_env: 'fernet-blob',
 }
 
-function makeSession(triggerMetadata: Record<string, unknown> | null): AgentSession {
+function makeSession(triggerMetadata: TriggerMetadata | null): AgentSession {
     return {
         id: 'sess-1',
         application_id: APP.id,
@@ -62,7 +63,13 @@ function tokenResolver(returns: string | null): SecretResolver {
     return { resolve: vi.fn(async () => returns) }
 }
 
-const SLACK_META = { type: 'slack', workspace_id: 'W1', channel: 'C1', ts: '111.222', thread_ts: '111.222' }
+const SLACK_META: TriggerMetadata = {
+    kind: 'slack',
+    workspace_id: 'W1',
+    channel: 'C1',
+    ts: '111.222',
+    thread_ts: '111.222',
+}
 
 describe('SlackFailureNotifier', () => {
     it('posts a sanitized message to chat.postMessage on the originating thread', async () => {
@@ -98,23 +105,7 @@ describe('SlackFailureNotifier', () => {
         const n = new SlackFailureNotifier({ http, resolver: tokenResolver('xoxb-token') })
 
         await n.notify({
-            session: makeSession({ type: 'webhook', url: 'https://example.com' }),
-            application: APP,
-            revision: REV,
-            reason: 'x',
-            category: 'unknown',
-        })
-
-        expect(fetch).not.toHaveBeenCalled()
-    })
-
-    it('no-ops when channel or thread_ts missing', async () => {
-        const fetch = vi.fn()
-        const http: HttpFetcher = { fetch: fetch as unknown as HttpFetcher['fetch'] }
-        const n = new SlackFailureNotifier({ http, resolver: tokenResolver('xoxb-token') })
-
-        await n.notify({
-            session: makeSession({ type: 'slack', channel: 'C1' }),
+            session: makeSession({ kind: 'webhook' }),
             application: APP,
             revision: REV,
             reason: 'x',

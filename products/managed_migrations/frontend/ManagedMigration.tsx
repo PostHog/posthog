@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconSort } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -237,15 +237,36 @@ export function ManagedMigration(): JSX.Element {
                         />
                     )}
 
-                <div className="flex gap-4">
-                    <LemonField name="access_key" label="Access Key ID" className="flex-1">
+                {managedMigration.source_type === 'mixpanel' ? (
+                    <LemonField
+                        name="secret_key"
+                        label="Project secret"
+                        help={
+                            <span>
+                                Find this under Project settings → Access keys in Mixpanel. See{' '}
+                                <Link
+                                    to="https://docs.mixpanel.com/docs/orgs-and-projects/managing-projects#access-keys"
+                                    target="_blank"
+                                >
+                                    Mixpanel's docs
+                                </Link>
+                                .
+                            </span>
+                        }
+                    >
                         <LemonInput type="password" />
                     </LemonField>
+                ) : (
+                    <div className="flex gap-4">
+                        <LemonField name="access_key" label="Access Key ID" className="flex-1">
+                            <LemonInput type="password" />
+                        </LemonField>
 
-                    <LemonField name="secret_key" label="Secret Access Key" className="flex-1">
-                        <LemonInput type="password" />
-                    </LemonField>
-                </div>
+                        <LemonField name="secret_key" label="Secret Access Key" className="flex-1">
+                            <LemonInput type="password" />
+                        </LemonField>
+                    </div>
+                )}
 
                 <div className="flex justify-end">
                     <LemonButton type="primary" htmlType="submit">

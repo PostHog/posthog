@@ -5,6 +5,7 @@ import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash, IconWarning } fr
 import {
     LemonBanner,
     LemonButton,
+    LemonDialog,
     LemonInput,
     LemonSwitch,
     LemonTab,
@@ -278,6 +279,15 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                     return <span className="text-muted text-sm">No runs</span>
                 }
 
+                // Sentiment evals classify rather than pass/fail, so a pass rate is meaningless
+                if (evaluation.evaluation_type === 'sentiment') {
+                    return (
+                        <div className="text-sm">
+                            {stats.runs_count} run{stats.runs_count !== 1 ? 's' : ''}
+                        </div>
+                    )
+                }
+
                 const passRateColor =
                     stats.pass_rate >= PASS_RATE_SUCCESS_THRESHOLD
                         ? 'text-success'
@@ -334,10 +344,26 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                             status="danger"
                             icon={<IconTrash />}
                             onClick={() => {
-                                deleteWithUndo({
-                                    endpoint: `environments/${currentTeamId}/evaluations`,
-                                    object: evaluation,
-                                    callback: () => loadEvaluations(),
+                                LemonDialog.open({
+                                    title: `Delete ${evaluation.name}?`,
+                                    description: 'Are you sure you want to delete this evaluation?',
+                                    primaryButton: {
+                                        children: 'Delete',
+                                        type: 'primary',
+                                        status: 'danger',
+                                        'data-attr': 'confirm-delete-evaluation',
+                                        onClick: () => {
+                                            deleteWithUndo({
+                                                endpoint: `environments/${currentTeamId}/evaluations`,
+                                                object: evaluation,
+                                                callback: () => loadEvaluations(),
+                                            })
+                                        },
+                                    },
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                        type: 'secondary',
+                                    },
                                 })
                             }}
                         />

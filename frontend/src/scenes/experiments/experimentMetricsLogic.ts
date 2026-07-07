@@ -483,10 +483,20 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 if (!resolvedIds) {
                     return
                 }
+
+                /**
+                 * Mark loading up front so the reload button disables on click, not only once the create POST
+                 * returns. Without this there's a window (the POST round-trip) where the button stays clickable.
+                 * Cleared by setCurrentRecalculation on success, or in the catch below on failure.
+                 */
+                actions.setRecalculationLoading(true)
                 try {
                     const { projectId, experimentId } = resolvedIds
-                    // 201 with a new pending run, or 200 with the already-active one. No results yet.
-                    // Create a recalculation workflow. 201: a new run. 200: one is already running, poll it.
+
+                    /**
+                     * 201 with a new pending run, or 200 with the already-active one. No results yet.
+                     * Create a recalculation workflow. 201: a new run. 200: one is already running, poll it.
+                     */
                     const recalculation = await experimentsMetricsRecalculationCreate(String(projectId), experimentId, {
                         trigger,
                     })
@@ -526,6 +536,10 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                         actions.pollRecalculation(recalculation.id)
                     }
                 } catch (error: any) {
+                    /**
+                     * Re-enable the reload button: the run never started, so nothing else will clear loading.
+                     */
+                    actions.setRecalculationLoading(false)
                     lemonToast.error(error?.detail || 'Failed to trigger metrics recalculation')
                 }
             },

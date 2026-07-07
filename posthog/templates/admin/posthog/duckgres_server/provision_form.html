@@ -4,7 +4,7 @@
 {% block content %}
 <p>Provision a new managed warehouse for an organization and its first team. This runs the same
 flow as the in-product provision API: the duckgres control-plane <code>/provision</code> call, then
-the <code>DuckgresServer</code>, <code>DuckgresServerTeam</code>, and <code>DuckLakeBackfill</code>
+the <code>DuckgresServer</code> and <code>DuckgresServerTeam</code>
 records for the team. The organization's <code>data-warehouse-scene</code> feature flag is
 <strong>not</strong> required here.</p>
 <p><strong>This makes a real control-plane call.</strong> In environments where

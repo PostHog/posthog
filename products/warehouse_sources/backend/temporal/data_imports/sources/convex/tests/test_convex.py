@@ -5,6 +5,7 @@ import pytest
 from unittest.mock import MagicMock, Mock, patch
 
 from parameterized import parameterized
+from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex import (
@@ -34,6 +35,9 @@ def _make_manager(can_resume: bool = False, state: ConvexResumeConfig | None = N
     manager = MagicMock(spec=ResumableSourceManager)
     manager.can_resume.return_value = can_resume
     manager.load_state.return_value = state
+    # Endpoint scoping returns a sibling manager; resolve it back to this mock so call
+    # assertions still observe the same object.
+    manager.with_namespace.return_value = manager
     return manager
 
 
@@ -105,6 +109,21 @@ class TestValidateDeployUrl:
         assert err is None
         called_url = mock_get.return_value.get.call_args.args[0]
         assert called_url.startswith("https://swift-lemur-123.convex.cloud/api/")
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
+    def test_validate_credentials_does_not_leak_url_on_http_error(self, mock_get):
+        err_response = Mock(status_code=400)
+        err_response.json.return_value = {"code": "SomethingUnexpected"}
+        response = Mock()
+        response.raise_for_status.side_effect = HTTPError(response=err_response)
+        mock_get.return_value.get.return_value = response
+
+        ok, err = validate_credentials("https://swift-lemur-123.convex.cloud", "prod:abc123")
+        assert not ok
+        assert err is not None
+        assert "swift-lemur-123" not in err
+        assert "convex.cloud" not in err
+        assert "400" in err
 
 
 class TestListSnapshotResumable:
@@ -215,6 +234,25 @@ class TestDocumentDeltasResumable:
         # Resume state wins over the db_incremental_field_last_value seed.
         first_params = mock_get.return_value.get.call_args_list[0].kwargs["params"]
         assert first_params["cursor"] == 25
+        manager.save_state.assert_not_called()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
+    def test_non_integer_resume_cursor_is_ignored(self, mock_get: Mock) -> None:
+        # A list_snapshot resume cursor ({tablet, id}) leaking into document_deltas must not be
+        # replayed — document_deltas requires an integer _ts and Convex 400s on the malformed
+        # cursor. Fall back to the db watermark instead.
+        saved = ConvexResumeConfig(cursor='{"tablet":"-cxKinhlnLuQp","id":"v9769ybsnjbhc9"}')
+        manager = _make_manager(can_resume=True, state=saved)
+        mock_get.return_value.get.return_value = _make_response(
+            {"values": [{"_id": "b"}], "cursor": 30, "hasMore": False}
+        )
+
+        batches = list(document_deltas("https://x.convex.cloud", "key", "t", 10, manager))
+
+        assert batches == [[{"_id": "b"}]]
+        first_params = mock_get.return_value.get.call_args_list[0].kwargs["params"]
+        assert first_params["cursor"] == 10
+        # Discarding a poisoned cursor must not persist new state off the back of it.
         manager.save_state.assert_not_called()
 
 

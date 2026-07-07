@@ -122,6 +122,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             category="Category the view belongs to.",
             type="Type of object the view lists (e.g. ticket).",
             shared="Whether the view is shared with other users.",
+            deactivated_datetime="Time at which the view was deactivated, if applicable.",
         ),
     },
     "teams": {

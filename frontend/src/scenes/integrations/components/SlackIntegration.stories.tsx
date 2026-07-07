@@ -22,8 +22,7 @@ const SLACK_INSTANCE_SETTINGS = [
 
 const meta: Meta<StoryArgs> = {
     title: 'Components/Integrations/Slack',
-    component: SlackIntegration,
-    parameters: {},
+    parameters: { mockDate: '2023-01-01' },
     render: ({ instanceConfigured = true, integrated = false }) => {
         useAvailableFeatures([AvailableFeature.SUBSCRIPTIONS])
 

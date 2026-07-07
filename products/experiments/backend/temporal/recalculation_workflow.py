@@ -1,5 +1,7 @@
 import asyncio
-from datetime import timedelta
+import dataclasses
+from collections import deque
+from datetime import datetime, timedelta
 
 import temporalio.workflow
 from temporalio.common import RetryPolicy
@@ -10,7 +12,9 @@ from posthog.temporal.common.base import PostHogWorkflow
 with temporalio.workflow.unsafe.imports_passed_through():
     from products.experiments.backend.temporal.models import (
         MAX_METRIC_ATTEMPTS,
+        METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS,
         ExperimentMetricsRecalculationWorkflowInputs,
+        ExperimentMetricToRecalculate,
         RecalculationProgressUpdate,
     )
     from products.experiments.backend.temporal.recalculation_activities import (
@@ -20,20 +24,21 @@ with temporalio.workflow.unsafe.imports_passed_through():
     )
     from products.experiments.backend.temporal.recalculation_metrics import increment_workflow_finished
 
-# Offline recalc shares the org's ClickHouse query budget (app:query:per-org, default 20,
-# halved/quartered under cluster load) with the org's live queries. Cap at 4 so a single run
-# stays under the budget even when it drops to 5, avoiding ClickHouseAtCapacity throttling.
-MAX_CONCURRENT_METRICS = 4
+# Per-run metric fan-out: how many metric activities one run keeps in flight, sized so a typical experiment
+# recalculates in a single concurrent wave. Cross-run ClickHouse load is bounded separately by the dedicated
+# recalc worker's activity-slot cap (MAX_CONCURRENT_ACTIVITIES), not by this constant.
+MAX_CONCURRENT_METRICS = 14
 
 
 @temporalio.workflow.defn(name="experiment-metrics-recalculation-workflow")
 class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
     """Recalculate all metrics for an experiment on demand.
 
-    Each run discovers all metrics, marks the job in_progress (which also pins the single data-window end), fans
-    out one calc activity per metric with bounded concurrency, then finalizes the job status. Per-metric progress
-    counters and errors are folded into the calc activity itself, so the workflow only writes progress at start
-    and finish.
+    Each run discovers all metrics, marks the job in_progress (which also pins the single data-window end), then
+    runs a pool of MAX_CONCURRENT_METRICS workers draining a requeue queue (one activity attempt at a time;
+    transient failures requeue with backoff, the workflow owns retries), and finalizes the job status. Per-metric
+    progress counters and errors are folded into the calc activity itself, so the workflow only writes progress
+    at start and finish.
     """
 
     @staticmethod
@@ -105,32 +110,101 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
 
         temporalio.workflow.logger.info(f"running recalc {recalculation_id} with {len(metrics)} metrics")
 
-        semaphore = asyncio.Semaphore(MAX_CONCURRENT_METRICS)
+        # Worker pool over a requeue queue. Retries are owned by the workflow, not the activity's retry policy,
+        # so a failing attempt frees its concurrency slot the moment it fails instead of holding it through the
+        # whole backoff chain (which would starve healthy metrics behind it). Each activity runs with
+        # maximum_attempts=1; on a transient failure (the activity raises) the metric is requeued at the BACK
+        # with a not-before delay, so other metrics run before its next attempt. A metric is permanently failed
+        # only after MAX_METRIC_ATTEMPTS trips. Permanent failures (StatisticError/ZeroDivisionError) are
+        # returned with success=False, not raised, so they terminate on the first trip.
+        #
+        # Determinism: all time comes from temporalio.workflow.now() (recorded by Temporal, stable on replay)
+        # and waits use temporalio.workflow.sleep(); no wall-clock, no Math.random, no host state.
+        @dataclasses.dataclass
+        class _QueuedMetric:
+            metric: ExperimentMetricToRecalculate
+            attempts: int  # attempts already made (0 on first enqueue)
+            not_before: datetime  # earliest workflow time this item may run
 
-        async def _run_metric(metric):
-            async with semaphore:
-                return await temporalio.workflow.execute_activity(
-                    calculate_experiment_metric_for_recalculation,
-                    args=[metric.experiment_id, metric.metric_uuid, recalculation_id, query_to, metric.metric_type],
-                    # No heartbeat: the activity's only long-running step is one blocking ClickHouse query
-                    # with no progress hooks, so start_to_close_timeout is the real per-attempt ceiling.
-                    start_to_close_timeout=timedelta(minutes=5),
-                    # Throttle errors (ClickHouseAtCapacity / ConcurrencyLimitExceeded) are transient
-                    # backpressure: spread retries with exponential backoff so each attempt lands in a
-                    # different load window. Temporal jitters each interval automatically, so concurrent
-                    # metrics don't re-stampede in lockstep. Permanent failures don't reach here
-                    # (StatisticError/ZeroDivisionError are recorded and returned, never raised).
-                    retry_policy=RetryPolicy(
-                        maximum_attempts=MAX_METRIC_ATTEMPTS,
-                        initial_interval=timedelta(seconds=5),
-                        backoff_coefficient=2.0,
-                        maximum_interval=timedelta(seconds=60),
-                    ),
-                )
+        def _backoff(attempts: int) -> timedelta:
+            # Same schedule the old activity retry policy used: 5s, 10s, 20s, 40s, capped at 60s.
+            return timedelta(seconds=min(5.0 * (2.0 ** (attempts - 1)), 60.0))
 
-        results = await asyncio.gather(*[_run_metric(m) for m in metrics], return_exceptions=True)
-        succeeded = sum(1 for r in results if not isinstance(r, BaseException) and r.success)
-        failed = len(metrics) - succeeded
+        start_now = temporalio.workflow.now()
+        queue: deque[_QueuedMetric] = deque(_QueuedMetric(metric=m, attempts=0, not_before=start_now) for m in metrics)
+        succeeded = 0
+        failed = 0
+        in_flight = 0
+
+        # Re-evaluated by Temporal until true: either an item is queued again (a sibling requeued a retry) or
+        # all in-flight work has drained (so this worker can exit). Defined once, not per loop iteration.
+        def _queue_changed() -> bool:
+            return bool(queue) or in_flight == 0
+
+        async def _worker() -> None:
+            nonlocal succeeded, failed, in_flight
+            while queue or in_flight:
+                if not queue:
+                    # Work is still running in a sibling worker but nothing is runnable here yet. Wait on the
+                    # in-flight work rather than busy-spin; it will requeue or finish, then re-check.
+                    await temporalio.workflow.wait_condition(_queue_changed)
+                    continue
+
+                item = queue.popleft()
+                wait = (item.not_before - temporalio.workflow.now()).total_seconds()
+                if wait > 0:
+                    # Not due yet. Requeue and, if every queued item is also not yet due, sleep until this one
+                    # is (bounded by its own not_before) so we neither busy-spin nor oversleep past a due item.
+                    queue.append(item)
+                    if all((q.not_before - temporalio.workflow.now()).total_seconds() > 0 for q in queue):
+                        await temporalio.workflow.sleep(timedelta(seconds=wait))
+                    continue
+
+                attempt_number = item.attempts + 1
+                is_final_attempt = attempt_number >= MAX_METRIC_ATTEMPTS
+                in_flight += 1
+                try:
+                    result = await temporalio.workflow.execute_activity(
+                        calculate_experiment_metric_for_recalculation,
+                        args=[
+                            item.metric.experiment_id,
+                            item.metric.metric_uuid,
+                            recalculation_id,
+                            query_to,
+                            item.metric.metric_type,
+                            is_final_attempt,
+                        ],
+                        # No heartbeat: the activity's only long-running step is one blocking ClickHouse query
+                        # with no progress hooks, so start_to_close_timeout is the real per-attempt ceiling.
+                        # The query's ClickHouse max_execution_time is capped below this (see models.py) so
+                        # slow queries fail typed inside the activity instead of being killed from outside.
+                        start_to_close_timeout=timedelta(seconds=METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS),
+                        # One attempt per invocation; the workflow owns requeue + backoff (see block comment).
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                    )
+                except Exception:
+                    # Transient failure (the activity raised). Requeue at the back with a backoff delay unless
+                    # this was the final attempt — in which case the activity already persisted the failure.
+                    if is_final_attempt:
+                        failed += 1
+                    else:
+                        queue.append(
+                            _QueuedMetric(
+                                metric=item.metric,
+                                attempts=attempt_number,
+                                not_before=temporalio.workflow.now() + _backoff(attempt_number),
+                            )
+                        )
+                else:
+                    # Returned a result: success, or a permanent failure recorded with success=False.
+                    if result.success:
+                        succeeded += 1
+                    else:
+                        failed += 1
+                finally:
+                    in_flight -= 1
+
+        await asyncio.gather(*[_worker() for _ in range(MAX_CONCURRENT_METRICS)])
 
         # Any failure marks the run as "failed"; the succeeded/failed counts carry the partial-vs-total nuance
         # for consumers that need it (the UI shows "N succeeded, M failed" alongside the status). A status-only

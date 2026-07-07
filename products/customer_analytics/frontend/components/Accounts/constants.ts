@@ -1,5 +1,8 @@
 import type { AccountsOverviewTile } from './accountsOverviewTilesLogic'
 
+// PostHog's Salesforce instance origin; append a record id to deep-link to that record (account or opportunity).
+export const SALESFORCE_ORIGIN = 'https://posthog.my.salesforce.com'
+
 export const ACCOUNTS_OVERVIEW_THRESHOLD_OPERATORS = ['>', '>=', '<', '<=', '=', '!='] as const
 export type AccountsOverviewThresholdOperator = (typeof ACCOUNTS_OVERVIEW_THRESHOLD_OPERATORS)[number]
 
@@ -29,6 +32,7 @@ export const AccountsEvents = {
     Searched: 'customer analytics accounts searched',
     Refreshed: 'customer analytics accounts refreshed',
     Sorted: 'customer analytics accounts sorted',
+    AccountOpened: 'customer analytics accounts account opened',
     ColumnsSaved: 'customer analytics accounts columns saved',
     OverviewTilesEdited: 'customer analytics accounts overview tiles edited',
     OverviewTilesLocalStorageRead: 'customer analytics accounts overview tiles localstorage read',
@@ -44,4 +48,12 @@ export const AccountsEvents = {
     NotesSorted: 'customer analytics accounts notes sorted',
     TabViewed: 'customer analytics account tab viewed',
     RelatedUserClicked: 'customer analytics account related user clicked',
+    OpportunityClicked: 'customer analytics account opportunity clicked',
+    NotesTabViewed: 'customer analytics notes tab viewed',
+    NotesTabSearched: 'customer analytics notes tab searched',
+    NotesTabFiltered: 'customer analytics notes tab filtered',
+    NotesTabNoteClicked: 'customer analytics notes tab note clicked',
+    NotesTabAccountClicked: 'customer analytics notes tab account clicked',
 } as const
+
+export type NotesTabFilterType = 'created_by' | 'account' | 'my_notes'
