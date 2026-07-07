@@ -249,7 +249,11 @@ impl Library {
     ///
     /// Uses `as_str()` as the source of truth to ensure consistency between
     /// parsing and serialization.
-    fn from_sdk_name(sdk_name: &str) -> Self {
+    pub(crate) fn from_sdk_name(sdk_name: &str) -> Self {
+        if sdk_name == "web" {
+            return Library::PosthogJs;
+        }
+
         // Check all known variants using as_str() as the source of truth
         for lib in Self::ALL_KNOWN {
             if lib.as_str() == sdk_name {

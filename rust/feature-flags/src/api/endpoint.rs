@@ -377,9 +377,9 @@ pub async fn flags(
         request_id,
         ip: ip_string.clone(),
         user_agent: user_agent.map(|s| s.to_string()),
-        lib: ua_info.lib_for_logging(),
-        // Browser SDK sends ver= query param, server SDKs send version in User-Agent
-        lib_version: query_params.lib_version.clone().or(ua_info.sdk_version),
+        lib: ua_info.lib_for_logging().map(str::to_string),
+        // The decoded body can override this later. Until then, prefer SDK User-Agent over legacy query params.
+        lib_version: initial_lib_version(&ua_info, &query_params),
         api_version: query_params.version.clone(),
         queue_time_ms,
         concurrency_limit_wait_ms,
@@ -579,6 +579,13 @@ pub async fn flags(
     }
 }
 
+fn initial_lib_version(ua_info: &UserAgentInfo, query_params: &FlagsQueryParams) -> Option<String> {
+    ua_info
+        .sdk_version
+        .clone()
+        .or_else(|| query_params.lib_version.clone())
+}
+
 fn create_request_span(
     headers: &HeaderMap,
     query_params: &FlagsQueryParams,
@@ -726,6 +733,34 @@ mod tests {
             .unwrap();
 
         assert!(matches!(params.compression, Some(Compression::Unsupported)));
+    }
+
+    #[test]
+    fn test_initial_lib_version_prefers_user_agent_over_query_param() {
+        let query_params = FlagsQueryParams {
+            lib_version: Some("query-1.0".to_string()),
+            ..Default::default()
+        };
+        let ua_info = UserAgentInfo::parse(Some("posthog-node/2.0"));
+
+        assert_eq!(
+            initial_lib_version(&ua_info, &query_params).as_deref(),
+            Some("2.0")
+        );
+    }
+
+    #[test]
+    fn test_initial_lib_version_falls_back_to_query_param() {
+        let query_params = FlagsQueryParams {
+            lib_version: Some("query-1.0".to_string()),
+            ..Default::default()
+        };
+        let ua_info = UserAgentInfo::parse(Some("Mozilla/5.0"));
+
+        assert_eq!(
+            initial_lib_version(&ua_info, &query_params).as_deref(),
+            Some("query-1.0")
+        );
     }
 
     #[test]

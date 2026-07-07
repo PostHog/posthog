@@ -1340,7 +1340,7 @@ impl FeatureFlagMatcher {
                             flag_key = %flag.key,
                             team_id = %flag.team_id,
                             condition_index = %index,
-                            lib = log.lib,
+                            lib = log.lib.as_deref(),
                             lib_version = log.lib_version.as_deref(),
                             "Person condition uses device_id bucketing but no device_id provided, skipping"
                         );

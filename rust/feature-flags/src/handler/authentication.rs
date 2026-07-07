@@ -23,6 +23,8 @@ pub async fn parse_and_authenticate(
         slot.set(decoded_body).ok();
     }
 
+    super::stamp_body_sdk_info(&request);
+
     let token = request.extract_token()?;
     let team = flag_service.verify_token_and_get_team(&token).await?;
 

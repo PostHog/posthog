@@ -65,6 +65,20 @@ pub struct FlagRequest {
     // It's mostly used for folks who want to save money on flag evaluations while still using
     // `/flags` to load the rest of their PostHog configuration.
     pub disable_flags: Option<bool>,
+    #[serde(
+        default,
+        alias = "$lib",
+        alias = "lib",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub lib: Option<String>,
+    #[serde(
+        default,
+        alias = "$lib_version",
+        alias = "lib_version",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub lib_version: Option<String>,
     #[serde(default, alias = "$properties")]
     pub person_properties: Option<HashMap<String, Value>>,
     #[serde(default, alias = "$groups")]
@@ -156,6 +170,36 @@ impl FlagRequest {
             }
             _ => {}
         }
+    }
+
+    pub fn extract_lib(&self) -> Option<String> {
+        self.lib
+            .as_deref()
+            .filter(|lib| !lib.is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                self.person_properties
+                    .as_ref()
+                    .and_then(|properties| properties.get("$lib"))
+                    .and_then(|value| value.as_str())
+                    .filter(|lib| !lib.is_empty())
+                    .map(str::to_string)
+            })
+    }
+
+    pub fn extract_lib_version(&self) -> Option<String> {
+        self.lib_version
+            .as_deref()
+            .filter(|version| !version.is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                self.person_properties
+                    .as_ref()
+                    .and_then(|properties| properties.get("$lib_version"))
+                    .and_then(|value| value.as_str())
+                    .filter(|version| !version.is_empty())
+                    .map(str::to_string)
+            })
     }
 
     /// Extracts the token from the request.
@@ -849,6 +893,126 @@ mod tests {
         assert_eq!(props.len(), 2);
         assert_eq!(props.get("email").unwrap(), &json!("user@example.com"));
         assert_eq!(props.get("age").unwrap(), &json!(25));
+    }
+
+    #[test]
+    fn test_lib_accepts_top_level_body_aliases() {
+        let dollar_alias = FlagRequest::from_bytes(Bytes::from(
+            json!({
+                "distinct_id": "user123",
+                "token": "my_token1",
+                "$lib": "web"
+            })
+            .to_string(),
+        ))
+        .expect("failed to parse request");
+        assert_eq!(dollar_alias.extract_lib().as_deref(), Some("web"));
+
+        let plain_alias = FlagRequest::from_bytes(Bytes::from(
+            json!({
+                "distinct_id": "user123",
+                "token": "my_token1",
+                "lib": "posthog-node"
+            })
+            .to_string(),
+        ))
+        .expect("failed to parse request");
+        assert_eq!(plain_alias.extract_lib().as_deref(), Some("posthog-node"));
+    }
+
+    #[test]
+    fn test_lib_falls_back_to_person_properties() {
+        let flag_payload = FlagRequest::from_bytes(Bytes::from(
+            json!({
+                "distinct_id": "user123",
+                "token": "my_token1",
+                "person_properties": {
+                    "$lib": "web"
+                }
+            })
+            .to_string(),
+        ))
+        .expect("failed to parse request");
+
+        assert_eq!(flag_payload.extract_lib().as_deref(), Some("web"));
+    }
+
+    #[test]
+    fn test_top_level_lib_precedes_person_properties() {
+        let flag_payload = FlagRequest::from_bytes(Bytes::from(
+            json!({
+                "distinct_id": "user123",
+                "token": "my_token1",
+                "$lib": "web",
+                "person_properties": {
+                    "$lib": "posthog-node"
+                }
+            })
+            .to_string(),
+        ))
+        .expect("failed to parse request");
+
+        assert_eq!(flag_payload.extract_lib().as_deref(), Some("web"));
+    }
+
+    #[test]
+    fn test_lib_version_accepts_top_level_body_aliases() {
+        let dollar_alias = FlagRequest::from_bytes(Bytes::from(
+            json!({
+                "distinct_id": "user123",
+                "token": "my_token1",
+                "$lib_version": "1.2.3"
+            })
+            .to_string(),
+        ))
+        .expect("failed to parse request");
+        assert_eq!(dollar_alias.extract_lib_version().as_deref(), Some("1.2.3"));
+
+        let plain_alias = FlagRequest::from_bytes(Bytes::from(
+            json!({
+                "distinct_id": "user123",
+                "token": "my_token1",
+                "lib_version": "1.2.4"
+            })
+            .to_string(),
+        ))
+        .expect("failed to parse request");
+        assert_eq!(plain_alias.extract_lib_version().as_deref(), Some("1.2.4"));
+    }
+
+    #[test]
+    fn test_lib_version_falls_back_to_person_properties() {
+        let flag_payload = FlagRequest::from_bytes(Bytes::from(
+            json!({
+                "distinct_id": "user123",
+                "token": "my_token1",
+                "person_properties": {
+                    "$lib_version": "1.2.3"
+                }
+            })
+            .to_string(),
+        ))
+        .expect("failed to parse request");
+
+        assert_eq!(flag_payload.extract_lib_version().as_deref(), Some("1.2.3"));
+    }
+
+    #[test]
+    fn test_top_level_lib_version_precedes_person_properties() {
+        let flag_payload = FlagRequest::from_bytes(Bytes::from(
+            json!({
+                "distinct_id": "user123",
+                "token": "my_token1",
+                "$lib_version": "1.2.3",
+                "person_properties": {
+                    "$lib_version": "9.9.9"
+                }
+            })
+            .to_string(),
+        ))
+        .expect("failed to parse request");
+
+        assert_eq!(flag_payload.extract_lib_version().as_deref(), Some("1.2.3"));
     }
 
     #[test]
