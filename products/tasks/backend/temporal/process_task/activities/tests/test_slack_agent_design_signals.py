@@ -21,13 +21,19 @@ slack_agent_design_signals_module = importlib.import_module(
 
 
 class StubWorkflowHandle:
-    async def signal(self, _signal_name: str, _arg: Any = None) -> None:
-        return None
+    def __init__(self, signals: list[tuple[str, Any]]) -> None:
+        self.signals = signals
+
+    async def signal(self, signal_name: str, arg: Any = None) -> None:
+        self.signals.append((signal_name, arg))
 
 
 class StubTemporalClient:
+    def __init__(self, signals: list[tuple[str, Any]]) -> None:
+        self.signals = signals
+
     def get_workflow_handle(self, _workflow_id: str) -> StubWorkflowHandle:
-        return StubWorkflowHandle()
+        return StubWorkflowHandle(self.signals)
 
 
 @pytest.mark.asyncio
@@ -35,6 +41,7 @@ async def test_relay_agent_design_signals_resumes_from_last_heartbeat(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict[str, Any] = {}
+    signals: list[tuple[str, Any]] = []
     heartbeats: list[tuple[Any, ...]] = []
 
     class StubTaskRunRedisStream:
@@ -47,9 +54,9 @@ async def test_relay_agent_design_signals_resumes_from_last_heartbeat(
             captured["start_id"] = start_id
             captured["keepalive_interval_seconds"] = keepalive_interval_seconds
             yield None
-            yield "124-0", {"type": "event"}
+            yield "124-0", _text_chunk("Hello")
 
-    async_connect = AsyncMock(return_value=StubTemporalClient())
+    async_connect = AsyncMock(return_value=StubTemporalClient(signals))
     monkeypatch.setattr("posthog.temporal.common.client.async_connect", async_connect)
     monkeypatch.setattr(slack_agent_design_signals_module, "TaskRunRedisStream", StubTaskRunRedisStream)
     monkeypatch.setattr(
@@ -68,6 +75,10 @@ async def test_relay_agent_design_signals_resumes_from_last_heartbeat(
 
     assert captured["stream_key"] == "task-run-stream:run-id"
     assert captured["start_id"] == "123-0"
+    assert signals == [
+        ("turn_started", {"slack_thread_context": {}}),
+        ("agent_text_delta", "Hello"),
+    ]
     assert heartbeats == [
         ({HEARTBEAT_LAST_PROCESSED_STREAM_ID_KEY: "123-0"},),
         ({HEARTBEAT_LAST_PROCESSED_STREAM_ID_KEY: "124-0"},),
