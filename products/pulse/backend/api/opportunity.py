@@ -40,6 +40,11 @@ from products.pulse.backend.temporal.inputs import (
 # total spend if a team clicks aggressively. Counted off research_requested_at.
 RESEARCH_DAILY_CAP = 10
 
+# Research is only meaningful for live opportunities; dismissed/resolved ones are closed out. The
+# frontend hides the button off these statuses, and the endpoint enforces the same so a direct API
+# call can't burn the daily cap researching a closed opportunity.
+RESEARCHABLE_STATUSES = frozenset({Opportunity.Status.OPEN, Opportunity.Status.ACTED})
+
 
 class ProposedExperimentTargetMetricSerializer(serializers.Serializer):
     insight_short_id = serializers.CharField(help_text="Short ID of the insight the experiment should move.")
@@ -265,6 +270,8 @@ class OpportunityViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
                 code=AI_CONSENT_ERROR_CODE,
             )
         opportunity = self.get_object()
+        if opportunity.status not in RESEARCHABLE_STATUSES:
+            raise ValidationError("Research is only available for open or acted opportunities.")
         # Soft cap, deliberately cheap: counts opportunities researched in the window (a re-research
         # overwrites its own timestamp, so it stays counted once), and the count-then-stamp pair is
         # unlocked, so concurrent clicks can slip slightly past the cap. Single-flight + the bounded

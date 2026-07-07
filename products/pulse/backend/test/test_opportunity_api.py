@@ -1,6 +1,7 @@
 import uuid
 from datetime import timedelta
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -212,6 +213,18 @@ class TestOpportunityAPI(APIBaseTest):
         assert response.json()["code"] == "ai_consent_required"
         mock_connect.assert_not_called()
 
+    @parameterized.expand([("dismissed", Opportunity.Status.DISMISSED), ("resolved", Opportunity.Status.RESOLVED)])
+    @patch("products.pulse.backend.api.opportunity.sync_connect")
+    def test_research_rejected_for_closed_status(self, _name: str, closed_status: str, mock_connect: MagicMock) -> None:
+        opportunity = self._opportunity(opportunity_status=closed_status)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/pulse/opportunities/{opportunity.id}/research/")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_connect.assert_not_called()
+        opportunity.refresh_from_db()
+        assert opportunity.research_requested_at is None
+
     @patch("products.pulse.backend.api.opportunity.sync_connect")
     def test_research_conflict_when_already_running(self, mock_connect: MagicMock) -> None:
         client = _temporal_client()
@@ -228,6 +241,7 @@ class TestOpportunityAPI(APIBaseTest):
         # A collision must not stamp requested_at — the in-flight run already owns it.
         assert opportunity.research_requested_at is None
 
+    @freeze_time("2026-07-02T12:00:00Z")
     @patch("products.pulse.backend.api.opportunity.sync_connect")
     def test_research_daily_cap_returns_429(self, mock_connect: MagicMock) -> None:
         now = timezone.now()
@@ -242,6 +256,7 @@ class TestOpportunityAPI(APIBaseTest):
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         mock_connect.assert_not_called()
 
+    @freeze_time("2026-07-02T12:00:00Z")
     @patch("products.pulse.backend.api.opportunity.sync_connect")
     def test_research_daily_cap_ignores_old_runs(self, mock_connect: MagicMock) -> None:
         mock_connect.return_value = _temporal_client()
