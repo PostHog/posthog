@@ -424,7 +424,7 @@ class _FakeCompleted:
 
 
 def test_pr_head_worktree_yields_path_and_cleans_up(monkeypatch: pytest.MonkeyPatch) -> None:
-    """On success the context manager yields the worktree path and removes it on exit."""
+    """On success (stacked PR) the context manager yields the worktree path and removes it on exit."""
     calls: list[list[str]] = []
 
     def fake_run(cmd: list[str], **kwargs: object) -> _FakeCompleted:
@@ -434,7 +434,7 @@ def test_pr_head_worktree_yields_path_and_cleans_up(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(review_pr.subprocess, "run", fake_run)
 
     pipeline = Pipeline(pr_number=42, repo="PostHog/posthog")
-    pipeline.pr = _fake_pr(head_sha="cafe123")
+    pipeline.pr = _fake_pr(head_sha="cafe123", base_ref="feat/parent-branch")
 
     with pipeline._pr_head_worktree() as explore_root:
         assert explore_root is not None
@@ -458,10 +458,26 @@ def test_pr_head_worktree_falls_back_to_none_on_failure(monkeypatch: pytest.Monk
     monkeypatch.setattr(review_pr.subprocess, "run", fake_run)
 
     pipeline = Pipeline(pr_number=7, repo="PostHog/posthog")
-    pipeline.pr = _fake_pr(head_sha="deadbeef")
+    pipeline.pr = _fake_pr(head_sha="deadbeef", base_ref="feat/parent-branch")
 
     with pipeline._pr_head_worktree() as explore_root:
         assert explore_root is None
 
     # No worktree was created, so none is removed.
     assert not any("remove" in c for c in calls)
+
+
+def test_pr_head_worktree_skipped_for_non_stacked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A non-stacked PR (base is master) reviews from master — no worktree,
+    so git is never invoked and the full-tree checkout cost is skipped."""
+
+    def fake_run(cmd: list[str], **kwargs: object) -> _FakeCompleted:
+        raise AssertionError(f"non-stacked PR must not touch git: {cmd}")
+
+    monkeypatch.setattr(review_pr.subprocess, "run", fake_run)
+
+    pipeline = Pipeline(pr_number=7, repo="PostHog/posthog")
+    pipeline.pr = _fake_pr(head_sha="cafe123", base_ref="master")
+
+    with pipeline._pr_head_worktree() as explore_root:
+        assert explore_root is None

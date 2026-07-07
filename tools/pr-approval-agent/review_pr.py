@@ -642,20 +642,24 @@ class Pipeline:
 
     @contextmanager
     def _pr_head_worktree(self):
-        """Yield a detached worktree at the PR head, or None on failure.
+        """Yield a detached worktree at the PR head, or None to review from master.
 
-        The agent's filesystem tools need to see the codebase as it will look
-        after the PR lands. For a stacked PR that includes code from parent
-        PRs that aren't on the base branch yet — without it, those parents'
-        symbols look like broken imports and the reviewer false-refuses. The
-        main checkout stays master (the workflow hardcodes that so a PR can't
-        swap the review script), so the worktree is the only place the head
-        tree is materialized. Cleaned up on exit; falls back to None (review
-        from master) if creation fails.
+        Only stacked PRs need this: their head contains code from parent PRs
+        that aren't on the base branch yet, so without materializing the head
+        tree those parents' symbols look like broken imports and the reviewer
+        false-refuses. A non-stacked PR (base is master) reviews from the master
+        checkout exactly as before — yield None and skip the full-tree checkout.
+        The main checkout stays master (the workflow hardcodes that so a PR can't
+        swap the review script), so the worktree is the only place the head tree
+        is materialized. Cleaned up on exit; falls back to None if creation fails.
 
         SECURITY: the worktree is PR-authored content; isolation from it as
         *configuration* is enforced by setting_sources=[] in Reviewer.
         """
+        if self.pr.base_ref == "master":
+            yield None
+            return
+
         worktree_dir = Path(tempfile.gettempdir()) / f"pr-review-{self.pr_number}-{uuid.uuid4().hex[:8]}"
         created = False
         try:
