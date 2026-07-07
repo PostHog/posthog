@@ -24,6 +24,7 @@ import type { Experiment, FeatureFlagFilters, MultivariateFlagVariant } from '~/
 import { NEW_EXPERIMENT } from '../constants'
 import { FORM_MODES, experimentLogic } from '../experimentLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
+import { toExperimentWritePayload } from '../utils'
 import type { createExperimentLogicType } from './createExperimentLogicType'
 import { validateExperimentSubmission } from './experimentSubmissionValidation'
 import type { FeatureFlagKeyValidation } from './variantsPanelLogic'
@@ -352,8 +353,14 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     })),
                 ]
 
-                const experimentPayload: Experiment = {
-                    ...values.experiment,
+                // Only a key confirmed available means the backend will create the flag and can
+                // apply config to it. In link flows (validation cleared or failed with an
+                // existing flag) the experiment links to the pre-existing flag as-is, and the
+                // API rejects explicit flag config.
+                const experimentPayload = {
+                    ...toExperimentWritePayload(values.experiment, {
+                        omitFlagConfig: values.featureFlagKeyValidation?.valid !== true,
+                    }),
                     saved_metrics_ids: savedMetrics,
                 }
 

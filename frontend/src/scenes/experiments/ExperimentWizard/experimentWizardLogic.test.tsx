@@ -679,6 +679,12 @@ describe('experimentWizardLogic', () => {
         it('posts the experiment to the backend on save', async () => {
             createLogic.actions.setExperimentValue('name', 'Ship it')
             createLogic.actions.setExperimentValue('feature_flag_key', 'ship-it')
+            // The About step validates the key as the user types; a confirmed-available key is
+            // what makes the save send the flag config (via the feature_flag object).
+            logic.actions.validateFeatureFlagKey('ship-it')
+            await waitFor(() => {
+                expect(createLogic.values.featureFlagKeyValidation).toMatchObject({ valid: true })
+            })
 
             logic.actions.saveExperiment()
 
@@ -689,13 +695,19 @@ describe('experimentWizardLogic', () => {
             expect(capturedPayload).toMatchObject({
                 name: 'Ship it',
                 feature_flag_key: 'ship-it',
-                parameters: expect.objectContaining({
-                    feature_flag_variants: expect.arrayContaining([
-                        expect.objectContaining({ key: 'control' }),
-                        expect.objectContaining({ key: 'test' }),
-                    ]),
-                }),
+                feature_flag: {
+                    filters: expect.objectContaining({
+                        multivariate: {
+                            variants: expect.arrayContaining([
+                                expect.objectContaining({ key: 'control' }),
+                                expect.objectContaining({ key: 'test' }),
+                            ]),
+                        },
+                    }),
+                },
             })
+            // Flag config no longer travels through the deprecated parameters keys.
+            expect(capturedPayload.parameters).not.toHaveProperty('feature_flag_variants')
         })
     })
 

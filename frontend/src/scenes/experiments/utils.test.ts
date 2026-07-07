@@ -41,6 +41,7 @@ import {
     isLegacyExperimentQuery,
     metricResults,
     percentageDistribution,
+    toExperimentWritePayload,
 } from './utils'
 
 describe('utils', () => {
@@ -1583,5 +1584,55 @@ describe('getEventCountQuery', () => {
         const query = getEventCountQuery(metric, true)
 
         expect(query).toBeNull()
+    })
+})
+
+describe('toExperimentWritePayload', () => {
+    const experiment = {
+        name: 'test',
+        feature_flag: { id: 456, key: 'test-flag' },
+        parameters: {
+            feature_flag_variants: [
+                { key: 'control', name: null, rollout_percentage: 60 },
+                { key: 'test', name: 'Test', rollout_percentage: 40 },
+            ],
+            rollout_percentage: 80,
+            aggregation_group_type_index: 1,
+            feature_flag_payloads: { test: '"v1"' },
+            ensure_experience_continuity: false,
+            variant_notes: { control: 'baseline' },
+        },
+    } as unknown as Experiment
+
+    it('moves flag config from parameters into the feature_flag object and drops the echoed flag', () => {
+        expect(toExperimentWritePayload(experiment)).toEqual({
+            name: 'test',
+            parameters: { variant_notes: { control: 'baseline' } },
+            feature_flag: {
+                filters: {
+                    multivariate: {
+                        variants: [
+                            { key: 'control', rollout_percentage: 60 },
+                            { key: 'test', name: 'Test', rollout_percentage: 40 },
+                        ],
+                    },
+                    groups: [{ properties: [], rollout_percentage: 80 }],
+                },
+                ensure_experience_continuity: false,
+            },
+        })
+    })
+
+    it('omits flag config entirely when linking a pre-existing flag', () => {
+        expect(toExperimentWritePayload(experiment, { omitFlagConfig: true })).toEqual({
+            name: 'test',
+            parameters: { variant_notes: { control: 'baseline' } },
+        })
+    })
+
+    it('sends no feature_flag object when parameters carry no flag config', () => {
+        expect(toExperimentWritePayload({ parameters: { variant_notes: {} } } as unknown as Experiment)).toEqual({
+            parameters: { variant_notes: {} },
+        })
     })
 })

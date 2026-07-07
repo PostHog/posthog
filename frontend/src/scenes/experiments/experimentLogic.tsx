@@ -107,11 +107,14 @@ import { modalsLogic } from './modalsLogic'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
 import {
+    type ExperimentUpdatePayload,
     featureFlagEligibleForExperiment,
     getExperimentVariants,
     getOrderedMetricsWithResults,
     initializeMetricOrdering,
     isLegacyExperiment,
+    toExperimentWritePayload,
+    toFlagVariantsInput,
 } from './utils'
 
 export const NEW_EXPERIMENT: Experiment = {
@@ -1258,7 +1261,9 @@ export const experimentLogic = kea<experimentLogicType>([
                     response = await api.update(
                         `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
                         {
-                            ...values.experiment,
+                            // Sends variant split and rollout through the feature_flag object,
+                            // dropping the deprecated flag-config parameters keys.
+                            ...toExperimentWritePayload(values.experiment),
                             running_time_calculation: {
                                 ...values.experiment?.running_time_calculation,
                                 recommended_running_time: recommendedRunningTime,
@@ -1289,7 +1294,11 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
                 } else {
                     response = await api.create(`api/projects/${values.currentProjectId}/experiments`, {
-                        ...values.experiment,
+                        // A pre-existing flag is linked as-is: the API rejects explicit flag
+                        // config for it, so only send config when the flag will be created.
+                        ...toExperimentWritePayload(values.experiment, {
+                            omitFlagConfig: !!values.validExistingFeatureFlag,
+                        }),
                         running_time_calculation:
                             /**
                              * only if we are creating a new experiment we need to reset
@@ -1778,12 +1787,14 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         updateDistribution: async ({ variants, rolloutPercentage }) => {
-            const { rollout_percentage: _, ...otherParams } = values.experiment?.parameters || {}
             actions.updateExperiment({
-                parameters: {
-                    ...otherParams,
-                    feature_flag_variants: variants,
-                    ...(rolloutPercentage !== undefined ? { rollout_percentage: rolloutPercentage } : {}),
+                feature_flag: {
+                    filters: {
+                        multivariate: { variants: toFlagVariantsInput(variants) },
+                        ...(rolloutPercentage !== undefined
+                            ? { groups: [{ properties: [], rollout_percentage: rolloutPercentage }] }
+                            : {}),
+                    },
                 },
                 holdout_id: values.experiment.holdout_id,
                 update_feature_flag_params: true,
@@ -2498,7 +2509,7 @@ export const experimentLogic = kea<experimentLogicType>([
         experimentUpdate: [
             null as Experiment | null,
             {
-                updateExperiment: async (update: Partial<Experiment> & { update_feature_flag_params?: boolean }) => {
+                updateExperiment: async (update: ExperimentUpdatePayload) => {
                     const response: Experiment = await api.update(
                         `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
                         update
