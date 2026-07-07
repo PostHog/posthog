@@ -579,10 +579,13 @@ class ActionViewSet(
         if field not in self._ORDERING_WHITELIST:
             return None
         prefix = "-" if raw.startswith("-") else ""
-        # created_by is a FK, so sort by the creator's name rather than the raw id.
-        column = "created_by__first_name" if field == "created_by" else field
-        ordering = [f"{prefix}{column}"]
-        if column != "name":
+        # created_by is a FK, so sort by the creator's full name rather than the raw id.
+        ordering: list[str]
+        if field == "created_by":
+            ordering = [f"{prefix}created_by__first_name", f"{prefix}created_by__last_name"]
+        else:
+            ordering = [f"{prefix}{field}"]
+        if field != "name":
             ordering.append("name")  # stable tiebreak within equal values
         return ordering
 
