@@ -1,9 +1,16 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { canonicalizeApiHost, canonicalizeUiHost, toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarFetch, toolbarUploadMedia } from '~/toolbar/toolbarFetch'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
+
+// The toolbar logger mirrors intentional error/auth paths to the console (its job on
+// customer pages); tests exercise those paths on purpose, so stub the boundary.
+jest.mock('~/toolbar/toolbarLogger', () => ({
+    toolbarLogger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+}))
 
 // The toolbar calls `global.fetch` directly (not the app api client / MSW). Reassign the mock per
 // test in beforeEach — the MSW jest harness installs its own `global.fetch` in a global beforeAll,
@@ -33,6 +40,11 @@ function mockTokenExchangeSuccess(): void {
 }
 
 describe('toolbar toolbarConfigLogic', () => {
+    // These suites intentionally reject requests to exercise error states; the
+    // failures are asserted via authStatus/values, so skip the global loader logging.
+    beforeAll(silenceKeaLoadersErrors)
+    afterAll(resumeKeaLoadersErrors)
+
     let mockOpen: jest.SpyInstance
 
     beforeEach(() => {

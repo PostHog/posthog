@@ -2072,6 +2072,8 @@ class DashboardsViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "dashboard"
+    # Record a tags change per dashboard when bulk_update_tags mutates it, matching the single-object path.
+    bulk_tag_activity_scope = "Dashboard"
     queryset = Dashboard.objects_including_soft_deleted.order_by("-pinned", "name")
     permission_classes = [CanEditDashboard]
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]

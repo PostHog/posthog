@@ -689,19 +689,19 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         },
         cancelInProgressLogs: ({ logsAbortController }) => {
             if (values.logsAbortController !== null) {
-                values.logsAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.logsAbortController.abort(new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'))
             }
             actions.setLogsAbortController(logsAbortController)
         },
         cancelInProgressSparkline: ({ sparklineAbortController }) => {
             if (values.sparklineAbortController !== null) {
-                values.sparklineAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.sparklineAbortController.abort(new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'))
             }
             actions.setSparklineAbortController(sparklineAbortController)
         },
         cancelInProgressLiveTail: ({ liveTailAbortController }) => {
             if (values.liveTailAbortController !== null) {
-                values.liveTailAbortController.abort('live tail request cancelled')
+                values.liveTailAbortController.abort(new DOMException('live tail request cancelled', 'AbortError'))
             }
             actions.setLiveTailAbortController(liveTailAbortController)
             cache.disposables.dispose('liveTailTimer')

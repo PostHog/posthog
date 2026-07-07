@@ -1489,12 +1489,21 @@ def list_account_notes_for_view(
     search: str | None = None,
     account_id: UUID | str | None = None,
     created_by_ids: list[int] | None = None,
+    assigned_to_ids: list[int] | None = None,
 ) -> tuple[list[contracts.AccountNoteView], int]:
     """Team-wide account notes (internal notebooks linked to accounts), newest-modified first,
     restricted to accounts the caller can read. ``search`` matches note title/content (full-text)
     and account name (substring). ``account_id`` narrows to one account, ``created_by_ids`` to
-    notes authored by the given users. Returns ``(page, total_count)``."""
-    accessible_account_ids = _accounts_queryset(team_id, user_access_control).values_list("id", flat=True)
+    notes authored by the given users, ``assigned_to_ids`` to notes on accounts whose CSM or
+    account executive is one of the given users. Returns ``(page, total_count)``."""
+    accounts = _accounts_queryset(team_id, user_access_control)
+    if assigned_to_ids:
+        # "Assigned to" means CSM or AE (account_owner excluded), matching the accounts list
+        # HogQL runner's ASSIGNED_ROLE_KEYS.
+        accounts = accounts.filter(
+            Q(_properties__csm__id__in=assigned_to_ids) | Q(_properties__account_executive__id__in=assigned_to_ids)
+        )
+    accessible_account_ids = accounts.values_list("id", flat=True)
     notes, count = notebooks.list_team_account_notes(
         team_id,
         account_ids=accessible_account_ids,
@@ -1709,11 +1718,13 @@ def _to_account_relationship(relationship: AccountRelationship) -> contracts.Acc
     )
 
 
-def list_account_relationship_definitions(team_id: int) -> list[contracts.AccountRelationshipDefinition]:
-    return [
-        _to_account_relationship_definition(definition)
-        for definition in AccountRelationshipDefinition.objects.for_team(team_id).order_by("name")
-    ]
+def list_account_relationship_definitions(
+    team_id: int, offset: int = 0, limit: int = 100
+) -> tuple[list[contracts.AccountRelationshipDefinition], int]:
+    queryset = AccountRelationshipDefinition.objects.for_team(team_id).order_by("name")
+    total_count = queryset.count()
+    page = queryset[offset : offset + limit]
+    return [_to_account_relationship_definition(definition) for definition in page], total_count
 
 
 def create_account_relationship_definition(
@@ -1732,6 +1743,32 @@ def create_account_relationship_definition(
             is_single_holder=is_single_holder,
             created_by=created_by,
         )
+    except IntegrityError:
+        raise AccountRelationshipDefinitionConflictError(
+            "A relationship definition with this name already exists for this team."
+        )
+    return _to_account_relationship_definition(definition)
+
+
+def get_account_relationship_definition(
+    team_id: int, definition_id: str | UUID
+) -> contracts.AccountRelationshipDefinition | None:
+    definition = AccountRelationshipDefinition.objects.for_team(team_id).filter(id=definition_id).first()
+    if definition is None:
+        return None
+    return _to_account_relationship_definition(definition)
+
+
+def update_account_relationship_definition(
+    *, team_id: int, definition_id: str | UUID, fields: dict[str, Any]
+) -> contracts.AccountRelationshipDefinition | None:
+    definition = AccountRelationshipDefinition.objects.for_team(team_id).filter(id=definition_id).first()
+    if definition is None:
+        return None
+    for attr, value in fields.items():
+        setattr(definition, attr, value)
+    try:
+        definition.save()
     except IntegrityError:
         raise AccountRelationshipDefinitionConflictError(
             "A relationship definition with this name already exists for this team."
@@ -1759,3 +1796,52 @@ def list_account_relationships(
     if not include_history:
         queryset = queryset.filter(ended_at__isnull=True)
     return [_to_account_relationship(relationship) for relationship in queryset]
+
+
+class AccountRelationshipDefinitionNotFound(Exception):
+    pass
+
+
+class AccountRelationshipAssigneeNotInOrganization(Exception):
+    pass
+
+
+def assign_account_relationship(
+    *, team_id: int, account_id: str | UUID, definition_id: str | UUID, user_id: int, created_by: "User"
+) -> contracts.AccountRelationship:
+    """Assign a user to an account relationship. Single-holder definitions hand off — the
+    previous active assignment is ended in the same transaction. Idempotent when the user
+    already actively holds the relationship.
+
+    Raises ``Account_DoesNotExist`` (→ 404), ``AccountRelationshipDefinitionNotFound`` and
+    ``AccountRelationshipAssigneeNotInOrganization`` (→ 400).
+    """
+    account = Account.objects.for_team(team_id).select_related("team").get(id=account_id)
+    definition = AccountRelationshipDefinition.objects.for_team(team_id).filter(id=definition_id).first()
+    if definition is None:
+        raise AccountRelationshipDefinitionNotFound(str(definition_id))
+    membership = (
+        OrganizationMembership.objects.select_related("user")
+        .filter(organization_id=account.team.organization_id, user_id=user_id)
+        .first()
+    )
+    if membership is None:
+        raise AccountRelationshipAssigneeNotInOrganization(str(user_id))
+    relationship = _relationships_logic.assign(
+        team_id=team_id, account=account, definition=definition, user=membership.user, created_by=created_by
+    )
+    return _to_account_relationship(relationship)
+
+
+def end_account_relationship(
+    *, team_id: int, account_id: str | UUID, relationship_id: str | UUID
+) -> contracts.AccountRelationship | None:
+    """End an active assignment. Returns None when no active assignment matches this account
+    (missing, another account's, or already ended) — mapped to 404."""
+    try:
+        relationship = _relationships_logic.end_relationship(
+            team_id=team_id, account_id=account_id, relationship_id=str(relationship_id)
+        )
+    except _relationships_logic.AccountRelationshipNotFound:
+        return None
+    return _to_account_relationship(relationship)
