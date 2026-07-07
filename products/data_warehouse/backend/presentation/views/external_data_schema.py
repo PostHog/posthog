@@ -1619,6 +1619,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         data = {
             "incremental_fields": schema.incremental_fields,
+            "index_warning_copy": new_source.index_warning_copy,
             "incremental_available": schema.supports_incremental,
             "append_available": schema.supports_append,
             "cdc_available": cdc_available,

@@ -6267,8 +6267,16 @@ export interface RowFilter {
     value: string | number | boolean
 }
 
+/** Backend-supplied copy for the "unindexed incremental field" warning, phrased in terms of the
+ *  source engine's native fast-lookup structure (index, sort key, clustering key, ...). */
+export interface IndexWarningCopy {
+    mechanism: string
+    suggestion: string
+}
+
 export type SchemaIncrementalFieldsResponse = {
     incremental_fields: IncrementalField[]
+    index_warning_copy?: IndexWarningCopy
     incremental_available: boolean
     append_available: boolean
     full_refresh_available: boolean
@@ -6304,6 +6312,7 @@ export interface ExternalDataSourceSyncSchema {
     incremental_field_lookback_seconds?: number | null
     sync_type: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' | null
     incremental_fields: IncrementalField[]
+    index_warning_copy?: IndexWarningCopy
     incremental_available: boolean
     append_available: boolean
     cdc_available?: boolean

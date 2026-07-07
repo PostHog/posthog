@@ -1,8 +1,7 @@
-import { ExternalDataSourceType } from '~/queries/schema/schema-general'
 import { ExternalDataSourceSyncSchema } from '~/types'
 
 import { SyncTypeLabelMap } from '../../../utils'
-import { getIndexWarningCopy, shouldOfferXmin } from './SyncMethodForm'
+import { shouldOfferXmin } from './SyncMethodForm'
 
 const baseSchema: ExternalDataSourceSyncSchema = {
     table: 'orders',
@@ -34,16 +33,5 @@ describe('SyncMethodForm', () => {
 
     it('exposes a label for the xmin sync type', () => {
         expect(SyncTypeLabelMap.xmin).toBe('xmin')
-    })
-
-    it.each<[ExternalDataSourceType | undefined, string]>([
-        ['Redshift', 'sort key'],
-        ['BigQuery', 'partition or clustering column'],
-        ['Snowflake', 'clustering key'],
-        ['ClickHouse', 'sorting key'],
-        ['Postgres', 'index'],
-        [undefined, 'index'],
-    ])('index warning copy for %s speaks in terms of "%s"', (sourceType, mechanism) => {
-        expect(getIndexWarningCopy(sourceType).mechanism).toBe(mechanism)
     })
 })

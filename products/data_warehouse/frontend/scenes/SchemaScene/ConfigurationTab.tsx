@@ -460,7 +460,6 @@ function SyncMethodSection({
                         <SyncMethodForm
                             ref={formRef}
                             hideFooter
-                            sourceType={source?.source_type}
                             onSaveDisabledReasonChange={setSaveDisabledReason}
                             saveButtonIsLoading={saving}
                             schema={{
@@ -479,6 +478,7 @@ function SyncMethodSection({
                                 xmin_available: schemaIncrementalFields.xmin_available,
                                 cdc_table_mode: schema.cdc_table_mode,
                                 incremental_fields: schemaIncrementalFields.incremental_fields,
+                                index_warning_copy: schemaIncrementalFields.index_warning_copy,
                                 supports_webhooks: schemaIncrementalFields.supports_webhooks ?? false,
                                 primary_key_columns: schema.primary_key_columns ?? null,
                                 available_columns: [],

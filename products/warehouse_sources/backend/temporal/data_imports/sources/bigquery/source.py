@@ -24,7 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BigQuerySourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataSourceType, IndexWarningCopy
 
 __all__ = ["BigQuerySource", "build_destination_table_prefix"]
 
@@ -34,6 +34,11 @@ _BIGQUERY_IMPLEMENTATION = BigQueryImplementation()
 @SourceRegistry.register
 class BigQuerySource(SQLSource[BigQuerySourceConfig]):
     api_docs_url = "https://cloud.google.com/bigquery/docs/release-notes"
+    # BigQuery has no indexes; `is_indexed` reflects the table's partitioning/clustering columns.
+    index_warning_copy: IndexWarningCopy = {
+        "mechanism": "partition or clustering column",
+        "suggestion": "Consider partitioning or clustering the table on this column",
+    }
 
     @property
     def get_implementation(self) -> BigQueryImplementation:

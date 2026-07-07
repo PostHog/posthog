@@ -7,8 +7,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
-import { ExternalDataSourceType } from '~/queries/schema/schema-general'
-import { AvailableColumn, ExternalDataSourceSyncSchema } from '~/types'
+import { AvailableColumn, ExternalDataSourceSyncSchema, IndexWarningCopy } from '~/types'
 
 const LOOKBACK_UNIT_SECONDS = {
     minutes: 60,
@@ -23,33 +22,8 @@ const LOOKBACK_ELIGIBLE_TYPES = new Set(['datetime', 'date', 'timestamp'])
 export const isLookbackEligibleType = (fieldType: string | null | undefined): boolean =>
     !!fieldType && LOOKBACK_ELIGIBLE_TYPES.has(fieldType)
 
-// Some sources have no secondary indexes — the backend's is_indexed detection checks their native
-// scan-pruning mechanism instead (sort/clustering/partition keys), so the advice must match.
-const INDEX_WARNING_COPY: Partial<Record<ExternalDataSourceType, { mechanism: string; suggestion: string }>> = {
-    Redshift: {
-        mechanism: 'sort key',
-        suggestion: "Consider making this field the table's sort key (the leading column of a compound SORTKEY)",
-    },
-    BigQuery: {
-        mechanism: 'partition or clustering column',
-        suggestion: 'Consider partitioning or clustering the table on this column',
-    },
-    Snowflake: {
-        mechanism: 'clustering key',
-        suggestion: "Consider setting the table's clustering key to this column",
-    },
-    ClickHouse: {
-        mechanism: 'sorting key',
-        suggestion: "Consider using a field that leads the table's ORDER BY",
-    },
-}
-
-const DEFAULT_INDEX_WARNING_COPY = { mechanism: 'index', suggestion: 'Consider adding an index' }
-
-export const getIndexWarningCopy = (
-    sourceType: ExternalDataSourceType | undefined
-): { mechanism: string; suggestion: string } =>
-    (sourceType && INDEX_WARNING_COPY[sourceType]) || DEFAULT_INDEX_WARNING_COPY
+// Fallback when the backend response predates `index_warning_copy` being delivered per source.
+const DEFAULT_INDEX_WARNING_COPY: IndexWarningCopy = { mechanism: 'index', suggestion: 'Consider adding an index' }
 
 export const secondsToLookbackParts = (
     seconds: number | null | undefined
@@ -114,8 +88,6 @@ const getAppendOnlySyncSupported = (
 
 interface SyncMethodFormProps {
     schema: ExternalDataSourceSyncSchema
-    /** Tailors the unindexed-field warning to the source's native mechanism (e.g. Redshift sort keys). */
-    sourceType?: ExternalDataSourceType
     onClose: () => void
     onSave: (
         syncType: ExternalDataSourceSyncSchema['sync_type'],
@@ -207,7 +179,6 @@ const getInitialRadioState = (
 export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormProps>(function SyncMethodForm(
     {
         schema,
-        sourceType,
         onClose,
         onSave,
         availableColumns,
@@ -224,7 +195,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     const incrementalSyncSupported = getIncrementalSyncSupported(schema)
     const appendSyncSupported = getAppendOnlySyncSupported(schema)
     const cdcSyncSupported = getCdcSyncSupported(schema)
-    const indexWarningCopy = getIndexWarningCopy(sourceType)
+    const indexWarningCopy = schema.index_warning_copy ?? DEFAULT_INDEX_WARNING_COPY
 
     const columns = availableColumns ?? schema.available_columns ?? []
     const resolvedDetectedPks = detectedPrimaryKeys ?? schema.detected_primary_keys ?? null
@@ -607,8 +578,8 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                         <LemonBanner type="warning" className="mt-2">
                                             No {indexWarningCopy.mechanism} detected on <code>{appendFieldValue}</code>.
                                             Append only syncs query this column on every run; without one, the source
-                                            database may scan the full table on each sync. {indexWarningCopy.suggestion}
-                                            , or pick a different field.
+                                            database may scan the full table on each sync.{' '}
+                                            {`${indexWarningCopy.suggestion}, or pick a different field.`}
                                         </LemonBanner>
                                     )}
                             </>

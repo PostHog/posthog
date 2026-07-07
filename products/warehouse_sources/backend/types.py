@@ -29,6 +29,17 @@ class IncrementalField(typing.TypedDict, total=False):
     is_indexed: bool
 
 
+class IndexWarningCopy(typing.TypedDict):
+    """UI copy for the sync-form warning shown when an incremental field has `is_indexed=False`.
+
+    `mechanism` names the engine's fast-lookup structure the detection checked (index, sort key,
+    clustering key, ...); `suggestion` is the actionable advice for making the field fast to filter on.
+    """
+
+    mechanism: str
+    suggestion: str
+
+
 class PartitionSettings(typing.NamedTuple):
     """Settings used when partitioning data warehouse tables.
 
