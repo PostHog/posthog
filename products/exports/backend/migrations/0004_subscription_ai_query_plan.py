@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="subscription",
-            name="query_plan",
+            name="ai_query_plan",
             field=models.JSONField(blank=True, default=None, null=True),
         ),
     ]

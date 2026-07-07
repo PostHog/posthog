@@ -164,12 +164,10 @@ class Subscription(ModelActivityMixin, models.Model):
 
     prompt = models.TextField(null=True, blank=True)
 
-    # Frozen query plan for AI (prompt) subscriptions. None until the first delivery produces a usable
-    # plan (an all-failed or placeholder-less plan is not frozen); once set, subsequent deliveries reuse
-    # it deterministically (same HogQL → same numbers run-to-run) instead of re-running the planner LLM.
-    # The stored HogQL is window-agnostic (uses the {{date_range}} placeholder the executor substitutes
-    # at run time), so the analysis window still advances each run. Cleared when the prompt is edited.
-    query_plan = models.JSONField(null=True, blank=True, default=None)
+    # Frozen by the first successful delivery so later runs reuse the same HogQL deterministically
+    # instead of re-running the planner LLM; cleared on prompt change (see save()). Shape is versioned —
+    # see report_pipeline._plan_to_freeze.
+    ai_query_plan = models.JSONField(null=True, blank=True, default=None)
 
     # Subscription type (email, slack etc.)
     title = models.CharField(max_length=100, null=True, blank=True)
@@ -219,6 +217,8 @@ class Subscription(ModelActivityMixin, models.Model):
         # a new instance with OTHER fields deferred, causing infinite recursion.
         if not (self.get_deferred_fields() & self.RRULE_FIELDS):
             self._rrule = self.rrule
+        if "prompt" not in self.get_deferred_fields():
+            self._initial_prompt = self.prompt
 
     def save(self, *args, **kwargs) -> None:
         # Only if the schedule has changed do we update the next delivery date
@@ -227,7 +227,14 @@ class Subscription(ModelActivityMixin, models.Model):
             self.set_next_delivery_date()
             if "update_fields" in kwargs:
                 kwargs["update_fields"].append("next_delivery_date")
+        # A changed prompt invalidates the frozen AI query plan at the model level (same pattern as
+        # next_delivery_date above), so ORM-path edits can't leave a plan answering the old prompt.
+        if self.id and self.prompt != getattr(self, "_initial_prompt", self.prompt) and self.ai_query_plan is not None:
+            self.ai_query_plan = None
+            if kwargs.get("update_fields") is not None:
+                kwargs["update_fields"] = [*kwargs["update_fields"], "ai_query_plan"]
         super().save(*args, **kwargs)
+        self._initial_prompt = self.prompt
 
     @classmethod
     def derive_resource_type(cls, insight_id: int | None, dashboard_id: int | None, prompt: str | None) -> str:

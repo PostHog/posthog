@@ -21,6 +21,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.schemas imp
     QueryPlanStep,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
+    AI_QUERY_PLAN_VERSION,
     PromptRejectedError,
     ReportWindow,
     StoredPlanInvalidError,
@@ -48,9 +49,7 @@ def _spec(steps: int = 1) -> EnrichedPromptSpec:
     )
 
 
-def _freezable_spec() -> EnrichedPromptSpec:
-    # A freshly-planned spec whose step carries the {{date_range}} placeholder, so it passes the freeze
-    # guard (a step without it is treated as an LLM defect and not frozen — see the *_not_frozen tests).
+def _spec_with_window_placeholder() -> EnrichedPromptSpec:
     return EnrichedPromptSpec(
         cleaned_prompt="p",
         context_blob="c",
@@ -299,10 +298,13 @@ async def test_run_steps_breaks_early_when_fix_returns_same_query(
 
 
 def _frozen_plan() -> dict:
-    return QueryPlan(
-        overall_intent="count events",
-        steps=[QueryPlanStep(description="counts", hogql="SELECT count() FROM events WHERE {{date_range}}")],
-    ).model_dump()
+    return {
+        "version": AI_QUERY_PLAN_VERSION,
+        "plan": QueryPlan(
+            overall_intent="count events",
+            steps=[QueryPlanStep(description="counts", hogql="SELECT count() FROM events WHERE {{date_range}}")],
+        ).model_dump(),
+    }
 
 
 @patch(_SLO_CAPTURE)
@@ -321,7 +323,7 @@ async def test_frozen_plan_reused_skips_planner_and_event_selection(
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
 
     result = await generate_ai_report(
-        team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window(), query_plan=_frozen_plan()
+        team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window(), ai_query_plan=_frozen_plan()
     )
 
     mock_bep.assert_not_called()  # planner + event-selection LLMs never run on a frozen sub
@@ -340,14 +342,14 @@ async def test_unfrozen_run_returns_plan_to_persist(
     # First run (no frozen plan): the freshly-planned QueryPlan is returned for the caller to persist,
     # so the next delivery is deterministic. The shape must equal QueryPlan.model_dump() — that exact
     # dict is what build_frozen_prompt validates back on reuse, so this guards the persist↔reuse contract.
-    spec = _freezable_spec()
+    spec = _spec_with_window_placeholder()
     mock_bep.return_value = spec
     mock_run.return_value = (["### s0\n\nok"], 0, [QueryStepDiagnostic("s0", "SELECT 1", True, None)])
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
 
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
-    assert result.plan_to_persist == spec.plan.model_dump()
+    assert result.plan_to_persist == {"version": AI_QUERY_PLAN_VERSION, "plan": spec.plan.model_dump()}
 
 
 @patch(f"{_RP}.AssistantQueryExecutor")
@@ -384,46 +386,37 @@ async def test_run_steps_substitutes_fresh_window_into_placeholder_sql(mock_exec
     assert skeleton_0 == skeleton_1
 
 
+_ALL_FAILED_RUN = (
+    ["### s0\n\n_Query failed to run (ExposedHogQLError)_"],
+    1,
+    [QueryStepDiagnostic("s0", "SELECT bad", False, "ExposedHogQLError")],
+)
+_OK_RUN = (["### s\n\nok"], 0, [QueryStepDiagnostic("s", "SELECT count() FROM events", True, None)])
+
+
+@pytest.mark.parametrize(
+    "spec,run_result",
+    [
+        # All steps failed: freezing would replay a broken plan every delivery instead of re-planning.
+        pytest.param(_spec_with_window_placeholder(), _ALL_FAILED_RUN, id="all_failed"),
+        # No window placeholder: freezing would cement an unbounded, window-less scan forever.
+        pytest.param(_spec(steps=1), _OK_RUN, id="missing_window_placeholder"),
+    ],
+)
 @patch(_SLO_CAPTURE)
 @patch(f"{_RP}.MaxChatOpenAI")
 @patch(f"{_RP}._run_steps", new_callable=AsyncMock)
 @patch(f"{_RP}.build_enriched_prompt")
-async def test_all_failed_plan_not_frozen(
-    mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, _mock_capture: MagicMock
+async def test_unfreezable_plans_are_not_frozen(
+    mock_bep: MagicMock,
+    mock_run: AsyncMock,
+    mock_chat: MagicMock,
+    _mock_capture: MagicMock,
+    spec: EnrichedPromptSpec,
+    run_result: tuple,
 ) -> None:
-    # An all-failed first plan must not be frozen — freezing would replay a broken plan every delivery
-    # instead of letting the next run re-plan.
-    mock_bep.return_value = _spec(steps=1)
-    mock_run.return_value = (
-        ["### s0\n\n_Query failed to run (ExposedHogQLError)_"],
-        1,
-        [QueryStepDiagnostic("s0", "SELECT bad", False, "ExposedHogQLError")],
-    )
-    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
-
-    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
-
-    assert result.plan_to_persist is None
-
-
-@patch(_SLO_CAPTURE)
-@patch(f"{_RP}.MaxChatOpenAI")
-@patch(f"{_RP}._run_steps", new_callable=AsyncMock)
-@patch(f"{_RP}.build_enriched_prompt")
-async def test_plan_without_window_placeholder_not_frozen(
-    mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, _mock_capture: MagicMock
-) -> None:
-    # A planner that omits {{date_range}} would freeze an unbounded, window-less scan — drop the freeze
-    # so the next delivery re-plans rather than cementing a query that ignores the window forever.
-    mock_bep.return_value = EnrichedPromptSpec(
-        cleaned_prompt="p",
-        context_blob="c",
-        plan=QueryPlan(
-            overall_intent="i",
-            steps=[QueryPlanStep(description="s", hogql="SELECT count() FROM events")],
-        ),
-    )
-    mock_run.return_value = (["### s\n\nok"], 0, [QueryStepDiagnostic("s", "SELECT count() FROM events", True, None)])
+    mock_bep.return_value = spec
+    mock_run.return_value = run_result
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
 
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
@@ -441,12 +434,12 @@ async def test_invalid_stored_plan_self_heals_by_replanning(
 ) -> None:
     # A stored plan that no longer validates (e.g. QueryPlan schema changed) must re-plan live, not fail
     # the delivery — otherwise a schema change would auto-disable every frozen subscription.
-    mock_bep.return_value = _freezable_spec()
+    mock_bep.return_value = _spec_with_window_placeholder()
     mock_run.return_value = (["### s0\n\nok"], 0, [QueryStepDiagnostic("s0", "SELECT 1", True, None)])
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
 
     result = await generate_ai_report(
-        team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window(), query_plan={"bad": "plan"}
+        team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window(), ai_query_plan={"bad": "plan"}
     )
 
     mock_bep.assert_called_once()  # self-healed by re-planning live

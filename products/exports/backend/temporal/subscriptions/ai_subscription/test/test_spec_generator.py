@@ -15,6 +15,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.schemas imp
     RelevantEvents,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
+    AI_QUERY_PLAN_VERSION,
     MAX_PINNED_EVENTS,
     PROMPT_MAX_LENGTH,
     RELEVANT_EVENTS_LIMIT,
@@ -534,10 +535,13 @@ class TestBuildFrozenPrompt(APIBaseTest):
     """The deterministic reuse path: reconstruct the spec from a persisted plan with NO LLM calls."""
 
     def _stored_plan(self) -> dict:
-        return QueryPlan(
-            overall_intent="count events",
-            steps=[QueryPlanStep(description="counts", hogql="SELECT count() FROM events WHERE {{date_range}}")],
-        ).model_dump()
+        return {
+            "version": AI_QUERY_PLAN_VERSION,
+            "plan": QueryPlan(
+                overall_intent="count events",
+                steps=[QueryPlanStep(description="counts", hogql="SELECT count() FROM events WHERE {{date_range}}")],
+            ).model_dump(),
+        }
 
     @patch(f"{_SG}.MaxChatOpenAI")
     @patch(f"{_SG}._select_relevant_events")
@@ -549,22 +553,34 @@ class TestBuildFrozenPrompt(APIBaseTest):
         stored = self._stored_plan()
 
         spec = build_frozen_prompt(
-            team=self.team, prompt="how are exports doing?", window=_window(7), query_plan=stored
+            team=self.team, prompt="how are exports doing?", window=_window(7), ai_query_plan=stored
         )
 
         # Neither the event-selection model nor the planner runs on the frozen path...
         mock_select.assert_not_called()
         mock_chat.assert_not_called()
         # ...and the plan round-trips byte-for-byte (persist shape == reuse shape), HogQL placeholder intact.
-        assert spec.plan.model_dump() == stored
+        assert spec.plan.model_dump() == stored["plan"]
         assert "{{date_range}}" in spec.plan.steps[0].hogql
 
+    @parameterized.expand(
+        [
+            # A corrupted plan and a stale schema version both raise StoredPlanInvalidError, NOT
+            # PromptRejectedError — the caller self-heals by re-planning live, so neither a QueryPlan
+            # schema change nor an AI_QUERY_PLAN_VERSION bump can brick a frozen subscription.
+            (
+                "malformed_plan",
+                {"version": AI_QUERY_PLAN_VERSION, "plan": {"overall_intent": "i", "steps": []}},
+                "malformed",
+            ),
+            ("stale_version", {"version": AI_QUERY_PLAN_VERSION - 1, "plan": {}}, "stale"),
+            ("pre_versioning_shape", {"overall_intent": "i", "steps": []}, "stale"),
+        ]
+    )
     @patch(f"{_SG}.get_group_types_for_project", return_value=[])
     @patch(f"{_SG}._top_event_names", return_value=[])
-    def test_invalid_stored_plan_raises_recoverable_error(self, _mock_top: object, _mock_groups: object) -> None:
-        # A corrupted persisted plan (no steps) raises StoredPlanInvalidError, NOT PromptRejectedError —
-        # the caller self-heals by re-planning live, so a QueryPlan schema change can't brick every sub.
-        with pytest.raises(StoredPlanInvalidError, match="malformed"):
-            build_frozen_prompt(
-                team=self.team, prompt="p", window=_window(7), query_plan={"overall_intent": "i", "steps": []}
-            )
+    def test_invalid_stored_plan_raises_recoverable_error(
+        self, _name: str, stored: dict, match: str, _mock_top: object, _mock_groups: object
+    ) -> None:
+        with pytest.raises(StoredPlanInvalidError, match=match):
+            build_frozen_prompt(team=self.team, prompt="p", window=_window(7), ai_query_plan=stored)

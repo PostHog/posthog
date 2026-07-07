@@ -1,1 +1,1 @@
-0004_subscription_query_plan
+0004_subscription_ai_query_plan

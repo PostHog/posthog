@@ -680,7 +680,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     def update(self, instance: Subscription, validated_data: dict, *args, **kwargs) -> Subscription:
         request = self.context["request"]
         previous_value = instance.target_value
-        previous_prompt = instance.prompt
         was_disabled = instance.enabled is False
         is_delete = not instance.deleted and validated_data.get("deleted") is True
         invite_message = validated_data.pop("invite_message", "")
@@ -707,12 +706,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                     instance = super().update(instance, validated_data)
             _invalidate_summary_quota_cache(instance.team.organization_id)
             return instance
-
-        # A changed prompt invalidates any frozen AI query plan: the next delivery must re-plan, or it
-        # would keep answering the old prompt with the now-stale HogQL. `query_plan` isn't a serializer
-        # field, so set it on validated_data to ride the single super().update() write.
-        if "prompt" in validated_data and validated_data["prompt"] != previous_prompt:
-            validated_data["query_plan"] = None
 
         with attribute_subscription_saves(analytics_props):
             instance = super().update(instance, validated_data)

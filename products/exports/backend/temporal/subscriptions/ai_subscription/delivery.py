@@ -8,6 +8,7 @@ from markdown_it import MarkdownIt
 from markdown_to_mrkdwn import SlackMarkdownConverter
 
 from posthog.email import EmailMessage
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.helpers.slack_subscription_explore import build_explore_hint
 from posthog.models import Team, User
@@ -125,18 +126,16 @@ def _resolve_subscription_context(
         now=datetime.now(tz=UTC),
         window_days=subscription.ai_report_window_days,
     )
-    return team, subscription.created_by, window, subscription.query_plan
+    return team, subscription.created_by, window, subscription.ai_query_plan
 
 
-def _persist_query_plan(subscription_id: int, team_id: int, plan: dict) -> None:
-    # Freeze the freshly-generated plan so the next delivery reuses it deterministically. Targeted
-    # single-column update scoped to (id, team_id) for tenant isolation; never a full save (which would
-    # re-emit the activity-log / analytics signals via the model's save()/post_save).
-    Subscription.objects.filter(id=subscription_id, team_id=team_id).update(query_plan=plan)
+def _persist_ai_query_plan(subscription_id: int, team_id: int, plan: dict) -> None:
+    # Targeted update, never a full save() — that would re-emit the activity-log/analytics signals.
+    Subscription.objects.filter(id=subscription_id, team_id=team_id).update(ai_query_plan=plan)
 
 
 async def build_ai_subscription_report(subscription: Subscription) -> AiReportResult:
-    team, user, window, query_plan = await database_sync_to_async(
+    team, user, window, ai_query_plan = await database_sync_to_async(
         _resolve_subscription_context, thread_sensitive=False
     )(subscription)
     # created_by is FK SET_NULL; the pipeline requires a non-None user
@@ -148,16 +147,25 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
         user=user,
         prompt=subscription.prompt,
         window=window,
-        query_plan=query_plan,
+        ai_query_plan=ai_query_plan,
         trace_correlation_id=subscription.id,
     )
 
-    # First delivery (no frozen plan yet): persist the plan just generated so subsequent deliveries
-    # reuse it deterministically. Reused runs return plan_to_persist=None and skip the write.
     if result.plan_to_persist is not None:
-        await database_sync_to_async(_persist_query_plan, thread_sensitive=False)(
-            subscription.id, subscription.team_id, result.plan_to_persist
-        )
+        try:
+            await database_sync_to_async(_persist_ai_query_plan, thread_sensitive=False)(
+                subscription.id, subscription.team_id, result.plan_to_persist
+            )
+        except Exception as exc:
+            # The frozen plan is an optimization — losing this write must not abort the delivery (the
+            # report is already generated; failing here would burn the LLM run and retry from scratch).
+            logger.warning(
+                "ai_report.query_plan_persist_failed",
+                subscription_id=subscription.id,
+                team_id=subscription.team_id,
+                exc_info=True,
+            )
+            capture_exception(exc, {"subscription_id": subscription.id, "feature": "ai_subscription"})
 
     return result
 

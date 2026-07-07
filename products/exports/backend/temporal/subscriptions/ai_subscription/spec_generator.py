@@ -61,6 +61,22 @@ EVENT_PROPERTIES_PER_EVENT_LIMIT = 15
 PINNED_EVENT_SCAN_LIMIT = 2000
 MAX_PINNED_EVENTS = 25
 
+# Placeholder tokens the planner writes instead of concrete dates, so frozen HogQL stays
+# window-agnostic; ReportWindow.render_window_filter substitutes the run's fresh bounds.
+DATE_RANGE_PLACEHOLDER = "{{date_range}}"
+COMPARE_DATE_RANGE_PLACEHOLDER = "{{compare_date_range}}"
+WINDOW_START_PLACEHOLDER = "{{window_start}}"
+WINDOW_END_PLACEHOLDER = "{{window_end}}"
+WINDOW_PLACEHOLDERS = (
+    DATE_RANGE_PLACEHOLDER,
+    COMPARE_DATE_RANGE_PLACEHOLDER,
+    WINDOW_START_PLACEHOLDER,
+    WINDOW_END_PLACEHOLDER,
+)
+# Bumping invalidates every frozen plan (they lazily re-plan on next delivery), so prompt/harness
+# improvements reach existing subscriptions instead of only new ones.
+AI_QUERY_PLAN_VERSION = 1
+
 DEFAULT_PLANNER_MODEL = "gpt-4.1"
 DEFAULT_SYNTHESIS_MODEL = "gpt-4.1"
 _PLANNER_LLM_TIMEOUT_SECONDS = 90.0
@@ -77,14 +93,6 @@ class StoredPlanInvalidError(Exception):
     `PromptRejectedError` (bad user input), this is recoverable and must not auto-disable the sub."""
 
     pass
-
-
-# System placeholder the planner emits for a query's time filter, so the frozen HogQL stays
-# window-agnostic. The executor substitutes the run's fresh, code-computed bounds into it (see
-# `ReportWindow.render_window_filter`), keeping the persisted plan deterministic while letting the
-# analysis window advance every run. Double-brace (NOT the `{{{...}}}` `render_prompt` token) so it's a
-# distinct system token user-controlled prompt/event text can't smuggle in.
-DATE_RANGE_PLACEHOLDER = "{{date_range}}"
 
 
 @dataclass(frozen=True)
@@ -111,16 +119,32 @@ class ReportWindow:
         return self.end.strftime("%Y-%m-%d %H:%M:%S")
 
     @property
+    def compare_start(self) -> datetime:
+        # The equal-length period immediately before the window, for period-over-period queries.
+        return self.start - (self.end - self.start)
+
+    @property
+    def compare_start_literal(self) -> str:
+        return self.compare_start.strftime("%Y-%m-%d %H:%M:%S")
+
+    @property
     def window_filter_sql(self) -> str:
-        # The concrete half-open timestamp predicate the `{{date_range}}` placeholder resolves to.
         return f"timestamp >= toDateTime('{self.start_literal}') AND timestamp < toDateTime('{self.end_literal}')"
 
+    @property
+    def compare_filter_sql(self) -> str:
+        return (
+            f"timestamp >= toDateTime('{self.compare_start_literal}') AND timestamp < toDateTime('{self.end_literal}')"
+        )
+
     def render_window_filter(self, hogql: str) -> str:
-        # Single-pass, non-recursive replace of every `{{date_range}}` token with the run's window
-        # predicate. str.replace is non-recursive by construction — the substituted SQL contains no
-        # placeholder, so it can't re-expand. HogQL with no placeholder passes through unchanged
-        # (defensive: such plans aren't frozen, so a frozen step always carries the token).
-        return hogql.replace(DATE_RANGE_PLACEHOLDER, self.window_filter_sql)
+        # str.replace is non-recursive, and the substituted SQL contains no tokens, so nothing re-expands.
+        return (
+            hogql.replace(DATE_RANGE_PLACEHOLDER, self.window_filter_sql)
+            .replace(COMPARE_DATE_RANGE_PLACEHOLDER, self.compare_filter_sql)
+            .replace(WINDOW_START_PLACEHOLDER, f"toDateTime('{self.start_literal}')")
+            .replace(WINDOW_END_PLACEHOLDER, f"toDateTime('{self.end_literal}')")
+        )
 
 
 def _in_tz(dt: datetime, tz: tzinfo) -> datetime:
@@ -533,25 +557,20 @@ def build_frozen_prompt(
     team: Team,
     prompt: Optional[str],
     window: ReportWindow,
-    query_plan: dict,
+    ai_query_plan: dict,
 ) -> EnrichedPromptSpec:
-    """Reconstruct the spec from a persisted plan — the deterministic reuse path.
+    """Rebuild the spec from a persisted plan without either LLM pass — the deterministic reuse path.
 
-    Skips BOTH LLM passes the live path runs (the planner and the event-selection model): the frozen
-    `QueryPlan` already encodes the steps, so the same window-agnostic HogQL runs every delivery (same
-    numbers, modulo real data). The context blob is rebuilt fresh for THIS run's window (no LLM — only
-    DB taxonomy reads) so synthesis sees the current schema; the plan's HogQL keeps its `{{date_range}}`
-    placeholder and the executor substitutes the fresh window. A structurally-invalid stored plan raises
-    `StoredPlanInvalidError` so the caller can self-heal by re-planning live (a `QueryPlan` schema change
-    must not brick every frozen subscription); a bad user prompt still raises `PromptRejectedError`.
+    Any invalid stored plan (stale version or bad shape) raises `StoredPlanInvalidError` so the caller
+    re-plans live: a plan-schema or prompt-harness change must invalidate frozen plans, never brick
+    the subscription.
     """
     cleaned = sanitize_prompt(prompt)
+    if ai_query_plan.get("version") != AI_QUERY_PLAN_VERSION:
+        raise StoredPlanInvalidError("Stored query plan version is stale.")
     try:
-        plan = QueryPlan.model_validate(query_plan)
+        plan = QueryPlan.model_validate(ai_query_plan.get("plan"))
     except ValidationError as exc:
-        # Recoverable: the caller re-plans live rather than permanently failing the subscription.
         raise StoredPlanInvalidError("Stored query plan is malformed.") from exc
-    # No relevant_events: the event-selection LLM ran at plan time, and the frozen HogQL already names the
-    # events it needs. The blob still carries window bounds + taxonomy context for synthesis.
     context_blob = build_context_blob(team, window)
     return EnrichedPromptSpec(cleaned_prompt=cleaned, context_blob=context_blob, plan=plan)
