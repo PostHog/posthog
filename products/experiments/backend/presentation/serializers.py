@@ -723,13 +723,14 @@ class ExperimentFeatureFlagFiltersSerializer(FeatureFlagFiltersSchemaSerializer)
     """Feature-flag filters accepted by the experiment endpoints: the flag's own filters shape,
     minus the keys experiments don't apply."""
 
-    feature_enrollment = None
-    early_exit = None
+    # DRF's declarative field removal: assigning None drops the inherited field.
+    feature_enrollment = None  # type: ignore[assignment]
+    early_exit = None  # type: ignore[assignment]
     # The runtime applies only groups[0].rollout_percentage and rejects release conditions, so
     # advertise exactly that instead of the flag's full condition-group schema. The full schema
     # would invite payloads (property filters, variant overrides, multiple groups) that always
     # fail validation, and it adds ~10KB to each generated MCP tool schema.
-    groups = ExperimentFlagRolloutGroupSerializer(
+    groups = ExperimentFlagRolloutGroupSerializer(  # type: ignore[assignment,call-arg]
         many=True,
         required=False,
         max_length=1,
@@ -767,7 +768,7 @@ class ExperimentFeatureFlagInputSerializer(serializers.Serializer):
 class ExperimentWriteSerializer(ExperimentSerializer):
     """Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input."""
 
-    feature_flag = ExperimentFeatureFlagInputSerializer(
+    feature_flag = ExperimentFeatureFlagInputSerializer(  # type: ignore[assignment]
         required=False,
         help_text=(
             "Feature-flag config for the experiment, in the flag's own filters shape. The linked flag "
