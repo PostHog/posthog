@@ -51,7 +51,7 @@ const UPCOMING_STEPS: Record<InstallationMode, string[]> = {
 }
 
 const CONNECTING_SUBTITLE: Record<InstallationMode, string> = {
-    cloud: 'Firing up a sandbox for your repo – the wizard takes it from there.',
+    cloud: 'Firing up a sandbox for your repo. The wizard takes it from there.',
     local: 'Waiting for the wizard in your terminal to check in.',
 }
 
@@ -98,7 +98,7 @@ export function InstallationProgressContent({
     const subtitle =
         phase === 'completed'
             ? prUrl
-                ? 'Review and merge the pull request, then deploy – data starts flowing the moment it ships.'
+                ? 'Review and merge the pull request, then deploy. Data starts flowing the moment it ships.'
                 : mode === 'local'
                   ? 'The wizard finished its work on your machine.'
                   : "You're all set."
@@ -201,14 +201,19 @@ export function InstallationProgressContent({
                         <li className="flex items-start gap-2">
                             <IconSearch className="text-muted text-base mt-0.5 shrink-0" />
                             <span>
-                                <strong>Review the changes</strong> – the wizard edited your code, so give the diff a
-                                once-over in your editor.
+                                <strong>Review the changes</strong> in your editor before you commit.
+                            </span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                            <IconTerminal className="text-muted text-base mt-0.5 shrink-0" />
+                            <span>
+                                <strong>Try it locally</strong> and your events show up here right away.
                             </span>
                         </li>
                         <li className="flex items-start gap-2">
                             <IconRocket className="text-muted text-base mt-0.5 shrink-0" />
                             <span>
-                                <strong>Commit and deploy</strong> – data starts flowing the moment real users hit it.
+                                <strong>Commit and deploy</strong> to get data from real users.
                             </span>
                         </li>
                     </ul>
@@ -256,8 +261,8 @@ export function InstallationProgressContent({
             {phase === 'completed' && dashboard && (
                 <div className="flex flex-col gap-2">
                     <p className="text-sm text-muted m-0">
-                        The wizard also set up a dashboard for you. It stays empty until your deploy starts sending data
-                        – but feel free to look around.
+                        The wizard also set up a dashboard for you. It fills up as soon as your events arrive. Feel free
+                        to look around.
                     </p>
                     <LemonButton
                         type={prUrl ? 'secondary' : 'primary'}

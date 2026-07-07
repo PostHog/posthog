@@ -27,12 +27,17 @@ import { wizardSyncUiLogic } from './wizardSyncUiLogic'
 const CORNER = 'fixed bottom-5 right-5 z-[60]'
 
 // 1Hz clock for the elapsed timer, scoped to a mounted run so nothing ticks when no run is active.
-function useNow(): number {
+// `frozen` stops the interval entirely — a finished run shows its fixed duration, so ticking for it
+// would be pure re-render churn.
+function useNow(frozen: boolean = false): number {
     const [now, setNow] = useState(() => Date.now())
     useEffect(() => {
+        if (frozen) {
+            return
+        }
         const id = window.setInterval(() => setNow(Date.now()), 1000)
         return () => window.clearInterval(id)
-    }, [])
+    }, [frozen])
     return now
 }
 
@@ -146,9 +151,9 @@ function WizardSyncSurface({
         reportWizardSyncDashboardCtaShown,
         reportWizardSyncDashboardCtaClicked,
     } = useActions(onboardingEventUsageLogic)
-    const now = useNow()
     const { detectedDashboard } = useValues(wizardDashboardLogic)
     const endMs = endedAt ? new Date(endedAt).getTime() : NaN
+    const now = useNow(!Number.isNaN(endMs))
     const elapsedSeconds = startedAt ? elapsedSecondsFrom(startedAt, Number.isNaN(endMs) ? now : endMs) : 0
     const minimized = dismissedKey === runKey
     const isTerminal = progress.phase === 'completed' || progress.phase === 'error'

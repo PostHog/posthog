@@ -166,7 +166,7 @@ export function WizardSyncCard({
                                 e.stopPropagation()
                                 onDashboardClick?.()
                             }}
-                            tooltip="The wizard set this up for you – it fills up once you deploy"
+                            tooltip="The wizard set this up for you. It fills up as your events arrive"
                         >
                             Preview dashboard
                         </LemonButton>
