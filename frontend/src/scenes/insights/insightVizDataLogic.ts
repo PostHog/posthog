@@ -134,7 +134,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     connect(() => ({
         values: [
             insightDataLogic,
-            ['query', 'insightQuery', 'insightData', 'insightDataLoading', 'insightDataError'],
+            ['query', 'insightQuery', 'insightData', 'insightDataLoading', 'insightDataError', 'queryId'],
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
             databaseTableListLogic,
@@ -153,6 +153,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     actions({
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         updateQuerySource: (querySource: QuerySourceUpdate) => ({ querySource }),
+        debouncedUpdateQuerySource: (querySource: QuerySourceUpdate) => ({ querySource }),
         updateInsightFilter: (insightFilter: InsightFilter) => ({ insightFilter }),
         updateDateRange: (dateRange: DateRange, ignoreDebounce: boolean = false) => ({ dateRange, ignoreDebounce }),
         updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => ({ breakdownFilter }),
@@ -550,9 +551,17 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         erroredQueryId: [
-            (s) => [s.insightDataError],
-            (insightDataError) => {
-                return insightDataError?.queryId || null
+            (s) => [s.insightDataError, s.queryId],
+            (insightDataError, queryId) => {
+                const erroredId = insightDataError?.queryId || null
+                // Ignore an error from a query that a newer load has already superseded. When a user
+                // edits a funnel (changing a step, renaming, adding a step) a fresh query is fired,
+                // and a stale failure landing afterwards would otherwise blank the chart with an
+                // error box even though the valid query is still in flight.
+                if (erroredId && queryId && erroredId !== queryId) {
+                    return null
+                }
+                return erroredId
             },
         ],
         validationError: [
@@ -641,6 +650,22 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         // reverted query. Flag it so the in-flight debounce bails out instead.
         cancelChanges: () => {
             cache.pendingFilterUpdateCancelled = true
+        },
+
+        // Coalesce rapid query source edits (e.g. changing a funnel step's event and then renaming
+        // it, or adding a step and picking its event) into a single query. Without this every
+        // intermediate state fires its own backend request, and any of those transient failures
+        // surfaces an error box that replaces the chart.
+        debouncedUpdateQuerySource: async ({ querySource }, breakpoint) => {
+            cache.pendingFilterUpdateCancelled = false
+            await breakpoint(300)
+            // Changes were discarded while this debounce was pending — don't re-apply the edit
+            // over the query that cancelChanges just reverted.
+            if (cache.pendingFilterUpdateCancelled) {
+                cache.pendingFilterUpdateCancelled = false
+                return
+            }
+            actions.updateQuerySource(querySource)
         },
 
         // query source

@@ -23,12 +23,12 @@ export const FUNNEL_STEP_COUNT_LIMIT = 30
 
 export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Element | null {
     const { series, querySource } = useValues(insightVizDataLogic(insightProps))
-    const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
+    const { debouncedUpdateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { hasPageview, hasScreen } = getProjectEventExistence()
 
     const actionFilters = isInsightQueryNode(querySource) ? queryNodeToFilter(querySource) : null
     const setActionFilters = (payload: Partial<FilterType>): void => {
-        updateQuerySource({
+        debouncedUpdateQuerySource({
             series: actionsAndEventsToSeries(
                 payload as any,
                 true,

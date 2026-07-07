@@ -679,6 +679,25 @@ describe('insightVizDataLogic', () => {
         })
     })
 
+    describe('erroredQueryId', () => {
+        it('ignores an error from a query that a newer load has superseded', () => {
+            // A fresh query (query-b) is fired, then a stale failure for the previous query
+            // (query-a) lands afterwards. Editing a funnel step produces exactly this race, and
+            // the stale failure must not blank the chart while the fresh query is in flight.
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightDataLogic.actions.loadData('force_blocking', 'query-b')
+                builtInsightDataLogic.actions.loadDataFailure('', { queryId: 'query-a' })
+            }).toMatchValues({ erroredQueryId: null })
+        })
+
+        it('surfaces an error from the current query', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightDataLogic.actions.loadData('force_blocking', 'query-a')
+                builtInsightDataLogic.actions.loadDataFailure('', { queryId: 'query-a' })
+            }).toMatchValues({ erroredQueryId: 'query-a' })
+        })
+    })
+
     describe('isSingleSeriesOutput', () => {
         it('returns true for single series without breakdown', () => {
             expectLogic(builtInsightVizDataLogic, () => {
