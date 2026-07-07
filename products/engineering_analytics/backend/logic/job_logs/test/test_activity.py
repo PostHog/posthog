@@ -43,7 +43,7 @@ class _FakeEmitter:
 
 
 def _patch(monkeypatch, *, acquired=True, archive="l1\nl2\nl3"):
-    async def _acquire(_installation_id):
+    async def _acquire(_installation_id, **_kwargs):
         return acquired
 
     monkeypatch.setattr(activity_module, "acquire_github_installation", _acquire)

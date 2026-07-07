@@ -27,6 +27,9 @@ export interface LogRowProps {
     isPrettified?: boolean
     onTogglePrettify?: (log: ParsedLogMessage) => void
     minHeight?: number
+    /** Plays the one-shot arrival highlight; tracked outside the log object so live-tail polls
+     * don't have to clone every existing log to clear the previous batch's flag. */
+    isNew?: boolean
 }
 
 export function LogRow({
@@ -46,9 +49,8 @@ export function LogRow({
     isPrettified = false,
     onTogglePrettify,
     minHeight = 32,
+    isNew = false,
 }: LogRowProps): JSX.Element {
-    const isNew = 'new' in log && log.new
-
     const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>): void => {
         // Only handle shift+click here to prevent text selection during range select
         if (e.shiftKey && onShiftClick) {

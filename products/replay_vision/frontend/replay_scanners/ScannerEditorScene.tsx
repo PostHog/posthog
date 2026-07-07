@@ -137,7 +137,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                     )}
                                     <div>
                                         <div className="text-base font-semibold">
-                                            {step === 'configure' ? 'Configure your scanner' : 'Set up triggers'}
+                                            {step === 'configure' ? 'Configure your scanner' : 'Set up scan conditions'}
                                         </div>
                                         <div className="text-sm text-muted">
                                             {step === 'configure'
@@ -314,7 +314,7 @@ function EditorFooter({
                         className="ml-auto"
                         data-attr="vision-editor-next"
                     >
-                        Next: triggers
+                        Next: scan conditions
                     </LemonButton>
                 </>
             ) : (

@@ -15,6 +15,7 @@ import { LLMPrompt } from '~/types'
 
 import { cleanPagedSearchOrderParams } from '../utils'
 import type { llmPromptsLogicType } from './llmPromptsLogicType'
+import { getApiErrorDetail } from './utils'
 
 export const PROMPTS_PER_PAGE = 30
 export const LLM_PROMPTS_FORCE_RELOAD_PARAM = 'llm_prompts_force_reload'
@@ -157,8 +158,8 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
                 await api.llmPrompts.archiveByName(promptName)
                 lemonToast.info(`${promptName || 'Prompt'} has been archived.`)
                 await asyncActions.loadPrompts(false)
-            } catch {
-                lemonToast.error('Failed to archive prompt')
+            } catch (error) {
+                lemonToast.error(getApiErrorDetail(error) || 'Failed to archive prompt')
             }
         },
 
@@ -167,8 +168,8 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
                 await api.llmPrompts.duplicateByName(promptName, newName)
                 lemonToast.success(`Prompt duplicated as "${newName}".`)
                 router.actions.push(urls.aiObservabilityPrompt(newName))
-            } catch {
-                lemonToast.error('Failed to duplicate prompt')
+            } catch (error) {
+                lemonToast.error(getApiErrorDetail(error) || 'Failed to duplicate prompt')
             }
         },
     })),

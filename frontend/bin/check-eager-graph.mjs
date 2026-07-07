@@ -9,8 +9,8 @@ const frontendDir = path.resolve(__dirname, '..')
 const metaPath = path.join(frontendDir, 'posthog-app-esbuild-meta.json')
 
 // --report-only: record results without failing the build. Used by build:with-report
-// because compressed-size-action runs that script for BOTH the PR build and the base
-// build — a base-branch budget breach must not abort the action for every open PR.
+// because the CI bundle-size job runs that script for BOTH the PR build and the base
+// build — a base-branch budget breach must not abort the job for every open PR.
 // Budget breaches are surfaced as warnings in the dedicated workflow step via --assert-report.
 const reportOnly = process.argv.includes('--report-only')
 
@@ -294,7 +294,7 @@ for (const { root, label, budgetBytes, forbidden } of ROOTS) {
 
 // Consumed by the workflow's comment + enforcement steps; written even on failure so
 // the PR comment can show what went over. The filename and the embedded sha carry the
-// built tree's HEAD because compressed-size-action runs this for BOTH the PR build and
+// built tree's HEAD because the CI bundle-size job runs this for BOTH the PR build and
 // the base build in the same workspace — the PR build's report is found by sha, and the
 // plain filename (last write = the base build) doubles as the base-branch measurement
 // for the comment's vs-base delta.

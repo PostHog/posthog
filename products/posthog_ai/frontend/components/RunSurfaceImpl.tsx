@@ -224,7 +224,7 @@ function RunSurfaceComposer({ children }: { children?: ReactNode }): JSX.Element
         return null // no composer UI supplied (e.g. ReadonlyRunSurface) or pre-bootstrap
     }
     return (
-        <div data-attr="composer" className="px-4 pb-4">
+        <div data-attr="composer" className="px-4 pb-[calc(1rem_+_env(safe-area-inset-bottom))]">
             <LemonDivider className="mt-0 mb-4" />
             <div className="mx-auto w-full max-w-180">{children}</div>
         </div>

@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
 
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
@@ -33,11 +35,14 @@ export const LogsDisplayBar = ({
     showFacetRailToggle = false,
     totalLogsCount,
 }: LogsDisplayBarProps): JSX.Element => {
-    const { facetRailCollapsed, viewMode } = useValues(logsViewerConfigLogic)
-    const { setFacetRailCollapsed, setViewMode } = useActions(logsViewerConfigLogic)
+    const { facetRailCollapsed, viewMode, groupBy } = useValues(logsViewerConfigLogic)
+    const { setFacetRailCollapsed, setViewMode, setGroupBy } = useActions(logsViewerConfigLogic)
     const showPatternsView = useFeatureFlag('LOGS_PATTERNS_VIEW')
+    const showGroupBy = useFeatureFlag('LOGS_GROUP_BY')
 
     const inPatternsMode = showPatternsView && viewMode === 'patterns'
+    // Grouping applies to the Logs lens only; Patterns has its own aggregation.
+    const inGroupByMode = showGroupBy && !inPatternsMode && groupBy !== null
 
     return (
         <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -63,16 +68,42 @@ export const LogsDisplayBar = ({
                         ]}
                     />
                 )}
+                {showGroupBy && !inPatternsMode && (
+                    <TaxonomicStringPopover
+                        size="small"
+                        groupType={TaxonomicFilterGroupType.Logs}
+                        groupTypes={[
+                            TaxonomicFilterGroupType.Logs,
+                            TaxonomicFilterGroupType.LogAttributes,
+                            TaxonomicFilterGroupType.LogResourceAttributes,
+                        ]}
+                        // `message` is not a grouping key — high-cardinality free text is the
+                        // Patterns lens's job. Excluding it also drops the message-search item.
+                        excludedProperties={{ [TaxonomicFilterGroupType.Logs]: ['message'] }}
+                        value={groupBy ?? undefined}
+                        onChange={(value) => setGroupBy(value || null)}
+                        allowClear
+                        placeholder="Group by"
+                        renderValue={(value) => (
+                            <span>
+                                Group by <span className="font-mono">{value}</span>
+                            </span>
+                        )}
+                        selectingKeyOnly
+                        data-attr="logs-group-by-picker"
+                    />
+                )}
                 {inPatternsMode ? (
                     <PatternsCountIndicator id={id} />
                 ) : (
+                    !inGroupByMode &&
                     totalLogsCount !== undefined &&
                     totalLogsCount > 0 && (
                         <span className="text-muted text-xs">{humanFriendlyNumber(totalLogsCount)} logs</span>
                     )
                 )}
             </div>
-            {!inPatternsMode && <LogsViewerToolbar totalLogsCount={totalLogsCount} />}
+            {!inPatternsMode && !inGroupByMode && <LogsViewerToolbar totalLogsCount={totalLogsCount} />}
         </div>
     )
 }

@@ -1,0 +1,21 @@
+{
+    "extends": ["//"],
+    "tasks": {
+        "backend:contract-check": {
+            "inputs": [
+                "backend/facade/**",
+                "backend/models/**",
+                "backend/temporal/data_imports/sources/generated_configs.py",
+                "backend/temporal/data_imports/sources/common/**",
+                "backend/temporal/data_imports/sources/google_search_console/**",
+                "backend/temporal/data_imports/sources/mysql/**",
+                "backend/temporal/data_imports/sources/postgres/**",
+                "backend/temporal/data_imports/sources/salesforce/**",
+                "backend/temporal/data_imports/sources/snowflake/**",
+                "backend/temporal/data_imports/sources/stripe/**"
+            ],
+            "outputs": [],
+            "cache": true
+        }
+    }
+}

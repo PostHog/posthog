@@ -203,6 +203,30 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert list_health.call_args.kwargs["run_scope"] == "pull_request"
         assert list_health.call_args.kwargs["duration_filter"] == "successful"
 
+    def test_repo_run_activity_serializes_and_forwards_branch(self) -> None:
+        result = contracts.WorkflowRunActivity(
+            points=[
+                contracts.WorkflowRunActivityPoint(
+                    run_id=9601,
+                    conclusion="success",
+                    run_started_at=datetime(2026, 1, 20, tzinfo=UTC),
+                    duration_seconds=180,
+                    head_branch="main",
+                    pr_number=0,
+                )
+            ],
+            truncated=False,
+            limit=2000,
+        )
+        with mock.patch(f"{_VIEWS}.get_repo_run_activity", return_value=result) as get_activity:
+            response = self.client.get(self._url("repo_run_activity"), {"branch": "main"})
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["points"][0]["run_id"] == 9601
+        assert body["points"][0]["conclusion"] == "success"
+        assert get_activity.call_args.kwargs["branch"] == "main"
+
     def test_pr_lifecycle_serializes(self) -> None:
         with mock.patch(f"{_VIEWS}.get_pr_lifecycle", return_value=_pr_lifecycle()) as get:
             response = self.client.get(self._url("pr_lifecycle"), {"pr_number": "10", "repo": "PostHog/posthog"})

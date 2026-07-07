@@ -907,7 +907,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
         )
         if not pr_context:
             return CIFollowUpDecision.NO_PR
-        if pr_context.pr_state == "closed":
+        if pr_context.pr_state in ("closed", "merged"):
             workflow.logger.info(
                 "task_management_ci_skipped_pr_closed",
                 run_id=self._run_id,

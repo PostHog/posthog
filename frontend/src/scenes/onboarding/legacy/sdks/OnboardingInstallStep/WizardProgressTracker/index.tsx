@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { activeCloudRunLogic } from '../../../../shared/wizard-sync/activeCloudRunLogic'
 import { wizardProgressTrackerLogic } from '../wizardProgressTrackerLogic'
 import { bannerTypeFor, headlineFor, subLineFor } from './helpers'
 
@@ -14,11 +15,23 @@ import { bannerTypeFor, headlineFor, subLineFor } from './helpers'
 export function WizardProgressTracker(): JSX.Element | null {
     const { displayState, latestSession } = useValues(wizardProgressTrackerLogic)
     const { setPanelMounted } = useActions(wizardProgressTrackerLogic)
+    const { setPanelMounted: setSharedPanelMounted } = useActions(activeCloudRunLogic)
 
+    // Claim BOTH inline-panel flags: the legacy one (WizardProgressFab) and the shared one the
+    // app-wide WizardSyncFab reads — otherwise the FAB shows the same local run next to this card.
+    // Only while actually rendering something, or a null render would hide the FAB for nothing.
+    const showing = displayState !== 'preTakeover' && !!latestSession
     useEffect(() => {
+        if (!showing) {
+            return
+        }
         setPanelMounted(true)
-        return () => setPanelMounted(false)
-    }, [setPanelMounted])
+        setSharedPanelMounted(true)
+        return () => {
+            setPanelMounted(false)
+            setSharedPanelMounted(false)
+        }
+    }, [showing, setPanelMounted, setSharedPanelMounted])
 
     if (displayState === 'preTakeover' || !latestSession) {
         return null
