@@ -246,7 +246,11 @@ def _resolve_autostart_fallback_user(
         .order_by("user_id")
     )
     for config in configs:
-        if report_rank <= _priority_rank(Priority(config.autostart_priority)):
+        threshold = config.autostart_priority
+        # Guaranteed non-null by the queryset filter; the guard also narrows for the type checker.
+        if threshold is None:
+            continue
+        if report_rank <= _priority_rank(Priority(threshold)):
             return config.user
     return None
 
