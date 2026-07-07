@@ -1597,6 +1597,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         updated_team = super().update(instance, validated_data)
 
+        # Renaming the passthrough environment must also rename its parent Project, since both
+        # store "the project's name". Otherwise the name reverts on refresh when the UI reads
+        # Project.name. The passthrough Team is the one whose id equals the Project's id.
+        if "name" in validated_data and instance.id == instance.project_id:
+            project = instance.project
+            if project.name != instance.name:
+                project.name = instance.name
+                project.save(update_fields=["name", "updated_at"])
+
         if "proactive_tasks_enabled" in validated_data:
             # Backward compat for old proactive tasks enabled field, remove after February 2026
             if validated_data["proactive_tasks_enabled"]:

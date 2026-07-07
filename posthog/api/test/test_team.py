@@ -377,6 +377,18 @@ def team_api_test_factory():
             team.refresh_from_db()
             self.assertEqual(team.timezone, "UTC")
 
+        def test_renaming_syncs_project_and_passthrough_team_names(self):
+            # The Project's name and its passthrough Team's name both represent "the project's name".
+            # A rename through either endpoint must update both, or the name reverts on refresh
+            # depending on which model the UI reads.
+            self.assertEqual(self.team.id, self.project.id)  # the default team is the project's passthrough
+            response = self.client.patch(f"/api/environments/{self.team.id}/", {"name": "Renamed project"})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.team.refresh_from_db()
+            self.project.refresh_from_db()
+            self.assertEqual(self.team.name, "Renamed project")
+            self.assertEqual(self.project.name, "Renamed project")
+
         def test_filter_permission(self):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/",

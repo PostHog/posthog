@@ -1208,6 +1208,12 @@ class ProjectBackwardCompatSerializer(
                 should_team_be_saved_too = True
                 setattr(team, attr, value)
 
+        # The Project's name and its passthrough Team's name both represent "the project's name".
+        # Keep them in sync so the UI shows the same value regardless of which one it reads.
+        if "name" in validated_data:
+            should_team_be_saved_too = True
+            team.name = validated_data["name"]
+
         instance.save()
         if should_team_be_saved_too:
             team.save()
