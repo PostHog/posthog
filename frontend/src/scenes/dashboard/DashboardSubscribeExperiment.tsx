@@ -21,19 +21,26 @@ import { dashboardLogic } from './dashboardLogic'
 
 type SubscribePlacement = 'button' | 'menu'
 
-function SubscribeIcon({ dashboardId }: { dashboardId: number }): JSX.Element {
-    const { hasAvailableFeature } = useValues(userLogic)
+function SubscribeCountIcon({ dashboardId }: { dashboardId: number }): JSX.Element {
     const { subscriptions } = useValues(subscriptionsLogic({ dashboardId }))
-
-    if (!hasAvailableFeature(AvailableFeature.SUBSCRIPTIONS)) {
-        return <IconBell className="DashboardSubscribeBell" fontSize="16" />
-    }
 
     return (
         <IconWithCount count={subscriptions?.length} showZero={false}>
             <IconBell className="DashboardSubscribeBell" fontSize="16" />
         </IconWithCount>
     )
+}
+
+function SubscribeIcon({ dashboardId }: { dashboardId: number }): JSX.Element {
+    const { hasAvailableFeature } = useValues(userLogic)
+
+    // Only read the count when the subscriptions logic is already mounted (e.g. side panel opened),
+    // so an experiment arm never triggers an extra fetch just to render this badge.
+    if (!hasAvailableFeature(AvailableFeature.SUBSCRIPTIONS) || !subscriptionsLogic.isMounted({ dashboardId })) {
+        return <IconBell className="DashboardSubscribeBell" fontSize="16" />
+    }
+
+    return <SubscribeCountIcon dashboardId={dashboardId} />
 }
 
 // Both placements mount in the header; each renders only when it matches the assigned variant.
