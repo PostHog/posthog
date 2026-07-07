@@ -247,7 +247,7 @@ describe('cohortEditLogic', () => {
             expect(api.update).toHaveBeenCalledTimes(0)
         })
 
-        describe('negation errors', () => {
+        describe('negation validation', () => {
             it('do not save on OR operator', async () => {
                 await initCohortLogic({ id: 1 })
                 await expectLogic(logic, async () => {
@@ -294,10 +294,10 @@ describe('cohortEditLogic', () => {
                                 properties: {
                                     values: [
                                         {
-                                            id: "'Did not complete event' is a negative cohort criteria. Negation criteria can only be used when matching all criteria (AND), and must be accompanied by at least one positive matching criteria.",
+                                            id: "'Did not complete event' is a negative cohort criteria. Negation criteria can only be used when matching all criteria (AND).",
                                             values: [
                                                 {
-                                                    value: "'Did not complete event' is a negative cohort criteria. Negation criteria can only be used when matching all criteria (AND), and must be accompanied by at least one positive matching criteria.",
+                                                    value: "'Did not complete event' is a negative cohort criteria. Negation criteria can only be used when matching all criteria (AND).",
                                                 },
                                                 {},
                                             ],
@@ -310,7 +310,7 @@ describe('cohortEditLogic', () => {
                 expect(api.update).toHaveBeenCalledTimes(0)
             })
 
-            it('do not save on less than one positive matching criteria', async () => {
+            it('saves a cohort with only negative matching criteria', async () => {
                 await initCohortLogic({ id: 1 })
                 await expectLogic(logic, async () => {
                     logic.actions.setCohort({
@@ -341,26 +341,11 @@ describe('cohortEditLogic', () => {
                     })
                     logic.actions.submitCohort()
                 })
-                    .toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
+                    .toDispatchActions(['setCohort', 'submitCohort', 'submitCohortSuccess', 'saveCohortSuccess'])
                     .toMatchValues({
-                        cohortErrors: partial({
-                            filters: {
-                                properties: {
-                                    values: [
-                                        {
-                                            id: "'Did not complete event' is a negative cohort criteria. Negation criteria can only be used when matching all criteria (AND), and must be accompanied by at least one positive matching criteria.",
-                                            values: [
-                                                {
-                                                    value: "'Did not complete event' is a negative cohort criteria. Negation criteria can only be used when matching all criteria (AND), and must be accompanied by at least one positive matching criteria.",
-                                                },
-                                            ],
-                                        },
-                                    ],
-                                },
-                            },
-                        }),
+                        cohortErrors: {},
                     })
-                expect(api.update).toHaveBeenCalledTimes(0)
+                expect(api.update).toHaveBeenCalledTimes(1)
             })
 
             it('do not save on criteria cancelling each other out', async () => {

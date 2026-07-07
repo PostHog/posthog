@@ -196,12 +196,7 @@ export function validateGroup(
     const negatedCriteria = criteria.filter((c) => !!c.negation)
     const negatedCriteriaIndices = new Set(negatedCriteria.map((c) => c.index))
 
-    if (
-        // Negation criteria can only be used when matching ALL criteria
-        (group.type !== FilterLogicalOperator.And && negatedCriteria.length > 0) ||
-        // Negation criteria has at least one positive matching criteria
-        (group.type === FilterLogicalOperator.And && negatedCriteria.length === criteria.length)
-    ) {
+    if (group.type !== FilterLogicalOperator.And && negatedCriteria.length > 0) {
         const errorMsg = `${negatedCriteria
             .map((c) => {
                 const behavioralFilterType = criteriaToBehavioralFilterType(c)
@@ -211,7 +206,7 @@ export function validateGroup(
                 return `'${BEHAVIORAL_TYPE_TO_LABEL[behavioralFilterType]?.label ?? behavioralFilterType}'`
             })
             .join(', ')} ${negatedCriteria.length > 1 ? 'are' : 'is a'} negative cohort criteria. ${
-            CohortClientErrors.NegationCriteriaMissingOther
+            CohortClientErrors.NegationCriteriaRequiresAnd
         }`
         return {
             id: errorMsg,
