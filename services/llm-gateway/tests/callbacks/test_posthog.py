@@ -204,7 +204,7 @@ class TestPostHogCallback:
             patch("llm_gateway.callbacks.posthog.get_product", return_value="posthog_code"),
             patch(
                 "llm_gateway.callbacks.posthog.get_posthog_properties",
-                return_value={"ai_product": "spoofed", "$ai_billable": True},
+                return_value={"ai_product": "spoofed", "$ai_billable": False},
             ),
         ):
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
@@ -212,8 +212,9 @@ class TestPostHogCallback:
             props = mock_client.capture.call_args.kwargs["properties"]
             # route-derived product wins over the header value
             assert props["ai_product"] == "posthog_code"
-            # config-derived billable flag wins (posthog_code is non-billable)
-            assert props["$ai_billable"] is False
+            # config-derived billable flag wins (posthog_code is billable) — a caller
+            # can't opt out of billing by spoofing the header
+            assert props["$ai_billable"] is True
 
     @pytest.mark.asyncio
     async def test_on_success_uses_uuid_when_no_auth_user(
@@ -600,8 +601,8 @@ class TestPostHogCallback:
             assert props["ai_product"] == product
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("product", ["slack_app", "slack_app_routing"])
-    async def test_on_success_marks_slack_products_billable(
+    @pytest.mark.parametrize("product", ["slack_app", "slack_app_routing", "posthog_code"])
+    async def test_on_success_marks_billable_products_billable(
         self,
         callback: PostHogCallback,
         auth_user: AuthenticatedUser,
@@ -622,7 +623,7 @@ class TestPostHogCallback:
         assert props["$ai_billable"] is True
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("product", ["posthog_code", "background_agents", "wizard", "llm_gateway"])
+    @pytest.mark.parametrize("product", ["background_agents", "wizard", "llm_gateway"])
     async def test_on_success_does_not_mark_other_products_billable(
         self,
         callback: PostHogCallback,
@@ -644,8 +645,8 @@ class TestPostHogCallback:
         assert props["$ai_billable"] is False
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("product", ["slack_app", "slack_app_routing"])
-    async def test_on_failure_marks_slack_products_billable(
+    @pytest.mark.parametrize("product", ["slack_app", "slack_app_routing", "posthog_code"])
+    async def test_on_failure_marks_billable_products_billable(
         self,
         callback: PostHogCallback,
         auth_user: AuthenticatedUser,
