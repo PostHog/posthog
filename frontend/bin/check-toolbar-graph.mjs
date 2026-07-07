@@ -41,9 +41,9 @@ const FORBIDDEN_PACKAGES = [
 // Ratchet policy: when a cut lands, lower the budget to lock it in; raise it only as a
 // conscious, reviewed decision in the PR that needs it.
 // 2026-07-07: 13.95 MiB of source input reachable (1042 files) after the shim-leak fix took
-// the app scene graph out of the bundle; headroom for churn, but any reintroduced leak
-// jumps back to ~100 MiB and fails loudly.
-const TOTAL_INPUT_BYTES_BUDGET = 18_000_000
+// the app scene graph out of the bundle; 13.40 MiB (1010 files) after the replay-shared cut.
+// Headroom for churn, but any reintroduced leak jumps back to ~100 MiB and fails loudly.
+const TOTAL_INPUT_BYTES_BUDGET = 15_500_000
 
 function fail(message) {
     console.error(`\n❌ ${message}`)

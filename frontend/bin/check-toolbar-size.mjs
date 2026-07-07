@@ -16,8 +16,9 @@ const MAX_FILE_BYTES = 10_000_000
 // 2. Eager-set budget: the entry plus everything statically imported from it — the bytes every
 //    toolbar load fetches before any feature runs. Ratchet policy: when a cut lands, lower the
 //    budget to lock it in; raise it only as a conscious, reviewed decision in the PR that needs it.
-//    2026-07-07: 2,967,721 bytes measured when splitting landed; ~10% headroom.
-const MAX_EAGER_BYTES = 3_300_000
+//    2026-07-07: 2,967,721 bytes measured when splitting landed; 2,764,847 after the
+//    replay-shared cut; ~10% headroom.
+const MAX_EAGER_BYTES = 3_050_000
 
 // 3. The loader is injected on every customer page that enables the toolbar and must stay tiny.
 //    2026-07-07: 1,153 bytes minified.

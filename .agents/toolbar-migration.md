@@ -4,9 +4,9 @@ This file is the committed source of truth for the toolbar bundle modernization 
 
 ## Status
 
-- **Current step**: Step 2 (loader + ESM splitting) is implemented and in review on `rafa/toolbar-migration-4-loader-esm-splitting` — see its section for the remaining parity gates before ready-for-review. Next after that: Step 4 (`~/types` hygiene) and the remaining Step 5/6 edges.
+- **Current step**: Steps 1–4 all implemented and in review as a 5-deep Graphite stack (drafts). Next: merge the base of the stack before extending further (per repo stacking guidance), then remaining Step 5/6 edges and Step 7 lazy boundaries.
 - **Last updated**: 2026-07-07
-- **PRs**: Step 1 — `rafa/toolbar-migration-1-graph-guard` (#69045); Step 3 — `rafa/toolbar-migration-2-products-urls-split` (#69071, stacked on Step 1); chain cuts + shim-leak fix — `rafa/toolbar-migration-3-shim-leak-and-chain-cuts` (#69088, stacked on #69071); Step 2 — `rafa/toolbar-migration-4-loader-esm-splitting` (stacked on #69088)
+- **PRs**: Step 1 — `rafa/toolbar-migration-1-graph-guard` (#69045); Step 3 — `rafa/toolbar-migration-2-products-urls-split` (#69071); chain cuts + shim-leak fix — `rafa/toolbar-migration-3-shim-leak-and-chain-cuts` (#69088); Step 2 — `rafa/toolbar-migration-4-loader-esm-splitting` (#69093); Step 4 — `rafa/toolbar-migration-5-types-replay-shared-cut` (each stacked on the previous)
 - **Reorder note (resolved)**: a trial Step 2 build emitted **487 dead chunks** — with `products.tsx` reachable, every product scene's dynamic import becomes a real chunk in `dist/toolbar/`. The gate was: flip the format only once `products.tsx` leaves the graph. That's now done via two moves in the third PR. First, the remaining chains all funneled through one root cause: the kea shims only matched exact alias strings (`scenes/teamLogic`), so relative imports (`dataThemeLogic` → `./teamLogic`) and `~/`-prefixed imports pulled the REAL logics and their whole app graph — fixed with relative + `~/` matching in `createToolbarModulePlugin`, disconnecting `products.tsx`, `scenes.ts`, `teamLogic`, `PersonDisplay`, and `experimentsLogic` in one move. Second, `scenes/urls` itself (imported by lib components shared with the app) is shimmed to the toolbar's parity-tested `~/toolbar/urls` duplicate from Step 3, taking the last products-manifest path out. Bundle graph 8448 → ~1000 files (99 → ~13.5 MiB source), shipped `dist/toolbar.js` 9.95 MB → ~4 MB (was just under the 10 MB CloudFront cliff). Graph budget ratcheted 110 MB → 18 MB.
 - **posthog-js prerequisite**: DONE — release pipeline is layout-agnostic and verified as a no-op against today's build. Nothing blocks any step. See Step 0 for the constraints it imposes on the build here.
 
@@ -86,13 +86,15 @@ Approach (revised on review): rather than restructuring the generated products m
 - [x] The 3 lib files shipped in the toolbar (`TZLabel`, `HeatmapEventsPanel`, `Link`) still import `scenes/urls` — they're shared with the app and can't be repointed; the third PR's `scenes/urls` shim resolves them to the toolbar duplicate at build time, removing their edges and taking `scenes/urls` + the products manifest out of the toolbar graph entirely
 - [ ] Verify the app/exporter eager-graph improvements with the `check-eager-graph` owners
 
-### Step 4 — `~/types` hygiene
+### Step 4 — `~/types` hygiene (in review: `rafa/toolbar-migration-5-types-replay-shared-cut`)
 
-- [ ] Convert type-only imports in `frontend/src/types.ts` to `import type`; make `lib/Chart` type-only
-- [ ] Drop the runtime `export { SnapshotSourceType } from '@posthog/replay-shared'` re-export (kills the `hls.js` deny); import it from a leaf module where used
-- [ ] Move genuine leaf enums (`SessionRecordingPlayerMode`, `WEB_SAFE_FONTS`, ...) to leaf modules; update importers
-- [ ] Optional: oxlint `typescript/consistent-type-imports` on types.ts
-- [ ] Shrink allowlist + drop retired deny entries (`hls.js`, half of `chart.js`)
+**Finding that shrank this step**: esbuild already erases imports whose specifiers are all type-position-only (they show as `external: true` in the metafile with no resolved edge), so the planned `import type` conversion and leaf-enum extraction were unnecessary for the bundle graph — `src/types.ts` had exactly ONE surviving runtime import: the `SnapshotSourceType` value re-export.
+
+- [x] `export { SnapshotSourceType }` → `export type { ... }` in `types.ts`; the three value-users (snapshotDataLogic + two player tests) import the enum from `@posthog/replay-shared` directly. Removes all 27 replay-shared files from the toolbar graph
+- [x] Retired the `hls.js` deny in `toolbar-config.mjs` (its only path in was replay-shared); reintroduction still fails via FORBIDDEN_PACKAGES in `check-toolbar-graph.mjs`
+- [x] Ratchets: graph budget 18 MB → 15.5 MB (measured 13.40 MiB, 1010 files), eager budget 3.3 MB → 3.05 MB (measured 2,764,847 — the cut freed 203 KB of eager JS and one eager chunk)
+- [-] `import type` conversion / `lib/Chart` type-only / leaf-enum moves: NOT NEEDED for the bundle (see finding); only worth doing as general hygiene if oxlint `consistent-type-imports` lands repo-wide
+- [ ] `chart.js` deny retirement: still blocked — `lib/Chart` stays denied because Sparkline/LineGraph value-import it outside types.ts (Step 6 territory)
 
 ### Step 5 — toolbar-owned direct edges
 
