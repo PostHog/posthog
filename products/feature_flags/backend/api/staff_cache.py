@@ -177,9 +177,12 @@ def _dispatch_mutation(
 ) -> response.Response:
     """Shared shape of `rebuild` and `clear`: split team_ids into found/not-found, dispatch the
     per-cache action for each found team, log, and return the 202 response both actions share."""
-    found_set = set(Team.objects.filter(id__in=team_ids).values_list("id", flat=True))
-    found_ids = [team_id for team_id in team_ids if team_id in found_set]
-    not_found_ids = [team_id for team_id in team_ids if team_id not in found_set]
+    # Dedupe (preserving order) so a caller passing the same id twice doesn't enqueue duplicate
+    # rebuild/clear work for that team.
+    deduped_ids = list(dict.fromkeys(team_ids))
+    found_set = set(Team.objects.filter(id__in=deduped_ids).values_list("id", flat=True))
+    found_ids = [team_id for team_id in deduped_ids if team_id in found_set]
+    not_found_ids = [team_id for team_id in deduped_ids if team_id not in found_set]
 
     for team_id in found_ids:
         if EVALUATION in caches:

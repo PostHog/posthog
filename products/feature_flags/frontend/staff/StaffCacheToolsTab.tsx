@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconEye } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { truncate } from 'lib/utils/strings'
@@ -116,7 +116,20 @@ export function StaffCacheToolsTab(): JSX.Element {
                     status="danger"
                     type="secondary"
                     size="small"
-                    onClick={() => clearCache({ caches: ALL_CACHES })}
+                    onClick={() =>
+                        LemonDialog.open({
+                            title: 'Clear flag caches?',
+                            description: `This immediately clears the evaluation and definitions caches in Redis for ${selectedTeamIds.length} selected team(s). Reads will fall through to the database until the caches are rebuilt.`,
+                            primaryButton: {
+                                children: 'Clear caches',
+                                status: 'danger',
+                                onClick: () => clearCache({ caches: ALL_CACHES }),
+                            },
+                            secondaryButton: {
+                                children: 'Cancel',
+                            },
+                        })
+                    }
                     disabledReason={disabledReason}
                     loading={clearResultLoading}
                 >
