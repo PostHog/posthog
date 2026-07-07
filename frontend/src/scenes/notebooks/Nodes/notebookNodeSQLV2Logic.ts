@@ -5,20 +5,36 @@ import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { NotebookOperation, notebookOperationsLogic } from '../Notebook/notebookOperationsLogic'
-import { collectSqlV2Nodes } from './notebookNodeContent'
+import { collectPythonKernelNodes, collectSqlV2Nodes } from './notebookNodeContent'
 import { NotebookNodeSQLV2Result } from './NotebookNodeSQLV2'
 import type { notebookNodeSQLV2LogicType } from './notebookNodeSQLV2LogicType'
 
-// Map every SQLV2 sibling's dataframe name -> node id, excluding the running node itself.
-// Delegates to collectSqlV2Nodes so duplicate names get the same disambiguated form the
-// dependency graph shows (sql_df, sql_df_2, …) — raw attributes would let a later duplicate
-// silently shadow the node the user actually referenced. The backend resolves each referenced
-// node to its last-run query and inlines it as a CTE — the frontend only supplies the wiring.
-export function collectSqlV2Refs(doc: JSONContent | null | undefined, selfNodeId: string): Record<string, string> {
-    const refs: Record<string, string> = {}
+export type SqlV2RunRef = {
+    node_id: string
+    // 'hogql' is a SQL node's query definition; 'local' is a dataframe a Python cell bound in
+    // the kernel namespace. The backend routes a SQL run to ClickHouse or the sandbox's DuckDB
+    // based on which kinds the query actually references.
+    kind: 'hogql' | 'local'
+}
+
+// Map every sibling cell's dataframe name -> {node id, kind}, excluding the running node itself.
+// SQLV2 siblings delegate to collectSqlV2Nodes so duplicate names get the same disambiguated
+// form the dependency graph shows (sql_df, sql_df_2, …) — raw attributes would let a later
+// duplicate silently shadow the node the user actually referenced. Python siblings contribute
+// their returnVariable verbatim (it IS the kernel variable); on a name collision the SQL ref
+// wins, since SQL names are already disambiguated in the UI and kernel variables are not.
+// The backend resolves each referenced hogql node to its last-run query — the frontend only
+// supplies the wiring.
+export function collectSqlV2Refs(doc: JSONContent | null | undefined, selfNodeId: string): Record<string, SqlV2RunRef> {
+    const refs: Record<string, SqlV2RunRef> = {}
     for (const node of collectSqlV2Nodes(doc)) {
         if (node.nodeId && node.nodeId !== selfNodeId) {
-            refs[node.returnVariable] = node.nodeId
+            refs[node.returnVariable] = { node_id: node.nodeId, kind: 'hogql' }
+        }
+    }
+    for (const node of collectPythonKernelNodes(doc)) {
+        if (node.nodeId && node.nodeId !== selfNodeId && !(node.returnVariable in refs)) {
+            refs[node.returnVariable] = { node_id: node.nodeId, kind: 'local' }
         }
     }
     return refs
@@ -66,10 +82,11 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
         ],
     })),
     actions({
-        // refs maps each named sibling node's dataframe name to its node id. A hogql node
-        // inlines the referenced ones as CTEs (Journey 3); a python node materializes the
-        // ones its code reads as pandas frames (Journey 4).
-        runQuery: (code: string, refs: Record<string, string> = {}, opts: RunQueryOptions = {}) => ({
+        // refs maps each named sibling cell's dataframe name to {node id, kind}. A SQL node
+        // inlines referenced hogql refs as CTEs (Journey 3) — or runs locally in DuckDB when
+        // it references a local frame (Journey 5); a python node materializes the hogql refs
+        // its code reads as pandas frames (Journey 4).
+        runQuery: (code: string, refs: Record<string, SqlV2RunRef> = {}, opts: RunQueryOptions = {}) => ({
             code,
             refs,
             opts,

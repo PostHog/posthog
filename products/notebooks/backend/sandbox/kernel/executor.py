@@ -1,4 +1,4 @@
-"""Owns the ipykernel child and runs Python nodes through it (Journey 4, arch build step 2).
+"""Owns the ipykernel child and runs kernel nodes through it (Journeys 4/5, arch build steps 2+5).
 
 Sandbox-only: this is the one module that imports `jupyter_client` and drives a live
 kernel, both of which exist only in the notebook sandbox image — so it is exercised there,
@@ -7,7 +7,7 @@ in test_kernel_bootstrap). Everything network/credential-bearing stays in this p
 kernel receives only local file paths and node code, never a token (division of labor in
 sql_v2_kernel_architecture.md).
 
-Flow for a Python node:
+Flow for a kernel node (python or duckdb — the kernel branches on node.type):
   1. materialize each HogQL input — the server streams the full CH result to a local Arrow
      file keyed by query_hash (reused when the upstream query is unchanged);
   2. hand the kernel `_ph.run_node(payload)` (paths only) and read back the envelope it writes;
@@ -47,7 +47,7 @@ class KernelExecutor:
         self._kc: Any = None
         self._lock = threading.Lock()
 
-    def run_python_node(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def run_kernel_node(self, payload: dict[str, Any]) -> dict[str, Any]:
         with self._lock:  # a kernel has one namespace — concurrent runs are meaningless
             try:
                 self._ensure_kernel()

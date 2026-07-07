@@ -264,8 +264,8 @@ def dispatch_sql_v2_run(
     """Dispatch a run to the in-sandbox kernel-server with a single authed HTTP POST.
 
     Returns as soon as the server accepts (202); the result arrives via the callback. A
-    python node carries the `node`/`inputs` shape the executor consumes; a hogql node keeps
-    the flat `code` the capped-fetch path reads — the two paths stay additive.
+    kernel node (python or duckdb) carries the `node`/`inputs` shape the executor consumes;
+    a hogql node keeps the flat `code` the capped-fetch path reads — the paths stay additive.
     """
     runtime = ensure_sql_v2_server(notebook, user)
     assert runtime.server_url  # ensure_sql_v2_server always returns a runtime with a live server_url
@@ -280,8 +280,8 @@ def dispatch_sql_v2_run(
         "page_limit": DISPLAY_PAGE_LIMIT,
         "cache_limit": RESULT_CACHE_ROWS,
     }
-    if node_type == "python":
-        payload["node"] = {"type": "python", "code": code, "output_name": output_name}
+    if node_type in ("python", "duckdb"):
+        payload["node"] = {"type": node_type, "code": code, "output_name": output_name}
         payload["inputs"] = inputs or []
     else:
         payload["code"] = code
@@ -295,10 +295,13 @@ def dispatch_sql_v2_run(
 
 
 def fetch_sql_v2_page(notebook: Notebook, user: User | None, run: NotebookNodeRun, offset: int, limit: int) -> dict:
-    """Fetch one result page through the kernel — a bounded synchronous re-query.
+    """Fetch one result page through the kernel — a bounded synchronous read.
 
-    Unlike a run this never bootstraps the server (no control plane from a web
-    worker); a missing or unreachable server means the user has to re-run.
+    A hogql run pages by re-querying its stored code through the data plane with
+    LIMIT/OFFSET; a kernel run (python/duckdb) pages by slicing its on-sandbox result
+    frame, keyed by `result_id` — its code is not a HogQL query, so no data-plane
+    fallback exists for it. Unlike a run this never bootstraps the server (no control
+    plane from a web worker); a missing or unreachable server means the user has to re-run.
     """
     runtime = _find_running_runtime(notebook, user)
     if runtime is None or not runtime.server_url:
@@ -306,17 +309,21 @@ def fetch_sql_v2_page(notebook: Notebook, user: User | None, run: NotebookNodeRu
 
     command_token = mint_command_token(kernel_server_secret(str(runtime.id)), str(run.id))
     user_id = user.id if isinstance(user, User) else None
+    payload: dict = {
+        "run_id": str(run.id),
+        "offset": offset,
+        "limit": limit,
+    }
+    if run.node_type == NotebookNodeRun.NodeType.HOGQL:
+        payload["code"] = run.code
+        payload["data_plane_url"] = build_data_plane_url()
+        payload["data_plane_token"] = mint_data_plane_token(notebook.short_id, notebook.team_id, user_id)
+    else:
+        payload["result_id"] = str(run.result_id)
     try:
         response = requests.post(
             _with_connect_token(f"{runtime.server_url.rstrip('/')}/page", runtime.server_connect_token),
-            json={
-                "run_id": str(run.id),
-                "code": run.code,
-                "offset": offset,
-                "limit": limit,
-                "data_plane_url": build_data_plane_url(),
-                "data_plane_token": mint_data_plane_token(notebook.short_id, notebook.team_id, user_id),
-            },
+            json=payload,
             headers={"Authorization": f"Bearer {command_token}"},
             timeout=_PAGE_POST_TIMEOUT_SECONDS,
         )

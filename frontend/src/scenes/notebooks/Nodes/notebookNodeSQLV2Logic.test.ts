@@ -41,32 +41,58 @@ describe('notebookNodeSQLV2Logic', () => {
             attrs: { nodeId, returnVariable },
         })
 
+        const pythonNode = (nodeId: string, returnVariable?: string): JSONContent => ({
+            type: NotebookNodeType.Python,
+            attrs: { nodeId, returnVariable },
+        })
+
         const doc = (...children: JSONContent[]): JSONContent => ({
             type: 'doc',
             content: children,
         })
 
+        const hogql = (node_id: string): { node_id: string; kind: 'hogql' } => ({ node_id, kind: 'hogql' })
+        const local = (node_id: string): { node_id: string; kind: 'local' } => ({ node_id, kind: 'local' })
+
         it('maps each named sibling to its node id, excluding the running node itself', () => {
             // Including self would inline the node as a CTE of its own name — a cycle the backend rejects.
             const document = doc(sqlNode('a', 'df1'), sqlNode('self', 'df2'), sqlNode('c', 'df3'))
-            expect(collectSqlV2Refs(document, 'self')).toEqual({ df1: 'a', df3: 'c' })
+            expect(collectSqlV2Refs(document, 'self')).toEqual({ df1: hogql('a'), df3: hogql('c') })
         })
 
         it('disambiguates duplicate names the way the dependency graph does', () => {
             // Raw attributes would let node b shadow node a under the shared name —
             // the join would silently run against the wrong node's data.
             const document = doc(sqlNode('a', 'sql_df'), sqlNode('b', 'sql_df'), sqlNode('self', 'sql_df'))
-            expect(collectSqlV2Refs(document, 'self')).toEqual({ sql_df: 'a', sql_df_2: 'b' })
+            expect(collectSqlV2Refs(document, 'self')).toEqual({ sql_df: hogql('a'), sql_df_2: hogql('b') })
         })
 
         it('resolves blank names to the default the dependency graph shows', () => {
             const document = doc(sqlNode('a', ''), sqlNode('b', '  '))
-            expect(collectSqlV2Refs(document, 'self')).toEqual({ sql_df: 'a', sql_df_2: 'b' })
+            expect(collectSqlV2Refs(document, 'self')).toEqual({ sql_df: hogql('a'), sql_df_2: hogql('b') })
         })
 
         it('finds SQLV2 nodes nested inside other content', () => {
             const document = doc({ type: 'column', content: [sqlNode('a', 'df1')] })
-            expect(collectSqlV2Refs(document, 'self')).toEqual({ df1: 'a' })
+            expect(collectSqlV2Refs(document, 'self')).toEqual({ df1: hogql('a') })
+        })
+
+        it('collects python cells as local refs under their kernel variable name', () => {
+            // Journey 5: a SQL node referencing new_events must reroute to DuckDB, which only
+            // happens if the python cell's returnVariable reaches the backend as a local ref.
+            const document = doc(sqlNode('a', 'df1'), pythonNode('py', 'new_events'), pythonNode('py2'))
+            expect(collectSqlV2Refs(document, 'self')).toEqual({
+                df1: hogql('a'),
+                new_events: local('py'),
+                df: local('py2'), // returnVariable defaults to 'df', matching the python cell UI
+            })
+        })
+
+        it('a sql ref wins a name collision with a python cell', () => {
+            // SQL names are disambiguated in the UI; kernel variables are not — renaming the
+            // local ref would break its correspondence with the kernel namespace, so it drops.
+            const document = doc(sqlNode('a', 'df1'), pythonNode('py', 'df1'))
+            expect(collectSqlV2Refs(document, 'self')).toEqual({ df1: hogql('a') })
         })
 
         it('collects refs from markdown notebook cells, preferring their persisted nodeId', () => {
@@ -78,12 +104,18 @@ describe('notebookNodeSQLV2Logic', () => {
                 serializeMarkdownNotebookComponent('SQLV2', { nodeId: 'a', returnVariable: 'df1', code: 'select 1' }),
                 serializeMarkdownNotebookComponent('SQLV2', { nodeId: 'self', returnVariable: 'df2', code: '' }),
                 serializeMarkdownNotebookComponent('SQLV2', { returnVariable: 'df3', code: 'select 3' }),
+                serializeMarkdownNotebookComponent('Python', {
+                    nodeId: 'py',
+                    returnVariable: 'new_events',
+                    code: 'x = 1',
+                }),
             ].join('\n\n')
             const refs = collectSqlV2Refs(buildMarkdownNotebookContent(markdown), 'self')
-            expect(refs.df1).toEqual('a')
+            expect(refs.df1).toEqual(hogql('a'))
             expect(refs.df2).toBeUndefined()
             // Without a persisted nodeId the cell falls back to its parsed fingerprint id.
-            expect(refs.df3).toMatch(/^mdn-/)
+            expect(refs.df3?.node_id).toMatch(/^mdn-/)
+            expect(refs.new_events).toEqual(local('py'))
         })
     })
 
@@ -108,12 +140,16 @@ describe('notebookNodeSQLV2Logic', () => {
 
     it('dispatches a python run with its node type and output name', async () => {
         mount()
-        logic.actions.runQuery('df.head()', { sql_df: 'other' }, { nodeType: 'python', outputName: 'df' })
+        logic.actions.runQuery(
+            'df.head()',
+            { sql_df: { node_id: 'other', kind: 'hogql' } },
+            { nodeType: 'python', outputName: 'df' }
+        )
         await expectLogic(logic).toDispatchActions(['runQuery', 'startPolling'])
         expect(runSpy).toHaveBeenCalledWith('nb1', {
             node_id: 'n1',
             code: 'df.head()',
-            refs: { sql_df: 'other' },
+            refs: { sql_df: { node_id: 'other', kind: 'hogql' } },
             node_type: 'python',
             output_name: 'df',
         })

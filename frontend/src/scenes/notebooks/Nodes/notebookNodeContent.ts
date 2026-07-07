@@ -284,19 +284,19 @@ export const getUniqueSqlV2ReturnVariable = (
 }
 
 // Markdown notebooks hold their cells as component tags inside a single markdown attribute,
-// so walking the tiptap JSON alone never finds them. Expand `<SQLV2 …>` tags into
+// so walking the tiptap JSON alone never finds them. Expand the given cell tag into
 // tiptap-shaped nodes so the collectors and the dependency graph see the same cells in both
-// notebook formats. Scoped to SQLV2: expanding the other node types here would change their
-// (currently markdown-blind) summaries and disambiguated naming.
-const expandMarkdownNotebookSqlV2Nodes = (node: any): JSONContent[] => {
+// notebook formats. Scoped to the revamped-notebook cell types (SQLV2 + kernel Python):
+// expanding the other node types would change their (markdown-blind) summaries and naming.
+const expandMarkdownNotebookNodesOfType = (node: any, nodeType: NotebookNodeType): JSONContent[] => {
     if (typeof node?.attrs?.markdown !== 'string') {
         return []
     }
     return parseMarkdownNotebook(node.attrs.markdown).nodes.flatMap((block) =>
-        block.type === 'component' && block.tagName === NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG[NotebookNodeType.SQLV2]
+        block.type === 'component' && block.tagName === NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG[nodeType]
             ? [
                   {
-                      type: NotebookNodeType.SQLV2,
+                      type: nodeType,
                       attrs: {
                           ...block.props,
                           // Prefer the persisted nodeId prop: the parsed block id is a content
@@ -312,6 +312,9 @@ const expandMarkdownNotebookSqlV2Nodes = (node: any): JSONContent[] => {
             : []
     )
 }
+
+const expandMarkdownNotebookSqlV2Nodes = (node: any): JSONContent[] =>
+    expandMarkdownNotebookNodesOfType(node, NotebookNodeType.SQLV2)
 
 export const collectSqlV2Nodes = (content?: JSONContent | null): SqlV2NodeSummary[] => {
     if (!content || typeof content !== 'object') {
@@ -374,6 +377,47 @@ export const collectPythonNodes = (content?: JSONContent | null): PythonNodeSumm
                 pythonIndex: nodes.length + 1,
                 title: typeof attrs.title === 'string' ? attrs.title : '',
             })
+        }
+        if (Array.isArray(node.content)) {
+            node.content.forEach(walk)
+        }
+    }
+
+    walk(content)
+    return nodes
+}
+
+export type PythonKernelNodeSummary = {
+    nodeId: string
+    returnVariable: string
+}
+
+// Kernel-run Python cells (revamped notebooks): each binds its result to `returnVariable` in
+// the kernel namespace. Unlike the SQL collectors the names are NOT disambiguated — they are
+// exactly the kernel variables, so a duplicated returnVariable means last-run-wins, matching
+// kernel semantics. Markdown-aware (unlike the legacy collectPythonNodes) because revamped
+// markdown notebooks store their cells as `<Python …/>` component tags.
+export const collectPythonKernelNodes = (content?: JSONContent | null): PythonKernelNodeSummary[] => {
+    if (!content || typeof content !== 'object') {
+        return []
+    }
+
+    const nodes: PythonKernelNodeSummary[] = []
+
+    const walk = (node: any): void => {
+        if (!node || typeof node !== 'object') {
+            return
+        }
+        if (node.type === NotebookNodeType.Python) {
+            const attrs = node.attrs ?? {}
+            const returnVariable =
+                typeof attrs.returnVariable === 'string' && attrs.returnVariable.trim()
+                    ? attrs.returnVariable.trim()
+                    : 'df'
+            nodes.push({ nodeId: attrs.nodeId ?? '', returnVariable })
+        }
+        if (node.type === NotebookNodeType.MarkdownNotebook) {
+            expandMarkdownNotebookNodesOfType(node, NotebookNodeType.Python).forEach(walk)
         }
         if (Array.isArray(node.content)) {
             node.content.forEach(walk)

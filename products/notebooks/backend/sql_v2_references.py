@@ -1,4 +1,4 @@
-"""Resolve SQLV2 node references by inlining upstream node queries as CTEs (Journey 3).
+"""Resolve SQLV2 node references and route each run to its engine (Journeys 3–5).
 
 A SQLV2 node is a HogQL *query definition*, not a materialized frame. When one node
 references another by its dataframe name — ``select … from df1 join df2`` — the whole
@@ -11,9 +11,16 @@ Only names the query actually reaches are inlined, transitively and in dependenc
 (a CTE must be printed before the CTEs that use it). A name the query shadows with its
 own ``WITH`` is left alone. Broken definitions that nothing references are never parsed,
 so an unrelated malformed node can't fail a run.
+
+Journey 5 adds **local** refs — frames a Python node bound in the kernel namespace. A
+local frame cannot be pushed to ClickHouse, so a SQL node that references one runs in
+the sandbox's DuckDB instead (`resolve_sql_node_run` decides per run), materializing
+whatever HogQL refs it also reads — the same input shape Python nodes use.
 """
 
+import re
 import hashlib
+from dataclasses import dataclass
 from typing import Any
 
 from posthog.hogql import ast
@@ -28,6 +35,19 @@ from products.notebooks.backend.python_analysis import analyze_python_globals
 
 class SQLV2ReferenceError(Exception):
     """A reference could not be resolved (cycle, or a referenced definition won't parse). User-facing."""
+
+
+@dataclass(frozen=True)
+class SQLV2Ref:
+    """One upstream node available to a run, keyed by its dataframe name.
+
+    kind "hogql" is a query definition (last_run_code holds its last-run, self-contained
+    HogQL, or None if it has never completed a run); kind "local" is a frame a Python node
+    bound in the kernel namespace — it has no query, only a name.
+    """
+
+    kind: str  # "hogql" | "local"
+    last_run_code: str | None = None
 
 
 class _TableReferenceCollector(TraversingVisitor):
@@ -131,30 +151,80 @@ def resolve_sql_v2_references(code: str, refs: dict[str, str | None]) -> str:
     return print_prepared_ast(root, context=HogQLContext(team_id=None), dialect="hogql")
 
 
-def resolve_python_node_inputs(code: str, refs: dict[str, str | None]) -> list[dict[str, Any]]:
-    """Return the materialization specs for the upstream frames a Python node reads.
+def _hogql_input(name: str, ref: SQLV2Ref) -> dict[str, Any]:
+    """The materialization spec for one HogQL ref: the executor fetches its last-run query to a
+    local Arrow file keyed by query_hash, so an unchanged upstream reuses its frame."""
+    if ref.last_run_code is None or not ref.last_run_code.strip():
+        raise SQLV2ReferenceError(f"Referenced node '{name}' has not been run yet — run it first.")
+    return {
+        "name": name,
+        "kind": "hogql",
+        "query": ref.last_run_code,
+        "query_hash": hashlib.sha256(ref.last_run_code.encode()).hexdigest(),
+    }
 
-    `refs` maps each named upstream node's dataframe name to its **last-run** HogQL (or None
-    if it has never completed a run). A Python node references frames as plain variables, so
-    we materialize only the names its code actually reads — each becomes a HogQL input the
-    executor fetches to a local Arrow file, keyed by `query_hash` so an unchanged upstream
-    query reuses its frame.
 
-    Raises SQLV2ReferenceError if the code reads a known node that has not been run yet.
+def resolve_python_node_inputs(code: str, refs: dict[str, SQLV2Ref]) -> list[dict[str, Any]]:
+    """Return the input specs for the upstream frames a Python node reads.
+
+    A Python node references frames as plain variables, so only the names its code actually
+    reads become inputs: a HogQL ref becomes a materialization spec (see `_hogql_input`); a
+    local ref becomes a presence assertion — the frame already lives in the kernel namespace
+    (bound by the upstream Python node), so the kernel just fails cleanly when it doesn't.
+
+    Raises SQLV2ReferenceError if the code reads a HogQL node that has not been run yet.
     """
     used = set(analyze_python_globals(code).used)
     inputs: list[dict[str, Any]] = []
-    for name, last_run_code in refs.items():
+    for name, ref in refs.items():
         if not name or name not in used:
             continue
-        if last_run_code is None or not last_run_code.strip():
-            raise SQLV2ReferenceError(f"Referenced node '{name}' has not been run yet — run it first.")
-        inputs.append(
-            {
-                "name": name,
-                "kind": "hogql",
-                "query": last_run_code,
-                "query_hash": hashlib.sha256(last_run_code.encode()).hexdigest(),
-            }
-        )
+        if ref.kind == "local":
+            inputs.append({"name": name, "kind": "local"})
+        else:
+            inputs.append(_hogql_input(name, ref))
     return inputs
+
+
+def resolve_sql_node_run(code: str, refs: dict[str, SQLV2Ref]) -> tuple[str, str, list[dict[str, Any]]]:
+    """Route a SQL node run to its engine; return (node_type, run_code, inputs).
+
+    The routing rule from the journey walkthroughs (decision 1): a query whose referenced
+    inputs are all HogQL definitions pushes to ClickHouse with the refs inlined as CTEs —
+    `("hogql", inlined_code, [])`. A query that references any **local** frame (made by a
+    Python node) cannot run in ClickHouse, so it runs in the sandbox's DuckDB instead —
+    `("duckdb", code_as_written, inputs)`, where inputs materialize the HogQL refs it also
+    reads (Journey 5: the join forces `df2` into the sandbox) and assert the local ones.
+
+    Raises SQLV2ReferenceError for unrunnable refs, and lets the HogQL parser's own error
+    surface for a malformed query that doesn't touch any local frame.
+    """
+    local_names = {name for name, ref in refs.items() if name and ref.kind == "local"}
+    hogql_refs = {name: ref for name, ref in refs.items() if name and ref.kind == "hogql"}
+    hogql_codes = {name: ref.last_run_code for name, ref in hogql_refs.items()}
+    referenced_locals: set[str] = set()
+    referenced_hogql: set[str] = set()
+    if local_names:
+        candidates = local_names | set(hogql_refs)
+        try:
+            found = _references(parse_select(code), candidates)
+        except ExposedHogQLError:
+            # DuckDB-only syntax can't parse as HogQL. If it names a local frame
+            # (word-boundary match), route it to DuckDB and let DuckDB report its own
+            # errors; otherwise fall through so the HogQL path surfaces the parse error.
+            found = {name for name in candidates if re.search(rf"\b{re.escape(name)}\b", code)}
+            if not found & local_names:
+                found = set()
+        referenced_locals = found & local_names
+        referenced_hogql = found - local_names
+
+    if not referenced_locals:
+        return "hogql", resolve_sql_v2_references(code, hogql_codes), []
+
+    inputs: list[dict[str, Any]] = []
+    for name in sorted(referenced_locals | referenced_hogql):
+        if name in local_names:
+            inputs.append({"name": name, "kind": "local"})
+        else:
+            inputs.append(_hogql_input(name, hogql_refs[name]))
+    return "duckdb", code, inputs

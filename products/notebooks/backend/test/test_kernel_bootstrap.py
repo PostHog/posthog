@@ -99,3 +99,52 @@ class TestKernelSessionRunNode(SimpleTestCase):
         self.assertEqual(envelope["status"], "ok")
         self.assertEqual(len(envelope["media"]), _MEDIA_MAX_FIGURES)
         self.assertIn("1 figure(s) omitted", envelope["stderr"])
+
+    def _run_duckdb(self, code: str, inputs=None, output_name=None) -> dict:
+        return self.session.run_node(
+            {"node": {"type": "duckdb", "code": code, "output_name": output_name}, "inputs": inputs or []}
+        )
+
+    def test_duckdb_node_joins_a_hogql_frame_with_a_local_frame(self):
+        # Journey 5 step 4: the local frame forces the join into DuckDB, over the mmapped
+        # HogQL input and the pandas frame a Python node left in the namespace.
+        path = self._write_frame("df2", pa.table({"id": [1, 2, 3], "name": ["a", "b", "c"]}))
+        self._run("import pandas as pd\nnew_events = pd.DataFrame({'id': [2, 3], 'n': [20, 30]})")
+        envelope = self._run_duckdb(
+            "select df2.id, df2.name, new_events.n from df2 join new_events on df2.id = new_events.id order by df2.id",
+            inputs=[{"name": "df2", "kind": "hogql", "path": path}, {"name": "new_events", "kind": "local"}],
+            output_name="joined",
+        )
+        self.assertEqual(envelope["status"], "ok")
+        self.assertEqual(envelope["columns"], ["id", "name", "n"])
+        self.assertEqual(envelope["first_page"], [[2, "b", 20], [3, "c", 30]])
+        self.assertTrue(envelope["result_id"])  # frame written for /page slicing
+
+    def test_duckdb_output_is_usable_by_a_following_python_node(self):
+        self._run("import pandas as pd\nnew_events = pd.DataFrame({'id': [1, 2]})")
+        self._run_duckdb(
+            "select id * 10 as scaled from new_events",
+            inputs=[{"name": "new_events", "kind": "local"}],
+            output_name="scaled_df",
+        )
+        envelope = self._run("scaled_df[scaled_df.scaled > 10]", inputs=[{"name": "scaled_df", "kind": "local"}])
+        self.assertEqual(envelope["status"], "ok")
+        self.assertEqual(envelope["first_page"], [[20]])
+
+    def test_duckdb_rerun_sees_the_local_frames_current_value(self):
+        # Re-registration per run: an updated upstream frame must not leave SQL reading the old one.
+        self._run("import pandas as pd\nnew_events = pd.DataFrame({'id': [1]})")
+        first = self._run_duckdb(
+            "select count(*) as c from new_events", inputs=[{"name": "new_events", "kind": "local"}]
+        )
+        self._run("import pandas as pd\nnew_events = pd.DataFrame({'id': [1, 2, 3]})")
+        second = self._run_duckdb(
+            "select count(*) as c from new_events", inputs=[{"name": "new_events", "kind": "local"}]
+        )
+        self.assertEqual(first["first_page"], [[1]])
+        self.assertEqual(second["first_page"], [[3]])
+
+    def test_duckdb_error_surfaces_as_error_envelope(self):
+        envelope = self._run_duckdb("select * from a_table_that_does_not_exist")
+        self.assertEqual(envelope["status"], "error")
+        self.assertIn("a_table_that_does_not_exist", envelope["error"])

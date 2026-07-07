@@ -1,6 +1,21 @@
 from rest_framework import serializers
 
 
+class NotebookSQLV2RefSerializer(serializers.Serializer):
+    node_id = serializers.CharField(help_text="ProseMirror node id of the upstream node this name points at.")
+    # Named `kind` on purpose (matches the kernel input spec); avoids the `type`/`format`
+    # enum-collision trap, and the endpoint is schema-excluded anyway.
+    kind = serializers.ChoiceField(
+        choices=["hogql", "local"],
+        required=False,
+        default="hogql",
+        help_text=(
+            "What the name resolves to: 'hogql' is a SQL node's query definition (resolved to its "
+            "last-run HogQL); 'local' is a dataframe a Python node bound in the kernel namespace."
+        ),
+    )
+
+
 class NotebookSQLV2RunRequestSerializer(serializers.Serializer):
     node_id = serializers.CharField(help_text="ProseMirror node id of the SQLV2 node being run.")
     node_type = serializers.ChoiceField(
@@ -8,27 +23,31 @@ class NotebookSQLV2RunRequestSerializer(serializers.Serializer):
         required=False,
         default="hogql",
         help_text=(
-            "Execution kind. 'hogql' pushes the query to ClickHouse; 'python' runs the code in the "
-            "sandbox kernel, materializing referenced upstream nodes as pandas frames first."
+            "Execution kind. 'hogql' is a SQL node — pushed to ClickHouse, or rerouted to the sandbox's "
+            "DuckDB when it references a local frame; 'python' runs the code in the sandbox kernel, "
+            "materializing referenced upstream nodes as pandas frames first."
         ),
     )
     code = serializers.CharField(
-        help_text="The node's source — HogQL for a hogql node, Python for a python node. Must not be blank.",
+        help_text="The node's source — SQL for a hogql node, Python for a python node. Must not be blank.",
     )
     output_name = serializers.CharField(
         required=False,
         default="",
         allow_blank=True,
-        help_text="Python node only: the dataframe variable to preview as the result (falls back to the last expression).",
+        help_text=(
+            "Kernel nodes only: the dataframe variable to bind the result to in the kernel namespace "
+            "(a python node falls back to the last expression for its preview)."
+        ),
     )
     refs = serializers.DictField(
-        child=serializers.CharField(),
+        child=NotebookSQLV2RefSerializer(),
         required=False,
         default=dict,
         help_text=(
-            "Available upstream nodes, mapping each named node's dataframe name to its ProseMirror "
-            "node id, resolved to each node's last-run query. A hogql node inlines the referenced ones "
-            "as CTEs; a python node materializes the ones its code reads as pandas frames."
+            "Available upstream nodes, keyed by dataframe name. A SQL node inlines referenced hogql "
+            "refs as CTEs — unless it references a local ref, which reroutes the run to the sandbox's "
+            "DuckDB; a python node materializes the hogql refs its code reads as pandas frames."
         ),
     )
 

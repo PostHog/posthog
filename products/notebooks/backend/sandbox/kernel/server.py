@@ -64,11 +64,11 @@ class KernelServerHandler(BaseHTTPRequestHandler):
         self._respond(200, {"interrupted": True})
 
     def _handle_page(self, payload: dict[str, Any]) -> None:
-        from . import data_plane  # noqa: PLC0415 — keep pyarrow off the server startup path
+        from . import data_plane, result_store  # noqa: PLC0415 — keep pyarrow off the server startup path
 
         try:
             self._respond(200, fetch_page(payload))
-        except data_plane.DataPlaneError as exc:
+        except (data_plane.DataPlaneError, result_store.ResultStoreError) as exc:
             self._respond(400, {"error": str(exc)})
         except Exception:  # noqa: BLE001 — a page failure must not kill the request thread silently
             logging.getLogger(__name__).exception("nb_kernel page fetch failed")

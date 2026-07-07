@@ -109,12 +109,18 @@ reads stay stateless.
 
 ## Where the full result lives
 
-**Now: a capped in-memory cache in the kernel-server.** A run fetches up to
+**Now: a capped in-memory cache in the kernel-server (hogql runs).** A run fetches up to
 `RESULT_CACHE_ROWS` (300) rows in one ClickHouse query; the kernel-server keeps
 them per run (LRU over the last 20 runs). `/page` requests within the cache are
 local slices — no ClickHouse work, no held backend workers. Paging beyond the
 cache, or after a kernel restart emptied it, falls back to a LIMIT/OFFSET
 re-query through the data plane.
+
+**Kernel runs (python/duckdb) page from the on-sandbox result store.** The kernel
+writes each produced frame to `/data/results/<result_id>.arrow`; `/page` requests
+carrying a `result_id` slice that file in the server process (`kernel/result_store.py`,
+pyarrow mmap). There is no data-plane fallback — the run's code is not a HogQL query —
+so a lost frame (sandbox death) means re-run, per the alive-only trade-off below.
 
 **Later: durable store** (object storage / Parquet / a results table). The
 sandbox materializes the full result at run time; `result_id` is the storage key.

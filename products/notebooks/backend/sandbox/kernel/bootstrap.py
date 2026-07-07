@@ -1,4 +1,4 @@
-"""The `_ph` kernel session injected into the ipykernel namespace (Journey 4).
+"""The `_ph` kernel session injected into the ipykernel namespace (Journeys 4/5).
 
 (Not to be confused with the legacy stdout "notebook bridge" in kernel_runtime.py that
 this whole path replaces — nothing here smuggles RPCs over stdout. `run_node` reads
@@ -15,6 +15,12 @@ kernel-server hands it a single call, `_ph.run_node(payload)`, per run.
      tracebacks, matplotlib figures captured as PNGs);
   3. returns the result envelope (the kernel-server, not the kernel, POSTs it back);
   4. writes the produced frame to a local Arrow file so `/page` can slice it later.
+
+A DuckDB node (Journey 5 — SQL over local frames, which can't push to ClickHouse) shares
+steps 1/3/4 but runs its SQL on the session's persistent DuckDB connection instead of
+IPython, with local pandas frames registered so the query can join them against the
+mmapped HogQL inputs; the result binds back into the user namespace under `output_name`
+for downstream nodes.
 
 Heavy deps (duckdb/pandas/pyarrow/IPython) are imported at module load — this module only
 ever runs inside the kernel, where they are present, never on the kernel-server startup
@@ -90,11 +96,15 @@ class KernelSession:
 
     def run_node(self, payload: dict[str, Any]) -> dict[str, Any]:
         node = payload.get("node") or {}
+        node_type = str(node.get("type") or "python")
         preview_rows = int(payload.get("page_limit") or _DEFAULT_PREVIEW_ROWS)
         try:
-            self._register_inputs(payload.get("inputs") or [])
+            self._register_inputs(payload.get("inputs") or [], bind_pandas=node_type == "python")
         except Exception as exc:  # noqa: BLE001 — a bad input must still produce an envelope
             return envelope.from_python_execution(status="error", error=f"Input registration failed: {exc}")
+
+        if node_type == "duckdb":
+            return self._run_duckdb_node(node, preview_rows)
 
         self._plt.close("all")  # start from a clean figure state so we only capture this run's plots
         with capture_output() as captured:
@@ -131,23 +141,59 @@ class KernelSession:
             result_id=result_id,
         )
 
-    def _register_inputs(self, inputs: list[dict[str, Any]]) -> None:
+    def _register_inputs(self, inputs: list[dict[str, Any]], bind_pandas: bool) -> None:
         for spec in inputs:
             name = spec["name"]
             kind = spec.get("kind")
             if kind == "hogql":
-                # mmap the server-streamed frame; register zero-copy in DuckDB and bind pandas
-                # for Python code (the one step that materializes in RAM).
+                # mmap the server-streamed frame and register it zero-copy in DuckDB; for a
+                # Python node additionally bind pandas (the one step that materializes in RAM).
                 table = pa.ipc.open_file(spec["path"]).read_all()
-                self.duck.register(name, table)
-                self._registered.add(name)
-                self.shell.user_ns[name] = table.to_pandas()
+                self._register_duck(name, table)
+                if bind_pandas:
+                    self.shell.user_ns[name] = table.to_pandas()
             elif kind == "local":
                 # Made by an earlier node in this kernel; it must already be present.
-                if name not in self.shell.user_ns and name not in self._registered:
-                    raise KeyError(f"local frame '{name}' is not in the kernel")
+                frame = self.shell.user_ns.get(name)
+                if isinstance(frame, pd.DataFrame):
+                    # Re-register every run so SQL sees the frame's current value.
+                    self._register_duck(name, frame)
+                elif name not in self.shell.user_ns and name not in self._registered:
+                    raise KeyError(f"local frame '{name}' is not in the kernel — run the node that creates it first")
             else:
                 raise ValueError(f"unknown input kind '{kind}' for '{name}'")
+
+    def _register_duck(self, name: str, frame: Any) -> None:
+        try:
+            self.duck.unregister(name)  # replace cleanly when a frame was registered before
+        except Exception:  # noqa: BLE001 — nothing registered under this name yet
+            pass
+        self.duck.register(name, frame)
+        self._registered.add(name)
+
+    def _run_duckdb_node(self, node: dict[str, Any], preview_rows: int) -> dict[str, Any]:
+        output_name = node.get("output_name") or ""
+        try:
+            relation = self.duck.sql(node.get("code") or "")
+            # Non-SELECT statements (DDL etc.) yield no relation — a valid, frameless run.
+            result_df = relation.df() if relation is not None else None
+        except Exception as exc:  # noqa: BLE001 — any DuckDB failure must still produce an envelope
+            return envelope.from_python_execution(status="error", error=f"{type(exc).__name__}: {exc}")
+        if result_df is not None and output_name:
+            # Bind for downstream nodes: pandas in the namespace (Python) and a DuckDB entry (SQL).
+            self.shell.user_ns[output_name] = result_df
+            self._register_duck(output_name, result_df)
+        columns, types, rows, row_count, has_more = self._preview(result_df, preview_rows)
+        result_id = self._write_result_frame(result_df) if result_df is not None else None
+        return envelope.from_python_execution(
+            status="ok",
+            columns=columns,
+            types=types,
+            rows=rows,
+            row_count=row_count,
+            has_more=has_more,
+            result_id=result_id,
+        )
 
     def _result_frame(self, output_name: str | None, last_expression: Any) -> "pd.DataFrame | None":
         # Prefer the explicitly named output; fall back to the cell's last-expression value.

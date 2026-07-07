@@ -38,27 +38,27 @@ _result_cache_lock = threading.Lock()
 def execute_run(payload: dict[str, Any]) -> None:
     """Entry point for a /run request, invoked on a background thread.
 
-    Routing rule (sql_v2_kernel_architecture.md): a Python node runs in the ipykernel
-    (materialize inputs, run code); a pure-HogQL display node stays a capped data-plane
-    fetch and never touches the kernel.
+    Routing rule (sql_v2_kernel_architecture.md): a kernel node — python or duckdb —
+    runs in the ipykernel (materialize inputs, run code); a pure-HogQL display node
+    stays a capped data-plane fetch and never touches the kernel.
     """
     node = payload.get("node") or {}
-    if node.get("type") == "python":
-        result = _run_python_node(payload)
+    if node.get("type") in ("python", "duckdb"):
+        result = _run_kernel_node(payload)
     else:
         result = _build_envelope(payload)
     _post_callback(payload["callback_url"], payload["callback_token"], result)
 
 
-def _run_python_node(payload: dict[str, Any]) -> dict[str, Any]:
+def _run_kernel_node(payload: dict[str, Any]) -> dict[str, Any]:
     # Deferred so the server startup path never imports jupyter_client (heavy, sandbox-only).
     from . import executor  # noqa: PLC0415 — keeps jupyter_client off the server import path
 
     try:
-        return executor.get_executor().run_python_node(payload)
+        return executor.get_executor().run_kernel_node(payload)
     except Exception as exc:  # noqa: BLE001 — a run must always produce a callback envelope
-        logger.exception("nb_kernel python node run failed")
-        return envelope.from_error(f"Python node failed in the sandbox: {exc}")
+        logger.exception("nb_kernel kernel node run failed")
+        return envelope.from_error(f"Node failed in the sandbox: {exc}")
 
 
 def _fetch_capped_page(payload: dict[str, Any], limit: int, offset: int) -> dict[str, Any]:
@@ -132,12 +132,21 @@ def _build_envelope(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def fetch_page(payload: dict[str, Any]) -> dict[str, Any]:
-    """Serve a /page request: a cached local slice, or a bounded synchronous re-query.
+    """Serve a /page request: a result-frame slice, a cached local slice, or a bounded re-query.
 
-    Raises DataPlaneError for user-facing query errors; the server maps it to a 400.
+    A payload carrying `result_id` is a kernel-node result — it pages exclusively from the
+    on-disk result frame (its code is not a HogQL query, so there is no data-plane fallback).
+    Raises DataPlaneError/ResultStoreError for user-facing errors; the server maps them to 400.
     """
     offset = int(payload.get("offset") or 0)
     limit = int(payload.get("limit") or _DEFAULT_PAGE_LIMIT)
+
+    result_id = payload.get("result_id")
+    if result_id:
+        # Deferred so a broken pyarrow install degrades per-request, not at server startup.
+        from . import result_store  # noqa: PLC0415
+
+        return result_store.read_page(str(result_id), offset, limit)
 
     cached = _cached_page(str(payload.get("run_id") or ""), offset, limit)
     if cached is not None:

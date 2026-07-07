@@ -1,16 +1,27 @@
 from django.test import SimpleTestCase
 
 from products.notebooks.backend.sql_v2_references import (
+    SQLV2Ref,
     SQLV2ReferenceError,
     resolve_python_node_inputs,
+    resolve_sql_node_run,
     resolve_sql_v2_references,
 )
+
+
+def hogql_ref(code: str | None) -> SQLV2Ref:
+    return SQLV2Ref(kind="hogql", last_run_code=code)
+
+
+LOCAL = SQLV2Ref(kind="local")
 
 
 class TestResolvePythonNodeInputs(SimpleTestCase):
     def test_only_referenced_frames_are_materialized(self):
         # A python node reads frames as variables; materialize only the ones its code uses.
-        inputs = resolve_python_node_inputs("df1.head()", {"df1": "select id from events", "df2": "select 1"})
+        inputs = resolve_python_node_inputs(
+            "df1.head()", {"df1": hogql_ref("select id from events"), "df2": hogql_ref("select 1")}
+        )
         self.assertEqual(len(inputs), 1)
         self.assertEqual(inputs[0]["name"], "df1")
         self.assertEqual(inputs[0]["kind"], "hogql")
@@ -18,17 +29,76 @@ class TestResolvePythonNodeInputs(SimpleTestCase):
         self.assertTrue(inputs[0]["query_hash"])
 
     def test_unused_refs_are_ignored(self):
-        self.assertEqual(resolve_python_node_inputs("import pandas as pd\npd.DataFrame()", {"df1": "select 1"}), [])
+        self.assertEqual(
+            resolve_python_node_inputs("import pandas as pd\npd.DataFrame()", {"df1": hogql_ref("select 1")}), []
+        )
 
     def test_query_hash_is_stable_for_the_same_query(self):
         # The executor reuses a frame file keyed by hash, so identical queries must hash identically.
-        a = resolve_python_node_inputs("df1", {"df1": "select 1"})[0]["query_hash"]
-        b = resolve_python_node_inputs("df1", {"df1": "select 1"})[0]["query_hash"]
+        a = resolve_python_node_inputs("df1", {"df1": hogql_ref("select 1")})[0]["query_hash"]
+        b = resolve_python_node_inputs("df1", {"df1": hogql_ref("select 1")})[0]["query_hash"]
         self.assertEqual(a, b)
 
     def test_referencing_a_never_run_node_raises(self):
         with self.assertRaises(SQLV2ReferenceError):
-            resolve_python_node_inputs("df1.head()", {"df1": None})
+            resolve_python_node_inputs("df1.head()", {"df1": hogql_ref(None)})
+
+    def test_used_local_upstream_becomes_a_local_input(self):
+        # A python upstream carries no query — the kernel only asserts the frame exists.
+        inputs = resolve_python_node_inputs(
+            "new_events.describe()", {"new_events": LOCAL, "df1": hogql_ref("select 1")}
+        )
+        self.assertEqual(inputs, [{"name": "new_events", "kind": "local"}])
+
+
+class TestResolveSQLNodeRun(SimpleTestCase):
+    def test_all_hogql_refs_push_to_clickhouse(self):
+        node_type, run_code, inputs = resolve_sql_node_run(
+            "select * from df1", {"df1": hogql_ref("select id from events")}
+        )
+        self.assertEqual(node_type, "hogql")
+        self.assertIn("WITH df1 AS (SELECT id FROM events)", run_code)
+        self.assertEqual(inputs, [])
+
+    def test_unreferenced_local_frame_does_not_reroute(self):
+        # The local frame exists in the notebook but this query never touches it.
+        node_type, run_code, inputs = resolve_sql_node_run(
+            "select * from df1", {"df1": hogql_ref("select id from events"), "new_events": LOCAL}
+        )
+        self.assertEqual(node_type, "hogql")
+        self.assertIn("WITH df1 AS", run_code)
+        self.assertEqual(inputs, [])
+
+    def test_referenced_local_frame_reroutes_to_duckdb_and_materializes_hogql_refs(self):
+        # Journey 5 step 4: the join runs locally, forcing df2 into the sandbox.
+        code = "select * from df2 join new_events on df2.id = new_events.id"
+        node_type, run_code, inputs = resolve_sql_node_run(
+            code, {"df2": hogql_ref("select id from persons"), "new_events": LOCAL}
+        )
+        self.assertEqual(node_type, "duckdb")
+        self.assertEqual(run_code, code)  # DuckDB gets the SQL as written, not a CTE rewrite
+        self.assertEqual([(spec["name"], spec["kind"]) for spec in inputs], [("df2", "hogql"), ("new_events", "local")])
+        self.assertEqual(inputs[0]["query"], "select id from persons")
+        self.assertTrue(inputs[0]["query_hash"])
+
+    def test_local_only_query_reroutes_with_no_materialization(self):
+        node_type, run_code, inputs = resolve_sql_node_run("select count() from new_events", {"new_events": LOCAL})
+        self.assertEqual(node_type, "duckdb")
+        self.assertEqual(inputs, [{"name": "new_events", "kind": "local"}])
+
+    def test_duckdb_run_referencing_a_never_run_hogql_node_raises(self):
+        with self.assertRaises(SQLV2ReferenceError):
+            resolve_sql_node_run(
+                "select * from df2 join new_events on true", {"df2": hogql_ref(None), "new_events": LOCAL}
+            )
+
+    def test_unparseable_hogql_naming_a_local_frame_still_routes_to_duckdb(self):
+        # DuckDB-only syntax (QUALIFY isn't HogQL) must still run locally when it reads a local frame.
+        code = "select * from new_events qualify row_number() over (partition by id) = 1"
+        node_type, run_code, inputs = resolve_sql_node_run(code, {"new_events": LOCAL})
+        self.assertEqual(node_type, "duckdb")
+        self.assertEqual(run_code, code)
+        self.assertEqual(inputs, [{"name": "new_events", "kind": "local"}])
 
 
 class TestResolveSQLV2References(SimpleTestCase):
