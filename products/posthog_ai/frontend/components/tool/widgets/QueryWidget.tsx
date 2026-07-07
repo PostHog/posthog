@@ -19,7 +19,7 @@ export function QueryWidget(props: ToolRendererProps): JSX.Element {
 
     return (
         <DataToolRow {...props}>
-            <VisualizationWidget content={result.content} openUrl={result.url} openTooltip="Open as insight" embedded />
+            <VisualizationWidget content={result.content} openUrl={result.url} openTooltip="Open as insight" />
         </DataToolRow>
     )
 }

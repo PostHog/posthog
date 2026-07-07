@@ -19,7 +19,7 @@ export function SearchSessionRecordingsWidget(props: ToolRendererProps): JSX.Ele
 
     return (
         <DataToolRow {...props}>
-            <RecordingsWidget toolCallId={message.id} filters={filters} embedded />
+            <RecordingsWidget toolCallId={message.id} filters={filters} />
         </DataToolRow>
     )
 }

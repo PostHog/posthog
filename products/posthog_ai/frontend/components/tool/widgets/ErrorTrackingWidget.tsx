@@ -20,7 +20,7 @@ export function ErrorTrackingWidget(props: ToolRendererProps): JSX.Element {
 
     return (
         <DataToolRow {...props}>
-            <ErrorTrackingFiltersWidget toolCallId={message.id} filters={filters} embedded />
+            <ErrorTrackingFiltersWidget toolCallId={message.id} filters={filters} />
         </DataToolRow>
     )
 }

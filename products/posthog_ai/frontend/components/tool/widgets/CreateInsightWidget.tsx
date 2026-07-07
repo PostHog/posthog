@@ -21,12 +21,7 @@ export function CreateInsightWidget(props: ToolRendererProps): JSX.Element {
 
     return (
         <DataToolRow {...props}>
-            <VisualizationWidget
-                content={artifact.content}
-                openUrl={target.url}
-                openTooltip={target.tooltip}
-                embedded
-            />
+            <VisualizationWidget content={artifact.content} openUrl={target.url} openTooltip={target.tooltip} />
         </DataToolRow>
     )
 }

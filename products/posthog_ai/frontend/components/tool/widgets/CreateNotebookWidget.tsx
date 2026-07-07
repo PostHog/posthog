@@ -4,6 +4,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
+import { MessageTemplate } from '../../../messages/MessageTemplate'
 import { DataToolRow } from '../DataToolRow'
 import { GenericMcpToolRenderer } from '../GenericMcpToolRenderer'
 import type { ToolRendererProps } from '../toolRegistry'
@@ -56,21 +57,23 @@ export function CreateNotebookWidget(props: ToolRendererProps): JSX.Element {
 
     return (
         <DataToolRow {...props}>
-            <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5">
-                    <IconNotebook className="text-base" />
-                    <span className="font-medium">{notebook.title || 'Notebook ready'}</span>
+            <MessageTemplate type="ai" wrapperClassName="w-full">
+                <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                        <IconNotebook className="text-base" />
+                        <span className="font-medium">{notebook.title || 'Notebook ready'}</span>
+                    </div>
+                    <LemonButton
+                        to={notebook.url ?? urls.notebook(notebook.shortId)}
+                        targetBlank
+                        icon={<IconOpenInNew />}
+                        size="xsmall"
+                        tooltip="Open notebook"
+                    >
+                        Open notebook
+                    </LemonButton>
                 </div>
-                <LemonButton
-                    to={notebook.url ?? urls.notebook(notebook.shortId)}
-                    targetBlank
-                    icon={<IconOpenInNew />}
-                    size="xsmall"
-                    tooltip="Open notebook"
-                >
-                    Open notebook
-                </LemonButton>
-            </div>
+            </MessageTemplate>
         </DataToolRow>
     )
 }

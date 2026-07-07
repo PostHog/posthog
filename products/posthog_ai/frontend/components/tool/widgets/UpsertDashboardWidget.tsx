@@ -4,6 +4,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
+import { MessageTemplate } from '../../../messages/MessageTemplate'
 import { DataToolRow } from '../DataToolRow'
 import { GenericMcpToolRenderer } from '../GenericMcpToolRenderer'
 import type { ToolRendererProps } from '../toolRegistry'
@@ -26,17 +27,25 @@ export function UpsertDashboardWidget(props: ToolRendererProps): JSX.Element {
 
     return (
         <DataToolRow {...props}>
-            <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5">
-                    <IconDashboard className="text-base" />
-                    <span className="font-medium">{dashboard.name || 'Dashboard ready'}</span>
+            <MessageTemplate type="ai" wrapperClassName="w-full">
+                <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                        <IconDashboard className="text-base" />
+                        <span className="font-medium">{dashboard.name || 'Dashboard ready'}</span>
+                    </div>
+                    {to && (
+                        <LemonButton
+                            to={to}
+                            targetBlank
+                            icon={<IconOpenInNew />}
+                            size="xsmall"
+                            tooltip="Open dashboard"
+                        >
+                            View dashboard
+                        </LemonButton>
+                    )}
                 </div>
-                {to && (
-                    <LemonButton to={to} targetBlank icon={<IconOpenInNew />} size="xsmall" tooltip="Open dashboard">
-                        View dashboard
-                    </LemonButton>
-                )}
-            </div>
+            </MessageTemplate>
         </DataToolRow>
     )
 }
