@@ -26,9 +26,7 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
             getEffectiveSessionUuid: vi.fn(async () => 'session-uuid'),
         } as any,
         context: {
-            stateManager: {
-                getAiConsentGiven: vi.fn(async () => true),
-            },
+            stateManager: {},
         } as any,
         useSingleExec: true,
         toolFeatureFlags: undefined,
@@ -179,20 +177,25 @@ describe('Hono MCP analytics contexts', () => {
             expect(mockCapture).not.toHaveBeenCalled()
         })
 
-        it.each([
-            ['declined', false],
-            ['unknown', undefined],
-        ])('does not emit when AI data processing consent is %s', async (_case, consent) => {
-            const state = makeState({
-                context: { stateManager: { getAiConsentGiven: vi.fn(async () => consent) } } as any,
-            })
+        it('masks query string literals and intent emails before capture', async () => {
+            await trackExecuteSqlGeneration(
+                'execute-sql',
+                {
+                    query: "SELECT count() FROM events WHERE properties.email = 'john@acme.com' AND event ILIKE '%signup%'",
+                },
+                makeState(),
+                { durationMs: 10, isError: false },
+                { intent: 'find events for john@acme.com' }
+            )
 
-            await trackExecuteSqlGeneration('execute-sql', { query: 'SELECT 1' }, state, {
-                durationMs: 5,
-                isError: false,
-            })
-
-            expect(mockCapture).not.toHaveBeenCalled()
+            const properties = mockCapture.mock.calls[0]![0].properties
+            expect(properties.$ai_output_choices).toEqual([
+                {
+                    role: 'assistant',
+                    content: "SELECT count() FROM events WHERE properties.email = '***' AND event ILIKE '%***%'",
+                },
+            ])
+            expect(properties.$ai_input).toEqual([{ role: 'user', content: 'find events for <email>' }])
         })
     })
 })
