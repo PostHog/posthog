@@ -18,7 +18,7 @@ import {
     LogsAlertConfigurationApi,
     LogsAlertSimulateResponseApi,
     PatchedLogsAlertConfigurationApi,
-    ThresholdOperatorEnumApi,
+    LogsAlertThresholdOperatorEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
 import type { logsAlertFormLogicType } from './logsAlertFormLogicType'
@@ -36,7 +36,7 @@ export interface LogsAlertFormType {
     severityLevels: LogMessage['severity_text'][]
     serviceNames: string[]
     filterGroup: UniversalFiltersGroup
-    thresholdOperator: ThresholdOperatorEnumApi
+    thresholdOperator: LogsAlertThresholdOperatorEnumApi
     thresholdCount: number
     windowMinutes: number
     evaluationPeriods: number
@@ -67,7 +67,7 @@ export function buildFormDefaults(alert: LogsAlertConfigurationApi | null): Logs
             ((alert?.filters as Record<string, unknown>)?.severityLevels as LogMessage['severity_text'][]) ?? [],
         serviceNames: ((alert?.filters as Record<string, unknown>)?.serviceNames as string[]) ?? [],
         filterGroup: extractFilterGroup(alert),
-        thresholdOperator: alert?.threshold_operator ?? ThresholdOperatorEnumApi.Above,
+        thresholdOperator: alert?.threshold_operator ?? LogsAlertThresholdOperatorEnumApi.Above,
         thresholdCount: alert?.threshold_count ?? 100,
         windowMinutes: alert?.window_minutes ?? 10,
         evaluationPeriods: alert?.evaluation_periods ?? 1,

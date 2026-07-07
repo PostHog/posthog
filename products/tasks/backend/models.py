@@ -113,6 +113,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         SUPPORT_QUEUE = "support_queue", "Support Queue"
         SESSION_SUMMARIES = "session_summaries", "Session Summaries"
         POSTHOG_AI = "posthog_ai", "PostHog AI"
+        EXPERIMENTS = "experiments", "Experiments"
         # Unlike the others (which indicate direct creation from that product, e.g. a "fix this error" button),
         # signal report tasks originate indirectly via signals from other products.
         SIGNAL_REPORT = "signal_report", "Signal Report"
@@ -514,11 +515,9 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         if model:
             extra_state["model"] = model
 
-        # The model's runtime adapter and the provider derived from it. The agent server can't route
-        # a model without its runtime (it resolves the provider from the runtime), so callers that pin
-        # a non-default model must pass the matching runtime — mirrors the warm path in `facade/api`.
-        # Codex runs need permission mode `auto` (same default the warm path applies) so a headless
-        # run doesn't stall waiting on a prompt; an explicit `initial_permission_mode` still wins.
+        # `runtime_adapter` selects the harness (claude | codex) and the agent server derives
+        # the provider from it, so a pinned model must ship with its matching runtime. Codex runs
+        # default permission mode to `auto` so a headless run doesn't stall on a prompt.
         if runtime_adapter:
             extra_state["runtime_adapter"] = runtime_adapter
             provider = get_provider_for_runtime_adapter(runtime_adapter)
@@ -526,7 +525,6 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
                 extra_state["provider"] = provider.value
             if initial_permission_mode is None and runtime_adapter == RuntimeAdapter.CODEX.value:
                 initial_permission_mode = "auto"
-
         if reasoning_effort:
             extra_state["reasoning_effort"] = reasoning_effort
 
