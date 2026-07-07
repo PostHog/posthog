@@ -38,7 +38,8 @@ class PostHogSlackFirstPatrolWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
         if digest is None:
-            # No completed runs yet (queue lag, quota skip) — one more chance, then silence.
+            # Nothing to DM yet — no completed runs (queue lag, quota skip) or a clean patrol
+            # so far. One more chance for a late finding, then silence.
             await workflow.sleep(timedelta(seconds=FIRST_PATROL_RETRY_DELAY_SECONDS))
             digest = await workflow.execute_activity(
                 collect_first_patrol_digest_activity,

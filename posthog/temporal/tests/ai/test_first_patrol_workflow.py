@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 from posthog.temporal.ai.slack_app import posthog_slack_first_patrol as wf_module
 from posthog.temporal.ai.slack_app.types import PostHogSlackFirstPatrolInputs
 
-DIGEST = {"text": "t", "variant": "all_clear", "runs_completed": 1}
+DIGEST = {"text": "t", "variant": "finding", "runs_completed": 1}
 
 
 def _inputs() -> PostHogSlackFirstPatrolInputs:
@@ -58,7 +58,7 @@ async def test_empty_first_check_retries_once_then_posts():
 
 
 @pytest.mark.asyncio
-async def test_no_completed_runs_after_retry_exits_silently():
+async def test_nothing_to_report_after_retry_exits_silently():
     calls, sleep_mock = await _run_with([None, None])
     assert calls == ["collect_first_patrol_digest_activity", "collect_first_patrol_digest_activity"]
     assert sleep_mock.await_count == 2

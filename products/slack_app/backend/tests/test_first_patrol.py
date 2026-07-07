@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from products.signals.backend.facade.api import ScoutRunDigest
 from products.slack_app.backend import first_patrol
 
@@ -14,8 +16,30 @@ def _collect(digests):
 
 
 class TestFirstPatrolDigestComposition:
-    def test_no_completed_runs_returns_none_for_retry(self):
-        assert _collect(None) is None
+    @parameterized.expand(
+        [
+            ("no_completed_runs", None),
+            (
+                "clean_patrol",
+                [
+                    ScoutRunDigest(
+                        skill_name="signals-scout-slack-csm-account-pulse",
+                        summary="Checked 214 accounts, all within baseline.",
+                        notifications_sent=0,
+                        reports_filed=0,
+                    ),
+                    ScoutRunDigest(
+                        skill_name="signals-scout-slack-csm-revenue-watch",
+                        summary="",
+                        notifications_sent=0,
+                        reports_filed=0,
+                    ),
+                ],
+            ),
+        ]
+    )
+    def test_returns_none_so_no_dm_is_sent(self, _name, digests):
+        assert _collect(digests) is None
 
     def test_finding_variant_leads_with_the_finding_and_links_channel(self):
         digest = _collect(
@@ -39,28 +63,6 @@ class TestFirstPatrolDigestComposition:
         assert "Initech's weekly active users dropped 60% vs baseline." in digest["text"]
         assert "#posthog-inbox" in digest["text"]
         assert digest["runs_completed"] == 2
-
-    def test_all_clear_variant_quotes_run_summaries_with_fallback(self):
-        digest = _collect(
-            [
-                ScoutRunDigest(
-                    skill_name="signals-scout-slack-csm-account-pulse",
-                    summary="Checked 214 accounts, all within baseline.",
-                    notifications_sent=0,
-                    reports_filed=0,
-                ),
-                ScoutRunDigest(
-                    skill_name="signals-scout-slack-csm-revenue-watch",
-                    summary="",
-                    notifications_sent=0,
-                    reports_filed=0,
-                ),
-            ]
-        )
-        assert digest["variant"] == "all_clear"
-        assert "Account pulse: Checked 214 accounts, all within baseline" in digest["text"]
-        assert "Renewal & billing watch: checked in clean" in digest["text"]
-        assert "Nothing to worry about right now" in digest["text"]
 
     def test_long_finding_headline_has_no_doubled_punctuation(self):
         long_summary = "The account " + "very " * 60 + "quietly slid this week."
