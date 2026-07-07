@@ -1,8 +1,4 @@
-/**
- * Product manifest for engineering_analytics.
- *
- * Defines scenes, routes, URLs, and navigation for this product.
- */
+/** Product manifest for engineering_analytics: scenes, routes, URLs, and navigation. */
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
@@ -16,7 +12,7 @@ export const manifest: ProductManifest = {
         EngineeringAnalytics: {
             import: () => import('./frontend/scenes/EngineeringAnalyticsScene'),
             projectBased: true,
-            name: 'CI analytics',
+            name: 'Engineering analytics',
             layout: 'app-container',
             description: 'Pull request and workflow CI health across connected GitHub repos.',
             iconType: 'health',
@@ -48,17 +44,18 @@ export const manifest: ProductManifest = {
         EngineeringAnalyticsAuthor: {
             import: () => import('./frontend/scenes/EngineeringAnalyticsAuthorScene'),
             projectBased: true,
-            name: 'Author CI',
+            name: 'Author',
             layout: 'app-container',
-            description: "One author's pull requests and the CI cost they incurred.",
+            description: "One author's pull requests — a filtered view for finding work, not a ranking.",
             iconType: 'health',
         },
     },
-    // Detail paths mirror GitHub 1:1 (owner/repo/pull/:n, owner/repo/actions/runs/:id); the cross-repo
-    // aggregate dashboards stay at the product root. Provider lives on the data (RepoRef.provider), so
-    // these url builders are the single place to branch verbs for a future provider (e.g. GitLab).
+    // Detail paths mirror GitHub 1:1 (owner/repo/pull/:n, owner/repo/actions/runs/:id); cross-repo
+    // aggregates stay at the product root. Provider lives on the data (RepoRef.provider), so these url
+    // builders are the single place to branch verbs for a future provider (e.g. GitLab).
     routes: {
         '/engineering-analytics': ['EngineeringAnalytics', 'engineeringAnalytics'],
+        '/engineering-analytics/pulls': ['EngineeringAnalytics', 'engineeringAnalyticsPullRequestList'],
         '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
         '/engineering-analytics/test-health': ['EngineeringAnalytics', 'engineeringAnalyticsTestHealth'],
         '/engineering-analytics/:repoOwner/:repoName/pull/:number': [
@@ -75,9 +72,15 @@ export const manifest: ProductManifest = {
         ],
         '/engineering-analytics/author/:handle': ['EngineeringAnalyticsAuthor', 'engineeringAnalyticsAuthor'],
     },
-    redirects: {},
+    redirects: {
+        // The author *list* (leaderboards / rankings) stays removed — analytics aggregate at team/repo
+        // level only (see README locked decisions). The per-author page is a filtered PR view, reachable
+        // only via the author links on PR rows, so it keeps its route above.
+        '/engineering-analytics/authors': '/engineering-analytics',
+    },
     urls: {
         engineeringAnalytics: (): string => '/engineering-analytics',
+        engineeringAnalyticsPullRequestList: (): string => '/engineering-analytics/pulls',
         engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
         engineeringAnalyticsTestHealth: (): string => '/engineering-analytics/test-health',
         engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
@@ -93,7 +96,7 @@ export const manifest: ProductManifest = {
     treeItemsNew: [],
     treeItemsProducts: [
         {
-            path: 'CI analytics',
+            path: 'Engineering analytics',
             intents: [ProductKey.ENGINEERING_ANALYTICS],
             category: ProductItemCategory.UNRELEASED,
             type: 'engineering_analytics',

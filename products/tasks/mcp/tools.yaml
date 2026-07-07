@@ -48,6 +48,18 @@ tools:
     task-automations-run-create:
         operation: task_automations_run_create
         enabled: false
+    task-channels-create:
+        operation: task_channels_create
+        enabled: false
+    task-channels-destroy:
+        operation: task_channels_destroy
+        enabled: false
+    task-channels-list:
+        operation: task_channels_list
+        enabled: false
+    task-channels-partial-update:
+        operation: task_channels_partial_update
+        enabled: false
     tasks-create:
         operation: tasks_create
         enabled: false
@@ -248,6 +260,18 @@ tools:
         enabled: false
     tasks-summaries-create:
         operation: tasks_summaries_create
+        enabled: false
+    tasks-thread-messages-create:
+        operation: tasks_thread_messages_create
+        enabled: false
+    tasks-thread-messages-destroy:
+        operation: tasks_thread_messages_destroy
+        enabled: false
+    tasks-thread-messages-list:
+        operation: tasks_thread_messages_list
+        enabled: false
+    tasks-thread-messages-send-to-agent-create:
+        operation: tasks_thread_messages_send_to_agent_create
         enabled: false
     tasks-update:
         operation: tasks_update

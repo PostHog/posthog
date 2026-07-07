@@ -3539,6 +3539,9 @@
       `series_fingerprint` UInt64 CODEC(DoubleDelta),
       `timestamp` DateTime64(6) CODEC(DoubleDelta),
       `value` Float64 CODEC(Gorilla),
+      `count` UInt64 DEFAULT 1,
+      `histogram_bounds` Array(Float64),
+      `histogram_counts` Array(UInt64),
       `trace_id` String,
       `span_id` String,
       `trace_flags` Int32,
@@ -3565,6 +3568,8 @@
       `series_fingerprint` UInt64 CODEC(DoubleDelta),
       `metric_type` LowCardinality(String),
       `unit` LowCardinality(String),
+      `aggregation_temporality` LowCardinality(String),
+      `is_monotonic` Bool DEFAULT false,
       `service_name` LowCardinality(String),
       `resource_attributes` Map(LowCardinality(String), String),
       `attributes` Map(LowCardinality(String), String),
@@ -3575,6 +3580,7 @@
   )
   ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metric_series1', '{replica}-{shard}', last_seen)
   ORDER BY (team_id, metric_name, series_fingerprint)
+  TTL toDateTime(last_seen) + INTERVAL 90 DAY DELETE
   SETTINGS index_granularity = 8192
   
   '''
@@ -3793,7 +3799,7 @@
       stack_trace,
   
       JSONExtractInt(log_comment, 'team_id') as team_id,
-      log_comment,
+      if(isValidJSON(log_comment), log_comment, '{}') AS log_comment,
       ProfileEvents
   FROM system.query_log
   WHERE
@@ -9631,6 +9637,9 @@
       `series_fingerprint` UInt64 CODEC(DoubleDelta),
       `timestamp` DateTime64(6) CODEC(DoubleDelta),
       `value` Float64 CODEC(Gorilla),
+      `count` UInt64 DEFAULT 1,
+      `histogram_bounds` Array(Float64),
+      `histogram_counts` Array(UInt64),
       `trace_id` String,
       `span_id` String,
       `trace_flags` Int32,
@@ -9654,6 +9663,8 @@
       `series_fingerprint` UInt64 CODEC(DoubleDelta),
       `metric_type` LowCardinality(String),
       `unit` LowCardinality(String),
+      `aggregation_temporality` LowCardinality(String),
+      `is_monotonic` Bool DEFAULT false,
       `service_name` LowCardinality(String),
       `resource_attributes` Map(LowCardinality(String), String),
       `attributes` Map(LowCardinality(String), String),
@@ -9664,6 +9675,7 @@
   )
   ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metric_series1', '{replica}-{shard}', last_seen)
   ORDER BY (team_id, metric_name, series_fingerprint)
+  TTL toDateTime(last_seen) + INTERVAL 90 DAY DELETE
   SETTINGS index_granularity = 8192
   
   '''

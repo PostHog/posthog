@@ -7,9 +7,9 @@ export default defineConfig({
         include: ['src/**/*.test.ts'],
         testTimeout: 15_000,
         globals: true,
-        // Test files share the agent_runtime_queue_test PG. Running them in
-        // parallel races on `node-pg-migrate`'s schema lock and on the
-        // public-schema drop in `reset()`. Mirrors agent-shared + agent-tests.
+        // Test files share one Postgres (agent_runtime_queue_test). `reset()`
+        // truncates the shared `agent_*` tables between cases, so running files
+        // in parallel races on that shared state. Mirrors agent-shared + agent-tests.
         fileParallelism: false,
     },
 })

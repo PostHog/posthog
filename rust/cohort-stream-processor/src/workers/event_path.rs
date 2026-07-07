@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use metrics::counter;
+use metrics::{counter, histogram};
 use uuid::Uuid;
 
 use crate::consumers::events::CohortStreamEvent;
@@ -16,8 +16,8 @@ use crate::filters::{Generation, TeamId};
 use crate::hogvm::{build_behavioral_globals, build_person_property_globals, CohortEvaluator};
 use crate::observability::metrics::{
     STAGE1_ARGMAX_STALE, STAGE1_CONDITIONS_EVALUATED, STAGE1_CONDITIONS_SKIPPED,
-    STAGE1_PERSON_INDEX_APPENDS, STAGE1_REPLAY_SKIPPED, STAGE1_STATE_DECODE_ERROR,
-    STAGE1_STATE_WRITES, STAGE1_UNSUPPORTED_VARIANT_SKIPPED,
+    STAGE1_PERSON_INDEX_APPENDS, STAGE1_REPLAY_SKIPPED, STAGE1_SNAPSHOT_KEYS,
+    STAGE1_STATE_DECODE_ERROR, STAGE1_STATE_WRITES, STAGE1_UNSUPPORTED_VARIANT_SKIPPED,
 };
 use crate::stage1::bucket_tz::{
     daily_bucket_len, day_idx_in_tz, now_day_for_window, window_start_for_now,
@@ -34,6 +34,27 @@ use crate::stage1::time::clickhouse_timestamp_to_millis;
 use crate::stage1::transition::{LeafTransition, TransitionKind};
 use crate::store::{CohortStore, IndexOp, PersonIndexKey, StoreError};
 use crate::workers::person_memo::{ConditionBitset, Lookup, PersonKey, PersonMemo, Receipt};
+
+/// Whether to evaluate only the behavioral conditions matching the incoming event name. A behavioral
+/// leaf's bytecode roots at `event == event_key`, so a name mismatch can never match: gating it out
+/// drops no `Apply`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventNameGating {
+    /// Evaluate only the event's name bucket.
+    Enabled,
+    /// Evaluate every behavioral condition.
+    Disabled,
+}
+
+impl EventNameGating {
+    pub fn from_enabled(enabled: bool) -> Self {
+        if enabled {
+            Self::Enabled
+        } else {
+            Self::Disabled
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SkipReason {
@@ -121,6 +142,33 @@ struct PendingWrite {
     variant: StateVariant,
 }
 
+/// One apply's stored state as read by the event's single batched pre-event read.
+enum PriorState {
+    /// No row: this apply is the leaf's first write.
+    Absent,
+    /// The decoded pre-event record.
+    Present(StatefulRecord),
+    /// A row exists but does not decode; the apply is skipped.
+    Corrupt,
+}
+
+impl PriorState {
+    /// Decode one `multi_get_stage1` slot. The decode error is counted here — the only place a
+    /// `Corrupt` can be born.
+    fn decode(bytes: Option<Vec<u8>>) -> Self {
+        match bytes {
+            None => Self::Absent,
+            Some(bytes) => match StatefulRecord::decode(&bytes) {
+                Ok(record) => Self::Present(record),
+                Err(_) => {
+                    counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
+                    Self::Corrupt
+                }
+            },
+        }
+    }
+}
+
 /// Fold one event with the person memo disabled (full person sweep). The memoizing entry is
 /// [`process_event_with_memo`].
 pub fn process_event(
@@ -136,6 +184,7 @@ pub fn process_event(
         Generation::INITIAL,
         event,
         &mut PersonMemo::disabled(),
+        EventNameGating::Disabled,
     )
 }
 
@@ -149,6 +198,7 @@ pub fn process_event_with_memo(
     generation: Generation,
     event: &CohortStreamEvent,
     memo: &mut PersonMemo,
+    event_name_gating: EventNameGating,
 ) -> Result<EventOutcome, StoreError> {
     if event.person_id.is_empty() {
         return Ok(EventOutcome::skipped(SkipReason::NullPersonId));
@@ -189,7 +239,13 @@ pub fn process_event_with_memo(
     let mut applies: Vec<Apply> = Vec::new();
     if let Some(globals) = behavioral_globals {
         evaluator.set_globals(globals);
-        collect_behavioral_applies(filters, &mut evaluator, &mut applies);
+        collect_behavioral_applies(
+            filters,
+            &event.event,
+            event_name_gating,
+            &mut evaluator,
+            &mut applies,
+        );
     }
     collect_person_applies(filters, &mut evaluator, person, memo, &mut applies);
 
@@ -202,75 +258,77 @@ pub fn process_event_with_memo(
     };
 
     let team_id = event.team_id as u64;
-    let mut transitions = Vec::new();
-    let mut schedules: Vec<(Stage1Key, i64)> = Vec::new();
-    let mut pending = Vec::new();
-
-    for apply in &applies {
-        let key = Stage1Key {
+    // One batched pre-event read; all writes defer to the post-loop `write_batch`, so every apply
+    // sees the pre-event image. The batch spans exactly one event: the next event in the sub-batch
+    // must see this event's committed writes (argMax tiebreaker, replay dedup).
+    let keys: Vec<Stage1Key> = applies
+        .iter()
+        .map(|apply| Stage1Key {
             partition_id,
             team_id,
             leaf_state_key: apply.lsk(),
             person_id,
-        };
+        })
+        .collect();
+    histogram!(STAGE1_SNAPSHOT_KEYS).record(keys.len() as f64);
+    let values = store.multi_get_stage1(&keys)?;
 
-        let prev = match store.get_stage1(&key)? {
-            None => None,
-            Some(bytes) => match StatefulRecord::decode(&bytes) {
-                Ok(record) => Some(record),
-                Err(_) => {
-                    counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
-                    continue;
-                }
-            },
+    let mut transitions = Vec::new();
+    let mut schedules: Vec<(Stage1Key, i64)> = Vec::new();
+    let mut pending = Vec::new();
+
+    // Alignment-safe zip: `multi_get_stage1` preserves input order, `None` for absent keys.
+    for ((apply, key), bytes) in applies.into_iter().zip(keys).zip(values) {
+        let (prev, first_write) = match PriorState::decode(bytes) {
+            PriorState::Absent => (None, true),
+            PriorState::Present(record) => (Some(record), false),
+            PriorState::Corrupt => continue,
         };
-        let first_write = prev.is_none();
 
         let mutation = match apply {
-            Apply::Behavioral { condition_hash, .. } => {
-                match filters.by_lsk.get(&apply.lsk()).map(|meta| meta.variant) {
-                    Some(StateVariant::BehavioralDailyBuckets) => mutate_behavioral_daily(
-                        filters,
-                        apply.lsk(),
-                        *condition_hash,
-                        person_id,
-                        origin,
-                        event,
-                        event_ms,
-                        prev,
-                    ),
-                    Some(StateVariant::BehavioralCompressedHistory) => {
-                        mutate_behavioral_compressed(
-                            filters,
-                            apply.lsk(),
-                            *condition_hash,
-                            person_id,
-                            origin,
-                            event,
-                            event_ms,
-                            prev,
-                        )
-                    }
-                    _ => mutate_behavioral(
-                        filters,
-                        apply.lsk(),
-                        *condition_hash,
-                        person_id,
-                        origin,
-                        event,
-                        event_ms,
-                        prev,
-                    ),
-                }
-            }
+            Apply::Behavioral {
+                lsk,
+                condition_hash,
+            } => match filters.by_lsk.get(&lsk).map(|meta| meta.variant) {
+                Some(StateVariant::BehavioralDailyBuckets) => mutate_behavioral_daily(
+                    filters,
+                    lsk,
+                    condition_hash,
+                    person_id,
+                    origin,
+                    event,
+                    event_ms,
+                    prev,
+                ),
+                Some(StateVariant::BehavioralCompressedHistory) => mutate_behavioral_compressed(
+                    filters,
+                    lsk,
+                    condition_hash,
+                    person_id,
+                    origin,
+                    event,
+                    event_ms,
+                    prev,
+                ),
+                _ => mutate_behavioral(
+                    filters,
+                    lsk,
+                    condition_hash,
+                    person_id,
+                    origin,
+                    event,
+                    event_ms,
+                    prev,
+                ),
+            },
             Apply::Person {
+                lsk,
                 condition_hash,
                 matches,
-                ..
             } => mutate_person(
-                apply.lsk(),
-                *condition_hash,
-                *matches,
+                lsk,
+                condition_hash,
+                matches,
                 person_id,
                 origin,
                 event,
@@ -382,42 +440,76 @@ fn resolve_person(
     }
 }
 
-/// Evaluate every behavioral condition against the set globals, pushing an `Apply::Behavioral` per
-/// matching leaf.
+/// Evaluate this event's behavioral conditions against the set globals, pushing an `Apply::Behavioral`
+/// per matching leaf. Under [`EventNameGating::Enabled`] only the event's name bucket is evaluated.
 fn collect_behavioral_applies(
     filters: &TeamFilters,
+    event_name: &str,
+    gating: EventNameGating,
     evaluator: &mut CohortEvaluator,
     applies: &mut Vec<Apply>,
 ) {
-    for &hash in &filters.behavioral_conditions {
-        let Some(bytecode) = filters.by_condition_to_bytecode.get(&hash) else {
-            continue;
-        };
-        counter!(STAGE1_CONDITIONS_EVALUATED, "kind" => "behavioral").increment(1);
-        if !evaluator.evaluate(Arc::clone(bytecode)) {
-            continue;
-        }
-        let Some(lsks) = filters.by_condition_to_lsk.get(&hash) else {
-            continue;
-        };
-        for &lsk in lsks {
-            match filters.by_lsk.get(&lsk).map(|meta| meta.variant) {
-                Some(
-                    StateVariant::BehavioralSingle
-                    | StateVariant::BehavioralDailyBuckets
-                    | StateVariant::BehavioralCompressedHistory,
-                ) => {
-                    applies.push(Apply::Behavioral {
-                        lsk,
-                        condition_hash: hash,
-                    });
-                }
-                Some(other) => {
-                    counter!(STAGE1_UNSUPPORTED_VARIANT_SKIPPED, "variant" => other.as_str())
-                        .increment(1);
-                }
-                None => {}
+    match gating {
+        EventNameGating::Disabled => {
+            for &hash in &filters.behavioral_conditions {
+                eval_behavioral_condition(filters, hash, evaluator, applies);
             }
+        }
+        EventNameGating::Enabled => {
+            let matched = filters
+                .behavioral_by_event_name
+                .get(event_name)
+                .map_or(&[][..], Vec::as_slice);
+            let skipped = filters
+                .behavioral_conditions
+                .len()
+                .saturating_sub(matched.len());
+            if skipped > 0 {
+                counter!(STAGE1_CONDITIONS_SKIPPED, "reason" => "event_name_gate")
+                    .increment(skipped as u64);
+            }
+            for &hash in matched {
+                eval_behavioral_condition(filters, hash, evaluator, applies);
+            }
+        }
+    }
+}
+
+/// Evaluate one behavioral condition, pushing an `Apply::Behavioral` for each supported state-keyed
+/// leaf on a match.
+fn eval_behavioral_condition(
+    filters: &TeamFilters,
+    hash: [u8; 16],
+    evaluator: &mut CohortEvaluator,
+    applies: &mut Vec<Apply>,
+) {
+    let Some(bytecode) = filters.by_condition_to_bytecode.get(&hash) else {
+        return;
+    };
+    counter!(STAGE1_CONDITIONS_EVALUATED, "kind" => "behavioral").increment(1);
+    if !evaluator.evaluate(Arc::clone(bytecode)) {
+        return;
+    }
+    let Some(lsks) = filters.by_condition_to_lsk.get(&hash) else {
+        return;
+    };
+    for &lsk in lsks {
+        match filters.by_lsk.get(&lsk).map(|meta| meta.variant) {
+            Some(
+                StateVariant::BehavioralSingle
+                | StateVariant::BehavioralDailyBuckets
+                | StateVariant::BehavioralCompressedHistory,
+            ) => {
+                applies.push(Apply::Behavioral {
+                    lsk,
+                    condition_hash: hash,
+                });
+            }
+            Some(other) => {
+                counter!(STAGE1_UNSUPPORTED_VARIANT_SKIPPED, "variant" => other.as_str())
+                    .increment(1);
+            }
+            None => {}
         }
     }
 }

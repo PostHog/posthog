@@ -31,6 +31,7 @@ import type {
     WebAnalyticsFilterPresetsListParams,
     WebAnalyticsRecapParams,
     WebAnalyticsRecapResponseApi,
+    WebAnalyticsUserPreferencesApi,
     WebAnalyticsWeeklyDigestParams,
     WeeklyDigestResponseApi,
 } from './api.schemas'
@@ -372,6 +373,45 @@ export const webAnalyticsAchievementsOverview = async (
     return apiMutator<AchievementsListResponseApi>(getWebAnalyticsAchievementsOverviewUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getWebAnalyticsAchievementsPreferencesUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_achievements/preferences/`
+}
+
+/**
+ * Returns the requesting user's per-project Web analytics achievements preferences.
+ * @summary Get Web analytics achievements preferences
+ */
+export const webAnalyticsAchievementsPreferences = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WebAnalyticsUserPreferencesApi> => {
+    return apiMutator<WebAnalyticsUserPreferencesApi>(getWebAnalyticsAchievementsPreferencesUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWebAnalyticsAchievementsUpdatePreferencesUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_achievements/preferences/`
+}
+
+/**
+ * Sets the requesting user's per-project Web analytics achievements preferences.
+ * @summary Update Web analytics achievements preferences
+ */
+export const webAnalyticsAchievementsUpdatePreferences = async (
+    projectId: string,
+    webAnalyticsUserPreferencesApi: WebAnalyticsUserPreferencesApi,
+    options?: RequestInit
+): Promise<WebAnalyticsUserPreferencesApi> => {
+    return apiMutator<WebAnalyticsUserPreferencesApi>(getWebAnalyticsAchievementsUpdatePreferencesUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(webAnalyticsUserPreferencesApi),
     })
 }
 

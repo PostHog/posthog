@@ -81,7 +81,7 @@ const Component = ({
         runId: attributes.runId ?? null,
         hasResult: !!attributes.result,
     })
-    const { isRunning, runError, page, pageSize, pageResult, pageLoading } = useValues(dataLogic)
+    const { isRunning, runError, page, pageSize, pageResult, pageLoading, operationBlockReason } = useValues(dataLogic)
     const { setPage, setPageSize } = useActions(dataLogic)
 
     const usageLabel = (nodeType: NotebookNodeType, nodeIndex: number | undefined, title: string): string =>
@@ -159,6 +159,15 @@ const Component = ({
                                     page={page}
                                     pageSize={pageSize}
                                     hasMore={hasMorePages}
+                                    // Serialize page fetches: no new page while one is in flight, a run
+                                    // is replacing this result, or another cell's operation is running.
+                                    paginationDisabledReason={
+                                        pageLoading
+                                            ? 'Fetching page…'
+                                            : isRunning
+                                              ? 'Query is running'
+                                              : (operationBlockReason ?? undefined)
+                                    }
                                     onNextPage={() => setPage(page + 1)}
                                     onPreviousPage={() => setPage(page - 1)}
                                     onPageSizeChange={setPageSize}
@@ -248,7 +257,7 @@ const Settings = ({
         runId: attributes.runId ?? null,
         hasResult: !!attributes.result,
     })
-    const { isRunning } = useValues(dataLogic)
+    const { isRunning, operationBlockReason } = useValues(dataLogic)
     const { runQuery } = useActions(dataLogic)
 
     return (
@@ -258,6 +267,7 @@ const Settings = ({
             tabIdSuffix="datav2"
             onRunQuery={(code) => runQuery(code, collectSqlV2Refs(notebookLogic.values.editor?.getJSON(), nodeId))}
             runQueryLoading={isRunning}
+            runQueryDisabledReason={operationBlockReason ?? undefined}
             runQueryTooltip="Run SQL (v2) query"
         />
     )

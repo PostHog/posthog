@@ -20,11 +20,23 @@ class ResumableSourceManager(Generic[ResumableData]):
     _inputs: SourceInputs
     _data_class: type[ResumableData]
     _logger: FilteringBoundLogger
+    _namespace: str | None
 
-    def __init__(self, inputs: SourceInputs, data_class: type[ResumableData]):
+    def __init__(self, inputs: SourceInputs, data_class: type[ResumableData], namespace: str | None = None):
         self._inputs = inputs
         self._data_class = data_class
         self._logger = inputs.logger
+        self._namespace = namespace
+
+    def with_namespace(self, namespace: str) -> "ResumableSourceManager[ResumableData]":
+        """Return a sibling manager whose Redis state is isolated under `namespace`.
+
+        A source that reaches more than one endpoint within a single job — where each
+        endpoint stores an incompatible cursor format — uses this to keep their resume
+        state in separate slots. Without it a retry that switches endpoints could load a
+        cursor the other endpoint wrote and replay it against an API that can't parse it.
+        """
+        return ResumableSourceManager(self._inputs, self._data_class, namespace=namespace)
 
     @contextmanager
     def _get_redis(self):
@@ -40,7 +52,8 @@ class ResumableSourceManager(Generic[ResumableData]):
 
     @property
     def _key(self) -> str:
-        return f"posthog:data_warehouse:resumable_source:{self._inputs.team_id}:{self._inputs.job_id}"
+        base = f"posthog:data_warehouse:resumable_source:{self._inputs.team_id}:{self._inputs.job_id}"
+        return f"{base}:{self._namespace}" if self._namespace else base
 
     def _dump_json(self, data: ResumableData) -> str:
         data_dict = dataclasses.asdict(data)

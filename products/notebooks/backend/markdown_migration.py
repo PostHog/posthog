@@ -1,9 +1,9 @@
 from collections.abc import Callable
+from datetime import timedelta
 from typing import Any, cast
 
 from django.db import transaction
-from django.db.models import QuerySet
-from django.utils.timezone import now
+from django.db.models import Q, QuerySet
 
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import changes_between
@@ -22,9 +22,12 @@ from products.notebooks.backend.markdown_conversion import (
     build_markdown_notebook_content,
     convert_notebook_content_to_markdown,
     is_markdown_notebook_content,
+    notebook_content_has_comment_marks,
 )
 from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.python_analysis import annotate_python_nodes
+
+MAX_NOTEBOOK_MIGRATION_BATCH_SIZE = 500
 
 
 def get_markdown_notebook_migration_stats(team_id: int | None = None) -> MarkdownNotebookMigrationStats:
@@ -40,8 +43,10 @@ def migrate_notebooks_to_markdown(
     user: User,
     team_id: int | None = None,
     dry_run: bool = True,
+    batch_size: int | None = None,
     max_previews: int = 5,
 ) -> MarkdownNotebookMigrationResult:
+    batch_size = _validate_batch_size(batch_size)
     stats = get_markdown_notebook_migration_stats(team_id)
     converted = 0
     skipped = 0
@@ -49,7 +54,11 @@ def migrate_notebooks_to_markdown(
     previews: list[MarkdownNotebookMigrationPreview] = []
     errors: list[str] = []
 
-    for notebook in _notebook_scope(team_id).select_related("team").order_by("team_id", "id").iterator(chunk_size=100):
+    queryset = _pending_notebook_scope(team_id).select_related("team").order_by("team_id", "id")
+    if batch_size is not None:
+        queryset = queryset[:batch_size]
+
+    for notebook in queryset.iterator(chunk_size=100):
         if is_markdown_notebook_content(notebook.content):
             skipped += 1
             continue
@@ -76,17 +85,23 @@ def migrate_notebooks_to_markdown(
                     )
                 continue
 
-            _convert_notebook(notebook, user=user, content=next_content, text_content=markdown)
-            converted += 1
+            if _convert_notebook(notebook, user=user, content=next_content, text_content=markdown):
+                converted += 1
+            else:
+                skipped += 1
         except Exception as err:
             errored += 1
             errors.append(f"{notebook.short_id}: {err}")
 
+    final_stats = stats if dry_run else get_markdown_notebook_migration_stats(team_id)
     return MarkdownNotebookMigrationResult(
         dry_run=dry_run,
         team_id=team_id,
+        batch_size=batch_size,
         total=stats.total,
         already_converted=stats.converted,
+        pending_before=stats.pending,
+        pending_after=final_stats.pending,
         converted=converted,
         skipped=skipped,
         errored=errored,
@@ -100,31 +115,44 @@ def _validate_team_id(team_id: int | None) -> None:
         raise ValueError(f"Team {team_id} does not exist")
 
 
+def _validate_batch_size(batch_size: int | None) -> int | None:
+    if batch_size is None:
+        return None
+    if batch_size < 1:
+        raise ValueError("Batch size must be at least 1")
+    if batch_size > MAX_NOTEBOOK_MIGRATION_BATCH_SIZE:
+        raise ValueError(f"Batch size must be {MAX_NOTEBOOK_MIGRATION_BATCH_SIZE} or less")
+    return batch_size
+
+
 def _notebook_scope(team_id: int | None) -> QuerySet[Notebook]:
     queryset = Notebook.objects.all()
     return queryset.filter(team_id=team_id) if team_id is not None else queryset
 
 
-def _convert_notebook(notebook: Notebook, *, user: User, content: dict[str, Any], text_content: str) -> None:
+def _pending_notebook_scope(team_id: int | None) -> QuerySet[Notebook]:
+    return _notebook_scope(team_id).filter(
+        Q(content__content__0__type__isnull=True)
+        | ~Q(content__content__0__type=markdown_collab.MARKDOWN_NOTEBOOK_NODE_TYPE)
+    )
+
+
+def _convert_notebook(notebook: Notebook, *, user: User, content: dict[str, Any], text_content: str) -> bool:
     with transaction.atomic():
         locked_notebook = Notebook.objects.select_for_update().select_related("team").get(pk=notebook.pk)
         if is_markdown_notebook_content(locked_notebook.content):
-            return
+            return False
 
-        before_update = Notebook.objects.get(pk=locked_notebook.pk)
+        before_update = Notebook.objects.select_related("created_by", "last_modified_by").get(pk=locked_notebook.pk)
         annotated_content = annotate_python_nodes(content)
         locked_notebook.content = annotated_content
         locked_notebook.text_content = text_content
         locked_notebook.version += 1
-        locked_notebook.last_modified_at = now()
-        locked_notebook.last_modified_by = user
         locked_notebook.save(
             update_fields=[
                 "content",
                 "text_content",
                 "version",
-                "last_modified_at",
-                "last_modified_by",
             ]
         )
 
@@ -146,13 +174,18 @@ def _convert_notebook(notebook: Notebook, *, user: User, content: dict[str, Any]
         notebook=locked_notebook,
         organization_id=cast(UUIDT, locked_notebook.team.organization_id),
         team_id=locked_notebook.team_id,
-        user=user,
+        user=before_update.last_modified_by or before_update.created_by or user,
         was_impersonated=False,
         changes=changes,
+        created_at=before_update.last_modified_at + timedelta(seconds=1),
     )
+    return True
 
 
 def _build_comment_replies_by_mark_id(notebook: Notebook) -> dict[str, list[Any]]:
+    if not notebook_content_has_comment_marks(notebook.content):
+        return {}
+
     root_comments = list(
         Comment.objects.filter(team_id=notebook.team_id, scope="Notebook", item_id=notebook.short_id)
         .filter(deleted=False, source_comment_id__isnull=True)

@@ -38,8 +38,8 @@ def fetch_query_page(
         method="POST",
     )
     try:
-        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected — url is the backend's
-        # own data-plane endpoint from the signed run payload, never user-controlled.
+        # url is the backend's own data-plane endpoint from the signed run payload, never user-controlled.
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
         with urllib.request.urlopen(request, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
             if _is_arrow(response):
                 # A pre-async-manager backend answers the POST with the rows directly.
@@ -64,8 +64,8 @@ def _poll_for_result(status_url: str, token: str) -> tuple[list[str], list[tuple
     interval = _POLL_INITIAL_INTERVAL_SECONDS
     while time.monotonic() < deadline:
         try:
-            # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected — status_url is the
-            # backend's own data-plane endpoint from the signed run payload, never user-controlled.
+            # status_url is the backend's own data-plane endpoint from the signed run payload, not user input.
+            # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
             with urllib.request.urlopen(request, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
                 if _is_arrow(response):
                     return decode_arrow_stream(response)

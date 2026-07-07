@@ -18,6 +18,18 @@ export const trackingCodeFormatCounter = new Counter({
     labelNames: ['format', 'source'],
 })
 
+// Mint-time signal: counts every code generate() produces, labelled by whether a signing key was
+// available. Unlike the parse-time counter above (which only sees codes that come back via the SES
+// webhook or click endpoints), this fires on the send path itself, so a sustained `unsigned` rate
+// pinpoints an email-sending deployment running without ENCRYPTION_SALT_KEYS. Watching this reach
+// zero is the prerequisite for making generate() fail closed (#62624). Note it counts per generate()
+// call (header + pixel + each redirect link), not per email, so it is a rate signal, not an email count.
+export const trackingCodeMintCounter = new Counter({
+    name: 'email_tracking_code_mint_total',
+    help: 'Count of email tracking codes minted by signature format (signed when a key is configured)',
+    labelNames: ['format'],
+})
+
 function toBase64UrlSafe(input: string | Buffer): string {
     const b64 = Buffer.isBuffer(input) ? input.toString('base64') : Buffer.from(input, 'utf8').toString('base64')
     return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
@@ -155,8 +167,12 @@ export class EmailTrackingCodeSigner {
         )
         if (this.signingKeys.length === 0) {
             // Fail open while signing rolls out so sends never break; tighten to throw once enforced (#62624).
+            // The mint counter makes this branch observable so we can confirm it is never hit in prod
+            // before flipping to fail-closed.
+            trackingCodeMintCounter.inc({ format: 'unsigned' })
             return payload
         }
+        trackingCodeMintCounter.inc({ format: 'signed' })
         return `${payload}.${this.signPayload(payload, this.signingKeys[0])}`
     }
 

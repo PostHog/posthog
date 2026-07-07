@@ -96,6 +96,9 @@ NON_RETRYABLE_ERROR_TYPES = (
     "SnowflakeWarehouseSuspendedError",
     # Raised when the destination table schema is incompatible with the schema of the file we are trying to load.
     "SnowflakeIncompatibleSchemaError",
+    # Raised when Snowflake denies an operation due to missing privileges. This is a customer-side
+    # configuration issue that retrying cannot fix.
+    "SnowflakeInsufficientPrivilegesError",
     # Raised when we hit our self-imposed query timeout.
     # We don't want to continually retry as it could consume a lot of compute resources in the user's account and can
     # lead to a lot of queries queuing up for a given warehouse.
@@ -179,6 +182,13 @@ class SnowflakeIncompatibleSchemaError(Exception):
         super().__init__(
             f"The data being loaded into the destination table is incompatible with the schema of the destination table: {err_msg}"
         )
+
+
+class SnowflakeInsufficientPrivilegesError(Exception):
+    """Raised when the configured Snowflake role lacks required privileges to perform an operation."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
 
 
 class SnowflakeQueryClientTimeoutError(TimeoutError):
@@ -1009,6 +1019,8 @@ class SnowflakeClient:
         Raises:
             SnowflakeQueryClientTimeoutError: If the COPY INTO query exceeds the specified timeout set by us.
             SnowflakeQueryServerTimeoutError: If the COPY INTO query exceeds the timeout set in the user's account.
+            SnowflakeInsufficientPrivilegesError: If the configured Snowflake role lacks required privileges to
+                perform this operation.
         """
         select_fields = ", ".join(
             f"PARSE_JSON($1:\"{field.name}\", 'd')"
@@ -1060,6 +1072,10 @@ class SnowflakeClient:
                 raise SnowflakeQueryServerTimeoutError(e.msg)
             elif e.errno == 904 and e.msg is not None and "invalid identifier" in e.msg:
                 raise SnowflakeIncompatibleSchemaError(e.msg)
+            elif e.errno == 3001:
+                raise SnowflakeInsufficientPrivilegesError(
+                    f"Failed to execute COPY INTO due to insufficient privileges: {e.msg or 'no message provided'}"
+                )
 
             raise SnowflakeFileNotLoadedError(
                 table.name,
