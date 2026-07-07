@@ -1,5 +1,7 @@
 from typing import Any
 
+from django.db import transaction
+
 from croniter import croniter  # type: ignore[import-untyped,unused-ignore]
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
@@ -388,7 +390,22 @@ class ScheduledChangeViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, view
         # Deleting a schedule cancels a pending flag change, so require edit access on the
         # target flag — mirroring the create/update checks enforced by the serializer.
         self._assert_can_edit_target_flag(instance)
-        super().perform_destroy(instance)
+        change_request = instance.change_request
+        with transaction.atomic():
+            super().perform_destroy(instance)
+            # Deleting the schedule cancels the change it carried, so expire the bound (non-terminal)
+            # ChangeRequest unless another schedule still shares it. Otherwise a pending CR would
+            # outlive its schedule and auto-apply on quorum: ChangeRequestService.approve() only
+            # defers application while a bound schedule row exists (scheduled_changes.exists()), so
+            # once the row is gone the deferral is skipped and the flag change fires immediately on
+            # approval — bypassing the scheduled timing the approval was granted for.
+            if (
+                change_request is not None
+                and change_request.state in (ChangeRequestState.PENDING, ChangeRequestState.APPROVED)
+                and not change_request.scheduled_changes.exists()
+            ):
+                change_request.state = ChangeRequestState.EXPIRED
+                change_request.save(update_fields=["state"])
 
     def _inaccessible_feature_flag_ids(self) -> set[str]:
         """Return record_ids of feature flags in this project the user may not access."""

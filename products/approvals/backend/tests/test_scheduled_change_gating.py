@@ -492,6 +492,30 @@ class TestScheduledChangeGating(APIBaseTest):
         flag.refresh_from_db()
         assert flag.active is False
 
+    def test_deleting_scheduled_change_expires_bound_pending_cr(self, _mock_enabled):
+        # Deleting a gated schedule must expire its bound pending CR. Otherwise the CR outlives the
+        # schedule and, on reaching quorum, ChangeRequestService.approve() auto-applies it
+        # immediately — its scheduled-deferral keys off the now-deleted schedule row, so the flag
+        # change fires without the schedule it was approved for.
+        self._enable_policy()
+        flag = self._disabled_flag()
+
+        scheduled = self._schedule(
+            flag,
+            {"operation": "update_status", "value": True},
+            timezone.now() + timedelta(hours=1),
+        )
+        cr = scheduled.change_request
+        assert cr is not None and cr.state == ChangeRequestState.PENDING
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/scheduled_changes/{scheduled.id}/")
+
+        assert response.status_code == 204, response.content
+        cr.refresh_from_db()
+        assert cr.state == ChangeRequestState.EXPIRED
+        flag.refresh_from_db()
+        assert flag.active is False
+
     def test_approved_then_stale_cr_is_not_applied(self, _mock_enabled):
         self._enable_policy()
         flag = self._disabled_flag()
