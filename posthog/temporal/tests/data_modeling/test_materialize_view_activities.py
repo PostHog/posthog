@@ -29,6 +29,7 @@ from posthog.temporal.data_modeling.activities.materialize_view import (
     _get_aws_storage_options,
 )
 
+from products.data_modeling.backend.facade.api import compute_enrichment_hash
 from products.data_modeling.backend.facade.models import (
     DAG,
     DataModelingJob,
@@ -620,6 +621,55 @@ class TestSucceedMaterializationActivity:
         await database_sync_to_async(anode.refresh_from_db)()
         assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is False
         assert is_node_suspended(anode, DataModelingJobEngine.DUCKGRES) is True
+
+    async def test_flags_enrichment_needed_when_hash_missing(self, activity_environment, ateam, anode, ajob, adag):
+        # A view with no stored enrichment hash (never enriched) must signal the workflow to enrich.
+        inputs = SucceedMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(ajob.id),
+            row_count=1,
+            duration_seconds=1.0,
+        )
+        with unittest.mock.patch(
+            "products.data_modeling.backend.logic.enrich_view_semantics.enrichment_enabled", return_value=True
+        ):
+            result = await activity_environment.run(succeed_materialization_activity, inputs)
+        assert result.enrichment_needed is True
+        assert result.saved_query_id == str(anode.saved_query_id)
+
+    async def test_no_enrichment_when_flag_disabled(self, activity_environment, ateam, anode, ajob, adag):
+        # A changed view must not signal enrichment when the feature flag is off, even with no stored hash.
+        inputs = SucceedMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(ajob.id),
+            row_count=1,
+            duration_seconds=1.0,
+        )
+        with unittest.mock.patch(
+            "products.data_modeling.backend.logic.enrich_view_semantics.enrichment_enabled", return_value=False
+        ):
+            result = await activity_environment.run(succeed_materialization_activity, inputs)
+        assert result.enrichment_needed is False
+
+    async def test_no_enrichment_when_hash_matches(self, activity_environment, ateam, anode, ajob, adag, asaved_query):
+        # A steady-state re-materialization (stored hash still current) must not spawn an enrichment child.
+        await database_sync_to_async(DataWarehouseSavedQuery.objects.filter(id=asaved_query.id).update)(
+            semantic_enrichment_hash=compute_enrichment_hash(asaved_query)
+        )
+        inputs = SucceedMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(ajob.id),
+            row_count=1,
+            duration_seconds=1.0,
+        )
+        result = await activity_environment.run(succeed_materialization_activity, inputs)
+        assert result.enrichment_needed is False
 
 
 class TestPrepareQueryableTableActivity:

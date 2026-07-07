@@ -36,6 +36,15 @@ const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS = 1000
 const DEFAULT_LOGS_PAGE_SIZE: number = 250
 export const DEFAULT_INITIAL_LOGS_LIMIT = null as number | null
 const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
+
+// Parse cache keyed on log object identity — leak-free by construction (entries die with their
+// logs) and shared across logic instances. Parsing is pure per object, so cached entries are
+// always correct as long as log objects are never mutated in place after creation (they aren't:
+// `logs` is only ever replaced wholesale via `setLogs`). The same immutability contract is why
+// live-tail prepends can keep existing log references untouched so their parsed rows stay
+// reference-stable, and why newLogUuids is tracked as a separate set rather than a flag on each
+// log — avoiding a clone of every existing log object per poll tick.
+const parsedLogCache = new WeakMap<LogMessage, ParsedLogMessage>()
 const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MAX_MS = 5000
 
 function classifyQueryError(error: unknown): { error_type: string; status_code: number | null } {
@@ -157,6 +166,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         setLiveTailRunning: (enabled: boolean) => ({ enabled }),
         setLiveTailInterval: (interval: number) => ({ interval }),
         setLogs: (logs: LogMessage[]) => ({ logs }),
+        setNewLogUuids: (newLogUuids: string[]) => ({ newLogUuids }),
         setSparkline: (sparkline: any[] | null) => ({ sparkline }),
         setNextCursor: (nextCursor: string | null) => ({ nextCursor }),
         expireLiveTail: () => true,
@@ -168,6 +178,16 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
     }),
 
     reducers({
+        // UUIDs of the last live-tail batch, for the one-shot row highlight (see parsedLogCache comment above).
+        newLogUuids: [
+            new Set<string>(),
+            {
+                setNewLogUuids: (_, { newLogUuids }) => new Set(newLogUuids),
+                // A fresh query result set has no "just arrived" rows.
+                fetchLogsSuccess: () => new Set<string>(),
+                clearLogs: () => new Set<string>(),
+            },
+        ],
         initialLogsLimit: [
             DEFAULT_INITIAL_LOGS_LIMIT as number | null,
             {
@@ -405,6 +425,14 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                         continue
                     }
                     seen.add(log.uuid)
+
+                    // Existing log references are stable across polls — cache hit = no re-render.
+                    const cached = parsedLogCache.get(log)
+                    if (cached) {
+                        result.push(cached)
+                        continue
+                    }
+
                     const cleanBody = colors.unstyle(log.body)
                     let parsedBody: JsonType | null = null
                     try {
@@ -412,13 +440,15 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     } catch {
                         // Not JSON, that's fine
                     }
-                    result.push({
+                    const parsed: ParsedLogMessage = {
                         ...log,
                         attributes: stringifyLogAttributes(log.attributes),
                         cleanBody,
                         parsedBody,
                         originalLog: log,
-                    })
+                    }
+                    parsedLogCache.set(log, parsed)
+                    result.push(parsed)
                 }
 
                 return result
@@ -659,19 +689,19 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         },
         cancelInProgressLogs: ({ logsAbortController }) => {
             if (values.logsAbortController !== null) {
-                values.logsAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.logsAbortController.abort(new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'))
             }
             actions.setLogsAbortController(logsAbortController)
         },
         cancelInProgressSparkline: ({ sparklineAbortController }) => {
             if (values.sparklineAbortController !== null) {
-                values.sparklineAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.sparklineAbortController.abort(new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'))
             }
             actions.setSparklineAbortController(sparklineAbortController)
         },
         cancelInProgressLiveTail: ({ liveTailAbortController }) => {
             if (values.liveTailAbortController !== null) {
-                values.liveTailAbortController.abort('live tail request cancelled')
+                values.liveTailAbortController.abort(new DOMException('live tail request cancelled', 'AbortError'))
             }
             actions.setLiveTailAbortController(liveTailAbortController)
             cache.disposables.dispose('liveTailTimer')
@@ -721,11 +751,11 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
 
                 if (newLogs.length > 0) {
                     actions.setLiveTailInterval(DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS)
+                    // Prepend new logs; existing references stay untouched (see parsedLogCache comment).
+                    // Replacing newLogUuids highlights the new batch and un-highlights the previous one.
+                    actions.setNewLogUuids(newLogs.map((log) => log.uuid))
                     actions.setLogs(
-                        [
-                            ...newLogs.map((log) => ({ ...log, new: true })),
-                            ...values.logs.map((log) => ({ ...log, new: false })),
-                        ]
+                        [...newLogs, ...values.logs]
                             .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
                             .slice(0, DEFAULT_LOGS_PAGE_SIZE)
                     )
@@ -736,6 +766,9 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                         DEFAULT_LIVE_TAIL_POLL_INTERVAL_MAX_MS
                     )
                     actions.setLiveTailInterval(newInterval)
+                    // No new logs this tick — clear the previous batch's highlights so rows that
+                    // scroll out and back don't replay the arrival animation on a quiet stream.
+                    actions.setNewLogUuids([])
                 }
             } catch (error) {
                 if (signal.aborted) {

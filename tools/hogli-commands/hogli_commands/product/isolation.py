@@ -22,11 +22,12 @@ from __future__ import annotations
 import re
 import json
 import tomllib
+import functools
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-from .ast_helpers import has_any_function_defs
+from .ast_helpers import ast_parse_safe, get_imported_module_names, has_any_function_defs
 from .paths import REPO_ROOT, TACH_TOML, get_tach_block
 
 # ---------------------------------------------------------------------------
@@ -317,6 +318,68 @@ def uncovered_permanent_modules(product_dir: Path, permanent_modules: frozenset[
     return {m for m in permanent_modules if not any(i.startswith(_module_input_prefixes(m)) for i in inputs)}
 
 
+# ---------------------------------------------------------------------------
+# Permanent-interface qualification — the marker can only cover genuinely irreducible DDL
+# ---------------------------------------------------------------------------
+
+
+# Products whose permanent-interface marker is justified by a coupling channel other than
+# ClickHouse DDL, so the DDL-qualification rule below doesn't apply. warehouse_sources: core's
+# HogQL direct-SQL adapters and system tables reach source internals through the facade's lazy
+# (PEP 562) re-exports; the exposed set is pinned by the product's own guard test
+# (test_ci_core_coupled_sources.py) and stays watched via the turbo-input rule above. Extending
+# this set requires a devex-reviewed change here — which is the point.
+_QUALIFICATION_EXEMPT_PRODUCTS: frozenset[str] = frozenset({"products.warehouse_sources"})
+
+
+@functools.cache
+def _clickhouse_ddl_imports(repo_root: Path) -> frozenset[str]:
+    """Dotted module paths imported by the consumers of a permanent DDL interface outside the
+    import-reroute path: the frozen ClickHouse migrations and the schema registry.
+
+    Extracted from real import statements via AST (get_imported_module_names), so a module path
+    that only appears in a comment, docstring, or string literal can't qualify a marker.
+
+    Cached per repo_root — product:lint runs the qualification check once per product, and
+    re-parsing ~250 migration files each time would dominate the lint.
+    """
+    migrations_dir = repo_root / "posthog" / "clickhouse" / "migrations"
+    schema_file = repo_root / "posthog" / "clickhouse" / "schema.py"
+    files = sorted(migrations_dir.glob("*.py")) if migrations_dir.is_dir() else []
+    if schema_file.exists():
+        files.append(schema_file)
+    imported: set[str] = set()
+    for path in files:
+        tree = ast_parse_safe(path)
+        if tree is not None:
+            imported.update(get_imported_module_names(tree))
+    return frozenset(imported)
+
+
+def _module_is_imported(imported: frozenset[str], full_dotted_path: str) -> bool:
+    """True if the module itself or any of its submodules is imported."""
+    return any(imp == full_dotted_path or imp.startswith(full_dotted_path + ".") for imp in imported)
+
+
+def unqualified_permanent_modules(
+    module_path: str, permanent_modules: frozenset[str], *, repo_root: Path = REPO_ROOT
+) -> set[str]:
+    """Permanently-exposed module roots that don't actually qualify as an irreducible interface.
+
+    The permanent-interface marker is only legitimate for modules core depends on outside the
+    import graph — ClickHouse DDL imported by a frozen migration or the schema registry. This is
+    the mechanical guard against abusing it: a module (e.g. 'backend.sql') qualifies only if its
+    full dotted path (e.g. 'products.error_tracking.backend.sql') is imported by one of those
+    consumers. Any marked module with no such import is returned, and IsolationChainCheck turns
+    a non-empty result into a blocking issue — the marker can't be used to smuggle 'backend.models'
+    or 'backend.logic' past the isolation seal.
+    """
+    if not permanent_modules or module_path in _QUALIFICATION_EXEMPT_PRODUCTS:
+        return set()
+    imported = _clickhouse_ddl_imports(repo_root)
+    return {root for root in permanent_modules if not _module_is_imported(imported, f"{module_path}.{root}")}
+
+
 def routes_in_turbo_inputs(product_dir: Path) -> bool:
     """True if contract-check inputs watch the routes module specifically — backend/routes.py or a
     backend/routes/ package. Anchored and negation-aware, so a glob that merely contains 'routes',
@@ -349,6 +412,10 @@ class IsolationStatus:
     # in its contract-check inputs — uncovered_permanent_exposures lists any that don't.
     permanent_exposures: tuple[str, ...] = ()
     uncovered_permanent_exposures: tuple[str, ...] = ()
+    # Marked permanent modules that aren't imported by any frozen ClickHouse migration or the
+    # schema registry — so they don't qualify as irreducible interfaces and the marker is being
+    # abused to keep an internal (models/logic) walled off. IsolationChainCheck blocks on these.
+    unqualified_permanent_exposures: tuple[str, ...] = ()
 
     @property
     def deferred_count(self) -> int:
@@ -387,12 +454,15 @@ def compute_isolation_status(
     is_isolated: bool | None = None,
     tach_content: str | None = None,
     pyproject_text: str | None = None,
+    repo_root: Path | None = None,
 ) -> IsolationStatus:
     """Compute the full isolation seal status for one product."""
     if is_isolated is None:
         is_isolated = is_isolated_product(backend_dir)
     if tach_content is None:
         tach_content = TACH_TOML.read_text() if TACH_TOML.exists() else ""
+    if repo_root is None:
+        repo_root = REPO_ROOT
     module_path = f"products.{name}"
     permanent_modules = frozenset(permanent_interface_modules(tach_content, module_path))
     return IsolationStatus(
@@ -406,4 +476,7 @@ def compute_isolation_status(
         has_narrowed_turbo=has_narrowed_turbo_inputs(product_dir, permanent_modules),
         permanent_exposures=tuple(sorted(permanent_modules)),
         uncovered_permanent_exposures=tuple(sorted(uncovered_permanent_modules(product_dir, permanent_modules))),
+        unqualified_permanent_exposures=tuple(
+            sorted(unqualified_permanent_modules(module_path, permanent_modules, repo_root=repo_root))
+        ),
     )

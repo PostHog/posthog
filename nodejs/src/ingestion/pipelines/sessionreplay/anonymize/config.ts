@@ -20,6 +20,7 @@ export interface ScrubTiming {
 /** Per-scrub context: the active allow lists plus tunables read by the scrubbers. */
 export interface ScrubContext {
     allow: AllowLists
+    firstPartyHosts?: string[]
     /** Optional collector for deferred image-blur jobs (see {@link BlurJob}). */
     blurJobs?: BlurJob[]
     /** Optional per-Kafka-message memo shared across those jobs so identical images blur once (see {@link BlurCache}). */

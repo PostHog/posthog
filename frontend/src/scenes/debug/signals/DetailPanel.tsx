@@ -6,6 +6,8 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 import { signalCardSourceLine } from 'lib/signals/signalCardSourceLine'
 import { urls } from 'scenes/urls'
 
+import type { ErrorTrackingSignalExtraApi } from 'products/signals/frontend/generated/api.schemas'
+
 import { ResizeGripDots, sourceProductColor } from './helpers'
 import { SignalNode, isMatchedMetadata } from './types'
 
@@ -233,10 +235,11 @@ export function DetailPanel({
                         <div className="flex flex-col gap-2">
                             <code className="text-xs select-all">{signal.source_id}</code>
                             {signal.source_product === 'error_tracking' &&
-                                typeof signal.extra?.fingerprint === 'string' && (
+                                typeof (signal.extra as Partial<ErrorTrackingSignalExtraApi>).fingerprint ===
+                                    'string' && (
                                     <Link
                                         to={urls.errorTrackingIssue(signal.source_id, {
-                                            fingerprint: signal.extra.fingerprint as string,
+                                            fingerprint: (signal.extra as ErrorTrackingSignalExtraApi).fingerprint,
                                         })}
                                         className="inline-flex items-center gap-1 text-xs font-medium"
                                     >

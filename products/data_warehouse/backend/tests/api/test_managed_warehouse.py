@@ -479,3 +479,20 @@ def test_enable_backfill_refuses_to_set_a_suffix_on_a_legacy_shared_team(mock_en
 
     assert resp.status_code == 400
     assert DuckgresServerTeam.objects.get(team_id=team.id).table_suffix is None
+
+
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.is_enabled", return_value=True)
+@patch("products.data_warehouse.backend.presentation.views.managed_warehouse.internal_requests")
+@override_settings(DUCKGRES_API_URL="http://duckgres.invalid", DUCKGRES_INTERNAL_SECRET="s")
+def test_delete_org_issues_delete_to_org_root(mock_internal: MagicMock, _mock_enabled: MagicMock) -> None:
+    # Guards the empty-path branch in _request: delete_org must hit the org resource itself,
+    # /api/v1/orgs/{org}, not a suffixed org path or the global /api/v1/ route.
+    org_id = uuid4()
+    mock_internal.request.return_value = MagicMock(status_code=200, **{"json.return_value": {"status": "deleted"}})
+
+    resp = managed_warehouse.delete_org(org_id)
+
+    assert resp.status_code == 200
+    method, url = mock_internal.request.call_args.args
+    assert method == "DELETE"
+    assert url == f"http://duckgres.invalid/api/v1/orgs/{org_id}"

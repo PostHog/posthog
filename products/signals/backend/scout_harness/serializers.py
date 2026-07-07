@@ -12,8 +12,6 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from posthog.schema import Severity
-
 from products.signals.backend.artefact_schemas import ActionabilityChoice, Priority
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
@@ -162,7 +160,7 @@ class SignalScoutEmissionSerializer(serializers.ModelSerializer):
         help_text="Agent's confidence the finding is real in [0, 1].",
     )
     severity = serializers.ChoiceField(
-        choices=[(s.value, s.value) for s in Severity],
+        choices=[(p.value, p.value) for p in Priority],
         allow_null=True,
         help_text="Optional severity tag — one of P0, P1, P2, P3, P4 — or null if the run didn't set one.",
     )
@@ -525,7 +523,7 @@ class EmitFindingRequestSerializer(serializers.Serializer):
         help_text="Optional one-line hypothesis the finding tests.",
     )
     severity = serializers.ChoiceField(
-        choices=[(s.value, s.value) for s in Severity],
+        choices=[(p.value, p.value) for p in Priority],
         required=False,
         allow_null=True,
         help_text="Optional severity tag — one of P0, P1, P2, P3, P4. Informational only.",

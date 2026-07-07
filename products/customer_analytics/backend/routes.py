@@ -6,6 +6,7 @@ from products.customer_analytics.backend.presentation.views.organization_members
 from products.customer_analytics.backend.presentation.views.views import (
     AccountNotebookViewSet,
     AccountNotesViewSet,
+    AccountRelationshipDefinitionViewSet,
     AccountViewSet,
     CustomerJourneyViewSet,
     CustomerProfileConfigViewSet,
@@ -41,6 +42,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"custom_property_sources",
         CustomPropertySourceViewSet,
         "project_custom_property_sources",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"account_relationship_definitions",
+        AccountRelationshipDefinitionViewSet,
+        "project_account_relationship_definitions",
         ["team_id"],
     )
     routers.projects.register(

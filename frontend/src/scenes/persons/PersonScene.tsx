@@ -10,7 +10,6 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -18,7 +17,6 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { isMobile } from 'lib/utils/dom'
 import { pluralize } from 'lib/utils/strings'
@@ -210,8 +208,6 @@ export function PersonScene(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { user } = useValues(userLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const emailAssetsUIEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOW_EMAIL_ASSETS_UI]
     const eventsQueryLogicKey = `${PERSON_EVENTS_CONTEXT_KEY}-${mountedPersonsLogic.key}`
 
     if (personError) {
@@ -324,6 +320,7 @@ export function PersonScene(): JSX.Element | null {
                                 embedded={false}
                                 onDelete={(key) => deleteProperty(key)}
                                 filterable
+                                collapsible
                             />
                         ),
                     },
@@ -400,7 +397,7 @@ export function PersonScene(): JSX.Element | null {
                         label: <span data-attr="persons-logs-tab">Logs</span>,
                         content: <PersonLogsTab person={person} />,
                     },
-                    emailAssetsUIEnabled && person.uuid
+                    person.uuid
                         ? {
                               key: PersonsTabType.EMAILS,
                               label: <span data-attr="persons-emails-tab">Emails</span>,
