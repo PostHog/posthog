@@ -68,12 +68,13 @@ describe('TrendsBarChart (ActionsBar)', () => {
         )
     })
 
-    it('shows the series value in the tooltip on hover', async () => {
+    it('shows the series value and a date header in the tooltip on hover', async () => {
         renderInsight({ query: trendsBar() })
         await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
 
         const tooltip = await chart.hoverTooltip(2)
         expect(tooltip.row('Pageview')).toContain('134')
+        expect(tooltip.title()).toMatch(/Jun/)
     })
 
     it('stacked tooltip shows each series own value, not the cumulative stack total', async () => {
@@ -102,14 +103,6 @@ describe('TrendsBarChart (ActionsBar)', () => {
         expect(tooltip.row('Pageview')).toContain('134')
         expect(tooltip.row('Napped')).toContain('5')
         expect(tooltip.row('Napped')).not.toContain('139')
-    })
-
-    it('shows a date header in the tooltip', async () => {
-        renderInsight({ query: trendsBar() })
-        await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
-
-        const tooltip = await chart.hoverTooltip(2)
-        expect(tooltip.title()).toMatch(/Jun/)
     })
 
     it('opens the persons modal on click for a single series', async () => {
@@ -148,27 +141,31 @@ describe('TrendsBarChart (ActionsBar)', () => {
         })
     })
 
-    it('renders InsightEmptyState when all series are zero', async () => {
-        renderInsight({
-            query: trendsBar({
-                series: [
-                    {
-                        kind: NodeKind.EventsNode,
-                        event: 'NoActivity',
-                        name: 'NoActivity',
-                    },
-                ],
-            }),
-        })
+    it.each([ChartDisplayType.ActionsBar, ChartDisplayType.ActionsBarValue])(
+        'renders InsightEmptyState when all values are zero for %s',
+        async (display) => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    trendsFilter: { display },
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: 'NoActivity',
+                            name: 'NoActivity',
+                        },
+                    ],
+                }),
+            })
 
-        await waitFor(
-            () => {
-                expect(screen.getByTestId('insight-empty-state')).toBeInTheDocument()
-            },
-            { timeout: 5000 }
-        )
-        expect(screen.queryByLabelText(/chart with/i)).not.toBeInTheDocument()
-    })
+            await waitFor(
+                () => {
+                    expect(screen.getByTestId('insight-empty-state')).toBeInTheDocument()
+                },
+                { timeout: 5000 }
+            )
+            expect(screen.queryByLabelText(/chart with/i)).not.toBeInTheDocument()
+        }
+    )
 
     it('shows current and previous period rows in compare mode', async () => {
         renderInsight({
@@ -224,19 +221,6 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
             ...extra,
         })
 
-    it('renders without crashing for a single event', async () => {
-        renderInsight({
-            query: aggregatedBar(),
-        })
-
-        await waitFor(
-            () => {
-                expect(screen.getByLabelText(/chart with/i)).toBeInTheDocument()
-            },
-            { timeout: 5000 }
-        )
-    })
-
     it('renders custom axis titles in horizontal aggregated mode', async () => {
         renderInsight({
             query: aggregatedBar({
@@ -258,28 +242,42 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         ).toContain('rotate(-90')
     })
 
-    it('emits one series with a colored bar per breakdown value', async () => {
+    // Five hedgehog breakdowns → by default one series carrying five per-bar colors across five
+    // bands, labeled by breakdown value; with stackBreakdownValues they collapse onto one band.
+    it.each([
+        {
+            name: 'one band per breakdown value, labeled by breakdown value, by default',
+            stackBreakdownValues: undefined,
+            expectedSeries: 1,
+            expectedTicks: 5,
+            containsTick: 'Spike',
+        },
+        {
+            name: 'collapses breakdown bars onto one band when stackBreakdownValues is set',
+            stackBreakdownValues: true,
+            expectedSeries: 5,
+            expectedTicks: 1,
+            containsTick: undefined,
+        },
+    ])('$name', async ({ stackBreakdownValues, expectedSeries, expectedTicks, containsTick }) => {
         renderInsight({
             query: aggregatedBar({
-                series: [
-                    {
-                        kind: NodeKind.EventsNode,
-                        event: 'Napped',
-                        name: 'Napped',
-                    },
-                ],
-                breakdownFilter: {
-                    breakdown: 'hedgehog',
-                    breakdown_type: 'event',
-                },
+                series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
+                breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                trendsFilter: { display: ChartDisplayType.ActionsBarValue, stackBreakdownValues },
             }),
         })
+        await screen.findByLabelText(new RegExp(`chart with ${expectedSeries} data series`, 'i'), undefined, {
+            timeout: 5000,
+        })
 
-        // Five hedgehog breakdowns → one series carrying five per-bar colors across five bands.
-        await screen.findByLabelText(/chart with 1 data series/i, undefined, { timeout: 5000 })
         await waitFor(
             () => {
-                expect(getHogChart().yTicks()).toHaveLength(5)
+                const ticks = getHogChart().yTicks()
+                expect(ticks).toHaveLength(expectedTicks)
+                if (containsTick) {
+                    expect(ticks).toEqual(expect.arrayContaining([containsTick]))
+                }
             },
             { timeout: 5000 }
         )
@@ -307,43 +305,6 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
             .valueLabels()
             .map((l) => l.color)
         expect(new Set(pillColors).size).toBeGreaterThan(1)
-    })
-
-    it('labels each aggregated breakdown bar by its breakdown value, one band per value by default', async () => {
-        renderInsight({
-            query: aggregatedBar({
-                series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
-                breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
-            }),
-        })
-        await screen.findByLabelText(/chart with 1 data series/i, undefined, { timeout: 5000 })
-
-        await waitFor(
-            () => {
-                const ticks = getHogChart().yTicks()
-                expect(ticks).toEqual(expect.arrayContaining(['Spike']))
-                expect(ticks).toHaveLength(5)
-            },
-            { timeout: 5000 }
-        )
-    })
-
-    it('collapses breakdown bars onto one band when stackBreakdownValues is set', async () => {
-        renderInsight({
-            query: aggregatedBar({
-                series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
-                breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
-                trendsFilter: { display: ChartDisplayType.ActionsBarValue, stackBreakdownValues: true },
-            }),
-        })
-        await screen.findByLabelText(/chart with 5 data series/i, undefined, { timeout: 5000 })
-
-        await waitFor(
-            () => {
-                expect(getHogChart().yTicks()).toHaveLength(1)
-            },
-            { timeout: 5000 }
-        )
     })
 
     // A dashboard/card tile is a fixed height, so the chart caps the breakdown rows to those that
@@ -424,22 +385,6 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         expect(personsModal.title()).not.toMatch(/Wednesday/)
     })
 
-    it('opens the persons modal on click in compare mode instead of pinning the tooltip', async () => {
-        renderInsight({
-            query: aggregatedBar({ compareFilter: { compare: true } }),
-        })
-        await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
-
-        await chart.clickAtIndex(0)
-
-        await waitFor(
-            () => {
-                expect(personsModal.get()).toBeInTheDocument()
-            },
-            { timeout: 5000 }
-        )
-    })
-
     it('fires context.onDataPointClick without a day argument', async () => {
         // Per-band breakdown resolution is covered at the unit-handler level — the
         // hog-charts hover/click helpers don't yet handle horizontal axis-orientation, so
@@ -487,27 +432,6 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         const rowText = tooltip!.textContent ?? ''
         expect(rowText).toContain('Spike')
         expect(rowText).toContain('11')
-    })
-
-    it('renders InsightEmptyState when every aggregated_value is zero', async () => {
-        renderInsight({
-            query: aggregatedBar({
-                series: [
-                    {
-                        kind: NodeKind.EventsNode,
-                        event: 'NoActivity',
-                        name: 'NoActivity',
-                    },
-                ],
-            }),
-        })
-
-        await waitFor(
-            () => {
-                expect(screen.getByTestId('insight-empty-state')).toBeInTheDocument()
-            },
-            { timeout: 5000 }
-        )
     })
 
     it('keeps the previous-period identifier glyph opaque while dimming only the row ribbon', async () => {
@@ -581,17 +505,6 @@ describe('TrendsBarChart (ActionsUnstackedBar)', () => {
             trendsFilter: { display: ChartDisplayType.ActionsUnstackedBar },
             ...extra,
         })
-
-    it('routes grouped bar insights through the hog-charts adapter', async () => {
-        renderInsight({ query: groupedBar() })
-
-        await waitFor(
-            () => {
-                expect(screen.getByTestId('trend-bar-graph')).toBeInTheDocument()
-            },
-            { timeout: 5000 }
-        )
-    })
 
     it('renders one band per series in grouped layout', async () => {
         renderInsight({

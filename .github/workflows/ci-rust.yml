@@ -13,6 +13,7 @@ concurrency:
 env:
     CARGO_TERM_COLOR: always
     UV_HTTP_TIMEOUT: 120
+    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
 jobs:
     # Job to decide if we should run rust ci
@@ -400,6 +401,15 @@ jobs:
               run: |
                   cd ../ && ./bin/download-mmdb
 
+            - name: Install cargo-binstall
+              uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
+
+            - name: Install cargo-nextest
+              # --force: Swatinem/rust-cache restores ~/.cargo/.crates2.json but not the
+              # binary itself, so without --force binstall can short-circuit ("already
+              # installed") and leave no `cargo nextest` binary.
+              run: cargo binstall --no-confirm --force cargo-nextest@0.9.140
+
             - name: Run cargo test
               env:
                   RUST_BACKTRACE: 1
@@ -407,6 +417,21 @@ jobs:
                   PERSONS_READ_DATABASE_URL: ${{ contains(format(' {0} ', matrix.packages), ' feature-flags ') && 'postgres://posthog:posthog@localhost:5432/posthog_persons' || '' }}
                   PERSONS_WRITE_DATABASE_URL: ${{ contains(format(' {0} ', matrix.packages), ' feature-flags ') && 'postgres://posthog:posthog@localhost:5432/posthog_persons' || '' }}
               run: |
+                  # nextest (instead of plain `cargo test`) emits JUnit XML for the Trunk upload
+                  # below. It does not run doctests, so those keep running via `cargo test --doc`.
+                  # --no-tests=pass matches `cargo test` semantics for packages/filters with no tests.
+                  # Each run overwrites target/nextest/ci/junit.xml, so stash it per package —
+                  # even on failure, so the failing results still reach Trunk before we exit.
+                  run_nextest() {
+                      local junit_name=$1
+                      shift
+                      local rc=0
+                      cargo nextest run --profile ci --no-tests=pass "$@" || rc=$?
+                      if [ -f target/nextest/ci/junit.xml ]; then
+                          mv target/nextest/ci/junit.xml "junit-nextest-$junit_name.xml"
+                      fi
+                      return $rc
+                  }
                   for pkg in ${{ matrix.packages }}; do
                       echo "::group::Testing $pkg"
                       # Free cgroups, overlayfs, and network namespaces from previous testcontainers
@@ -414,19 +439,36 @@ jobs:
                       extra_args=""
                       # Limit test threads for packages with sqlx pool exhaustion issues
                       if [ "$pkg" = "property-defs-rs" ]; then
-                          extra_args="-- --test-threads=4"
+                          extra_args="--test-threads=4"
                       fi
-                      cargo test -p "$pkg" $extra_args
+                      run_nextest "$pkg" -p "$pkg" $extra_args
+                      # nextest skips doctests; run them only for packages with a lib target
+                      # (`cargo test --doc` errors on bin-only packages).
+                      if cargo metadata --no-deps --format-version 1 | jq -e --arg p "$pkg" '[.packages[] | select(.name == $p) | .targets[] | select(.kind | index("lib"))] | length > 0' >/dev/null; then
+                          cargo test --doc -p "$pkg"
+                      fi
                       # Error-tracking rate-limiter e2e tests are #[ignore]'d (they need a real Redis
                       # via testcontainers/Docker, absent in some environments). This job has Docker,
                       # so run them here, single-threaded to avoid concurrent-container flakes. The
                       # `rate_limiting` filter matches nothing on branches without these tests, so it
                       # stays safe for unrebased PRs.
                       if [ "$pkg" = "cymbal" ]; then
-                          cargo test -p cymbal rate_limiting -- --ignored --test-threads=1
+                          run_nextest cymbal-ignored -p cymbal -E 'test(rate_limiting)' --run-ignored only --test-threads=1
                       fi
                       echo "::endgroup::"
                   done
+
+            # Upload results to Trunk for flaky-test detection. Non-gating (continue-on-error),
+            # so a Trunk outage never fails the job. Runs the token only on internal PRs,
+            # master, and the merge queue — never on fork PRs or Dependabot, which have no secret.
+            - name: Upload test results to Trunk
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
+              continue-on-error: true
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: rust/junit-nextest-*.xml
+                  org-slug: posthog-inc
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
 
     linting:
         name: Lint Rust services (depot-ubuntu-22.04-4)

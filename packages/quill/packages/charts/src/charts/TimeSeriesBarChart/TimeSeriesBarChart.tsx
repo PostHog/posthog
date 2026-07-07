@@ -125,7 +125,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
         xTickFormatter,
         yTickFormatter,
         hideXAxis: xAxis?.hide,
-        hideYAxis: primaryYAxis?.hide,
+        hideYAxis: yAxes ? yAxes.length > 0 && yAxes.every((a) => a.hide) : primaryYAxis?.hide,
         xAxisLabel: xAxis?.label,
         yAxisLabel: primaryYAxis?.label,
         showGrid: primaryYAxis?.showGrid ?? showGrid,
@@ -137,8 +137,8 @@ export function TimeSeriesBarChart<Meta = unknown>({
         tooltip: timeSeriesTooltipConfig,
         animateHover,
         yAxes,
+        barCornerRadius,
         bars: {
-            cornerRadius: barCornerRadius,
             divergingStack,
             valueDomain,
             fillStyle,

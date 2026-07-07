@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { toolbarApi } from '~/toolbar/toolbarApi'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
@@ -27,6 +28,11 @@ function statsRow(overrides: Partial<ElementsEventType>): ElementsEventType {
 }
 
 describe('heatmapToolbarMenuLogic', () => {
+    // These suites intentionally reject requests to exercise error states; the
+    // failures are asserted via authStatus/values, so skip the global loader logging.
+    beforeAll(silenceKeaLoadersErrors)
+    afterAll(resumeKeaLoadersErrors)
+
     describe('dedupeByChainIdentity', () => {
         const cases = [
             {
@@ -277,6 +283,8 @@ describe('heatmapToolbarMenuLogic', () => {
     describe('clickmap loading', () => {
         let logic: ReturnType<typeof heatmapToolbarMenuLogic.build>
 
+        afterEach(resumeKeaLoadersErrors)
+
         beforeEach(() => {
             global.IntersectionObserver = class {
                 observe(): void {}
@@ -344,6 +352,8 @@ describe('heatmapToolbarMenuLogic', () => {
         })
 
         it('keeps heatmapEnabled true after a stats fetch failure so the menu stays open', async () => {
+            // Deliberate loader failure — kea-loaders would log it
+            silenceKeaLoadersErrors()
             jest.spyOn(toolbarApi.elementStats, 'list').mockRejectedValue(new Error('network error'))
             await expectLogic(logic, () => logic.actions.enableHeatmap()).toDispatchActions([
                 'getElementStats',
@@ -384,6 +394,8 @@ describe('heatmapToolbarMenuLogic', () => {
         })
 
         it('retries the initial load via load more after a stats fetch failure', async () => {
+            // Deliberate loader failure — kea-loaders would log it
+            silenceKeaLoadersErrors()
             jest.spyOn(toolbarApi.elementStats, 'list').mockRejectedValueOnce(new Error('network error'))
             await expectLogic(logic, () => logic.actions.enableHeatmap()).toDispatchActions(['getElementStatsFailure'])
             await expectLogic(logic, () => logic.actions.loadMoreElementStats()).toDispatchActions([
