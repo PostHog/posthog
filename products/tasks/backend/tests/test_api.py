@@ -1636,6 +1636,7 @@ class TestTaskAPI(BaseTaskAPITest):
                 "reasoning_effort": "high",
                 "initial_permission_mode": "auto",
                 "run_source": "manual",
+                "auto_publish": True,
             },
             format="json",
         )
@@ -1653,6 +1654,7 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(task_run.state["reasoning_effort"], "high")
         self.assertEqual(task_run.state["initial_permission_mode"], "auto")
         self.assertEqual(task_run.state["run_source"], "manual")
+        self.assertEqual(task_run.state["auto_publish"], True)
         mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")

@@ -2240,6 +2240,7 @@ def bootstrap_task_run(
     branch = validated_data.get("branch")
     sandbox_environment_id = validated_data.get("sandbox_environment_id")
     pr_authorship_mode = validated_data.get("pr_authorship_mode")
+    auto_publish = validated_data.get("auto_publish")
     run_source = validated_data.get("run_source")
     signal_report_id = validated_data.get("signal_report_id")
     runtime_adapter = validated_data.get("runtime_adapter")
@@ -2259,6 +2260,7 @@ def bootstrap_task_run(
     for key, value in {
         "pr_base_branch": branch,
         "pr_authorship_mode": pr_authorship_mode,
+        "auto_publish": auto_publish,
         "run_source": run_source,
         "signal_report_id": signal_report_id,
         "runtime_adapter": runtime_adapter,
@@ -3428,6 +3430,7 @@ def run_task(
     sandbox_environment_id = validated_data.get("sandbox_environment_id")
     sandbox_environment_id_supplied_by_user = sandbox_environment_id is not None
     pr_authorship_mode = validated_data.get("pr_authorship_mode")
+    auto_publish = validated_data.get("auto_publish")
     run_source = validated_data.get("run_source")
     signal_report_id = validated_data.get("signal_report_id")
     runtime_adapter = validated_data.get("runtime_adapter")
@@ -3440,6 +3443,7 @@ def run_task(
 
     runtime_state_fields = {
         "pr_authorship_mode": pr_authorship_mode,
+        "auto_publish": auto_publish,
         "run_source": run_source,
         "signal_report_id": signal_report_id,
         "runtime_adapter": runtime_adapter,
@@ -3477,6 +3481,7 @@ def run_task(
                 runtime_state_fields[field_name] = getattr(prev_state, field_name)
 
         pr_authorship_mode = runtime_state_fields["pr_authorship_mode"]
+        auto_publish = runtime_state_fields["auto_publish"]
         run_source = runtime_state_fields["run_source"]
         signal_report_id = runtime_state_fields["signal_report_id"]
         runtime_adapter = runtime_state_fields["runtime_adapter"]
@@ -3490,6 +3495,7 @@ def run_task(
     for key, value in {
         "pr_base_branch": branch,
         "pr_authorship_mode": pr_authorship_mode,
+        "auto_publish": auto_publish,
         "run_source": run_source,
         "signal_report_id": signal_report_id,
         "runtime_adapter": runtime_adapter,

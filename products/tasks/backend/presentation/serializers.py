@@ -1195,6 +1195,15 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         default=None,
         help_text="Whether pull requests for this run should be authored by the user or the bot.",
     )
+    auto_publish = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "When true, the cloud run agent pushes its work and opens a draft pull request on "
+            "completion without waiting for an explicit ask."
+        ),
+    )
     run_source = serializers.ChoiceField(
         choices=RUN_SOURCE_CHOICES,
         required=False,
@@ -1346,6 +1355,15 @@ class TaskRunBootstrapCreateRequestSerializer(serializers.Serializer):
         required=False,
         default=None,
         help_text="Whether pull requests for this run should be authored by the user or the bot.",
+    )
+    auto_publish = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "When true, the cloud run agent pushes its work and opens a draft pull request on "
+            "completion without waiting for an explicit ask."
+        ),
     )
     run_source = serializers.ChoiceField(
         choices=RUN_SOURCE_CHOICES,

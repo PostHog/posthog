@@ -245,6 +245,7 @@ def is_resume_snapshot_usable(kind: SnapshotKind, mount_path: str | None) -> boo
 
 class RunState(BaseModel, extra="allow"):
     pr_authorship_mode: PrAuthorshipMode | None = None
+    auto_publish: bool | None = None
     github_credential_source: GitHubCredentialSource | None = None
     pr_base_branch: str | None = None
     home_quick_action: str | None = None

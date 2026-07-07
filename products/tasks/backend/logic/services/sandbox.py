@@ -263,6 +263,7 @@ class SandboxBase(ABC):
         run_id: str,
         mode: str = "background",
         create_pr: bool = True,
+        auto_publish: bool = False,
         interaction_origin: str | None = None,
         branch: str | None = None,
         runtime_adapter: str | None = None,

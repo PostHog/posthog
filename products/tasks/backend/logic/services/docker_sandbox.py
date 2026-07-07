@@ -746,6 +746,7 @@ class DockerSandbox(SandboxBase):
         run_id: str,
         mode: str,
         create_pr: bool,
+        auto_publish: bool = False,
         interaction_origin: str | None = None,
         branch: str | None = None,
         runtime_adapter: str | None = None,
@@ -774,6 +775,7 @@ class DockerSandbox(SandboxBase):
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
+        auto_publish_flag = " --autoPublish true" if auto_publish else ""
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
         domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
@@ -787,7 +789,7 @@ class DockerSandbox(SandboxBase):
             f"env {unset_flags}BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}{repo_ready_flag}"
+            f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{domains_flag}{repo_ready_flag}"
         )
 
         # agentsh injects HTTP_PROXY pointing at a per-session egress proxy port; undici
@@ -827,6 +829,7 @@ class DockerSandbox(SandboxBase):
         run_id: str,
         mode: str = "background",
         create_pr: bool = True,
+        auto_publish: bool = False,
         interaction_origin: str | None = None,
         branch: str | None = None,
         runtime_adapter: str | None = None,
@@ -877,6 +880,7 @@ class DockerSandbox(SandboxBase):
             run_id,
             mode,
             create_pr,
+            auto_publish,
             interaction_origin,
             branch,
             runtime_adapter,
