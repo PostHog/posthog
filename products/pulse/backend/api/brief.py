@@ -329,7 +329,9 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
         # already has config select_related — no third SELECT.
         brief = self.get_object()
         user = cast(User, request.user)
-        updated = record_vote(ProductBrief, self.team_id, brief.pk, user.id, helpful)
+        updated = record_vote(
+            ProductBrief, self.team_id, brief.pk, user.id, helpful, select_related=("created_by", "config")
+        )
         # The context props are the tuning signal — see EVENTS.md.
         report_user_action(
             user,
