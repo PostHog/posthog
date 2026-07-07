@@ -13,6 +13,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 
+from products.customer_analytics.backend.constants import ACCOUNT_ASSIGNMENT_ROLE_FIELDS
+from products.customer_analytics.backend.logic import relationships as relationships_logic
 from products.customer_analytics.backend.models import Account
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 
@@ -256,6 +258,8 @@ class UpsertAccountTool(MaxTool):
             )
             if action.tags is not None:
                 set_tags_on_object(action.tags, account)
+            if any(field in (account._properties or {}) for field in ACCOUNT_ASSIGNMENT_ROLE_FIELDS):
+                relationships_logic.sync_from_account_properties(account, created_by=self._user)
         return account
 
     @sync_to_async
@@ -273,6 +277,8 @@ class UpsertAccountTool(MaxTool):
             account = Account.objects.update_account(account, **update_kwargs)
             if action.tags is not None:
                 set_tags_on_object(action.tags, account)
+            if action.properties is not None:
+                relationships_logic.sync_from_account_properties(account, created_by=self._user)
         return account
 
 

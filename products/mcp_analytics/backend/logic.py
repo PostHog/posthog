@@ -43,7 +43,7 @@ FROM events
 WHERE event = {event}
     AND timestamp >= {date_from}
     AND $session_id = {session_id}
-ORDER BY timestamp ASC
+ORDER BY timestamp ASC, event_id ASC
 LIMIT {limit}
 OFFSET {offset}
 """

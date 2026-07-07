@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 
-import { DEFAULT_Y_AXIS_ID, type YAxis } from '../core/types'
-import { createXAxisTickCallback, type TimeInterval } from './dates'
+import { DEFAULT_Y_AXIS_ID, type TooltipConfig, type YAxis } from '../core/types'
+import { createTooltipDateFormatter, createXAxisTickCallback, type TimeInterval } from './dates'
 import { buildYTickFormatter, type YFormatterConfig } from './y-formatters'
 
 export interface XAxisConfig {
@@ -32,7 +32,8 @@ export interface YAxisConfig extends YFormatterConfig {
     showGrid?: boolean
     /** Y-axis baseline behavior. The default (`undefined`/`true`) clamps a non-negative axis down to
      *  0. Set `false` to float the axis to its data range instead (zoom in on the variation). Ignored
-     *  on a log scale, and only honored for the primary axis in the array (multi-axis) form. */
+     *  on a log scale; honored per axis in the array (multi-axis) form, except axes carrying bar
+     *  series, which always draw from 0. */
     startAtZero?: boolean
 }
 
@@ -57,6 +58,22 @@ export function useXTickFormatter(
         }
         return undefined
     }, [xAxis?.tickFormatter, xAxis?.timezone, xAxis?.interval, effectiveAllDays])
+}
+
+/** Tooltip config with the header label defaulted to a full formatted date when the x-axis is
+ *  date-driven (`timezone` + `interval` set) — the axis ticks are already auto-formatted then, so
+ *  a raw ISO header would be the odd one out. An explicit `labelFormatter` wins. */
+export function useTimeSeriesTooltipConfig(
+    tooltip: TooltipConfig | undefined,
+    xAxis: XAxisConfig | undefined
+): TooltipConfig | undefined {
+    const { timezone, interval } = xAxis ?? {}
+    return useMemo(() => {
+        if (tooltip?.labelFormatter || !timezone || !interval) {
+            return tooltip
+        }
+        return { ...tooltip, labelFormatter: createTooltipDateFormatter({ interval, timezone }) }
+    }, [tooltip, timezone, interval])
 }
 
 /** Non-hook resolution of a {@link YAxisConfig} into a tick formatter. An explicit `tickFormatter`
@@ -116,6 +133,8 @@ export function buildYAxes(axisList: NormalizedYAxis[]): YAxis[] {
         scaleType: config.scale,
         tickFormatter: resolveYTickFormatter(config),
         label: config.label,
+        hide: config.hide,
+        startAtZero: config.startAtZero,
     }))
 }
 

@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -19,6 +20,7 @@ jest.mock('lib/utils/async', () => {
 })
 
 describe('tracingIngestionLogic', () => {
+    afterEach(resumeKeaLoadersErrors)
     let logic: ReturnType<typeof tracingIngestionLogic.build>
 
     beforeEach(() => {
@@ -53,6 +55,7 @@ describe('tracingIngestionLogic', () => {
         })
 
         it('handles API failure and sets teamHasSpansCheckFailed', async () => {
+            silenceKeaLoadersErrors()
             useMocks({
                 get: {
                     '/api/environments/:team_id/tracing/spans/has_spans/': () => [500, { detail: 'Server error' }],
@@ -87,6 +90,7 @@ describe('tracingIngestionLogic', () => {
         })
 
         it('resets teamHasSpansCheckFailed on new load attempt', async () => {
+            silenceKeaLoadersErrors()
             let callCount = 0
             useMocks({
                 get: {

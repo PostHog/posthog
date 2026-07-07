@@ -5,6 +5,7 @@ use chrono::Utc;
 use common_types::error_tracking::FrameId;
 use cymbal::{
     error::UnhandledError,
+    fingerprinting::{Fingerprint, FingerprintVersion},
     frames::Frame,
     symbolication::symbol_store::saving::SymbolSetRecord,
     types::{
@@ -650,6 +651,12 @@ fn resolved_stack_event(source: &str) -> AnyEvent {
     )])
 }
 
+fn automatic_fingerprint(version: FingerprintVersion, event: &AnyEvent) -> Fingerprint {
+    let props: ExceptionProperties = serde_json::from_value(event.properties.clone())
+        .expect("event properties should deserialize");
+    version.compute(&props.exception_list)
+}
+
 fn grouping_rule_bytecode() -> JsonValue {
     // return properties.test_value = 'test_value'
     json!([
@@ -695,6 +702,8 @@ async fn new_issue_uses_newest_fingerprint_version(db: PgPool) {
     assert!(status.is_success());
 
     let event = body.first_event().as_ref().unwrap();
+    let v2 = automatic_fingerprint(FingerprintVersion::V2, event);
+
     assert!(event.properties.get("$exception_fingerprints").is_none());
     assert!(event
         .properties
@@ -702,7 +711,81 @@ async fn new_issue_uses_newest_fingerprint_version(db: PgPool) {
         .is_none());
     assert_eq!(
         event.properties["$exception_fingerprint_version"],
+        json!("v2")
+    );
+    assert_eq!(event.properties["$exception_fingerprint"], json!(v2.value));
+    assert_eq!(
+        event.properties["$exception_fingerprint_record"],
+        json!(v2.record)
+    );
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn existing_issue_under_older_version_wins(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let input = resolved_stack_event("src/app.js");
+
+    let (_, body): (_, SuccessResponse) = harness.post_event(&input).await;
+    let event = body.first_event().as_ref().unwrap();
+    let v1_value = automatic_fingerprint(FingerprintVersion::V1, event).value;
+    let v2_value = event.properties["$exception_fingerprint"]
+        .as_str()
+        .expect("fingerprint should be a string")
+        .to_string();
+    let issue_id = harness.get_issue_id().await;
+
+    // Simulate a pre-existing issue created by the old algorithm.
+    sqlx::query("UPDATE posthog_errortrackingissuefingerprintv2 SET fingerprint = $1 WHERE fingerprint = $2")
+        .bind(&v1_value)
+        .bind(&v2_value)
+        .execute(&harness.db)
+        .await
+        .expect("Should repoint fingerprint row");
+
+    let (_, body): (_, SuccessResponse) = harness.post_event(&input).await;
+    let event = body.first_event().as_ref().unwrap();
+
+    assert_eq!(event.properties["$exception_fingerprint"], json!(v1_value));
+    assert_eq!(
+        event.properties["$exception_fingerprint_version"],
         json!("v1")
+    );
+    assert_eq!(event.properties["$exception_issue_id"], json!(issue_id));
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn newer_version_merges_events_the_old_algorithm_splits(db: PgPool) {
+    let harness = TestHarness::new(db);
+    // Same crash, cache-busted source URLs: v1 splits on the query string, v2 strips it.
+    let input_a = resolved_stack_event("src/app.js?v=abc123");
+    let input_b = resolved_stack_event("src/app.js?v=def456");
+
+    let (_, body_a): (_, SuccessResponse) = harness.post_event(&input_a).await;
+    let (_, body_b): (_, SuccessResponse) = harness.post_event(&input_b).await;
+    let event_a = body_a.first_event().as_ref().unwrap();
+    let event_b = body_b.first_event().as_ref().unwrap();
+
+    assert_ne!(
+        automatic_fingerprint(FingerprintVersion::V1, event_a).value,
+        automatic_fingerprint(FingerprintVersion::V1, event_b).value
+    );
+    assert_eq!(
+        event_a.properties["$exception_fingerprint_version"],
+        json!("v2")
+    );
+    assert_eq!(
+        event_b.properties["$exception_fingerprint_version"],
+        json!("v2")
+    );
+
+    // One issue for both events, keyed by the shared newest-version fingerprint.
+    assert_eq!(
+        event_a.properties["$exception_issue_id"],
+        event_b.properties["$exception_issue_id"]
+    );
+    assert_eq!(
+        event_a.properties["$exception_fingerprint"],
+        event_b.properties["$exception_fingerprint"]
     );
 }
 
