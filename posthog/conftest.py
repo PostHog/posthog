@@ -74,8 +74,21 @@ def create_clickhouse_tables():
     if dictionary_queries:
         run_clickhouse_statement_in_parallel(dictionary_queries)
 
-    data_queries = list(map(build_query, CREATE_DATA_QUERIES()))
-    run_clickhouse_statement_in_parallel(data_queries)
+    # Building the exchange-rate INSERT parses a 9 MB CSV and renders a ~100k-row VALUES
+    # string on every pytest invocation. With a reused database the seed data is already
+    # there, so skip the reload when both seed tables are populated (mirroring the
+    # `missing()` check above for tables). TRUNCATE-based resets go through
+    # reset_clickhouse_tables, which still reloads unconditionally.
+    from posthog.models.channel_type.sql import CHANNEL_DEFINITION_TABLE_NAME
+    from posthog.models.exchange_rate.sql import EXCHANGE_RATE_TABLE_NAME
+
+    seed_counts = sync_execute(
+        f"SELECT (SELECT count() FROM {CHANNEL_DEFINITION_TABLE_NAME}),"
+        f" (SELECT count() FROM {EXCHANGE_RATE_TABLE_NAME})"
+    )[0]
+    if not all(seed_counts):
+        data_queries = list(map(build_query, CREATE_DATA_QUERIES()))
+        run_clickhouse_statement_in_parallel(data_queries)
 
 
 def reset_clickhouse_tables():
