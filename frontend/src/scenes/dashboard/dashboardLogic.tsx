@@ -401,7 +401,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         duplicateTile: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
         removeTile: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
         addOptimisticTiles: (tiles: DashboardTile<QueryBasedInsightModel>[]) => ({ tiles }),
-        removeOptimisticTiles: (tileIds: number[]) => ({ tileIds }),
+        removeOptimisticTiles: true,
         moveToDashboard: (
             tile: DashboardTile<QueryBasedInsightModel>,
             fromDashboard: number,
@@ -920,6 +920,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
                 addOptimisticTiles: (state, { tiles }) => {
                     // Show freshly-added tiles before the save round-trips; the server response replaces them.
+                    // Optimistic tiles carry a negative id (see the updateDashboard listener) until then.
                     return state
                         ? ({
                               ...state,
@@ -927,11 +928,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                           } as DashboardType<QueryBasedInsightModel>)
                         : state
                 },
-                removeOptimisticTiles: (state, { tileIds }) => {
+                removeOptimisticTiles: (state) => {
+                    // Roll back every not-yet-persisted tile (negative id) when a save fails.
                     return state
                         ? ({
                               ...state,
-                              tiles: (state.tiles || []).filter((t) => !tileIds.includes(t.id)),
+                              tiles: (state.tiles || []).filter((t) => t.id >= 0),
                           } as DashboardType<QueryBasedInsightModel>)
                         : state
                 },
@@ -2186,6 +2188,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return
             }
             const optimisticTiles = newTextTiles.map((tile) => {
+                // Negative id marks the tile as optimistic until the server response replaces it.
                 cache.nextOptimisticTileId = (cache.nextOptimisticTileId ?? 0) - 1
                 return {
                     id: cache.nextOptimisticTileId,
@@ -2195,14 +2198,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     color: null,
                 } as DashboardTile<QueryBasedInsightModel>
             })
-            cache.optimisticTileIds = [...(cache.optimisticTileIds || []), ...optimisticTiles.map((t) => t.id)]
             actions.addOptimisticTiles(optimisticTiles)
         },
         [dashboardsModel.actionTypes.updateDashboardFailure]: () => {
-            if (cache.optimisticTileIds?.length) {
-                actions.removeOptimisticTiles(cache.optimisticTileIds)
-                cache.optimisticTileIds = []
-            }
+            actions.removeOptimisticTiles()
         },
         setPendingInsertion: ({ pendingInsertion }) => {
             // Snapshot current tile ids so we can identify the tile the add flow appends afterwards.
@@ -2290,7 +2289,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             // Text/button (via updateDashboard) and widget (client-merged) tiles arrive through here.
             if (dashboard?.id === props.id) {
                 // The server response already replaced any optimistic tiles with their saved equivalents.
-                cache.optimisticTileIds = []
                 actions.applyPendingInsertion()
             }
         },
