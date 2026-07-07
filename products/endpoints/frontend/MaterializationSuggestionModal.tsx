@@ -20,6 +20,10 @@ export function MaterializationSuggestionModal(): JSX.Element {
 
     const suggestion = materializationSuggestion
     const hasValidatedSuggestion = suggestion?.suggestion_status === 'ok' && !!suggestion.suggested_query
+    const suggestionFailed =
+        suggestion?.suggestion_status === 'invalid' || suggestion?.suggestion_status === 'model_error'
+    // The error banner already spells out the failed check — repeating it as context is noise
+    const showBlocker = !(suggestionFailed && suggestion?.error === suggestion?.original_reason)
 
     return (
         <LemonModal
@@ -68,9 +72,9 @@ export function MaterializationSuggestionModal(): JSX.Element {
                     </div>
                 ) : suggestion ? (
                     <>
-                        <LemonBanner type="warning">
-                            <span className="font-normal">Current blocker: {suggestion.original_reason}</span>
-                        </LemonBanner>
+                        {showBlocker && (
+                            <p className="text-secondary text-sm mb-0">Current blocker: {suggestion.original_reason}</p>
+                        )}
                         {suggestion.suggestion_status === 'ok' && suggestionMatchesCurrentQuery && (
                             <LemonBanner type="info">
                                 Your current query already matches this suggestion — there is nothing to apply. If you
@@ -101,8 +105,7 @@ export function MaterializationSuggestionModal(): JSX.Element {
                                 </LemonMarkdown>
                             </LemonBanner>
                         )}
-                        {(suggestion.suggestion_status === 'invalid' ||
-                            suggestion.suggestion_status === 'model_error') && (
+                        {suggestionFailed && (
                             <>
                                 <LemonBanner type="error">
                                     Couldn't produce a rewrite that passes the checks
