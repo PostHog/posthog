@@ -79,6 +79,9 @@ const agentApplicationsCreate = (): ToolBase<typeof AgentApplicationsCreateSchem
         if (params.archived !== undefined) {
             body['archived'] = params.archived
         }
+        if (params.memory_shared_team_wide !== undefined) {
+            body['memory_shared_team_wide'] = params.memory_shared_team_wide
+        }
         const result = await context.api.request<Schemas.AgentApplication>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/`,
@@ -216,6 +219,9 @@ const agentApplicationsPartialUpdate = (): ToolBase<
         }
         if (params.archived !== undefined) {
             body['archived'] = params.archived
+        }
+        if (params.memory_shared_team_wide !== undefined) {
+            body['memory_shared_team_wide'] = params.memory_shared_team_wide
         }
         const result = await context.api.request<Schemas.AgentApplication>({
             method: 'PATCH',

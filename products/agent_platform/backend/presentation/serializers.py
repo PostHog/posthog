@@ -168,6 +168,15 @@ class AgentApplicationSerializer(serializers.ModelSerializer):
             "global namespace (domain-mode ingress routing carries no team)."
         ),
     )
+    memory_shared_team_wide = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "When true, any other agent in the same team may READ this application's memory and "
+            "tabular tables by passing this application's id as the `owner` argument on the memory/table "
+            "read tools (memory-list/search/read, table-query/count/membership). Owner opt-in; writes are "
+            "never shared and cross-team access is never possible. Default false."
+        ),
+    )
 
     class Meta:
         model = AgentApplication
@@ -180,6 +189,7 @@ class AgentApplicationSerializer(serializers.ModelSerializer):
             "live_revision",
             "archived",
             "archived_at",
+            "memory_shared_team_wide",
             "created_by_id",
             "created_by",
             "created_at",

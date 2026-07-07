@@ -8075,6 +8075,8 @@ export namespace Schemas {
       archived?: boolean;
       /** @nullable */
       readonly archived_at: string | null;
+      /** When true, any other agent in the same team may READ this application's memory and tabular tables by passing this application's id as the `owner` argument on the memory/table read tools (memory-list/search/read, table-query/count/membership). Owner opt-in; writes are never shared and cross-team access is never possible. Default false. */
+      memory_shared_team_wide?: boolean;
       /** @nullable */
       readonly created_by_id: number | null;
       /**
@@ -42113,6 +42115,8 @@ export namespace Schemas {
       archived?: boolean;
       /** @nullable */
       readonly archived_at?: string | null;
+      /** When true, any other agent in the same team may READ this application's memory and tabular tables by passing this application's id as the `owner` argument on the memory/table read tools (memory-list/search/read, table-query/count/membership). Owner opt-in; writes are never shared and cross-team access is never possible. Default false. */
+      memory_shared_team_wide?: boolean;
       /** @nullable */
       readonly created_by_id?: number | null;
       /**
