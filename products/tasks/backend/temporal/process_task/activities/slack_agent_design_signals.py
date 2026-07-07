@@ -30,6 +30,36 @@ from .relay_sandbox_events import (
 logger = structlog.get_logger(__name__)
 
 HEARTBEAT_INTERVAL_SECONDS = 30
+RELAY_STREAM_START_ID = "0"
+HEARTBEAT_LAST_PROCESSED_STREAM_ID_KEY = "last_processed_stream_id"
+
+
+def _last_processed_stream_id_from_heartbeat() -> str:
+    try:
+        heartbeat_details = activity.info().heartbeat_details
+    except RuntimeError:
+        return RELAY_STREAM_START_ID
+
+    if not heartbeat_details:
+        return RELAY_STREAM_START_ID
+
+    details = heartbeat_details[0]
+    if isinstance(details, dict):
+        stream_id = details.get(HEARTBEAT_LAST_PROCESSED_STREAM_ID_KEY)
+        if isinstance(stream_id, str) and stream_id:
+            return stream_id
+
+    if isinstance(details, str) and details:
+        return details
+
+    return RELAY_STREAM_START_ID
+
+
+def _heartbeat_relay_cursor(stream_id: str) -> None:
+    try:
+        activity.heartbeat({HEARTBEAT_LAST_PROCESSED_STREAM_ID_KEY: stream_id})
+    except RuntimeError:
+        return
 
 
 class SlackAgentDesignSignalEmitter:
@@ -98,24 +128,27 @@ async def relay_agent_design_signals(input: RelayAgentDesignSignalsInput) -> Non
         workflow_handle = temporal_client.get_workflow_handle(workflow_id)
     except Exception as e:
         logger.warning("relay_agent_design_signals_handle_init_failed", run_id=input.run_id, error=str(e))
-        return
+        raise
 
     emitter = SlackAgentDesignSignalEmitter(input.slack_thread_context)
     # Match the ingest endpoint's stream construction (default, non-dedicated client) so we
     # read from exactly the key the sandbox events are written to.
     redis_stream = TaskRunRedisStream(get_task_run_stream_key(input.run_id))
+    last_processed_stream_id = _last_processed_stream_id_from_heartbeat()
 
     try:
         async for item in redis_stream.read_stream_entries(
-            start_id="0",
+            start_id=last_processed_stream_id,
             keepalive_interval_seconds=HEARTBEAT_INTERVAL_SECONDS,
         ):
-            activity.heartbeat()
             if item is None:
+                _heartbeat_relay_cursor(last_processed_stream_id)
                 continue
-            _, event_data = item
+            stream_id, event_data = item
             for signal_name, arg in emitter.process(event_data):
                 await _signal_safely(workflow_handle, signal_name, arg)
+            last_processed_stream_id = stream_id
+            _heartbeat_relay_cursor(last_processed_stream_id)
     except TaskRunStreamError as e:
         # The stream completed (complete/error sentinel) or timed out — nothing left to relay.
         logger.info("relay_agent_design_signals_stream_ended", run_id=input.run_id, reason=str(e))

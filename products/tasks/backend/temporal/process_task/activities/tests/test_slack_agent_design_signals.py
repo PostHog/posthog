@@ -1,10 +1,87 @@
+import importlib
+from collections.abc import AsyncGenerator
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 
-from products.tasks.backend.temporal.process_task.activities.slack_agent_design_signals import (
-    SlackAgentDesignSignalEmitter,
-)
+import pytest
 
 from ee.hogai.sandbox import TURN_COMPLETE_METHOD
+from products.tasks.backend.temporal.process_task.activities.slack_agent_design_signals import (
+    HEARTBEAT_LAST_PROCESSED_STREAM_ID_KEY,
+    RelayAgentDesignSignalsInput,
+    SlackAgentDesignSignalEmitter,
+    relay_agent_design_signals,
+)
+
+slack_agent_design_signals_module = importlib.import_module(
+    "products.tasks.backend.temporal.process_task.activities.slack_agent_design_signals"
+)
+
+class StubWorkflowHandle:
+    async def signal(self, _signal_name: str, _arg: Any = None) -> None:
+        return None
+
+
+class StubTemporalClient:
+    def get_workflow_handle(self, _workflow_id: str) -> StubWorkflowHandle:
+        return StubWorkflowHandle()
+
+
+@pytest.mark.asyncio
+async def test_relay_agent_design_signals_resumes_from_last_heartbeat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+    heartbeats: list[tuple[Any, ...]] = []
+
+    class StubTaskRunRedisStream:
+        def __init__(self, stream_key: str) -> None:
+            captured["stream_key"] = stream_key
+
+        async def read_stream_entries(
+            self, *, start_id: str, keepalive_interval_seconds: int
+        ) -> AsyncGenerator[tuple[str, dict[str, Any]] | None, None]:
+            captured["start_id"] = start_id
+            captured["keepalive_interval_seconds"] = keepalive_interval_seconds
+            yield None
+            yield "124-0", {"type": "event"}
+
+    async_connect = AsyncMock(return_value=StubTemporalClient())
+    monkeypatch.setattr("posthog.temporal.common.client.async_connect", async_connect)
+    monkeypatch.setattr(slack_agent_design_signals_module, "TaskRunRedisStream", StubTaskRunRedisStream)
+    monkeypatch.setattr(
+        slack_agent_design_signals_module.TaskRunModel,
+        "get_workflow_id",
+        lambda task_id, run_id: f"{task_id}-{run_id}",
+    )
+    monkeypatch.setattr(
+        slack_agent_design_signals_module.activity,
+        "info",
+        lambda: SimpleNamespace(heartbeat_details=[{HEARTBEAT_LAST_PROCESSED_STREAM_ID_KEY: "123-0"}]),
+    )
+    monkeypatch.setattr(slack_agent_design_signals_module.activity, "heartbeat", lambda *args: heartbeats.append(args))
+
+    await relay_agent_design_signals(RelayAgentDesignSignalsInput(run_id="run-id", task_id="task-id"))
+
+    assert captured["stream_key"] == "task-run-stream:run-id"
+    assert captured["start_id"] == "123-0"
+    assert heartbeats == [
+        ({HEARTBEAT_LAST_PROCESSED_STREAM_ID_KEY: "123-0"},),
+        ({HEARTBEAT_LAST_PROCESSED_STREAM_ID_KEY: "124-0"},),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_relay_agent_design_signals_retries_handle_init_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async_connect = AsyncMock(side_effect=RuntimeError("temporal unavailable"))
+    monkeypatch.setattr("posthog.temporal.common.client.async_connect", async_connect)
+
+    with pytest.raises(RuntimeError, match="temporal unavailable"):
+        await relay_agent_design_signals(RelayAgentDesignSignalsInput(run_id="run-id", task_id="task-id"))
+
 
 SLACK_CTX = {"channel": "C1", "integration_id": 7}
 
