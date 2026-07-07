@@ -61,6 +61,8 @@ from products.logs.backend.alert_state_machine import (
 )
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
 
+from common.alerting.destinations import AlertDestinationConfig
+
 ALLOWED_WINDOW_MINUTES = {5, 10, 15, 30, 60}
 MAX_ALERTS_PER_TEAM = 20
 # Comma-separated team IDs that bypass MAX_ALERTS_PER_TEAM. Configured via
@@ -917,7 +919,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         alert: LogsAlertConfiguration,
         data: dict,
         kind: EventKind,
-    ) -> dict:
+    ) -> AlertDestinationConfig:
         if data["type"] == "slack":
             return build_slack_config(
                 alert,

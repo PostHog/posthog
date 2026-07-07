@@ -10,7 +10,8 @@ and destinations can never drift apart per product.
 Products own the content: their `EventKindSpec` table (event names, headers,
 detail rows, payload data) and the display name of each HogFunction.
 
-Pure Python — the `team` value is passed through opaquely into the config dict.
+Pure Python — the `team` value is carried opaquely on `AlertDestinationConfig`,
+never inside the serializer payload.
 """
 
 from __future__ import annotations
@@ -35,6 +36,18 @@ WEBHOOK_HEADERS = {"Content-Type": "application/json", "X-PostHog-Webhook-Versio
 
 # HogFunction.name is `models.CharField(max_length=400)` — clip rendered names to fit.
 _HOG_FUNCTION_NAME_MAX_LEN = 400
+
+
+@dataclass(frozen=True)
+class AlertDestinationConfig:
+    """One HogFunction to create: the serializer payload plus the team it belongs to.
+
+    `team` rides alongside (not inside) `payload` because the serializer receives it
+    via context/save, never as input data.
+    """
+
+    team: Any
+    payload: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -121,17 +134,19 @@ def _base_config(
     name: str,
     template_id: str,
     inputs: dict[str, Any],
-) -> dict[str, Any]:
-    return {
-        "team": team,
-        "type": "internal_destination",
-        "enabled": True,
-        "filters": destination_filter(alert_id, spec.event_id),
-        "name": clip_hog_function_name(name),
-        "description": spec.destination_description(alert_name),
-        "template_id": template_id,
-        "inputs": inputs,
-    }
+) -> AlertDestinationConfig:
+    return AlertDestinationConfig(
+        team=team,
+        payload={
+            "type": "internal_destination",
+            "enabled": True,
+            "filters": destination_filter(alert_id, spec.event_id),
+            "name": clip_hog_function_name(name),
+            "description": spec.destination_description(alert_name),
+            "template_id": template_id,
+            "inputs": inputs,
+        },
+    )
 
 
 def build_slack_destination_config(
@@ -144,7 +159,7 @@ def build_slack_destination_config(
     slack_workspace_id: int,
     slack_channel_id: str,
     context_elements: tuple[str, ...],
-) -> dict[str, Any]:
+) -> AlertDestinationConfig:
     return _base_config(
         team=team,
         spec=spec,
@@ -169,7 +184,7 @@ def build_webhook_destination_config(
     alert_name: str,
     name: str,
     webhook_url: str,
-) -> dict[str, Any]:
+) -> AlertDestinationConfig:
     return _base_config(
         team=team,
         spec=spec,
@@ -193,7 +208,7 @@ def build_teams_destination_config(
     alert_name: str,
     name: str,
     webhook_url: str,
-) -> dict[str, Any]:
+) -> AlertDestinationConfig:
     return _base_config(
         team=team,
         spec=spec,

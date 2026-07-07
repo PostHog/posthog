@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
 from products.logs.backend.models import LogsAlertConfiguration
 
 from common.alerting.destinations import (
+    AlertDestinationConfig,
     EventKindSpec,
     build_slack_destination_config,
     build_teams_destination_config,
@@ -156,7 +157,7 @@ def build_slack_config(
     slack_workspace_id: int,
     slack_channel_id: str,
     slack_channel_name: str | None,
-) -> dict[str, Any]:
+) -> AlertDestinationConfig:
     spec = EVENT_KIND_CONFIG[kind]
     channel_display = slack_channel_name or "channel"
     return build_slack_destination_config(
@@ -175,7 +176,7 @@ def build_webhook_config(
     alert: LogsAlertConfiguration,
     kind: EventKind,
     webhook_url: str,
-) -> dict[str, Any]:
+) -> AlertDestinationConfig:
     spec = EVENT_KIND_CONFIG[kind]
     return build_webhook_destination_config(
         team=alert.team,
@@ -191,7 +192,7 @@ def build_teams_config(
     alert: LogsAlertConfiguration,
     kind: EventKind,
     webhook_url: str,
-) -> dict[str, Any]:
+) -> AlertDestinationConfig:
     spec = EVENT_KIND_CONFIG[kind]
     return build_teams_destination_config(
         team=alert.team,
