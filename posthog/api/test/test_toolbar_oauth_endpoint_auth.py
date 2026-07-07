@@ -418,8 +418,8 @@ class TestOAuthCorsPreflightMiddleware(APIBaseTest):
             f"/api/projects/{self.team.id}/actions/",
             HTTP_ORIGIN="https://www.example.com",
             HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
-            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="content-type,x-app-version",
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="content-type,x-app-version,x-custom-header",
         )
-        # Should be handled by django-cors-headers, not our middleware
         allow_headers = response.get("Access-Control-Allow-Headers", "")
-        assert "x-app-version" not in allow_headers
+        assert "x-app-version" in allow_headers
+        assert "x-custom-header" not in allow_headers
