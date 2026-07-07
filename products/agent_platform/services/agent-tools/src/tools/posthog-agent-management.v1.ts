@@ -108,6 +108,7 @@ const agentRefFields = {
 
 export const posthogAgentApplicationsListV1 = defineNativeTool({
     id: '@posthog/agent-applications-list',
+    approval: 'allow',
     description:
         "List every agent application the connected user can see in this project. Returns id, slug, name, description, live_revision. Use when the user asks 'what agents do I have?' / 'show me my agents'.",
     args: Type.Object({
@@ -129,6 +130,7 @@ export const posthogAgentApplicationsListV1 = defineNativeTool({
 
 export const posthogAgentApplicationsRetrieveV1 = defineNativeTool({
     id: '@posthog/agent-applications-retrieve',
+    approval: 'allow',
     description:
         'Get the full record of one agent application by slug or id. Returns its name, description, current live_revision, archived state. Use as step 1 of inspecting any agent.',
     args: Type.Object({ project_id: ProjectIdArg, ...agentRefFields }),
@@ -163,6 +165,7 @@ const RevisionSchema = Type.Object({
 
 export const posthogAgentApplicationsRevisionsListV1 = defineNativeTool({
     id: '@posthog/agent-applications-revisions-list',
+    approval: 'allow',
     description:
         "List every revision of one agent in chronological order — draft, ready, live, archived. Use to see the agent's edit history or to find a specific revision to inspect.",
     args: Type.Object({ project_id: ProjectIdArg, ...agentRefFields }),
@@ -181,6 +184,7 @@ export const posthogAgentApplicationsRevisionsListV1 = defineNativeTool({
 
 export const posthogAgentApplicationsRevisionsRetrieveV1 = defineNativeTool({
     id: '@posthog/agent-applications-revisions-retrieve',
+    approval: 'allow',
     description:
         'Get a specific revision of an agent. Returns the full spec (model, triggers, tools, skills, limits, auth) plus the bundle_sha256 + state. Use to inspect what an agent is configured to do.',
     args: Type.Object({
@@ -202,6 +206,7 @@ export const posthogAgentApplicationsRevisionsRetrieveV1 = defineNativeTool({
 
 export const posthogAgentApplicationsRevisionsSystemPromptV1 = defineNativeTool({
     id: '@posthog/agent-applications-revisions-system-prompt',
+    approval: 'allow',
     description:
         'Get the fully-rendered system prompt for a revision — what the model actually sees on every turn (framework preamble + agent.md + skills index). The single most informative artifact when explaining what an agent does.',
     args: Type.Object({
@@ -236,6 +241,7 @@ const ManifestFileSchema = Type.Object({
 
 export const posthogAgentApplicationsRevisionsManifestV1 = defineNativeTool({
     id: '@posthog/agent-applications-revisions-manifest-retrieve',
+    approval: 'allow',
     description:
         "List every file in a revision's bundle (path + size + sha256). Use to see the bundle layout before pulling specific files. Cheap — no file content returned.",
     args: Type.Object({
@@ -262,6 +268,7 @@ export const posthogAgentApplicationsRevisionsManifestV1 = defineNativeTool({
 
 export const posthogAgentApplicationsRevisionsBundleRetrieveV1 = defineNativeTool({
     id: '@posthog/agent-applications-revisions-bundle-retrieve',
+    approval: 'allow',
     description:
         "Read the full typed bundle for a revision. Returns `{ agent_md, skills, tools, spec }` — the agent's system prompt, every skill body + companion files, every custom tool's source + args_schema, and the author-facing spec slice. Use this when you want to inspect or edit the whole agent. Works on any revision state.",
     args: Type.Object({
@@ -283,6 +290,7 @@ export const posthogAgentApplicationsRevisionsBundleRetrieveV1 = defineNativeToo
 
 export const posthogAgentApplicationsRevisionsSlackManifestV1 = defineNativeTool({
     id: '@posthog/agent-applications-revisions-slack-manifest',
+    approval: 'allow',
     description:
         "Generate the Slack app manifest for a revision that has a slack trigger. Returns `{ revision_id, manifest, notes, events_url, interactivity_url }`. `manifest` is a ready-to-paste Slack app manifest (JSON) for https://api.slack.com/apps?new_app=1 → 'From an app manifest' — its OAuth scopes and bot event subscriptions are DERIVED from the agent's slack trigger config (mention_only / auto_resume_threads / ack_reaction) and its Slack tools, so it subscribes to exactly the events the config needs. Hand the user the manifest plus the create-from-manifest link, and surface `notes` (e.g. invite the bot to its channels). Fails if the revision has no slack trigger.",
     args: Type.Object({
@@ -327,6 +335,7 @@ const SessionSummarySchema = Type.Object({
 
 export const posthogAgentApplicationsSessionsListV1 = defineNativeTool({
     id: '@posthog/agent-applications-sessions-list',
+    approval: 'allow',
     description:
         'List recent sessions for an agent. Returns state, created_at, usage_total per session. Use to see what an agent has been doing or to find a specific session to debug.',
     args: Type.Object({
@@ -358,6 +367,7 @@ export const posthogAgentApplicationsSessionsListV1 = defineNativeTool({
 
 export const posthogAgentApplicationsSessionsRetrieveV1 = defineNativeTool({
     id: '@posthog/agent-applications-sessions-retrieve',
+    approval: 'allow',
     description:
         'Get the full record of one session, including its conversation (all user/assistant/tool turns), principal, usage_total, and state. The primary tool for debugging a specific session.',
     args: Type.Object({
@@ -387,6 +397,7 @@ export const posthogAgentApplicationsSessionsRetrieveV1 = defineNativeTool({
 
 export const posthogAgentApplicationsCreateV1 = defineNativeTool({
     id: '@posthog/agent-applications-create',
+    approval: 'approve',
     description:
         'Mint a brand-new agent application. Body requires `name` + `slug`; description is optional. Returns the created application — no revisions until you create one with `@posthog/agent-applications-revisions-create`.',
     args: Type.Object({
@@ -421,6 +432,7 @@ export const posthogAgentApplicationsCreateV1 = defineNativeTool({
 
 export const posthogAgentApplicationsPartialUpdateV1 = defineNativeTool({
     id: '@posthog/agent-applications-partial-update',
+    approval: 'approve',
     description:
         'Patch the top-level fields of an agent application (`name`, `description`). To change the live revision use the freeze + promote tools; to manage env use `set-env-create`.',
     args: Type.Object({
@@ -455,6 +467,7 @@ export const posthogAgentApplicationsPartialUpdateV1 = defineNativeTool({
 
 export const posthogAgentApplicationsRevisionsCreateV1 = defineNativeTool({
     id: '@posthog/agent-applications-revisions-create',
+    approval: 'approve',
     description:
         'Open a fresh empty draft revision under an application. Use when starting from scratch (no parent revision). For branching the current live revision use `@posthog/agent-applications-revisions-new-draft-create` instead — that one clones the bundle in the same call.',
     args: Type.Object({
@@ -487,6 +500,7 @@ export const posthogAgentApplicationsRevisionsCreateV1 = defineNativeTool({
 
 export const posthogAgentApplicationsRevisionsNewDraftV1 = defineNativeTool({
     id: '@posthog/agent-applications-revisions-new-draft-create',
+    approval: 'approve',
     description:
         'One-shot helper: creates a draft revision and clones every file from `source_revision_id` into the new bundle in a single round-trip. Use for the common "edit live" workflow — branch from current live, mutate files, freeze, promote.',
     args: Type.Object({
@@ -509,6 +523,7 @@ export const posthogAgentApplicationsRevisionsNewDraftV1 = defineNativeTool({
 
 export const posthogAgentApplicationsRevisionsPartialUpdateV1 = defineNativeTool({
     id: '@posthog/agent-applications-revisions-partial-update',
+    approval: 'approve',
     description:
         'Replace `spec` on a draft revision. Only `state=draft` accepts spec edits — promoting flips to `ready` which freezes the spec. Validation against AgentSpec runs server-side; an invalid spec surfaces at the next session start, not here.',
     args: Type.Object({
@@ -541,6 +556,7 @@ export const posthogAgentApplicationsRevisionsPartialUpdateV1 = defineNativeTool
 
 export const posthogAgentApplicationsRevisionsAgentMdUpdateV1 = defineNativeTool({
     id: '@posthog/agent-applications-revisions-agent-md-update',
+    approval: 'approve',
     description: "Replace the agent's system prompt (`agent.md`). Draft-only.",
     args: Type.Object({
         project_id: ProjectIdArg,
@@ -568,6 +584,7 @@ export const posthogAgentApplicationsRevisionsAgentMdUpdateV1 = defineNativeTool
 // attach them with `@posthog/agent-applications-revisions-skill-refs-set`.
 export const posthogAgentApplicationsRevisionsSkillRefsSetV1 = defineNativeTool({
     id: '@posthog/agent-applications-revisions-skill-refs-set',
+    approval: 'approve',
     description:
         "Set the complete list of store-skill references on a draft revision (full replace). Each ref is `{ from_template, alias, version? }`: `from_template` is the skill NAME in the llma-skill store, `alias` is the folder it's materialized under in the bundle (`skills/<alias>/`), `version` optionally pins a published version (omit to pin the latest at freeze). At freeze the referenced skills are resolved and baked into the bundle. Find skills with `@posthog/llm-skills-search`; author a new one with `@posthog/llm-skills-create`. Draft-only.",
     args: Type.Object({
@@ -603,6 +620,7 @@ export const posthogAgentApplicationsRevisionsSkillRefsSetV1 = defineNativeTool(
 
 export const posthogLlmSkillsSearchV1 = defineNativeTool({
     id: '@posthog/llm-skills-search',
+    approval: 'allow',
     description:
         'Search the llma-skill store for reusable skills in this project. Returns name, description, version, category per match. Use to find a skill to attach to an agent (via `@posthog/agent-applications-revisions-skill-refs-set`) before authoring a new one.',
     args: Type.Object({
@@ -626,6 +644,7 @@ export const posthogLlmSkillsSearchV1 = defineNativeTool({
 
 export const posthogLlmSkillsCreateV1 = defineNativeTool({
     id: '@posthog/llm-skills-create',
+    approval: 'approve',
     description:
         'Author a new skill in the llma-skill store — the canonical place skills live. Provide `name` (stable id across versions), `description` (when-to-load hint shown in the agent skill index), `body` (SKILL.md markdown), and optional `files` (companion docs). Returns the created skill. Attach it to an agent with `@posthog/agent-applications-revisions-skill-refs-set`.',
     args: Type.Object({
@@ -653,6 +672,7 @@ export const posthogLlmSkillsCreateV1 = defineNativeTool({
 
 export const posthogAgentApplicationsRevisionsToolsUpdateV1 = defineNativeTool({
     id: '@posthog/agent-applications-revisions-tools-update',
+    approval: 'approve',
     description:
         "Upsert one custom tool in a draft revision. The janitor runs an AST shape check + esbuild compile synchronously and returns 422 with structured diagnostics on failure — no half-written tool ever lands. Required source shape: `export default { actions: { default: async (args, ctx) => { ... } } }`. Do NOT include `compiled.js` — it's generated.",
     args: Type.Object({
@@ -684,6 +704,7 @@ export const posthogAgentApplicationsRevisionsToolsUpdateV1 = defineNativeTool({
 
 export const posthogAgentApplicationsRevisionsToolsDestroyV1 = defineNativeTool({
     id: '@posthog/agent-applications-revisions-tools-destroy',
+    approval: 'approve',
     description: 'Delete one custom tool (source.ts + compiled.js + schema.json). Draft-only.',
     args: Type.Object({
         project_id: ProjectIdArg,
@@ -708,6 +729,7 @@ export const posthogAgentApplicationsRevisionsToolsDestroyV1 = defineNativeTool(
 
 export const posthogAgentApplicationsRevisionsValidateV1 = defineNativeTool({
     id: '@posthog/agent-applications-revisions-validate-create',
+    approval: 'approve',
     description:
         "Pre-flight check on any revision state. Surfaces missing entrypoints, unknown tool ids, custom tools missing compiled.js / schema.json, skill paths that don't exist, declared secrets that aren't set. Always run before freeze. Returns `{ ok, errors, resolved_natives }`.",
     args: Type.Object({
@@ -735,6 +757,7 @@ export const posthogAgentApplicationsRevisionsValidateV1 = defineNativeTool({
 
 export const posthogAgentApplicationsRevisionsFreezeV1 = defineNativeTool({
     id: '@posthog/agent-applications-revisions-freeze-create',
+    approval: 'approve',
     description:
         'Walk the bundle, compute a manifest sha256, stamp it on the row, flip state `draft → ready`. After freeze the bundle is immutable. Idempotent — freezing a `ready` revision returns the existing sha256.',
     args: Type.Object({
@@ -761,6 +784,7 @@ export const posthogAgentApplicationsRevisionsFreezeV1 = defineNativeTool({
 
 export const posthogAgentApplicationsRevisionsPromoteV1 = defineNativeTool({
     id: '@posthog/agent-applications-revisions-promote-create',
+    approval: 'approve',
     description:
         "Flip a `ready` revision to `live` and set the parent application's `live_revision`. The previously-live revision is archived automatically. Requires `state=ready` and `bundle_sha256` set (call `freeze` first). Idempotent. SERVER-SIDE GATE: refuses with a clear error if trigger-required secrets (e.g. `SLACK_SIGNING_SECRET`, `SLACK_BOT_TOKEN` for slack triggers) are missing from the agent's `encrypted_env` — see `skills/setting-up-slack-app`. PER AGENT.MD HARD RULE #3: confirm with the user explicitly before calling.",
     args: Type.Object({
@@ -782,6 +806,7 @@ export const posthogAgentApplicationsRevisionsPromoteV1 = defineNativeTool({
 
 export const posthogAgentApplicationsRevisionsArchiveV1 = defineNativeTool({
     id: '@posthog/agent-applications-revisions-archive-create',
+    approval: 'approve',
     description:
         "Archive any revision. Clears the parent application's `live_revision` if the archived revision was live. DESTRUCTIVE per agent.md hard rule #5 — confirm with the user before calling.",
     args: Type.Object({
@@ -821,6 +846,7 @@ const EnvKeyRowSchema = Type.Object({
 
 export const posthogAgentApplicationsEnvKeysListV1 = defineNativeTool({
     id: '@posthog/agent-applications-env-keys-list',
+    approval: 'allow',
     description:
         'List every encrypted_env key set on an agent, with `is_set` per row. Does NOT return the values — those are encrypted at rest and never read back through this surface. Use to audit which secrets the agent has configured before freeze + promote.',
     args: Type.Object({ project_id: ProjectIdArg, ...agentRefFields }),
@@ -838,6 +864,7 @@ export const posthogAgentApplicationsEnvKeysListV1 = defineNativeTool({
 
 export const posthogAgentApplicationsEnvKeysGetV1 = defineNativeTool({
     id: '@posthog/agent-applications-env-keys-get',
+    approval: 'allow',
     description:
         'Probe whether a single encrypted_env key is set on an agent. Returns `{ key, is_set }`. Never returns the value. Use as the precheck before triggering the `set_secret` punch-out flow.',
     args: Type.Object({
@@ -859,6 +886,7 @@ export const posthogAgentApplicationsEnvKeysGetV1 = defineNativeTool({
 
 export const posthogAgentApplicationsSetEnvV1 = defineNativeTool({
     id: '@posthog/agent-applications-set-env-create',
+    approval: 'approve',
     description:
         'Replace the entire encrypted_env block. WARNING: puts secret values in the session tool-call history. Per `skills/secrets-and-integrations`, prefer the `set_secret` client tool (UI punch-out, never logs values). Use this raw API only when the user explicitly opts in (broken punch-out, CI script, etc.) — confirm before calling and warn about the trace.',
     args: Type.Object({
@@ -884,6 +912,7 @@ export const posthogAgentApplicationsSetEnvV1 = defineNativeTool({
 
 export const posthogAgentApplicationsSessionLogsV1 = defineNativeTool({
     id: '@posthog/agent-applications-session-logs',
+    approval: 'allow',
     description:
         "Get the structured event log for a session — session_started, turn_started, tool_call, tool_result, completed/failed events. Use after sessions-retrieve when you need turn-by-turn timing or error events the conversation doesn't carry.",
     args: Type.Object({

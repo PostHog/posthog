@@ -8,6 +8,7 @@
  * per-team via `TeamApiKeyResolver`).
  */
 
+import { gatewayAuthHeader, gatewayUsagePath } from './gateway-wire'
 import type { HttpFetcher } from './http-client'
 import { createLogger } from './logger'
 
@@ -99,7 +100,7 @@ export class HttpGatewayClient implements GatewayClient {
             // makes the lookup miss against ledger rows whose reference_id
             // contains literal colons. Our id format (`agent:<uuid>:<turn>`)
             // is path-safe — only `:` and hex with dashes.
-            const res = await this.fetchJson(`/usage/${requestId}`, opts.phc)
+            const res = await this.fetchJson(gatewayUsagePath(requestId), opts.phc)
             if (res.kind === 'ok') {
                 return res.body as GatewayUsage
             }
@@ -141,7 +142,7 @@ export class HttpGatewayClient implements GatewayClient {
         const timer = setTimeout(() => ac.abort(), this.timeoutMs)
         try {
             const res = await this.http.fetch(`${this.baseUrl}${path}`, {
-                headers: { Authorization: `Bearer ${phc}` },
+                headers: gatewayAuthHeader(phc),
                 signal: ac.signal,
             })
             if (res.status === 200) {

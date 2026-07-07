@@ -72,15 +72,18 @@ describe('slack identity: real e2e', () => {
         }
     })
 
-    it('untrusted workspace on a trusted-list agent → 403', async () => {
+    it('untrusted workspace on a trusted-list agent → 200 ack + drop (never a 4xx delivery failure)', async () => {
         await c.deployAgent({
             slug: 'gated',
             spec: { triggers: [{ type: 'slack', config: { trusted_workspaces: ['T-OK-ONLY'] } }] },
             encrypted_env: SLACK_ENV,
         })
         const res = await c.slackPost('gated', 'events', slackEvent({ team: 'T-EVIL', user: 'U-EVIL' }), SLACK_SECRET)
-        expect(res.status).toBe(403)
-        expect(res.body.error).toBe('workspace_not_trusted')
+        // A signed, authenticated delivery that just isn't from a trusted
+        // workspace is a routing decision, not a delivery failure — Slack (and
+        // any provider) retries non-2xx responses, so this must ack.
+        expect(res.status).toBe(200)
+        expect(res.body.dropped).toBe('workspace_not_trusted')
     })
 
     it('"*" accepts any workspace; distinct (workspace, user) → distinct AgentUsers', async () => {

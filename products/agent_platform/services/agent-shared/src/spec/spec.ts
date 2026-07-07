@@ -343,7 +343,7 @@ export type ApprovalType = z.infer<typeof ApprovalTypeSchema>
  * before the principal/agent split keep parsing. `team_admins` was the owner
  * authority → `agent`; `session_principal` → `principal`.
  */
-function legacyApproversToApprovalType(approvers: unknown): ApprovalType | undefined {
+export function legacyApproversToApprovalType(approvers: unknown): ApprovalType | undefined {
     if (!Array.isArray(approvers)) {
         return undefined
     }
@@ -415,6 +415,13 @@ export const DEFAULT_APPROVAL_POLICY = {
  */
 export const ToolApprovalLevelSchema = z.enum(['allow', 'approve', 'deny'])
 export type ToolApprovalLevel = z.infer<typeof ToolApprovalLevelSchema>
+
+/**
+ * Intrinsic authorization class a native tool declares: the `deny`-excluded subset
+ * of {@link ToolApprovalLevel}. `allow` = read-only/own-footprint, `approve`
+ * reaches outside. `deny` is a resolution outcome, not an intrinsic class.
+ */
+export type NativeApprovalClass = Exclude<ToolApprovalLevel, 'deny'>
 
 export const ToolRefSchema = z.discriminatedUnion('kind', [
     z.object({
@@ -981,36 +988,45 @@ export const AgentSpecSchema = z.object({
     models: ModelPolicySchema.default({ mode: 'auto', level: 'medium', optimize_for: 'cost' }),
     triggers: z
         .array(TriggerSchema)
+        .max(50)
         .describe(
             'How sessions start. Each entry is one trigger (a discriminated union on type: slack, webhook, cron, chat, mcp); an agent can be reachable several ways. Empty = no external triggers (preview/manual runs only).'
         )
         .default([]),
     tools: z
         .array(ToolRefSchema)
+        .max(200)
         .describe(
             'Tools the agent can call. kind native = @posthog/* built-ins (call the agent-native-tools-list tool for valid ids), custom = author-written TypeScript, client = fulfilled by the connecting app. Empty = no tools.'
         )
         .default([]),
     mcps: z
         .array(McpRefSchema)
+        // Bounded so a spec write can't fan out an unbounded connection-ownership
+        // `IN (...)` query / parse loop (validate runs on every spec write). 50
+        // mirrors the skill-refs cap; far above any real agent's server count.
+        .max(50)
         .describe(
             'External MCP servers the agent connects to at session start. Each remote tool is exposed to the model name-prefixed by the entry id; auth.provider links a per-user identity, secrets/headers cover bring-your-own-token.'
         )
         .default([]),
     skills: z
         .array(SkillRefSchema)
+        .max(50)
         .describe(
             'Skill references (id + path) listed in the system-prompt index; the model loads one on demand. Server-derived at freeze — set these via the skill-refs endpoints, not authored inline.'
         )
         .default([]),
     identity_providers: z
         .array(IdentityProviderConfigSchema)
+        .max(50)
         .describe(
             'Identity providers users can link against so the agent can act AS the user (the credential axis). kind posthog = managed (provisioned on promote), oauth2 = bring-your-own third-party app.'
         )
         .default([]),
     secrets: z
         .array(SecretRefSchema)
+        .max(100)
         .describe(
             'Secret names this agent can resolve from its encrypted env. Bare string = resolvable but no network-egress authority; object form pins the secret to allowed_hosts so @posthog/http-request may send it there.'
         )
@@ -1341,6 +1357,10 @@ export const EMPTY_USAGE_TOTAL: SessionUsageTotal = {
     cost_total: 0,
 }
 
+/** The session lifecycle states. Terminal: `closed`, `cancelled`, `failed`.
+ *  See `session-state-reaper.ts` for the totality oracle over this set. */
+export type SessionState = 'queued' | 'running' | 'completed' | 'closed' | 'cancelled' | 'failed'
+
 export interface AgentSession {
     id: string
     application_id: string
@@ -1378,7 +1398,7 @@ export interface AgentSession {
      *               confused with a runtime error.
      *   failed    — error state. Terminal regardless of `allow_restart`.
      */
-    state: 'queued' | 'running' | 'completed' | 'closed' | 'cancelled' | 'failed'
+    state: SessionState
     /**
      * Principal that authenticated `/run`. Subsequent `/send` calls must
      * carry a principal that matches (same kind + id). Null for sessions
@@ -1470,10 +1490,18 @@ export interface AssistantMessageRecord {
         totalTokens?: number
         cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; total?: number }
     }
-    stopReason?: 'stop' | 'length' | 'toolUse' | 'error' | 'aborted'
+    stopReason?: AssistantStopReason
     errorMessage?: string
     timestamp: number
 }
+
+/**
+ * Why the model stopped a turn (mirrors pi-ai). Source of truth for the
+ * vocabulary — Django's serializer `choices` derives from the emitted JSON (see
+ * `spec-codegen.ts`), not a hand-copy.
+ */
+export const ASSISTANT_STOP_REASONS = ['stop', 'length', 'toolUse', 'error', 'aborted'] as const
+export type AssistantStopReason = (typeof ASSISTANT_STOP_REASONS)[number]
 
 export interface ToolResultMessage {
     role: 'toolResult'

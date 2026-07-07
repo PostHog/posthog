@@ -99,12 +99,30 @@ METADATA: dict[str, dict[str, str]] = {
 # auth modes. Mirrors the declarative/intrinsic split in `spec.ts`.
 DECLARATIVE_TRIGGERS: set[str] = {"webhook", "chat", "mcp"}
 
-# Secret keys each trigger type requires before promote — mirrors
-# TRIGGER_REQUIRED_SECRETS in products/agent_platform/backend/spec_schema.py.
-# Used only by the optional SEED_DUMMY_SECRETS placeholder path below.
-TRIGGER_REQUIRED_SECRETS: dict[str, list[str]] = {
-    "slack": ["SLACK_SIGNING_SECRET", "SLACK_BOT_TOKEN"],
-}
+
+def _load_trigger_required_secrets() -> dict[str, list[str]]:
+    """Required secret keys per trigger type, read from the checked-in
+    generated artifact (`trigger_required_secrets.generated.json`, emitted
+    from `services/agent-shared/src/spec/trigger-secrets.ts`) rather than
+    hand-copied — the same registry `backend/logic/spec_schema.py`'s promote
+    gate reads via `backend/logic/generated.py`. Only `required: true`
+    entries block promote, matching that gate's filter. Used only by the
+    optional SEED_DUMMY_SECRETS placeholder path below."""
+    backend_logic_dir = next(
+        (p / "backend" / "logic" for p in EXAMPLES_ROOT.parents if (p / "backend" / "logic").is_dir()),
+        None,
+    )
+    if backend_logic_dir is None:
+        raise RuntimeError("couldn't locate products/agent_platform/backend/logic from seed.py's path")
+    artifact = backend_logic_dir / "trigger_required_secrets.generated.json"
+    raw: dict[str, list[dict[str, object]]] = json.loads(artifact.read_text(encoding="utf-8"))
+    return {
+        trigger_type: [str(r["key"]) for r in requirements if r.get("required")]
+        for trigger_type, requirements in raw.items()
+    }
+
+
+TRIGGER_REQUIRED_SECRETS: dict[str, list[str]] = _load_trigger_required_secrets()
 
 # Opt-in: set obviously-fake placeholder values for any secret an agent requires
 # (declared `spec.secrets[]` + per-trigger required keys) that isn't already

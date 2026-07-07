@@ -22,14 +22,17 @@ export type McpConnectionResolution =
     | { kind: 'needs_reauth' }
     /** Owner disabled the installation (`is_enabled = false`). */
     | { kind: 'disabled' }
-    /** No installation with this id for the agent's team. */
+    /** No installation for this id + team + owning user. The IDOR boundary: an
+     *  installation owned by a different user (even same team) is `not_found`, so a
+     *  spec author can only use a connection whose credential they own. */
     | { kind: 'not_found' }
 
 export interface McpConnectionStore {
-    /** Resolve an installation (UUID, scoped to `teamId`) to URL + bearer,
-     *  refreshing an expiring OAuth token in place. Throws
+    /** Resolve an installation (scoped to `teamId` AND `ownerUserId`) to URL +
+     *  bearer, refreshing an expiring OAuth token. `ownerUserId` is the spec
+     *  author; a null owner fails closed to `not_found`. Throws
      *  `mcp_connection_refresh_failed` on a transient refresh failure. */
-    resolve(connectionId: string, teamId: number): Promise<McpConnectionResolution>
+    resolve(connectionId: string, teamId: number, ownerUserId: number | null): Promise<McpConnectionResolution>
 }
 
 interface InstallationRow {
@@ -65,7 +68,7 @@ interface TokenResponse {
     expires_in?: number
 }
 
-const SELECT_INSTALLATION = `
+export const SELECT_INSTALLATION = `
     SELECT i.url,
            i.auth_type,
            i.is_enabled,
@@ -76,7 +79,7 @@ const SELECT_INSTALLATION = `
            t.oauth_credentials AS template_oauth_credentials
       FROM mcp_store_mcpserverinstallation i
       LEFT JOIN mcp_store_mcpservertemplate t ON t.id = i.template_id
-     WHERE i.id = $1 AND i.team_id = $2`
+     WHERE i.id = $1 AND i.team_id = $2 AND i.user_id = $3`
 
 /** Reads `mcp_store_mcpserverinstallation` (+ optional template) from the main
  *  DB. Pass the main-DB pool. Write-back needs UPDATE on that table. */
@@ -89,9 +92,35 @@ export class PgMcpConnectionStore implements McpConnectionStore {
         private readonly http: HttpFetcher
     ) {}
 
-    async resolve(connectionId: string, teamId: number): Promise<McpConnectionResolution> {
-        const { rows } = await this.pool.query<InstallationRow>(SELECT_INSTALLATION, [connectionId, teamId])
+    async resolve(connectionId: string, teamId: number, ownerUserId: number | null): Promise<McpConnectionResolution> {
+        // Fail closed: a spec with no resolvable author cannot use a stored
+        // credential. Short-circuit before touching the DB.
+        if (ownerUserId == null) {
+            // Greppable signal: owner-scoping turns a live agent whose author
+            // can't be resolved into a not_found. Surface it so affected agents
+            // can be found in logs instead of failing silently mid-session.
+            this.log.warn({ connection_id: connectionId, team_id: teamId }, 'mcp_connection.resolve_null_author')
+            return { kind: 'not_found' }
+        }
+        const { rows } = await this.pool.query<InstallationRow>(SELECT_INSTALLATION, [
+            connectionId,
+            teamId,
+            ownerUserId,
+        ])
         if (rows.length === 0) {
+            // Distinguish "genuinely absent" (a normal not_found) from "exists
+            // but owned by another team member" — the latter is a live agent the
+            // owner-scoping tightening just broke, worth surfacing for an audit.
+            const probe = await this.pool.query(
+                'SELECT 1 FROM mcp_store_mcpserverinstallation WHERE id = $1 AND team_id = $2',
+                [connectionId, teamId]
+            )
+            if (probe.rows.length > 0) {
+                this.log.warn(
+                    { connection_id: connectionId, team_id: teamId, owner_user_id: ownerUserId },
+                    'mcp_connection.resolve_owner_mismatch'
+                )
+            }
             return { kind: 'not_found' }
         }
         const row = rows[0]
@@ -119,7 +148,7 @@ export class PgMcpConnectionStore implements McpConnectionStore {
         if (!isTokenExpiring(sensitive)) {
             return { kind: 'resolved', url: row.url, bearer: accessToken }
         }
-        const refreshed = await this.refresh(connectionId, teamId)
+        const refreshed = await this.refresh(connectionId, teamId, ownerUserId)
         return { kind: 'resolved', url: row.url, bearer: refreshed }
     }
 
@@ -130,14 +159,20 @@ export class PgMcpConnectionStore implements McpConnectionStore {
      *  short-circuits to "owner must reconnect" instead of re-hitting the IdP on
      *  every run; a TRANSIENT failure (5xx / 429 / network) rolls back so the
      *  next session retries. */
-    private async refresh(connectionId: string, teamId: number): Promise<string> {
+    private async refresh(connectionId: string, teamId: number, ownerUserId: number): Promise<string> {
         const client = await this.pool.connect()
         let committed = false
         try {
             await client.query('BEGIN')
+            // The FOR UPDATE row lock below is held across the external token-
+            // endpoint call, so a concurrent refresh for the same connection
+            // would otherwise block up to the fetch timeout waiting on it. Fail
+            // fast on lock acquisition instead of piling connections behind it.
+            await client.query("SET LOCAL lock_timeout = '3s'")
             const { rows } = await client.query<InstallationRow>(`${SELECT_INSTALLATION} FOR UPDATE OF i`, [
                 connectionId,
                 teamId,
+                ownerUserId,
             ])
             if (rows.length === 0) {
                 throw new Error(`mcp_connection_refresh_failed: ${connectionId} (row vanished)`)

@@ -45,7 +45,13 @@ import { randomUUID } from 'crypto'
 import { Request } from 'express'
 import { z } from 'zod'
 
-import { AgentSession, lastAssistantTextPreview, SessionPrincipal, triggerAuthConfig } from '@posthog/agent-shared'
+import {
+    AgentSession,
+    lastAssistantTextPreview,
+    SessionPrincipal,
+    TRIGGER_ROUTES,
+    triggerAuthConfig,
+} from '@posthog/agent-shared'
 
 import { buildElevationResponse, principalDisplay, recordElevationRequest, requireAclAccess } from '../enqueue/acl'
 import { principalsMatch } from '../enqueue/auth'
@@ -594,21 +600,21 @@ export const mcpTrigger: TriggerModule = {
     routes: [
         {
             method: 'POST',
-            path: '/mcp',
+            path: TRIGGER_ROUTES.mcp.rpc,
             bodySchema: z.toJSONSchema(McpRequestBodySchema),
             auth: 'custom',
             handler: mcpHandler,
         },
         defineRoute({
             method: 'GET',
-            path: '/mcp/stream',
+            path: TRIGGER_ROUTES.mcp.stream,
             auth: 'agent_spec',
             schema: McpStreamQuerySchema,
             handler: mcpStreamHandler,
         }),
         {
             method: 'GET',
-            path: '/mcp/connect-info',
+            path: TRIGGER_ROUTES.mcp.connect_info,
             // Public — anyone who knows the URL can ask "how do I connect?".
             // Discovery cannot itself require auth without a chicken-and-egg.
             auth: 'public',

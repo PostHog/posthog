@@ -15,6 +15,15 @@
 
 import { Fernet } from 'fernet-nodejs'
 
+/**
+ * Derive a Fernet key exactly as Django does: urlsafe base64, not standard. If a
+ * salt key's base64 contains `+`/`/` the two diverge, `fernet-nodejs` rejects the
+ * key, and the runner can't decrypt Django's ciphertext.
+ */
+function toFernetKey(saltKey: string): string {
+    return Buffer.from(saltKey, 'utf-8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_')
+}
+
 export class EncryptedFields {
     private readonly fernets: Fernet[]
 
@@ -30,7 +39,7 @@ export class EncryptedFields {
         if (keys.length === 0) {
             throw new Error('EncryptedFields: no keys configured (set ENCRYPTION_SALT_KEYS to a 32-byte UTF-8 string)')
         }
-        this.fernets = keys.map((k) => new Fernet(Buffer.from(k, 'utf-8').toString('base64')))
+        this.fernets = keys.map((k) => new Fernet(toFernetKey(k)))
     }
 
     encrypt(value: string): string {

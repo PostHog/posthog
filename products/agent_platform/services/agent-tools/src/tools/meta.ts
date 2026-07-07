@@ -24,6 +24,7 @@ import { defineNativeTool, Type } from '@posthog/agent-shared'
 
 export const endTurnTool = defineNativeTool({
     id: '@posthog/meta-end-turn',
+    approval: 'allow',
     description:
         'Finish the current turn. The user can still send follow-up messages — this is the default polite stop. Use this whenever you have nothing more to add for now, including when you need the user to answer a question (write the question as your reply, then end the turn). Use meta-end-session instead only when the agent task is truly complete.',
     args: Type.Object({}),
@@ -38,6 +39,7 @@ export const endTurnTool = defineNativeTool({
 
 export const endSessionTool = defineNativeTool({
     id: '@posthog/meta-end-session',
+    approval: 'allow',
     description:
         'Hard close the agent session. The user can NOT send further messages unless the agent is configured with allow_restart. Only use this when the agent task is irreversibly complete; otherwise prefer meta-end-turn.',
     args: Type.Object({
@@ -53,6 +55,7 @@ export const endSessionTool = defineNativeTool({
 
 export const emitEventTool = defineNativeTool({
     id: '@posthog/meta-emit-event',
+    approval: 'allow',
     description: "Emit a structured event into the team's PostHog project.",
     args: Type.Object({
         event: Type.String(),

@@ -8,6 +8,8 @@ import { PgMcpConnectionStore } from './mcp-connection-store'
 const KEY = '01234567890123456789012345678901'
 const enc = new EncryptedFields(KEY)
 const nowSec = Math.floor(Date.now() / 1000)
+// Spec author / installation owner threaded into resolve (agent_revision.created_by_id).
+const OWNER = 7
 
 function fakeResponse(opts: { ok: boolean; status?: number; body?: unknown; text?: string }): Response {
     return {
@@ -104,11 +106,21 @@ function oauthRow(
 }
 
 describe('PgMcpConnectionStore', () => {
-    it('scopes the lookup to (connectionId, teamId)', async () => {
+    it('scopes the lookup to (connectionId, teamId, ownerUserId) — the IDOR boundary', async () => {
+        // The owner (spec author) must be in the WHERE params; dropping it would let
+        // a spec reference a connection owned by a different user in the same team.
         const { pool, calls } = makeFakePool(oauthRow())
         const store = new PgMcpConnectionStore(pool, enc, makeFakeHttp(fakeResponse({ ok: true })))
-        await store.resolve('conn-1', 42)
-        expect(calls[0].values).toEqual(['conn-1', 42])
+        await store.resolve('conn-1', 42, OWNER)
+        expect(calls[0].values).toEqual(['conn-1', 42, OWNER])
+    })
+
+    it('fails closed on a null owner without touching the DB', async () => {
+        // An unattributable spec (no created_by_id) cannot use a stored credential.
+        const { pool, calls } = makeFakePool(oauthRow())
+        const store = new PgMcpConnectionStore(pool, enc, makeFakeHttp(fakeResponse({ ok: true })))
+        await expect(store.resolve('conn-1', 42, null)).resolves.toEqual({ kind: 'not_found' })
+        expect(calls).toHaveLength(0)
     })
 
     it('resolves an api-key installation without refresh', async () => {
@@ -124,7 +136,7 @@ describe('PgMcpConnectionStore', () => {
         })
         const http = makeFakeHttp(fakeResponse({ ok: true }))
         const store = new PgMcpConnectionStore(pool, enc, http)
-        await expect(store.resolve('c', 1)).resolves.toEqual({
+        await expect(store.resolve('c', 1, OWNER)).resolves.toEqual({
             kind: 'resolved',
             url: 'https://mcp.example.com/mcp',
             bearer: 'key-1',
@@ -137,7 +149,7 @@ describe('PgMcpConnectionStore', () => {
         const { pool, writes } = makeFakePool(oauthRow({ expiring: false }))
         const http = makeFakeHttp(fakeResponse({ ok: true }))
         const store = new PgMcpConnectionStore(pool, enc, http)
-        await expect(store.resolve('c', 1)).resolves.toEqual({
+        await expect(store.resolve('c', 1, OWNER)).resolves.toEqual({
             kind: 'resolved',
             url: 'https://mcp.example.com/mcp',
             bearer: 'tok-1',
@@ -152,7 +164,7 @@ describe('PgMcpConnectionStore', () => {
             fakeResponse({ ok: true, body: { access_token: 'tok-2', refresh_token: 'refresh-2', expires_in: 1800 } })
         )
         const store = new PgMcpConnectionStore(pool, enc, http)
-        const res = await store.resolve('c', 1)
+        const res = await store.resolve('c', 1, OWNER)
         expect(res).toEqual({
             kind: 'resolved',
             url: 'https://mcp.example.com/mcp',
@@ -178,7 +190,7 @@ describe('PgMcpConnectionStore', () => {
         const { pool } = makeFakePool(oauthRow({ expiring: true, secret: 'secret-1' }))
         const http = makeFakeHttp(fakeResponse({ ok: true, body: { access_token: 'tok-2', expires_in: 1800 } }))
         const store = new PgMcpConnectionStore(pool, enc, http)
-        await store.resolve('c', 1)
+        await store.resolve('c', 1, OWNER)
         const init = http.calls[0].init!
         expect((init.headers as Record<string, string>).Authorization).toBe(
             `Basic ${Buffer.from('client-1:secret-1').toString('base64')}`
@@ -195,7 +207,7 @@ describe('PgMcpConnectionStore', () => {
         )
         const http = makeFakeHttp(fakeResponse({ ok: true, body: { access_token: 'tok-2', expires_in: 1800 } }))
         const store = new PgMcpConnectionStore(pool, enc, http)
-        await store.resolve('c', 1)
+        await store.resolve('c', 1, OWNER)
         const init = http.calls[0].init!
         expect((init.headers as Record<string, string>).Authorization).toBeUndefined()
         const body = String(init.body)
@@ -207,7 +219,7 @@ describe('PgMcpConnectionStore', () => {
         const { pool } = makeFakePool(oauthRow({ expiring: true, resource: 'https://api.example.com' }))
         const http = makeFakeHttp(fakeResponse({ ok: true, body: { access_token: 'tok-2', expires_in: 1800 } }))
         const store = new PgMcpConnectionStore(pool, enc, http)
-        await store.resolve('c', 1)
+        await store.resolve('c', 1, OWNER)
         expect(String(http.calls[0].init?.body)).toContain('resource=https%3A%2F%2Fapi.example.com')
     })
 
@@ -215,7 +227,7 @@ describe('PgMcpConnectionStore', () => {
         const { pool, writes } = makeFakePool(oauthRow({ expiring: true }))
         const http = makeFakeHttp(fakeResponse({ ok: false, status: 302, text: '' }))
         const store = new PgMcpConnectionStore(pool, enc, http)
-        await expect(store.resolve('c', 1)).rejects.toThrow(/mcp_connection_needs_reauth/)
+        await expect(store.resolve('c', 1, OWNER)).rejects.toThrow(/mcp_connection_needs_reauth/)
         // Don't follow redirects (Django uses allow_redirects=False), and treat a
         // 3xx as a permanent misconfig → needs_reauth, not an endless retry.
         expect(http.calls[0].init?.redirect).toBe('manual')
@@ -227,7 +239,7 @@ describe('PgMcpConnectionStore', () => {
         const { pool, writes } = makeFakePool(oauthRow({ expiring: true }))
         const http = makeFakeHttp(fakeResponse({ ok: true, body: { access_token: 'tok-2', expires_in: null } }))
         const store = new PgMcpConnectionStore(pool, enc, http)
-        await store.resolve('c', 1)
+        await store.resolve('c', 1, OWNER)
         const written = enc.decryptJsonFieldValue(JSON.parse(writes[0].values[0] as string)) as Record<string, unknown>
         // Storing "null" NaN-poisons isTokenExpiring → pins the bearer as
         // never-refreshing. Keep the prior numeric value instead.
@@ -239,7 +251,7 @@ describe('PgMcpConnectionStore', () => {
         const { pool, writes } = makeFakePool(oauthRow({ expiring: true }))
         const http = makeFakeHttp(fakeResponse({ ok: true, body: { access_token: 'tok-2', expires_in: 1800 } }))
         const store = new PgMcpConnectionStore(pool, enc, http)
-        await store.resolve('c', 1)
+        await store.resolve('c', 1, OWNER)
         const written = enc.decryptJsonFieldValue(JSON.parse(writes[0].values[0] as string)) as Record<string, unknown>
         expect(written.refresh_token).toBe('refresh-1')
     })
@@ -247,26 +259,26 @@ describe('PgMcpConnectionStore', () => {
     it('returns needs_reauth when the credential is flagged', async () => {
         const { pool } = makeFakePool(oauthRow({ needsReauth: true }))
         const store = new PgMcpConnectionStore(pool, enc, makeFakeHttp(fakeResponse({ ok: true })))
-        await expect(store.resolve('c', 1)).resolves.toEqual({ kind: 'needs_reauth' })
+        await expect(store.resolve('c', 1, OWNER)).resolves.toEqual({ kind: 'needs_reauth' })
     })
 
     it('returns disabled when the installation is disabled', async () => {
         const { pool } = makeFakePool(oauthRow({ isEnabled: false }))
         const store = new PgMcpConnectionStore(pool, enc, makeFakeHttp(fakeResponse({ ok: true })))
-        await expect(store.resolve('c', 1)).resolves.toEqual({ kind: 'disabled' })
+        await expect(store.resolve('c', 1, OWNER)).resolves.toEqual({ kind: 'disabled' })
     })
 
     it('returns not_found when no row matches', async () => {
         const { pool } = makeFakePool(null)
         const store = new PgMcpConnectionStore(pool, enc, makeFakeHttp(fakeResponse({ ok: true })))
-        await expect(store.resolve('c', 1)).resolves.toEqual({ kind: 'not_found' })
+        await expect(store.resolve('c', 1, OWNER)).resolves.toEqual({ kind: 'not_found' })
     })
 
     it('flags needs_reauth (and stops retrying) on a permanent 4xx refresh rejection', async () => {
         const { pool, writes } = makeFakePool(oauthRow({ expiring: true }))
         const http = makeFakeHttp(fakeResponse({ ok: false, status: 400, text: 'invalid_grant' }))
         const store = new PgMcpConnectionStore(pool, enc, http)
-        await expect(store.resolve('c', 1)).rejects.toThrow(/mcp_connection_needs_reauth/)
+        await expect(store.resolve('c', 1, OWNER)).rejects.toThrow(/mcp_connection_needs_reauth/)
         // Wrote needs_reauth back so the next resolve short-circuits instead of
         // re-hitting the token endpoint every session.
         expect(writes).toHaveLength(1)
@@ -278,7 +290,7 @@ describe('PgMcpConnectionStore', () => {
         const { pool, writes } = makeFakePool(oauthRow({ expiring: true, noRefreshToken: true }))
         const http = makeFakeHttp(fakeResponse({ ok: true }))
         const store = new PgMcpConnectionStore(pool, enc, http)
-        await expect(store.resolve('c', 1)).rejects.toThrow(/mcp_connection_needs_reauth/)
+        await expect(store.resolve('c', 1, OWNER)).rejects.toThrow(/mcp_connection_needs_reauth/)
         // Nothing to refresh with → no token-endpoint call…
         expect(http.calls).toHaveLength(0)
         // …but needs_reauth is written back so the next resolve short-circuits
@@ -292,7 +304,7 @@ describe('PgMcpConnectionStore', () => {
         const { pool, writes } = makeFakePool(oauthRow({ expiring: true }))
         const http = makeFakeHttp(fakeResponse({ ok: false, status: 503, text: 'upstream down' }))
         const store = new PgMcpConnectionStore(pool, enc, http)
-        await expect(store.resolve('c', 1)).rejects.toThrow(/mcp_connection_refresh_failed/)
+        await expect(store.resolve('c', 1, OWNER)).rejects.toThrow(/mcp_connection_refresh_failed/)
         expect(writes).toHaveLength(0)
     })
 })
