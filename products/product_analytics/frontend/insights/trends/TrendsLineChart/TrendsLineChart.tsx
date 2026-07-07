@@ -25,6 +25,7 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
+import { chartStyleCurve, chartStylePointRadius, chartStyleStrokePattern } from '../../shared/chartStyleAdapter'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG, INSIGHT_TOOLTIP_CONFIG_LEGACY } from '../../shared/tooltipConfig'
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
@@ -99,6 +100,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
 
     const isPercentStackView = !!showPercentStackView && !!supportsPercentStackView
     const resolvedGroupTypeLabel = context?.groupTypeLabel ?? resolveGroupTypeLabel(labelGroupType, aggregationLabel)
+    const chartStyle = trendsFilter?.chartStyle
 
     const labels = currentPeriodResult?.labels ?? []
 
@@ -220,6 +222,8 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 showMultipleYAxes: showMultipleYAxes ?? undefined,
                 incompletenessOffsetFromEnd,
                 isStickiness,
+                strokePattern: chartStyleStrokePattern(chartStyle),
+                pointRadius: chartStylePointRadius(chartStyle),
                 getColor: getTrendsColor,
                 // With the quill legend on, hidden series are listed (dimmed) and excluded via
                 // config.legend.hiddenKeys instead of being dropped here, so the legend can restore them.
@@ -233,6 +237,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             showMultipleYAxes,
             incompletenessOffsetFromEnd,
             isStickiness,
+            chartStyle,
             getTrendsColor,
             getTrendsHidden,
             getLabel,
@@ -265,6 +270,8 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 movingAverageIntervals: movingAverageIntervals ?? undefined,
                 showTrendLines: showTrendLines ?? undefined,
                 valueLabels: showValuesOnSeries && valueLabelFormatter ? { formatter: valueLabelFormatter } : false,
+                curve: chartStyleCurve(chartStyle),
+                showGrid: chartStyle?.showGrid,
                 showCrosshair: true,
                 tooltip: TOOLTIP_CONFIG,
                 legend: legendConfig,

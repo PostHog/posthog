@@ -426,12 +426,23 @@ describe('InsightDisplayConfig', () => {
 
             expect(getSectionTitles()).toEqual([
                 'Labels & legend',
+                'Line style',
                 'Color customization by',
                 'Y-axis unit',
                 'Axis labels',
             ])
             expect(screen.getByText('Show values on series')).toBeInTheDocument()
             expect(screen.getByText('Show legend')).toBeInTheDocument()
+            // The chart style controls, only for line-ish displays
+            expect(screen.getByText('Line shape')).toBeInTheDocument()
+            expect(screen.getByText('Show points')).toBeInTheDocument()
+        })
+
+        it('omits the Line style section for non-line displays', async () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsBarValue))
+            await userEvent.click(screen.getAllByLabelText('Style')[0])
+
+            expect(getSectionTitles()).not.toContain('Line style')
         })
 
         it('drops the moved presentation options from the Options menu', async () => {

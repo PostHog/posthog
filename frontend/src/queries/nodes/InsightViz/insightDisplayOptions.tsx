@@ -96,6 +96,10 @@ export function useInsightDisplayOptions(): {
         (!display && isStickiness)
     const isBarDisplay = displayMatches(display, BAR_DISPLAYS)
     const showAxisLabelsConfig = isTrends && (isLineDisplay || isBarDisplay)
+    // The chart style options are only wired into the quill trends line/area charts for now
+    const showLineStyleConfig = isTrends && isLineDisplay
+    const chartStyle = trendsFilter?.chartStyle
+    const defaultCurve = featureFlags[FEATURE_FLAGS.QUILL_CHART_STYLE_REFRESH] ? 'smooth' : 'linear'
     const showFunnelLegendConfig = isTrendsFunnel && hasBreakdownFilter(breakdownFilter)
     const isBoxPlot = display === ChartDisplayType.BoxPlot
     const isCalendarHeatmap = display === ChartDisplayType.CalendarHeatmap
@@ -282,6 +286,17 @@ export function useInsightDisplayOptions(): {
                 items: labelsAndLegendItems,
             })
         }
+        if (showLineStyleConfig) {
+            styleItems.push({
+                title: <SectionHeader dataAttr="style-line-section">Line style</SectionHeader>,
+                items: [
+                    DisplayOptions.LineShape,
+                    DisplayOptions.LineStyle,
+                    DisplayOptions.ShowPoints,
+                    DisplayOptions.GridLines,
+                ],
+            })
+        }
         if (supportsResultCustomizationBy) {
             styleItems.push({
                 title: (
@@ -321,7 +336,11 @@ export function useInsightDisplayOptions(): {
         (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.xAxisLabel) ? 1 : 0) +
         (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.yAxisLabel) ? 1 : 0) +
         (isMetric && trendsFilter?.metricShowChange === false ? 1 : 0) +
-        (isMetric && trendsFilter?.metricColorByDirection ? 1 : 0)
+        (isMetric && trendsFilter?.metricColorByDirection ? 1 : 0) +
+        (showLineStyleConfig && chartStyle?.curve && chartStyle.curve !== defaultCurve ? 1 : 0) +
+        (showLineStyleConfig && chartStyle?.lineStyle && chartStyle.lineStyle !== 'solid' ? 1 : 0) +
+        (showLineStyleConfig && chartStyle?.showPoints ? 1 : 0) +
+        (showLineStyleConfig && chartStyle?.showGrid === false ? 1 : 0)
 
     const optionsCount: number =
         (showSmoothing && (trendsFilter?.smoothingIntervals ?? 1) !== 1 ? 1 : 0) +

@@ -97,6 +97,25 @@ describe('trendsChartTransforms', () => {
             expect(series.fill).toEqual({})
         })
 
+        it('applies a chart-style stroke pattern, alone and merged with the in-progress tail', () => {
+            const plain = buildMainTrendsSeries(makeResult(), 0, { getColor: () => RED, strokePattern: [8, 4] })
+            expect(plain.stroke).toEqual({ pattern: [8, 4], partial: undefined })
+
+            const withTail = buildMainTrendsSeries(makeResult({ data: [1, 2, 3, 4, 5, 6, 7] }), 0, {
+                getColor: () => RED,
+                strokePattern: [8, 4],
+                incompletenessOffsetFromEnd: -2,
+            })
+            expect(withTail.stroke).toEqual({ pattern: [8, 4], partial: { fromIndex: 5 } })
+        })
+
+        it('draws point markers only when pointRadius is set', () => {
+            expect(buildMainTrendsSeries(makeResult(), 0, { getColor: () => RED }).points).toBeUndefined()
+            expect(buildMainTrendsSeries(makeResult(), 0, { getColor: () => RED, pointRadius: 3 }).points).toEqual({
+                radius: 3,
+            })
+        })
+
         it('marks a series excluded when getHidden returns true', () => {
             const series = buildMainTrendsSeries(makeResult(), 0, {
                 getColor: () => RED,
@@ -424,6 +443,19 @@ describe('trendsChartTransforms', () => {
         it('leaves the x-axis tick formatter unset when xAxisTickFormatter is omitted', () => {
             const config = buildTrendsLineTimeSeriesConfig({ ...baseOpts })
             expect(config.xAxis?.tickFormatter).toBeUndefined()
+        })
+
+        it('passes chart-style curve and grid overrides through, leaving them unset by default', () => {
+            const styled = buildTrendsLineTimeSeriesConfig({ ...baseOpts, curve: 'monotone', showGrid: false })
+            expect(styled.curve).toBe('monotone')
+            expect(styled.showGrid).toBe(false)
+            expect((styled.yAxis as YAxisConfig).showGrid).toBe(false)
+
+            // Unset overrides must stay undefined so the app-level defaults (useChartConfig) apply
+            const unstyled = buildTrendsLineTimeSeriesConfig({ ...baseOpts })
+            expect(unstyled.curve).toBeUndefined()
+            expect(unstyled.showGrid).toBeUndefined()
+            expect((unstyled.yAxis as YAxisConfig).showGrid).toBe(true)
         })
 
         describe('valueLabels', () => {

@@ -34,6 +34,10 @@ export interface BuildTrendsSeriesOpts<R extends TrendsResultLike, M = unknown> 
     // Negative number — index from the end where the in-progress tail begins. Omit to skip.
     incompletenessOffsetFromEnd?: number
     isStickiness?: boolean
+    /** Canvas dash pattern applied to every series' line (per-insight chart style). */
+    strokePattern?: number[]
+    /** Marker radius drawn at each data point (per-insight chart style). Omit for no markers. */
+    pointRadius?: number
     getColor: (r: R, index: number) => string
     getHidden?: (r: R, index: number) => boolean
     buildMeta?: (r: R, index: number) => M
@@ -66,6 +70,13 @@ export function buildMainTrendsSeries<R extends TrendsResultLike, M = unknown>(
     const yAxisId = opts.showMultipleYAxes && index > 0 ? `y${index}` : DEFAULT_Y_AXIS_ID
     const excluded = opts.getHidden ? opts.getHidden(r, index) : false
     const meta: M | undefined = opts.buildMeta ? opts.buildMeta(r, index) : undefined
+    const stroke =
+        dashedFromIndex !== undefined || opts.strokePattern
+            ? {
+                  pattern: opts.strokePattern,
+                  partial: dashedFromIndex !== undefined ? { fromIndex: dashedFromIndex } : undefined,
+              }
+            : undefined
     return {
         key: String(r.id),
         label: opts.getLabel ? opts.getLabel(r) : humanizeSeriesLabel(r.label),
@@ -74,7 +85,8 @@ export function buildMainTrendsSeries<R extends TrendsResultLike, M = unknown>(
         yAxisId,
         meta,
         fill: opts.isArea ? {} : undefined,
-        stroke: dashedFromIndex !== undefined ? { partial: { fromIndex: dashedFromIndex } } : undefined,
+        stroke,
+        points: opts.pointRadius !== undefined ? { radius: opts.pointRadius } : undefined,
         visibility: excluded ? { excluded: true } : undefined,
     }
 }
@@ -201,6 +213,11 @@ export interface BuildTrendsLineTimeSeriesConfigOpts<R extends TrendsResultLike>
 
     valueLabels?: TimeSeriesLineChartConfig['valueLabels']
 
+    /** Line interpolation override (per-insight chart style). Leave undefined for app defaults. */
+    curve?: 'linear' | 'monotone'
+    /** Gridlines override (per-insight chart style). Leave undefined for app defaults. */
+    showGrid?: boolean
+
     showCrosshair?: boolean
     tooltip?: TooltipConfig
     legend?: TimeSeriesLineChartConfig['legend']
@@ -211,7 +228,7 @@ export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
 ): TimeSeriesLineChartConfig {
     const yAxis = buildTrendsYAxisConfig(opts.trendsFilter, opts.isPercentStackView, opts.baseCurrency, {
         yAxisScaleType: opts.yAxisScaleType,
-        showGrid: true,
+        showGrid: opts.showGrid ?? true,
     })
     const goalLineConfigs = schemaGoalLinesToConfigs(opts.goalLines)
     const derivedConfigs = buildDerivedConfigs(opts.results, {
@@ -242,6 +259,8 @@ export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
         goalLines: goalLineConfigs,
         ...derivedConfigs,
         percentStackView: opts.isPercentStackView,
+        curve: opts.curve,
+        showGrid: opts.showGrid,
         showCrosshair: opts.showCrosshair,
         tooltip: opts.tooltip,
         legend: opts.legend,

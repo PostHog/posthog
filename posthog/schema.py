@@ -61,6 +61,7 @@ from posthog.schema_enums import (
     CorrelationType as CorrelationType,
     CountPerActorMathType as CountPerActorMathType,
     CurrencyCode as CurrencyCode,
+    Curve as Curve,
     CustomChannelField as CustomChannelField,
     CustomChannelOperator as CustomChannelOperator,
     DatabaseSchemaManagedViewTableKind as DatabaseSchemaManagedViewTableKind,
@@ -141,6 +142,7 @@ from posthog.schema_enums import (
     LegendPosition as LegendPosition,
     LifecycleToggle as LifecycleToggle,
     LimitContext as LimitContext,
+    LineStyle as LineStyle,
     LinkedinAdsDefaultSources as LinkedinAdsDefaultSources,
     LinkedinAdsTableExclusions as LinkedinAdsTableExclusions,
     LinkedinAdsTableKeywords as LinkedinAdsTableKeywords,
@@ -817,6 +819,19 @@ class ChartSettingsFormatting(BaseModel):
     prefix: str | None = None
     style: Style | None = None
     suffix: str | None = None
+
+
+class ChartStyle(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    curve: Curve | None = Field(
+        default=None,
+        description=("Line interpolation: straight segments or a smoothed curve through the points."),
+    )
+    lineStyle: LineStyle | None = Field(default=LineStyle.SOLID, description="Dash style applied to all line series.")
+    showGrid: bool | None = Field(default=None, description="Show horizontal gridlines.")
+    showPoints: bool | None = Field(default=False, description="Draw a marker at each data point on line charts.")
 
 
 class ClientToolResultPayload(BaseModel):
@@ -7290,6 +7305,10 @@ class TrendsFilter(BaseModel):
         ),
     )
     breakdown_histogram_bin_count: float | None = None
+    chartStyle: ChartStyle | None = Field(
+        default=None,
+        description=("Chart rendering style overrides (line shape, dash style, point markers, gridlines)."),
+    )
     confidenceLevel: float | None = None
     decimalPlaces: float | None = Field(
         default=None,

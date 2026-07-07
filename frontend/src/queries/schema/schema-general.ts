@@ -1453,6 +1453,21 @@ export type TrendsFormulaNode = {
     custom_name?: string
 }
 
+/** Per-insight chart rendering style. Pure presentation — no field changes the computed values.
+ * Every field is optional; unset fields fall through to the app-level chart defaults. */
+export interface ChartStyle {
+    /** Line interpolation: straight segments or a smoothed curve through the points. */
+    curve?: 'linear' | 'smooth'
+    /** Dash style applied to all line series.
+     * @default solid */
+    lineStyle?: 'solid' | 'dashed' | 'dotted'
+    /** Draw a marker at each data point on line charts.
+     * @default false */
+    showPoints?: boolean
+    /** Show horizontal gridlines. */
+    showGrid?: boolean
+}
+
 export type TrendsFilter = {
     /** @default 1 */
     smoothingIntervals?: integer
@@ -1558,6 +1573,8 @@ export type TrendsFilter = {
      * is on; latest compares first→last of the series.
      * @default total */
     metricSummary?: 'total' | 'average' | 'latest'
+    /** Chart rendering style overrides (line shape, dash style, point markers, gridlines). */
+    chartStyle?: ChartStyle
 }
 
 export type CalendarHeatmapFilter = {
@@ -1598,6 +1615,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'metricLineIncreaseColor',
     'metricLineDecreaseColor',
     'metricSummary',
+    'chartStyle',
 ])
 
 export interface BoxPlotDatum {

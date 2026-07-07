@@ -589,6 +589,17 @@ class ChartDisplayType(StrEnum):
     SLOPE_GRAPH = "SlopeGraph"
 
 
+class Curve(StrEnum):
+    LINEAR = "linear"
+    SMOOTH = "smooth"
+
+
+class LineStyle(StrEnum):
+    SOLID = "solid"
+    DASHED = "dashed"
+    DOTTED = "dotted"
+
+
 class ColorMode(StrEnum):
     LIGHT = "light"
     DARK = "dark"

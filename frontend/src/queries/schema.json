@@ -12837,6 +12837,33 @@
             },
             "type": "object"
         },
+        "ChartStyle": {
+            "additionalProperties": false,
+            "description": "Per-insight chart rendering style. Pure presentation — no field changes the computed values. Every field is optional; unset fields fall through to the app-level chart defaults.",
+            "properties": {
+                "curve": {
+                    "description": "Line interpolation: straight segments or a smoothed curve through the points.",
+                    "enum": ["linear", "smooth"],
+                    "type": "string"
+                },
+                "lineStyle": {
+                    "default": "solid",
+                    "description": "Dash style applied to all line series.",
+                    "enum": ["solid", "dashed", "dotted"],
+                    "type": "string"
+                },
+                "showGrid": {
+                    "description": "Show horizontal gridlines.",
+                    "type": "boolean"
+                },
+                "showPoints": {
+                    "default": false,
+                    "description": "Draw a marker at each data point on line charts.",
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
         "ClickhouseQueryProgress": {
             "additionalProperties": false,
             "properties": {
@@ -44832,6 +44859,10 @@
                 },
                 "breakdown_histogram_bin_count": {
                     "type": "number"
+                },
+                "chartStyle": {
+                    "$ref": "#/definitions/ChartStyle",
+                    "description": "Chart rendering style overrides (line shape, dash style, point markers, gridlines)."
                 },
                 "confidenceLevel": {
                     "type": "number"

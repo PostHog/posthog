@@ -11,6 +11,12 @@ import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { DEFAULT_DECIMAL_PLACES } from 'lib/utils/numbers'
 import { AxisLabelsFilter } from 'scenes/insights/EditorFilters/AxisLabelsFilter'
+import {
+    LineShapePicker,
+    LineStylePicker,
+    ShowGridLinesFilter,
+    ShowPointsFilter,
+} from 'scenes/insights/EditorFilters/ChartStyleFilters'
 import { HideIncompleteConversionWindowPeriodsFilter } from 'scenes/insights/EditorFilters/HideIncompleteConversionWindowPeriodsFilter'
 import { HideWeekendsFilter } from 'scenes/insights/EditorFilters/HideWeekendsFilter'
 import { LegendOptionsFilter } from 'scenes/insights/EditorFilters/LegendOptionsFilter'
@@ -274,6 +280,10 @@ export const DisplayOptions = {
     HideWeekends: { label: () => <HideWeekendsFilter /> },
     Annotations: { label: () => <ShowAnnotationsFilter /> },
     ResultCustomizationBy: { label: () => <ResultCustomizationByPicker /> },
+    LineShape: { label: () => <LineShapePicker /> },
+    LineStyle: { label: () => <LineStylePicker /> },
+    ShowPoints: { label: () => <ShowPointsFilter /> },
+    GridLines: { label: () => <ShowGridLinesFilter /> },
     Unit: { label: () => <UnitPicker /> },
     Scale: { label: () => <ScalePicker /> },
     ConfidenceInterval: { label: () => <ConfidenceInterval /> },
