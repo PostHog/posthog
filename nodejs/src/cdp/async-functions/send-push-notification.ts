@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { CyclotronInvocationQueueParametersSendPushNotificationSchema } from '~/schema/cyclotron'
+import { CyclotronInvocationQueueParametersSendPushNotificationSchema } from '~/cdp/schema/cyclotron'
 
 import { registerAsyncFunction } from '../async-function-registry'
 

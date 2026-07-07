@@ -2,13 +2,13 @@ import { createSign } from 'crypto'
 import { Counter } from 'prom-client'
 
 import { instrumented } from '~/common/tracing/tracing-utils'
-import { FetchOptions, FetchResponse } from '~/utils/request'
+import { FetchOptions, FetchResponse } from '~/common/utils/request'
 
 import {
     CyclotronInvocationQueueParametersSendPushNotificationType,
     PushNotificationPayloadType,
-} from '../../../schema/cyclotron'
-import { parseJSON } from '../../../utils/json-parse'
+} from '~/cdp/schema/cyclotron'
+import { parseJSON } from '~/common/utils/json-parse'
 import type { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '../../types'
 import { createAddLogFunction } from '../../utils'
 import { EncryptedFields } from '../../utils/encryption-utils'
