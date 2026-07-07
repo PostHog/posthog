@@ -40,6 +40,7 @@ export const NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG: Partial<Record<NotebookNodeType
     [NotebookNodeType.Python]: 'Python',
     [NotebookNodeType.DuckSQL]: 'DuckSQL',
     [NotebookNodeType.HogQLSQL]: 'HogQLSQL',
+    [NotebookNodeType.SQLV2]: 'SQLV2',
     [NotebookNodeType.Recording]: 'Recording',
     [NotebookNodeType.RecordingPlaylist]: 'RecordingPlaylist',
     [NotebookNodeType.FeatureFlag]: 'FeatureFlag',

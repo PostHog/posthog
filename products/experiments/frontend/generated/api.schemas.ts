@@ -768,7 +768,7 @@ export interface ExperimentBasicApi {
     readonly holdout: ExperimentHoldoutApi
     /** @nullable */
     readonly exposure_cohort: number | null
-    /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `custom_exposure_filter`, and `variant_notes` (free-text notes per variant, keyed by variant key). Excluded variants live on the top-level `excluded_variants` field, not here. */
+    /** Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config keys (`feature_flag_variants`, `rollout_percentage`) are a deprecated input surface kept for compatibility — the linked feature flag is the source of truth, and reads project its current config into this field. Excluded variants live on the top-level `excluded_variants` field, not here. */
     parameters?: ExperimentParametersApi | null
     /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`. */
     running_time_calculation?: ExperimentRunningTimeCalculationApi | null
@@ -1310,7 +1310,7 @@ export interface ExperimentApi {
     holdout_id?: number | null
     /** @nullable */
     readonly exposure_cohort: number | null
-    /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `custom_exposure_filter`, and `variant_notes` (free-text notes per variant, keyed by variant key). Excluded variants live on the top-level `excluded_variants` field, not here. */
+    /** Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config keys (`feature_flag_variants`, `rollout_percentage`) are a deprecated input surface kept for compatibility — the linked feature flag is the source of truth, and reads project its current config into this field. Excluded variants live on the top-level `excluded_variants` field, not here. */
     parameters?: ExperimentParametersApi | null
     /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`. */
     running_time_calculation?: ExperimentRunningTimeCalculationApi | null
@@ -1416,7 +1416,7 @@ export interface PatchedExperimentApi {
     holdout_id?: number | null
     /** @nullable */
     readonly exposure_cohort?: number | null
-    /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `custom_exposure_filter`, and `variant_notes` (free-text notes per variant, keyed by variant key). Excluded variants live on the top-level `excluded_variants` field, not here. */
+    /** Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config keys (`feature_flag_variants`, `rollout_percentage`) are a deprecated input surface kept for compatibility — the linked feature flag is the source of truth, and reads project its current config into this field. Excluded variants live on the top-level `excluded_variants` field, not here. */
     parameters?: ExperimentParametersApi | null
     /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`. */
     running_time_calculation?: ExperimentRunningTimeCalculationApi | null
@@ -1515,6 +1515,8 @@ export interface EndExperimentApi {
      * @nullable
      */
     conclusion_comment?: string | null
+    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Only acts for allowlisted teams; ignored otherwise. */
+    open_cleanup_pr?: boolean
 }
 
 /**
@@ -1696,6 +1698,8 @@ export interface ShipVariantApi {
      * @nullable
      */
     conclusion_comment?: string | null
+    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Only acts for allowlisted teams; ignored otherwise. */
+    open_cleanup_pr?: boolean
     /** The key of the variant to ship. */
     variant_key: string
     /** If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them. */

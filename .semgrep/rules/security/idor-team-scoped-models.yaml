@@ -56,6 +56,8 @@ rules:
                           (?x)(
                               AccessControl
                               |Account
+                              |AccountRelationship
+                              |AccountRelationshipDefinition
                               |Action
                               |AgentApplication
                               |AgentArtifact
@@ -196,6 +198,7 @@ rules:
                               |Node
                               |NotificationEvent
                               |Notebook
+                              |NotebookNodeRun
                               |ObjectMediaPreview
                               |ParserRecipe
                               |PendingSourceCredential
@@ -234,6 +237,7 @@ rules:
                               |SlackThreadTaskMapping
                               |SourceBatch
                               |SourceBatchDuckgresApply
+                              |SourceDuckgresGroupLease
                               |SourceGroupLease
                               |StreamlitApp
                               |Subscription
@@ -331,6 +335,8 @@ rules:
                     (?x)(
                         AccessControl
                         |Account
+                        |AccountRelationship
+                        |AccountRelationshipDefinition
                         |Action
                         |AgentApplication
                         |AgentArtifact
@@ -467,6 +473,7 @@ rules:
                         |Node
                         |NotificationEvent
                         |Notebook
+                        |NotebookNodeRun
                         |ObjectMediaPreview
                         |ParserRecipe
                         |PendingSourceCredential
@@ -505,6 +512,7 @@ rules:
                         |SlackThreadTaskMapping
                         |SourceBatch
                         |SourceBatchDuckgresApply
+                        |SourceDuckgresGroupLease
                         |SourceGroupLease
                         |StreamlitApp
                         |Subscription

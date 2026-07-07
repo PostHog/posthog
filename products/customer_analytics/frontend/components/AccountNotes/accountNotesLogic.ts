@@ -14,6 +14,7 @@ import type {
     PaginatedAccountNoteListApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 import { AccountsEvents, type NotesTabFilterType } from '../Accounts/constants'
 import type { accountNotesLogicType } from './accountNotesLogicType'
 
@@ -25,7 +26,8 @@ export type AccountFilterOption = { id: string; name: string }
 export const accountNotesLogic = kea<accountNotesLogicType>([
     path(['products', 'customer_analytics', 'frontend', 'components', 'AccountNotes', 'accountNotesLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], userLogic, ['user']],
+        values: [teamLogic, ['currentTeamId'], userLogic, ['user'], customerAnalyticsSceneLogic, ['mineOnly']],
+        actions: [customerAnalyticsSceneLogic, ['setMineOnly'], userLogic, ['loadUserSuccess']],
     })),
     actions({
         loadAccountNotes: true,
@@ -33,6 +35,9 @@ export const accountNotesLogic = kea<accountNotesLogicType>([
         setPage: (page: number) => ({ page }),
         setCreatedByFilter: (userIds: number[]) => ({ userIds }),
         setCreatedByCurrentUser: (value: boolean) => ({ value }),
+        setAssignedToFilter: (userIds: number[]) => ({ userIds }),
+        // Shortcut for the "My accounts" checkbox — resolves to the current user's id.
+        setAssignedToCurrentUser: (value: boolean) => ({ value }),
         setAccountFilter: (account: AccountFilterOption | null) => ({ account }),
         setAccountSearch: (query: string) => ({ query }),
         reportFilterChange: (filterType: NotesTabFilterType) => ({ filterType }),
@@ -47,6 +52,7 @@ export const accountNotesLogic = kea<accountNotesLogicType>([
                         search: values.search || undefined,
                         account_id: values.accountFilter?.id,
                         created_by: values.createdByFilter.length ? values.createdByFilter : undefined,
+                        assigned_to: values.assignedToFilter.length ? values.assignedToFilter : undefined,
                         limit: RESULTS_PER_PAGE,
                         offset: (values.page - 1) * RESULTS_PER_PAGE,
                     })
@@ -73,6 +79,7 @@ export const accountNotesLogic = kea<accountNotesLogicType>([
     reducers({
         search: ['', { setSearch: (_, { search }) => search }],
         createdByFilter: [[] as number[], { setCreatedByFilter: (_, { userIds }) => userIds }],
+        assignedToFilter: [[] as number[], { setAssignedToFilter: (_, { userIds }) => userIds }],
         accountFilter: [null as AccountFilterOption | null, { setAccountFilter: (_, { account }) => account }],
         accountSearch: ['', { setAccountSearch: (_, { query }) => query }],
         page: [
@@ -81,6 +88,7 @@ export const accountNotesLogic = kea<accountNotesLogicType>([
                 setPage: (_, { page }) => page,
                 setSearch: () => 1,
                 setCreatedByFilter: () => 1,
+                setAssignedToFilter: () => 1,
                 setAccountFilter: () => 1,
             },
         ],
@@ -96,6 +104,13 @@ export const accountNotesLogic = kea<accountNotesLogicType>([
             (s) => [s.createdByFilter, s.currentUserId],
             (createdByFilter: number[], currentUserId: number | null): boolean =>
                 currentUserId !== null && createdByFilter.length === 1 && createdByFilter[0] === currentUserId,
+        ],
+        // "My accounts" is the same shorthand over the assigned-to filter (accounts where I'm
+        // CSM or AE). Shared with the Accounts tab via customerAnalyticsSceneLogic.mineOnly.
+        assignedToCurrentUser: [
+            (s) => [s.assignedToFilter, s.currentUserId],
+            (assignedToFilter: number[], currentUserId: number | null): boolean =>
+                currentUserId !== null && assignedToFilter.length === 1 && assignedToFilter[0] === currentUserId,
         ],
         pagination: [
             (s) => [s.page, s.accountNotesResponse],
@@ -142,10 +157,27 @@ export const accountNotesLogic = kea<accountNotesLogicType>([
         setCreatedByCurrentUser: ({ value }) => {
             actions.setCreatedByFilter(value && values.currentUserId !== null ? [values.currentUserId] : [])
         },
+        setAssignedToFilter: () => {
+            actions.loadAccountNotes()
+            // Keep the shared "mine only" ("My accounts") toggle in step so switching to the
+            // Accounts tab reflects the same choice.
+            actions.setMineOnly(values.assignedToCurrentUser)
+        },
+        setAssignedToCurrentUser: ({ value }) => {
+            actions.setAssignedToFilter(value && values.currentUserId !== null ? [values.currentUserId] : [])
+        },
+        // A fresh page load can mount this logic before userLogic resolves the user, leaving
+        // currentUserId null in afterMount so the persisted "My accounts" choice can't be
+        // applied. Re-apply it once the user arrives (skip if already applied or turned off).
+        loadUserSuccess: () => {
+            if (values.mineOnly && values.currentUserId !== null && !values.assignedToCurrentUser) {
+                actions.setAssignedToCurrentUser(true)
+            }
+        },
         setAccountFilter: () => actions.loadAccountNotes(),
         setAccountSearch: ({ query }) => actions.loadAccountOptions({ query }),
         // Captures live in a dedicated report action (dispatched by the controls only) so the
-        // "My notes" shortcut cascading into setCreatedByFilter doesn't double-fire events.
+        // "My notes"/"My accounts" shortcuts cascading into the raw filters don't double-fire events.
         reportFilterChange: ({ filterType }) => {
             const properties: Record<string, string | number | boolean> = { filter_type: filterType }
             if (filterType === 'created_by') {
@@ -153,6 +185,9 @@ export const accountNotesLogic = kea<accountNotesLogicType>([
                 properties.user_count = values.createdByFilter.length
             } else if (filterType === 'account') {
                 properties.is_cleared = values.accountFilter === null
+            } else if (filterType === 'my_accounts') {
+                properties.value = values.assignedToCurrentUser
+                properties.is_cleared = !values.assignedToCurrentUser
             } else {
                 properties.value = values.createdByCurrentUser
                 properties.is_cleared = !values.createdByCurrentUser
@@ -167,9 +202,15 @@ export const accountNotesLogic = kea<accountNotesLogicType>([
             posthog.captureException(error)
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values }) => {
         posthog.capture(AccountsEvents.NotesTabViewed)
-        actions.loadAccountNotes()
+        // Restore the shared "My accounts" choice from the other tab. Setting the assigned-to
+        // filter triggers the initial notes load, so only fall back to a bare load when it's off.
+        if (values.mineOnly && values.currentUserId !== null) {
+            actions.setAssignedToCurrentUser(true)
+        } else {
+            actions.loadAccountNotes()
+        }
         actions.loadAccountOptions({ query: '' })
     }),
 ])
