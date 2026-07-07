@@ -103,6 +103,7 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         NOTE = "note"
         # Per-turn pipeline working state, read back by the DB-driven resume (head_sha-scoped).
         CHUNK_SET = "chunk_set"
+        PERSPECTIVE_SELECTION = "perspective_selection"
         PERSPECTIVE_RESULT = "perspective_result"
         # The turn's fetched PR inputs, stored by reference so stage activities reload them from the
         # DB instead of crossing the Temporal workflow boundary with the big pr_files payload.
@@ -118,6 +119,7 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
     WORKING_STATE_ARTEFACT_TYPES: frozenset[str] = frozenset(
         {
             ArtefactType.CHUNK_SET,
+            ArtefactType.PERSPECTIVE_SELECTION,
             ArtefactType.PERSPECTIVE_RESULT,
             ArtefactType.PR_SNAPSHOT,
         }

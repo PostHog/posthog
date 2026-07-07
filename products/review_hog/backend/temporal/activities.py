@@ -52,11 +52,13 @@ from products.review_hog.backend.reviewer.models import generate_all_schemas
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview
+from products.review_hog.backend.reviewer.models.perspective_selection import PerspectiveSelection
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList
 from products.review_hog.backend.reviewer.persistence import (
     finalize_review_report,
     load_chunk_set,
     load_perspective_results,
+    load_perspective_selection,
     load_pr_snapshot,
     load_prior_findings,
     load_run_issues,
@@ -66,6 +68,7 @@ from products.review_hog.backend.reviewer.persistence import (
     persist_commit_snapshot,
     persist_findings,
     persist_perspective_results,
+    persist_perspective_selection,
     persist_pr_snapshot,
     persist_verdict,
     upsert_review_report,
@@ -99,6 +102,13 @@ from products.review_hog.backend.reviewer.tools.issue_validation import (
 from products.review_hog.backend.reviewer.tools.issues_review import REVIEW_SYSTEM_PROMPT, build_review_prompt
 from products.review_hog.backend.reviewer.tools.prepare_validation_markdown import build_review_body
 from products.review_hog.backend.reviewer.tools.publish_review import publish_persisted_review
+from products.review_hog.backend.reviewer.tools.select_perspectives import (
+    SELECTION_SYSTEM_PROMPT,
+    PerspectiveSelectionDTO,
+    generate_selection_prompt,
+    normalize_selection,
+    prunable_perspectives,
+)
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     CHUNKING_SYSTEM_PROMPT,
     count_reviewable_additions,
@@ -244,13 +254,19 @@ class LoadedPerspectiveDTO:
 
 
 @dataclass
+class SelectPerspectivesInput(SandboxStageInput):
+    # The run's enabled perspectives (the selector's menu); descriptions are what it judges by.
+    perspectives: list[LoadedPerspectiveDTO] = field(default_factory=list)
+
+
+@dataclass
 class ReviewChunkInput(SandboxStageInput):
     chunk_id: int
     pass_number: int
     skill_name: str
     skill_version: int
     # Blind-spot check: the broad "what did everyone miss?" sweep run per chunk after the perspective
-    # wave — fed every wave finding for the chunk, and told (below) which lenses already ran.
+    # wave — fed every wave finding for the chunk, and told (below) which lenses ran on THIS chunk.
     blind_spot_check: bool = False
     wave_perspectives: list[LoadedPerspectiveDTO] = field(default_factory=list)
 
@@ -661,6 +677,57 @@ async def load_perspectives_activity(input: LoadPerspectivesInput) -> list[Loade
     return await database_sync_to_async(_load_perspectives, thread_sensitive=False)(input.team_id, input.acting_user_id)
 
 
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def select_perspectives_activity(input: SelectPerspectivesInput) -> PerspectiveSelectionDTO | None:
+    """Pick which perspectives to run per chunk via a one-shot call (resume-aware); None means run everything.
+
+    The selector only judges perspectives whose description it can read (`prunable_perspectives`), so
+    a roster with nothing prunable skips the LLM spend entirely. The workflow treats any failure of
+    this activity as None too — selection is an optimization and must never cost a review.
+    """
+    if not prunable_perspectives(input.perspectives):
+        return None
+    existing = await database_sync_to_async(load_perspective_selection, thread_sensitive=False)(
+        team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha
+    )
+    if existing is not None:
+        logger.info("Reusing persisted perspective selection for this turn")
+        return PerspectiveSelectionDTO.from_model(existing)
+    snapshot = await database_sync_to_async(load_pr_snapshot, thread_sensitive=False)(
+        team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha
+    )
+    chunks = await database_sync_to_async(load_chunk_set, thread_sensitive=False)(
+        team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha
+    )
+    if snapshot is None or chunks is None:
+        raise ApplicationError("PR snapshot or chunk set missing for perspective selection", non_retryable=True)
+    if not chunks.chunks:
+        return None
+    prompt = generate_selection_prompt(snapshot.pr_metadata, chunks.chunks, snapshot.pr_files, input.perspectives)
+    async with Heartbeater():
+        raw = await run_oneshot_review(
+            team_id=input.team_id,
+            user_id=input.user_id,
+            prompt=prompt,
+            system_prompt=SELECTION_SYSTEM_PROMPT,
+            model_to_validate=PerspectiveSelection,
+            step_name="perspective_selection",
+        )
+    # Persist the normalized plan (exactly what the fan-out runs), not the model's raw output — the
+    # progress estimate and the skipped-perspective UI read this artefact as ground truth.
+    selection = normalize_selection(input.perspectives, [c.chunk_id for c in chunks.chunks], raw)
+    await database_sync_to_async(persist_perspective_selection, thread_sensitive=False)(
+        team_id=input.team_id,
+        report_id=input.report_id,
+        head_sha=input.head_sha,
+        roster=[p.skill_name for p in input.perspectives],
+        selection=selection,
+    )
+    return PerspectiveSelectionDTO.from_model(selection)
+
+
 def _load_blind_spots_skill(team_id: int, acting_user_id: int) -> LoadedBlindSpotsSkillDTO:
     loaded = load_blind_spots_skill_for_run(team_id, acting_user_id)
     return LoadedBlindSpotsSkillDTO(skill_name=loaded.skill_name, version=loaded.version)
@@ -717,6 +784,7 @@ def _prepare_review_prompt(
         prior_findings=prior_findings,
         same_turn_findings=same_turn_findings,
         dig_deeper=bool(same_turn_findings),
+        blind_spot_check=blind_spot_check,
         wave_perspectives={p.skill_name: p.description for p in wave_perspectives} if blind_spot_check else None,
     )
 

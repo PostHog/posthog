@@ -106,6 +106,7 @@ def test_review_prompt_pins_the_skill_and_injects_wave_lenses_for_the_blind_spot
         skill_version=3,
         same_turn_findings=[_issue("a.py", "covered wave problem")],
         dig_deeper=True,
+        blind_spot_check=True,
         wave_perspectives={"review-hog-perspective-logic-correctness": "Checks the change's logic."},
     )
 
@@ -127,11 +128,28 @@ def test_blind_spot_prompt_says_the_wave_found_nothing_instead_of_dangling() -> 
     prompt = _render_prompt(
         skill_name="review-hog-blind-spots-general",
         skill_version=3,
+        blind_spot_check=True,
         wave_perspectives={"review-hog-perspective-logic-correctness": "Checks the change's logic."},
     )
 
     assert "They raised no findings on this chunk's files" in prompt
     assert "already_covered_findings_for_chunk" not in prompt
+
+
+def test_blind_spot_prompt_on_a_zero_lens_chunk_says_it_is_the_only_reviewer() -> None:
+    # Perspective selection can leave a chunk with no lenses at all; the sweep must be told it is
+    # the chunk's only reviewer, not fed the specialist parallel-isolation framing.
+    prompt = _render_prompt(
+        skill_name="review-hog-blind-spots-general",
+        skill_version=3,
+        blind_spot_check=True,
+        wave_perspectives={},
+    )
+
+    assert "you are its ONLY reviewer" in prompt
+    assert "no ground is spoken for" in prompt
+    assert "without worrying about what the other perspectives might report" not in prompt
+    assert "You are the blind-spot check" not in prompt
 
 
 def test_review_prompt_gives_regular_perspectives_no_cross_perspective_context() -> None:

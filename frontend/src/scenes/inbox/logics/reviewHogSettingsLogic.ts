@@ -39,7 +39,7 @@ import type { reviewHogSettingsLogicType } from './reviewHogSettingsLogicType'
 
 export type ReviewSkillKind = 'perspective' | 'blind_spots' | 'validator'
 
-export type ReviewDrawerTab = 'published' | 'below_threshold' | 'dismissed' | 'review'
+export type ReviewDrawerTab = 'published' | 'below_threshold' | 'dismissed' | 'chunks' | 'review'
 
 export const REVIEW_PRIORITY_RANK: Record<ReviewIssuePriorityEnumApi, number> = {
     consider: 0,

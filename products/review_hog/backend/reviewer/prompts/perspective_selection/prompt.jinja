@@ -1,0 +1,54 @@
+<input_format>
+You will receive:
+1. PR metadata (title, description)
+2. The available review perspectives — each with its exact skill name and a description of the problems it exists to catch
+3. The PR's review chunks — each with its files{% if INCLUDE_DIFFS %} and their diff changes{% else %} and per-file change stats{% endif %}
+</input_format>
+
+<input_data>
+## PR intent (title + description)
+```
+{{PR_INTENT|safe}}
+```
+
+## Available perspectives
+{{PERSPECTIVES|safe}}
+
+## Review chunks
+```
+{{CHUNKS|safe}}
+```
+</input_data>
+
+<perspective_selection_instructions>
+You are planning a code review: deciding which review perspectives to run on each chunk of this pull request. Every selected (perspective, chunk) pair costs a full agent review session, so skipping a clearly irrelevant perspective saves real time and money — but a wrongly skipped perspective means unreviewed risk.
+
+## The test
+For each chunk, ask of every perspective: could this chunk plausibly contain the kind of problem this perspective exists to catch? Judge by what the chunk actually changes (its files, stats, and changes), not by worst-case imagination about the wider codebase.
+
+## Bias to inclusion
+- Skip a perspective ONLY when it is clearly irrelevant to everything the chunk touches — e.g. a docs-only chunk has no security surface; a copy/text change has no performance surface.
+- When in doubt, KEEP the perspective. Uncertainty is a reason to include, never to skip.
+- An empty selection for a chunk is valid when no perspective plausibly applies (e.g. a pure typo or title change).
+
+## Coverage
+- Emit exactly one entry per input chunk — no omissions, no duplicates.
+- Reference perspectives by their EXACT skill name from the list above.
+- Give each chunk a one-line `reason`: why the skipped perspectives don't apply, or why the chunk needs all of them.
+</perspective_selection_instructions>
+
+<output_format>
+Return a single JSON object conforming to the schema below — a top-level object, NOT a bare array.
+</output_format>
+
+<output_instructions>
+After completing your analysis:
+1. Generate the final JSON object that conforms to the schema (a top-level object, not a bare array)
+2. Return ONLY the JSON content (no markdown code blocks, no explanations)
+</output_instructions>
+
+<output_schema>
+```json
+{{ OUTPUT_SCHEMA | safe }}
+```
+</output_schema>

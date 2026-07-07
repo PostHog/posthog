@@ -63,6 +63,7 @@ def build_review_prompt(
     prior_findings: list[ReviewIssueFinding],
     same_turn_findings: list[Issue] | None = None,
     dig_deeper: bool = False,
+    blind_spot_check: bool = False,
     wave_perspectives: dict[str, str] | None = None,
 ) -> str:
     """Render one (perspective, chunk) review prompt — also the blind-spot check's, via the same shape.
@@ -77,14 +78,17 @@ def build_review_prompt(
 
     The blind-spot check adds cross-perspective context WITHIN a turn: `same_turn_findings` are issues
     the wave already raised on this chunk this turn; `dig_deeper` reframes the covered block as "go
-    beyond these"; `wave_perspectives` (skill name → description) tells the agent which lenses already
-    ran, so its `skill-get`-loaded sweep knows what ground is spoken for.
+    beyond these"; `wave_perspectives` (skill name → description) tells the agent which lenses ran on
+    this chunk, so its `skill-get`-loaded sweep knows what ground is spoken for. `blind_spot_check` is
+    an explicit flag (not inferred from `wave_perspectives`) because perspective selection can leave a
+    chunk with NO lenses — the sweep must then be told it is the chunk's only reviewer.
     """
     main_template, output_schema = load_template_and_schema("issues_review")
     return main_template.render(
         **build_chunk_prompt_context(chunk, pr_metadata, pr_comments, pr_files),
         COVERED_FINDINGS=_covered_findings_for_chunk(prior_findings, same_turn_findings or [], chunk),
         DIG_DEEPER=dig_deeper,
+        IS_BLIND_SPOT=blind_spot_check,
         WAVE_PERSPECTIVES=_format_wave_perspectives(wave_perspectives) if wave_perspectives else None,
         OUTPUT_SCHEMA=output_schema,
         PERSPECTIVE_SKILL_NAME=skill_name,

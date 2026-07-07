@@ -70,19 +70,24 @@ const PIPELINE_PHASES: { name: string; hint: string; steps: { number: string; ti
     },
     {
         name: 'Review',
-        hint: 'read every chunk in parallel',
+        hint: 'pick the lenses, read in parallel',
         steps: [
-            { number: '04', title: 'Perspectives', caption: 'specialist reviewers read each chunk in parallel' },
-            { number: '05', title: 'Blind spots', caption: 'one more sweep for what every perspective missed' },
+            {
+                number: '04',
+                title: 'Pick perspectives',
+                caption: 'each chunk gets only the perspectives it actually needs',
+            },
+            { number: '05', title: 'Perspectives', caption: 'specialist reviewers read each chunk in parallel' },
+            { number: '06', title: 'Blind spots', caption: 'one more sweep for what every perspective missed' },
         ],
     },
     {
         name: 'Refine & publish',
         hint: 'clean up and ship the review',
         steps: [
-            { number: '06', title: 'Dedupe', caption: 'overlapping findings are merged' },
-            { number: '07', title: 'Validate', caption: 'each finding is checked against your quality bar' },
-            { number: '08', title: 'Publish', caption: 'a cleaned-up review lands on the pull request' },
+            { number: '07', title: 'Dedupe', caption: 'overlapping findings are merged' },
+            { number: '08', title: 'Validate', caption: 'each finding is checked against your quality bar' },
+            { number: '09', title: 'Publish', caption: 'a cleaned-up review lands on the pull request' },
         ],
     },
 ]
@@ -193,7 +198,7 @@ function PipelineSection(): JSX.Element {
                             </div>
                             <div className="flex flex-col gap-2.5">
                                 {phase.steps.map((step) => (
-                                    <div key={step.number} className="flex items-start gap-2">
+                                    <div key={step.number} className="flex items-baseline gap-2">
                                         <span className="font-mono text-xxs text-warning">{step.number}</span>
                                         <div className="flex flex-col">
                                             <span className="text-xs font-semibold">{step.title}</span>
@@ -647,6 +652,87 @@ function DrawerDismissedTab(): JSX.Element {
     )
 }
 
+/** The "Chunks" tab: how the PR was split, each chunk's files (expandable), and its perspective picks. */
+function DrawerChunksTab(): JSX.Element {
+    const { reviewDetail } = useValues(reviewHogSettingsLogic)
+
+    if (!reviewDetail) {
+        return <DrawerFindingsSkeleton />
+    }
+    const selection = reviewDetail.perspective_selection
+    if (!selection) {
+        return (
+            <div className="text-sm text-secondary">
+                No chunk plan was recorded for this review — it ran before per-chunk planning existed, or the planner
+                fell back to running every perspective on every chunk.
+            </div>
+        )
+    }
+    return (
+        <div className="flex flex-col gap-2">
+            <p className="m-0 text-xs text-secondary">
+                How the pull request was split for review, and which perspectives each chunk actually needed — every
+                skipped lens saves a full review session.
+            </p>
+            <div className="flex flex-col divide-y divide-primary">
+                {selection.chunks.map((chunk) => (
+                    <div key={chunk.chunk_id} className="flex flex-col gap-1.5 py-3">
+                        <div className="flex items-baseline gap-2">
+                            <span className="text-sm font-semibold">Chunk {chunk.chunk_id}</span>
+                            {chunk.chunk_type && (
+                                <LemonTag type="muted" size="small">
+                                    {prettifyCategory(chunk.chunk_type)}
+                                </LemonTag>
+                            )}
+                        </div>
+                        {chunk.files.length > 0 && (
+                            <LemonCollapse
+                                embedded
+                                size="xsmall"
+                                panels={[
+                                    {
+                                        key: 'files',
+                                        header: (
+                                            <span className="flex min-w-0 items-baseline gap-2 text-xs">
+                                                <span className="shrink-0">
+                                                    {chunk.files.length} file{chunk.files.length === 1 ? '' : 's'}
+                                                </span>
+                                                <span className="truncate font-mono font-normal text-tertiary">
+                                                    {chunk.files.join(' · ')}
+                                                </span>
+                                            </span>
+                                        ),
+                                        content: (
+                                            <ul className="m-0 flex list-none flex-col gap-0.5 p-0 font-mono text-xs text-secondary">
+                                                {chunk.files.map((file) => (
+                                                    <li key={file}>{file}</li>
+                                                ))}
+                                            </ul>
+                                        ),
+                                    },
+                                ]}
+                            />
+                        )}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                            {chunk.perspectives.map((name) => (
+                                <LemonTag key={name} type="muted" size="small">
+                                    {perspectiveLabel(name)}
+                                </LemonTag>
+                            ))}
+                            {chunk.skipped.map((name) => (
+                                <LemonTag key={name} type="muted" size="small" className="line-through opacity-60">
+                                    {perspectiveLabel(name)}
+                                </LemonTag>
+                            ))}
+                        </div>
+                        {chunk.reason && <div className="text-xs text-secondary">{chunk.reason}</div>}
+                    </div>
+                ))}
+            </div>
+        </div>
+    )
+}
+
 function ReviewDetailDrawer(): JSX.Element {
     const {
         reviewDrawerOpen,
@@ -724,6 +810,11 @@ function ReviewDetailDrawer(): JSX.Element {
                             key: 'dismissed',
                             label: `Dismissed${reviewDetail ? ` (${reviewDetail.dismissed_findings.length})` : ''}`,
                             content: <DrawerDismissedTab />,
+                        },
+                        {
+                            key: 'chunks',
+                            label: 'Chunks',
+                            content: <DrawerChunksTab />,
                         },
                         {
                             key: 'review',

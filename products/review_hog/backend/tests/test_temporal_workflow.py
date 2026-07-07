@@ -18,6 +18,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from products.review_hog.backend.reviewer.constants import BLIND_SPOT_PASS_NUMBER, VALIDATION_MAX_ATTEMPTS
+from products.review_hog.backend.reviewer.tools.select_perspectives import ChunkSelectionDTO, PerspectiveSelectionDTO
 from products.review_hog.backend.temporal.activities import (
     AppendCodeReviewArtefactInput,
     BuildBodyInput,
@@ -33,6 +34,7 @@ from products.review_hog.backend.temporal.activities import (
     ResolveActingUserResult,
     ReviewChunkInput,
     ReviewMeta,
+    SelectPerspectivesInput,
     ValidateChunkInput,
     ValidateChunkResult,
 )
@@ -74,6 +76,8 @@ async def _run_full_review_pr_workflow(
     meta_pr_number: int | None = 7,
     empty_diff: bool = False,
     fail_dedup: bool = False,
+    selection: PerspectiveSelectionDTO | None = None,
+    fail_selection: bool = False,
 ) -> dict:
     # Runs the real ReviewPRWorkflow with activity stand-ins, recording what fanned out + published.
     # already_published / empty_diff drive the early-exit gates; acting_user_id None means the author
@@ -143,11 +147,19 @@ async def _run_full_review_pr_workflow(
     @activity.defn(name="load_perspectives_activity")
     async def load_perspectives(input: LoadPerspectivesInput) -> list[LoadedPerspectiveDTO]:
         load_user_ids.append(input.acting_user_id)
+        # Descriptions matter: an undescribed perspective is never prunable, so a selection could
+        # not thin the fan-out and the sparse-routing test would silently assert the dense product.
         return [
-            LoadedPerspectiveDTO(pass_number=1, skill_name="s-logic", version=1),
-            LoadedPerspectiveDTO(pass_number=2, skill_name="s-sec", version=1),
-            LoadedPerspectiveDTO(pass_number=3, skill_name="s-perf", version=1),
+            LoadedPerspectiveDTO(pass_number=1, skill_name="s-logic", version=1, description="logic lens"),
+            LoadedPerspectiveDTO(pass_number=2, skill_name="s-sec", version=1, description="security lens"),
+            LoadedPerspectiveDTO(pass_number=3, skill_name="s-perf", version=1, description="performance lens"),
         ]
+
+    @activity.defn(name="select_perspectives_activity")
+    async def select_perspectives(input: SelectPerspectivesInput) -> PerspectiveSelectionDTO | None:
+        if fail_selection:
+            raise ApplicationError("selector down", non_retryable=True)
+        return selection
 
     @activity.defn(name="load_blind_spots_skill_activity")
     async def load_blind_spots(input: LoadBlindSpotsInput) -> LoadedBlindSpotsSkillDTO:
@@ -220,6 +232,7 @@ async def _run_full_review_pr_workflow(
                 gen_schemas,
                 split,
                 load_perspectives,
+                select_perspectives,
                 load_blind_spots,
                 review,
                 dedup,
@@ -287,6 +300,38 @@ async def test_review_pr_workflow_runs_all_stages_and_fans_out():
     # The RESOLVED acting user (3 from the resolve stub), not the None workflow input, threads into
     # the perspective, blind-spots, and validation loads — the per-user selection seam for each.
     assert recorded["load_user_ids"] == [3, 3, 3]
+
+
+@pytest.mark.asyncio
+async def test_review_pr_workflow_selection_prunes_fan_out_and_scopes_blind_spot_lenses():
+    # The selector's plan gates the wave: only the selected (perspective, chunk) pairs run, a
+    # zero-selected chunk still gets its blind-spot unit, and each blind-spot unit is told exactly
+    # the lenses that ran on ITS chunk — not the full roster (which would make the sweep skip ground
+    # nobody actually covered).
+    selection = PerspectiveSelectionDTO(
+        chunks=[
+            ChunkSelectionDTO(chunk_id=1, perspectives=["s-logic", "s-sec"], reason="r1"),
+            ChunkSelectionDTO(chunk_id=2, perspectives=[], reason="r2"),
+        ]
+    )
+    recorded = await _run_full_review_pr_workflow(publish=False, selection=selection)
+    wave = [c for c in recorded["review"] if not c[2]]
+    blind = [c for c in recorded["review"] if c[2]]
+    assert sorted((p, c) for p, c, *_ in wave) == [(1, 1), (2, 1)]
+    assert sorted((p, c) for p, c, *_ in blind) == [(BLIND_SPOT_PASS_NUMBER, 1), (BLIND_SPOT_PASS_NUMBER, 2)]
+    assert {c[1]: c[4] for c in blind} == {1: ("s-logic", "s-sec"), 2: ()}
+
+
+@pytest.mark.asyncio
+async def test_review_pr_workflow_falls_back_to_dense_when_selection_fails():
+    # Selection is an optimization: its failure must neither fail the run nor thin the review —
+    # every (perspective, chunk) pair still runs, and the blind-spot units see the full roster.
+    recorded = await _run_full_review_pr_workflow(publish=False, fail_selection=True)
+    assert recorded["failed"] is False
+    wave = [c for c in recorded["review"] if not c[2]]
+    blind = [c for c in recorded["review"] if c[2]]
+    assert len(wave) == 6  # 3 perspectives × 2 chunks, exactly as without a selector
+    assert {c[4] for c in blind} == {("s-logic", "s-sec", "s-perf")}
 
 
 @pytest.mark.asyncio

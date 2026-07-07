@@ -5,7 +5,8 @@
 **ReviewHog** (`products/review_hog`) is an automated GitHub PR code reviewer. It is a Django app
 (`backend/apps.py`, label `review_hog`, module `products.review_hog.backend`) driven by a single
 management command — there is **no API, viewset, model, or frontend** yet. A run fetches a PR from
-GitHub, splits it into logically reviewable **chunks**, runs a **three-perspective parallel LLM review** of each
+GitHub, splits it into logically reviewable **chunks**, picks which perspectives each chunk actually needs
+(**perspective selection**, a cheap one-shot), runs the selected **perspective reviews in parallel** on each
 chunk inside **sandbox agents**, then combines → scope-cleans → deduplicates → validates the findings, renders
 a markdown report, and posts inline review comments back to the PR. Each review **perspective** (Logic &
 Correctness, Contracts & Security, Performance & Reliability) is a DB-synced **LLMA skill** the sandbox agent
@@ -14,10 +15,11 @@ pulls over MCP — the same canonical-skill pattern the Signals scouts use.
 The repo-access LLM steps (perspective review, blind-spot check, validation) run inside **sandbox agents**
 spawned through the shared `products/tasks` infrastructure (`Task`/`TaskRun` → Temporal
 `ProcessTaskWorkflow` → Modal/Docker sandbox → agent-server) — ReviewHog composes a prompt, hands it to the
-Tasks runner, and gets back the validated model, owning no sandbox/Temporal code. The two pure-text steps
-(**chunking, dedup**) run within size gates as **one-shot direct LLM-gateway calls**
-(`reviewer/sandbox/direct_llm.py`, structured outputs against the same pydantic models; sandbox fallback
-above the gates — see "✅ BUILT 2026-07-03" below). Run state is persisted to Postgres
+Tasks runner, and gets back the validated model, owning no sandbox/Temporal code. The pure-text steps
+(**chunking, perspective selection, dedup**) run within size gates as **one-shot direct LLM-gateway calls**
+(`reviewer/sandbox/direct_llm.py`, structured outputs against the same pydantic models; chunking/dedup fall
+back to the sandbox above their gates, selection falls back to running everything — see
+"✅ BUILT 2026-07-03" below). Run state is persisted to Postgres
 (`ReviewReport` + `ReviewReportArtefact`) — there is **no on-disk store**; the only external side effect is
 the GitHub review it posts.
 
@@ -204,6 +206,21 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    match the xhigh control (or diffs hand-adjudicated as defensible merges); kill if it collapses
    non-duplicates or misses obvious dupes. (The related stale `direct_llm.py` comment, which claimed dedup
    "re-emits every surviving issue's full JSON", was corrected 2026-07-07: ids-only since Jun 25.)
+9. **Make the reviewers strict-er — stop spamming the validator with findings it refuses anyway (noted
+   2026-07-08).** Live evidence (posthog#69066 e2e): 35 post-dedup candidates → 8 valid / **27 dismissed
+   (77% refusal)**, and validation was the run's wall-clock long pole (~24 of ~61 min) — each dismissed
+   finding costs an opus-@-xhigh verdict, so most validation time+spend went to findings the validator
+   was always going to refuse. Raise the FINDER-side bar, not the validator's: the perspectives already
+   speak the validator's "concrete trigger + concrete consequence" language (2026-07-07 skill-form pass),
+   so the lever is tightening each perspective skill's finding bar with negative guidance mined from real
+   refusals. Mechanics: aggregate persisted `validation_verdict.argumentation` for dismissed findings by
+   `source_perspective` (data already in Postgres; no runs needed), distill the recurring dismissal
+   patterns (speculative reachability, style-adjacent, pre-existing-not-worsened, …) into per-skill
+   "do NOT report" examples. **Tension to respect:** item 4 suspects the validator is itself
+   over-strict (killed real yardstick findings) — the goal here is fewer junk candidates, not fewer real
+   ones; don't tune finders against a validator bar that item 4 may later loosen. Acceptance: dismissal
+   rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
+   coverage matrix as the guard); kill if valid findings drop with the noise.
 
 ### ✅ BUILT 2026-07-07 — canonical skill bodies rewritten to the writing-great-skills form (uncommitted)
 
@@ -239,6 +256,19 @@ Session-OPEN failure still raises on every attempt (the outage signal the floor 
 
 - `reviewer/constants.py`: `VALIDATION_MAX_ATTEMPTS = 2` (the uniform "1 retry" policy); `workflow.py` builds `_VALIDATE_RETRY` from it and `validate_chunk_activity` keys its final-attempt check off the same constant, so the policy and the fallback can't drift.
 - Tests: `test_validate_activity.py` (turn failure raises + prior verdicts persisted + done issues not re-sent; final attempt skips + fresh session for the rest; open failure raises even on the final attempt) + a workflow-level retry-wiring test in `test_temporal_workflow.py`.
+
+### ✅ BUILT 2026-07-07 — per-chunk perspective selection (one-shot; cost gate before the wave) (uncommitted)
+
+A tiny PR (title change) used to pay every enabled perspective on every chunk — pointless specialist sandbox sessions. Now a **cheap one-shot selection** (`select_perspectives_activity`, same `run_oneshot_review` infra as chunking/dedup, `ai_stage="perspective_selection"`) runs inside `ReviewPerspectivesWorkflow` between `load_perspectives_activity` and the fan-out, and only the selected `(perspective, chunk)` pairs run. Design grilled + locked with the user 2026-07-07:
+
+- **Standalone step, NOT folded into the chunking LLM** — the ≤400-addition deterministic path (the motivating tiny-PR case) never reaches the chunker, and `chunk_set` is keyed by head_sha while the roster is per-user config. Also rejected: static `chunk_type → perspective` mapping (custom perspectives break it) and in-sandbox early bail (cost already spent).
+- **Selector input:** PR intent + the **prunable-perspective menu** (frontmatter `description` — an empty-description custom skill never enters the menu and always runs; the selector can't rule out a lens it can't read) + per-chunk context: chunker metadata (files/stats/`chunk_type`/`key_changes`) on the LLM path, raw file changes on the deterministic path (bounded by the same `SINGLE_CHUNK_GATE_ADDITIONS` gate). Prompt is inclusion-biased ("in doubt, KEEP"). If selection quality disappoints, sharpen the skill descriptions (the blind-spot prompt reads the same ones) — not the prompt.
+- **Zero perspectives per chunk is allowed** — the always-on blind-spot sweep guarantees ≥1 pass per chunk and is told per-chunk which lenses ran (`wave_perspectives` is now the chunk's ran-list, with an explicit `IS_BLIND_SPOT` "you are the only reviewer" prompt branch for zero-lens chunks). **Coverage invariant** (future-proofing a possible blind-spot off switch): `apply_selection(..., blind_spot_runs=)` deterministically ignores the selection for any chunk that would end with zero units of any kind — today the guard never fires.
+- **Fail-open everywhere:** the workflow catches selection `ActivityError` → dense product with a warning; unknown skill names drop; a chunk missing from the LLM output runs everything; duplicate chunk entries union. The failure floor counts dispatched units, so pruning can't trip it. A run is never failed (or thinned) by its optimizer.
+- **Persistence + observability:** the activity **normalizes the raw LLM output** (`normalize_selection` — the persisted plan IS what the fan-out runs) and stores it with the roster as a `perspective_selection` working-state artefact (head_sha-scoped resume like `chunk_set`; migration 0012, choices-only). `_expected_reads` reads the plan when present (exact progress totals; dense estimate until it lands). UI (reworked 2026-07-08 with the user): the review DETAIL endpoint exposes the per-chunk plan (`perspective_selection {roster, chunks[{chunk_id, chunk_type, files, perspectives, skipped, reason}]}`, joined with the chunk set's metadata server-side) and the findings drawer has a **"Chunks" tab** rendering it per chunk (expandable file lists). A first cut put a review-level "Perspectives run: N of M + fully-skipped rows" line in the expanded list row — dropped: the row panel was overloaded, and review-level aggregation is blind to partial (per-chunk) drops, which are the common outcome on multi-chunk PRs (observed live on posthog#69066: contracts-security dropped on 1 of 5 chunks, invisible at review level).
+- Temporal boundary carries a dataclass `PerspectiveSelectionDTO` (the pydantic model stays the LLM/persistence shape — the worker's pydantic converter is deploy-flag-dependent).
+- Tests: `reviewer/tests/test_select_perspectives.py` (apply/normalize matrix + prompt gates), activity tests in `test_review_activity.py` (normalized persist + roster, resume skips the LLM, nothing-prunable skips everything), workflow tests (sparse fan-out + per-chunk blind-spot lenses; dense fallback on selector failure), API tests (payload aggregation + head-matching, exact progress total).
+- Expected effect: a title-change PR drops from 4+ sandbox sessions to 1 (blind spot only) for ~$0.02–0.10 of selector spend; big PRs prune per-chunk (e.g. docs chunks skip security/performance lenses).
 
 ### ✅ BUILT 2026-07-03 — One-shot (sandbox-free) chunking + dedup on Sonnet 5 @ xhigh (uncommitted; eval round DONE — see the experiment's FINAL_REPORT)
 

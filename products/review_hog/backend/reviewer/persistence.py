@@ -37,6 +37,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ArtefactContentValidationError,
     ChunkSetArtefact,
     PerspectiveResultArtefact,
+    PerspectiveSelectionArtefact,
     PRSnapshotArtefact,
     ReviewArtefactContent,
     ReviewIssueFinding,
@@ -46,6 +47,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuesReview
+from products.review_hog.backend.reviewer.models.perspective_selection import PerspectiveSelection
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import Commit
@@ -190,7 +192,7 @@ def persist_commit_snapshot(
     return True
 
 
-# --- Per-turn working state (chunk set / perspective results / PR snapshot) ------------------------
+# --- Per-turn working state (chunk set / perspective selection / results / PR snapshot) ------------
 #
 # These back the DB-driven resume. Each row carries the turn's `head_sha`; the load helpers return
 # only the rows for the requested head, latest-wins per key, so a resumed run reuses completed
@@ -214,6 +216,29 @@ def load_chunk_set(*, team_id: int, report_id: str, head_sha: str) -> ChunksList
         assert isinstance(content, ChunkSetArtefact)
         latest = content
     return ChunksList(chunks=latest.chunks) if latest is not None else None
+
+
+def persist_perspective_selection(
+    *, team_id: int, report_id: str, head_sha: str, roster: list[str], selection: PerspectiveSelection
+) -> None:
+    """Append the selector's per-chunk perspective picks for this turn as a `perspective_selection` artefact."""
+    ReviewReportArtefact.add_working_state(
+        team_id=team_id,
+        report_id=report_id,
+        content=PerspectiveSelectionArtefact(head_sha=head_sha, roster=roster, selection=selection),
+        attribution=ArtefactAttribution.system(),
+    )
+
+
+def load_perspective_selection(*, team_id: int, report_id: str, head_sha: str) -> PerspectiveSelection | None:
+    """The perspective selection already computed for this turn, or None if the selector hasn't run yet."""
+    latest: PerspectiveSelectionArtefact | None = None
+    for content in _load_working_state(
+        team_id, report_id, ReviewReportArtefact.ArtefactType.PERSPECTIVE_SELECTION, head_sha
+    ):
+        assert isinstance(content, PerspectiveSelectionArtefact)
+        latest = content
+    return latest.selection if latest is not None else None
 
 
 def persist_perspective_results(

@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from temporalio.testing import ActivityEnvironment
 
@@ -12,12 +12,19 @@ from products.review_hog.backend.reviewer.constants import (
 )
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview, LineRange
+from products.review_hog.backend.reviewer.models.perspective_selection import (
+    ChunkPerspectiveSelection,
+    PerspectiveSelection,
+)
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
+from products.review_hog.backend.reviewer.tools.select_perspectives import PerspectiveSelectionDTO
 from products.review_hog.backend.temporal.activities import (
     LoadedPerspectiveDTO,
     ReviewChunkInput,
     SandboxStageInput,
+    SelectPerspectivesInput,
     review_chunk_activity,
+    select_perspectives_activity,
     split_chunks_activity,
 )
 
@@ -195,3 +202,95 @@ async def test_blind_spot_unit_scopes_wave_findings_to_its_chunk_and_steps_as_bl
     assert "same-chunk wave finding" in kwargs["prompt"]
     assert "other-chunk wave finding" not in kwargs["prompt"]
     assert "logic lens" in kwargs["prompt"]
+
+
+def _select_input(perspectives: list[LoadedPerspectiveDTO]) -> SelectPerspectivesInput:
+    return SelectPerspectivesInput(
+        team_id=1,
+        user_id=2,
+        report_id="rep-1",
+        head_sha="sha1",
+        repository="o/r",
+        branch="feat",
+        run_index=1,
+        perspectives=perspectives,
+    )
+
+
+_SELECT_ROSTER = [
+    LoadedPerspectiveDTO(pass_number=1, skill_name="s-logic", version=1, description="logic lens"),
+    LoadedPerspectiveDTO(pass_number=2, skill_name="s-sec", version=1, description="security lens"),
+]
+
+
+@pytest.mark.asyncio
+async def test_select_perspectives_activity_persists_the_normalized_plan() -> None:
+    # The persisted artefact is ground truth for the progress estimate and the skipped-perspective
+    # UI, so the activity must store the normalized plan (unknown names dropped, uncovered chunks
+    # all-on) plus the roster — not the model's raw output — and stamp the cost-attribution step.
+    raw = PerspectiveSelection(
+        chunks=[ChunkPerspectiveSelection(chunk_id=1, perspectives=["s-logic", "bogus"], reason="r1")]
+    )
+    mock_oneshot = AsyncMock(return_value=raw)
+    mock_persist = MagicMock()
+    with (
+        patch(f"{_MODULE}.Heartbeater"),
+        patch(f"{_MODULE}.load_perspective_selection", return_value=None),
+        patch(f"{_MODULE}.load_pr_snapshot", return_value=_snapshot()),
+        patch(
+            f"{_MODULE}.load_chunk_set",
+            return_value=ChunksList(
+                chunks=[
+                    Chunk(chunk_id=1, files=[FileInfo(filename="a.py")]),
+                    Chunk(chunk_id=2, files=[FileInfo(filename="b.py")]),
+                ]
+            ),
+        ),
+        patch(f"{_MODULE}.persist_perspective_selection", mock_persist),
+        patch(f"{_MODULE}.run_oneshot_review", mock_oneshot),
+    ):
+        result = await ActivityEnvironment().run(select_perspectives_activity, _select_input(_SELECT_ROSTER))
+
+    assert mock_oneshot.call_args.kwargs["step_name"] == "perspective_selection"
+    persisted = mock_persist.call_args.kwargs
+    assert persisted["roster"] == ["s-logic", "s-sec"]
+    assert [(c.chunk_id, c.perspectives) for c in persisted["selection"].chunks] == [
+        (1, ["s-logic"]),  # bogus dropped
+        (2, ["s-logic", "s-sec"]),  # uncovered chunk → everything runs
+    ]
+    assert result == PerspectiveSelectionDTO.from_model(persisted["selection"])
+
+
+@pytest.mark.asyncio
+async def test_select_perspectives_activity_reuses_the_persisted_selection() -> None:
+    # A retried/resumed turn must not re-pay the one-shot: the persisted selection is returned as-is.
+    existing = PerspectiveSelection(
+        chunks=[ChunkPerspectiveSelection(chunk_id=1, perspectives=["s-logic"], reason="r1")]
+    )
+    mock_oneshot = AsyncMock()
+    with (
+        patch(f"{_MODULE}.load_perspective_selection", return_value=existing),
+        patch(f"{_MODULE}.run_oneshot_review", mock_oneshot),
+    ):
+        result = await ActivityEnvironment().run(select_perspectives_activity, _select_input(_SELECT_ROSTER))
+
+    assert mock_oneshot.called is False
+    assert result == PerspectiveSelectionDTO.from_model(existing)
+
+
+@pytest.mark.asyncio
+async def test_select_perspectives_activity_skips_the_llm_when_nothing_is_prunable() -> None:
+    # A roster of only undescribed perspectives gives the selector nothing to judge — the activity
+    # must return the dense sentinel without spending an LLM call or even a DB read.
+    undescribed = [LoadedPerspectiveDTO(pass_number=1, skill_name="s-custom", version=1, description=" ")]
+    mock_oneshot = AsyncMock()
+    mock_load = MagicMock()
+    with (
+        patch(f"{_MODULE}.load_perspective_selection", mock_load),
+        patch(f"{_MODULE}.run_oneshot_review", mock_oneshot),
+    ):
+        result = await ActivityEnvironment().run(select_perspectives_activity, _select_input(undescribed))
+
+    assert result is None
+    assert mock_oneshot.called is False
+    assert mock_load.called is False

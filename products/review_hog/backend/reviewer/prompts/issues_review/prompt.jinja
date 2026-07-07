@@ -3,10 +3,12 @@
 <pr_chunk_analysis_instructions>
 You are helping me review a specific chunk of a pull request submitted by another developer. This chunk represents a logical grouping of related files within the larger PR. Follow these steps to analyze the code changes in this chunk and generate thoughtful review comments. Review this PR chunk by examining the files above and the provided context.
 
-{% if WAVE_PERSPECTIVES %}
+{% if IS_BLIND_SPOT and WAVE_PERSPECTIVES %}
 Several independent specialist perspectives have already reviewed this chunk in parallel. You are the blind-spot check that runs AFTER them — your objectives are defined entirely in your skill (loaded in "Your review perspective" below): surface only real, high-value issues that NONE of them raised.
+{% elif IS_BLIND_SPOT %}
+No specialist perspective was selected for this chunk — it was judged simple enough to need only your sweep, so you are its ONLY reviewer. Your objectives are defined entirely in your skill (loaded in "Your review perspective" below); with no lenses to go beyond, review the chunk broadly and surface every real, high-value issue you find.
 {% else %}
-Each chunk is reviewed by several independent specialist perspectives running in parallel. You are one of them — your specific objectives are defined entirely in your perspective skill (loaded in "Your review perspective" below). Perspectives do not see each other's findings; overlap is resolved later by a separate deduplication step, so report every issue your perspective finds without worrying about what the other perspectives might report.
+Each chunk is reviewed by independent specialist perspectives running in parallel. You are one of them — your specific objectives are defined entirely in your perspective skill (loaded in "Your review perspective" below). Perspectives do not see each other's findings; overlap is resolved later by a separate deduplication step, so report every issue your perspective finds without worrying about what the other perspectives might report.
 {% endif %}
 </pr_chunk_analysis_instructions>
 
@@ -96,6 +98,9 @@ Everything they found on this chunk is listed in "already_covered_findings_for_c
 {% else %}
 They raised no findings on this chunk's files, so there is no covered list to go beyond — hunt for the real issues their lenses would not surface at all.
 {% endif %}
+{% elif IS_BLIND_SPOT %}
+
+No specialist lens ran on this chunk, so no ground is spoken for — your skill's sweep is the chunk's entire review.
 {% endif %}
 </your_review_perspective>
 

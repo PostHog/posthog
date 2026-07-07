@@ -22,7 +22,7 @@ from datetime import timedelta
 import temporalio
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError
 
 from products.review_hog.backend.reviewer.constants import (
     BLIND_SPOT_PASS_NUMBER,
@@ -30,6 +30,7 @@ from products.review_hog.backend.reviewer.constants import (
     MAX_CONCURRENT_SANDBOXES,
     VALIDATION_MAX_ATTEMPTS,
 )
+from products.review_hog.backend.reviewer.tools.select_perspectives import PerspectiveSelectionDTO, apply_selection
 from products.review_hog.backend.temporal.activities import (
     AppendCodeReviewArtefactInput,
     BuildBodyInput,
@@ -48,6 +49,7 @@ from products.review_hog.backend.temporal.activities import (
     ReviewChunkInput,
     ReviewMeta,
     SandboxStageInput,
+    SelectPerspectivesInput,
     SyncReviewSkillsInput,
     ValidateChunkInput,
     ValidateChunkResult,
@@ -63,6 +65,7 @@ from products.review_hog.backend.temporal.activities import (
     publish_review_activity,
     resolve_acting_user_activity,
     review_chunk_activity,
+    select_perspectives_activity,
     split_chunks_activity,
     sync_review_skills_activity,
     validate_chunk_activity,
@@ -112,13 +115,16 @@ class ValidateIssuesInputs(SandboxStageInput):
 
 @temporalio.workflow.defn(name="review-perspectives")
 class ReviewPerspectivesWorkflow:
-    """Fan out the perspective wave, then one blind-spot check per chunk (bounded, best-effort).
+    """Select lenses per chunk, fan out the wave, then one blind-spot check per chunk (best-effort).
 
-    Perspectives are resolved (and version-pinned) once via an activity, then every (perspective,
-    chunk) pair runs concurrently with no cross-perspective context — overlap is resolved by the
-    downstream dedup stage. After the wave, the blind-spot check (a customizable single-active skill,
-    like the validator) runs once per chunk: it reads every wave finding for its chunk and hunts for
-    what all the perspectives missed, under the reserved `BLIND_SPOT_PASS_NUMBER`.
+    Perspectives are resolved (and version-pinned) once via an activity; a cheap one-shot selection
+    then decides which lenses each chunk actually needs, and only the selected (perspective, chunk)
+    pairs run concurrently with no cross-perspective context — overlap is resolved by the downstream
+    dedup stage. Selection is fail-open: any failure means the dense product (every perspective on
+    every chunk). After the wave, the blind-spot check (a customizable single-active skill, like the
+    validator) runs once per EVERY chunk — selection never touches it, so a chunk with zero selected
+    lenses still gets reviewed: it reads its chunk's wave findings (told which lenses ran on that
+    chunk) and hunts for what they missed, under the reserved `BLIND_SPOT_PASS_NUMBER`.
     """
 
     @temporalio.workflow.run
@@ -134,8 +140,36 @@ class ReviewPerspectivesWorkflow:
         ordered = sorted(perspectives, key=lambda p: p.pass_number)
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_SANDBOXES)
 
+        selection: PerspectiveSelectionDTO | None = None
+        if inputs.chunk_ids:
+            try:
+                selection = await workflow.execute_activity(
+                    select_perspectives_activity,
+                    SelectPerspectivesInput(
+                        team_id=inputs.team_id,
+                        user_id=inputs.user_id,
+                        report_id=inputs.report_id,
+                        head_sha=inputs.head_sha,
+                        repository=inputs.repository,
+                        branch=inputs.branch,
+                        run_index=inputs.run_index,
+                        perspectives=ordered,
+                    ),
+                    start_to_close_timeout=_SANDBOX_TIMEOUT,
+                    heartbeat_timeout=_SANDBOX_HEARTBEAT,
+                    retry_policy=_RETRY,
+                )
+            except ActivityError:
+                # Selection is an optimization; failing it must never cost the review.
+                workflow.logger.warning("Perspective selection failed; running all perspectives on all chunks")
+
         async def _review(
-            pass_number: int, skill_name: str, skill_version: int, chunk_id: int, blind_spot_check: bool
+            pass_number: int,
+            skill_name: str,
+            skill_version: int,
+            chunk_id: int,
+            blind_spot_check: bool,
+            wave_perspectives: list[LoadedPerspectiveDTO],
         ) -> bool:
             async with semaphore:
                 return await workflow.execute_activity(
@@ -153,16 +187,23 @@ class ReviewPerspectivesWorkflow:
                         skill_name=skill_name,
                         skill_version=skill_version,
                         blind_spot_check=blind_spot_check,
-                        wave_perspectives=ordered if blind_spot_check else [],
+                        wave_perspectives=wave_perspectives,
                     ),
                     start_to_close_timeout=_SANDBOX_TIMEOUT,
                     heartbeat_timeout=_SANDBOX_HEARTBEAT,
                     retry_policy=_RETRY,
                 )
 
-        units = [(p, c) for p in ordered for c in inputs.chunk_ids]
+        units = apply_selection(ordered, inputs.chunk_ids, selection, blind_spot_runs=True)
+        dense_total = len(ordered) * len(inputs.chunk_ids)
+        if len(units) < dense_total:
+            workflow.logger.info(f"Perspective selection kept {len(units)}/{dense_total} (perspective, chunk) pair(s)")
+        # The lenses that actually ran per chunk — the blind-spot check below is told exactly these.
+        ran_by_chunk: dict[int, list[LoadedPerspectiveDTO]] = {c: [] for c in inputs.chunk_ids}
+        for p, c in units:
+            ran_by_chunk[c].append(p)
         results = await asyncio.gather(
-            *(_review(p.pass_number, p.skill_name, p.version, c, False) for p, c in units),
+            *(_review(p.pass_number, p.skill_name, p.version, c, False, []) for p, c in units),
             return_exceptions=True,
         )
 
@@ -185,7 +226,7 @@ class ReviewPerspectivesWorkflow:
         )
         spot_results = await asyncio.gather(
             *(
-                _review(BLIND_SPOT_PASS_NUMBER, blind_spots.skill_name, blind_spots.version, c, True)
+                _review(BLIND_SPOT_PASS_NUMBER, blind_spots.skill_name, blind_spots.version, c, True, ran_by_chunk[c])
                 for c in inputs.chunk_ids
             ),
             return_exceptions=True,

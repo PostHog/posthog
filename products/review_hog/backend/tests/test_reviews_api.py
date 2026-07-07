@@ -11,10 +11,15 @@ from products.review_hog.backend.models import ReviewReport, ReviewReportArtefac
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview, LineRange
+from products.review_hog.backend.reviewer.models.perspective_selection import (
+    ChunkPerspectiveSelection,
+    PerspectiveSelection,
+)
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
 from products.review_hog.backend.reviewer.persistence import (
     persist_chunk_set,
     persist_perspective_results,
+    persist_perspective_selection,
     persist_pr_snapshot,
 )
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -131,6 +136,7 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert [r["pr_number"] for r in rows] == [1]
         assert rows[0]["github_url"] == mine.pr_url
         assert rows[0]["published"] is False
+        assert "perspective_selection" not in rows[0]  # detail-only payload — the list stays lean
 
     def test_counts_scope_to_the_latest_run_and_fall_back_to_the_branch_url(self) -> None:
         # Counts must reflect only the latest turn's VALID findings at their EFFECTIVE priority —
@@ -205,6 +211,28 @@ class TestRecentReviewsAPI(APIBaseTest):
             head_sha="new-sha",
             results={(1, 1): _issues_review(2), (2, 1): _issues_review(1), (1000, 1): _issues_review(1)},
         )
+        # A stale-head selection must not surface; the reviewed head's one aggregates to run/skipped.
+        persist_perspective_selection(
+            team_id=self.team.id,
+            report_id=report_id,
+            head_sha="old-sha",
+            roster=["s-stale"],
+            selection=PerspectiveSelection(
+                chunks=[ChunkPerspectiveSelection(chunk_id=0, perspectives=["s-stale"], reason="old")]
+            ),
+        )
+        persist_perspective_selection(
+            team_id=self.team.id,
+            report_id=report_id,
+            head_sha="new-sha",
+            roster=["s-logic", "s-sec", "s-perf"],
+            selection=PerspectiveSelection(
+                chunks=[
+                    ChunkPerspectiveSelection(chunk_id=0, perspectives=["s-logic"], reason="docs-only chunk"),
+                    ChunkPerspectiveSelection(chunk_id=1, perspectives=["s-logic", "s-perf"], reason=""),
+                ]
+            ),
+        )
         self._finding(report, "1-a", priority=IssuePriority.MUST_FIX)
         self._finding(report, "1-b", priority=IssuePriority.SHOULD_FIX, is_valid=False)
         self._finding(report, "1-c", priority=IssuePriority.CONSIDER, judged=False)
@@ -220,6 +248,32 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert row["chunk_count"] == 2
         assert (row["perspective_count"], row["perspective_issue_count"], row["blind_spot_issue_count"]) == (2, 3, 1)
         assert (row["candidate_count"], row["dismissed_count"]) == (3, 1)
+        assert "perspective_selection" not in row
+
+        # The detail exposes the head-matched selection per chunk (stale-head one filtered out),
+        # joined with the chunk set's files, with skipped lenses computed against the roster.
+        detail = self.client.get(f"{self.url}{report.id}/").json()
+        assert detail["perspective_selection"] == {
+            "roster": ["s-logic", "s-sec", "s-perf"],
+            "chunks": [
+                {
+                    "chunk_id": 0,
+                    "chunk_type": None,
+                    "files": ["a.py"],
+                    "perspectives": ["s-logic"],
+                    "skipped": ["s-sec", "s-perf"],
+                    "reason": "docs-only chunk",
+                },
+                {
+                    "chunk_id": 1,
+                    "chunk_type": None,
+                    "files": ["a.py"],
+                    "perspectives": ["s-logic", "s-perf"],
+                    "skipped": ["s-sec"],
+                    "reason": "",
+                },
+            ],
+        }
 
     def test_retrieve_splits_findings_and_returns_the_published_body(self) -> None:
         # The drawer's contract: valid findings (most urgent first, validator override applied),
@@ -241,6 +295,7 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert high["lines"] == [{"start": 10, "end": 20}]
         assert high["validator_note"] == "a"
         assert [f["title"] for f in detail["dismissed_findings"]] == ["title 1-noise"]
+        assert detail["perspective_selection"] is None  # no selection artefact → the drawer tab shows its empty state
 
     def test_in_progress_review_surfaces_with_stage_progress(self) -> None:
         # A visibly running first-turn review must appear first with a stage inferred from the
@@ -283,6 +338,22 @@ class TestRecentReviewsAPI(APIBaseTest):
             results={(1, 1): _issues_review(1), (2, 1): _issues_review(0)},
         )
         assert self.client.get(self.url).json()[0]["progress"] == {"review_stage": "reviewing", "done": 2, "total": 8}
+
+        # Once the selector's plan lands, the total is exact: planned wave units + one blind spot per
+        # chunk — without this, a pruned run's bar stalls below 100% against the dense estimate.
+        persist_perspective_selection(
+            team_id=self.team.id,
+            report_id=running_id,
+            head_sha="sha1",
+            roster=["s-logic", "s-sec", "s-perf"],
+            selection=PerspectiveSelection(
+                chunks=[
+                    ChunkPerspectiveSelection(chunk_id=0, perspectives=["s-logic"], reason=""),
+                    ChunkPerspectiveSelection(chunk_id=1, perspectives=[], reason="title-only chunk"),
+                ]
+            ),
+        )
+        assert self.client.get(self.url).json()[0]["progress"] == {"review_stage": "reviewing", "done": 2, "total": 3}
 
         self._finding(running, "1-a", priority=IssuePriority.MUST_FIX)
         self._finding(running, "1-b", priority=IssuePriority.CONSIDER, judged=False)

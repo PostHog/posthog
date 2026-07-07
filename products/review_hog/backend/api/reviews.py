@@ -22,6 +22,7 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact, ReviewSkillConfig
 from products.review_hog.backend.reviewer.artefact_content import (
+    PerspectiveSelectionArtefact,
     ReviewIssueCategory,
     ReviewIssueFinding,
     ValidationVerdict,
@@ -29,7 +30,9 @@ from products.review_hog.backend.reviewer.artefact_content import (
 from products.review_hog.backend.reviewer.constants import BLIND_SPOT_PASS_NUMBER, effective_priority
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
-from products.review_hog.backend.reviewer.persistence import load_findings_bundle, load_turn_findings
+from products.review_hog.backend.reviewer.models.perspective_selection import ChunkPerspectiveSelection
+from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
+from products.review_hog.backend.reviewer.persistence import load_chunk_set, load_findings_bundle, load_turn_findings
 from products.review_hog.backend.reviewer.skill_loader import (
     CANONICAL_PERSPECTIVE_SKILL_NAMES,
     REVIEW_HOG_PERSPECTIVE_PREFIX,
@@ -65,6 +68,35 @@ class ReviewProgressSerializer(serializers.Serializer):
     total = serializers.IntegerField(
         allow_null=True, help_text="Work units the stage expects in total; null when unknown."
     )
+
+
+class ReviewSelectionChunkSerializer(serializers.Serializer):
+    chunk_id = serializers.IntegerField(help_text="The chunk this row describes, as numbered by the chunker.")
+    chunk_type = serializers.CharField(
+        allow_null=True,
+        help_text="The chunker's category for the chunk; null on the deterministic single-chunk path.",
+    )
+    files = serializers.ListField(
+        child=serializers.CharField(), help_text="The chunk's files, from the turn's chunk set."
+    )
+    perspectives = serializers.ListField(
+        child=serializers.CharField(), help_text="Perspectives the selector ran on this chunk, in pass order."
+    )
+    skipped = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Roster perspectives the selector skipped on this chunk, in pass order.",
+    )
+    reason = serializers.CharField(
+        allow_blank=True, help_text="The selector's one-line reasoning for this chunk's picks."
+    )
+
+
+class ReviewPerspectiveSelectionSerializer(serializers.Serializer):
+    roster = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Every enabled perspective the selector chose from, in pass order.",
+    )
+    chunks = ReviewSelectionChunkSerializer(many=True, help_text="Per-chunk picks with reasons, in chunk order.")
 
 
 class ReviewRecentReviewSerializer(serializers.Serializer):
@@ -170,6 +202,11 @@ class ReviewDetailSerializer(ReviewRecentReviewSerializer):
         allow_null=True,
         help_text="The PR head commit the latest turn reviewed — anchors GitHub links to the exact code.",
     )
+    perspective_selection = ReviewPerspectiveSelectionSerializer(
+        allow_null=True,
+        help_text="The selector's per-chunk perspective plan for the latest turn; null when the turn ran "
+        "without a selection (selector unavailable, failed, or the run predates it).",
+    )
     report_markdown = serializers.CharField(
         allow_blank=True, help_text="The rendered review body published to GitHub, as markdown."
     )
@@ -218,6 +255,10 @@ class _TurnStats:
     blind_spot_issue_count: int | None = None
     # (pass, chunk) review units completed this turn — the in-flight "reviewing" progress counter.
     perspective_reads: int | None = None
+    # The selector's persisted plan for the turn: the full menu + the normalized per-chunk picks.
+    # None when the turn ran without a selection (failed, skipped, or predates the feature).
+    selection_roster: list[str] | None = None
+    selection_chunks: list[ChunkPerspectiveSelection] | None = None
 
 
 def _content_json() -> Cast:
@@ -311,6 +352,24 @@ def _turn_stats(team_id: int, reports: list[ReviewReport]) -> dict[str, _TurnSta
         .order_by("created_at", "id")
         .values("report_id", "result_head_sha", "pass_number", "chunk_id", "issue_count")
     )
+    # Selection artefacts are small (names + one-line reasons), so full content comes across the wire.
+    selection_rows = (
+        ReviewReportArtefact.objects.for_team(team_id)
+        .filter(report_id__in=list(head_by_report), type=ReviewReportArtefact.ArtefactType.PERSPECTIVE_SELECTION)
+        .order_by("created_at", "id")
+        .values("report_id", "content")
+    )
+    for row in selection_rows:  # oldest-first, so the turn's latest selection wins
+        report_id = str(row["report_id"])
+        try:
+            artefact = PerspectiveSelectionArtefact.model_validate_json(row["content"])
+        except ValidationError as e:
+            logger.warning("Skipping unparseable perspective_selection for report %s: %s", report_id, e)
+            continue
+        if artefact.head_sha == head_by_report[report_id]:
+            stats[report_id].selection_roster = artefact.roster
+            stats[report_id].selection_chunks = artefact.selection.chunks
+
     # Latest-wins per (pass, chunk) within the turn, mirroring how the pipeline resumes them.
     issues_by_unit: dict[str, dict[tuple[int, int], int]] = {report_id: {} for report_id in head_by_report}
     for row in result_rows:
@@ -356,13 +415,23 @@ def _in_progress_report_ids(team_id: int, reports: list[ReviewReport]) -> set[st
     return fresh
 
 
-def _expected_reads(team_id: int, acting_user_id: int | None, chunk_count: int) -> int | None:
-    """How many (pass, chunk) reviews this turn should produce: chunks × (enabled perspectives + blind spot)."""
-    if acting_user_id is None:
+def _expected_reads(team_id: int, report: ReviewReport, turn: _TurnStats) -> int | None:
+    """How many (pass, chunk) reviews this turn should produce.
+
+    Once the selector's plan is persisted, the answer is exact: its planned wave units plus one
+    blind-spot unit per chunk. Until then (or when the turn runs without a selection), estimate the
+    dense product — chunks × (enabled perspectives + blind spot) — which may briefly overshoot on a
+    pruned run before the selection artefact lands.
+    """
+    if report.acting_user_id is None:
         return None
+    chunk_count = turn.chunk_count or 0
+    if turn.selection_chunks is not None:
+        planned = sum(len(chunk.perspectives) for chunk in turn.selection_chunks)
+        return planned + chunk_count
     enabled = (
         ReviewSkillConfig.objects.for_team(team_id)
-        .filter(user_id=acting_user_id, enabled=True, skill_name__startswith=REVIEW_HOG_PERSPECTIVE_PREFIX)
+        .filter(user_id=report.acting_user_id, enabled=True, skill_name__startswith=REVIEW_HOG_PERSPECTIVE_PREFIX)
         .count()
     )
     # No configs yet means the run will seed and use the canonical set.
@@ -383,7 +452,7 @@ def _progress_payload(
         return {"review_stage": "validating", "done": judged, "total": len(current_pairs)}
     if turn.chunk_count is not None:
         done = turn.perspective_reads or 0
-        expected = _expected_reads(team_id, report.acting_user_id, turn.chunk_count)
+        expected = _expected_reads(team_id, report, turn)
         return {"review_stage": "reviewing", "done": done, "total": max(expected, done) if expected else None}
     if snapshot.head_matched:
         return {"review_stage": "chunking", "done": None, "total": None}
@@ -403,6 +472,28 @@ def _finding_payload(finding: ReviewIssueFinding, verdict: ValidationVerdict) ->
         "validator_category": verdict.category,
         "validator_note": verdict.argumentation,
     }
+
+
+def _selection_payload(turn: _TurnStats, chunks: ChunksList | None) -> dict[str, Any] | None:
+    """The selector's per-chunk plan for the detail drawer, joined with the chunk set's metadata."""
+    if turn.selection_roster is None or turn.selection_chunks is None:
+        return None
+    meta_by_id = {chunk.chunk_id: chunk for chunk in chunks.chunks} if chunks is not None else {}
+    rows: list[dict[str, Any]] = []
+    for entry in turn.selection_chunks:
+        meta = meta_by_id.get(entry.chunk_id)
+        selected = set(entry.perspectives)
+        rows.append(
+            {
+                "chunk_id": entry.chunk_id,
+                "chunk_type": meta.chunk_type if meta else None,
+                "files": [f.filename for f in meta.files] if meta else [],
+                "perspectives": [name for name in turn.selection_roster if name in selected],
+                "skipped": [name for name in turn.selection_roster if name not in selected],
+                "reason": entry.reason,
+            }
+        )
+    return {"roster": turn.selection_roster, "chunks": rows}
 
 
 def _review_payload(
@@ -575,6 +666,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         snapshots = _snapshot_stats(team_id, [report])
         turns = _turn_stats(team_id, [report])
         pairs = load_turn_findings(team_id=team_id, report_id=report_id, run_index=report.run_count)
+        chunk_set = load_chunk_set(team_id=team_id, report_id=report_id, head_sha=report.head_sha)
 
         def sort_key(payload: dict[str, Any]) -> tuple[int, str]:
             return (_PRIORITY_DISPLAY_RANK[IssuePriority(payload["effective_priority"])], payload["file"])
@@ -589,5 +681,6 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             "report_markdown": report.report_markdown,
             "findings": sorted(valid, key=sort_key),
             "dismissed_findings": sorted(dismissed, key=sort_key),
+            "perspective_selection": _selection_payload(turns.get(report_id, _TurnStats()), chunk_set),
         }
         return Response(ReviewDetailSerializer(payload).data)

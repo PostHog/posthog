@@ -163,6 +163,31 @@ export interface ReviewRecentReviewApi {
     blind_spot_issue_count: number | null
 }
 
+export interface ReviewSelectionChunkApi {
+    /** The chunk this row describes, as numbered by the chunker. */
+    chunk_id: number
+    /**
+     * The chunker's category for the chunk; null on the deterministic single-chunk path.
+     * @nullable
+     */
+    chunk_type: string | null
+    /** The chunk's files, from the turn's chunk set. */
+    files: string[]
+    /** Perspectives the selector ran on this chunk, in pass order. */
+    perspectives: string[]
+    /** Roster perspectives the selector skipped on this chunk, in pass order. */
+    skipped: string[]
+    /** The selector's one-line reasoning for this chunk's picks. */
+    reason: string
+}
+
+export interface ReviewPerspectiveSelectionApi {
+    /** Every enabled perspective the selector chose from, in pass order. */
+    roster: string[]
+    /** Per-chunk picks with reasons, in chunk order. */
+    chunks: ReviewSelectionChunkApi[]
+}
+
 export interface ReviewFindingLineRangeApi {
     /** First affected line. */
     start: number
@@ -347,6 +372,8 @@ export interface ReviewDetailApi {
      * @nullable
      */
     head_sha: string | null
+    /** The selector's per-chunk perspective plan for the latest turn; null when the turn ran without a selection (selector unavailable, failed, or the run predates it). */
+    perspective_selection: ReviewPerspectiveSelectionApi | null
     /** The rendered review body published to GitHub, as markdown. */
     report_markdown: string
     /** The latest turn's validated findings, most urgent first. */

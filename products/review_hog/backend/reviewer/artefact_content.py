@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, IssuesReview, LineRange
+from products.review_hog.backend.reviewer.models.perspective_selection import PerspectiveSelection
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk
 from products.signals.backend.artefact_schemas import (
     ArtefactContentValidationError,
@@ -109,6 +110,23 @@ class ChunkSetArtefact(BaseModel):
     chunks: list[Chunk] = Field(description="The reviewable chunks for this turn.")
 
 
+class PerspectiveSelectionArtefact(BaseModel):
+    """Content for a `perspective_selection` artefact: the selector's per-chunk perspective picks.
+
+    Per-turn working state like `chunk_set`: `head_sha` scopes it so a resumed run reuses the
+    selection instead of re-paying the one-shot, and a new head re-selects. `selection` is the
+    NORMALIZED plan (the exact (perspective, chunk) pairs the fan-out runs), and `roster` is the
+    run's full enabled menu — together they let the progress estimate and the skipped-perspective
+    UI compute what ran and what was skipped without re-deriving run-time state.
+    """
+
+    head_sha: str = Field(description="PR head commit this selection was computed for (the turn key).")
+    roster: list[str] = Field(
+        default_factory=list, description="Every enabled perspective the selector chose from, in pass order."
+    )
+    selection: PerspectiveSelection = Field(description="Per-chunk perspective picks with reasons (normalized).")
+
+
 class PerspectiveResultArtefact(BaseModel):
     """Content for a `perspective_result` artefact: one (perspective, chunk) review for one turn."""
 
@@ -137,7 +155,9 @@ class PRSnapshotArtefact(BaseModel):
 # working-state types (chunk_set / perspective_result) are per-turn pipeline scaffolding the
 # DB-driven resume reads back — head_sha-scoped, latest-wins within a turn.
 ReviewLogArtefactContent = TaskRunArtefact | Commit | CodeReference | NoteArtefact
-ReviewWorkingStateContent = ChunkSetArtefact | PerspectiveResultArtefact | PRSnapshotArtefact
+ReviewWorkingStateContent = (
+    ChunkSetArtefact | PerspectiveSelectionArtefact | PerspectiveResultArtefact | PRSnapshotArtefact
+)
 ReviewArtefactContent = ReviewIssueFinding | ValidationVerdict | ReviewLogArtefactContent | ReviewWorkingStateContent
 
 # Keys must match `ReviewReportArtefact.ArtefactType` values exactly (asserted by a test).
@@ -149,6 +169,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "code_reference": CodeReference,
     "note": NoteArtefact,
     "chunk_set": ChunkSetArtefact,
+    "perspective_selection": PerspectiveSelectionArtefact,
     "perspective_result": PerspectiveResultArtefact,
     "pr_snapshot": PRSnapshotArtefact,
 }
