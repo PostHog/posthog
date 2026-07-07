@@ -35,7 +35,9 @@ const RESPONSE: _LogsPatternsResponseApi = {
             sparkline: [1, 2],
             severity_counts: { error: 2, warn: 1 },
             match_regex: '^\\s*User\\s+\\S+\\s+not\\s+found\\s*$',
-            match_literal: 'User',
+            // The miner's `extract_match_literal` returns the longest run between `<*>` holes —
+            // for 'User <*> not found' that's 'not found', not 'User'. Keep the fixture faithful.
+            match_literal: 'not found',
         },
     ],
     scanned_count: 3,
@@ -114,6 +116,25 @@ describe('logsPatternsLogic', () => {
         expect(filtersLogic.values.filters.severityLevels).toEqual(['error', 'warn'])
     })
 
+    it('viewMatchingLogs falls back to an icontains literal filter when the regex was withheld', async () => {
+        // Validation can withhold the regex (match_regex: null); the pivot must still scope the
+        // Logs view using the template's longest literal run with icontains, not a regex match.
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPatternsSuccess'])
+
+        logic.actions.viewMatchingLogs({ ...RESPONSE.patterns[0], match_regex: null })
+
+        const inner = filtersLogic.values.filters.filterGroup.values[0] as UniversalFiltersGroup
+        expect(inner.values).toContainEqual(
+            expect.objectContaining({
+                key: 'message',
+                operator: PropertyOperator.IContains,
+                type: PropertyFilterType.Log,
+                value: RESPONSE.patterns[0].match_literal,
+            })
+        )
+    })
+
     it('surfaces a load failure as patternsError and clears it on the next success', async () => {
         // A failed mine (e.g. sampling query over budget) must not render as "no patterns".
         mockCreate.mockRejectedValueOnce(new Error('estimated query execution time is too long'))
@@ -129,6 +150,10 @@ describe('logsPatternsLogic', () => {
     })
 
     it('reloads when a shared filter changes', async () => {
+        // Mining only re-runs while Patterns is the active view (the logic is mounted only then).
+        const configLogic = logsViewerConfigLogic({ id: ID })
+        configLogic.mount()
+        configLogic.actions.setViewMode('patterns')
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadPatternsSuccess'])
         mockCreate.mockClear()
