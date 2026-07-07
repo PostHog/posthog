@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
+import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { logsPatternsCreate } from 'products/logs/frontend/generated/api'
 import type { _LogsPatternsResponseApi } from 'products/logs/frontend/generated/api.schemas'
@@ -33,6 +34,8 @@ const RESPONSE: _LogsPatternsResponseApi = {
             services: ['auth'],
             sparkline: [1, 2],
             severity_counts: { error: 3 },
+            match_regex: '^\\s*User\\s+\\S+\\s+not\\s+found\\s*$',
+            match_literal: 'User',
         },
     ],
     scanned_count: 3,
@@ -71,6 +74,29 @@ describe('logsPatternsLogic', () => {
                 query: expect.objectContaining({ severityLevels: [], serviceNames: [] }),
             })
         )
+    })
+
+    it('viewMatchingLogs writes a visible message filter and switches to the Logs view', async () => {
+        // The pivot's contract: the predicate must land in the shared, user-visible filterGroup
+        // (removable like any filter, never hidden state) and the viewer must leave Patterns mode.
+        const configLogic = logsViewerConfigLogic({ id: ID })
+        configLogic.mount()
+        configLogic.actions.setViewMode('patterns')
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPatternsSuccess'])
+
+        logic.actions.viewMatchingLogs(RESPONSE.patterns[0])
+
+        const inner = filtersLogic.values.filters.filterGroup.values[0] as UniversalFiltersGroup
+        expect(inner.values).toContainEqual(
+            expect.objectContaining({
+                key: 'message',
+                operator: PropertyOperator.Regex,
+                type: PropertyFilterType.Log,
+                value: RESPONSE.patterns[0].match_regex,
+            })
+        )
+        expect(configLogic.values.viewMode).toBe('logs')
     })
 
     it('surfaces a load failure as patternsError and clears it on the next success', async () => {

@@ -1,9 +1,12 @@
-import { afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
+
+import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { logsPatternsCreate } from 'products/logs/frontend/generated/api'
 import type {
@@ -54,8 +57,14 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
                 'setFilterGroup',
                 'setPinnedFilters',
             ],
+            logsViewerConfigLogic({ id: props.id }),
+            ['setViewMode'],
         ],
     })),
+
+    actions({
+        viewMatchingLogs: (pattern: _LogPatternApi) => ({ pattern }),
+    }),
 
     loaders(({ values }) => ({
         patternsResponse: [
@@ -115,7 +124,7 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
         ],
     }),
 
-    listeners(({ actions }) => {
+    listeners(({ actions, values }) => {
         // Debounced so a multi-filter change or search typing collapses into one request —
         // kea's breakpoint cancels superseded loads before the fetch fires.
         const reload = (): void => actions.loadPatterns(300)
@@ -128,6 +137,45 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
             setFilters: reload,
             setFilterGroup: reload,
             setPinnedFilters: reload,
+
+            // Pivot to the Logs view scoped to this pattern. The predicate lands in the shared
+            // filterGroup like any user-added filter — visible and removable in the filter bar,
+            // never hidden state. Prefer the validated regex; fall back to plain-text matching
+            // on the template's literal content when validation withheld it.
+            viewMatchingLogs: ({ pattern }) => {
+                const predicate = pattern.match_regex
+                    ? {
+                          key: 'message',
+                          value: pattern.match_regex,
+                          operator: PropertyOperator.Regex,
+                          type: PropertyFilterType.Log,
+                      }
+                    : pattern.match_literal
+                      ? {
+                            key: 'message',
+                            value: pattern.match_literal,
+                            operator: PropertyOperator.IContains,
+                            type: PropertyFilterType.Log,
+                        }
+                      : null
+                if (!predicate) {
+                    return
+                }
+                const group = values.filters.filterGroup
+                const inner = group.values[0] as UniversalFiltersGroup | undefined
+                const newGroup: UniversalFiltersGroup =
+                    inner && Array.isArray(inner.values)
+                        ? {
+                              ...group,
+                              values: [{ ...inner, values: [...inner.values, predicate] }, ...group.values.slice(1)],
+                          }
+                        : {
+                              type: FilterLogicalOperator.And,
+                              values: [{ type: FilterLogicalOperator.And, values: [predicate] }],
+                          }
+                actions.setFilterGroup(newGroup, false)
+                actions.setViewMode('logs')
+            },
         }
     }),
 
