@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# coherence-install — one-time local setup for the agent-platform coherence
+# pre-commit gate (a one-week evaluation; NOT wired into CI).
+#
+# Clones + builds the pinned coherence CLI into a gitignored cache. Re-run to
+# update the pin. Needs network + Node >= 22 once; after that the pre-commit
+# hook just runs the built CLI (zero runtime deps).
+set -euo pipefail
+
+PIN="f0b7319" # daniloc/coherence — pinned commit (immutable; bump deliberately)
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+DEST="$REPO_ROOT/products/agent_platform/.coherence-tool/repo"
+
+if [ -d "$DEST/.git" ] &&
+    [ "$(git -C "$DEST" rev-parse --short=7 HEAD 2>/dev/null)" = "$PIN" ] &&
+    [ -f "$DEST/dist/cli.js" ]; then
+    echo "[coherence] already installed at $PIN"
+    exit 0
+fi
+
+echo "[coherence] installing daniloc/coherence@$PIN (clone + build, one time) ..."
+rm -rf "$DEST"
+git clone --quiet https://github.com/daniloc/coherence.git "$DEST"
+git -C "$DEST" checkout --quiet "$PIN"
+(cd "$DEST" && npm install --silent && npm run build --silent)
+echo "[coherence] ready. 'coherence verify --fast' now runs on agent_platform pre-commits."
+echo "[coherence] bypass any single commit with 'git commit --no-verify'."
