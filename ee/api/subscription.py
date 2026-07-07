@@ -162,7 +162,7 @@ class AIWindowConfigSerializer(serializers.Serializer):
     )
 
     def to_representation(self, instance: Any) -> dict:
-        # Reads route through the model's fail-soft normalisation: the JSONField can carry any shape
+        # Reads route through the model's fail-soft normalization: the JSONField can carry any shape
         # if edited out-of-band, and the typed fields would otherwise crash on it (DRF's
         # IntegerField.to_representation is `int(value)`), 500ing every list/detail read for the team.
         return Subscription.normalize_ai_window(instance)

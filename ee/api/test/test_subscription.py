@@ -2850,6 +2850,27 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert window["mode"] == "since_last_sent"
         assert window["start_days_ago"] is None
 
+    def test_garbage_ai_prompt_config_still_serializes_on_read(self, mock_is_cloud, mock_flag, mock_sync):
+        # The read path routes through the fail-soft normalizer; without it, DRF's
+        # IntegerField.to_representation (int(value)) 500s the detail GET and the team's whole
+        # subscription list on an out-of-band row. Guards against removing the override.
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        create_resp = self.client.post(f"/api/projects/{self.team.id}/subscriptions", self._make_ai_payload())
+        sub_id = create_resp.json()["id"]
+        Subscription.objects.filter(pk=sub_id).update(
+            ai_prompt_config={"window": {"mode": "bogus", "start_days_ago": "seven", "end_days_ago": True}}
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{sub_id}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["ai_prompt_config"]["window"] == {
+            "mode": "since_last_sent",
+            "start_days_ago": None,
+            "end_days_ago": None,
+        }
+
     def test_ai_prompt_config_rejected_on_insight_subscription(self, mock_is_cloud, mock_flag, mock_sync):
         self._mock_temporal(mock_sync)
         payload = self._insight_payload()
