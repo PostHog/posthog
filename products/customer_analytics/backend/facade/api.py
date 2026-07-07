@@ -256,12 +256,24 @@ def _to_external_account(account: Account) -> contracts.ExternalAccount:
     pydantic properties and ``tags`` the sorted tag names — byte-identical to
     what the CDP worker consumed before this moved behind the facade.
     """
+    relationships: dict[str, list[dict]] = {}
+    for relationship in (
+        AccountRelationship.objects.for_team(account.team_id)
+        .filter(account=account, ended_at__isnull=True, user__isnull=False)
+        .select_related("definition", "user")
+        .order_by("definition__name", "user__email")
+    ):
+        assert relationship.user is not None
+        relationships.setdefault(relationship.definition.name, []).append(
+            {"user_id": relationship.user.id, "email": relationship.user.email}
+        )
     return contracts.ExternalAccount(
         id=str(account.id),
         external_id=account.external_id,
         name=account.name,
         properties=account.properties.model_dump(mode="json"),
         tags=sorted(account.tagged_items.values_list("tag__name", flat=True)),
+        relationships=relationships,
     )
 
 
@@ -292,51 +304,51 @@ def _apply_external_tags(account: Account, tags: list[str], mode: str) -> None:
             account.tagged_items.get_or_create(tag_id=tag.id)
 
 
-def _apply_external_role_assignments(
-    account: Account, role_assignments: dict[str, int | None]
+def _apply_external_relationship_assignments(
+    account: Account, assignments: dict[str, int | None]
 ) -> contracts.ExternalAccountUpdateResult | None:
-    """Apply provided role assignments to the account's properties.
-
-    ``role_assignments`` holds only the roles present in the request (None
-    clears a role). Each non-None user id is resolved against an
-    ``OrganizationMembership`` in the account's org so the stored ``{id, email}``
-    is always trusted. Returns an error result (membership missing / invalid
-    properties) or None on success.
+    """Apply provided relationship assignments, keyed by definition name (None ends the
+    active assignment). Each non-None user id is resolved against an
+    ``OrganizationMembership`` in the account's org so assignees are always trusted.
+    Everything is validated before the first write — the caller's ``atomic()`` block
+    returns (commits) on an error result rather than rolling back.
     """
-    properties = dict(account._properties or {})
-    changed = False
-
-    for field in ACCOUNT_ASSIGNMENT_ROLE_FIELDS:
-        if field not in role_assignments:
-            continue
-        user_id = role_assignments[field]
-        if user_id is None:
-            properties[field] = None
-        else:
-            membership = (
-                OrganizationMembership.objects.select_related("user")
-                .filter(organization_id=account.team.organization_id, user_id=user_id)
-                .first()
+    definitions = {
+        definition.name: definition
+        for definition in AccountRelationshipDefinition.objects.for_team(account.team_id).filter(
+            name__in=assignments.keys()
+        )
+    }
+    resolved: list[tuple[AccountRelationshipDefinition, User | None]] = []
+    for name, user_id in assignments.items():
+        definition = definitions.get(name)
+        if definition is None:
+            return contracts.ExternalAccountUpdateResult(
+                error=contracts.ExternalAccountUpdateError.RELATIONSHIP_DEFINITION_NOT_FOUND,
+                error_field=name,
             )
-            if membership is None:
-                return contracts.ExternalAccountUpdateResult(
-                    error=contracts.ExternalAccountUpdateError.USER_NOT_IN_ORGANIZATION,
-                    error_field=field,
-                )
-            properties[field] = {"id": membership.user.id, "email": membership.user.email}
-        changed = True
+        if user_id is None:
+            resolved.append((definition, None))
+            continue
+        membership = (
+            OrganizationMembership.objects.select_related("user")
+            .filter(organization_id=account.team.organization_id, user_id=user_id)
+            .first()
+        )
+        if membership is None:
+            return contracts.ExternalAccountUpdateResult(
+                error=contracts.ExternalAccountUpdateError.USER_NOT_IN_ORGANIZATION,
+                error_field=name,
+            )
+        resolved.append((definition, membership.user))
 
-    if not changed:
-        return None
-
-    try:
-        account.properties = _ModelAccountProperties.model_validate(properties)
-    except Exception as e:
-        capture_exception(e, {"account_id": str(account.id)})
-        return contracts.ExternalAccountUpdateResult(error=contracts.ExternalAccountUpdateError.INVALID_PROPERTIES)
-
-    account.save(update_fields=["_properties", "updated_at"])
-    _relationships_logic.sync_from_account_properties(account)
+    for definition, assignee in resolved:
+        if assignee is None:
+            _relationships_logic.end_active(team_id=account.team_id, account=account, definition=definition)
+        else:
+            _relationships_logic.assign(
+                team_id=account.team_id, account=account, definition=definition, user=assignee, created_by=None
+            )
     return None
 
 
@@ -344,16 +356,17 @@ def update_external_account(
     team_id: int,
     external_id: str,
     *,
-    role_assignments: dict[str, int | None],
+    relationship_assignments: dict[str, int | None],
     tags: list[str] | None,
     tags_mode: str,
 ) -> contracts.ExternalAccountUpdateResult:
-    """Apply role assignments and tags to an account, transactionally, for the external API.
+    """Apply relationship assignments and tags to an account, transactionally, for the
+    external API.
 
-    Role assignments and tags are all-or-nothing — a tag failure must not leave the
-    role-contact changes committed. Returns a result the view maps to the exact HTTP
-    status/body: not found, a per-role org-membership failure, invalid properties, a
-    generic write failure, or success carrying the re-serialized account.
+    Assignments and tags are all-or-nothing — a tag failure must not leave the
+    relationship changes committed. Returns a result the view maps to the exact HTTP
+    status/body: not found, a per-assignment failure (unknown definition, non-member
+    user), a generic write failure, or success carrying the re-serialized account.
     """
     account = _get_external_account_by_external_id(team_id, external_id)
     if account is None:
@@ -361,7 +374,7 @@ def update_external_account(
 
     try:
         with transaction.atomic():
-            error_result = _apply_external_role_assignments(account, role_assignments)
+            error_result = _apply_external_relationship_assignments(account, relationship_assignments)
             if error_result is not None:
                 return error_result
             if tags is not None:
