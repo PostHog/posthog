@@ -158,7 +158,9 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         self._assign(assigned, holder)
         previously_assigned = create_account(team_id=self.team.id, name="Previously assigned")
         rel = self._assign(previously_assigned, holder)
-        relationships_logic.end_relationship(team_id=self.team.id, account_id=str(previously_assigned.id), relationship_id=str(rel.id))
+        relationships_logic.end_relationship(
+            team_id=self.team.id, account_id=str(previously_assigned.id), relationship_id=str(rel.id)
+        )
         never_assigned = create_account(team_id=self.team.id, name="Never assigned")
 
         self.assertEqual(set(self._ids(allRolesUnassigned=True)), {str(previously_assigned.id), str(never_assigned.id)})
@@ -203,7 +205,9 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         holder = self._create_user("holder@x.com")
         account = create_account(team_id=self.team.id, name="Handed off")
         rel = self._assign(account, holder)
-        relationships_logic.end_relationship(team_id=self.team.id, account_id=str(account.id), relationship_id=str(rel.id))
+        relationships_logic.end_relationship(
+            team_id=self.team.id, account_id=str(account.id), relationship_id=str(rel.id)
+        )
         self.assertEqual(self._ids(assignedToUserIds=[holder.id]), [])
 
     def test_assigned_to_user_matches_any_of_multiple_ids(self):
