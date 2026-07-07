@@ -54,13 +54,13 @@ def series_daily_values(series_result: Any, period_days: int) -> list[float] | N
     return [float(v) for v in series_result["data"][-2 * period_days :]]
 
 
-def split_score_windows(values: list[float], period_days: int) -> tuple[list[float], list[float]] | None:
-    """Trim a daily series to the last 2×period_days and split it into (baseline, current) halves.
+def split_score_windows(values: list[float]) -> tuple[list[float], list[float]] | None:
+    """Split a pre-trimmed daily series into (baseline, current) halves.
 
     Shared by gathering and accountability re-scoring so "current" always means the same window
-    math the movement was originally scored with. Returns None when there is too little data.
+    math the movement was originally scored with. Callers trim the series to 2×period_days via
+    series_daily_values before calling this. Returns None when there is too little data.
     """
-    values = values[-2 * period_days :]
     if len(values) % 2:
         values = values[1:]  # drop the oldest sample so the two windows compare equal lengths
     if len(values) < 2:
@@ -122,7 +122,7 @@ class AnchoredInsightsSource:
             values = series_daily_values(series_result, period_days)
             if values is None:
                 continue  # non-trends result shape — skip
-            windows = split_score_windows(values, period_days)
+            windows = split_score_windows(values)
             if windows is None:
                 continue
             movement = score_movement(baseline=windows[0], current=windows[1])
