@@ -290,7 +290,7 @@ class TestModalSandboxAgentShWrapping(TestCase):
         self.assertIn("env -0 > /tmp/agent-env", cmd)
         self.assertNotIn(ENV_WRAPPER_SCRIPT, cmd)
         self.assertIn("nohup", cmd)
-        self.assertNotIn("--autoPublish", cmd)
+        self.assertIn("--autoPublish false", cmd)
 
     def test_command_includes_auto_publish_flag(self):
         from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox

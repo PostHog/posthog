@@ -822,7 +822,7 @@ class ModalSandbox(SandboxBase):
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
-        auto_publish_flag = " --autoPublish true" if auto_publish else ""
+        auto_publish_flag = f" --autoPublish {shlex.quote('true' if auto_publish else 'false')}"
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
