@@ -101,10 +101,15 @@ impl FingerprintVersion {
     // All registered versions, ascending. Order is meaningful: selection keeps the newest
     // already-used fingerprint, and new issues are created under the last (newest) entry.
     pub fn all() -> &'static [FingerprintVersion] {
+        // Each legacy twin sits immediately below its canonical version, so the
+        // newest-first selection walk prefers V2, then V2's legacy order, then
+        // V1, then V1's — an event matching both a V2-era legacy row and an
+        // older V1 row stays on the newer issue. The last entry (the new-issue
+        // fallback) must never be a legacy version.
         &[
             FingerprintVersion::V1Legacy,
-            FingerprintVersion::V2Legacy,
             FingerprintVersion::V1,
+            FingerprintVersion::V2Legacy,
             FingerprintVersion::V2,
         ]
     }
