@@ -422,3 +422,21 @@ export const AccessControlMixedPermissions: Story = {
         )
     },
 }
+
+// A SQL insight whose query has no `{filters}` placeholder silently drops the dashboard/tile
+// property filters, so it warns that the filters aren't applied.
+export const SqlInsightWithIgnoredFilters: Story = {
+    render: () => {
+        return (
+            <div className="grid gap-4 grid-cols-2 min-w-[50rem]">
+                <InsightCardComponent
+                    tile={defaultTile}
+                    insight={EXAMPLE_DATA_TABLE_NODE_HOGQL_QUERY as unknown as QueryBasedInsightModel}
+                    rename={() => {}}
+                    duplicate={() => {}}
+                    placement="SavedInsightGrid"
+                />
+            </div>
+        )
+    },
+}
