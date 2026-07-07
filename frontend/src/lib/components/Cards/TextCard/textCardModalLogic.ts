@@ -21,7 +21,6 @@ export interface TextCardModalProps {
     dashboard: DashboardType<QueryBasedInsightModel>
     textTileId: number | 'new'
     onClose: () => void
-    // Set when opened from the inline "+" bar, so a new tile is created at the chosen slot.
     pendingInsertion?: PendingInsertion | null
 }
 
@@ -107,8 +106,7 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
                 }))
 
                 if (props.textTileId === 'new') {
-                    // When inserted via the inline "+" bar, create the tile at the chosen slot instead of
-                    // letting the backend default it to an empty column (which the grid floats to the top).
+                    // Create at the chosen slot; without a layout the grid floats the tile to the top.
                     // Existing tiles are shifted down afterwards by dashboardLogic's applyPendingInsertion.
                     const slot = props.pendingInsertion
                     const layouts = slot

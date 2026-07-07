@@ -48,8 +48,6 @@ describe('textCardModalLogic', () => {
         jest.restoreAllMocks()
     })
 
-    // A new tile carries the inline "+" slot as its layout (so the grid doesn't float it to an empty
-    // column), and carries none when added without a slot (header "Add", which appends normally).
     it.each([
         {
             scenario: 'with a pending insertion slot',
