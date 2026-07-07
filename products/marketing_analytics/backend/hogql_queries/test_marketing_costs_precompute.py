@@ -151,7 +151,7 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
     def test_native_read_takes_latest_job_per_cell_not_sum(self):
         # The same (campaign, day) cell materialized under two job_ids — a stale value and a matured one.
         # job_id is in the raw ReplacingMergeTree sort key, so both rows survive. The read filters by
-        # source (not job_id) and goes through the `marketing_costs` view, which must collapse the cell to
+        # source (not job_id) and goes through the `marketing_costs_precomputed` view, which must collapse the cell to
         # its latest-computed value (argMax), not sum the two rows.
         cell = {
             "source_id": "google_test",
