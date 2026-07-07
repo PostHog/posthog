@@ -953,3 +953,103 @@ class TestDuckgresGroupLease:
         await conn.execute(f"UPDATE {DUCKGRES_LEASE_TABLE} SET expires_at = now() - interval '1 second'")
         stale = await DuckgresBatchQueue.get_stale_executing(conn, grace_seconds=0)
         assert [str(b.id) for b in stale] == [batch_id]
+
+
+@pytest.mark.django_db(transaction=True)
+class TestOrgConcurrencyBudget:
+    # (team_id, org_id, budget) rows: teams 1 and 2 belong to org-a, team 3 to org-b.
+    TWO_ORGS = [(1, "org-a", 2), (2, "org-a", 2), (3, "org-b", 4)]
+
+    async def _eligible_group(self, conn, *, team_id: int, schema_id: str) -> str:
+        batch_id = await _insert_batch(conn, team_id=team_id, schema_id=schema_id, run_uuid=f"run-{schema_id}")
+        await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
+        return batch_id
+
+    @pytest.mark.asyncio
+    async def test_budget_caps_groups_within_one_fetch(self, conn):
+        # A single poll must not lease an org's whole schema backlog at once —
+        # each leased group is a potential connection to the org's duckgres.
+        await self._eligible_group(conn, team_id=1, schema_id="s1")
+        await self._eligible_group(conn, team_id=1, schema_id="s2")
+        await self._eligible_group(conn, team_id=2, schema_id="s3")
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", team_org_budgets=self.TWO_ORGS
+        )
+
+        # Oldest two groups win org-a's budget of 2; the third is left unleased.
+        assert {(b.team_id, b.schema_id) for b in batches} == {(1, "s1"), (1, "s2")}
+
+    @pytest.mark.asyncio
+    async def test_other_pods_live_leases_count_toward_budget_until_expiry(self, conn):
+        await self._eligible_group(conn, team_id=1, schema_id="s1")
+        claimed = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="other-pod", team_org_budgets=self.TWO_ORGS
+        )
+        assert len(claimed) == 1
+
+        await self._eligible_group(conn, team_id=1, schema_id="s2")
+        await self._eligible_group(conn, team_id=2, schema_id="s3")
+
+        # other-pod's live lease occupies 1 of org-a's 2 slots fleet-wide.
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", team_org_budgets=self.TWO_ORGS
+        )
+        assert {(b.team_id, b.schema_id) for b in batches} == {(1, "s2")}
+
+        # Expired leases return their slots: the two OLDEST org-a groups claim
+        # (s1's expired lease is reclaimable, s2 re-claims), and s3 - also
+        # org-a, via team 2 - is still budget-skipped as the third-ranked group.
+        await conn.execute(f"UPDATE {DUCKGRES_LEASE_TABLE} SET expires_at = now() - interval '1 second'")
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", team_org_budgets=self.TWO_ORGS
+        )
+        assert {(b.team_id, b.schema_id) for b in batches} == {(1, "s1"), (1, "s2")}
+
+    @pytest.mark.asyncio
+    async def test_saturated_org_does_not_block_other_orgs_groups(self, conn):
+        # Work-conservation: a capped org's OLDER work must be skipped, not
+        # deferred, or it head-of-line blocks the pod's max_groups budget.
+        one_slot = [(1, "org-a", 1), (3, "org-b", 4)]
+        await self._eligible_group(conn, team_id=1, schema_id="s1")
+        claimed = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="other-pod", team_org_budgets=one_slot
+        )
+        assert len(claimed) == 1  # org-a saturated
+
+        await self._eligible_group(conn, team_id=1, schema_id="s2")  # older than org-b's work
+        await self._eligible_group(conn, team_id=3, schema_id="s3")
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", max_groups=1, team_org_budgets=one_slot
+        )
+
+        assert {(b.team_id, b.schema_id) for b in batches} == {(3, "s3")}
+
+    @pytest.mark.asyncio
+    async def test_unmapped_team_is_uncapped(self, conn):
+        # The mapping caps; it must never act as an eligibility filter —
+        # team_ids/eligible_schema_ids own that. A team missing from the
+        # mapping (dev, or a mid-refresh race) claims freely.
+        await self._eligible_group(conn, team_id=1, schema_id="s1")
+        await self._eligible_group(conn, team_id=1, schema_id="s2")
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", team_org_budgets=[(99, "org-x", 1)]
+        )
+
+        assert {(b.team_id, b.schema_id) for b in batches} == {(1, "s1"), (1, "s2")}
+
+    @pytest.mark.asyncio
+    async def test_count_orgs_at_budget(self, conn):
+        one_each = [(1, "org-a", 1), (3, "org-b", 2)]
+        await self._eligible_group(conn, team_id=1, schema_id="s1")
+        await self._eligible_group(conn, team_id=3, schema_id="s2")
+        claimed = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="other-pod", team_org_budgets=one_each
+        )
+        assert len(claimed) == 2
+
+        # org-a: 1 live lease of budget 1 -> saturated; org-b: 1 of 2 -> not.
+        assert await DuckgresBatchQueue.count_orgs_at_budget(conn, team_org_budgets=one_each) == 1
+        assert await DuckgresBatchQueue.count_orgs_at_budget(conn, team_org_budgets=[]) == 0
