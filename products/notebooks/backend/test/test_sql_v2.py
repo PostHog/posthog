@@ -718,7 +718,7 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         kwargs: dict[str, Any] = {"data": json.dumps(body), "content_type": "application/json"}
         if token is not None:
             kwargs["HTTP_AUTHORIZATION"] = f"Bearer {token}"
-        return self.client.post(self.URL, **kwargs)  # type: ignore[arg-type]
+        return self.client.post(self.URL, **kwargs)
 
     def _token(self, short_id: str | None = None) -> str:
         return mint_data_plane_token(short_id or self.notebook.short_id, self.team.id, self.user.id)
