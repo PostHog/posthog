@@ -6,6 +6,7 @@ is written onto `VisionActionRun` inside the activity — it never crosses the T
 """
 
 import re
+import uuid
 from datetime import UTC, datetime, timedelta, tzinfo
 from typing import TYPE_CHECKING, Any, NamedTuple
 from zoneinfo import ZoneInfo
@@ -174,16 +175,32 @@ class _ObservationBatch(NamedTuple):
     window_total: int
 
 
+def _is_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(str(value))
+    except (ValueError, TypeError):
+        return False
+    return True
+
+
 def _readable_scanner_ids(user: "User", team: Team, scanner_ids: list[str]) -> list[str]:
     """Restrict an action's bound scanner ids to the ones its creator may actually read.
 
     A vision action's scanner binding is user-supplied, so without this a creator could point an action
     at a same-team scanner they lack `replay_scanner` viewer access to and receive its recording-derived
-    reasoning and outcome in the synthesized summary. Filtering through the creator's RBAC — the same gate
-    `max_tools` applies — keeps synthesis from surfacing a scanner the creator can't see.
+    reasoning and outcome in the synthesized summary. Filtering through the creator's RBAC keeps synthesis
+    from surfacing a scanner the creator can't see, mirroring the scanner-access gate `max_tools` applies
+    on interactive reads (object-level access control; note the underlying queryset filter is a no-op for
+    orgs without the access-control feature, where no per-scanner restriction exists anyway).
     """
+    # Drop non-UUID ids before querying: `selection.scanner_ids` is a user-supplied CharField list, and a
+    # malformed value would raise ValidationError inside the Temporal activity on every run (a permanent
+    # retry loop). Mirrors the UUID pre-validation in `max_tools._resolve_scanner_scope`.
+    valid_ids = [scanner_id for scanner_id in scanner_ids if _is_uuid(scanner_id)]
+    if not valid_ids:
+        return []
     readable = UserAccessControl(user=user, team=team).filter_queryset_by_access_level(
-        ReplayScanner.objects.filter(team_id=team.id, id__in=scanner_ids)
+        ReplayScanner.objects.filter(team_id=team.id, id__in=valid_ids)
     )
     return [str(scanner_id) for scanner_id in readable.values_list("id", flat=True)]
 
@@ -194,13 +211,22 @@ def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) 
     Models the summarizer fetch in `max_tools._fetch_and_format`.
     """
     selection: dict[str, Any] = action.selection or {}
-    scanner_ids = selection.get("scanner_ids") or ([str(action.scanner_id)] if action.scanner_id else [])
+    requested_scanner_ids = selection.get("scanner_ids") or ([str(action.scanner_id)] if action.scanner_id else [])
     # The bound scanner ids (`scanner`/`selection.scanner_ids`) are user-supplied, so filter them through
     # the action creator's RBAC before reading any observations — otherwise an action could surface a
     # same-team scanner's recording-derived reasoning/outcome that its creator can't access. Mirrors the
     # scanner-access gate `max_tools` applies when reading observations. Upstream guarantees a creator.
     creator = action.created_by
-    scanner_ids = _readable_scanner_ids(creator, team, scanner_ids) if creator is not None else []
+    scanner_ids = _readable_scanner_ids(creator, team, requested_scanner_ids) if creator is not None else []
+    if len(scanner_ids) < len(requested_scanner_ids):
+        # RBAC (or a malformed id) dropped some bound scanners. Log it so a silently shrinking summary is
+        # diagnosable rather than reading like "no observations this period".
+        logger.info(
+            "vision_action.synthesis.scanners_filtered",
+            vision_action_id=str(action.id),
+            requested=len(requested_scanner_ids),
+            readable=len(scanner_ids),
+        )
     if not scanner_ids:
         return _ObservationBatch(lines=[], observation_ids=[], window_start=None, window_total=0)
 
