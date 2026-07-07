@@ -1,6 +1,7 @@
 import os
 import gzip
 import json
+import uuid
 import base64
 import logging
 import dataclasses
@@ -51,7 +52,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.error_tracking.backend.facade import api as error_tracking_api
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.signals.backend.billing import get_signals_billing_credits_by_team
+from products.signals.backend.billing import credited_refund_credits_for_org, get_signals_billing_credits_by_team
 from products.surveys.backend.models import Survey
 from products.surveys.backend.util import (
     SurveyEventProperties,
@@ -1514,6 +1515,18 @@ def get_teams_with_signals_credits_used_in_period(
     Outcome-based, not LLM spend: see `products/signals/backend/billing.py`.
     """
     return get_signals_billing_credits_by_team(begin, end)
+
+
+def get_signals_credited_refund_credits_for_org(
+    organization_id: str | uuid.UUID, begin: datetime, end: datetime
+) -> int:
+    """Credits returned via credited-path signals PR refunds in `[begin, end)` for one org.
+
+    Input to the quota-limiting offset — see `products/signals/backend/billing.py`. Re-exported
+    from this posthog-layer module (like the usage query above) because the module boundaries
+    allow posthog → products.signals but not ee → products.signals.
+    """
+    return credited_refund_credits_for_org(organization_id, begin, end)
 
 
 @timed_log()

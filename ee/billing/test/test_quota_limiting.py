@@ -6,6 +6,7 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest, FuzzyInt, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
+from django.apps import apps
 from django.test import override_settings
 from django.utils import timezone
 from django.utils.timezone import now
@@ -17,8 +18,6 @@ from posthog.api.test.test_team import create_team
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.redis import get_client
-
-from products.signals.backend.models import SignalReport, SignalReportRefund
 
 from ee.billing.quota_limiting import (
     QUOTA_LIMIT_DATA_RETENTION_FLAG,
@@ -2770,6 +2769,10 @@ class TestSignalsRefundQuotaOffset(BaseTest):
         self.organization.save()
 
     def _credited_refund(self, *, pr_run_created_at: datetime.datetime) -> None:
+        # `ee` may not import `products.signals` (module boundaries), so reach its models via the
+        # app registry at runtime — same pattern the signals tests use for the tasks product.
+        SignalReport = apps.get_model("signals", "SignalReport")
+        SignalReportRefund = apps.get_model("signals", "SignalReportRefund")
         report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.SUPPRESSED)
         SignalReportRefund.all_teams.create(
             team=self.team,
@@ -2820,7 +2823,7 @@ class TestSignalsRefundQuotaOffset(BaseTest):
         # The offset query must not run once per org in the all-orgs cron — only for orgs that
         # would otherwise be limited.
         self._set_signals_usage(1000)
-        with patch("ee.billing.quota_limiting.credited_refund_credits_for_org") as mock_offset:
+        with patch("ee.billing.quota_limiting.get_signals_credited_refund_credits_for_org") as mock_offset:
             result = org_quota_limited_until(self.organization, QuotaResource.SIGNALS_CREDITS, [], [])
         assert result is None
         mock_offset.assert_not_called()
@@ -2836,6 +2839,6 @@ class TestSignalsRefundQuotaOffset(BaseTest):
         }
         self.organization.customer_trust_scores = {}
         self.organization.save()
-        with patch("ee.billing.quota_limiting.credited_refund_credits_for_org") as mock_offset:
+        with patch("ee.billing.quota_limiting.get_signals_credited_refund_credits_for_org") as mock_offset:
             org_quota_limited_until(self.organization, QuotaResource.EVENTS, [], [])
         mock_offset.assert_not_called()

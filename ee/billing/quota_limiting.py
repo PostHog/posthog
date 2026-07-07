@@ -26,6 +26,7 @@ from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.tasks.usage_report import (
     convert_team_usage_rows_to_dict,
+    get_signals_credited_refund_credits_for_org,
     get_teams_with_ai_credits_used_in_period,
     get_teams_with_ai_event_count_in_period,
     get_teams_with_api_queries_metrics,
@@ -43,8 +44,6 @@ from posthog.tasks.usage_report import (
     get_teams_with_workflow_emails_sent_in_period,
 )
 from posthog.utils import get_current_day
-
-from products.signals.backend.billing import credited_refund_credits_for_org
 
 logger = structlog.get_logger(__name__)
 
@@ -266,7 +265,7 @@ def _signals_credited_refund_offset(organization: Organization, resource: QuotaR
         return 0
     period_start = dateutil.parser.isoparse(period[0])
     period_end = dateutil.parser.isoparse(period[1])
-    return credited_refund_credits_for_org(organization.id, period_start, period_end)
+    return get_signals_credited_refund_credits_for_org(organization.id, period_start, period_end)
 
 
 def org_quota_limited_until(
