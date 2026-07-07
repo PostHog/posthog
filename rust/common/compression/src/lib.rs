@@ -13,8 +13,9 @@ use std::io::{Read, Write};
 use thiserror::Error;
 use zstd::{Decoder, Encoder};
 
-/// Gzip streams start with the two-byte magic header `1f 8b`, followed by
-/// compression method `08` for deflate.
+/// Gzip streams start with the two-byte magic `1f 8b` (ID1, ID2), followed by
+/// compression method `08` (deflate). All three bytes are checked together so
+/// streams with an unrecognized compression method are not misidentified as gzip.
 pub const GZIP_MAGIC_HEADER: [u8; 3] = [0x1f, 0x8b, 0x08];
 
 pub fn has_gzip_magic_header(bytes: &[u8]) -> bool {
