@@ -2,7 +2,7 @@ import re
 import json
 import uuid as uuid_mod
 from datetime import timedelta
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
@@ -124,6 +124,34 @@ def _validation_error_message(error: exceptions.ValidationError) -> str:
     if isinstance(detail, list) and detail:
         return str(detail[0])
     return str(detail)
+
+
+def _first_error_string(detail: Any) -> Optional[str]:
+    if isinstance(detail, str):
+        return detail
+    if isinstance(detail, list):
+        for item in detail:
+            if message := _first_error_string(item):
+                return message
+    if isinstance(detail, dict):
+        for value in detail.values():
+            if message := _first_error_string(value):
+                return message
+    return None
+
+
+def _describe_action_errors(errors: list[Any], actions: list[dict]) -> str:
+    # The many=True error list mirrors the actions list, with {} entries for valid actions. Raising it
+    # as-is gets flattened by the exception handler to that first empty dict, so the client sees "{}".
+    # Name each offending step instead so the error points at what to fix.
+    parts = []
+    for action_data, error in zip(actions, errors):
+        if not error:
+            continue
+        message = _first_error_string(error) or "has an invalid configuration"
+        name = action_data.get("name") if isinstance(action_data, dict) else None
+        parts.append(f"step '{name or 'unnamed'}': {message}")
+    return f"Can't enable this workflow. Fix {'; '.join(parts) or 'the invalid steps'} and try again."
 
 
 def _should_validate_strictly(context: dict, is_draft: Optional[bool]) -> bool:
@@ -921,7 +949,10 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         status = data.get("status", instance.status if instance else "draft")
         if status == "active" and instance and instance.status != "active" and "actions" not in data:
             action_serializer = HogFlowActionSerializer(data=instance.actions, many=True, context=self.context)
-            action_serializer.is_valid(raise_exception=True)
+            if not action_serializer.is_valid():
+                raise serializers.ValidationError(
+                    {"actions": _describe_action_errors(action_serializer.errors, instance.actions)}
+                )
             actions = action_serializer.validated_data
 
         # The trigger is derived from the actions. We can trust the action level validation and pull it out

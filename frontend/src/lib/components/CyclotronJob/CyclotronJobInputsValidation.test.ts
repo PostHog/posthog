@@ -385,6 +385,24 @@ describe('CyclotronJobInputsValidation', () => {
                     expected: W.liquidSyntaxInHogField,
                 },
                 {
+                    name: 'hog field, liquid pipe filter without a global reference',
+                    value: '{{ user.name | upcase }}',
+                    templating: 'hog',
+                    expected: W.liquidSyntaxInHogField,
+                },
+                {
+                    name: 'hog field, liquid pipe filter embedded in literal text',
+                    value: 'Cart abandoned by {{ email | default: "someone" }}',
+                    templating: 'hog',
+                    expected: W.liquidSyntaxInHogField,
+                },
+                {
+                    name: 'hog field, liquid tag syntax',
+                    value: '{% if abandoned %}Reminder{% endif %}',
+                    templating: 'hog',
+                    expected: W.liquidSyntaxInHogField,
+                },
+                {
                     name: 'liquid field, hog single-brace syntax referencing a global',
                     value: '{person.properties.email}',
                     templating: 'liquid',
@@ -424,6 +442,18 @@ describe('CyclotronJobInputsValidation', () => {
                 {
                     name: 'plain literal / static value',
                     value: 'example@posthog.com',
+                    templating: 'hog',
+                    expected: undefined,
+                },
+                {
+                    name: 'hog field, hog OR operator inside single braces',
+                    value: "{person.properties.email || 'unknown'}",
+                    templating: 'hog',
+                    expected: undefined,
+                },
+                {
+                    name: 'hog field, pipe in literal text outside braces',
+                    value: 'status | pending',
                     templating: 'hog',
                     expected: undefined,
                 },
