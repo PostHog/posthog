@@ -84,9 +84,9 @@ impl Fingerprint {
 pub enum FingerprintVersion {
     // The historical algorithm — bit-for-bit (guarded by tests/fingerprint_golden.rs).
     V1,
-    // "root cause" strategy: hashes the last exception of a chain over all frames, drops
-    // unresolved line/column, and normalizes volatile path and message tokens. Selected by an
-    // offline research loop: pairwise F1 0.84 vs 0.21 for V1 on LLM-labeled duplicate pairs.
+    // Normalizing strategy: hashes all frames of every chain entry, drops unresolved
+    // line/column, and normalizes volatile path and message tokens. Selected by an offline
+    // research loop: pairwise F1 0.40 vs 0.26 for V1 on a held-out LLM-labeled pair dataset.
     V2,
 }
 
@@ -113,7 +113,11 @@ impl FingerprintVersion {
             FingerprintVersion::V1 => FingerprintStrategy::default(),
             FingerprintVersion::V2 => FingerprintStrategy {
                 frame_selection: FrameSelection::AllFrames,
-                chain_selection: ChainSelection::Last,
+                // `Last` scores better offline (holdout F1 0.55 vs 0.40) but SDKs disagree on
+                // chain order — current SDKs put the root cause last, the legacy python SDK put
+                // it first — so keying on one end regroups differently per SDK version. Stays
+                // `All` until ordering is normalized across SDKs.
+                chain_selection: ChainSelection::All,
                 unresolved_include_line: false,
                 unresolved_include_column: false,
                 normalize: Normalization {
@@ -594,7 +598,9 @@ mod test {
     // ---- V1 vs V2 direction tests: one per differing knob ----
 
     #[test]
-    fn v2_keys_on_last_chain_entry() {
+    fn v2_hashes_every_chain_entry() {
+        // Chain selection is `All` until SDK chain ordering is normalized, so wrapper
+        // variance still splits — but masked dynamic tokens in the wrapper do not.
         let chain = |wrapper_msg: &str| {
             vec![
                 exception("WrapperError", wrapper_msg, None),
@@ -602,12 +608,12 @@ mod test {
             ]
         };
         assert_ne!(
-            value(FingerprintVersion::V1, chain("wrapped: attempt A")),
-            value(FingerprintVersion::V1, chain("wrapped: attempt B")),
-        );
-        assert_eq!(
             value(FingerprintVersion::V2, chain("wrapped: attempt A")),
             value(FingerprintVersion::V2, chain("wrapped: attempt B")),
+        );
+        assert_eq!(
+            value(FingerprintVersion::V2, chain("wrapped: attempt 12")),
+            value(FingerprintVersion::V2, chain("wrapped: attempt 47")),
         );
     }
 
