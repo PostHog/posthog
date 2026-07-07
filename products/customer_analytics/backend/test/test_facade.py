@@ -165,7 +165,7 @@ class TestCustomerAnalyticsFacade(BaseTest):
 
     def test_update_external_account_not_found_returns_not_found(self):
         result = facade.update_external_account(
-            self.team.id, "missing", role_assignments={}, tags=None, tags_mode="add"
+            self.team.id, "missing", relationship_assignments={}, tags=None, tags_mode="add"
         )
         assert result.account is None
         assert result.error == contracts.ExternalAccountUpdateError.NOT_FOUND
@@ -174,7 +174,7 @@ class TestCustomerAnalyticsFacade(BaseTest):
         account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-1")
 
         result = facade.update_external_account(
-            self.team.id, "acme-1", role_assignments={"csm": self.user.id}, tags=None, tags_mode="add"
+            self.team.id, "acme-1", relationship_assignments={"csm": self.user.id}, tags=None, tags_mode="add"
         )
 
         assert result.error is None
@@ -194,7 +194,7 @@ class TestCustomerAnalyticsFacade(BaseTest):
         )
 
         result = facade.update_external_account(
-            self.team.id, "acme-1", role_assignments={"csm": None}, tags=None, tags_mode="add"
+            self.team.id, "acme-1", relationship_assignments={"csm": None}, tags=None, tags_mode="add"
         )
 
         assert result.account is not None
@@ -211,7 +211,7 @@ class TestCustomerAnalyticsFacade(BaseTest):
         )
 
         facade.update_external_account(
-            self.team.id, "acme-1", role_assignments={"csm": self.user.id}, tags=None, tags_mode="add"
+            self.team.id, "acme-1", relationship_assignments={"csm": self.user.id}, tags=None, tags_mode="add"
         )
 
         account.refresh_from_db()
@@ -223,7 +223,7 @@ class TestCustomerAnalyticsFacade(BaseTest):
         outsider = User.objects.create_and_join(Organization.objects.create(name="Outsiders"), "out@example.com", None)
 
         result = facade.update_external_account(
-            self.team.id, "acme-1", role_assignments={"csm": outsider.id}, tags=None, tags_mode="add"
+            self.team.id, "acme-1", relationship_assignments={"csm": outsider.id}, tags=None, tags_mode="add"
         )
 
         assert result.account is None
@@ -241,7 +241,7 @@ class TestCustomerAnalyticsFacade(BaseTest):
         )
 
         result = facade.update_external_account(
-            self.team.id, "acme-1", role_assignments={"csm": self.user.id}, tags=None, tags_mode="add"
+            self.team.id, "acme-1", relationship_assignments={"csm": self.user.id}, tags=None, tags_mode="add"
         )
 
         assert result.account is None
@@ -251,22 +251,22 @@ class TestCustomerAnalyticsFacade(BaseTest):
         create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-1")
 
         added = facade.update_external_account(
-            self.team.id, "acme-1", role_assignments={}, tags=["enterprise"], tags_mode="add"
+            self.team.id, "acme-1", relationship_assignments={}, tags=["enterprise"], tags_mode="add"
         )
         assert added.account is not None and added.account.tags == ["enterprise"]
 
         added_more = facade.update_external_account(
-            self.team.id, "acme-1", role_assignments={}, tags=["priority"], tags_mode="add"
+            self.team.id, "acme-1", relationship_assignments={}, tags=["priority"], tags_mode="add"
         )
         assert added_more.account is not None and added_more.account.tags == ["enterprise", "priority"]
 
         replaced = facade.update_external_account(
-            self.team.id, "acme-1", role_assignments={}, tags=["only"], tags_mode="set"
+            self.team.id, "acme-1", relationship_assignments={}, tags=["only"], tags_mode="set"
         )
         assert replaced.account is not None and replaced.account.tags == ["only"]
 
         removed = facade.update_external_account(
-            self.team.id, "acme-1", role_assignments={}, tags=["only"], tags_mode="remove"
+            self.team.id, "acme-1", relationship_assignments={}, tags=["only"], tags_mode="remove"
         )
         assert removed.account is not None and removed.account.tags == []
 
@@ -280,7 +280,7 @@ class TestCustomerAnalyticsFacade(BaseTest):
             result = facade.update_external_account(
                 self.team.id,
                 "acme-1",
-                role_assignments={"csm": self.user.id},
+                relationship_assignments={"csm": self.user.id},
                 tags=["enterprise"],
                 tags_mode="add",
             )
