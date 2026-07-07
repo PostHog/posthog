@@ -65,11 +65,14 @@ def test_gateway_env_points_sdk_at_gateway():
 
 
 def test_gateway_env_tags_ai_product_and_attribution():
+    # Go gateway reads one X-PostHog-Properties JSON blob, not x-posthog-property-*.
     env = gateway_env("https://host", "phs_secret", {"stamphog_pr_number": 123, "stamphog_repo": "PostHog/posthog"})
     headers = env["ANTHROPIC_CUSTOM_HEADERS"]
-    assert f"x-posthog-property-ai_product: {AI_PRODUCT}" in headers
-    assert "x-posthog-property-stamphog_pr_number: 123" in headers
-    assert "x-posthog-property-stamphog_repo: PostHog/posthog" in headers
+    assert headers == (
+        "X-PostHog-Properties: "
+        '{"ai_product":"aio_stamphog","stamphog_pr_number":123,"stamphog_repo":"PostHog/posthog"}'
+    )
+    assert "x-posthog-property-" not in headers
 
 
 def test_ai_product_uses_aio_prefix_no_reserved_prefix():
@@ -79,8 +82,9 @@ def test_ai_product_uses_aio_prefix_no_reserved_prefix():
 
 def test_header_values_are_single_line():
     env = gateway_env("https://host", "phs_secret", {"stamphog_pr_title": "line one\nline two"})
-    title_lines = [ln for ln in env["ANTHROPIC_CUSTOM_HEADERS"].split("\n") if "stamphog_pr_title" in ln]
-    assert title_lines == ["x-posthog-property-stamphog_pr_title: line one line two"]
+    header = env["ANTHROPIC_CUSTOM_HEADERS"]
+    assert "\n" not in header
+    assert '"stamphog_pr_title":"line one line two"' in header
 
 
 def test_none_attribution_values_dropped():

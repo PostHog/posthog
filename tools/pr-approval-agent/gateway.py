@@ -6,6 +6,7 @@ direct Anthropic instead of failing the review. The gateway is slugless, so the
 product rides on a header, not the path.
 """
 
+import json
 import os
 from urllib.parse import urlparse
 
@@ -44,15 +45,18 @@ def resolve_gateway_config() -> tuple[str, str] | None:
     return anthropic_base, api_key
 
 
-def _property_headers(properties: dict[str, object]) -> str:
-    # Newlines collapsed so a value can't break the header block; None dropped.
-    lines = []
+def _properties_header(properties: dict[str, object]) -> str:
+    # Single X-PostHog-Properties JSON blob: the slugless Go gateway merges it onto
+    # $ai_generation and ignores per-property x-posthog-property-* headers. None
+    # dropped; newlines collapsed so a value can't break the header block.
+    clean: dict[str, object] = {}
     for key, value in properties.items():
         if value is None:
             continue
-        safe = str(value).replace("\r", " ").replace("\n", " ")
-        lines.append(f"x-posthog-property-{key}: {safe}")
-    return "\n".join(lines)
+        clean[key] = value.replace("\r", " ").replace("\n", " ") if isinstance(value, str) else value
+    if not clean:
+        return ""
+    return f"X-PostHog-Properties: {json.dumps(clean, separators=(',', ':'))}"
 
 
 def gateway_env(base_url: str, api_key: str, properties: dict[str, object]) -> dict[str, str]:
@@ -61,5 +65,5 @@ def gateway_env(base_url: str, api_key: str, properties: dict[str, object]) -> d
         "ANTHROPIC_BASE_URL": base_url,
         "ANTHROPIC_AUTH_TOKEN": api_key,
         "ANTHROPIC_API_KEY": api_key,
-        "ANTHROPIC_CUSTOM_HEADERS": _property_headers({"ai_product": AI_PRODUCT, **properties}),
+        "ANTHROPIC_CUSTOM_HEADERS": _properties_header({"ai_product": AI_PRODUCT, **properties}),
     }
