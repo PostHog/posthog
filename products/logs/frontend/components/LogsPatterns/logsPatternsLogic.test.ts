@@ -96,6 +96,10 @@ describe('logsPatternsLogic', () => {
                 value: RESPONSE.patterns[0].match_regex,
             })
         )
+        // The pattern's sample was unambiguous (one service, one severity), so the pivot also
+        // scopes by both — service_name and severity prune the scan the body regex can't.
+        expect(filtersLogic.values.filters.serviceNames).toEqual(['auth'])
+        expect(filtersLogic.values.filters.severityLevels).toEqual(['error'])
         expect(configLogic.values.viewMode).toBe('logs')
     })
 

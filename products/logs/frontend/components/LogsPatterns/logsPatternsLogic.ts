@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
+import type { LogsQuery } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
@@ -20,6 +21,10 @@ import type { logsPatternsLogicType } from './logsPatternsLogicType'
 export interface LogsPatternsLogicProps {
     id: string
 }
+
+// The severity filter is an exact match on these six buckets; a pattern whose single sampled
+// severity is non-canonical (e.g. "notice") must not be narrowed to a filter that matches nothing.
+const CANONICAL_SEVERITIES = ['trace', 'debug', 'info', 'warn', 'error', 'fatal']
 
 const EMPTY_RESPONSE: _LogsPatternsResponseApi = {
     patterns: [],
@@ -174,6 +179,17 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
                               values: [{ type: FilterLogicalOperator.And, values: [predicate] }],
                           }
                 actions.setFilterGroup(newGroup, false)
+                // When the sample is unambiguous, scope by service and severity too: service_name
+                // is in the table's sort key and severity is indexed, so these prune the scan the
+                // body regex alone can't. Both land as visible filter chips the user can remove if
+                // the pattern turns out to exist beyond what the sample saw.
+                if (pattern.services.length === 1) {
+                    actions.setServiceNames(pattern.services)
+                }
+                const severities = Object.keys(pattern.severity_counts)
+                if (severities.length === 1 && CANONICAL_SEVERITIES.includes(severities[0])) {
+                    actions.setSeverityLevels([severities[0]] as LogsQuery['severityLevels'])
+                }
                 actions.setViewMode('logs')
             },
         }
