@@ -511,6 +511,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconLlmAnalytics,
         inMenu: false,
     },
+    [NodeKind.SessionQuery]: {
+        name: 'AI observability session',
+        icon: IconLlmAnalytics,
+        inMenu: false,
+    },
     [NodeKind.TraceNeighborsQuery]: {
         name: 'AI observability trace neighbors',
         icon: IconLlmAnalytics,
