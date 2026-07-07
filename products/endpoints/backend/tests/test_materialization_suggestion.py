@@ -93,6 +93,16 @@ class TestSuggestMaterializationFixEngine:
         assert result.status == "model_error"
         assert result.suggested_query is None
 
+    def test_parseable_but_malformed_replies_exhaust_to_model_error(self):
+        # Parseable JSON that never yields a usable suggestion is a model failure, not an
+        # "invalid suggestion" — there is no last attempt to hand the user.
+        client = FakeLLMClient([json.dumps({"explanation": "here you go"})] * 3)
+        result = _suggest(client)
+        assert result.status == "model_error"
+        assert result.suggested_query is None
+        assert result.attempts == 3
+        assert result.error == "The AI model did not return a usable suggestion."
+
     def test_rejects_already_materializable_query(self):
         materializable = {**UNMATERIALIZABLE_QUERY, "query": PASSING_REWRITE}
         with pytest.raises(ValueError):

@@ -85,7 +85,10 @@ a note about which variables become required.
 For a SQL endpoint that isn't eligible, try the fast path first: call
 `endpoint-materialization-suggestion`. PostHog rewrites the query into a semantically equivalent
 form and validates it against the live eligibility checks before returning it — `ok` means the
-rewrite passes; apply it with `endpoint-update` (creates a new version), then confirm with
+rewrite passes the checks plus variable- and output-column parity, but semantic equivalence is
+the model's claim, not proven. Before applying, run the original and the rewrite with the same
+representative variable values (via `execute-sql` or the endpoint playground) and compare the
+results; only then apply it with `endpoint-update` (creates a new version), then confirm with
 `endpoint-materialization-status`. `cannot_fix` means no equivalent rewrite exists (e.g. an
 `OR {variables.x} = 'all'` optional-variable idiom) — say so rather than forcing a change in
 behaviour. Requires the org's AI data processing approval; without it, or to reason about the

@@ -21,7 +21,7 @@ import time
 import inspect
 import functools
 import dataclasses
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 import structlog
 import posthoganalytics
@@ -32,6 +32,7 @@ from posthog.llm.gateway_client import Product, get_llm_client
 from posthog.llm.semantic_enrichment import extract_json_object
 
 from products.endpoints.backend import materialization_transforms
+from products.endpoints.backend.constants import MaterializationFixStatus
 from products.endpoints.backend.models import EndpointVersion, can_materialize_query
 
 if TYPE_CHECKING:
@@ -51,8 +52,11 @@ MAX_OUTPUT_TOKENS = 16_000
 # How many suggest→validate→repair rounds before giving up.
 MAX_FIX_ATTEMPTS = 3
 # Total wall-clock budget across all rounds — this runs synchronously in a web worker, so it must
-# stay under proxy timeouts. Checked between rounds, never mid-call.
+# stay under proxy timeouts. Each round's gateway call is capped at the budget remaining when it
+# starts, so total LLM time never exceeds the budget (validation time is on top).
 TOTAL_TIME_BUDGET_SECONDS = 150
+# Upper bound for a single gateway call, within whatever budget remains.
+PER_CALL_TIMEOUT_SECONDS = 90.0
 
 MATERIALIZATION_FIX_FLAG = "endpoints-ai-materialization-fix"
 
@@ -84,10 +88,10 @@ class MaterializationFixResult:
     when the model concluded no semantically equivalent rewrite exists, ``invalid`` when suggestions
     were produced but none validated within the budget (``suggested_query`` carries the last attempt
     so the user can take it from there by hand), and ``model_error`` when the model never returned
-    parseable JSON.
+    a usable suggestion.
     """
 
-    status: Literal["ok", "cannot_fix", "invalid", "model_error"]
+    status: MaterializationFixStatus
     suggested_query: str | None
     explanation: str | None
     attempts: int
@@ -260,10 +264,10 @@ def _validate_suggestion(
     return None
 
 
-def _call_model(*, client: OpenAI, team_id: int, system_prompt: str, user_prompt: str) -> str:
+def _call_model(*, client: OpenAI, team_id: int, system_prompt: str, user_prompt: str, timeout: float) -> str:
     # Bound each call: the SDK defaults to a 600s timeout and automatic retries, so without this
     # one synchronous request could pin a web worker for many minutes. Fail fast instead.
-    response = client.with_options(timeout=90.0, max_retries=0).chat.completions.create(
+    response = client.with_options(timeout=timeout, max_retries=0).chat.completions.create(
         model=MATERIALIZATION_FIX_MODEL,
         messages=[
             {"role": "system", "content": system_prompt},
@@ -303,41 +307,49 @@ def suggest_materialization_fix(
     prior_suggestion: str | None = None
     last_parseable_suggestion: str | None = None
     last_explanation: str | None = None
-    last_error: str | None = None
-    ever_parsed = False
+    # repair_feedback is addressed to the model (fed into the next round's prompt); only validation
+    # errors — which describe the query, not the reply format — double as the user-facing error.
+    repair_feedback: str | None = None
+    last_validation_error: str | None = None
     deadline = time.monotonic() + TOTAL_TIME_BUDGET_SECONDS
 
     attempts_made = 0
     while attempts_made < max_attempts:
-        if attempts_made > 0 and time.monotonic() > deadline:
+        remaining_budget = deadline - time.monotonic()
+        if attempts_made > 0 and remaining_budget <= 0:
             break
         user_prompt = build_user_prompt(
             query=query,
             rejection_reason=original_reason,
             prior_suggestion=prior_suggestion,
-            prior_error=last_error,
+            prior_error=repair_feedback,
         )
-        raw = _call_model(client=client, team_id=team_id, system_prompt=system_prompt, user_prompt=user_prompt)
+        raw = _call_model(
+            client=client,
+            team_id=team_id,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            timeout=min(PER_CALL_TIMEOUT_SECONDS, max(remaining_budget, 1.0)),
+        )
         attempts_made += 1
         parsed = extract_json_object(raw)
         if parsed is None:
-            last_error = "Your response was not valid JSON. Return ONLY the single JSON object."
+            repair_feedback = "Your response was not valid JSON. Return ONLY the single JSON object."
             prior_suggestion = None
             continue
 
-        ever_parsed = True
         explanation = str(parsed.get("explanation") or "").strip() or None
 
         # Only a literal null means cannot_fix; a missing key is a malformed reply worth a retry
         if "suggested_query" not in parsed:
-            last_error = 'Your JSON object is missing the required "suggested_query" key.'
+            repair_feedback = 'Your JSON object is missing the required "suggested_query" key.'
             prior_suggestion = None
             continue
         suggested_query = parsed["suggested_query"]
 
         if suggested_query is None:
             return MaterializationFixResult(
-                status="cannot_fix",
+                status=MaterializationFixStatus.CANNOT_FIX,
                 suggested_query=None,
                 explanation=explanation,
                 attempts=attempts_made,
@@ -345,14 +357,14 @@ def suggest_materialization_fix(
                 original_reason=original_reason,
             )
         if not isinstance(suggested_query, str) or not suggested_query.strip():
-            last_error = 'The "suggested_query" value must be the complete rewritten SQL string, or null.'
+            repair_feedback = 'The "suggested_query" value must be the complete rewritten SQL string, or null.'
             prior_suggestion = None
             continue
 
         error = _validate_suggestion(query, suggested_query, team_id=team_id, original_columns=original_columns)
         if error is None:
             return MaterializationFixResult(
-                status="ok",
+                status=MaterializationFixStatus.OK,
                 suggested_query=suggested_query,
                 explanation=explanation,
                 attempts=attempts_made,
@@ -362,20 +374,29 @@ def suggest_materialization_fix(
         prior_suggestion = suggested_query
         last_parseable_suggestion = suggested_query
         last_explanation = explanation
-        last_error = error
+        last_validation_error = error
+        repair_feedback = error
 
     logger.info(
         "endpoint_materialization_fix.exhausted",
         team_id=team_id,
         attempts=attempts_made,
-        ever_parsed=ever_parsed,
-        last_error=last_error,
+        last_repair_feedback=repair_feedback,
     )
+    if last_parseable_suggestion is not None:
+        return MaterializationFixResult(
+            status=MaterializationFixStatus.INVALID,
+            suggested_query=last_parseable_suggestion,
+            explanation=last_explanation,
+            attempts=attempts_made,
+            error=last_validation_error,
+            original_reason=original_reason,
+        )
     return MaterializationFixResult(
-        status="invalid" if ever_parsed else "model_error",
-        suggested_query=last_parseable_suggestion,
-        explanation=last_explanation,
+        status=MaterializationFixStatus.MODEL_ERROR,
+        suggested_query=None,
+        explanation=None,
         attempts=attempts_made,
-        error=last_error,
+        error="The AI model did not return a usable suggestion.",
         original_reason=original_reason,
     )

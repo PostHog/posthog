@@ -10,6 +10,8 @@ from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 
+from products.endpoints.backend.constants import MaterializationFixStatus
+
 
 class EndpointRequestSerializer(serializers.Serializer):
     """Schema for creating/updating endpoints. OpenAPI docs only — validation uses Pydantic."""
@@ -125,7 +127,7 @@ class EndpointMaterializationSuggestionSerializer(serializers.Serializer):
     """AI-suggested query rewrite that would make the endpoint materializable."""
 
     suggestion_status = serializers.ChoiceField(
-        choices=["ok", "cannot_fix", "invalid", "model_error"],
+        choices=[s.value for s in MaterializationFixStatus],
         help_text=(
             "Outcome of the suggestion run: 'ok' — the suggested query passes the live materialization "
             "checks; 'cannot_fix' — no semantically equivalent rewrite exists; 'invalid' — a suggestion "
