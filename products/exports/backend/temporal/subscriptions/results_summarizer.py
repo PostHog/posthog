@@ -9,6 +9,10 @@ LOGGER = get_logger(__name__)
 
 MAX_SUMMARY_LENGTH = 2000
 
+# Query kinds whose metric values map onto the insight's Y-axis format, so summary
+# numbers should be rendered the way the chart renders them (e.g. duration, currency).
+_TREND_SUMMARY_KINDS = {"TrendsQuery", "LifecycleQuery", "StickinessQuery"}
+
 
 def _safe_label(value: Any, fallback: str) -> str:
     if value is None:
@@ -26,23 +30,27 @@ def build_results_summary(
     query_kind: str,
     results: list[Any] | None,
     columns: list[str] | None = None,
+    value_format: dict[str, Any] | None = None,
 ) -> str:
     if not results:
         return "No results"
 
-    summarizer = _SUMMARIZERS.get(query_kind)
-    if summarizer is not None:
-        text = summarizer(results)
+    if query_kind in _TREND_SUMMARY_KINDS:
+        text = _summarize_trends(results, value_format)
     else:
-        text = _summarize_generic(results, columns)
+        summarizer = _SUMMARIZERS.get(query_kind)
+        if summarizer is not None:
+            text = summarizer(results)
+        else:
+            text = _summarize_generic(results, columns)
     if len(text) > MAX_SUMMARY_LENGTH:
         text = text[:MAX_SUMMARY_LENGTH] + "\n... (truncated)"
     return text
 
 
-def _summarize_trends(results: list[dict[str, Any]]) -> str:
+def _summarize_trends(results: list[dict[str, Any]], value_format: dict[str, Any] | None = None) -> str:
     if _looks_like_boxplot_trend(results):
-        return _summarize_boxplot_trend(results)
+        return _summarize_boxplot_trend(results, value_format)
 
     lines: list[str] = []
     for series in results:
@@ -57,15 +65,16 @@ def _summarize_trends(results: list[dict[str, Any]]) -> str:
                 avg = sum(numeric) / len(numeric)
                 trend = _trend_direction(numeric)
                 lines.append(
-                    f"- {label}: latest={_fmt(latest)}, avg={_fmt(avg)}, "
-                    f"min={_fmt(min(numeric))}, max={_fmt(max(numeric))}, trend={trend} ({len(numeric)} points)"
+                    f"- {label}: latest={_fmt_value(latest, value_format)}, avg={_fmt_value(avg, value_format)}, "
+                    f"min={_fmt_value(min(numeric), value_format)}, max={_fmt_value(max(numeric), value_format)}, "
+                    f"trend={trend} ({len(numeric)} points)"
                 )
                 continue
 
         if aggregated_value is not None:
-            lines.append(f"- {label}: total={_fmt(aggregated_value)}")
+            lines.append(f"- {label}: total={_fmt_value(aggregated_value, value_format)}")
         elif series.get("count") is not None and series["count"] != 0:
-            lines.append(f"- {label}: count={_fmt(series['count'])}")
+            lines.append(f"- {label}: count={_fmt_value(series['count'], value_format)}")
         else:
             lines.append(f"- {label}: (no data)")
 
@@ -81,7 +90,7 @@ def _looks_like_boxplot_trend(results: list[dict[str, Any]]) -> bool:
     return "median" in first and "data" not in first
 
 
-def _summarize_boxplot_trend(results: list[dict[str, Any]]) -> str:
+def _summarize_boxplot_trend(results: list[dict[str, Any]], value_format: dict[str, Any] | None = None) -> str:
     by_series: dict[str, list[dict[str, Any]]] = {}
     for row in results:
         label = _safe_label(row.get("series_label") or row.get("label"), "Unknown")
@@ -99,10 +108,10 @@ def _summarize_boxplot_trend(results: list[dict[str, Any]]) -> str:
         mins = [r["min"] for r in rows if isinstance(r.get("min"), (int, float)) and math.isfinite(r["min"])]
         trend = _trend_direction(medians)
         lines.append(
-            f"- {label} (boxplot): median latest={_fmt(medians[-1])}, "
-            f"median avg={_fmt(sum(medians) / len(medians))}, "
-            f"overall min={_fmt(min(mins) if mins else medians[-1])}, "
-            f"overall max={_fmt(max(maxes) if maxes else medians[-1])}, "
+            f"- {label} (boxplot): median latest={_fmt_value(medians[-1], value_format)}, "
+            f"median avg={_fmt_value(sum(medians) / len(medians), value_format)}, "
+            f"overall min={_fmt_value(min(mins) if mins else medians[-1], value_format)}, "
+            f"overall max={_fmt_value(max(maxes) if maxes else medians[-1], value_format)}, "
             f"median trend={trend} ({len(medians)} points)"
         )
 
@@ -223,10 +232,60 @@ def _fmt(value: float | int | None) -> str:
     return f"{value:,}"
 
 
+def _format_duration(seconds: float | int) -> str:
+    """Human-readable duration matching the chart's Y-axis (humanFriendlyDuration):
+    days+hours for >= 1 day, hours+minutes+seconds below that, e.g. "4d 4h" / "3h 45m 12s".
+    """
+    if seconds < 0:
+        return f"-{_format_duration(-seconds)}"
+    if seconds < 1:
+        return f"{round(seconds * 1000)}ms" if seconds else "0s"
+    if seconds < 60:
+        return f"{round(seconds)}s"
+
+    days = int(seconds // 86400)
+    hours = int((seconds % 86400) // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = round((seconds % 3600) % 60)
+
+    if days > 0:
+        units = [f"{days}d"] + ([f"{hours}h"] if hours else [])
+    else:
+        units = [
+            u for u in (f"{hours}h" if hours else "", f"{minutes}m" if minutes else "", f"{secs}s" if secs else "") if u
+        ]
+    return " ".join(units) or "0s"
+
+
+def _fmt_value(value: float | int | None, value_format: dict[str, Any] | None) -> str:
+    """Render a metric value the way the insight's Y-axis does, so summary numbers match
+    the chart the user sees (a duration insight reads "4d 4h", not "360000"). Mirrors
+    frontend/src/scenes/insights/aggregationAxisFormat.ts. Falls back to plain numeric
+    formatting when no axis format is configured.
+    """
+    if not value_format:
+        return _fmt(value)
+    if value is None or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return "N/A"
+
+    axis_format = value_format.get("format")
+    if axis_format == "duration":
+        formatted = _format_duration(value)
+    elif axis_format == "duration_ms":
+        formatted = _format_duration(value / 1000)
+    elif axis_format == "percentage":
+        formatted = f"{_fmt(value)}%"
+    elif axis_format == "percentage_scaled":
+        formatted = f"{_fmt(value * 100)}%"
+    else:
+        formatted = _fmt(value)
+
+    prefix = value_format.get("prefix") or ""
+    postfix = value_format.get("postfix") or ""
+    return f"{prefix}{formatted}{postfix}"
+
+
 _SUMMARIZERS: dict[str, Any] = {
-    "TrendsQuery": _summarize_trends,
     "FunnelsQuery": _summarize_funnels,
     "RetentionQuery": _summarize_retention,
-    "LifecycleQuery": _summarize_trends,
-    "StickinessQuery": _summarize_trends,
 }

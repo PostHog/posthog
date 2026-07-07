@@ -182,6 +182,34 @@ class TestBuildResultsSummary:
             assert fragment in summary, f"Expected '{fragment}' in summary:\n{summary}"
 
 
+class TestBuildResultsSummaryValueFormat:
+    """value_format renders metric values the way the chart's Y-axis does, so the AI
+    summary reads "4d 4h" instead of a raw "360000" (the bug that produced a nonsensical
+    "falling from 2d 13h to 2d 15h" summary from unformatted duration numbers)."""
+
+    @pytest.mark.parametrize(
+        "value_format,data,expected_fragments",
+        [
+            ({"format": "duration"}, [360000], ["latest=4d 4h"]),
+            ({"format": "duration_ms"}, [360000000], ["latest=4d 4h"]),
+            ({"format": "percentage"}, [37], ["latest=37%"]),
+            ({"format": "percentage_scaled"}, [0.37], ["latest=37%"]),
+            ({"prefix": "$"}, [1200], ["latest=$1,200"]),
+            ({"format": "numeric", "postfix": " reqs"}, [1200], ["latest=1,200 reqs"]),
+        ],
+    )
+    def test_metric_values_match_axis_format(self, value_format, data, expected_fragments):
+        results = [{"label": "Metric", "data": data}]
+        summary = build_results_summary("TrendsQuery", results, value_format=value_format)
+        for fragment in expected_fragments:
+            assert fragment in summary, f"Expected '{fragment}' in summary:\n{summary}"
+
+    def test_no_value_format_falls_back_to_plain_numeric(self):
+        results = [{"label": "Metric", "data": [360000]}]
+        summary = build_results_summary("TrendsQuery", results, value_format=None)
+        assert "latest=360,000" in summary
+
+
 class TestBuildResultsSummaryTruncation:
     def test_long_results_are_truncated(self):
         results = [{"label": f"Series {i}", "data": list(range(100))} for i in range(50)]
