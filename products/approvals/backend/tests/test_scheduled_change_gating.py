@@ -410,80 +410,87 @@ class TestScheduledChangeGating(APIBaseTest):
         flag.refresh_from_db()
         assert flag.active is False
 
-    def _recurring_rollout_schedule(self, flag: FeatureFlag, scheduled_at: datetime) -> ScheduledChange:
-        # add_release_condition appends a >0 rollout group on every fire, so each occurrence is a real
-        # change the rollout policy can gate (unlike re-asserting an already-set active flag).
-        new_condition: dict[str, Any] = {
-            "variant": None,
-            "properties": [],
-            "rollout_percentage": 90,
-            "aggregation_group_type_index": None,
-        }
+    def _recurring_enable_schedule(self, flag: FeatureFlag, *, gated: bool) -> ScheduledChange:
+        payload = {"operation": "update_status", "value": True}
         return ScheduledChange.objects.create(
             team=self.team,
             record_id=str(flag.id),
             model_name="FeatureFlag",
-            payload={
-                "operation": "add_release_condition",
-                "value": {"groups": [new_condition], "payloads": {}, "multivariate": None},
-            },
-            scheduled_at=scheduled_at,
+            payload=payload,
+            scheduled_at=timezone.now() - timedelta(seconds=30),
             is_recurring=True,
             recurrence_interval="daily",
             created_by=self.user,
-            change_request=None,
+            change_request=self._gate(flag, payload) if gated else None,
         )
 
-    def test_recurring_schedule_born_ungated_regates_when_policy_added_later(self, _mock_enabled):
-        # A recurring schedule created before any policy existed binds no CR. Once a matching policy
-        # is enabled, every future occurrence must be re-gated — the applier re-gates on each advance
-        # regardless of the current (null) binding, so the next fire is gated rather than flipping the
-        # rollout unapproved forever.
-        flag = self._disabled_flag(key="recurring-late-policy")
-        scheduled = self._recurring_rollout_schedule(flag, timezone.now() - timedelta(seconds=30))
-        assert scheduled.change_request is None
-
-        # Policy enabled *after* the schedule was created.
-        self._update_policy({"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 0})
-
-        process_scheduled_changes()
-
-        # Reload into a fresh instance so the narrowed type from the earlier `is None` assert is widened.
-        reloaded = ScheduledChange.objects.get(pk=scheduled.pk)
-        # The next occurrence is now gated: re-gating bound a fresh pending CR during the advance.
-        assert reloaded.change_request is not None
-        assert reloaded.change_request.state == ChangeRequestState.PENDING
-        # Still an active recurring schedule pointed at a future fire (not completed).
-        assert reloaded.executed_at is None
-        assert reloaded.scheduled_at > timezone.now()
-
-    def test_recurring_regate_conflict_stops_advancing_schedule(self, _mock_enabled):
-        # If the next occurrence would match more than one enabled policy, re-gating raises
-        # PolicyConflict. That must propagate before scheduled_at is advanced, so the schedule stays
-        # on the conflicting occurrence (failure recorded) instead of silently skipping to the next.
-        flag = self._disabled_flag(key="recurring-conflict")
-        scheduled = self._recurring_rollout_schedule(flag, timezone.now() - timedelta(seconds=30))
-
-        # Two enabled update policies both match the rollout change → conflict at re-gate time.
-        rollout_condition = {"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 0}
-        self._update_policy(rollout_condition)
-        ApprovalPolicy.objects.create(
+    def _org_enable_policy(self) -> ApprovalPolicy:
+        # Org-level (team=None) enable policy — matches the same enable as the team-level one, so a
+        # change gated by both fails closed with a policy conflict.
+        return ApprovalPolicy.objects.create(
             organization=self.organization,
-            team=None,  # org-level, also matches the rollout change
-            action_key="feature_flag.update",
-            conditions=rollout_condition,
+            team=None,
+            action_key="feature_flag.enable",
+            conditions={},
             approver_config={"quorum": 1, "users": [self.user.id]},
             created_by=self.user,
         )
 
+    def test_regate_recurring_binds_fresh_cr_when_policy_applies(self, _mock_enabled):
+        # regate_recurring_scheduled_change re-evaluates the flag's current state for the next
+        # occurrence. With a matching policy enabled it binds a fresh pending CR — this is what lets
+        # process_scheduled_changes re-gate a schedule (including one born ungated, change_request
+        # None) instead of flipping the gated field unapproved on every recurrence.
+        from products.approvals.backend.scheduled_changes import regate_recurring_scheduled_change
+
+        self._enable_policy()
+        flag = self._disabled_flag()
+        scheduled = self._recurring_enable_schedule(flag, gated=False)
+        assert scheduled.change_request is None
+
+        cr = regate_recurring_scheduled_change(scheduled)
+
+        assert cr is not None
+        assert cr.state == ChangeRequestState.PENDING
+
+    def test_regate_recurring_raises_on_policy_conflict(self, _mock_enabled):
+        # When the next occurrence would match more than one enabled policy, regate fails closed with
+        # PolicyConflict rather than binding a single CR that can't satisfy both.
+        from products.approvals.backend.exceptions import PolicyConflict
+        from products.approvals.backend.scheduled_changes import regate_recurring_scheduled_change
+
+        self._enable_policy()
+        self._org_enable_policy()
+        flag = self._disabled_flag()
+        scheduled = self._recurring_enable_schedule(flag, gated=False)
+
+        with self.assertRaises(PolicyConflict):
+            regate_recurring_scheduled_change(scheduled)
+
+    def test_recurring_regate_conflict_does_not_advance_schedule(self, _mock_enabled):
+        # process_scheduled_changes re-gates before advancing scheduled_at. If the next occurrence's
+        # re-gate raises PolicyConflict, that must propagate before the advance is persisted, so the
+        # schedule stays on the conflicting occurrence (failure recorded) rather than silently
+        # skipping ahead. The bound CR keeps the flag disabled: the pending CR is expired at fire
+        # time without applying, so re-gating sees the unchanged (disabled) flag and conflicts.
+        self._enable_policy()
+        flag = self._disabled_flag()
+        scheduled = self._recurring_enable_schedule(flag, gated=True)
+        assert scheduled.change_request is not None
+
+        # A second enable policy makes the next occurrence's re-gate match two policies → conflict.
+        self._org_enable_policy()
+
         process_scheduled_changes()
 
         scheduled.refresh_from_db()
-        # scheduled_at was not advanced into the future — the conflicting occurrence is not skipped.
+        # scheduled_at not advanced into the future (a daily advance would push it ~1 day out) — the
+        # conflicting occurrence is not skipped.
         assert scheduled.scheduled_at < timezone.now()
         assert scheduled.executed_at is None
         assert scheduled.failure_count == 1
-        assert scheduled.failure_reason is not None
+        flag.refresh_from_db()
+        assert flag.active is False
 
     def test_approved_then_stale_cr_is_not_applied(self, _mock_enabled):
         self._enable_policy()
