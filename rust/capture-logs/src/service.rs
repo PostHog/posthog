@@ -8,6 +8,7 @@ use axum::{
     response::Json,
 };
 use bytes::Bytes;
+use common_compression::{decompress_gzip_capped, has_gzip_magic_header, CompressionError};
 use limiters::token_dropper::TokenDropper;
 use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
 use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequest;
@@ -303,6 +304,7 @@ pub fn parse_otel_message(json_bytes: &Bytes) -> Result<ExportLogsServiceRequest
 pub struct Service {
     pub(crate) sink: KafkaSink,
     pub(crate) token_dropper: Arc<TokenDropper>,
+    pub(crate) max_request_body_size_bytes: usize,
 }
 
 #[derive(Deserialize)]
@@ -314,11 +316,39 @@ impl Service {
     pub async fn new(
         kafka_sink: KafkaSink,
         token_dropper: Arc<TokenDropper>,
+        max_request_body_size_bytes: usize,
     ) -> Result<Self, anyhow::Error> {
         Ok(Self {
             sink: kafka_sink,
             token_dropper,
+            max_request_body_size_bytes,
         })
+    }
+}
+
+pub(crate) fn decode_body_if_gzip_magic(
+    body: Bytes,
+    max_request_body_size_bytes: usize,
+) -> Result<Bytes, (StatusCode, Json<serde_json::Value>)> {
+    if !has_gzip_magic_header(&body) {
+        return Ok(body);
+    }
+
+    match decompress_gzip_capped(&body, max_request_body_size_bytes) {
+        Ok(decompressed) => Ok(Bytes::from(decompressed)),
+        Err(CompressionError::OutputTooLarge {
+            decompressed,
+            limit,
+        }) => Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(json!({
+                "error": format!("Decompressed request body exceeds limit ({decompressed} > {limit} bytes)")
+            })),
+        )),
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("Failed to decompress gzip request body: {e}")})),
+        )),
     }
 }
 
@@ -388,6 +418,8 @@ pub async fn export_logs_http(
     }
 
     tracing::Span::current().record("token", token);
+
+    let body = decode_body_if_gzip_magic(body, service.max_request_body_size_bytes)?;
 
     // Try to decode as Protobuf, if this fails, try JSON.
     // We do this over relying on Content-Type headers to be as permissive as possible in what we accept.
@@ -577,6 +609,8 @@ pub async fn export_traces_http(
 
     tracing::Span::current().record("token", token);
 
+    let body = decode_body_if_gzip_magic(body, service.max_request_body_size_bytes)?;
+
     let export_request = match ExportTraceServiceRequest::decode(body.as_ref()) {
         Ok(request) => request,
         Err(proto_err) => match parse_otel_traces_message(&body) {
@@ -752,6 +786,8 @@ pub async fn export_metrics_http(
 
     tracing::Span::current().record("token", token);
 
+    let body = decode_body_if_gzip_magic(body, service.max_request_body_size_bytes)?;
+
     let export_request = match ExportMetricsServiceRequest::decode(body.as_ref()) {
         Ok(request) => request,
         Err(proto_err) => match parse_otel_metrics_message(&body) {
@@ -824,4 +860,43 @@ pub async fn export_metrics_http(
     }
 
     Ok(Json(json!({})))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use flate2::{write::GzEncoder, Compression};
+
+    fn gzip(data: &[u8]) -> Bytes {
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(data).unwrap();
+        Bytes::from(encoder.finish().unwrap())
+    }
+
+    #[test]
+    fn decode_body_if_gzip_magic_decompresses_without_header() {
+        let body = gzip(br#"{"resourceLogs":[]}"#);
+
+        let decoded = decode_body_if_gzip_magic(body, 1024).unwrap();
+
+        assert_eq!(decoded, Bytes::from_static(br#"{"resourceLogs":[]}"#));
+    }
+
+    #[test]
+    fn decode_body_if_gzip_magic_preserves_plain_body() {
+        let body = Bytes::from_static(br#"{"resourceLogs":[]}"#);
+
+        let decoded = decode_body_if_gzip_magic(body.clone(), 1024).unwrap();
+
+        assert_eq!(decoded, body);
+    }
+
+    #[test]
+    fn decode_body_if_gzip_magic_rejects_oversized_output() {
+        let body = gzip(&vec![b'a'; 2048]);
+
+        let err = decode_body_if_gzip_magic(body, 1024).unwrap_err();
+
+        assert_eq!(err.0, StatusCode::PAYLOAD_TOO_LARGE);
+    }
 }

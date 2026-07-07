@@ -344,6 +344,9 @@ tools:
     signals-report-artefacts-diff:
         operation: signals_report_artefacts_diff
         enabled: false
+    signals-reports-signals-retrieve:
+        operation: signals_reports_signals_retrieve
+        enabled: false
     signals-scout-config-create:
         operation: signals_scout_config_create
         enabled: true

@@ -106,11 +106,11 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
 
         // Check for hog functions
         const hogFunction = await this.hogFunctionManager.getHogFunction(webhookId)
-        if (hogFunction?.type === 'source_webhook' && hogFunction?.enabled) {
+        if (hogFunction?.type === 'source_webhook' && hogFunction.enabled && !hogFunction.deleted) {
             return { hogFunction }
         }
 
-        if (hogFunction?.type === 'warehouse_source_webhook' && hogFunction?.enabled) {
+        if (hogFunction?.type === 'warehouse_source_webhook' && hogFunction.enabled && !hogFunction.deleted) {
             const templateId = hogFunction.template_id ?? 'template-warehouse-source-default'
             const template = await this.hogFunctionTemplateManager.getHogFunctionTemplate(templateId)
             if (template) {

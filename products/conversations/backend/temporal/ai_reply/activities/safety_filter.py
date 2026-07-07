@@ -10,7 +10,12 @@ from posthog.llm.gateway_client import get_async_anthropic_gateway_client
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.conversations.backend.temporal.ai_reply.constants import MAX_SAFETY_REVIEWED_CHARS, UTILITY_MODEL
-from products.conversations.backend.temporal.ai_reply.llms import anthropic_text, create_message, strip_json_fence
+from products.conversations.backend.temporal.ai_reply.llms import (
+    anthropic_text,
+    create_message,
+    strip_json_fence,
+    tracing_kwargs,
+)
 from products.conversations.backend.temporal.ai_reply.schemas import SafetyFilterInput, SafetyFilterOutput
 
 logger = structlog.get_logger(__name__)
@@ -111,10 +116,12 @@ class SafetyFilterResult(BaseModel):
 async def support_safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput:
     """Screen ticket for prompt injection / data exfiltration before the draft loop."""
     async with Heartbeater():
-        return await _safety_filter(input.team_id, input.ticket_context)
+        return await _safety_filter(input.team_id, input.ticket_context, input.trace_id, input.ticket_id)
 
 
-async def _safety_filter(team_id: int, ticket_context: str) -> SafetyFilterOutput:
+async def _safety_filter(
+    team_id: int, ticket_context: str, trace_id: str = "", ticket_id: str = ""
+) -> SafetyFilterOutput:
     # The workflow pre-slices ticket_context to MAX_SAFETY_REVIEWED_CHARS before passing it
     # here and to _draft_async, so both always see the same bytes. Cap again defensively.
     user_content = f"Ticket to review:\n<ticket>\n{ticket_context[:MAX_SAFETY_REVIEWED_CHARS]}\n</ticket>"
@@ -126,6 +133,7 @@ async def _safety_filter(team_id: int, ticket_context: str) -> SafetyFilterOutpu
         max_tokens=512,
         system=SAFETY_FILTER_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_content}],
+        **tracing_kwargs(trace_id, ticket_id),
     )
     content = anthropic_text(message)
 

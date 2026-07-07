@@ -69,7 +69,9 @@ export function Message({ message, isCustomer, deliveryStatus }: MessageProps): 
                                     className="text-sm"
                                 />
                             ) : (
-                                <SupportMarkdown className="text-sm">{message.content}</SupportMarkdown>
+                                <SupportMarkdown className="text-sm" disableImages={message.fromZendesk}>
+                                    {message.content}
+                                </SupportMarkdown>
                             )}
                         </div>
                         <div className="flex items-center justify-end gap-1">

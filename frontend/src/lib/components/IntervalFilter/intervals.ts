@@ -1,4 +1,8 @@
-export type IntervalKeyType = 'minute' | 'hour' | 'day' | 'week' | 'month'
+import type { IntervalType } from '~/types'
+
+// Derived from IntervalType so the compiler forces a picker decision when the schema gains an interval.
+// 'second' is intentionally not selectable in the UI.
+export type IntervalKeyType = Exclude<IntervalType, 'second'>
 
 export type Intervals = {
     [key in IntervalKeyType]: {

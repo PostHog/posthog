@@ -12,7 +12,13 @@ import posthoganalytics
 from posthog.event_usage import groups
 
 from .. import logic, weekly_digest
-from ..models import resolve_fingerprints_for_issues
+from ..models import (
+    ErrorTrackingIssue,
+    override_error_tracking_issue_fingerprint as override_error_tracking_issue_fingerprint,
+    resolve_fingerprints_for_issues,
+    sync_issues_to_clickhouse as sync_issues_to_clickhouse,
+)
+from ..remote_config import build_error_tracking_config as build_error_tracking_config
 from . import contracts
 
 IssueNotFoundError = logic.ErrorTrackingIssueNotFoundError
@@ -637,3 +643,19 @@ def get_source_maps_recommendation_for_team(team: Any) -> dict[str, Any] | None:
 
 def build_ingestion_failures_url(team_id: int) -> str:
     return weekly_digest.build_ingestion_failures_url(team_id)
+
+
+def has_resolved_issues(team_id: int) -> bool:
+    return ErrorTrackingIssue.objects.filter(team_id=team_id, status=ErrorTrackingIssue.Status.RESOLVED).exists()
+
+
+def build_team_digest_data(team: Any) -> dict[str, Any] | None:
+    return weekly_digest.build_team_digest_data(team)
+
+
+def build_team_section_payload(data: dict[str, Any]) -> dict[str, Any]:
+    return weekly_digest.build_team_section_payload(data)
+
+
+def send_digest_to_workflow(digest: dict[str, Any], distinct_id: str) -> None:
+    weekly_digest.send_digest_to_workflow(digest, distinct_id)

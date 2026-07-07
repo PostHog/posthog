@@ -1,6 +1,7 @@
 //! Drain P_old on its own worker (phase 1 of cross-partition merge).
 //!
-//! Given a `PersonMergeEvent` (keyed by P_old), reads P_old's per-leaf state, then either:
+//! Given a `PersonMergeEvent` (keyed by P_old), enumerates P_old's per-leaf state with one scan of
+//! its person prefix, then either:
 //!
 //! - **fast path** (P_new co-resides on this partition): merges inline via the apply core in one
 //!   atomic `WriteBatch`, returning P_new's transitions; or
@@ -8,39 +9,50 @@
 //!   `cf_pending_transfers`, deletes P_old's state, writes the tombstone + drain marker, and returns
 //!   the transfer for the caller to produce.
 //!
-//! The drain emits no `Left` for P_old — it silently deletes P_old's rows. P_old's `cf_stage2` keys
-//! are built from the catalog (no reads needed; deleting an absent key is a no-op).
+//! The drain emits no `Left` for P_old — it silently reclaims P_old's `cf_behavioral` slice with one
+//! range delete over its person prefix. P_old's `cf_stage2` keys are built from the catalog (no
+//! reads needed; deleting an absent key is a no-op).
 
-use metrics::counter;
+use metrics::{counter, histogram};
 use uuid::Uuid;
 
 use crate::filters::reverse_index::TeamFilters;
 use crate::filters::{CohortId, TeamId};
-use crate::merge::apply_handler::apply_leaves;
+use crate::merge::apply_handler::{apply_leaves, merge_person_records, QueueEffects};
 use crate::merge::tombstone_redirect::{resolve, Resolution};
 use crate::merge::transfer::{
     DrainStamp, MergeStateTransfer, PendingTransfer, PersonMergeEvent, Tombstone, TransferLeaf,
 };
 use crate::observability::metrics::{
-    MERGE_DRAINS_SKIPPED_REPLAY_TOTAL, MERGE_HANDLED_TOTAL, MERGE_LEAVES_DROPPED_TOTAL,
+    MERGE_DRAINS_SKIPPED_REPLAY_TOTAL, MERGE_DRAIN_LEAVES_SCANNED, MERGE_HANDLED_TOTAL,
+    MERGE_LEAVES_DROPPED_TOTAL,
 };
 use crate::partitions::partitioner::partition_of;
-use crate::stage1::key::{LeafStateKey, Stage1Key};
+use crate::stage1::key::LeafStateKey;
+use crate::stage1::person_record::{PersonDedup, PersonRecord};
 use crate::stage1::state::StatefulRecord;
 use crate::stage1::transition::LeafTransition;
 use crate::store::{
-    CohortStore, IndexOp, MergeDrainKey, PendingTransferKey, PersonIndexKey, Stage2Key, StoreError,
-    TombstoneKey,
+    Behavioral, BehavioralKey, CohortStore, MergeDrainKey, PendingTransferKey, PersonPrefix,
+    PersonRecords, Stage2Key, StoreError, TombstoneKey,
 };
-use crate::sweep::EvictionQueue;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DrainOutcome {
-    /// Same-partition fast path: P_old merged into P_new inline.
-    FastPath { transitions: Vec<LeafTransition> },
+    /// Same-partition fast path: P_old merged into P_new inline. `effects` cancels P_old's keys and
+    /// schedules P_new's new deadlines.
+    FastPath {
+        transitions: Vec<LeafTransition>,
+        effects: QueueEffects,
+    },
     /// Cross-partition slow path: state drained into `transfer`, staged in `cf_pending_transfers`.
-    /// An empty transfer (no leaves) is not staged; the caller skips the produce and commits directly.
-    Drained { transfer: MergeStateTransfer },
+    /// A transfer with no leaves and no person-record dedup is not staged; the caller skips the produce
+    /// and commits directly. `effects` cancels P_old's now-deleted keys (no schedules — the state left
+    /// this partition).
+    Drained {
+        transfer: MergeStateTransfer,
+        effects: QueueEffects,
+    },
     /// Idempotence hit — already drained. The caller re-produces any still-staged pending transfer.
     AlreadyDrained,
     /// Skipped before any state change (validation failure).
@@ -57,13 +69,15 @@ pub enum DrainSkip {
 /// `partition_count` is the live co-partitioned topic count (production 64; test lanes lower it):
 /// the fast-path-vs-slow-path decision turns on whether P_new hashes onto `partition_id` under this
 /// count, so it must match the deploy's topology.
+// Sync drain core; runs on the blocking pool inside `StoreHandle::run_section`, so its direct
+// `CohortStore` I/O (and that of `fast_path`/`slow_path`) is already off the runtime threads.
+#[allow(clippy::disallowed_methods)]
 pub fn handle_merge_event(
     partition_id: u16,
     store: &CohortStore,
     filters: &TeamFilters,
     event: &PersonMergeEvent,
     msg_coords: (i32, i64),
-    queue: &mut EvictionQueue<Stage1Key>,
     partition_count: u32,
 ) -> Result<DrainOutcome, StoreError> {
     let team_id = event.team_id;
@@ -88,37 +102,37 @@ pub fn handle_merge_event(
         return Ok(DrainOutcome::AlreadyDrained);
     }
 
-    let old_index = PersonIndexKey {
-        partition_id,
-        team_id: team_u64,
-        person_id: old_person,
-    };
-    let lsks = store.get_person_index(&old_index)?;
-    let old_keys: Vec<Stage1Key> = lsks
-        .iter()
-        .map(|&lsk| Stage1Key {
-            partition_id,
-            team_id: team_u64,
-            leaf_state_key: lsk,
-            person_id: old_person,
-        })
-        .collect();
-    let raw = store.multi_get_stage1(&old_keys)?;
+    // Enumerate P_old's leaves by prefix-scanning its `cf_behavioral` slice. Scan order is lsk-byte
+    // order, so transfer leaf ordering is stable. `old_keys` is kept for the eviction queue's per-key
+    // cancels; the range delete below reclaims the rows in one tombstone.
+    let old_prefix = PersonPrefix::new(partition_id, team_u64, old_person);
+    let old_rows = store.scan_behavioral_prefix(old_prefix)?;
+    histogram!(MERGE_DRAIN_LEAVES_SCANNED).record(old_rows.len() as f64);
+    let old_keys: Vec<BehavioralKey> = old_rows.iter().map(|(key, _)| *key).collect();
 
     let mut present_leaves: Vec<(LeafStateKey, StatefulRecord)> = Vec::new();
-    for (&lsk, bytes) in lsks.iter().zip(raw) {
-        match bytes {
-            None => {
-                counter!(MERGE_LEAVES_DROPPED_TOTAL, "reason" => "stale_index").increment(1);
+    for (key, bytes) in &old_rows {
+        match StatefulRecord::decode(bytes) {
+            Ok(record) => present_leaves.push((key.lsk(), record)),
+            Err(_) => {
+                counter!(MERGE_LEAVES_DROPPED_TOTAL, "reason" => "decode").increment(1);
             }
-            Some(bytes) => match StatefulRecord::decode(&bytes) {
-                Ok(record) => present_leaves.push((lsk, record)),
-                Err(_) => {
-                    counter!(MERGE_LEAVES_DROPPED_TOTAL, "reason" => "decode").increment(1);
-                }
-            },
         }
     }
+
+    // P_old's person record carries only its replay-dedup offsets to P_new (never its matched set,
+    // fingerprints, or stamp — P_new re-evaluates lazily). Absent or corrupt carries nothing.
+    let person_dedup: Option<PersonDedup> =
+        match store.get_person_record(&old_prefix.record_key())? {
+            None => None,
+            Some(bytes) => match PersonRecord::decode(&bytes) {
+                Ok(record) => Some(record.dedup_carrier()),
+                Err(_) => {
+                    counter!(MERGE_LEAVES_DROPPED_TOTAL, "reason" => "record_decode").increment(1);
+                    None
+                }
+            },
+        };
 
     let tombstone = Tombstone {
         new_person,
@@ -172,10 +186,10 @@ pub fn handle_merge_event(
             &tombstone_key,
             &tombstone,
             &old_keys,
-            &old_index,
+            &old_prefix,
             &old_stage2_keys,
             &present_leaves,
-            queue,
+            person_dedup.as_ref(),
         );
     }
 
@@ -190,15 +204,15 @@ pub fn handle_merge_event(
         &tombstone_key,
         &tombstone,
         &old_keys,
-        &old_index,
+        &old_prefix,
         &old_stage2_keys,
         &present_leaves,
-        queue,
+        person_dedup,
     )
 }
 
 /// Same-partition fast path: drain P_old and apply into P_new in one atomic batch.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::disallowed_methods)]
 fn fast_path(
     partition_id: u16,
     store: &CohortStore,
@@ -209,15 +223,14 @@ fn fast_path(
     drain_stamp: &DrainStamp,
     tombstone_key: &TombstoneKey,
     tombstone: &Tombstone,
-    old_keys: &[Stage1Key],
-    old_index: &PersonIndexKey,
+    old_keys: &[BehavioralKey],
+    old_prefix: &PersonPrefix,
     old_stage2_keys: &[Stage2Key],
     present_leaves: &[(LeafStateKey, StatefulRecord)],
-    queue: &mut EvictionQueue<Stage1Key>,
+    person_dedup: Option<&PersonDedup>,
 ) -> Result<DrainOutcome, StoreError> {
     counter!(MERGE_HANDLED_TOTAL, "path" => "same_partition").increment(1);
 
-    let team_u64 = event.team_id as u64;
     let apply = apply_leaves(
         partition_id,
         store,
@@ -228,43 +241,42 @@ fn fast_path(
         present_leaves,
     )?;
 
-    let new_index = PersonIndexKey {
-        partition_id,
-        team_id: team_u64,
-        person_id: effective_new_person,
+    // Fold P_old's record dedup into P_new's record in the same batch; an absent/corrupt P_new record
+    // writes nothing.
+    let team_u64 = event.team_id as u64;
+    let new_prefix = PersonPrefix::new(partition_id, team_u64, effective_new_person);
+    let record_put = match person_dedup {
+        Some(dedup) => merge_person_records(store, &new_prefix, event.old_person_uuid, dedup)?,
+        None => None,
     };
+
     store.write_batch(|batch| {
-        for key in old_keys {
-            batch.delete_stage1(key);
-        }
-        batch.delete_person_index(old_index);
+        batch.delete_behavioral_prefix(old_prefix);
+        batch.delete::<PersonRecords>(&old_prefix.record_key());
         for key in old_stage2_keys {
             batch.delete_stage2(key);
         }
         batch.put_tombstone(tombstone_key, &tombstone.encode());
         batch.put_merge_drain_applied(drain_key, &drain_stamp.encode());
         for (key, bytes) in &apply.puts {
-            batch.put_stage1(key, bytes);
+            batch.put::<Behavioral>(key, bytes);
         }
-        for lsk in &apply.appends {
-            batch.merge_person_index(&new_index, IndexOp::Append(*lsk));
+        if let Some(bytes) = &record_put {
+            batch.put::<PersonRecords>(&new_prefix.record_key(), bytes);
         }
     })?;
 
-    for key in old_keys {
-        queue.cancel(key);
-    }
-    for (key, deadline) in &apply.schedules {
-        queue.schedule(*key, *deadline);
-    }
-
     Ok(DrainOutcome::FastPath {
         transitions: apply.transitions,
+        effects: QueueEffects {
+            cancels: old_keys.to_vec(),
+            schedules: apply.schedules,
+        },
     })
 }
 
 /// Cross-partition slow path: drain P_old, stage the transfer for the caller to produce.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::disallowed_methods)]
 fn slow_path(
     partition_id: u16,
     store: &CohortStore,
@@ -275,11 +287,11 @@ fn slow_path(
     drain_stamp: &DrainStamp,
     tombstone_key: &TombstoneKey,
     tombstone: &Tombstone,
-    old_keys: &[Stage1Key],
-    old_index: &PersonIndexKey,
+    old_keys: &[BehavioralKey],
+    old_prefix: &PersonPrefix,
     old_stage2_keys: &[Stage2Key],
     present_leaves: &[(LeafStateKey, StatefulRecord)],
-    queue: &mut EvictionQueue<Stage1Key>,
+    person_dedup: Option<PersonDedup>,
 ) -> Result<DrainOutcome, StoreError> {
     counter!(MERGE_HANDLED_TOTAL, "path" => "cross_partition").increment(1);
 
@@ -296,10 +308,13 @@ fn slow_path(
             .map(|(lsk, record)| TransferLeaf::new(*lsk, record.clone()))
             .collect(),
         forward_hops: 0,
+        person_dedup,
     };
-    // An empty transfer is never staged: a duplicate merge event at fresh coordinates could
-    // overwrite a still-pending, never-produced transfer with an empty payload.
-    let pending = (!transfer.leaves.is_empty()).then(|| PendingTransfer {
+    // Stage iff the transfer carries leaves or a person-record dedup; a record-only person would
+    // otherwise lose its straggler-dedup ancestry. A truly empty transfer is never staged — a duplicate
+    // merge event at fresh coordinates could overwrite a still-pending, never-produced transfer.
+    let has_payload = !transfer.leaves.is_empty() || transfer.person_dedup.is_some();
+    let pending = has_payload.then(|| PendingTransfer {
         transfer: transfer.clone(),
         merge_msg_partition: msg_coords.0,
         merge_msg_offset: msg_coords.1,
@@ -315,21 +330,21 @@ fn slow_path(
             batch.put_pending_transfer(&pending_key, &pending.encode());
         }
         batch.put_merge_drain_applied(drain_key, &drain_stamp.encode());
-        for key in old_keys {
-            batch.delete_stage1(key);
-        }
-        batch.delete_person_index(old_index);
+        batch.delete_behavioral_prefix(old_prefix);
+        batch.delete::<PersonRecords>(&old_prefix.record_key());
         for key in old_stage2_keys {
             batch.delete_stage2(key);
         }
         batch.put_tombstone(tombstone_key, &tombstone.encode());
     })?;
 
-    for key in old_keys {
-        queue.cancel(key);
-    }
-
-    Ok(DrainOutcome::Drained { transfer })
+    Ok(DrainOutcome::Drained {
+        transfer,
+        effects: QueueEffects {
+            cancels: old_keys.to_vec(),
+            schedules: Vec::new(),
+        },
+    })
 }
 
 /// The team's cohort ids that write `cf_stage2` rows (both composable classes). See
