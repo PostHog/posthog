@@ -9,7 +9,12 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { visionActionsCreate, visionActionsPartialUpdate, visionActionsRetrieve } from '../generated/api'
+import {
+    visionActionsCreate,
+    visionActionsPartialUpdate,
+    visionActionsRetrieve,
+    visionScannersRetrieve,
+} from '../generated/api'
 import type { VisionActionApi } from '../generated/api.schemas'
 import type { actionEditorSceneLogicType } from './actionEditorSceneLogicType'
 import { parseRruleToCadence } from './cadence'
@@ -21,6 +26,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
 
     actions({
         setScannerId: (scannerId: string) => ({ scannerId }),
+        setScannerName: (scannerName: string) => ({ scannerName }),
         setActionId: (actionId: string) => ({ actionId }),
         loadAction: (actionId: string) => ({ actionId }),
         loadActionSuccess: (action: VisionActionApi) => ({ action }),
@@ -34,6 +40,14 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
             '',
             {
                 setScannerId: (_, { scannerId }) => scannerId,
+            },
+        ],
+        // Display-only: the bound scanner's name, for the page title. Fetched whenever the scanner is known.
+        scannerName: [
+            '',
+            {
+                setScannerId: () => '',
+                setScannerName: (_, { scannerName }) => scannerName,
             },
         ],
         actionId: [
@@ -147,6 +161,23 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
     })),
 
     listeners(({ actions }) => ({
+        setScannerId: async ({ scannerId }, breakpoint) => {
+            if (!scannerId) {
+                return
+            }
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                return
+            }
+            try {
+                const scanner = await visionScannersRetrieve(String(teamId), scannerId)
+                breakpoint()
+                actions.setScannerName(scanner.name)
+            } catch {
+                // Display-only — the title falls back to "New action".
+            }
+        },
+
         loadAction: async ({ actionId }) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {

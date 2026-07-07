@@ -21,7 +21,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { actionEditorSceneLogic } from './actionEditorSceneLogic'
-import { DEFAULT_CADENCE, humanizeCadence } from './cadence'
+import { DEFAULT_CADENCE } from './cadence'
 
 export const scene: SceneExport = {
     component: ActionEditorSceneComponent,
@@ -134,7 +134,6 @@ function ScheduleSection(): JSX.Element {
                 <TimezoneSelect value={timezone} onChange={(tz) => setActionFormValue('timezone', tz)} />
             </div>
 
-            <span className="text-xs text-muted">{humanizeCadence(cadence)}</span>
             <span className="text-xs text-muted">
                 Each run summarizes up to 100 observations from the period. Busier periods are sampled down to that
                 limit.
@@ -181,7 +180,7 @@ function DeliverySection(): JSX.Element {
 }
 
 export function ActionEditorSceneComponent(): JSX.Element {
-    const { isNew, actionLoading, loadedAction, actionForm, isActionFormSubmitting, effectiveScannerId } =
+    const { isNew, actionLoading, loadedAction, actionForm, isActionFormSubmitting, effectiveScannerId, scannerName } =
         useValues(actionEditorSceneLogic)
 
     if (!isNew && actionLoading && !loadedAction) {
@@ -206,7 +205,11 @@ export function ActionEditorSceneComponent(): JSX.Element {
         )
     }
 
-    const title = isNew ? 'New action' : loadedAction?.name || 'Edit action'
+    const title = isNew
+        ? scannerName
+            ? `New action for ${scannerName}`
+            : 'New action'
+        : loadedAction?.name || 'Edit action'
     const noDays = actionForm.cadence.weekdays.length === 0
     const backTo = isNew
         ? `${urls.replayVision(effectiveScannerId)}?tab=actions`
@@ -241,11 +244,11 @@ export function ActionEditorSceneComponent(): JSX.Element {
 
                             <LemonField
                                 name="prompt_guide"
-                                label="Guidance"
-                                info="Optional. Steers how the AI writes the summary."
+                                label="Additional guidance (optional)"
+                                info="Steers how the AI writes the summary."
                             >
                                 <LemonTextArea
-                                    placeholder="Optional. e.g. focus on issues, bugs, and friction users face — or focus on general user behavior and flows."
+                                    placeholder="e.g. focus on issues, bugs, and friction users face — or focus on general user behavior and flows."
                                     maxLength={500}
                                 />
                             </LemonField>

@@ -33,6 +33,7 @@ describe('actionEditorSceneLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team/vision/actions/:id/': existingAction,
+                '/api/projects/:team/vision/scanners/:id/': { id: 's1', name: 'Checkout scanner' },
             },
             post: {
                 '/api/projects/:team/vision/actions/': () => [201, { ...existingAction, id: 'created' }],
@@ -47,12 +48,15 @@ describe('actionEditorSceneLogic', () => {
 
     it('the new-action route sets create mode, the scanner, and a fresh form', async () => {
         router.actions.push(urls.replayVisionActionNew('s1'))
-        await expectLogic(logic).toMatchValues({
-            isNew: true,
-            scannerId: 's1',
-            effectiveScannerId: 's1',
-            actionForm: expect.objectContaining({ name: '', prompt_guide: '', integration_id: null }),
-        })
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({
+                isNew: true,
+                scannerId: 's1',
+                effectiveScannerId: 's1',
+                scannerName: 'Checkout scanner',
+                actionForm: expect.objectContaining({ name: '', prompt_guide: '', integration_id: null }),
+            })
     })
 
     it('the edit route switches to edit mode and loads the action', async () => {
