@@ -5833,9 +5833,9 @@ snapshots:
     scenes-app-insights-boldnumber--empty-result--light:
         hash: v1.k794b7964.65e70353ad3bde71b0e2cdc5200bd12bc4212d7ed2e2f5685b4f3c658100ebab.aQZAzvjy49GuPtTh6egEvczvfX-AXbu-FWl4tgtjqtY
     scenes-app-insights-error-empty-states--empty--dark:
-        hash: v1.k794b7964.9ee0ff343b06a349b856cc96df34502e79b596f75ad8b004e4adfba0d8a5173e.0p7VrIpDMrTmgL58deU1SFCIYYxBztKoxSxl1HOzHdE
+        hash: v1.k794b7964.76b9de5735e998cd0643b9122af225ede95128f8d1087f438a8f13179a2cd314.j-ZaK3wWdoYedOoS0uqock8iOi4qHvyFl7W8j59NzPM
     scenes-app-insights-error-empty-states--empty--light:
-        hash: v1.k794b7964.d284a21a59e6564df253d79739250ed412b284bb31578918a8694bc094e626ac.IIcUtgJiU1RA4nNt9HLxmM3yT4SO_pGPdQqE-Ewj3NI
+        hash: v1.k794b7964.43e8dc4bf97bb67ddaf60c572621f44670e53ae5e49adc85129ce56fe34112c2.sbomFpq1C6A2uPO2QNzFMa2oPgeAiU2Y6lNYz6qH_dc
     scenes-app-insights-error-empty-states--estimated-query-execution-time-too-long--dark:
         hash: v1.k794b7964.48716a48b2caaeeeca99f6223c47d9509d443b7a54b75ba3264d4d48c6b10fc2.qfYybMOhpeaoivbNtF0AYxe9-sbO8hjM9sVEwkZsSyo
     scenes-app-insights-error-empty-states--estimated-query-execution-time-too-long--light:
@@ -5853,13 +5853,13 @@ snapshots:
     scenes-app-insights-error-empty-states--query-server-error--light:
         hash: v1.k794b7964.4fd0ad961c340f6a29de2b3026e4359724a2760a6c116dbb44084141d4312583.E7-256CCFJuc8LtP4L3NXFwms9PNH3aYu6c36e1OIzE
     scenes-app-insights-error-empty-states--server-error--dark:
-        hash: v1.k794b7964.9ee0ff343b06a349b856cc96df34502e79b596f75ad8b004e4adfba0d8a5173e.wYfk20hxvL63M2S9Gz9twBJqXYBLBgcu2-ZASDRHTvI
+        hash: v1.k794b7964.256531339cd2dcd1bc37e23faa2ed005422f6a96d0f5ce68e032c5a5add4a24e.Izm9NrjX1PPmPZ0d0Cp_xzToZV_1DvVuIq51nxvJqsw
     scenes-app-insights-error-empty-states--server-error--light:
-        hash: v1.k794b7964.d284a21a59e6564df253d79739250ed412b284bb31578918a8694bc094e626ac.F87uLtXlZLXl01OiNum1cEYhzW-kiUgw6q5R5wKTpSo
+        hash: v1.k794b7964.1680374542e6c9dee3cedcaa28bdd0cb4797a74d7c836b27b6aee6bb4c968547.3hC0bm_bygQVOuMig0V_O8uB-pM3FCBCSLsiLYDroB8
     scenes-app-insights-error-empty-states--validation-error--dark:
-        hash: v1.k794b7964.9ee0ff343b06a349b856cc96df34502e79b596f75ad8b004e4adfba0d8a5173e.e5tGYl2cYrCxl_YNy5Scm0pNtVsQ77D6NBAZOOUXNc4
+        hash: v1.k794b7964.855cdd3fac12fc2645b90ff17a8e0150f3cd4e4b646e92b9266e5261459d0d07.yF2PxdOOktpjWsHaPmDXsmLxgz5S3nhheVXgr1Xt1V0
     scenes-app-insights-error-empty-states--validation-error--light:
-        hash: v1.k794b7964.d284a21a59e6564df253d79739250ed412b284bb31578918a8694bc094e626ac.8ao-jZcMAtmcmyjNOnZ8a5N4kcakxGGzK0i8YzbG-qA
+        hash: v1.k794b7964.e232ea060b03d0822779abbb60dcc292ef83dd8b5ffc76ce3f07078793c0385c.iF5uqRK20wurdp2qDmMgridMiGRNah0j1gTzHZiP5XE
     scenes-app-insights-funnels--funnel-historical-trends--dark:
         hash: v1.k794b7964.9d3d149846cd60d1d3189cb9ad23437d0425b608508133b065f279f2dcd258aa._NdKzrFXPdclDkWtsQVja0DDXbOIJRI-S0g5n1bd_tg
     scenes-app-insights-funnels--funnel-historical-trends--light:
