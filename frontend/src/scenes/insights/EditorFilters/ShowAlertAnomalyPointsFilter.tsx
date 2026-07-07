@@ -1,13 +1,17 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCheckbox } from '@posthog/lemon-ui'
-
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { InsightLogicProps } from '~/types'
 
-export function ShowAlertAnomalyPointsFilter(): JSX.Element | null {
+import { InsightDisplayToggle, InsightToggleVariant } from './InsightDisplayToggle'
+
+export function ShowAlertAnomalyPointsFilter({
+    variant,
+}: {
+    variant?: InsightToggleVariant
+} = {}): JSX.Element | null {
     const { insightProps, insight } = useValues(insightLogic)
 
     // Unsaved insights can't have alerts — mounting insightAlertsLogic without an id would fire a
@@ -16,15 +20,17 @@ export function ShowAlertAnomalyPointsFilter(): JSX.Element | null {
         return null
     }
 
-    return <AnomalyPointsToggle insightId={insight.id} insightLogicProps={insightProps} />
+    return <AnomalyPointsToggle insightId={insight.id} insightLogicProps={insightProps} variant={variant} />
 }
 
 function AnomalyPointsToggle({
     insightId,
     insightLogicProps,
+    variant,
 }: {
     insightId: number
     insightLogicProps: InsightLogicProps
+    variant?: InsightToggleVariant
 }): JSX.Element | null {
     const logic = insightAlertsLogic({ insightId, insightLogicProps })
     const { showAlertAnomalyPointsFlag, hasDetectorAlerts } = useValues(logic)
@@ -35,12 +41,11 @@ function AnomalyPointsToggle({
     }
 
     return (
-        <LemonCheckbox
-            className="p-1 px-2"
+        <InsightDisplayToggle
+            label="Show alert anomaly points"
             onChange={() => setShowAlertAnomalyPoints(!showAlertAnomalyPointsFlag)}
             checked={showAlertAnomalyPointsFlag}
-            label={<span className="font-normal">Show alert anomaly points</span>}
-            size="small"
+            variant={variant}
         />
     )
 }

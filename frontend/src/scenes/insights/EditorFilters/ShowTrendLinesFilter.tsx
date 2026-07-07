@@ -1,7 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCheckbox } from '@posthog/lemon-ui'
-
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -9,8 +7,9 @@ import { isFunnelsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils
 import { ChartDisplayType } from '~/types'
 
 import { insightVizDataLogic } from '../insightVizDataLogic'
+import { InsightDisplayToggle, InsightToggleVariant } from './InsightDisplayToggle'
 
-export function ShowTrendLinesFilter(): JSX.Element {
+export function ShowTrendLinesFilter({ variant }: { variant?: InsightToggleVariant } = {}): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { querySource, trendsFilter, yAxisScaleType } = useValues(insightVizDataLogic(insightProps))
     const { isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
@@ -55,13 +54,12 @@ export function ShowTrendLinesFilter(): JSX.Element {
     }
 
     return (
-        <LemonCheckbox
-            className="p-1 px-2"
+        <InsightDisplayToggle
+            label="Show trend lines"
             onChange={toggleShowTrendLines}
             checked={!disabledReason && !!showTrendLines}
             disabledReason={disabledReason}
-            label={<span className="font-normal">Show trend lines</span>}
-            size="small"
+            variant={variant}
         />
     )
 }

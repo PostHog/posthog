@@ -22,10 +22,6 @@ import { PoeFilter } from 'scenes/insights/EditorFilters/PoeFilter'
 import { RetentionCondition } from 'scenes/insights/EditorFilters/RetentionCondition'
 import { RetentionOptions } from 'scenes/insights/EditorFilters/RetentionOptions'
 import { SamplingDeprecationNotice } from 'scenes/insights/EditorFilters/SamplingDeprecationNotice'
-import { ShowAlertAnomalyPointsFilter } from 'scenes/insights/EditorFilters/ShowAlertAnomalyPointsFilter'
-import { ShowAlertThresholdLinesFilter } from 'scenes/insights/EditorFilters/ShowAlertThresholdLinesFilter'
-import { ShowAnnotationsFilter } from 'scenes/insights/EditorFilters/ShowAnnotationsFilter'
-import { ShowTrendLinesFilter } from 'scenes/insights/EditorFilters/ShowTrendLinesFilter'
 import { WebAnalyticsEditorFilters } from 'scenes/insights/EditorFilters/WebAnalyticsEditorFilters'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -51,7 +47,15 @@ import { EditorFiltersShell } from './EditorFiltersShell'
 import { getBreakdownSummary, getFiltersSummary, getSeriesSummary, visibleFilters } from './editorFilterUtils'
 import { GlobalAndOrFilters } from './GlobalAndOrFilters'
 import { LifecycleToggles } from './LifecycleToggles'
-import { ConfidenceIntervalFilter, MovingAverageFilter } from './OverlayFilters'
+import {
+    ConfidenceIntervalFilter,
+    MovingAverageFilter,
+    OverlaysDivider,
+    ShowAlertAnomalyPointsSwitch,
+    ShowAlertThresholdLinesSwitch,
+    ShowAnnotationsSwitch,
+    ShowTrendLinesSwitch,
+} from './OverlayFilters'
 import { TrendsSeries } from './TrendsSeries'
 
 export interface EditorFiltersProps {
@@ -391,12 +395,13 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     component: GoalLines,
                     show: displayGoalLines,
                 },
-                { key: 'trend-lines', component: ShowTrendLinesFilter, show: displayTrendLines },
-                { key: 'alert-threshold-lines', component: ShowAlertThresholdLinesFilter, show: displayAlertOverlays },
-                { key: 'alert-anomaly-points', component: ShowAlertAnomalyPointsFilter, show: displayAlertOverlays },
+                { key: 'overlays-divider', component: OverlaysDivider, show: displayGoalLines },
+                { key: 'trend-lines', component: ShowTrendLinesSwitch, show: displayTrendLines },
+                { key: 'alert-threshold-lines', component: ShowAlertThresholdLinesSwitch, show: displayAlertOverlays },
+                { key: 'alert-anomaly-points', component: ShowAlertAnomalyPointsSwitch, show: displayAlertOverlays },
                 { key: 'confidence-intervals', component: ConfidenceIntervalFilter, show: displayStatisticalOverlays },
                 { key: 'moving-average', component: MovingAverageFilter, show: displayStatisticalOverlays },
-                { key: 'annotations', component: ShowAnnotationsFilter, show: displayAnnotations },
+                { key: 'annotations', component: ShowAnnotationsSwitch, show: displayAnnotations },
             ]),
         },
         // Hide advanced options for calendar heatmap
