@@ -2117,8 +2117,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert results_by_breakdown["[2,3.01]"]["data"] == [0, 200.0, 0]
 
-    def test_trends_breakdown_histogram_with_unsupported_math_type_raises_error(self):
-        with pytest.raises(ValueError) as exc_info:
+    def test_trends_breakdown_histogram_with_unsupported_math_type_raises_validation_error(self):
+        with pytest.raises(DRFValidationError) as exc_info:
             self._run_trends_query(
                 "2020-01-11",
                 "2020-01-13",
@@ -2131,7 +2131,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     breakdown_histogram_bin_count=2,
                 ),
             )
-        assert "is not supported with histogram breakdowns" in str(exc_info.value)
+        assert exc_info.value.get_codes() == ["property_math_unsupported_with_histogram_breakdown"]
 
     @parameterized.expand(
         [
