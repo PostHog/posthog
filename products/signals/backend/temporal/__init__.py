@@ -29,6 +29,7 @@ from products.signals.backend.temporal.emitter import SignalEmitterWorkflow
 from products.signals.backend.temporal.grouping import (
     TeamSignalGroupingWorkflow,
     assign_and_emit_signal_activity,
+    check_combined_match_enabled_activity,
     fetch_report_contexts_activity,
     generate_search_queries_activity,
     get_embedding_activity,
@@ -101,6 +102,7 @@ ACTIVITIES = [
     stamp_dispatched_signals_scout_runs_activity,
     assign_and_emit_signal_activity,
     capture_signal_dropped_activity,
+    check_combined_match_enabled_activity,
     check_signals_quota_limited_activity,
     delete_report_activity,
     emit_eval_signal_activity,

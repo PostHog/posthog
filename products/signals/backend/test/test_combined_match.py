@@ -6,7 +6,11 @@ from unittest.mock import patch
 
 from pydantic import ValidationError
 
-from products.signals.backend.temporal.grouping import _build_matching_prompt, match_and_verify_signal
+from products.signals.backend.temporal.grouping import (
+    _build_matching_prompt,
+    combined_match_flag_enabled,
+    match_and_verify_signal,
+)
 from products.signals.backend.temporal.types import (
     ExistingReportMatch,
     NewReportMatch,
@@ -168,3 +172,20 @@ def test_prompt_omits_member_section_without_report_members():
     )
 
     assert "CANDIDATE GROUPS" not in prompt
+
+
+@pytest.mark.parametrize(
+    "flag_result,expected",
+    [
+        (True, True),
+        (False, False),
+        (None, False),  # feature_enabled returns None when the flag doesn't exist
+        (RuntimeError("flag service down"), False),  # eval errors must fail closed
+    ],
+)
+def test_flag_check_fails_closed(flag_result, expected):
+    kwargs = {"side_effect": flag_result} if isinstance(flag_result, Exception) else {"return_value": flag_result}
+    with patch(f"{MODULE_PATH}.posthoganalytics.feature_enabled", **kwargs) as mock_enabled:
+        assert combined_match_flag_enabled(2) is expected
+
+    mock_enabled.assert_called_once_with("signals-combined-match-specificity", "2")

@@ -72,19 +72,36 @@ logger = structlog.get_logger(__name__)
 WEIGHT_THRESHOLD = float(os.getenv("SIGNAL_WEIGHT_THRESHOLD", "1.0"))
 MAX_QUERIES = 3
 
-# Comma-separated team ids for which the combined match+specificity single-LLM-call path is
-# enabled, or "*" for all teams. Default OFF. Flipping this only takes effect on worker
-# redeploy, and must be paired with draining/pausing in-flight grouping workflows: a run that
-# recorded old-path activities in its current history will fail replay under the new value.
-_COMBINED_MATCH_TEAM_IDS = frozenset(
-    part.strip() for part in os.getenv("SIGNAL_COMBINED_MATCH_TEAM_IDS", "").split(",") if part.strip()
-)
+# Feature flag gating the combined match+specificity single-LLM-call path, evaluated with the
+# team id as the distinct id (same pattern as `http-query-coalescing`). Checked once per batch
+# via an activity — flag evaluation is non-deterministic, and going through an activity records
+# the decision in workflow history, so flag flips are safe for in-flight runs (they replay the
+# recorded result) and only steer subsequent batches. Default OFF, fail-closed on eval errors.
+COMBINED_MATCH_FLAG = "signals-combined-match-specificity"
 
 _PATCH_COMBINED_MATCH = "combined-match-specificity"
 
 
-def _combined_match_enabled(team_id: int) -> bool:
-    return "*" in _COMBINED_MATCH_TEAM_IDS or str(team_id) in _COMBINED_MATCH_TEAM_IDS
+def combined_match_flag_enabled(team_id: int) -> bool:
+    """Sync flag check; returns False on any evaluation error so grouping never blocks on it."""
+    try:
+        return bool(posthoganalytics.feature_enabled(COMBINED_MATCH_FLAG, str(team_id)))
+    except Exception:
+        logger.warning("Combined match flag check failed, defaulting to two-call path", team_id=team_id)
+        return False
+
+
+@dataclass
+class CheckCombinedMatchEnabledInput:
+    team_id: int
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+async def check_combined_match_enabled_activity(input: CheckCombinedMatchEnabledInput) -> bool:
+    """Whether the combined match+specificity path is enabled for this team."""
+    # feature_enabled() is sync and can block on a network call; offload to a thread.
+    return await asyncio.to_thread(combined_match_flag_enabled, input.team_id)
 
 
 @dataclass
@@ -1399,8 +1416,17 @@ async def _process_signal_batch(
         from products.signals.backend.temporal.parallel_grouping import process_sequential_phase_parallel
 
         # Combined single-LLM-call match+specificity, gated on a patch marker (in-flight
-        # histories keep replaying the two-call path) plus the team allowlist.
-        use_combined = workflow.patched(_PATCH_COMBINED_MATCH) and _combined_match_enabled(team_id)
+        # histories from before this deploy keep replaying the two-call path) plus a feature
+        # flag checked via activity, so the decision lands in history and flag flips replay
+        # deterministically.
+        use_combined = False
+        if workflow.patched(_PATCH_COMBINED_MATCH):
+            use_combined = await workflow.execute_activity(
+                check_combined_match_enabled_activity,
+                CheckCombinedMatchEnabledInput(team_id=team_id),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
 
         _par = await process_sequential_phase_parallel(
             batch=batch,

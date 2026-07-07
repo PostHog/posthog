@@ -136,7 +136,7 @@ A long-running entity workflow that serializes all signal grouping for a single 
 3. **Embed each query**
 4. **Semantic search** the ClickHouse `document_embeddings` HogQL alias for nearest neighbors via `cosineDistance()`
 5. **LLM match** — decide whether the signal belongs to an existing report or needs a new one.
-   For teams in `SIGNAL_COMBINED_MATCH_TEAM_IDS` (gated by the `combined-match-specificity` workflow patch), this and the specificity check run as **one combined LLM call**: member signals of every candidate report are fetched up front (`fetch_signals_for_reports_activity`, one ClickHouse query) and `match_and_verify_signal_activity` matches and applies the PR test together, so the two stages can never disagree. For all other teams, an existing-report match goes through a separate **match-specificity verification** LLM call afterwards.
+   For teams with the `signals-combined-match-specificity` feature flag enabled (checked once per batch via `check_combined_match_enabled_activity`, behind the `combined-match-specificity` workflow patch), this and the specificity check run as **one combined LLM call**: member signals of every candidate report are fetched up front (`fetch_signals_for_reports_activity`, one ClickHouse query) and `match_and_verify_signal_activity` matches and applies the PR test together, so the two stages can never disagree. For all other teams, an existing-report match goes through a separate **match-specificity verification** LLM call afterwards.
 6. **Assign** the signal to a `SignalReport` in Postgres, increment counts/weights, check promotion threshold, and **emit** the signal into the embeddings pipeline in one atomic operation
 7. **Wait for ClickHouse** — poll until the just-emitted signals are query-visible so subsequent grouping decisions can find them
 8. If promoted (weight ≥ threshold), **spawn child** `SignalReportSummaryWorkflow` with `ParentClosePolicy.ABANDON`; `WorkflowAlreadyStartedError` is ignored
@@ -917,7 +917,10 @@ It writes a PR title covering the whole group including the new signal and rejec
 
 #### Combined match + specificity (single call)
 
-For teams in `SIGNAL_COMBINED_MATCH_TEAM_IDS`, the match-to-report decision and the specificity check are collapsed into one LLM call (`match_and_verify_signal_activity`).
+For teams with the `signals-combined-match-specificity` feature flag enabled, the match-to-report decision and the specificity check are collapsed into one LLM call (`match_and_verify_signal_activity`).
+The flag is evaluated with the team id as the distinct id, once per batch, inside `check_combined_match_enabled_activity`.
+The result is recorded in workflow history, so flag flips replay deterministically for in-flight runs and take effect on subsequent batches — no worker redeploy or workflow drain needed.
+The check fails closed: any flag evaluation error falls back to the two-call path.
 The prompt is the matching prompt plus the PR-test rules, with each candidate group's most recent member signals inlined (up to 8 per report, content truncated to 500 chars, fetched in one ClickHouse query via `fetch_signals_for_reports_activity`).
 An existing-report match carries a required `pr_title` and is recorded with `specific_enough=true`; a group that fails the PR test simply comes back as a new-report decision, so there are no post-hoc specificity rejections on this path.
 
@@ -1102,7 +1105,7 @@ Signal {index}:
 | ---------------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `SIGNAL_WEIGHT_THRESHOLD`                | `1.0`                         | Total weight needed to promote a report to candidate                                                                                                                 |
 | `SIGNAL_MATCHING_LLM_MODEL`              | `claude-sonnet-4-5`           | LLM model for all signal operations                                                                                                                                  |
-| `SIGNAL_COMBINED_MATCH_TEAM_IDS`         | empty (off)                   | Comma-separated team ids (or `*`) using the combined single-call match + specificity path; flips require a worker redeploy with in-flight grouping workflows drained |
+| `signals-combined-match-specificity`     | off (feature flag)            | Feature flag (distinct id = team id) enabling the combined single-call match + specificity path; checked per batch via activity, fail-closed, flips need no redeploy |
 | `MAX_RESPONSE_TOKENS`                    | `4096`                        | Base max tokens for LLM responses (thinking uses 3× for max_tokens, 2× for budget)                                                                                   |
 | Embedding model                          | `text-embedding-3-small-1536` | OpenAI embedding model used for signal content                                                                                                                       |
 | Task queue                               | `VIDEO_EXPORT_TASK_QUEUE`     | Temporal task queue for all workflows                                                                                                                                |

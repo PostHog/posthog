@@ -248,6 +248,7 @@ class TestSignalsProductModuleIntegrity:
             "fetch_error_tracking_issues_activity",
             "assign_and_emit_signal_activity",
             "capture_signal_dropped_activity",
+            "check_combined_match_enabled_activity",
             "check_signals_quota_limited_activity",
             "delete_report_activity",
             "emit_eval_signal_activity",
