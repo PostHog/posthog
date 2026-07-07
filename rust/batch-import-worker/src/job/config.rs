@@ -94,6 +94,18 @@ pub struct S3SourceConfig {
     allow_internal_ips: bool,
 }
 
+// The exactly-one auth method a valid S3SourceConfig resolves to; see S3SourceConfig::auth.
+enum S3Auth<'a> {
+    Role {
+        role_arn: &'a str,
+        external_id: &'a str,
+    },
+    Keys {
+        access_key_id_key: &'a str,
+        secret_access_key_key: &'a str,
+    },
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DateRangeExportSourceConfig {
     base_url: String,
@@ -195,6 +207,14 @@ impl JobSecrets {
         let serialized = serde_json::to_vec(&self.secrets)?;
         let encrypted = fernet.encrypt(&serialized);
         Ok(encrypted)
+    }
+
+    fn get_str(&self, key: &str, what: &str) -> Result<&str, Error> {
+        self.secrets
+            .get(key)
+            .ok_or(Error::msg(format!("Missing {what} as secret {key}")))?
+            .as_str()
+            .ok_or(Error::msg(format!("{what} secret {key} is not a string")))
     }
 }
 
@@ -356,40 +376,57 @@ impl S3SourceConfig {
         Ok(())
     }
 
+    /// The single validated auth method resolved from the config's optional field pairs.
+    fn auth(&self) -> Result<S3Auth<'_>, Error> {
+        let has_key_fields =
+            self.access_key_id_key.is_some() || self.secret_access_key_key.is_some();
+
+        match (&self.role_arn, has_key_fields) {
+            (Some(_), true) => Err(Error::msg(
+                "S3 source config sets both role_arn and access keys, but exactly one auth method is required",
+            )),
+            (Some(role_arn), false) => {
+                let external_id = self
+                    .external_id
+                    .as_deref()
+                    .ok_or(Error::msg("Missing external_id in role-auth source config"))?;
+                Ok(S3Auth::Role {
+                    role_arn,
+                    external_id,
+                })
+            }
+            (None, true) => {
+                if self.external_id.is_some() {
+                    return Err(Error::msg(
+                        "S3 source config sets external_id, which is only valid with role_arn",
+                    ));
+                }
+                let access_key_id_key = self
+                    .access_key_id_key
+                    .as_deref()
+                    .ok_or(Error::msg("Missing access_key_id_key in source config"))?;
+                let secret_access_key_key = self
+                    .secret_access_key_key
+                    .as_deref()
+                    .ok_or(Error::msg("Missing secret_access_key_key in source config"))?;
+                Ok(S3Auth::Keys {
+                    access_key_id_key,
+                    secret_access_key_key,
+                })
+            }
+            (None, false) => Err(Error::from(UserError::new(
+                "S3 source has no authentication configured. Provide an IAM role or access keys",
+            ))),
+        }
+    }
+
     fn static_key_credentials(
-        &self,
         secrets: &JobSecrets,
+        access_key_id_key: &str,
+        secret_access_key_key: &str,
     ) -> Result<aws_sdk_s3::config::Credentials, Error> {
-        let access_key_id_key = self
-            .access_key_id_key
-            .as_deref()
-            .ok_or(Error::msg("Missing access_key_id_key in source config"))?;
-        let secret_access_key_key = self
-            .secret_access_key_key
-            .as_deref()
-            .ok_or(Error::msg("Missing secret_access_key_key in source config"))?;
-
-        let access_key_id = secrets
-            .secrets
-            .get(access_key_id_key)
-            .ok_or(Error::msg(format!(
-                "Missing access key id as key {access_key_id_key}"
-            )))?
-            .as_str()
-            .ok_or(Error::msg(format!(
-                "Access key id as key {access_key_id_key} is not a string"
-            )))?;
-
-        let secret_access_key = secrets
-            .secrets
-            .get(secret_access_key_key)
-            .ok_or(Error::msg(format!(
-                "Missing secret access key as key {secret_access_key_key}"
-            )))?
-            .as_str()
-            .ok_or(Error::msg(format!(
-                "Secret access key as key {secret_access_key_key} is not a string"
-            )))?;
+        let access_key_id = secrets.get_str(access_key_id_key, "access key id")?;
+        let secret_access_key = secrets.get_str(secret_access_key_key, "secret access key")?;
 
         Ok(aws_sdk_s3::config::Credentials::new(
             access_key_id,
@@ -410,6 +447,13 @@ impl S3SourceConfig {
                     "Effect": "Allow",
                     "Action": ["s3:ListBucket"],
                     "Resource": format!("arn:aws:s3:::{}", self.bucket),
+                    // ListBucket is bucket-level, so the prefix restriction has to be a
+                    // condition on the request's prefix parameter, not part of the resource.
+                    "Condition": {
+                        "StringLike": {
+                            "s3:prefix": [format!("{}*", self.prefix)],
+                        },
+                    },
                 },
                 {
                     "Effect": "Allow",
@@ -424,17 +468,13 @@ impl S3SourceConfig {
     async fn assume_role_credentials(
         &self,
         role_arn: &str,
+        external_id: &str,
     ) -> Result<aws_config::sts::AssumeRoleProvider, Error> {
         if self.endpoint_url.is_some() {
             return Err(Error::from(UserError::new(
                 "IAM role authentication only works with AWS S3. S3-compatible stores must use access keys",
             )));
         }
-
-        let external_id = self
-            .external_id
-            .as_deref()
-            .ok_or(Error::msg("Missing external_id in role-auth source config"))?;
 
         let provider = aws_config::sts::AssumeRoleProvider::builder(role_arn)
             .session_name("posthog-batch-import")
@@ -475,21 +515,20 @@ impl S3SourceConfig {
             )
             .retry_config(RetryConfig::standard());
 
-        builder = match (&self.role_arn, &self.access_key_id_key) {
-            (Some(role_arn), None) => {
-                builder.credentials_provider(self.assume_role_credentials(role_arn).await?)
-            }
-            (None, Some(_)) => builder.credentials_provider(self.static_key_credentials(secrets)?),
-            (Some(_), Some(_)) => {
-                return Err(Error::msg(
-                    "S3 source config sets both role_arn and access keys, but exactly one auth method is required",
-                ))
-            }
-            (None, None) => {
-                return Err(Error::from(UserError::new(
-                    "S3 source has no authentication configured. Provide an IAM role or access keys",
-                )))
-            }
+        builder = match self.auth()? {
+            S3Auth::Role {
+                role_arn,
+                external_id,
+            } => builder
+                .credentials_provider(self.assume_role_credentials(role_arn, external_id).await?),
+            S3Auth::Keys {
+                access_key_id_key,
+                secret_access_key_key,
+            } => builder.credentials_provider(Self::static_key_credentials(
+                secrets,
+                access_key_id_key,
+                secret_access_key_key,
+            )?),
         };
 
         if let Some(ref url) = self.endpoint_url {
@@ -509,9 +548,13 @@ impl S3SourceConfig {
         Ok(builder)
     }
 
-    pub async fn create_source(&self, secrets: &JobSecrets) -> Result<S3Source, Error> {
+    async fn build_client(&self, secrets: &JobSecrets) -> Result<aws_sdk_s3::Client, Error> {
         let builder = self.build_s3_config(secrets).await?;
-        let client = aws_sdk_s3::Client::from_conf(builder.build());
+        Ok(aws_sdk_s3::Client::from_conf(builder.build()))
+    }
+
+    pub async fn create_source(&self, secrets: &JobSecrets) -> Result<S3Source, Error> {
+        let client = self.build_client(secrets).await?;
 
         Ok(S3Source::new(
             client,
@@ -526,8 +569,7 @@ impl S3SourceConfig {
         staging_dir: PathBuf,
         staging_max_bytes: u64,
     ) -> Result<GzipS3Source, Error> {
-        let builder = self.build_s3_config(secrets).await?;
-        let client = aws_sdk_s3::Client::from_conf(builder.build());
+        let client = self.build_client(secrets).await?;
 
         Ok(GzipS3Source::new(
             client,
@@ -551,81 +593,25 @@ impl DateRangeExportSourceConfig {
             AuthSourceConfig::ApiKey {
                 header_name,
                 key_secret,
-            } => {
-                let key = secrets
-                    .secrets
-                    .get(key_secret)
-                    .ok_or(Error::msg(format!(
-                        "Missing API key as secret {key_secret}"
-                    )))?
-                    .as_str()
-                    .ok_or(Error::msg(format!(
-                        "API key secret {key_secret} is not a string"
-                    )))?;
-                AuthConfig::ApiKey {
-                    header_name: header_name.clone(),
-                    key: key.to_string(),
-                }
-            }
-            AuthSourceConfig::BearerToken { token_secret } => {
-                let token = secrets
-                    .secrets
-                    .get(token_secret)
-                    .ok_or(Error::msg(format!(
-                        "Missing bearer token as secret {token_secret}"
-                    )))?
-                    .as_str()
-                    .ok_or(Error::msg(format!(
-                        "Bearer token secret {token_secret} is not a string"
-                    )))?;
-                AuthConfig::BearerToken {
-                    token: token.to_string(),
-                }
-            }
+            } => AuthConfig::ApiKey {
+                header_name: header_name.clone(),
+                key: secrets.get_str(key_secret, "API key")?.to_string(),
+            },
+            AuthSourceConfig::BearerToken { token_secret } => AuthConfig::BearerToken {
+                token: secrets.get_str(token_secret, "bearer token")?.to_string(),
+            },
             AuthSourceConfig::BasicAuth {
                 username_secret,
                 password_secret,
-            } => {
-                let username = secrets
-                    .secrets
-                    .get(username_secret)
-                    .ok_or(Error::msg(format!(
-                        "Missing username as secret {username_secret}",
-                    )))?
-                    .as_str()
-                    .ok_or(Error::msg(format!(
-                        "Username secret {username_secret} is not a string",
-                    )))?;
-                let password = secrets
-                    .secrets
-                    .get(password_secret)
-                    .ok_or(Error::msg(format!(
-                        "Missing password as secret {password_secret}",
-                    )))?
-                    .as_str()
-                    .ok_or(Error::msg(format!(
-                        "Password secret {password_secret} is not a string",
-                    )))?;
-                AuthConfig::BasicAuth {
-                    username: username.to_string(),
-                    password: password.to_string(),
-                }
-            }
-            AuthSourceConfig::MixpanelAuth { secret_key_secret } => {
-                let secret_key = secrets
-                    .secrets
-                    .get(secret_key_secret)
-                    .ok_or(Error::msg(format!(
-                        "Missing secret key as secret {secret_key_secret}"
-                    )))?
-                    .as_str()
-                    .ok_or(Error::msg(format!(
-                        "Secret key secret {secret_key_secret} is not a string"
-                    )))?;
-                AuthConfig::MixpanelAuth {
-                    secret_key: secret_key.to_string(),
-                }
-            }
+            } => AuthConfig::BasicAuth {
+                username: secrets.get_str(username_secret, "username")?.to_string(),
+                password: secrets.get_str(password_secret, "password")?.to_string(),
+            },
+            AuthSourceConfig::MixpanelAuth { secret_key_secret } => AuthConfig::MixpanelAuth {
+                secret_key: secrets
+                    .get_str(secret_key_secret, "secret key")?
+                    .to_string(),
+            },
         };
 
         let extractor = self.extractor_type.create_extractor();
@@ -1033,16 +1019,45 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_build_s3_config_rejects_both_auth_methods() {
-        let config = role_auth_config(
+    async fn test_build_s3_config_rejects_mixed_auth_methods() {
+        let cases = [
+            // Full key pair alongside role_arn.
             serde_json::json!({"access_key_id_key": "ak", "secret_access_key_key": "sk"}),
-        );
+            // A partial key pair must not silently win the role path either.
+            serde_json::json!({"access_key_id_key": "ak"}),
+            serde_json::json!({"secret_access_key_key": "sk"}),
+        ];
+        for patch in cases {
+            let config = role_auth_config(patch.clone());
+            let err = config
+                .build_s3_config(&empty_secrets())
+                .await
+                .unwrap_err()
+                .to_string();
+            assert!(
+                err.contains("exactly one auth method"),
+                "patch {patch}: unexpected error {err}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_build_s3_config_rejects_external_id_with_key_auth() {
+        let json = r#"{
+            "access_key_id_key": "ak",
+            "secret_access_key_key": "sk",
+            "bucket": "b",
+            "prefix": "p",
+            "region": "us-east-1",
+            "external_id": "posthog-us-some-team-uuid"
+        }"#;
+        let config: S3SourceConfig = serde_json::from_str(json).unwrap();
         let err = config
             .build_s3_config(&empty_secrets())
             .await
             .unwrap_err()
             .to_string();
-        assert!(err.contains("exactly one auth method"));
+        assert!(err.contains("only valid with role_arn"));
     }
 
     #[tokio::test]
@@ -1063,6 +1078,10 @@ mod tests {
         let policy: Value = serde_json::from_str(&config.session_policy()).unwrap();
         let statements = policy["Statement"].as_array().unwrap();
         assert_eq!(statements[0]["Resource"], "arn:aws:s3:::b");
+        assert_eq!(
+            statements[0]["Condition"]["StringLike"]["s3:prefix"],
+            serde_json::json!(["p*"])
+        );
         assert_eq!(statements[1]["Resource"], "arn:aws:s3:::b/p*");
     }
 
