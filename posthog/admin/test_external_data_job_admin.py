@@ -202,6 +202,7 @@ class TestExternalDataJobAdminChangeView(BaseTest):
             ("completed", ExternalDataJob.Status.COMPLETED),
             ("failed", ExternalDataJob.Status.FAILED),
             ("billing_limit_reached", ExternalDataJob.Status.BILLING_LIMIT_REACHED),
+            ("billing_limit_too_low", ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW),
         ]
     )
     def test_change_view_marks_is_running_false_for_non_running_job(self, _name, status):

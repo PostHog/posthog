@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.contrib import admin, messages
+from django.db import transaction
 from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils import timezone
@@ -117,22 +118,28 @@ class ExternalDataJobAdmin(admin.ModelAdmin):
         if request.method != "POST":
             return redirect(_change_url(job_id))
 
-        try:
-            job = ExternalDataJob.objects.get(id=job_id)
-        except ExternalDataJob.DoesNotExist:
-            messages.error(request, f"Job {job_id} not found.")
-            return redirect(reverse("admin:data_warehouse_externaldatajob_changelist"))
+        # Wrap the read-check-write in a transaction with select_for_update so two
+        # concurrent staff POSTs can't both observe Running and double-write
+        # latest_error / finished_at.
+        with transaction.atomic():
+            try:
+                job = ExternalDataJob.objects.select_for_update().get(id=job_id)
+            except ExternalDataJob.DoesNotExist:
+                messages.error(request, f"Job {job_id} not found.")
+                return redirect(reverse("admin:data_warehouse_externaldatajob_changelist"))
 
-        if job.status != ExternalDataJob.Status.RUNNING:
-            messages.warning(request, f"Job is not Running (status={job.status}). No change.")
-            return redirect(_change_url(job_id))
+            if job.status != ExternalDataJob.Status.RUNNING:
+                messages.warning(request, f"Job is not Running (status={job.status}). No change.")
+                return redirect(_change_url(job_id))
 
-        reason = (request.POST.get("reason") or "").strip()
-        job.status = ExternalDataJob.Status.FAILED
-        job.latest_error = reason or "Marked Failed via admin (Temporal workflow terminated without cleanup activity)"
-        if job.finished_at is None:
-            job.finished_at = timezone.now()
-        job.save(update_fields=["status", "latest_error", "finished_at", "updated_at"])
+            reason = (request.POST.get("reason") or "").strip()
+            job.status = ExternalDataJob.Status.FAILED
+            job.latest_error = (
+                reason or "Marked Failed via admin (Temporal workflow terminated without cleanup activity)"
+            )
+            if job.finished_at is None:
+                job.finished_at = timezone.now()
+            job.save(update_fields=["status", "latest_error", "finished_at", "updated_at"])
 
         messages.success(request, f"Marked job {job.id} as Failed.")
         return redirect(_change_url(job_id))
