@@ -461,6 +461,7 @@ describe('InsightDisplayConfig', () => {
             await openOptionsMenu()
 
             const axes = screen.getByTestId('options-axes-section')
+            await userEvent.click(within(axes).getByText('Axes'))
             expect(within(axes).getByText('Y-axis unit')).toBeInTheDocument()
             expect(within(axes).getByText('Y-axis scale')).toBeInTheDocument()
             expect(within(axes).getByText('Show multiple Y-axes')).toBeInTheDocument()

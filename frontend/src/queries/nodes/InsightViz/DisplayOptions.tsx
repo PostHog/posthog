@@ -242,7 +242,10 @@ export function CollapsibleOptionsSection({
     const [expanded, setExpanded] = useState(defaultExpanded)
 
     return (
-        <div className="flex flex-col w-full" data-attr={dataAttr}>
+        // The min-width keeps the menu width stable when a section expands. The collapsed content
+        // is not kept mounted: hidden-but-mounted controls inside the popover were prone to stale
+        // paints (not rendering until hovered).
+        <div className="flex flex-col w-full min-w-[18rem]" data-attr={dataAttr}>
             <LemonButton
                 fullWidth
                 size="small"
@@ -252,16 +255,7 @@ export function CollapsibleOptionsSection({
             >
                 {label}
             </LemonButton>
-            {/* Content stays mounted so the menu keeps a constant width — only the height animates
-                (same grid-rows trick as EditorFilterGroupTile) */}
-            <div
-                className="grid transition-all duration-200 ease-in-out"
-                style={{ gridTemplateRows: expanded ? '1fr' : '0fr' }}
-            >
-                <div className="overflow-hidden">
-                    <div className="flex flex-col pl-2 w-full">{children}</div>
-                </div>
-            </div>
+            {expanded && <div className="flex flex-col pl-2 w-full">{children}</div>}
         </div>
     )
 }
