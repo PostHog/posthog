@@ -47,6 +47,23 @@ matching (there is no `predicate-quantifier` input):
 For a filter with only positive patterns this behaves exactly like upstream's default
 `some` — so plain filters are unaffected.
 
+### Limitation: excludes must be top-level entries
+
+An exclude is only recognised when the `!` pattern is its own entry in the filter list.
+A `!` pattern nested inside a change-status array is **not** treated as an exclude — it
+falls through to picomatch's raw negation (matching every file outside the pattern), which
+is the upstream footgun this fork exists to avoid. Write excludes as separate entries:
+
+```yaml
+# do this
+changed:
+  - added|modified: 'src/**'
+  - '!src/vendor/**'
+# not this — the '!' entry is not an exclude here
+changed:
+  - added|modified: ['src/**', '!src/vendor/**']
+```
+
 ## Rebuilding after source changes
 
 The action runs the committed `dist/index.js` bundle. After editing anything under `src/`,

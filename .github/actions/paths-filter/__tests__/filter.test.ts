@@ -175,19 +175,18 @@ describe('matching tests', () => {
     `
 
     test.each([
-      ['include matches', backendExceptDocs, 'posthog/models.py', true],
-      ['second include matches', backendExceptDocs, 'products/foo/backend/task.py', true],
-      ['exclude vetoes a matched include', backendExceptDocs, 'posthog/README.md', false],
-      ['exclude vetoes a matched second include', backendExceptDocs, 'products/foo/backend/notes.md', false],
-      ['no include matches', backendExceptDocs, 'frontend/src/app.tsx', false],
-      ['exclude-only matches everything else', everythingExceptDocs, 'src/app.ts', true],
-      ['exclude-only still vetoes', everythingExceptDocs, 'docs/guide.md', false]
-    ])('%s', (_label, yaml, filename, shouldMatch) => {
+      ['include matches', backendExceptDocs, 'backend', 'posthog/models.py', true],
+      ['second include matches', backendExceptDocs, 'backend', 'products/foo/backend/task.py', true],
+      ['exclude vetoes a matched include', backendExceptDocs, 'backend', 'posthog/README.md', false],
+      ['exclude vetoes a matched second include', backendExceptDocs, 'backend', 'products/foo/backend/notes.md', false],
+      ['no include matches', backendExceptDocs, 'backend', 'frontend/src/app.tsx', false],
+      ['exclude-only matches everything else', everythingExceptDocs, 'any', 'src/app.ts', true],
+      ['exclude-only still vetoes', everythingExceptDocs, 'any', 'docs/guide.md', false]
+    ])('%s', (_label, yaml, key, filename, shouldMatch) => {
       const filter = new Filter(yaml as string)
       const files = modified([filename as string])
-      const key = (yaml as string).includes('backend:') ? 'backend' : 'any'
       const match = filter.match(files)
-      expect(match[key]).toEqual(shouldMatch ? files : [])
+      expect(match[key as string]).toEqual(shouldMatch ? files : [])
     })
   })
 })
@@ -243,11 +242,5 @@ describe('matching specific change status', () => {
 function modified(paths: string[]): File[] {
   return paths.map(filename => {
     return {filename, status: ChangeStatus.Modified}
-  })
-}
-
-function renamed(paths: string[]): File[] {
-  return paths.map(filename => {
-    return {filename, status: ChangeStatus.Renamed}
   })
 }

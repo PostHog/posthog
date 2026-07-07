@@ -50,9 +50,11 @@ jobs:
                 }}
             matrix: ${{ steps.matrix.outputs.matrix }}
         steps:
-            # Needed by the "Derive Node-only product workspace exclusions" step below,
-            # which reads pnpm-workspace.yaml + bin/frontend-exclude-filter. dorny itself
-            # needs no checkout (it diffs via the API), so this job didn't check out before.
+            # Needed by the "Derive Node-only product workspace exclusions" step (reads
+            # pnpm-workspace.yaml + bin/frontend-exclude-filter) and by the local
+            # ./.github/actions/paths-filter exclude step, which must exist on disk. The
+            # remote dorny filter step needs no checkout (it diffs via the API), so this
+            # job didn't check out before those two were added.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1

@@ -88,7 +88,7 @@ export class Filter {
 
   private parseFilterItemYaml(item: FilterItemYaml): FilterRuleItem[] {
     if (Array.isArray(item)) {
-      return flat(item.map(i => this.parseFilterItemYaml(i)))
+      return item.map(i => this.parseFilterItemYaml(i)).flat()
     }
 
     if (typeof item === 'string') {
@@ -123,10 +123,4 @@ export class Filter {
   private throwInvalidFormatError(message: string): never {
     throw new Error(`Invalid filter YAML format: ${message}.`)
   }
-}
-
-// Creates a new array with all sub-array elements concatenated
-// In future could be replaced by Array.prototype.flat (supported on Node.js 11+)
-function flat<T>(arr: T[][]): T[] {
-  return arr.reduce((acc, val) => acc.concat(val), [])
 }

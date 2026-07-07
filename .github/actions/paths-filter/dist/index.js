@@ -36470,7 +36470,7 @@ class Filter {
     }
     parseFilterItemYaml(item) {
         if (Array.isArray(item)) {
-            return flat(item.map(i => this.parseFilterItemYaml(i)));
+            return item.map(i => this.parseFilterItemYaml(i)).flat();
         }
         if (typeof item === 'string') {
             return [
@@ -36501,11 +36501,6 @@ class Filter {
     }
 }
 exports.Filter = Filter;
-// Creates a new array with all sub-array elements concatenated
-// In future could be replaced by Array.prototype.flat (supported on Node.js 11+)
-function flat(arr) {
-    return arr.reduce((acc, val) => acc.concat(val), []);
-}
 
 
 /***/ }),

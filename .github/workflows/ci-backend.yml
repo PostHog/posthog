@@ -193,6 +193,10 @@ jobs:
                         # Markdown-only changes (e.g. a README under posthog/) match the
                         # broad globs above but exercise no backend code — exclude them so
                         # a docs-only PR doesn't run the whole backend suite.
+                        # These excludes are load-bearing: an over-broad exclude silently
+                        # skips the suite rather than over-running it, so only exclude
+                        # patterns that truly never affect backend. They also drop matched
+                        # files from `backend_files` (consumed by the sources step below).
                         - '!**/*.md'
                         - '!**/*.mdx'
                       legacy:
