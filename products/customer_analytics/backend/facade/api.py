@@ -146,6 +146,7 @@ def get_account_context_data(
         properties=_to_account_properties(account.properties),
         tags=_account_tags(account),
         notes=_account_notes(account),
+        relationships=list_account_relationships(team_id=team_id, account_id=account.id),
     )
 
 

@@ -123,6 +123,7 @@ class AccountContextData:
     properties: AccountProperties
     tags: list[str] = field(default_factory=list)
     notes: list[AccountNote] = field(default_factory=list)
+    relationships: list[AccountRelationship] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
