@@ -1,5 +1,10 @@
 //! RocksDB wrapper: multi-CF atomic `WriteBatch`, async WAL.
 
+// This module defines the disallowed `CohortStore` I/O methods, which call one another internally
+// (e.g. `apply` replays through the `write_batch` path). The lint targets async callers, not the
+// store's own implementation.
+#![allow(clippy::disallowed_methods)]
+
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -20,6 +25,7 @@ use super::keys::{
     TombstoneKey,
 };
 use super::secondary_index::{decode_person_index, IndexOp};
+use super::staged::{StagedBatch, StagedOp};
 use crate::observability::metrics::{
     CHECKPOINT_DURATION_SECONDS, STORE_ERRORS_TOTAL, STORE_READS_TOTAL,
     STORE_READ_DURATION_SECONDS, STORE_WRITE_BATCH_TOTAL, STORE_WRITE_DURATION_SECONDS,
@@ -127,12 +133,22 @@ pub enum StoreError {
         expected: usize,
         actual: usize,
     },
+
+    #[error("store offload cancelled by runtime shutdown")]
+    OffloadCancelled,
 }
 
 /// One scanned key/value pair as raw bytes — the merge-CF GC decodes each per CF.
 pub type RawKv = (Vec<u8>, Vec<u8>);
 
 /// Handle to the per-process state store.
+///
+/// Writes have two layers. The closure-based [`Self::write_batch`] is for synchronous callers that
+/// can borrow the store's CF handles for the duration of the call — it stages through a
+/// [`BatchBuilder`] whose handles are tied to `&self`. [`StagedBatch`] plus [`Self::apply`] is the
+/// owned staging path: keys and operands are encoded into owned bytes up front, so the batch is
+/// `Send + 'static` and can be built on one thread and applied on another. Both funnel through the
+/// same commit, so the two produce identical RocksDB writes.
 #[derive(Clone)]
 pub struct CohortStore {
     db: Arc<DBWithThreadMode<SingleThreaded>>,
@@ -288,6 +304,29 @@ impl CohortStore {
         };
         build(&mut builder);
         self.commit(builder.batch, OP_WRITE_BATCH)
+    }
+
+    /// Replay an owned [`StagedBatch`] into one atomic `WriteBatch`, in staging order, and commit it.
+    ///
+    /// This is the owned counterpart to [`Self::write_batch`]: the same operations staged either way
+    /// produce identical writes. It goes through the same commit funnel with the same op label, so
+    /// metrics do not distinguish the two paths.
+    pub fn apply(&self, staged: &StagedBatch) -> Result<(), StoreError> {
+        let mut batch = WriteBatch::default();
+        for op in staged.ops() {
+            match op {
+                StagedOp::Put { cf, key, value } => {
+                    batch.put_cf(self.cf(*cf)?, key, value);
+                }
+                StagedOp::Delete { cf, key } => {
+                    batch.delete_cf(self.cf(*cf)?, key);
+                }
+                StagedOp::Merge { cf, key, operand } => {
+                    batch.merge_cf(self.cf(*cf)?, key, operand);
+                }
+            }
+        }
+        self.commit(batch, OP_WRITE_BATCH)
     }
 
     pub fn get_merge_drain_applied(

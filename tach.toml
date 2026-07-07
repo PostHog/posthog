@@ -342,6 +342,7 @@ depends_on = [
     "products.notifications",
     "products.product_tours",
     "products.surveys",
+    "products.tasks",
     "products.warehouse_sources",
 ]
 layer = "modules"
