@@ -113,6 +113,7 @@ function LogsViewerContent({
     const {
         logsLoading,
         parsedLogs,
+        newLogUuids,
         sparklineData,
         sparklineLoading,
         sparklineIncompleteBarIndices,
@@ -336,6 +337,7 @@ function LogsViewerContent({
 
             <VirtualizedLogsList
                 dataSource={parsedLogs}
+                newLogUuids={newLogUuids}
                 loading={logsLoading}
                 wrapBody={wrapBody}
                 prettifyJson={prettifyJson}

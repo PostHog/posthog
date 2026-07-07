@@ -448,6 +448,87 @@ describe('infiniteListLogic', () => {
         })
     })
 
+    describe('switching tabs reconciles a stale remote list', () => {
+        let staleLogic: ReturnType<typeof infiniteListLogic.build>
+        let surveyRequestCount: number
+
+        beforeEach(() => {
+            surveyRequestCount = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': ({ request }) => {
+                        const url = new URL(request.url)
+                        const search = url.searchParams.get('search') ?? ''
+                        if (search === 'survey') {
+                            surveyRequestCount += 1
+                            // First fetch is cut short (a transient client-side failure stands in for
+                            // an in-flight debounced load a tab switch cancels). The event exists.
+                            if (surveyRequestCount === 1) {
+                                return [500, { detail: 'transient error' }]
+                            }
+                            const results = [{ ...mockEventDefinitions[0], name: 'Survey Responded' }]
+                            return [200, { results, count: results.length }]
+                        }
+                        const results = mockEventDefinitions.filter((e) => e.name.includes(search))
+                        return [200, { results, count: results.length }]
+                    },
+                },
+            })
+            initKeaTests()
+            clearApiCache()
+            staleLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'staleTabList',
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+                showNumericalPropsOnly: false,
+            })
+            staleLogic.mount()
+        })
+
+        it('re-fetches the current query when the cached remote results are stale for it', async () => {
+            await expectLogic(staleLogic).toDispatchActions(['loadRemoteItemsSuccess']) // initial empty-query load
+
+            // The search is cut short, leaving the tab on its stale empty-query results even
+            // though "Survey Responded" exists for this term.
+            await expectLogic(staleLogic, () => {
+                staleLogic.actions.setSearchQuery('survey')
+            })
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsFailure'])
+                .toFinishAllListeners()
+            expect(staleLogic.values.remoteItems.searchQuery).not.toBe('survey')
+
+            // Switching category tabs must reconcile the stale tab against the active query rather
+            // than leaving it on a false "No results".
+            await expectLogic(staleLogic, () => {
+                staleLogic.actions.setActiveTab(TaxonomicFilterGroupType.Actions)
+            })
+                .toDispatchActions(['loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toMatchValues({
+                    remoteItems: partial({
+                        searchQuery: 'survey',
+                        results: partial([partial({ name: 'Survey Responded' })]),
+                    }),
+                })
+        })
+
+        it('does not re-fetch when the tab is already fresh for the current query', async () => {
+            await expectLogic(staleLogic, () => {
+                staleLogic.actions.setSearchQuery('event')
+            })
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+                .toMatchValues({ remoteItems: partial({ searchQuery: 'event' }) })
+
+            // The cached remote query already matches, so a tab switch must not trigger a
+            // redundant reload.
+            await expectLogic(staleLogic, () => {
+                staleLogic.actions.setActiveTab(TaxonomicFilterGroupType.Actions)
+            })
+                .toDispatchActions(['setActiveTab'])
+                .toNotHaveDispatchedActions(['loadRemoteItems'])
+        })
+    })
+
     describe('remote fetch failure settles the list', () => {
         it('falls back to the empty state instead of spinning forever when the fetch fails', async () => {
             useMocks({
