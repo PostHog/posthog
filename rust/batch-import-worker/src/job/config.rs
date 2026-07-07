@@ -1019,6 +1019,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_build_s3_config_accepts_legacy_key_auth() {
+        let json = r#"{
+            "access_key_id_key": "ak",
+            "secret_access_key_key": "sk",
+            "bucket": "b",
+            "prefix": "p",
+            "region": "us-east-1"
+        }"#;
+        let config: S3SourceConfig = serde_json::from_str(json).unwrap();
+        let mut secrets = HashMap::new();
+        secrets.insert("ak".to_string(), Value::String("key-id".to_string()));
+        secrets.insert("sk".to_string(), Value::String("key-secret".to_string()));
+        let secrets = JobSecrets { secrets };
+        assert!(config.build_s3_config(&secrets).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_build_s3_config_errors_when_key_secret_missing() {
+        let json = r#"{
+            "access_key_id_key": "ak",
+            "secret_access_key_key": "sk",
+            "bucket": "b",
+            "prefix": "p",
+            "region": "us-east-1"
+        }"#;
+        let config: S3SourceConfig = serde_json::from_str(json).unwrap();
+        let err = config
+            .build_s3_config(&empty_secrets())
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("Missing access key id as secret ak"));
+    }
+
+    #[tokio::test]
     async fn test_build_s3_config_rejects_mixed_auth_methods() {
         let cases = [
             // Full key pair alongside role_arn.
