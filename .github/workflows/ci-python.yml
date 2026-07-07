@@ -68,6 +68,9 @@ jobs:
                         # Dev tools with dedicated pytest steps below
                         - 'tools/pr-approval-agent/**'
                         - 'tools/query-performance-ai/**'
+                        # Stamphog policy files validated by the pr-approval-agent suite
+                        - '.stamphog/**'
+                        - '**/AGENT_APPROVALS.md'
 
     code-quality:
         needs: changes
@@ -192,6 +195,11 @@ jobs:
               run: |
                   pytest tools/query-performance-ai/query_performance_ai -v --junitxml=junit-query-performance-ai.xml
 
+            - name: Run pr-approval-agent (stamphog) tests
+              shell: bash
+              run: |
+                  pytest tools/pr-approval-agent -v --junitxml=junit-pr-approval-agent.xml
+
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: always()
@@ -201,6 +209,7 @@ jobs:
                       junit-hogli.xml
                       junit-hogli-commands.xml
                       junit-query-performance-ai.xml
+                      junit-pr-approval-agent.xml
 
             - name: Run dependency detection script tests
               shell: bash
