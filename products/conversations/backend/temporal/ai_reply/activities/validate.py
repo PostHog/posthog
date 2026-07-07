@@ -29,6 +29,8 @@ async def support_validate_activity(input: ValidateInput) -> ValidateOutput:
             input.chunk_ids,
             input.sources,
             input.ticket_type,
+            input.trace_id,
+            input.ticket_id,
         )
 
 
@@ -40,6 +42,8 @@ async def _validate(
     chunk_ids: list[str],
     sources: list[dict[str, str]] | None = None,
     ticket_type: str = "how_to",
+    trace_id: str = "",
+    ticket_id: str = "",
 ) -> ValidateOutput:
     # Only the cited chunks need rehydrating — fetch their content from the DB by id.
     cited_ids = [cid for cid in chunk_ids if cid in set(citations)]
@@ -85,6 +89,8 @@ CITED CHUNKS:
         max_tokens=1024,
         system=system,
         messages=[{"role": "user", "content": user_content}],
+        metadata={"user_id": trace_id} if trace_id else None,
+        extra_headers={"x-posthog-property-ticket_id": ticket_id} if ticket_id else None,
     )
     content = anthropic_text(message)
 

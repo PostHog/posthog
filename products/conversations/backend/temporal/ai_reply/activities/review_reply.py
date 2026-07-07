@@ -76,7 +76,15 @@ class ReplyReviewResult(BaseModel):
 async def support_review_reply_activity(input: ReviewReplyInput) -> ReviewReplyOutput:
     """Screen the final reply for data exfiltration / PII leakage before persisting."""
     async with Heartbeater():
-        return await _review_reply(input.team_id, input.ticket_context, input.reply, input.sources, input.ticket_type)
+        return await _review_reply(
+            input.team_id,
+            input.ticket_context,
+            input.reply,
+            input.sources,
+            input.ticket_type,
+            input.trace_id,
+            input.ticket_id,
+        )
 
 
 async def _review_reply(
@@ -85,6 +93,8 @@ async def _review_reply(
     reply: str,
     sources: list[dict[str, str]] | None = None,
     ticket_type: str = "how_to",
+    trace_id: str = "",
+    ticket_id: str = "",
 ) -> ReviewReplyOutput:
     sources_text = ""
     for s in (sources or [])[:MAX_SOURCES]:
@@ -108,6 +118,8 @@ TICKET TYPE: {ticket_type}"""
         max_tokens=512,
         system=REPLY_REVIEW_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_content}],
+        metadata={"user_id": trace_id} if trace_id else None,
+        extra_headers={"x-posthog-property-ticket_id": ticket_id} if ticket_id else None,
     )
     content = anthropic_text(message)
 

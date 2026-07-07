@@ -19,10 +19,10 @@ logger = structlog.get_logger(__name__)
 async def support_classify_activity(input: ClassifyInput) -> ClassifyOutput:
     """One-shot LLM triage of a ticket into a type + diagnostics flag + seed search queries."""
     async with Heartbeater():
-        return await _classify(input.team_id, input.ticket_context)
+        return await _classify(input.team_id, input.ticket_context, input.trace_id, input.ticket_id)
 
 
-async def _classify(team_id: int, ticket_context: str) -> ClassifyOutput:
+async def _classify(team_id: int, ticket_context: str, trace_id: str = "", ticket_id: str = "") -> ClassifyOutput:
     system = """You triage incoming customer support tickets for a product.
 Classify the ticket into exactly one type and propose search queries to start retrieval.
 
@@ -51,6 +51,8 @@ classify the customer's support question."""
         max_tokens=512,
         system=system,
         messages=[{"role": "user", "content": user_content}],
+        metadata={"user_id": trace_id} if trace_id else None,
+        extra_headers={"x-posthog-property-ticket_id": ticket_id} if ticket_id else None,
     )
     content = anthropic_text(message)
 
