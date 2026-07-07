@@ -1579,6 +1579,41 @@ class TestCustomPropertyDefinitionViewSet(APIBaseTest):
         response = self.client.post(self.endpoint_base, {"name": "P", "display_type": display_type}, format="json")
         self.assertEqual(expected_status, response.status_code, response.json())
 
+    def test_create_select_assigns_option_ids_and_patch_round_trips(self):
+        response = self._create(
+            name="Stage",
+            display_type="select",
+            is_big_number=False,
+            options=[{"label": "Open", "color": "preset-1"}, {"label": "Closed", "color": "preset-2"}],
+        )
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        options = response.json()["options"]
+        self.assertEqual([option["label"] for option in options], ["Open", "Closed"])
+        self.assertTrue(all(option["id"] for option in options))
+
+        patched = self.client.patch(
+            f"{self.endpoint_base}{response.json()['id']}/",
+            {"options": [{**options[0], "label": "Won"}, options[1]]},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_200_OK, patched.status_code, patched.json())
+        self.assertEqual([option["label"] for option in patched.json()["options"]], ["Won", "Closed"])
+        self.assertEqual(patched.json()["options"][0]["id"], options[0]["id"])
+
+    @parameterized.expand(
+        [
+            ("select_without_options", {"name": "S1", "display_type": "select"}),
+            ("select_empty_options", {"name": "S2", "display_type": "select", "options": []}),
+            ("bad_color", {"name": "S3", "display_type": "select", "options": [{"label": "A", "color": "red"}]}),
+        ]
+    )
+    def test_create_select_rejects_invalid_payloads(self, _name, payload):
+        response = self.client.post(self.endpoint_base, payload, format="json")
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+
     def test_is_big_number_forced_false_for_non_numeric(self):
         response = self._create(name="Tier", display_type="text", is_big_number=True)
 
@@ -1981,12 +2016,42 @@ class TestAccountNotesViewSet(APIBaseTest):
             ("account_id", "not-a-uuid"),
             ("created_by", "alice"),
             ("created_by", "alice,bob"),
+            ("assigned_to", "alice"),
         ]
     )
     def test_list_rejects_malformed_filter(self, param, value):
         response = self.client.get(f"{self.endpoint_base}?{param}={value}")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_list_filter_by_assigned_to(self):
+        # "My accounts" on the Notes tab: notes on accounts where the user is CSM or AE.
+        # account_owner is deliberately not treated as "assigned" (mirrors the accounts list).
+        csm_account = Account.objects.unscoped().create(
+            team=self.team, name="CSM Co", _properties={"csm": {"id": self.user.id, "email": self.user.email}}
+        )
+        ae_account = Account.objects.unscoped().create(
+            team=self.team,
+            name="AE Co",
+            _properties={"account_executive": {"id": self.user.id, "email": self.user.email}},
+        )
+        owner_account = Account.objects.unscoped().create(
+            team=self.team,
+            name="Owner Co",
+            _properties={"account_owner": {"id": self.user.id, "email": self.user.email}},
+        )
+        other_account = Account.objects.unscoped().create(
+            team=self.team, name="Other Co", _properties={"csm": {"id": 999999, "email": "someone@x.com"}}
+        )
+        self._link_note(title="CSM note", account=csm_account)
+        self._link_note(title="AE note", account=ae_account)
+        self._link_note(title="Owner note", account=owner_account)
+        self._link_note(title="Other note", account=other_account)
+
+        response = self.client.get(f"{self.endpoint_base}?assigned_to={self.user.id}")
+
+        titles = {n["title"] for n in response.json()["results"]}
+        self.assertEqual(titles, {"CSM note", "AE note"})
 
     @parameterized.expand(
         [

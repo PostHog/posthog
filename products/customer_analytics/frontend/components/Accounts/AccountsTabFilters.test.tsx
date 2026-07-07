@@ -26,6 +26,9 @@ describe('AccountsTabFilters', () => {
             },
         })
         initKeaTests()
+        // The shared "my accounts" (mineOnly) toggle persists to localStorage; clear it so a
+        // value set by one test can't bleed into the next (which would pre-check the checkbox).
+        localStorage.clear()
         logic = accountsLogic()
         logic.mount()
     })
@@ -33,6 +36,7 @@ describe('AccountsTabFilters', () => {
     afterEach(() => {
         logic.unmount()
         cleanup()
+        localStorage.clear()
     })
 
     function renderFilters(): void {

@@ -293,6 +293,23 @@ def get_repo_overview(
     )
 
 
+def get_repo_run_activity(
+    *,
+    team: Team,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branch: str | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> WorkflowRunActivity:
+    return logic.build_repo_run_activity(
+        curated=_authorized_source(team, source_id, user_access_control),
+        date_from=date_from,
+        date_to=date_to,
+        branch=branch,
+    )
+
+
 def list_master_failures(
     *,
     team: Team,
