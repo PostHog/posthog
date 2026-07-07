@@ -45,6 +45,7 @@ def extract_schedule_info(schedule_id: str, description: Any) -> dict[str, Any]:
     info = getattr(description, "info", None)
 
     workflow_name = getattr(action, "workflow", None)
+    jitter = getattr(spec, "jitter", None)
 
     next_action_times = getattr(info, "next_action_times", None) or []
     recent_actions = []
@@ -80,7 +81,7 @@ def extract_schedule_info(schedule_id: str, description: Any) -> dict[str, Any]:
             ],
             "cron_expressions": list(getattr(spec, "cron_expressions", None) or []),
             "calendar_count": len(getattr(spec, "calendars", None) or []),
-            "jitter": str(spec.jitter) if getattr(spec, "jitter", None) else None,
+            "jitter": str(jitter) if jitter else None,
             "time_zone": getattr(spec, "time_zone_name", None),
         },
         "recent_actions": recent_actions,
