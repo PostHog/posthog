@@ -484,14 +484,15 @@ class TestTable(BaseTest):
             team=self.team,
         )
 
-        chdb_result = type("R", (), {"__str__": lambda self: chdb_csv})()
         with (
             patch("products.warehouse_sources.backend.models.table.TEST", False),
-            patch("chdb.query", return_value=chdb_result) as chdb_query,
+            patch(
+                "products.warehouse_sources.backend.models.table.run_chdb_query", return_value=chdb_csv
+            ) as chdb_query,
         ):
             getattr(table, method_name)()
 
-        assert chdb_query.called, "chdb.query should have been invoked on the chdb path"
+        assert chdb_query.called, "run_chdb_query should have been invoked on the chdb path"
         rendered_query: str = chdb_query.call_args.args[0]
         assert malicious_secret not in rendered_query, (
             f"Unescaped secret leaked into chdb query, enabling SQL injection: {rendered_query}"
