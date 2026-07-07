@@ -6,8 +6,8 @@ direct Anthropic instead of failing the review. The gateway is slugless, so the
 product rides on a header, not the path.
 """
 
-import json
 import os
+import json
 from urllib.parse import urlparse
 
 # aio_ matches the other cutovers; no $ai_ prefix (gateway strips those).

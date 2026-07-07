@@ -83,8 +83,7 @@ def test_gateway_env_tags_ai_product_and_attribution():
     env = gateway_env("https://host", "phs_secret", {"stamphog_pr_number": 123, "stamphog_repo": "PostHog/posthog"})
     headers = env["ANTHROPIC_CUSTOM_HEADERS"]
     assert headers == (
-        "X-PostHog-Properties: "
-        '{"ai_product":"aio_stamphog","stamphog_pr_number":123,"stamphog_repo":"PostHog/posthog"}'
+        'X-PostHog-Properties: {"ai_product":"aio_stamphog","stamphog_pr_number":123,"stamphog_repo":"PostHog/posthog"}'
     )
     assert "x-posthog-property-" not in headers
 
