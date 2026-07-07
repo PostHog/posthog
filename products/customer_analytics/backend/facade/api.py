@@ -1718,11 +1718,13 @@ def _to_account_relationship(relationship: AccountRelationship) -> contracts.Acc
     )
 
 
-def list_account_relationship_definitions(team_id: int) -> list[contracts.AccountRelationshipDefinition]:
-    return [
-        _to_account_relationship_definition(definition)
-        for definition in AccountRelationshipDefinition.objects.for_team(team_id).order_by("name")
-    ]
+def list_account_relationship_definitions(
+    team_id: int, offset: int = 0, limit: int = 100
+) -> tuple[list[contracts.AccountRelationshipDefinition], int]:
+    queryset = AccountRelationshipDefinition.objects.for_team(team_id).order_by("name")
+    total_count = queryset.count()
+    page = queryset[offset : offset + limit]
+    return [_to_account_relationship_definition(definition) for definition in page], total_count
 
 
 def create_account_relationship_definition(
@@ -1741,6 +1743,32 @@ def create_account_relationship_definition(
             is_single_holder=is_single_holder,
             created_by=created_by,
         )
+    except IntegrityError:
+        raise AccountRelationshipDefinitionConflictError(
+            "A relationship definition with this name already exists for this team."
+        )
+    return _to_account_relationship_definition(definition)
+
+
+def get_account_relationship_definition(
+    team_id: int, definition_id: str | UUID
+) -> contracts.AccountRelationshipDefinition | None:
+    definition = AccountRelationshipDefinition.objects.for_team(team_id).filter(id=definition_id).first()
+    if definition is None:
+        return None
+    return _to_account_relationship_definition(definition)
+
+
+def update_account_relationship_definition(
+    *, team_id: int, definition_id: str | UUID, fields: dict[str, Any]
+) -> contracts.AccountRelationshipDefinition | None:
+    definition = AccountRelationshipDefinition.objects.for_team(team_id).filter(id=definition_id).first()
+    if definition is None:
+        return None
+    for attr, value in fields.items():
+        setattr(definition, attr, value)
+    try:
+        definition.save()
     except IntegrityError:
         raise AccountRelationshipDefinitionConflictError(
             "A relationship definition with this name already exists for this team."
