@@ -56,11 +56,11 @@ jobs:
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: '3.13'
-                  # Reuse the app token already minted above instead of a second mint.
-                  token: ${{ steps.app-token.outputs.token || github.token }}
 
+            # Exact pin: this pull_request_target workflow runs with an app token,
+            # so a floating version must not be able to pull fresh code at run time.
             - name: Install resolver dependency
-              run: python -m pip install --quiet 'pyyaml~=6.0.2'
+              run: python -m pip install --quiet 'pyyaml==6.0.2'
 
             # Script runs from master branch (protected), but can diff against PR branch
             - name: Run reviewer assignment script
