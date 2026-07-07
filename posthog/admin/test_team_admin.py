@@ -549,6 +549,16 @@ class TestTeamAdminAIGatewayWallet(BaseTest):
                 self.admin.add_ai_gateway_credit_view(request, str(team.pk))
         assert ActivityLog.objects.filter(scope="AIGatewayCredit", item_id="shared").count() == 2
 
+    def test_add_credit_survives_audit_write_failure(self) -> None:
+        # The credit already moved money, so an audit-write failure must not error the request.
+        request = self._post({"amount_usd": "5", "reason": "x", "form_nonce": "n1"})
+        result = CreditResult(team_id=self.team.id, entry_id="e1", amount_usd="5", balance_usd="5", duplicate=False)
+        with patch("posthog.admin.admins.team_admin.add_credit", return_value=result):
+            with patch("posthog.admin.admins.team_admin.log_activity", side_effect=Exception("boom")):
+                response = self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
+        assert response.status_code == 302
+        assert response["Location"] == self.team_change_url
+
     def test_credit_history_renders_recorded_top_ups(self) -> None:
         request = self._post({"amount_usd": "25.00", "reason": "goodwill", "form_nonce": "n1"})
         result = CreditResult(

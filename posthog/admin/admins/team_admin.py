@@ -697,29 +697,40 @@ class TeamAdmin(admin.ModelAdmin):
             duplicate=result.duplicate,
             triggered_by=request.user.email,
         )
-        # Audit is keyed by the ledger entry_id, so write it whenever one is missing.
-        # The credit (gateway) and this record (Postgres) can't share a transaction,
-        # so a replay backfills the audit if an earlier attempt's write was lost after
-        # the money moved. The existence check dedupes best-effort; admin-only, so a
-        # concurrent-double-submit race writing a second row isn't worth a constraint.
-        if not ActivityLog.objects.filter(scope="AIGatewayCredit", team_id=team.id, item_id=result.entry_id).exists():
-            log_activity(
-                organization_id=team.organization_id,
-                team_id=team.id,
-                user=request.user,
-                was_impersonated=is_impersonated(request),
-                item_id=result.entry_id,
-                scope="AIGatewayCredit",
-                activity="credit_added",
-                detail=Detail(
-                    name=f"AI gateway credit — ${result.amount_usd}",
-                    type="admin_add_credit",
-                    context=AIGatewayCreditActivityContext(
-                        amount_usd=result.amount_usd,
-                        reason=reason,
-                        balance_usd=result.balance_usd,
+        # Audit is keyed by the ledger entry_id, so write it whenever one is missing;
+        # a replay backfills the audit if an earlier attempt's write was lost after the
+        # money moved (the credit and this record can't share a transaction). The credit
+        # has already succeeded, so an audit-side failure is logged and swallowed rather
+        # than surfaced as an error to the admin. The existence check dedupes best-effort.
+        try:
+            if not ActivityLog.objects.filter(
+                scope="AIGatewayCredit", team_id=team.id, item_id=result.entry_id
+            ).exists():
+                log_activity(
+                    organization_id=team.organization_id,
+                    team_id=team.id,
+                    user=request.user,
+                    was_impersonated=is_impersonated(request),
+                    item_id=result.entry_id,
+                    scope="AIGatewayCredit",
+                    activity="credit_added",
+                    detail=Detail(
+                        name=f"AI gateway credit — ${result.amount_usd}",
+                        type="admin_add_credit",
+                        context=AIGatewayCreditActivityContext(
+                            amount_usd=result.amount_usd,
+                            reason=reason,
+                            balance_usd=result.balance_usd,
+                        ),
                     ),
-                ),
+                )
+        except Exception:
+            logger.warning(
+                "admin_add_ai_gateway_credit_audit_failed",
+                team_id=team.id,
+                entry_id=result.entry_id,
+                triggered_by=request.user.email,
+                exc_info=True,
             )
         if result.duplicate:
             messages.info(
