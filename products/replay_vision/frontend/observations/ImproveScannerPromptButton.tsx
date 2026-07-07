@@ -1,13 +1,9 @@
-import { useActions } from 'kea'
-
 import { IconAI } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { SidePanelTab } from '~/types'
-
 import type { ReplayObservationApi } from '../generated/api.schemas'
 import { readScore, readTags, readVerdict } from '../utils/observation'
+import { openMaxWithDraft } from '../utils/openMaxWithDraft'
 
 /** One-line summary of what the scanner concluded on this session, or null if there's nothing to report. */
 export function describeObservationOutcome(observation: ReplayObservationApi): string | null {
@@ -86,8 +82,6 @@ export function ImproveScannerPromptButton({
     outcome?: string | null
     reasoning?: string | null
 }): JSX.Element {
-    const { openSidePanel } = useActions(sidePanelStateLogic)
-
     return (
         <LemonButton
             size="xsmall"
@@ -95,10 +89,9 @@ export function ImproveScannerPromptButton({
             icon={<IconAI />}
             tooltip="Opens PostHog AI pre-loaded with this scanner's prompt and this result's outcome and reasoning, asking it to rewrite the prompt so it handles cases like this one"
             // Seed a draft, no `!` auto-run: the outcome/reasoning can include session-recording text, so the
-            // reviewer reviews and sends. The side panel carries the message via kea state (not the URL).
+            // reviewer reviews and sends. openMaxWithDraft keeps the message out of the URL-synced panel options.
             onClick={() =>
-                openSidePanel(
-                    SidePanelTab.Max,
+                openMaxWithDraft(
                     buildImproveScannerPromptMessage({
                         scannerName,
                         scannerType,

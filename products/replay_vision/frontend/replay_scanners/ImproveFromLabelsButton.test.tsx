@@ -1,6 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { SIDE_PANEL_PANEL_ID, maxLogic } from 'scenes/max/maxLogic'
+import { maxMocks } from 'scenes/max/testUtils'
+
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
@@ -86,6 +90,7 @@ describe('ImproveFromLabelsButton', () => {
         let logic: ReturnType<typeof improveFromLabelsLogic.build>
 
         beforeEach(() => {
+            useMocks(maxMocks)
             initKeaTests()
             sidePanelStateLogic.mount()
             logic = improveFromLabelsLogic({ scannerId: 'scan-1' })
@@ -111,12 +116,14 @@ describe('ImproveFromLabelsButton', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
-            const options = sidePanelStateLogic.values.selectedTabOptions ?? ''
+            // The options mirror into the #panel URL hash, so the session-ID-bearing draft must not be there.
+            expect(sidePanelStateLogic.values.selectedTabOptions || null).toBeNull()
+            const question = maxLogic.findMounted({ panelId: SIDE_PANEL_PANEL_ID })?.values.question ?? ''
             // No leading "!" — the message is seeded as a draft, not auto-run.
-            expect(options.startsWith('!')).toBe(false)
-            expect(options).toContain('Sessions it got WRONG (1)')
-            expect(options).toContain('Session sess-wrong')
-            expect(options).toContain('should be yes')
+            expect(question.startsWith('!')).toBe(false)
+            expect(question).toContain('Sessions it got WRONG (1)')
+            expect(question).toContain('Session sess-wrong')
+            expect(question).toContain('should be yes')
         })
 
         it('drops sessions that have no label instead of counting them as correct', async () => {
@@ -133,9 +140,9 @@ describe('ImproveFromLabelsButton', () => {
             logic.actions.improveFromLabels('Checkout drop-off', 'monitor', 'Did the user abandon checkout?')
             await expectLogic(logic).toFinishAllListeners()
 
-            const options = sidePanelStateLogic.values.selectedTabOptions ?? ''
-            expect(options).toContain('Sessions it got WRONG (1)')
-            expect(options).not.toContain('got RIGHT')
+            const question = maxLogic.findMounted({ panelId: SIDE_PANEL_PANEL_ID })?.values.question ?? ''
+            expect(question).toContain('Sessions it got WRONG (1)')
+            expect(question).not.toContain('got RIGHT')
         })
 
         it('does not open PostHog AI when there are no labeled sessions', async () => {
@@ -144,8 +151,8 @@ describe('ImproveFromLabelsButton', () => {
             logic.actions.improveFromLabels('s', 'monitor', 'p')
             await expectLogic(logic).toFinishAllListeners()
 
-            // `selectedTab` persists across tests, so assert no message was seeded instead.
-            expect(sidePanelStateLogic.values.selectedTabOptions).toBeNull()
+            // `selectedTab` persists across tests, so assert no draft was seeded instead.
+            expect(maxLogic.findMounted({ panelId: SIDE_PANEL_PANEL_ID })?.values.question ?? '').toBe('')
         })
     })
 })

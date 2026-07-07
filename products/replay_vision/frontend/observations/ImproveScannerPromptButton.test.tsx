@@ -1,7 +1,11 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { Provider } from 'kea'
 
+import { SIDE_PANEL_PANEL_ID, maxLogic } from 'scenes/max/maxLogic'
+import { maxMocks } from 'scenes/max/testUtils'
+
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
@@ -65,6 +69,7 @@ describe('ImproveScannerPromptButton', () => {
 
     describe('component', () => {
         beforeEach(() => {
+            useMocks(maxMocks)
             initKeaTests()
             sidePanelStateLogic.mount()
         })
@@ -73,7 +78,7 @@ describe('ImproveScannerPromptButton', () => {
             cleanup()
         })
 
-        it('seeds PostHog AI with the prompt, outcome and reasoning as a draft (no auto-run)', () => {
+        it('seeds PostHog AI with a draft via logic state, keeping it out of URL-synced panel options', () => {
             render(
                 <Provider>
                     <ImproveScannerPromptButton
@@ -90,12 +95,15 @@ describe('ImproveScannerPromptButton', () => {
             fireEvent.click(screen.getByText('Improve prompt'))
 
             expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
-            const options = sidePanelStateLogic.values.selectedTabOptions ?? ''
+            // The options mirror into the #panel URL hash, so the session-ID-bearing draft must not be there.
+            expect(sidePanelStateLogic.values.selectedTabOptions || null).toBeNull()
+            const question = maxLogic.findMounted({ panelId: SIDE_PANEL_PANEL_ID })?.values.question ?? ''
             // No leading "!" — the message is seeded as a draft, not auto-run.
-            expect(options.startsWith('!')).toBe(false)
-            expect(options).toContain('Did the user abandon checkout?')
-            expect(options).toContain('Result on this session: Verdict: no')
-            expect(options).toContain('The user closed the tab on the payment step.')
+            expect(question.startsWith('!')).toBe(false)
+            expect(question).toContain('Session ID: sess-1')
+            expect(question).toContain('Did the user abandon checkout?')
+            expect(question).toContain('Result on this session: Verdict: no')
+            expect(question).toContain('The user closed the tab on the payment step.')
         })
     })
 })

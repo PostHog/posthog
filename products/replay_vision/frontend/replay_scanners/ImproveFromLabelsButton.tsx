@@ -6,12 +6,10 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { SidePanelTab } from '~/types'
-
 import { visionScannersObservationsList } from '../generated/api'
 import { describeObservationOutcome } from '../observations/ImproveScannerPromptButton'
 import { readReasoning } from '../utils/observation'
+import { openMaxWithDraft } from '../utils/openMaxWithDraft'
 import type { improveFromLabelsLogicType } from './ImproveFromLabelsButtonType'
 
 export interface LabeledExample {
@@ -146,8 +144,9 @@ export const improveFromLabelsLogic = kea<improveFromLabelsLogicType>([
                     return
                 }
                 const message = buildImproveFromLabelsMessage({ scannerName, scannerType, prompt, examples })
-                // Seed a draft, no `!` auto-run: examples carry session-recording text, so the reviewer reviews and sends.
-                sidePanelStateLogic.findMounted()?.actions.openSidePanel(SidePanelTab.Max, message)
+                // Seed a draft, no `!` auto-run: examples carry session-recording text, so the reviewer reviews
+                // and sends. openMaxWithDraft keeps the message out of the URL-synced panel options.
+                openMaxWithDraft(message)
             } catch (error: any) {
                 lemonToast.error(`Failed to load labeled sessions${error.detail ? `: ${error.detail}` : ''}`)
             } finally {
