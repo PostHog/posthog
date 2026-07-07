@@ -23,6 +23,8 @@ data they need (per-call task ids, comment-driven notes) isn't surfaced by the c
 """
 
 import logging
+from collections.abc import Sequence
+from dataclasses import dataclass, field
 
 from django.db import IntegrityError, transaction
 from django.db.models import F, QuerySet
@@ -380,20 +382,32 @@ def persist_verdict(*, team_id: int, report_id: str, issue: Issue, validation: I
     return True
 
 
-def load_turn_findings(
-    *, team_id: int, report_id: str, run_index: int
-) -> list[tuple[ReviewIssueFinding, ValidationVerdict | None]]:
-    """This turn's findings paired with their verdicts (None while unjudged), latest-wins per `issue_key`.
+@dataclass
+class TurnFindingsBundle:
+    """Every finding/verdict of a set of reports, parsed once and queryable per (report, run_index)."""
 
-    Scoped to `run_index` like `load_valid_findings`; the full judged/unjudged set backs the review
-    detail API (valid + dismissed with the validator's argumentation) and the funnel counts.
+    # report_id → run_index → issue_key → finding (latest-wins, insertion-ordered like single-report loads)
+    _findings: dict[str, dict[int, dict[str, ReviewIssueFinding]]] = field(default_factory=dict)
+    # report_id → issue_key → verdict (latest-wins across turns, pairing by issue_key)
+    _verdicts: dict[str, dict[str, ValidationVerdict]] = field(default_factory=dict)
+
+    def turn(self, report_id: str, run_index: int) -> list[tuple[ReviewIssueFinding, ValidationVerdict | None]]:
+        findings = self._findings.get(report_id, {}).get(run_index, {})
+        verdicts = self._verdicts.get(report_id, {})
+        return [(finding, verdicts.get(issue_key)) for issue_key, finding in findings.items()]
+
+
+def load_findings_bundle(*, team_id: int, report_ids: Sequence[str]) -> TurnFindingsBundle:
+    """All reports' finding/verdict artefacts in ONE query — the batch behind `load_turn_findings`.
+
+    The review APIs render many reports per request (list rows, effectiveness stats); loading per
+    report multiplies round-trips by the report count, so batch callers should use this directly.
     """
-    findings: dict[str, ReviewIssueFinding] = {}
-    verdicts: dict[str, ValidationVerdict] = {}
+    bundle = TurnFindingsBundle()
     rows = (
         ReviewReportArtefact.objects.for_team(team_id)
         .filter(
-            report_id=report_id,
+            report_id__in=list(report_ids),
             type__in=[
                 ReviewReportArtefact.ArtefactType.ISSUE_FINDING,
                 ReviewReportArtefact.ArtefactType.VALIDATION_VERDICT,
@@ -407,13 +421,23 @@ def load_turn_findings(
         except ArtefactContentValidationError as e:
             logger.warning("Skipping unparseable %s artefact %s: %s", row.type, row.id, e)
             continue
+        report_id = str(row.report_id)
         if isinstance(content, ReviewIssueFinding):
-            if content.run_index != run_index:
-                continue
-            findings[content.issue_key] = content
+            bundle._findings.setdefault(report_id, {}).setdefault(content.run_index, {})[content.issue_key] = content
         elif isinstance(content, ValidationVerdict):
-            verdicts[content.issue_key] = content
-    return [(finding, verdicts.get(issue_key)) for issue_key, finding in findings.items()]
+            bundle._verdicts.setdefault(report_id, {})[content.issue_key] = content
+    return bundle
+
+
+def load_turn_findings(
+    *, team_id: int, report_id: str, run_index: int
+) -> list[tuple[ReviewIssueFinding, ValidationVerdict | None]]:
+    """This turn's findings paired with their verdicts (None while unjudged), latest-wins per `issue_key`.
+
+    Scoped to `run_index` like `load_valid_findings`; the full judged/unjudged set backs the review
+    detail API (valid + dismissed with the validator's argumentation) and the funnel counts.
+    """
+    return load_findings_bundle(team_id=team_id, report_ids=[report_id]).turn(report_id, run_index)
 
 
 def load_valid_findings(

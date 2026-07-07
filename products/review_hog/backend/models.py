@@ -81,6 +81,8 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
         indexes = [
             models.Index(fields=["team", "status"], name="reviewhog_rpt_team_status_idx"),
             models.Index(fields=["signal_report_id"], name="reviewhog_rpt_signal_rpt_idx"),
+            # Serves the "recent reviews" API: one user's reports, newest completed turn first.
+            models.Index(fields=["team", "acting_user", "-last_run_at"], name="reviewhog_rpt_recent_idx"),
         ]
 
 

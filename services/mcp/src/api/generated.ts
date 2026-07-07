@@ -31103,6 +31103,7 @@ export namespace Schemas {
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
+     * * `review_hog` - ReviewHog
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -31121,6 +31122,7 @@ export namespace Schemas {
       SignalsScout: 'signals_scout',
       SupportReply: 'support_reply',
       Hogdesk: 'hogdesk',
+      ReviewHog: 'review_hog',
     } as const;
 
     /**
@@ -42096,7 +42098,8 @@ export namespace Schemas {
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
        * * `support_reply` - Support Reply
-       * * `hogdesk` - HogDesk */
+       * * `hogdesk` - HogDesk
+       * * `review_hog` - ReviewHog */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -49601,7 +49604,7 @@ export namespace Schemas {
          * @nullable
          */
       status: string | null;
-      /** Temporal workflow id for the research sandbox run (`task-processing-<task_id>-<run_id>`). */
+      /** Temporal workflow id for the research sandbox run (`task-processing-<task_id>-<run_id>`, or a caller-prefixed variant). */
       task_processing_workflow_id: string;
       /**
          * Full Temporal Web UI URL for the research workflow; null when `TEMPORAL_UI_HOST` is unset.
@@ -49697,7 +49700,7 @@ export namespace Schemas {
          * @nullable
          */
       error_message: string | null;
-      /** Temporal workflow id for the sandbox/agent run (`task-processing-<task_id>-<run_id>`). */
+      /** Temporal workflow id for the sandbox/agent run (`task-processing-<task_id>-<run_id>`, or a caller-prefixed variant). */
       task_processing_workflow_id: string;
       /**
          * Full Temporal Web UI URL for the task-processing workflow; null when `TEMPORAL_UI_HOST` is unset.
@@ -53372,7 +53375,8 @@ export namespace Schemas {
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
        * * `support_reply` - Support Reply
-       * * `hogdesk` - HogDesk */
+       * * `hogdesk` - HogDesk
+       * * `review_hog` - ReviewHog */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).

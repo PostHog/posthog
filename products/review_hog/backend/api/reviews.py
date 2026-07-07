@@ -29,7 +29,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
 from products.review_hog.backend.reviewer.constants import BLIND_SPOT_PASS_NUMBER, effective_priority
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
-from products.review_hog.backend.reviewer.persistence import load_turn_findings
+from products.review_hog.backend.reviewer.persistence import load_findings_bundle, load_turn_findings
 from products.review_hog.backend.reviewer.skill_loader import (
     CANONICAL_PERSPECTIVE_SKILL_NAMES,
     REVIEW_HOG_PERSPECTIVE_PREFIX,
@@ -37,7 +37,7 @@ from products.review_hog.backend.reviewer.skill_loader import (
 
 logger = logging.getLogger(__name__)
 
-RECENT_REVIEWS_LIMIT = 10
+RECENT_REVIEWS_LIMIT = 5
 
 # Effectiveness stats aggregate deeper than the list — enough history for survival rates to mean something.
 PERSPECTIVE_STATS_REPORT_LIMIT = 50
@@ -480,7 +480,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         },
         summary="List the user's recent reviews",
         description="The requesting user's ReviewHog reviews on this project: actively running reviews "
-        "first (with the in-flight turn's stage), then the most recent completed ones (at most 10 rows).",
+        "first (with the in-flight turn's stage), then the most recent completed ones (at most 5 rows).",
     )
     def list(self, request: Request, **kwargs) -> Response:
         team_id, queryset = self._reports(request)
@@ -499,16 +499,17 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
 
         snapshots = _snapshot_stats(team_id, reports)
         turns = _turn_stats(team_id, reports)
+        bundle = load_findings_bundle(team_id=team_id, report_ids=[str(report.id) for report in reports])
         items = []
         for report in reports:
             report_id = str(report.id)
             snapshot = snapshots.get(report_id, _SnapshotStats())
             turn = turns.get(report_id, _TurnStats())
-            pairs = load_turn_findings(team_id=team_id, report_id=report_id, run_index=report.run_count)
+            pairs = bundle.turn(report_id, report.run_count)
             progress = None
             if report_id in in_progress_ids:
                 # The in-flight turn's findings live one run_index ahead of the completed watermark.
-                current_pairs = load_turn_findings(team_id=team_id, report_id=report_id, run_index=report.run_count + 1)
+                current_pairs = bundle.turn(report_id, report.run_count + 1)
                 progress = _progress_payload(team_id, report, snapshot, turn, current_pairs)
             items.append(_review_payload(report, snapshot, turn, pairs, progress))
         return Response(ReviewRecentReviewSerializer(items, many=True).data)
@@ -531,8 +532,9 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             queryset.filter(last_run_at__isnull=False).order_by("-last_run_at")[:PERSPECTIVE_STATS_REPORT_LIMIT]
         )
         stats: dict[str, dict[str, int]] = {}
+        bundle = load_findings_bundle(team_id=team_id, report_ids=[str(report.id) for report in reports])
         for report in reports:
-            pairs = load_turn_findings(team_id=team_id, report_id=str(report.id), run_index=report.run_count)
+            pairs = bundle.turn(str(report.id), report.run_count)
             for finding, verdict in pairs:
                 entry = stats.setdefault(
                     finding.source_perspective or "unknown", {"raised": 0, "kept": 0, "dismissed": 0}

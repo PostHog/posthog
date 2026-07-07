@@ -107,7 +107,7 @@ export const getReviewHogReviewsListUrl = (projectId: string) => {
 }
 
 /**
- * The requesting user's ReviewHog reviews on this project: actively running reviews first (with the in-flight turn's stage), then the most recent completed ones (at most 10 rows).
+ * The requesting user's ReviewHog reviews on this project: actively running reviews first (with the in-flight turn's stage), then the most recent completed ones (at most 5 rows).
  * @summary List the user's recent reviews
  */
 export const reviewHogReviewsList = async (
