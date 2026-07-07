@@ -99,7 +99,7 @@ class KernelSession:
         node_type = str(node.get("type") or "python")
         preview_rows = int(payload.get("page_limit") or _DEFAULT_PREVIEW_ROWS)
         try:
-            self._register_inputs(payload.get("inputs") or [], bind_pandas=node_type == "python")
+            self._register_inputs(payload.get("inputs") or [], node_type=node_type)
         except Exception as exc:  # noqa: BLE001 — a bad input must still produce an envelope
             return envelope.from_python_execution(status="error", error=f"Input registration failed: {exc}")
 
@@ -115,12 +115,15 @@ class KernelSession:
         stderr = _truncate_stream(captured.stderr)
         if omitted_figures:
             stderr += f"\n[{omitted_figures} figure(s) omitted: over the media size cap]"
-        if execution.error_in_exec is not None:
+        # error_before_exec covers syntax/compile errors — run_cell reports those without
+        # setting error_in_exec, and they must not masquerade as a successful empty run.
+        error = execution.error_in_exec or execution.error_before_exec
+        if error is not None:
             return envelope.from_python_execution(
                 status="error",
                 stdout=stdout,
                 stderr=stderr,
-                error=f"{type(execution.error_in_exec).__name__}: {execution.error_in_exec}",
+                error=f"{type(error).__name__}: {error}",
                 media=media,
             )
 
@@ -141,7 +144,8 @@ class KernelSession:
             result_id=result_id,
         )
 
-    def _register_inputs(self, inputs: list[dict[str, Any]], bind_pandas: bool) -> None:
+    def _register_inputs(self, inputs: list[dict[str, Any]], node_type: str) -> None:
+        bind_pandas = node_type == "python"
         for spec in inputs:
             name = spec["name"]
             kind = spec.get("kind")
@@ -158,18 +162,29 @@ class KernelSession:
                 if isinstance(frame, pd.DataFrame):
                     # Re-register every run so SQL sees the frame's current value.
                     self._register_duck(name, frame)
-                elif name not in self.shell.user_ns and name not in self._registered:
+                elif name in self.shell.user_ns:
+                    # Rebound to a non-frame since it was registered: drop the stale DuckDB
+                    # entry so SQL can't silently read old data. Python code can still use
+                    # the object as-is; SQL over it is a clear error instead of wrong rows.
+                    self._unregister_duck(name)
+                    if node_type == "duckdb":
+                        raise TypeError(f"'{name}' is not a dataframe in the kernel (it is {type(frame).__name__})")
+                elif name not in self._registered:
                     raise KeyError(f"local frame '{name}' is not in the kernel — run the node that creates it first")
             else:
                 raise ValueError(f"unknown input kind '{kind}' for '{name}'")
 
     def _register_duck(self, name: str, frame: Any) -> None:
-        try:
-            self.duck.unregister(name)  # replace cleanly when a frame was registered before
-        except Exception:  # noqa: BLE001 — nothing registered under this name yet
-            pass
+        self._unregister_duck(name)  # replace cleanly when a frame was registered before
         self.duck.register(name, frame)
         self._registered.add(name)
+
+    def _unregister_duck(self, name: str) -> None:
+        try:
+            self.duck.unregister(name)
+        except Exception:  # noqa: BLE001 — nothing registered under this name yet
+            pass
+        self._registered.discard(name)
 
     def _run_duckdb_node(self, node: dict[str, Any], preview_rows: int) -> dict[str, Any]:
         output_name = node.get("output_name") or ""

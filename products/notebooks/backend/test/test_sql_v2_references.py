@@ -151,6 +151,16 @@ class TestResolveSQLV2References(SimpleTestCase):
         self.assertIn("mine AS", resolved)
         self.assertIn("df1 AS", resolved)
 
+    def test_union_query_with_a_trailing_line_comment_still_resolves(self):
+        # The UNION wrap embeds the raw text in `select * from (…)`; without a newline before
+        # the closing paren a trailing `--` comment swallows the wrapper and the parse crashes.
+        resolved = resolve_sql_v2_references(
+            "select * from df1 union all select id from events -- combined",
+            {"df1": "select id from events"},
+        )
+        self.assertIn("WITH df1 AS", resolved)
+        self.assertIn("UNION ALL", resolved)
+
     def test_top_level_union_referencing_a_node_is_wrapped_with_the_cte(self):
         # A SelectSetQuery can't carry a WITH, so it gets wrapped in a SELECT that can.
         resolved = resolve_sql_v2_references(

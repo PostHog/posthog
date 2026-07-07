@@ -41,7 +41,9 @@ export function collectSqlV2Refs(doc: JSONContent | null | undefined, selfNodeId
 }
 
 const POLL_INTERVAL_MS = 1000
-const MAX_POLL_ATTEMPTS = 150 // ~2.5 minutes at 1s
+// Must outlast the backend's own run budgets (180s data-plane poll deadline, 300s kernel
+// execute timeout) plus slack, or a slow-but-successful run gets reported as timed out.
+const MAX_POLL_ATTEMPTS = 330 // ~5.5 minutes at 1s
 
 export const SQL_V2_DEFAULT_PAGE_SIZE = 50
 

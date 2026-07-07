@@ -27,6 +27,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -959,7 +960,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 # A SQL node pushes to ClickHouse — unless it references a local frame, which
                 # reroutes it to the sandbox's DuckDB (Journey 5).
                 node_type, run_code, inputs = resolve_sql_node_run(code, refs)
-        except SQLV2ReferenceError as e:
+        # ExposedHogQLError: with refs present the user's own code is parsed at dispatch, so a
+        # plain typo raises here — it's a bad query (400 with the parse message), not a 500.
+        except (SQLV2ReferenceError, ExposedHogQLError) as e:
             return Response({"detail": str(e)}, status=400)
 
         run = NotebookNodeRun.objects.create(

@@ -253,6 +253,20 @@ class TestSQLV2Run(APIBaseTest):
 
     @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_hogql_typo_with_refs_present_is_a_400_not_a_500(self, _mock_enabled, mock_start):
+        # With refs present the user's code is parsed at dispatch, so a plain typo raises
+        # ExposedHogQLError there — it must surface as a bad request, not a server error.
+        self._record_done_run("node-df1", "select id from events")
+        response = self.client.post(
+            self.run_url,
+            data={"node_id": "c", "code": "selec 1", "refs": {"df1": {"node_id": "node-df1"}}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        mock_start.assert_not_called()
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_run_rejects_referencing_a_never_run_node(self, _mock_enabled, mock_start):
         response = self.client.post(
             self.run_url,
@@ -874,9 +888,11 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         [
             # The wrapper nests the user's query as a subquery; these are the shapes
             # that break naive wrapping (inner LIMIT interacting with the outer one,
-            # and set queries that must stay parenthesized).
+            # set queries that must stay parenthesized, and a trailing line comment that
+            # would swallow the wrapper's closing paren without the newline).
             ("inner_limit_caps_before_outer", "select number from numbers(10) limit 4", 3, 2, [(2,), (3,)]),
             ("union_set_query", "select 1 as n union all select 2 as n", 10, 0, [(1,), (2,)]),
+            ("trailing_line_comment", "select 1 as n -- top events", 10, 0, [(1,)]),
         ]
     )
     def test_query_shapes_survive_the_wrapper(self, _name, query, limit, offset, expected_rows):

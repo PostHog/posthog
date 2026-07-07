@@ -62,6 +62,13 @@ class TestKernelSessionRunNode(SimpleTestCase):
         self.assertEqual(envelope["status"], "error")
         self.assertIn("ValueError: boom", envelope["error"])
 
+    def test_syntax_error_surfaces_as_error_envelope(self):
+        # run_cell reports compile errors via error_before_exec (error_in_exec stays None);
+        # they must not masquerade as a successful empty run stored as DONE.
+        envelope = self._run("def = 1")
+        self.assertEqual(envelope["status"], "error")
+        self.assertIn("SyntaxError", envelope["error"])
+
     def test_hogql_input_is_bound_as_a_pandas_frame(self):
         # The server streams a CH result to a local Arrow file; the kernel must expose it as
         # a pandas frame the node code can filter — this is the Journey 4 materialization step.
@@ -148,3 +155,13 @@ class TestKernelSessionRunNode(SimpleTestCase):
         envelope = self._run_duckdb("select * from a_table_that_does_not_exist")
         self.assertEqual(envelope["status"], "error")
         self.assertIn("a_table_that_does_not_exist", envelope["error"])
+
+    def test_duckdb_over_a_name_rebound_to_a_non_frame_errors_instead_of_reading_stale_rows(self):
+        # The first run registers the frame in DuckDB; the rebind must not leave SQL silently
+        # reading that stale registration — it must fail clearly.
+        self._run("import pandas as pd\nnew_events = pd.DataFrame({'id': [1]})")
+        self._run_duckdb("select * from new_events", inputs=[{"name": "new_events", "kind": "local"}])
+        self._run("new_events = 5")
+        envelope = self._run_duckdb("select * from new_events", inputs=[{"name": "new_events", "kind": "local"}])
+        self.assertEqual(envelope["status"], "error")
+        self.assertIn("not a dataframe", envelope["error"])

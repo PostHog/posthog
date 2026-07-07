@@ -138,8 +138,10 @@ def resolve_sql_v2_references(code: str, refs: dict[str, str | None]) -> str:
     # The merged WITH hangs off a SelectQuery; wrap a top-level UNION so it can carry one.
     # The f-string embeds only `code`, already validated as HogQL by parse_select above; the
     # wrap is re-parsed here and printed via the AST printer, so no raw SQL reaches ClickHouse.
+    # The newline before the closing paren keeps a trailing line comment (`-- …`) in the
+    # user's query from swallowing the wrapper.
     # nosemgrep: semgrep.rules.security.hogql-fstring-audit
-    root = main if isinstance(main, ast.SelectQuery) else parse_select(f"select * from ({code})")
+    root = main if isinstance(main, ast.SelectQuery) else parse_select(f"select * from ({code}\n)")
     if not isinstance(root, ast.SelectQuery):  # narrow for the type checker; the wrap is always a SelectQuery
         return code
     ctes: dict[str, ast.CTE] = dict(root.ctes or {})
