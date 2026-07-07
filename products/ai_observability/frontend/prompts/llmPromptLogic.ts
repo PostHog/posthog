@@ -807,6 +807,8 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 const handler = (e: BeforeUnloadEvent): void => {
                     if (values.isEditMode && values.isPromptFormDirty && !values.isPromptFormSubmitting) {
                         e.preventDefault()
+                        // Some engines only show the native dialog when returnValue is set
+                        e.returnValue = ''
                     }
                 }
                 window.addEventListener('beforeunload', handler)
