@@ -91,8 +91,7 @@ def _authored_count(messages: list[dict], slack_user_id: str) -> int:
     return sum(1 for message in messages if message.get("user") == slack_user_id)
 
 
-def _detect_persona_from_messages(slack: SlackIntegration, workspace_id: str, slack_user_id: str) -> str | None:
-    action_token = slack_search.get_cached_action_token(workspace_id, slack_user_id)
+def _detect_persona_from_messages(slack: SlackIntegration, slack_user_id: str, action_token: str | None) -> str | None:
     if action_token is None:
         return None
     csm_score = _authored_count(
@@ -129,8 +128,9 @@ def _detect_persona_from_title(slack: SlackIntegration, slack_user_id: str) -> s
 def detect_persona(slack: SlackIntegration, workspace_id: str, slack_user_id: str) -> tuple[str | None, str | None]:
     """Returns ``(candidate, source)`` — candidate in {"csm", "engineer", None}, source in
     {"messages", "title", None}. Best-effort at every rung; never raises."""
-    if slack_search.search_available(slack, workspace_id, slack_user_id):
-        candidate = _detect_persona_from_messages(slack, workspace_id, slack_user_id)
+    action_token = slack_search.get_cached_action_token(workspace_id, slack_user_id)
+    if slack_search.search_available(slack, action_token):
+        candidate = _detect_persona_from_messages(slack, slack_user_id, action_token)
         if candidate is not None:
             return candidate, DETECTION_SOURCE_MESSAGES
     candidate = _detect_persona_from_title(slack, slack_user_id)
@@ -165,10 +165,8 @@ _TOOL_HIT_MIN = 3
 def detect_workspace_tools(slack: SlackIntegration, workspace_id: str, slack_user_id: str) -> list[str]:
     """Source kinds (ExternalDataSourceType values) whose tool shows up in recent public-channel
     messages. Empty when search is unavailable — the fleet reveal then renders generic gap lines."""
-    if not slack_search.search_available(slack, workspace_id, slack_user_id):
-        return []
     action_token = slack_search.get_cached_action_token(workspace_id, slack_user_id)
-    if action_token is None:
+    if action_token is None or not slack_search.search_available(slack, action_token):
         return []
     detected: list[str] = []
     for tool in _CONNECTABLE_TOOLS:
