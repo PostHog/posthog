@@ -160,14 +160,7 @@ const MIN_CLAMPABLE_DEAD_ZONE_MS = 1000
 // marker); below it the dead-zone clamp handles things silently and a warning would be noise
 const LATE_FULL_SNAPSHOT_THRESHOLD_MS = 20000
 
-// While buffering on a still-ingesting recording we may receive no new events to re-trigger a
-// verdict re-evaluation: source polling can back off, and the grace check reads wall-clock time,
-// which isn't reactive. Re-run syncPlayerState on this cadence so a recording stuck buffering
-// past the ingestion grace period still transitions to the terminal error rather than sitting on
-// "Still processing…" forever. A non-repositioning tick is inert unless the player is buffering,
-// and a mid-buffer tick only acts on a definitive verdict — so it never yanks the playhead.
-// The cadence is a deliberate safety-net interval, not a tuned value: worst case is ~2 min of
-// "Still processing…" after grace has already lapsed.
+// Safety-net cadence for re-running syncPlayerState while buffering, since neither backed-off source polling nor the non-reactive wall-clock grace check re-triggers verdict re-evaluation on its own.
 const BUFFERING_REEVALUATION_INTERVAL_MS = 120000
 
 export type SeekRenderability =
@@ -1685,7 +1678,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         syncPlayerSpeed: () => {
             values.player?.replayer?.setConfig({ speed: values.playerSpeed })
         },
-        // The single map from (position, verdict, play intent) to player state: error, buffer, pause-at-t, or play-at-t. Seeks call it with reposition=true; data arrivals and the safety tick call it without, making it a pure buffering reconciler that never touches a healthily playing replayer.
+        // The single map from (position, verdict, play intent) to player state — seeks call it with reposition=true, while data arrivals and the safety tick call it without, making it a pure buffering reconciler that never touches a healthily playing replayer.
         syncPlayerState: ({ forcePlay, reposition }) => {
             // The null check also catches the null that currentTimestamp holds before playback initializes — acting on it would derail the initial load.
             const timestamp = values.currentTimestamp
@@ -1827,8 +1820,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.initializePlayerFromStart()
             }
 
-            // Segments can reshape under a stale currentSegment (e.g. a trailing buffer resolving into real window segments) — re-derive so playback continues in the right segment with the right replayer.
-            // Only kind/windowId changes matter: boundary drift is constant on live recordings and re-committing the segment would trigger a full rrweb re-seek per poll.
+            // Segments can reshape under a stale currentSegment (e.g. a trailing buffer resolving into real window segments), so re-derive it on kind/windowId changes only — re-committing on the constant boundary drift of live recordings would trigger a full rrweb re-seek per poll.
             if (values.currentTimestamp != null && values.currentSegment) {
                 const freshSegment = values.segmentForTimestamp(values.currentTimestamp)
                 if (
@@ -1955,14 +1947,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         seekToTimestamp: ({ timestamp, forcePlay }, breakpoint) => {
-            // Resolve: if the data before `timestamp` definitively has no FullSnapshot to
-            // render from (e.g. the initial full snapshot was lost at capture time), clamp
-            // the seek forward to the first renderable position instead of letting the
-            // player get stuck on an unrenderable frame.
-            // Despite the action's typing, some callers forward currentTimestamp while
-            // it still holds its initial null — seekRenderability would coerce that to
-            // 0 and clamp every normal recording to its first FullSnapshot, firing
-            // spurious telemetry on every player init.
+            // If the data before `timestamp` definitively has no FullSnapshot to render from (e.g. lost at capture time), clamp the seek forward to the first renderable position instead of sticking on an unrenderable frame.
+            // Despite the action's typing, some callers forward currentTimestamp while it still holds its initial null, which seekRenderability would coerce to 0 and clamp every normal recording to its first FullSnapshot.
             let target = timestamp
             for (let hops = 0; target != null && hops < 10; hops++) {
                 const renderability = values.seekRenderability(target)

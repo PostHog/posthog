@@ -257,7 +257,7 @@ export class SnapshotStore {
         return changed
     }
 
-    // Deliberately does not bump(): consumers should keep their memoized view; only loaded-state metadata remains meaningful afterwards. Fetched entries keep their raw data — it hasn't been processed yet.
+    // Deliberately does not bump(): consumers should keep their memoized view, since only loaded-state metadata stays meaningful and fetched entries keep their still-unprocessed raw data.
     clearSnapshotData(): void {
         for (const entry of this.entries) {
             if (entry.state === 'loaded') {

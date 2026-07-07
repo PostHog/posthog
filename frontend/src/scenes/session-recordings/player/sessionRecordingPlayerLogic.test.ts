@@ -617,10 +617,7 @@ describe('sessionRecordingPlayerLogic', () => {
         })
 
         it('clamps to a recovery full snapshot even when a preceding gap owns its boundary timestamp', () => {
-            // Window 2 has no FullSnapshot before the seek target; its recovery FullSnapshot
-            // at +70s sits right after window-1 activity, so the micro-gap ending exactly at
-            // the FullSnapshot's timestamp is attributed to window 1 — that inferred windowId
-            // must not veto the only usable recovery point.
+            // Window 2's recovery FullSnapshot at +70s sits right after window-1 activity, so the micro-gap ending at its timestamp is attributed to window 1 and that inferred windowId must not veto the only usable recovery point.
             seedRecording(
                 [fs(START), inc(START + 1000)],
                 [

@@ -10,8 +10,7 @@ import {
 
 import { SessionRecordingType } from '~/types'
 
-// The base mock recording is ~12s across two browser windows; serving each window as its
-// own blob_v2 source exercises multi-source loading, promotion, and cross-source seeks.
+// The base mock recording is ~12s across two browser windows, and serving each window as its own blob_v2 source exercises multi-source loading, promotion, and cross-source seeks.
 const SESSION_ID = recordingMetaJson.id
 const [windowOneJSONL, windowTwoJSONL] = snapshotsAsJSONLines().trim().split('\n')
 const BASE_TS = 1682952380877 // first event of windowOneJSONL, matches recordingMetaJson.start_time
@@ -86,8 +85,7 @@ const RECORDINGS: Record<string, MockRecording> = {
     },
 }
 
-// Frame each blob's JSONL as its own raw-Snappy block prefixed with a 4-byte big-endian length,
-// matching what recording-api serves for blob_v2 and what parseEncodedSnapshots expects.
+// Frame each blob's JSONL as a raw-Snappy block behind a 4-byte big-endian length, matching what recording-api serves for blob_v2.
 function snappyBlocks(texts: string[]): Buffer {
     const parts: Buffer[] = []
     for (const text of texts) {
@@ -118,8 +116,7 @@ async function mockRecordingApi(page: Page): Promise<void> {
                     if (delay > 0) {
                         await new Promise((resolve) => setTimeout(resolve, delay))
                     }
-                    // blob_v2 content is served as length-prefixed Snappy blocks (the recording-api wire
-                    // format); the player fetches it with decompress=false and decompresses client-side.
+                    // blob_v2 content is length-prefixed Snappy on the wire, which the player fetches with decompress=false and decompresses client-side.
                     return route.fulfill({
                         status: 200,
                         contentType: 'application/octet-stream',
@@ -152,9 +149,7 @@ function playerFrame(page: Page): Locator {
     return page.locator('.PlayerFrame__content .replayer-wrapper iframe')
 }
 
-// The play/pause/rewind control is one button whose data-attr reflects player state. The
-// controls chrome auto-hides, so state is asserted via the attribute (works while hidden)
-// and the player is hovered right before any click to reveal the chrome.
+// One button whose data-attr reflects player state and stays assertable while the auto-hiding controls chrome is hidden (hover via revealControls before clicking it).
 function playPauseButton(page: Page): Locator {
     return page.locator('[data-attr=recording-play], [data-attr=recording-pause], [data-attr=recording-rewind]').first()
 }
@@ -163,8 +158,7 @@ async function revealControls(page: Page): Promise<void> {
     await page.locator('.SessionRecordingPlayerWrapper').hover()
 }
 
-// The buffering state class lands on both the player container and the "Buffering…" overlay
-// text, so scope to the first match to avoid a strict-mode violation.
+// The buffering state class lands on both the player container and the "Buffering…" overlay text, so scope to the first match to avoid a strict-mode violation.
 function bufferingIndicator(page: Page): Locator {
     return page.locator('.SessionRecordingPlayer--buffering').first()
 }

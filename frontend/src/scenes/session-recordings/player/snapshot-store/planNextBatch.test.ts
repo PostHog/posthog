@@ -98,8 +98,7 @@ describe('planNextBatch', () => {
         })
 
         it('scans forward beyond the buffer window when nothing renderable is known', () => {
-            // Playhead at the start, buffer window fully loaded, but no FullSnapshot
-            // anywhere — e.g. the initial full snapshot was lost at capture time
+            // Buffer window fully loaded but no FullSnapshot anywhere, e.g. the initial full snapshot was lost at capture time
             const loaded = Array.from({ length: 30 }, (_, i) => i)
             const store = createLoadedStore(50, loaded, [])
             const batch = plan(store, { playbackPosition: tsForMinute(0) })
@@ -114,9 +113,7 @@ describe('planNextBatch', () => {
         })
 
         it('does not sweep the recording when the playhead is parked just before the first FullSnapshot', () => {
-            // A paused-at-start mount (autoPlay={false} or ?pause=true&t=0) parks the playhead at the
-            // meta start, epsilon before the window's first FullSnapshot — the loaded later FullSnapshot
-            // is the clamp target, so nothing beyond the buffer window may be fetched
+            // A paused-at-start mount parks the playhead epsilon before its window's first FullSnapshot, and the loaded later FullSnapshot is already the clamp target
             const loaded = Array.from({ length: 30 }, (_, i) => i)
             const store = createLoadedStore(50, loaded, [0])
             expect(plan(store, { playbackPosition: tsForMinute(0) - 50 })).toBeNull()
@@ -124,8 +121,7 @@ describe('planNextBatch', () => {
         })
 
         it('scans forward when the playhead window has no FullSnapshot even though another window does', () => {
-            // The FullSnapshot at source 0 belongs to window 2 — it can't render
-            // window-1 content at the playhead, so the scan must still fire
+            // The FullSnapshot at source 0 belongs to window 2 and can't render window-1 content at the playhead, so the scan must still fire
             const store = new SnapshotStore()
             store.setSources(makeSources(50))
             for (let i = 0; i < 30; i++) {
@@ -228,8 +224,7 @@ describe('planNextBatch', () => {
         })
 
         it('keeps searching forward when the only later FullSnapshot belongs to another window', () => {
-            // Sources 0-18 loaded; the FullSnapshot at source 18 belongs to window 2,
-            // which can't render a window-1 target — source 19 must still be scanned
+            // Sources 0-18 are loaded but the FullSnapshot at source 18 belongs to window 2 and can't render a window-1 target, so source 19 must still be scanned
             const store = new SnapshotStore()
             store.setSources(makeSources(20))
             for (let i = 0; i < 19; i++) {
