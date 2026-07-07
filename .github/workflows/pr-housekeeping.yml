@@ -42,16 +42,14 @@ jobs:
         # changes, and pushes change neither. Re-asserting the same status on
         # every push wasted the run and fought manual card moves.
         if: contains(fromJSON('["opened", "reopened", "ready_for_review", "review_requested", "converted_to_draft"]'), github.event.action) && github.event.pull_request.head.repo.full_name == github.repository
-        uses: PostHog/.github/.github/workflows/flags-project-board.yml@69336b569d22687f8982eea6ff7d450a885cda05
+        uses: PostHog/.github/.github/workflows/flags-project-board.yml@2db3d3b946aeb9e479ce9f0078139a67f8ef38ce
         with:
             pr_number: ${{ github.event.pull_request.number }}
             pr_node_id: ${{ github.event.pull_request.node_id }}
             is_draft: ${{ github.event.pull_request.draft }}
-        # The called workflow lives in PostHog/.github and only declares `inputs:` (no `secrets:`) under
-        # workflow_call, so scoped secret passing isn't possible until that reusable workflow adds a
-        # secrets: block too.
-        # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit
-        secrets: inherit
+        secrets:
+            PROJECT_BOARD_BOT_APP_ID: ${{ secrets.PROJECT_BOARD_BOT_APP_ID }}
+            PROJECT_BOARD_BOT_PRIVATE_KEY: ${{ secrets.PROJECT_BOARD_BOT_PRIVATE_KEY }}
 
     pr-opened:
         if: contains(fromJSON('["opened", "ready_for_review"]'), github.event.action)
