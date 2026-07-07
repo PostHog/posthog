@@ -361,9 +361,25 @@ tools:
     logs-has-logs-retrieve:
         operation: logs_has_logs_retrieve
         enabled: false
-    logs-patterns-create:
+    logs-patterns:
         operation: logs_patterns_create
-        enabled: false
+        enabled: true
+        scopes:
+            - logs:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Mine log patterns
+        description_file: ./prompts/logs-patterns.md
+        feature_flag: logs-patterns-view
+        response:
+            exclude:
+                - patterns.*.examples
+                - patterns.*.sparkline
+                - patterns.*.count
+                - patterns.*.error_count
+                - sparkline_buckets
     logs-sampling-rules-create:
         operation: logs_sampling_rules_create
         enabled: false
