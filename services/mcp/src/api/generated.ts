@@ -49,7 +49,7 @@ export namespace Schemas {
      * Analysis window for an AI report run. The write-side schema for ai_prompt_config["window"].
      */
     export interface AIWindowConfig {
-      /** 'since_last_sent' (default) analyses everything since the previous successful delivery (gap-free); 'last_n_days' analyses a fixed trailing window of start_days_ago days; 'days_ago_range' analyses the explicit range from start_days_ago to end_days_ago days ago.
+      /** 'since_last_sent' (default) analyzes everything since the previous successful delivery (gap-free); 'last_n_days' analyzes a fixed trailing window of start_days_ago days; 'days_ago_range' analyzes the explicit range from start_days_ago to end_days_ago days ago.
        *
        * * `since_last_sent` - Since last report
        * * `last_n_days` - Last N days

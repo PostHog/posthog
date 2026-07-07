@@ -134,8 +134,11 @@ def compute_report_window(
     - LAST_N_DAYS: `[now - start_days_ago, now)` — a fixed trailing window independent of send timing.
     - DAYS_AGO_RANGE: `[now - start_days_ago, now - end_days_ago)` — an explicit historical range.
 
-    A day-based mode missing its day values (bad config) falls back to SINCE_LAST_SENT semantics
-    rather than failing the run. Both bounds are returned in the team timezone. Pure (no DB / no
+    A day-based mode with missing or inverted day values (a bad row) degrades to a bounded window
+    rather than failing the run: a range missing `end_days_ago` is treated as ending now, and
+    anything else falls through to the default branch — which, since callers pass no delivery
+    anchor for day-based modes, is the cadence-derived `end - window_days` trailing window. The
+    degrade is logged. Both bounds are returned in the team timezone. Pure (no DB / no
     `datetime.now`) so it's unit-testable — callers resolve the anchor and `now` and pass them in.
     """
     tz = team.timezone_info
@@ -150,6 +153,17 @@ def compute_report_window(
         # The serializer enforces start > end; clamp anyway so a bad row can't invert the range.
         if start < end:
             return ReportWindow(start=start, end=end)
+
+    if mode != Subscription.AIWindowMode.SINCE_LAST_SENT:
+        # A day-based row the API can't produce (out-of-band edit or a serializer regression).
+        # Degrading silently would be indistinguishable from the user choosing the default window.
+        logger.warning(
+            "ai_report.window_config_invalid_fallback",
+            team_id=team.pk,
+            mode=mode,
+            start_days_ago=start_days_ago,
+            end_days_ago=end_days_ago,
+        )
 
     end = run_now
     if last_successful_delivery_at is not None:

@@ -258,7 +258,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         },
     })),
 
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, selectors }) => ({
         submitSubscriptionSuccess: ({ subscription }) => {
             if (subscription?.target_type === 'slack' && subscription.target_value && subscription.integration_id) {
                 recordRecentSlackChannel(subscription.integration_id, slackChannelId(subscription.target_value))
@@ -267,10 +267,14 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         selectAiExamplePrompt: ({ prompt, label, window }) => {
             posthog.capture('subscription_ai_example_prompt_selected', { label })
             actions.setSubscriptionValue('prompt', prompt)
-            if (window) {
-                // Presets that imply a timeframe prefill the analysis window to match; the chips only
-                // render on an empty prompt, so this never clobbers a deliberately-chosen window.
-                actions.setSubscriptionValues({ ai_prompt_config: { window } })
+            const currentMode = values.subscription?.ai_prompt_config?.window?.mode ?? 'since_last_sent'
+            if (window && currentMode === 'since_last_sent') {
+                // Presets that imply a timeframe prefill the analysis window — but only while the
+                // window is still the default, so a deliberately-chosen one survives the click.
+                // Spread keeps future sibling config keys intact.
+                actions.setSubscriptionValues({
+                    ai_prompt_config: { ...values.subscription?.ai_prompt_config, window },
+                })
             }
         },
         submitSubscriptionFailure: ({ error }) => {
@@ -285,7 +289,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             lemonToast.error(message)
         },
 
-        setSubscriptionValue: ({ name, value }) => {
+        setSubscriptionValue: ({ name, value }, _breakpoint, _action, previousState) => {
             const key = Array.isArray(name) ? name[0] : name
             if (key === 'frequency') {
                 if (value === 'daily') {
@@ -310,11 +314,16 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
 
             const path = Array.isArray(name) ? name.join('.') : name
             if (path === 'ai_prompt_config.window.mode') {
-                // Replace the whole window on mode switch — stale day bounds from the previous mode
-                // would confuse validation and the backend.
-                actions.setSubscriptionValues({
-                    ai_prompt_config: { window: { mode: value } },
-                })
+                // The reducer has already applied the new mode, so read the pre-action config to tell
+                // a real mode switch from a same-mode re-select (which must keep the entered days).
+                const previousConfig = selectors.subscription(previousState)?.ai_prompt_config
+                if (value !== previousConfig?.window?.mode) {
+                    // Replace only the window — stale day bounds from the previous mode would confuse
+                    // validation and the backend, but future sibling config keys must survive.
+                    actions.setSubscriptionValues({
+                        ai_prompt_config: { ...previousConfig, window: { mode: value } },
+                    })
+                }
             }
         },
 

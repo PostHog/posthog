@@ -135,9 +135,9 @@ class AIWindowConfigSerializer(serializers.Serializer):
         choices=Subscription.AIWindowMode.choices,
         default=Subscription.AIWindowMode.SINCE_LAST_SENT,
         help_text=(
-            "'since_last_sent' (default) analyses everything since the previous successful delivery "
-            "(gap-free); 'last_n_days' analyses a fixed trailing window of start_days_ago days; "
-            "'days_ago_range' analyses the explicit range from start_days_ago to end_days_ago days ago."
+            "'since_last_sent' (default) analyzes everything since the previous successful delivery "
+            "(gap-free); 'last_n_days' analyzes a fixed trailing window of start_days_ago days; "
+            "'days_ago_range' analyzes the explicit range from start_days_ago to end_days_ago days ago."
         ),
     )
     start_days_ago = serializers.IntegerField(
@@ -160,6 +160,12 @@ class AIWindowConfigSerializer(serializers.Serializer):
             "'days_ago_range' and must be less than start_days_ago; ignored for other modes. 0-365."
         ),
     )
+
+    def to_representation(self, instance: Any) -> dict:
+        # Reads route through the model's fail-soft normalisation: the JSONField can carry any shape
+        # if edited out-of-band, and the typed fields would otherwise crash on it (DRF's
+        # IntegerField.to_representation is `int(value)`), 500ing every list/detail read for the team.
+        return Subscription.normalize_ai_window(instance)
 
     def validate(self, attrs: dict) -> dict:
         mode = attrs.get("mode") or Subscription.AIWindowMode.SINCE_LAST_SENT

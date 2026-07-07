@@ -218,16 +218,33 @@ class TestAIWindowConfigProperties:
 
     @parameterized.expand(
         [
-            ("empty", {}),
-            ("window_not_a_dict", {"window": "hi"}),
-            ("garbage_values", {"window": {"mode": "bogus", "start_days_ago": "seven", "end_days_ago": True}}),
-            ("none_config", None),
+            ("empty", {}, "since_last_sent"),
+            ("window_not_a_dict", {"window": "hi"}, "since_last_sent"),
+            (
+                "garbage_values",
+                {"window": {"mode": "bogus", "start_days_ago": "seven", "end_days_ago": True}},
+                "since_last_sent",
+            ),
+            ("none_config", None, "since_last_sent"),
+            # Out-of-bounds day values must not survive either: a negative start would push the
+            # window's start past its end (a future/inverted range handed to the planner). The valid
+            # mode reads through; the day bounds are dropped, so compute degrades to the default window.
+            (
+                "negative_days",
+                {"window": {"mode": "last_n_days", "start_days_ago": -5, "end_days_ago": -1}},
+                "last_n_days",
+            ),
+            (
+                "over_max_days",
+                {"window": {"mode": "last_n_days", "start_days_ago": 9000, "end_days_ago": 400}},
+                "last_n_days",
+            ),
         ]
     )
-    def test_garbage_config_degrades_to_defaults(self, _name: str, config: object) -> None:
+    def test_garbage_config_degrades_to_defaults(self, _name: str, config: object, expected_mode: str) -> None:
         sub = self._sub(config)
 
-        assert sub.ai_window_mode == Subscription.AIWindowMode.SINCE_LAST_SENT
+        assert sub.ai_window_mode == expected_mode
         assert sub.ai_window_start_days_ago is None
         assert sub.ai_window_end_days_ago is None
 
@@ -331,6 +348,24 @@ class TestComputeReportWindow:
         # compare_start stays the equal-length prior period, so period-over-period works here too.
         assert window.compare_start == now - timedelta(days=17)
 
+    def test_range_missing_end_is_treated_as_ending_now(self) -> None:
+        # Documented degrade: a DAYS_AGO_RANGE row missing end_days_ago ends at "now" (0 = now per
+        # the serializer help text) instead of falling back to a completely different window.
+        now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+
+        window = compute_report_window(
+            self._team(),
+            last_successful_delivery_at=None,
+            now=now,
+            window_days=7,
+            mode=Subscription.AIWindowMode.DAYS_AGO_RANGE,
+            start_days_ago=10,
+            end_days_ago=None,
+        )
+
+        assert window.start == now - timedelta(days=10)
+        assert window.end == now
+
     @parameterized.expand(
         [
             ("last_n_days_missing_start", Subscription.AIWindowMode.LAST_N_DAYS, None, None),
@@ -338,17 +373,18 @@ class TestComputeReportWindow:
             ("range_inverted", Subscription.AIWindowMode.DAYS_AGO_RANGE, 3, 5),
         ]
     )
-    def test_bad_day_mode_config_falls_back_to_since_last_sent(
+    def test_bad_day_mode_config_falls_back_to_trailing_window(
         self, _name: str, mode: str, start_days_ago: int | None, end_days_ago: int | None
     ) -> None:
-        # The serializer prevents these rows, but a bad row must degrade to the default window
-        # rather than fail the run or hand the planner an inverted range.
+        # The serializer prevents these rows, but a bad row must degrade to a bounded window rather
+        # than fail the run or hand the planner an inverted range. The anchor is None because the
+        # production caller (delivery.py) skips the last-delivery lookup for day-based modes, so the
+        # reachable degrade is the cadence-derived trailing window.
         now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
-        last = datetime(2026, 6, 28, 16, 0, tzinfo=UTC)
 
         window = compute_report_window(
             self._team(),
-            last_successful_delivery_at=last,
+            last_successful_delivery_at=None,
             now=now,
             window_days=7,
             mode=mode,
@@ -356,7 +392,7 @@ class TestComputeReportWindow:
             end_days_ago=end_days_ago,
         )
 
-        assert window.start == last
+        assert window.start == now - timedelta(days=7)
         assert window.end == now
 
     @parameterized.expand(

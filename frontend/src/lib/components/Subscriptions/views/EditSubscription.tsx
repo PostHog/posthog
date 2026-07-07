@@ -78,17 +78,17 @@ function AiConsentGateMessage(): JSX.Element {
 // setting owns the time range now, so the prompt copy stays range-agnostic).
 const AI_PROMPT_EXAMPLES: { label: string; prompt: string; window?: AIWindowConfigApi }[] = [
     {
-        label: 'Top events this week',
+        label: 'Top events',
         prompt: 'Top 5 events by volume, with counts and unique users for each.',
         window: { mode: 'last_n_days', start_days_ago: 7 },
     },
     {
-        label: 'Week-over-week growth',
+        label: 'Period-over-period growth',
         prompt: 'For the top 10 events by volume, compare the current period vs the previous one and rank by growth rate. Flag any event that more than doubled or halved.',
         window: { mode: 'last_n_days', start_days_ago: 7 },
     },
     {
-        label: 'Weekly health check',
+        label: 'Health check',
         prompt: 'Health check: total event volume and unique active users, and how each compares to the previous period.',
         window: { mode: 'last_n_days', start_days_ago: 7 },
     },
