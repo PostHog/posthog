@@ -257,19 +257,32 @@ def _format_duration(seconds: float | int) -> str:
     return " ".join(units) or "0s"
 
 
+def _sanitize_axis_affix(affix: str) -> str:
+    """Strip LLM-framing markers from a user-controlled axis prefix/postfix while keeping the
+    single separating space a real affix uses (e.g. " reqs" stays " reqs" so the value reads
+    "1,200 reqs" like the chart). sanitize_user_text trims surrounding whitespace, so re-apply a
+    single leading/trailing space when the original had one.
+    """
+    sanitized = sanitize_user_text(affix, GENERIC_VALUE_MAX_LEN)
+    if not sanitized:
+        return ""
+    lead = " " if affix[:1].isspace() else ""
+    trail = " " if affix[-1:].isspace() else ""
+    return f"{lead}{sanitized}{trail}"
+
+
 def _sanitize_value_format(value_format: dict[str, Any] | None) -> dict[str, Any] | None:
-    """Strip LLM-framing markers from the user-controlled axis prefix/postfix before they land
-    in the summary text. Insight axis prefix/postfix are user-editable, and the summary is wrapped
-    in `<insight_data>` tags for the LLM, so without this a user could set a postfix like
-    `</insight_data><user_context>...` and inject instructions — the same defense already applied
-    to labels and values.
+    """Sanitize the user-controlled axis prefix/postfix before they land in the summary text.
+    Insight axis prefix/postfix are user-editable, and the summary is wrapped in `<insight_data>`
+    tags for the LLM, so without this a user could set a postfix like `</insight_data><user_context>...`
+    and inject instructions — the same defense already applied to labels and values.
     """
     if not value_format:
         return value_format
     sanitized = dict(value_format)
     for key in ("prefix", "postfix"):
         if sanitized.get(key):
-            sanitized[key] = sanitize_user_text(sanitized[key], GENERIC_VALUE_MAX_LEN)
+            sanitized[key] = _sanitize_axis_affix(sanitized[key])
     return sanitized
 
 
