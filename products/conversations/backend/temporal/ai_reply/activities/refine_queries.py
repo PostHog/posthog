@@ -6,7 +6,7 @@ from posthog.llm.gateway_client import get_async_anthropic_gateway_client
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.conversations.backend.temporal.ai_reply.constants import TICKET_TYPE_HINTS, UTILITY_MODEL
-from products.conversations.backend.temporal.ai_reply.llms import anthropic_text, create_message
+from products.conversations.backend.temporal.ai_reply.llms import anthropic_text, create_message, tracing_kwargs
 from products.conversations.backend.temporal.ai_reply.schemas import RefineQueriesInput, RefineQueriesOutput
 
 
@@ -60,8 +60,7 @@ derive search queries about the customer's support question."""
         max_tokens=512,
         system=system,
         messages=[{"role": "user", "content": "\n".join(user_parts)}],
-        metadata={"user_id": trace_id} if trace_id else None,
-        extra_headers={"x-posthog-property-ticket_id": ticket_id} if ticket_id else None,
+        **tracing_kwargs(trace_id, ticket_id),
     )
     content = anthropic_text(message)
     queries = [line.strip() for line in content.strip().split("\n") if line.strip()]

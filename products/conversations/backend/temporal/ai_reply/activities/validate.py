@@ -11,7 +11,12 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.conversations.backend.temporal.ai_reply.activities.draft import _hydrate_chunks
 from products.conversations.backend.temporal.ai_reply.constants import TICKET_TYPE_HINTS, VALIDATOR_MODEL
-from products.conversations.backend.temporal.ai_reply.llms import anthropic_text, create_message, strip_json_fence
+from products.conversations.backend.temporal.ai_reply.llms import (
+    anthropic_text,
+    create_message,
+    strip_json_fence,
+    tracing_kwargs,
+)
 from products.conversations.backend.temporal.ai_reply.schemas import ValidateInput, ValidateOutput
 
 logger = structlog.get_logger(__name__)
@@ -89,8 +94,7 @@ CITED CHUNKS:
         max_tokens=1024,
         system=system,
         messages=[{"role": "user", "content": user_content}],
-        metadata={"user_id": trace_id} if trace_id else None,
-        extra_headers={"x-posthog-property-ticket_id": ticket_id} if ticket_id else None,
+        **tracing_kwargs(trace_id, ticket_id),
     )
     content = anthropic_text(message)
 

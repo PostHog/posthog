@@ -10,7 +10,12 @@ from posthog.llm.gateway_client import get_async_anthropic_gateway_client
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.conversations.backend.temporal.ai_reply.constants import MAX_SAFETY_REVIEWED_CHARS, UTILITY_MODEL
-from products.conversations.backend.temporal.ai_reply.llms import anthropic_text, create_message, strip_json_fence
+from products.conversations.backend.temporal.ai_reply.llms import (
+    anthropic_text,
+    create_message,
+    strip_json_fence,
+    tracing_kwargs,
+)
 from products.conversations.backend.temporal.ai_reply.schemas import SafetyFilterInput, SafetyFilterOutput
 
 logger = structlog.get_logger(__name__)
@@ -128,8 +133,7 @@ async def _safety_filter(
         max_tokens=512,
         system=SAFETY_FILTER_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_content}],
-        metadata={"user_id": trace_id} if trace_id else None,
-        extra_headers={"x-posthog-property-ticket_id": ticket_id} if ticket_id else None,
+        **tracing_kwargs(trace_id, ticket_id),
     )
     content = anthropic_text(message)
 
