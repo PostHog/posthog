@@ -27,6 +27,10 @@ import { accountsLogic, savingRoleKey } from './accountsLogic'
 const orderByOf = (source: unknown): AccountsQuery['orderBy'] => (source as AccountsQuery).orderBy
 
 jest.mock('products/customer_analytics/frontend/generated/api', () => ({
+    // Keep the real module for everything else — connected logics (e.g. column config's
+    // customPropertyDefinitionsList) call other generated functions on mount, and an
+    // absent export makes their loaders throw on every test.
+    ...jest.requireActual('products/customer_analytics/frontend/generated/api'),
     accountsRetrieve: jest.fn(),
     accountsPartialUpdate: jest.fn(),
 }))

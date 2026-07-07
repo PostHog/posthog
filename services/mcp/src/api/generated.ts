@@ -8485,6 +8485,25 @@ export namespace Schemas {
       request_id: string;
     }
 
+    export interface AgentRevisionDryRunToolError {
+      /** Stable error code. `sandbox_acquire_failed` — the platform could not start a sandbox (infrastructure issue, not tool code). `sandbox_invoke_failed` — the sandbox started but the invoke threw uncaught (problem in the tool body, or a runtime error). Dispatcher-side codes come through on `ok:false` invoke results: `timeout`, `secret_not_provisioned`, `action_not_found`, `tool_not_found`. */
+      code: string;
+      /** One-line human-readable detail. */
+      message: string;
+    }
+
+    export interface AgentRevisionDryRunToolResponse {
+      /** True when the tool's `actions.default` returned without throwing. False when the tool threw or the sandbox rejected the invocation (the structured `error` describes which). */
+      ok: boolean;
+      /** Echo of the tool id from the URL. */
+      tool_id: string;
+      /** Present on success — the value the tool's `actions.default` returned. */
+      result?: unknown;
+      error?: AgentRevisionDryRunToolError;
+      /** Wall-clock duration in milliseconds, measured from sandbox acquire to after release. Captured consistently across success, tool-throw, and acquire-failure paths so authors can compare timings between calls. Always present. */
+      duration_ms: number;
+    }
+
     export interface AgentRevisionEnvKeyStatus {
       key: string;
       /** True if the key is present in the env block. The value itself is never returned. */
@@ -11952,6 +11971,20 @@ export namespace Schemas {
       ids: string[];
     }
 
+    /**
+     * * `add` - add
+     * * `remove` - remove
+     * * `set` - set
+     */
+    export type BulkUpdateTagsActionEnum = typeof BulkUpdateTagsActionEnum[keyof typeof BulkUpdateTagsActionEnum];
+
+
+    export const BulkUpdateTagsActionEnum = {
+      Add: 'add',
+      Remove: 'remove',
+      Set: 'set',
+    } as const;
+
     export interface BulkUpdateTagsError {
       id: number;
       reason: string;
@@ -11961,20 +11994,6 @@ export namespace Schemas {
       id: number;
       tags: string[];
     }
-
-    /**
-     * * `add` - add
-     * * `remove` - remove
-     * * `set` - set
-     */
-    export type BulkUpdateTagsRequestActionEnum = typeof BulkUpdateTagsRequestActionEnum[keyof typeof BulkUpdateTagsRequestActionEnum];
-
-
-    export const BulkUpdateTagsRequestActionEnum = {
-      Add: 'add',
-      Remove: 'remove',
-      Set: 'set',
-    } as const;
 
     export interface BulkUpdateTagsRequest {
       /**
@@ -11987,7 +12006,7 @@ export namespace Schemas {
        * * `add` - add
        * * `remove` - remove
        * * `set` - set */
-      action: BulkUpdateTagsRequestActionEnum;
+      action: BulkUpdateTagsActionEnum;
       /** Tag names to add, remove, or set. */
       tags: string[];
     }
@@ -11995,6 +12014,46 @@ export namespace Schemas {
     export interface BulkUpdateTagsResponse {
       updated: BulkUpdateTagsItem[];
       skipped: BulkUpdateTagsError[];
+    }
+
+    export interface BulkUpdateTagsUUIDError {
+      /** UUID of the object that was skipped. */
+      id: string;
+      /** Why the object was skipped, e.g. 'Not found'. */
+      reason: string;
+    }
+
+    export interface BulkUpdateTagsUUIDItem {
+      /** UUID of the object whose tags were updated. */
+      id: string;
+      /** The object's full tag list after the update. */
+      tags: string[];
+    }
+
+    /**
+     * Variant of ``BulkUpdateTagsRequestSerializer`` for resources keyed by UUID (e.g. event definitions).
+     */
+    export interface BulkUpdateTagsUUIDRequest {
+      /**
+         * List of object UUIDs to update tags on.
+         * @maxItems 500
+         */
+      ids: string[];
+      /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+       *
+       * * `add` - add
+       * * `remove` - remove
+       * * `set` - set */
+      action: BulkUpdateTagsActionEnum;
+      /** Tag names to add, remove, or set. */
+      tags: string[];
+    }
+
+    export interface BulkUpdateTagsUUIDResponse {
+      /** Objects whose tags were successfully updated. */
+      updated: BulkUpdateTagsUUIDItem[];
+      /** Objects that were skipped, with a reason each. */
+      skipped: BulkUpdateTagsUUIDError[];
     }
 
     /**
@@ -18205,6 +18264,27 @@ export namespace Schemas {
     }
 
     /**
+     * Optional `{secret_name → placeholder_string}` map. The string is returned verbatim by `ctx.secrets.ref(name)` inside the tool. The real secret value never enters the sandbox.
+     */
+    export type DryRunToolRequestMockSecrets = {[key: string]: string};
+
+    /**
+     * Body shape for POST /revisions/<id>/tools/<tool_id>/dry_run/.
+     *
+     * Executes the persisted compiled.js once in the janitor's single-shot
+     * sandbox with caller-supplied args + a stubbed ctx. No real secrets
+     * leave Django — `mock_secrets` is a `{name → opaque nonce}` map the
+     * sandbox plumbs into `ctx.secrets.ref(name)` so the tool body returns
+     * something deterministic to the author.
+     */
+    export interface DryRunToolRequest {
+      /** Synthetic args the tool's `actions.default` is called with. Free-form JSON; the sandbox doesn't validate against the tool's `args_schema` — that's the author's responsibility to keep in sync. */
+      args: unknown;
+      /** Optional `{secret_name → placeholder_string}` map. The string is returned verbatim by `ctx.secrets.ref(name)` inside the tool. The real secret value never enters the sandbox. */
+      mock_secrets?: DryRunToolRequestMockSecrets;
+    }
+
+    /**
      * * `Up` - Up
      * * `Down` - Down
      */
@@ -20697,6 +20777,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `focused` - Focused
+     * * `balanced` - Balanced
+     * * `comprehensive` - Comprehensive
+     */
+    export type SamplingModeEnum = typeof SamplingModeEnum[keyof typeof SamplingModeEnum];
+
+
+    export const SamplingModeEnum = {
+      Focused: 'focused',
+      Balanced: 'balanced',
+      Comprehensive: 'comprehensive',
+    } as const;
+
+    /**
      * Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.
      */
     export interface EstimateRequest {
@@ -20708,6 +20802,12 @@ export namespace Schemas {
          * @maximum 1
          */
       sampling_rate?: number;
+      /** Quality pre-filter applied to the matched-session count, mirroring the sweep's candidate query. Defaults to comprehensive (no filter).
+       *
+       * * `focused` - Focused
+       * * `balanced` - Balanced
+       * * `comprehensive` - Comprehensive */
+      sampling_mode?: SamplingModeEnum;
       /**
          * The scanner being edited, excluded from `other_enabled_scanners_monthly` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner.
          * @nullable
@@ -20719,11 +20819,11 @@ export namespace Schemas {
      * Forward-looking observation-volume estimate for a proposed scanner. Pricing-agnostic.
      */
     export interface EstimateResponse {
-      /** Distinct sessions matching the query within the 30-day lookback, before sampling. */
+      /** Distinct sessions matching the query within the 30-day lookback, after the sampling_mode quality filter but before random sampling. */
       matched_sessions_in_window: number;
       /** Lookback window the estimate is based on. Normally 30; smaller when the team has fewer days of recordings. */
       window_days: number;
-      /** Projected monthly observations: matched sessions scaled to 30 days, times sampling_rate. */
+      /** Projected monthly observations: quality-filtered matched sessions scaled to 30 days, times sampling_rate. */
       estimated_observations_per_month: number;
       /** Summed projected monthly observations of the org's other enabled scanners (excluding `scanner_id`), from their cached estimates. Read from the same snapshot as this estimate so the forecast can't double-count the edited scanner. */
       other_enabled_scanners_monthly: number;
@@ -33404,6 +33504,12 @@ export namespace Schemas {
          * @maximum 1
          */
       sampling_rate?: number;
+      /** Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).
+       *
+       * * `focused` - Focused
+       * * `balanced` - Balanced
+       * * `comprehensive` - Comprehensive */
+      sampling_mode?: SamplingModeEnum;
       /** LLM provider. v1 is Google-only.
        *
        * * `google` - Google */
@@ -35064,6 +35170,32 @@ export namespace Schemas {
     }
 
     /**
+     * Response shape for one @-mention of the requester in a task's thread.
+     */
+    export interface TaskMentionDTO {
+      id: string;
+      message_id: string;
+      task_id: string;
+      task_title: string;
+      /** @nullable */
+      channel_id: string | null;
+      /** @nullable */
+      channel_name: string | null;
+      author?: TaskUserBasicInfo | null;
+      content: string;
+      created_at: string;
+    }
+
+    export interface PaginatedTaskMentionDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TaskMentionDTO[];
+    }
+
+    /**
      * * `claude` - claude
      * * `codex` - codex
      */
@@ -35485,6 +35617,8 @@ export namespace Schemas {
       readonly github_repo: string | null;
       /** @nullable */
       readonly github_issue_number: number | null;
+      /** @nullable */
+      readonly zendesk_ticket_id: number | null;
       /**
          * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
          * @nullable
@@ -41128,6 +41262,12 @@ export namespace Schemas {
          * @maximum 1
          */
       sampling_rate?: number;
+      /** Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).
+       *
+       * * `focused` - Focused
+       * * `balanced` - Balanced
+       * * `comprehensive` - Comprehensive */
+      sampling_mode?: SamplingModeEnum;
       /** LLM provider. v1 is Google-only.
        *
        * * `google` - Google */
@@ -42903,6 +43043,8 @@ export namespace Schemas {
       readonly github_repo?: string | null;
       /** @nullable */
       readonly github_issue_number?: number | null;
+      /** @nullable */
+      readonly zendesk_ticket_id?: number | null;
       /**
          * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
          * @nullable
@@ -55240,6 +55382,95 @@ export namespace Schemas {
       spec: WriteTypedBundleRequestSpec;
     }
 
+    export interface ZendeskImportError {
+      /** Human-readable error message. */
+      detail: string;
+    }
+
+    /**
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed
+     */
+    export type ZendeskImportJobStatusEnum = typeof ZendeskImportJobStatusEnum[keyof typeof ZendeskImportJobStatusEnum];
+
+
+    export const ZendeskImportJobStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface ZendeskImportJob {
+      /** Unique identifier for the import job. */
+      readonly id: string;
+      /** Current job state: pending, running, completed, or failed.
+       *
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      readonly status: ZendeskImportJobStatusEnum;
+      /**
+         * Zendesk subdomain used for this import job.
+         * @nullable
+         */
+      readonly subdomain: string | null;
+      /** Whether stored Zendesk credentials exist for this job (the token/email are never returned). */
+      readonly has_credentials: boolean;
+      /** Total number of tickets discovered for import. */
+      readonly total_tickets: number;
+      /** Number of tickets processed so far. */
+      readonly processed_tickets: number;
+      /** Number of tickets successfully imported. */
+      readonly imported_tickets: number;
+      /** Number of tickets skipped because they were already imported. */
+      readonly skipped_tickets: number;
+      /** Number of tickets that failed to import. */
+      readonly failed_tickets: number;
+      /**
+         * When the import started running.
+         * @nullable
+         */
+      readonly started_at: string | null;
+      /**
+         * When the import reached a terminal state.
+         * @nullable
+         */
+      readonly finished_at: string | null;
+      /**
+         * Generic, user-safe error message when the job failed.
+         * @nullable
+         */
+      readonly latest_error: string | null;
+      /** When the import job was created. */
+      readonly created_at: string;
+      /** When the import job was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface ZendeskImportStart {
+      /**
+         * Zendesk subdomain (e.g. 'acme' from acme.zendesk.com).
+         * @maxLength 255
+         */
+      subdomain: string;
+      /** Zendesk agent email tied to the API token. */
+      email_address: string;
+      /**
+         * Zendesk API token with ticket read access.
+         * @maxLength 500
+         */
+      api_token: string;
+      /**
+         * Optional fallback email channel for tickets whose original Zendesk recipient doesn't match a configured support address (or isn't an email). Omit or null to leave those tickets without an email channel.
+         * @nullable
+         */
+      default_email_channel_id?: string | null;
+    }
+
     export interface _CompareFilter {
       /** When true, also fetch results for a comparison window and return them under `compare`. */
       compare?: boolean;
@@ -55386,6 +55617,16 @@ export namespace Schemas {
       sparkline: number[];
       /** Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample counts, not extrapolated — severity dominance is a proportion, so scaling would not change it. */
       severity_counts: _LogPatternSeverityCounts;
+      /**
+         * RE2-safe regex over raw log bodies that matches lines of this pattern, compiled from the template and validated against the pattern's own examples before being offered. Null when the template lacks literal content or validation failed — never trust an unvalidated predicate. Use with the message/regex log property filter.
+         * @nullable
+         */
+      match_regex: string | null;
+      /**
+         * Longest literal run in the template, for plain-text (icontains) filtering when `match_regex` is null. Null when the template has no usable literal content.
+         * @nullable
+         */
+      match_literal: string | null;
     }
 
     /**
@@ -68467,6 +68708,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type TaskMentionsListParams = {
+    /**
+     * Maximum number of mentions to return (newest first).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Only return mentions created after this ISO 8601 timestamp.
+     */
+    since?: string;
     };
 
     export type TasksListParams = {
