@@ -148,6 +148,8 @@ def _create_implementation_task_if_absent(
             posthog_mcp_scopes="full",
             interaction_origin="signal_report",  # Makes the agent auto-push and open a draft PR
             ai_stage="implementation",
+            # Internal so the run stays out of the default task list; the report surfaces it by id.
+            internal=True,
         )
         if created.latest_run is None:
             raise RuntimeError(f"Task {created.task_id} auto-started without producing a TaskRun")

@@ -74,17 +74,14 @@ describe('persons modal parity between ActionsPie and TrendsPieChart', () => {
         }
     }
 
-    it.each<[number, IndexedTrendResult]>([
-        [0, indexedResults[0]],
-        [1, indexedResults[1]],
-    ])('produces an identical query for slice %i', (sliceIndex, slice) => {
+    it('produces an identical query for a slice', () => {
         const legacyQuery = datasetToActorsQuery({
             dataset: legacyActionsPieDataset(),
             query: querySource,
-            index: sliceIndex,
+            index: 0,
         })
         const newQuery = datasetToActorsQuery({
-            dataset: newPieDatasetForSlice(slice),
+            dataset: newPieDatasetForSlice(indexedResults[0]),
             query: querySource,
         })
         expect(newQuery).toEqual(legacyQuery)

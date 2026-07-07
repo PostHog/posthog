@@ -128,7 +128,7 @@ function routeEvent(ctx: ScrubContext, event: Record<string, unknown>): boolean 
             if (!isObject(data) || typeof data.href !== 'string') {
                 return false
             }
-            const r = scrubUrl(ctx, data.href, { scrubAuthority: true })
+            const r = scrubUrl(ctx, data.href, { collapseHost: true })
             if (r.changed) {
                 data.href = r.value
                 return true
