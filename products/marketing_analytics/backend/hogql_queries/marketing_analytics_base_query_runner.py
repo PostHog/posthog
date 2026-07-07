@@ -200,13 +200,15 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             return level
         return MarketingAnalyticsDrillDownLevel.CAMPAIGN
 
-    def _build_costs_from_precompute(
+    def _resolve_precompute_cost_jobs(
         self, date_range: QueryDateRange
-    ) -> Optional[ast.SelectQuery | ast.SelectSetQuery]:
-        """Native-table cost source: ensure each source's cost rows are materialized at the grain
-        matching the current drill-down (one lazy job per source), then read them with the SAME column
-        contract `build_union_query_ast` produces — so `_build_campaign_cost_select` is unchanged.
-        Returns None if any source isn't ready → caller falls back to the live S3 adapter union.
+    ) -> Optional[tuple[MarketingAnalyticsDrillDownLevel, list, list[MarketingSourceAdapter], MarketingSourceFactory]]:
+        """Ensure each source's cost rows are materialized at the grain matching the current drill-down
+        (one lazy job per source) and resolve the job set that covers this request. Shared by every native
+        cost reader — the campaign_costs CTE and the trends chart — so the exact same job set, and hence
+        the same argMax de-dup, backs both. Returns (grain, job_ids, s3_fallback_adapters, mat_factory),
+        or None when nothing is materializable/ready (caller falls back to the live S3 union). Also sets
+        the cost-precompute telemetry attributes.
         """
         grain = self._cost_materialization_grain()
         # Adapters at the materialization grain (not the drill-down level, which may be SOURCE/CHANNEL).
@@ -288,13 +290,6 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             )
             return None
 
-        cost_sources: list[ast.SelectQuery | ast.SelectSetQuery] = [
-            self._costs_native_read_query(job_ids, grain, date_range)
-        ]
-        # Sources that couldn't materialize stay on the live S3 union so the dashboard stays complete.
-        if s3_fallback_adapters:
-            cost_sources.append(mat_factory.build_union_query_ast(s3_fallback_adapters))
-
         self._costs_precompute_used = True
         self._costs_sources_materialized = len(mat_adapters) - len(s3_fallback_adapters)
         self._costs_grain = grain_value
@@ -308,12 +303,37 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             s3_fallback_sources=len(s3_fallback_adapters),
             job_count=len(job_ids),
         )
+        return grain, job_ids, s3_fallback_adapters, mat_factory
+
+    def _build_costs_from_precompute(
+        self, date_range: QueryDateRange
+    ) -> Optional[ast.SelectQuery | ast.SelectSetQuery]:
+        """Native-table cost source: read the materialized cost rows with the SAME column contract
+        `build_union_query_ast` produces — so `_build_campaign_cost_select` is unchanged. Returns None if
+        nothing is materialized → caller falls back to the live S3 adapter union.
+        """
+        resolved = self._resolve_precompute_cost_jobs(date_range)
+        if resolved is None:
+            return None
+        grain, job_ids, s3_fallback_adapters, mat_factory = resolved
+
+        cost_sources: list[ast.SelectQuery | ast.SelectSetQuery] = [
+            self._costs_native_read_query(job_ids, grain, date_range)
+        ]
+        # Sources that couldn't materialize stay on the live S3 union so the dashboard stays complete.
+        if s3_fallback_adapters:
+            cost_sources.append(mat_factory.build_union_query_ast(s3_fallback_adapters))
+
         if len(cost_sources) == 1:
             return cost_sources[0]
         return ast.SelectSetQuery.create_from_queries(cost_sources, set_operator="UNION ALL")
 
     def _costs_native_read_query(
-        self, job_ids: list, grain: MarketingAnalyticsDrillDownLevel, date_range: QueryDateRange
+        self,
+        job_ids: list,
+        grain: MarketingAnalyticsDrillDownLevel,
+        date_range: QueryDateRange,
+        include_cost_date: bool = False,
     ) -> ast.SelectQuery:
         """Read materialized cost rows for the given source jobs + grain, re-aliased to the adapter
         column contract so the campaign_costs CTE GROUP BY works identically to the live union.
@@ -372,8 +392,12 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             ]
         )
 
-        # cost_date stays out of the SELECT (the downstream campaign_costs CTE sums across days per
-        # campaign) but anchors the grouping so each per-day cell collapses independently.
+        # cost_date normally stays out of the SELECT (the downstream campaign_costs CTE sums across days
+        # per campaign) but anchors the grouping so each per-day cell collapses independently. Time-series
+        # readers (the trends chart) promote it into the SELECT so the deduped rows keep their day and can
+        # be rolled up per interval instead of summed across the whole range.
+        if include_cost_date:
+            select_columns.append(ast.Alias(alias="cost_date", expr=field("cost_date")))
         group_by_exprs: list[ast.Expr] = [field(name) for _, name in dimension_columns]
         group_by_exprs.append(field("cost_date"))
 
