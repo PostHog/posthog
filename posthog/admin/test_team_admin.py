@@ -495,9 +495,10 @@ class TestTeamAdminAIGatewayWallet(BaseTest):
         assert entry.item_id == "entry-42"
         assert entry.user == self.user
         assert entry.was_impersonated is False
-        assert entry.detail["context"]["amount_usd"] == "25.000000"
-        assert entry.detail["context"]["reason"] == "goodwill"
-        assert entry.detail["context"]["balance_usd"] == "35.000000"
+        context = (entry.detail or {}).get("context", {})
+        assert context.get("amount_usd") == "25.000000"
+        assert context.get("reason") == "goodwill"
+        assert context.get("balance_usd") == "35.000000"
 
     def test_add_credit_duplicate_backfills_missing_audit(self) -> None:
         # A replay whose original audit was lost after the money moved backfills it.
@@ -510,7 +511,7 @@ class TestTeamAdminAIGatewayWallet(BaseTest):
         # The backfill path is where actor capture matters most, so pin it here too.
         assert entry.user == self.user
         assert entry.was_impersonated is False
-        assert entry.detail["context"]["reason"] == "x"
+        assert (entry.detail or {}).get("context", {}).get("reason") == "x"
 
     def test_add_credit_audit_is_idempotent_per_entry(self) -> None:
         # Two submits resolving to the same ledger entry record exactly one audit row.
