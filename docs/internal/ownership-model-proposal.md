@@ -34,7 +34,7 @@ Lessons that shaped this proposal:
 
 ## 2. What the repo has today
 
-Two data sources, one shared matcher, four consumers — all hand-maintained, three of them with their own parsers.
+Two data sources, one shared matcher, four consumers — all hand-maintained.
 
 **Sources**
 
@@ -84,7 +84,7 @@ contact:
   oncall: pagerduty:error-tracking # opaque, scheme-prefixed reference
 
 # Lifecycle of the code under this directory.
-# active (default) | deprecated | generated | vendored | shared
+# active (default) | deprecated | generated | vendored
 status: active
 
 # When true (default), fields not set here fall through to the nearest
@@ -113,7 +113,7 @@ owners: [team-ingestion]
 
 ### `product.yaml` as an accepted alias
 
-`products/<name>/product.yaml` with an `owners:` key is read by the resolver as an `OWNERS.yaml` with that same `owners:` list — identical key, identical semantics, different filename. Every other field in `product.yaml` (`name:` today, anything added later) is ignored for ownership purposes — `product.yaml` remains free to grow product metadata without touching the ownership schema. Rules:
+`products/<name>/product.yaml` with an `owners:` key is read by the resolver as an `OWNERS.yaml` with that same `owners:` list. Every other field in `product.yaml` (`name:` today, anything added later) is ignored for ownership purposes — `product.yaml` remains free to grow product metadata without touching the ownership schema. Rules:
 
 - A directory may have `product.yaml`-with-`owners` **or** `OWNERS.yaml`, never both — lint error.
 - Sub-folder overrides inside a product use nested `OWNERS.yaml` as anywhere else (e.g. `products/x/backend/migrations/OWNERS.yaml`).
@@ -141,7 +141,7 @@ There is no `OWNERS_ALIASES` file. `owners:` takes GitHub team slugs or `@handle
 - **Nearest-file-wins with per-field fallthrough, not ancestor union.** Kubernetes unions approvers up the tree because its bar is "someone must approve"; our soft model is "tag the right team, don't spam five". Union inheritance would tag `posthog/` owners on every deep PR. Override semantics also match what the ownership skill already implements (product.yaml beats CODEOWNERS). Fallthrough is per field: a child file that only sets `owners` still inherits `contact` and `status` from its ancestor.
 - **`rules:` are file-local.** Cross-file glob interactions are the CODEOWNERS footgun; here a glob can only override its own directory's defaults, so reading one file plus its ancestors fully explains any path.
 - **`owners: null` is explicit, not absent.** Unowned must be a decision (vendored code, scratch dirs), never a default. The coverage check treats missing resolution as an error and `owners: null` as an exemption with a paper trail.
-- **One `owners` list, no role split.** A `team`-vs-`reviewers` distinction (Kubernetes-style) was considered and dropped: with blocking out of scope, "who is responsible" and "who gets tagged" are the same set, and product.yaml already speaks `owners`. Ordering carries the only extra signal needed — first entry is the primary owner (drives derived defaults like the Slack channel). A blocking role, if ever needed, is a new field later, not a split now.
+- **One `owners` list, no role split.** A `team`-vs-`reviewers` distinction (Kubernetes-style) was considered and dropped: with blocking out of scope, "who is responsible" and "who gets tagged" are the same set, and product.yaml already speaks `owners`. Ordering carries the only extra signal needed — first entry is the primary owner. A blocking role, if ever needed, is a new field later, not a split now.
 - **`status:` replaces hardcoded ignore lists.** The assigner's generated-file ignore list, review-noise suppression, and future tooling (e.g. excluding vendored code from lint) all key off one field instead of N copies.
 
 ## 4. Resolution model
@@ -167,7 +167,7 @@ The stability guarantee is architectural: **consumers never parse ownership file
 
 One tradeoff to acknowledge: today `.github/scripts/` sits behind the blocking `CODEOWNERS` (`team-security`), so changes to assignment logic require their approval. Moving the resolver into hogli takes it out of that gate. If that matters, the fix is a one-line addition to the hard file covering `tools/hogli-commands/hogli_commands/owners/` — a deliberate exception to "leave CODEOWNERS alone", to be decided at review.
 
-If the first consumer (say the auto-assigner) is ever replaced, the graph, resolver, and lint are untouched — only one caller changes. That is the "source of truth, not tool config" property.
+If the first consumer (say the auto-assigner) is ever replaced, the resolver, schema, and lint are untouched — only one caller changes. That is the "source of truth, not tool config" property.
 
 ## 6. The one PR
 
