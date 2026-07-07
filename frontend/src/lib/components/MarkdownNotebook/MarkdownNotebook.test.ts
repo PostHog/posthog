@@ -583,6 +583,29 @@ continued line
         expect(serializeMarkdownNotebook(document)).toEqual(markdown)
     })
 
+    it('breaks component tags out of blockquotes instead of degrading them to quote text', () => {
+        const markdown = [
+            '> Quoted intro',
+            '> <Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />',
+            '> > <Python code="print(1)" />',
+            '> Quoted outro',
+        ].join('\n')
+        const document = parseMarkdownNotebook(markdown)
+
+        expect(document.errors).toEqual([])
+        expect(document.nodes.map((node) => node.type)).toEqual(['blockquote', 'component', 'component', 'blockquote'])
+        expect(document.nodes[1]).toMatchObject({
+            tagName: 'Query',
+            props: { query: { kind: 'SavedInsightNode', shortId: 'abc123' } },
+        })
+        expect(document.nodes[2]).toMatchObject({ tagName: 'Python', props: { code: 'print(1)' } })
+
+        // The rescued components stay standalone and stable across further saves
+        const serialized = serializeMarkdownNotebook(document)
+        expect(serialized).not.toContain('\\<')
+        expect(serializeMarkdownNotebook(parseMarkdownNotebook(serialized))).toEqual(serialized)
+    })
+
     it('round-trips component string props with reversible escaping', () => {
         const props = {
             src: 'https://posthog.com/embed?one=1&two=2',
