@@ -314,22 +314,26 @@ describe('installationProgressLogic merge', () => {
 
     describe('cloudProgress agent-gap bridging', () => {
         const NOW_MS = new Date('2026-01-01T00:00:30Z').getTime()
-        it('synthesizes an in-progress PR step when the run is live but every step is done', () => {
-            // The quiet window between "Started agent" and the PR opening must not read as stalled.
+        it('synthesizes an in-progress PR step and hides the agent plumbing row', () => {
+            // The quiet window between agent start and the PR opening must not read as stalled,
+            // and 'Started agent' is internal plumbing the user shouldn't see at all.
             const result = cloudProgress(
                 taskState(),
-                [step({ step: 'agent', status: 'completed', label: 'Started agent' })],
+                [
+                    step({ step: 'clone', status: 'completed', label: 'Cloned repository' }),
+                    step({ step: 'agent', status: 'completed', label: 'Started agent' }),
+                ],
                 'open',
                 null
             )
             expect(result.steps.map((s) => [s.label, s.status])).toEqual([
-                ['Started agent', 'completed'],
+                ['Cloned repository', 'completed'],
                 ['Opening a pull request', 'in_progress'],
             ])
         })
 
         it.each([
-            ['a step is still in flight', [step({ step: 'agent', status: 'in_progress' })], null],
+            ['a step is still in flight', [step({ step: 'wizard', status: 'in_progress' })], null],
             [
                 'a deliver-stage step already exists',
                 [

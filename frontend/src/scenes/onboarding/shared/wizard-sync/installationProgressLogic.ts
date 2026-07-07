@@ -138,13 +138,17 @@ export function cloudProgress(
     const clamp = (status: InstallationStepStatus): InstallationStepStatus =>
         phase === 'completed' && status === 'in_progress' ? 'completed' : status
 
-    const pipelineSteps: InstallationStep[] = progressSteps.map((p) => ({
-        id: `${p.group}:${p.step}`,
-        label: p.label,
-        status: clamp(stepStatus(p.status)),
-        // The "pr" step carries the PR url in `detail` (surfaced as the CTA, not as raw step text).
-        detail: p.step === 'pr' ? null : p.detail,
-    }))
+    // 'Started agent' is internal plumbing — it tells the user nothing about their setup. Hide it;
+    // the synthetic bridging step below narrates that window as "Opening a pull request" instead.
+    const pipelineSteps: InstallationStep[] = progressSteps
+        .filter((p) => p.step !== 'agent')
+        .map((p) => ({
+            id: `${p.group}:${p.step}`,
+            label: p.label,
+            status: clamp(stepStatus(p.status)),
+            // The "pr" step carries the PR url in `detail` (surfaced as the CTA, not as raw step text).
+            detail: p.step === 'pr' ? null : p.detail,
+        }))
 
     // The session stream is keyed by workflow only and replays the latest session on connect even
     // when it's a stale terminal row from a previous (possibly local) run — apply the same freshness
