@@ -2,6 +2,7 @@ import os
 import logging
 import warnings
 import threading
+from typing import Any
 
 import structlog
 
@@ -76,7 +77,7 @@ structlog.configure(
 
 # Configure all logs to be handled by structlog `ProcessorFormatter` and
 # rendered either as pretty colored console lines or as single JSON lines.
-LOGGING = {
+LOGGING: dict[str, Any] = {
     "version": 1,
     "disable_existing_loggers": True,
     "formatters": {
