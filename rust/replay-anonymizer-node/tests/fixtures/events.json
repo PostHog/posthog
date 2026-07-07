@@ -641,7 +641,7 @@
           "type": 0,
           "childNodes": [
             { "type": 2, "tagName": "iframe", "attributes": { "rr_src": "about:blank" }, "childNodes": [] },
-            { "type": 2, "tagName": "div", "attributes": { "rr_src": "[redacted]/[redacted]" }, "childNodes": [] }
+            { "type": 2, "tagName": "div", "attributes": { "rr_src": "data:[redacted]/[redacted]" }, "childNodes": [] }
           ]
         },
         "initialOffset": { "top": 0, "left": 0 }

@@ -147,5 +147,35 @@
     "input": "about:srcdoc",
     "scrubAuthority": true,
     "expected": "about:srcdoc"
+  },
+  {
+    "name": "userinfo is stripped even without authority scrubbing",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "input": "https://user:hunter2@app.example.com/settings",
+    "scrubAuthority": false,
+    "expected": "https://app.example.com/[redacted]"
+  },
+  {
+    "name": "scheme without slashes keeps the protocol and redacts the rest: tel",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "input": "tel:+15551234567",
+    "scrubAuthority": false,
+    "expected": "tel:[redacted]"
+  },
+  {
+    "name": "scheme without slashes keeps the protocol and redacts the rest: mailto",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "input": "mailto:john.fakename@example.com?subject=hello%20there",
+    "scrubAuthority": true,
+    "expected": "mailto:[redacted]"
   }
 ]

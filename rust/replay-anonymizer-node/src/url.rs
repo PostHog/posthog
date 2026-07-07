@@ -5,8 +5,10 @@
 //! - Path: keep allow-listed segments; a number -> `$$`; anything else -> `[redacted]`.
 //! - Query: a param survives only if its key or value is an allow-listed alphanumeric token.
 //! - Fragment: kept only if it is an allow-listed alphanumeric token.
-//! - With `scrub_authority` it strips userinfo/port and collapses the host to `example.com`
-//!   (keeping a leading allow-listed subdomain label).
+//! - Userinfo (`user:pass@`) is always stripped from the authority, even without `scrub_authority`.
+//! - A scheme without slashes (`mailto:`, `tel:`) is kept; the rest is scrubbed as a path.
+//! - With `scrub_authority` it additionally strips the port and collapses the host to
+//!   `example.com` (keeping a leading allow-listed subdomain label).
 
 use crate::allow_lists::AllowLists;
 
@@ -40,7 +42,13 @@ pub fn scrub_url_opts(allow: &AllowLists, input: &str, scrub_authority: bool) ->
             }
             out.push_str(&scrubbed);
         } else {
-            out.push_str(authority);
+            match authority.rfind('@') {
+                Some(at) => {
+                    changed = true;
+                    out.push_str(&authority[at + 1..]);
+                }
+                None => out.push_str(authority),
+            }
         }
     }
 
@@ -158,12 +166,31 @@ fn scrub_host(allow: &AllowLists, authority: &str) -> String {
     }
 }
 
+// RFC 3986 scheme, e.g. `mailto:`, `tel:`.
+fn scheme_without_slashes(s: &str) -> Option<usize> {
+    let colon = s.find(':')?;
+    let prefix = s[..colon].as_bytes();
+    let (&first, rest) = prefix.split_first()?;
+    if first.is_ascii_alphabetic()
+        && rest
+            .iter()
+            .all(|&b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.'))
+    {
+        Some(colon + 1)
+    } else {
+        None
+    }
+}
+
 // Split into scheme prefix (incl. `://` or `//`), authority (`[userinfo@]host[:port]`), and path.
 fn split_url(s: &str) -> (&str, &str, &str) {
     let (scheme, rest) = if let Some(scheme_end) = s.find("://") {
         (&s[..scheme_end + 3], &s[scheme_end + 3..])
     } else if let Some(rest) = s.strip_prefix("//") {
         (&s[..2], rest)
+    } else if let Some(end) = scheme_without_slashes(s) {
+        // No slashes, no authority: everything after the scheme scrubs as a path.
+        return (&s[..end], "", &s[end..]);
     } else {
         return ("", "", s); // relative URL: all path
     };

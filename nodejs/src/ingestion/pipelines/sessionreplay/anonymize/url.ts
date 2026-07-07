@@ -8,7 +8,9 @@
  *   counts as denied for survival, so `id=42` is dropped while `page=2` → `page=$`. When a param
  *   survives, each side renders independently: allow-listed → kept, number → `$$`, denied → `[key]`/`[value]`.
  * - Fragment: kept only if it is an allow-listed alphanumeric token; numbers and everything else dropped.
- * - With `{ scrubAuthority: true }` it strips userinfo/port and
+ * - Userinfo (`user:pass@`) is always stripped from the authority, even without `scrubAuthority`.
+ * - A scheme without slashes (`mailto:`, `tel:`) is kept; the rest is scrubbed as a path.
+ * - With `{ scrubAuthority: true }` it additionally strips the port and
  *   collapses the host to `example.com` (keeping a leading allow-listed subdomain label).
  */
 import { ScrubContext } from './config'
@@ -57,7 +59,11 @@ export function scrubUrl(ctx: ScrubContext, input: string, opts?: UrlScrubOption
             }
             out += scrubbed
         } else {
-            out += authority
+            const at = authority.lastIndexOf('@')
+            if (at !== -1) {
+                changed = true
+            }
+            out += authority.slice(at + 1)
         }
     }
 
@@ -149,6 +155,8 @@ function scrubHost(ctx: ScrubContext, authority: string): string {
     return labels.length > 2 && first && ctx.allow.urlContains(first) ? `${first}.example.com` : 'example.com'
 }
 
+const SCHEME_NO_SLASHES = /^[A-Za-z][A-Za-z0-9+.-]*:/ // RFC 3986 scheme, e.g. `mailto:`, `tel:`
+
 // Split into scheme prefix (incl. `://` or `//`), authority (`[userinfo@]host[:port]`), and path.
 function splitUrl(s: string): { scheme: string; authority: string; path: string } {
     let scheme = ''
@@ -161,6 +169,11 @@ function splitUrl(s: string): { scheme: string; authority: string; path: string 
         scheme = '//'
         rest = s.slice(2)
     } else {
+        const m = SCHEME_NO_SLASHES.exec(s)
+        if (m) {
+            // No slashes, no authority: everything after the scheme scrubs as a path.
+            return { scheme: m[0], authority: '', path: s.slice(m[0].length) }
+        }
         return { scheme: '', authority: '', path: s } // relative URL: all path
     }
     const pathOff = rest.indexOf('/')
