@@ -424,22 +424,36 @@ describe('InsightDisplayConfig', () => {
             })
         })
 
-        it('puts display toggles first and drops the low-usage smoothing and color sections', async () => {
+        it('makes Display an auto-open accordion and drops the smoothing and color sections', async () => {
             setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
             await openOptionsMenu()
 
+            const displayButton = screen.getByText('Display').closest('button')!
+            expect(displayButton).toHaveAttribute('aria-expanded', 'true')
+            const display = screen.getByTestId('options-display-section')
+            expect(within(display).getByText('Show values on series')).toBeInTheDocument()
+            expect(within(display).getByText('Show legend')).toBeInTheDocument()
+            // Rarely used options leave Display for the Axes accordion
+            expect(within(display).queryByText('Show multiple Y-axes')).not.toBeInTheDocument()
+
             const sectionTitles = getSectionTitles()
-            expect(sectionTitles[0]).toBe('Display')
             expect(sectionTitles).not.toContain('Smoothing')
             expect(sectionTitles).not.toContain('Color customization by')
-
-            const items = getDisplaySectionItems()
-            expect(items).toContain('Show values on series')
-            expect(items).toContain('Show legend')
-            // Rarely used options leave the top level for the accordions
-            expect(items).not.toContain('Show multiple Y-axes')
             expect(screen.getByText('Line style')).toBeInTheDocument()
             expect(screen.getByText('Axes')).toBeInTheDocument()
+        })
+
+        it('keeps an accordion expanded after toggling an option inside it', async () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
+            await openOptionsMenu()
+
+            const lineStyleButton = screen.getByText('Line style').closest('button')!
+            await userEvent.click(lineStyleButton)
+            expect(lineStyleButton).toHaveAttribute('aria-expanded', 'true')
+
+            await userEvent.click(screen.getByText('Show points'))
+            // The query update must not remount the accordion and reset its expansion state
+            expect(screen.getByText('Line style').closest('button')!).toHaveAttribute('aria-expanded', 'true')
         })
 
         it('nests the unit, scale, and label options under the Axes accordion', async () => {

@@ -36,9 +36,11 @@ import {
     SectionHeader,
 } from './DisplayOptions'
 
-// The "Options" menu in the insight editor's display config bar. `count` is the number of non-default
-// active options, badged on the Options button.
-export function useInsightDisplayOptions(): { items: LemonMenuItems; count: number } {
+/** Everything the Options menu and its accordion sections need to decide what to show. Shared
+ * between useInsightDisplayOptions and the module-level accordion components below, so those
+ * components keep a stable identity — an inline component recreated per render would remount
+ * (and reset its expansion state) every time the menu re-renders. */
+function useDisplayOptionsState() {
     const { insightProps } = useValues(insightLogic)
     const {
         querySource,
@@ -77,9 +79,8 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     // With the Overlays editor panel section enabled, the overlay toggles (trend lines, alert
     // overlays, annotations, statistical analysis) move there and leave this menu.
     const overlaysSectionEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHT_OVERLAYS_SECTION]
-    // With the style menu flag enabled, rarely used options (axis scale/labels, decimal places,
-    // multiple y-axes) and the chart style controls collapse into "Line style" / "Axes" submenus,
-    // keeping the frequently used options top-level.
+    // With the style menu flag enabled, the menu is reorganized into accordions: Display (auto-open),
+    // Line style (chart style controls), and Axes (unit, scale, labels, decimal places).
     const styleMenuEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHT_STYLE_MENU]
 
     // The slope graph shows the first vs last interval, so it drops the options that need the points
@@ -120,133 +121,313 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     const showDisplaySection =
         (isTrends && !isCalendarHeatmap) || isRetention || isTrendsFunnel || isStickiness || isLifecycle
     const showYAxisScale = !hideContinuousChartOptions && isTrends && !isCalendarHeatmap
+    const showUnitPicker = !showPercentStackView && isTrends && !isCalendarHeatmap
+    const showDecimalPlaces = mightContainFractionalNumbers && isTrends && !isCalendarHeatmap
 
-    // The box plot and slope graph only show a couple of options each; everything else falls
-    // through to the full shared list.
-    const getDisplayItems = (): LemonMenuItem[] => {
-        const displayItems: LemonMenuItem[] = []
+    return {
+        display,
+        isTrends,
+        isRetention,
+        isLifecycle,
+        isMetric,
+        isBoxPlot,
+        isSlopeGraph,
+        isCalendarHeatmap,
+        isTrendsFunnel,
+        hideContinuousChartOptions,
+        trendsFilter,
+        chartStyle,
+        defaultCurve,
+        yAxisScaleType,
+        hasLegend,
+        showLegend,
+        supportsValueOnSeries,
+        showPercentStackView,
+        supportsPercentStackView,
+        supportsBarValueStacking,
+        supportsResultCustomizationBy,
+        showMultipleYAxes,
+        showAnnotations,
+        showValuesOnSeries,
+        showPercentagesOnSeries,
+        showConfidenceIntervals,
+        showMovingAverage,
+        hideWeekendsEnabled,
+        overlaysSectionEnabled,
+        styleMenuEnabled,
+        showSmoothing,
+        showMultipleYAxesConfig,
+        showAlertThresholdLinesConfig,
+        showAnnotationsConfig,
+        showAxisLabelsConfig,
+        showLineStyleConfig,
+        showFunnelLegendConfig,
+        useQuillLegendOptions,
+        showDisplaySection,
+        showYAxisScale,
+        showUnitPicker,
+        showDecimalPlaces,
+    }
+}
 
-        if (isBoxPlot) {
-            if (hasLegend) {
-                displayItems.push(DisplayOptions.Legend)
-            }
-            displayItems.push(DisplayOptions.ExcludeOutliers)
-            return displayItems
-        }
+type DisplayOptionsState = ReturnType<typeof useDisplayOptionsState>
 
-        if (isSlopeGraph) {
-            // A slope only shows the first vs last interval of each series — the legend (when there
-            // are multiple series) is the only display option that applies.
-            if (hasLegend) {
-                displayItems.push(DisplayOptions.Legend)
-            }
-            return displayItems
-        }
+// The box plot and slope graph only show a couple of options each; everything else falls
+// through to the full shared list.
+function getDisplayItems(s: DisplayOptionsState): LemonMenuItem[] {
+    const displayItems: LemonMenuItem[] = []
 
-        if (isMetric) {
-            displayItems.push(DisplayOptions.MetricSummary, DisplayOptions.MetricShowChange, DisplayOptions.MetricColor)
-        }
-        if (isLifecycle) {
-            displayItems.push(DisplayOptions.LifecycleStacking)
-        }
-        if (supportsValueOnSeries) {
-            displayItems.push(DisplayOptions.ValueLabels)
-        }
-        if (isLifecycle) {
-            displayItems.push(DisplayOptions.LifecyclePercentages)
-        }
-        if (supportsPercentStackView) {
-            displayItems.push(DisplayOptions.PercentStack)
-        }
-        if (supportsBarValueStacking) {
-            displayItems.push(DisplayOptions.StackBreakdown)
-        }
-        if ((hasLegend || showFunnelLegendConfig) && !useQuillLegendOptions) {
+    if (s.isBoxPlot) {
+        if (s.hasLegend) {
             displayItems.push(DisplayOptions.Legend)
         }
-        if (display === ChartDisplayType.ActionsPie) {
-            displayItems.push(DisplayOptions.PieTotal)
-        }
-        if (showAlertThresholdLinesConfig && !overlaysSectionEnabled) {
-            displayItems.push(DisplayOptions.AlertThresholdLines, DisplayOptions.AlertAnomalyPoints)
-        }
-        if (showMultipleYAxesConfig && !styleMenuEnabled) {
-            displayItems.push(DisplayOptions.MultipleYAxes)
-        }
-        if ((isTrends || isRetention || isTrendsFunnel) && !hideContinuousChartOptions && !overlaysSectionEnabled) {
-            displayItems.push(DisplayOptions.TrendLines)
-        }
-        if (isTrendsFunnel && !hideContinuousChartOptions) {
-            displayItems.push(DisplayOptions.HideIncompleteFunnelPeriods)
-        }
-        if (isTrends && !hideContinuousChartOptions && hideWeekendsEnabled) {
-            displayItems.push(DisplayOptions.HideWeekends)
-        }
-        if (showAnnotationsConfig && !overlaysSectionEnabled) {
-            displayItems.push(DisplayOptions.Annotations)
-        }
-        if (useQuillLegendOptions) {
-            displayItems.push(DisplayOptions.LegendOptions)
+        displayItems.push(DisplayOptions.ExcludeOutliers)
+        return displayItems
+    }
+
+    if (s.isSlopeGraph) {
+        // A slope only shows the first vs last interval of each series — the legend (when there
+        // are multiple series) is the only display option that applies.
+        if (s.hasLegend) {
+            displayItems.push(DisplayOptions.Legend)
         }
         return displayItems
     }
 
+    if (s.isMetric) {
+        displayItems.push(DisplayOptions.MetricSummary, DisplayOptions.MetricShowChange, DisplayOptions.MetricColor)
+    }
+    if (s.isLifecycle) {
+        displayItems.push(DisplayOptions.LifecycleStacking)
+    }
+    if (s.supportsValueOnSeries) {
+        displayItems.push(DisplayOptions.ValueLabels)
+    }
+    if (s.isLifecycle) {
+        displayItems.push(DisplayOptions.LifecyclePercentages)
+    }
+    if (s.supportsPercentStackView) {
+        displayItems.push(DisplayOptions.PercentStack)
+    }
+    if (s.supportsBarValueStacking) {
+        displayItems.push(DisplayOptions.StackBreakdown)
+    }
+    if ((s.hasLegend || s.showFunnelLegendConfig) && !s.useQuillLegendOptions) {
+        displayItems.push(DisplayOptions.Legend)
+    }
+    if (s.display === ChartDisplayType.ActionsPie) {
+        displayItems.push(DisplayOptions.PieTotal)
+    }
+    if (s.showAlertThresholdLinesConfig && !s.overlaysSectionEnabled) {
+        displayItems.push(DisplayOptions.AlertThresholdLines, DisplayOptions.AlertAnomalyPoints)
+    }
+    if (s.showMultipleYAxesConfig && !s.styleMenuEnabled) {
+        displayItems.push(DisplayOptions.MultipleYAxes)
+    }
+    if (
+        (s.isTrends || s.isRetention || s.isTrendsFunnel) &&
+        !s.hideContinuousChartOptions &&
+        !s.overlaysSectionEnabled
+    ) {
+        displayItems.push(DisplayOptions.TrendLines)
+    }
+    if (s.isTrendsFunnel && !s.hideContinuousChartOptions) {
+        displayItems.push(DisplayOptions.HideIncompleteFunnelPeriods)
+    }
+    if (s.isTrends && !s.hideContinuousChartOptions && s.hideWeekendsEnabled) {
+        displayItems.push(DisplayOptions.HideWeekends)
+    }
+    if (s.showAnnotationsConfig && !s.overlaysSectionEnabled) {
+        displayItems.push(DisplayOptions.Annotations)
+    }
+    if (s.useQuillLegendOptions) {
+        displayItems.push(DisplayOptions.LegendOptions)
+    }
+    return displayItems
+}
+
+// The accordion sections live at module level so their component identity is stable across
+// renders. Defining them inline in the hook would remount them — and reset their expansion
+// state and control internals — on every menu re-render.
+
+function DisplayOptionsAccordion(): JSX.Element {
+    const state = useDisplayOptionsState()
+
+    return (
+        <CollapsibleOptionsSection label="Display" dataAttr="options-display-section" defaultExpanded>
+            {getDisplayItems(state).map((item, index) => {
+                // Registry entries always use component labels
+                const Label = item.label as () => JSX.Element
+                return <Label key={index} />
+            })}
+        </CollapsibleOptionsSection>
+    )
+}
+
+function LineStyleOptionsAccordion(): JSX.Element {
+    return (
+        <CollapsibleOptionsSection label="Line style" dataAttr="options-line-style-section">
+            <LineShapePicker />
+            <LineStylePicker />
+            <ShowPointsFilter />
+            <ShowGridLinesFilter />
+        </CollapsibleOptionsSection>
+    )
+}
+
+function AxesOptionsAccordion(): JSX.Element {
+    const {
+        display,
+        showUnitPicker,
+        showYAxisScale,
+        showMultipleYAxesConfig,
+        showAxisLabelsConfig,
+        showDecimalPlaces,
+    } = useDisplayOptionsState()
+
+    return (
+        <CollapsibleOptionsSection label="Axes" dataAttr="options-axes-section">
+            {showUnitPicker && (
+                <>
+                    <SectionHeader>{axisLabel(display || ChartDisplayType.ActionsLineGraph)}</SectionHeader>
+                    <UnitPicker />
+                </>
+            )}
+            {showYAxisScale && (
+                <>
+                    <SectionHeader>Y-axis scale</SectionHeader>
+                    <ScalePicker />
+                </>
+            )}
+            {showMultipleYAxesConfig && <ShowMultipleYAxesFilter />}
+            {showAxisLabelsConfig && (
+                <>
+                    <SectionHeader>Axis labels</SectionHeader>
+                    <AxisLabelsFilter />
+                </>
+            )}
+            {showDecimalPlaces && (
+                <>
+                    <SectionHeader>Decimal places</SectionHeader>
+                    <DecimalPrecision />
+                </>
+            )}
+        </CollapsibleOptionsSection>
+    )
+}
+
+// The "Options" menu in the insight editor's display config bar. `count` is the number of non-default
+// active options, badged on the Options button.
+export function useInsightDisplayOptions(): { items: LemonMenuItems; count: number } {
+    const state = useDisplayOptionsState()
+    const {
+        display,
+        isTrends,
+        isRetention,
+        isLifecycle,
+        isMetric,
+        isBoxPlot,
+        trendsFilter,
+        chartStyle,
+        defaultCurve,
+        yAxisScaleType,
+        hasLegend,
+        showLegend,
+        supportsValueOnSeries,
+        showPercentStackView,
+        supportsResultCustomizationBy,
+        showMultipleYAxes,
+        showAnnotations,
+        showValuesOnSeries,
+        showPercentagesOnSeries,
+        showConfidenceIntervals,
+        showMovingAverage,
+        hideWeekendsEnabled,
+        overlaysSectionEnabled,
+        styleMenuEnabled,
+        showSmoothing,
+        showMultipleYAxesConfig,
+        showAnnotationsConfig,
+        showAxisLabelsConfig,
+        showLineStyleConfig,
+        showFunnelLegendConfig,
+        showDisplaySection,
+        showYAxisScale,
+        showUnitPicker,
+        showDecimalPlaces,
+    } = state
+
     const items: LemonMenuItems = []
 
-    // With the reorganized menu, smoothing and the color-assignment picker are dropped entirely —
-    // usage data shows they barely register (smoothing is set on <1% of saved trends insights).
-    if (showSmoothing && !styleMenuEnabled) {
-        items.push({ title: 'Smoothing', items: [DisplayOptions.Smoothing] })
-    }
-
-    if (showDisplaySection) {
-        items.push({
-            title: <SectionHeader dataAttr="options-display-section">Display</SectionHeader>,
-            items: getDisplayItems(),
-        })
-    }
-
-    if (supportsResultCustomizationBy && !styleMenuEnabled) {
-        items.push({
-            title: (
-                <SectionHeader tooltip="You can customize the appearance of individual results in your insights. This can be done based on the result's name (e.g., customize the breakdown value 'pizza' for the first series) or based on the result's rank (e.g., customize the first dataset in the results).">
-                    Color customization by
-                </SectionHeader>
-            ),
-            items: [DisplayOptions.ResultCustomizationBy],
-        })
-    }
-
-    const showUnitPicker = !showPercentStackView && isTrends && !isCalendarHeatmap
-    if (showUnitPicker && !styleMenuEnabled) {
-        items.push({
-            title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
-            items: [DisplayOptions.Unit],
-        })
-    }
-
-    if (showYAxisScale && !styleMenuEnabled) {
-        items.push({ title: 'Y-axis scale', items: [DisplayOptions.Scale] })
-    }
-
-    if (showYAxisScale && !isBoxPlot && !overlaysSectionEnabled) {
-        const statisticalItems: LemonMenuItem[] = [DisplayOptions.ConfidenceInterval]
-        if (showConfidenceIntervals) {
-            statisticalItems.push(DisplayOptions.ConfidenceLevel)
+    const pushStatisticalSection = (): void => {
+        if (showYAxisScale && !isBoxPlot && !overlaysSectionEnabled) {
+            const statisticalItems: LemonMenuItem[] = [DisplayOptions.ConfidenceInterval]
+            if (showConfidenceIntervals) {
+                statisticalItems.push(DisplayOptions.ConfidenceLevel)
+            }
+            statisticalItems.push(DisplayOptions.MovingAverage)
+            if (showMovingAverage) {
+                statisticalItems.push(DisplayOptions.MovingAverageIntervals)
+            }
+            items.push({ title: 'Statistical analysis', items: statisticalItems })
         }
-        statisticalItems.push(DisplayOptions.MovingAverage)
-        if (showMovingAverage) {
-            statisticalItems.push(DisplayOptions.MovingAverageIntervals)
+    }
+
+    if (styleMenuEnabled) {
+        // Reorganized menu: Display leads and auto-opens, the rarely used options collapse into the
+        // Line style / Axes accordions, and the smoothing and color-assignment sections are dropped
+        // entirely — usage data shows they barely register (smoothing is set on <1% of saved trends
+        // insights).
+        const accordionRows: LemonMenuItem[] = []
+        if (showDisplaySection) {
+            accordionRows.push({ label: DisplayOptionsAccordion })
         }
-        items.push({ title: 'Statistical analysis', items: statisticalItems })
-    }
-
-    if (showAxisLabelsConfig && !styleMenuEnabled) {
-        items.push({ title: 'Axis labels', items: [DisplayOptions.AxisLabels] })
-    }
-
-    if (mightContainFractionalNumbers && isTrends && !isCalendarHeatmap && !styleMenuEnabled) {
-        items.push({ title: 'Decimal places', items: [DisplayOptions.DecimalPrecision] })
+        if (showLineStyleConfig) {
+            accordionRows.push({ label: LineStyleOptionsAccordion })
+        }
+        if (showUnitPicker || showYAxisScale || showMultipleYAxesConfig || showAxisLabelsConfig || showDecimalPlaces) {
+            accordionRows.push({ label: AxesOptionsAccordion })
+        }
+        if (accordionRows.length > 0) {
+            items.push({ items: accordionRows })
+        }
+        pushStatisticalSection()
+    } else {
+        if (showSmoothing) {
+            items.push({ title: 'Smoothing', items: [DisplayOptions.Smoothing] })
+        }
+        if (showDisplaySection) {
+            items.push({
+                title: <SectionHeader dataAttr="options-display-section">Display</SectionHeader>,
+                items: getDisplayItems(state),
+            })
+        }
+        if (supportsResultCustomizationBy) {
+            items.push({
+                title: (
+                    <SectionHeader tooltip="You can customize the appearance of individual results in your insights. This can be done based on the result's name (e.g., customize the breakdown value 'pizza' for the first series) or based on the result's rank (e.g., customize the first dataset in the results).">
+                        Color customization by
+                    </SectionHeader>
+                ),
+                items: [DisplayOptions.ResultCustomizationBy],
+            })
+        }
+        if (showUnitPicker) {
+            items.push({
+                title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
+                items: [DisplayOptions.Unit],
+            })
+        }
+        if (showYAxisScale) {
+            items.push({ title: 'Y-axis scale', items: [DisplayOptions.Scale] })
+        }
+        pushStatisticalSection()
+        if (showAxisLabelsConfig) {
+            items.push({ title: 'Axis labels', items: [DisplayOptions.AxisLabels] })
+        }
+        if (showDecimalPlaces) {
+            items.push({ title: 'Decimal places', items: [DisplayOptions.DecimalPrecision] })
+        }
     }
 
     if (isRetention) {
@@ -259,71 +440,6 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
             ),
             items: [DisplayOptions.RetentionCohortLabelStart],
         })
-    }
-
-    // The Style menu: pure presentation options — none of them change the computed numbers or add
-    // data to the chart. Conditions mirror the ones getDisplayItems/the sections above use, so each
-    // option keeps appearing for exactly the same insights, just in the other menu.
-    // With the reorganized menu, the rarely used options and the chart style controls collapse
-    // into accordion rows that expand inline, keeping the frequently used options scannable at
-    // the top level.
-    if (styleMenuEnabled) {
-        const collapsedRows: LemonMenuItem[] = []
-        if (showLineStyleConfig) {
-            collapsedRows.push({
-                label: function LineStyleSection() {
-                    return (
-                        <CollapsibleOptionsSection label="Line style" dataAttr="options-line-style-section">
-                            <LineShapePicker />
-                            <LineStylePicker />
-                            <ShowPointsFilter />
-                            <ShowGridLinesFilter />
-                        </CollapsibleOptionsSection>
-                    )
-                },
-            })
-        }
-        const showDecimalPlaces = mightContainFractionalNumbers && isTrends && !isCalendarHeatmap
-        if (showUnitPicker || showMultipleYAxesConfig || showYAxisScale || showAxisLabelsConfig || showDecimalPlaces) {
-            collapsedRows.push({
-                label: function AxesSection() {
-                    return (
-                        <CollapsibleOptionsSection label="Axes" dataAttr="options-axes-section">
-                            {showUnitPicker && (
-                                <>
-                                    <SectionHeader>
-                                        {axisLabel(display || ChartDisplayType.ActionsLineGraph)}
-                                    </SectionHeader>
-                                    <UnitPicker />
-                                </>
-                            )}
-                            {showYAxisScale && (
-                                <>
-                                    <SectionHeader>Y-axis scale</SectionHeader>
-                                    <ScalePicker />
-                                </>
-                            )}
-                            {showMultipleYAxesConfig && <ShowMultipleYAxesFilter />}
-                            {showAxisLabelsConfig && (
-                                <>
-                                    <SectionHeader>Axis labels</SectionHeader>
-                                    <AxisLabelsFilter />
-                                </>
-                            )}
-                            {showDecimalPlaces && (
-                                <>
-                                    <SectionHeader>Decimal places</SectionHeader>
-                                    <DecimalPrecision />
-                                </>
-                            )}
-                        </CollapsibleOptionsSection>
-                    )
-                },
-            })
-        }
-        if (collapsedRows.length > 0) {
-            items.push({ items: collapsedRows })
-        }
     }
 
     const styleCount: number =

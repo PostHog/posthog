@@ -231,13 +231,15 @@ export function DecimalPrecision(): JSX.Element {
 export function CollapsibleOptionsSection({
     label,
     dataAttr,
+    defaultExpanded = false,
     children,
 }: {
     label: string
     dataAttr?: string
+    defaultExpanded?: boolean
     children: ReactNode
 }): JSX.Element {
-    const [expanded, setExpanded] = useState(false)
+    const [expanded, setExpanded] = useState(defaultExpanded)
 
     return (
         <div className="flex flex-col w-full" data-attr={dataAttr}>
