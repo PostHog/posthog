@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { IconBell, IconClock, IconDownload, IconLeave, IconNotification } from '@posthog/icons'
@@ -269,10 +269,20 @@ export const searchLogic = kea<searchLogicType>([
                         return []
                     }
 
-                    const response = await api.persons.list({ search: trimmed, limit: SEARCH_LIMIT })
-                    breakpoint()
-
-                    return response.results
+                    // Person search runs an expensive substring ActorsQuery over ClickHouse that can
+                    // time out on large instances. This is an ancillary result in the command palette,
+                    // so a failure must not surface a global error toast over the user's real work.
+                    try {
+                        const response = await api.persons.list({ search: trimmed, limit: SEARCH_LIMIT })
+                        breakpoint()
+                        return response.results
+                    } catch (error) {
+                        // Re-throw breakpoint aborts so stale searches don't clobber newer results.
+                        if (isBreakpoint(error)) {
+                            throw error
+                        }
+                        return []
+                    }
                 },
             },
         ],
