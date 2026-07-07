@@ -30,6 +30,8 @@ from pydantic import BaseModel, Field
 
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.rbac.user_access_control import UserAccessControl
+from posthog.session_recordings.models.session_recording import SessionRecording
 
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
@@ -415,11 +417,29 @@ def _run_cold_summary(state: _AgentToolState, session_id: str, user: User, *, ti
     return async_to_sync(_bounded)()
 
 
+def _summary_access_error(state: _AgentToolState, session_id: str) -> dict[str, Any] | None:
+    """Mirror the session-summary API's recording gate: no summaries for deleted recordings, and reads
+    require viewer access on the recording as `summary_user` (the requester inline, the scanner's
+    creator in the background refresh)."""
+    team = Team.objects.get(pk=state.scanner.team_id)
+    recording = SessionRecording.get_or_build(session_id=session_id, team=team)
+    if recording.deleted:
+        return {"error": "the recording for this session was deleted; decide with the context you have"}
+    if state.summary_user is None or not UserAccessControl(state.summary_user, team).check_access_level_for_object(
+        recording, required_level="viewer"
+    ):
+        return {"error": "this session's recording is not accessible; decide with the context you have"}
+    return None
+
+
 def _tool_get_session_summary(state: _AgentToolState, session_id: str) -> dict[str, Any]:
     if session_id in state.summary_cache:
         return {"session_id": session_id, "summary": state.summary_cache[session_id]}
     if _rated_observation_for_session(state, session_id) is None:
         return {"error": "no rated observation for that session id on this scanner"}
+    denied = _summary_access_error(state, session_id)
+    if denied is not None:
+        return denied
     # Deferred: heavy modules stay off the API import path. Summaries go through core helpers,
     # since replay_vision must not import products.replay internals.
     from posthog.temporal.session_replay.session_summary.state import (
@@ -496,7 +516,7 @@ def _generate_agentic(
     client = _gemini_client()
     budget_s = _AGENT_BUDGET_BACKGROUND_S if allow_cold_summaries else _AGENT_BUDGET_INLINE_S
     deadline = time.monotonic() + budget_s
-    # Cold summaries on the automatic path run as the scanner's creator; suggestion attribution stays `user`.
+    # Summary tools act as the requester (the scanner's creator on the automatic path); attribution stays `user`.
     state = _AgentToolState(scanner, user or scanner.created_by, allow_cold_summaries, deadline)
     tool_config = GenerateContentConfig(
         system_instruction=_AGENT_SYSTEM_PROMPT,

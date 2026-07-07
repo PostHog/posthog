@@ -9,6 +9,10 @@ from django.utils import timezone
 from google.genai import types
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, User
+from posthog.session_recordings.models.session_recording import SessionRecording
+
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -23,6 +27,8 @@ from products.replay_vision.backend.prompt_suggestions import (
     _generate_agentic,
 )
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
+
+from ee.models.rbac.access_control import AccessControl
 
 
 def _call(name: str, args: dict[str, Any]) -> types.FunctionCall:
@@ -156,6 +162,35 @@ class TestPromptAgent(_VisionAPITestCase):
         drained = self._state(allow_cold_summaries=True, budget_s=0.0)
         timed_out = _dispatch_agent_tool(drained, _call("get_session_summary", {"session_id": "sess-1"}))
         self.assertIn("time", timed_out["error"])
+
+    def test_summary_tool_refuses_deleted_and_inaccessible_recordings(self) -> None:
+        recording = SessionRecording.objects.create(team=self.team, session_id="sess-1", deleted=True)
+        deleted = _dispatch_agent_tool(self._state(), _call("get_session_summary", {"session_id": "sess-1"}))
+        self.assertIn("deleted", deleted["error"])
+
+        recording.deleted = False
+        recording.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        denied_user = User.objects.create_and_join(self.organization, "denied@posthog.com", "testtest")
+        membership = OrganizationMembership.objects.get(user=denied_user, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="session_recording",
+            resource_id=None,
+            access_level="none",
+            organization_member=membership,
+        )
+        denied_state = _AgentToolState(self.scanner, denied_user, False, time.monotonic() + 60.0)
+        denied = _dispatch_agent_tool(denied_state, _call("get_session_summary", {"session_id": "sess-1"}))
+        self.assertIn("not accessible", denied["error"])
+
+        # Background refresh with no scanner creator: fail closed rather than serve cached summaries.
+        userless_state = _AgentToolState(self.scanner, None, True, time.monotonic() + 600.0)
+        userless = _dispatch_agent_tool(userless_state, _call("get_session_summary", {"session_id": "sess-1"}))
+        self.assertIn("not accessible", userless["error"])
 
     def test_unknown_session_and_unknown_tool_return_errors(self) -> None:
         state = self._state()

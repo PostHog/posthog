@@ -173,7 +173,7 @@ class TestPromptSuggestions(_VisionAPITestCase):
 
     def test_apply_rejects_prompt_failing_scanner_config_validation(self) -> None:
         self._create_rated_observation("sess-1", False, "should be yes")
-        self.mock_generate.return_value = _LlmPromptSuggestion(suggested_prompt="x" * 20_001, rationale="too long")
+        self.canned = _LlmPromptSuggestion(suggested_prompt="x" * 20_001, rationale="too long")
         suggestion_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
         prompt_before = ReplayScanner.objects.get(id=self.scanner.id).scanner_config.get("prompt")
 
