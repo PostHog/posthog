@@ -382,17 +382,12 @@ jobs:
                         -f event=DISMISS
                   done
 
-    # A base-branch retarget changes the effective diff without a push, so no
-    # `synchronize` fires and the decide-delta/dismiss path above never runs.
-    # This is the normal Graphite flow: when a stack's parent PR merges, the
-    # child is retargeted from the parent branch onto master, and its diff is
-    # recomputed against a different base. Under the master ruleset
-    # (dismiss_stale_reviews_on_push=false), a prior bot approval would
-    # silently carry onto that new surface — and a malicious retarget could
-    # exploit the same gap. Dismiss the stale approval here; the review job
-    # re-runs (gated on the label) against the new base. This job is ordered
-    # before review via `needs`, so it can't dismiss the fresh approval the
-    # re-review is about to post.
+    # A base retarget (Graphite moving a child onto master when its parent
+    # merges) changes the diff without a push, so no `synchronize` fires and a
+    # prior bot approval carries onto the new base under the master ruleset
+    # (dismiss_stale_reviews_on_push=false). Dismiss it; review re-runs against
+    # the new base. Ordered before review via `needs`, so it can't dismiss the
+    # fresh approval that re-review is about to post. See README for the full rationale.
     dismiss-on-retarget:
         if: >-
             github.event.action == 'edited'

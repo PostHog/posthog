@@ -25,6 +25,7 @@ def _pr(**overrides: object) -> PRData:
         "mergeable_state": "clean",
         "author": "alice",
         "labels": [],
+        "base_ref": "master",
         "base_sha": "a",
         "head_sha": "h",
         "files": [],

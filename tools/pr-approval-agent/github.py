@@ -24,13 +24,13 @@ class PRData:
     mergeable_state: str
     author: str
     labels: list[str]
+    base_ref: str
     base_sha: str
     head_sha: str
     files: list[dict]
     reviews: list[dict]
     review_comments: list[dict]
     check_runs: list[dict]
-    base_ref: str = "master"
     author_is_bot: bool = False
     pr_reactions: list[dict] = field(default_factory=list)
     body: str = ""

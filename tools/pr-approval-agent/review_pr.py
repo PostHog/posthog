@@ -653,10 +653,8 @@ class Pipeline:
         tree is materialized. Cleaned up on exit; falls back to None (review
         from master) if creation fails.
 
-        SECURITY: the worktree is PR-authored content. The agent is isolated
-        from it as *configuration* by setting_sources=[] in Reviewer — see the
-        note there. It still reads the files as untrusted *content*, which is
-        the whole point of a review.
+        SECURITY: the worktree is PR-authored content; isolation from it as
+        *configuration* is enforced by setting_sources=[] in Reviewer.
         """
         worktree_dir = Path(tempfile.gettempdir()) / f"pr-review-{self.pr_number}-{uuid.uuid4().hex[:8]}"
         created = False
@@ -687,6 +685,70 @@ class Pipeline:
                     cwd=REPO_ROOT,
                 )
 
+    def _run_reviewer_with_retries(self, reviewer: Reviewer, gate_context: dict, diff_path: Path) -> bool:
+        """Call the reviewer with backoff; set self.reviewer_output.
+
+        Returns True when the reviewer never produced a verdict (an ERROR
+        stand-in was synthesized instead) so the caller retains the label.
+        Retryable failures (LLM backend) back off; non-retryable ones (e.g.
+        turn-limit) fail immediately with a distinct message.
+        """
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                self.reviewer_output = reviewer.review(
+                    self.pr,
+                    self.classification,
+                    gate_context,
+                    diff_path=diff_path,
+                )
+                return False
+            except Exception as e:
+                err_str = str(e)
+                is_retryable = _is_retryable_error(err_str)
+
+                if is_retryable and attempt < max_retries - 1:
+                    wait = 2 ** (attempt + 1)
+                    print(_warn(f"Reviewer failed (attempt {attempt + 1}/{max_retries}): {e}"))
+                    print(_dim(f"  Retrying in {wait}s..."))
+                    time.sleep(wait)
+                    continue
+
+                if is_retryable:
+                    print(_fail(f"Reviewer failed after {max_retries} attempts: {e}"))
+                    print(
+                        _warn(
+                            "  This is an LLM backend failure (credentials, credit, or outage), "
+                            "not a verdict on the PR. Check the STAMPHOG_ANTHROPIC_API_KEY "
+                            "secret (or local ANTHROPIC_API_KEY)."
+                        )
+                    )
+                    self.reviewer_output = {
+                        "verdict": "ERROR",
+                        "reasoning": (
+                            "The review agent couldn't reach its LLM backend — an infrastructure "
+                            "or credentials issue, not a problem with this PR. The `stamphog` label "
+                            "has been kept; the review retries automatically on the next push, or "
+                            "re-apply the label once the backend recovers."
+                        ),
+                        "risk": "unknown",
+                        "issues": [err_str],
+                    }
+                else:
+                    print(_fail(f"Reviewer hit a non-retryable error: {e}"))
+                    self.reviewer_output = {
+                        "verdict": "ERROR",
+                        "reasoning": (
+                            "The review agent could not complete its analysis for this PR "
+                            "(likely too complex for the allocated turn budget). "
+                            "The `stamphog` label has been kept; a human review is needed."
+                        ),
+                        "risk": "unknown",
+                        "issues": [err_str],
+                    }
+                return True
+        return True
+
     def _llm_review(self, gate_verdict: str) -> None:
         print(f"\n{_bold('LLM Review')}")
         # Outside the retry loop: a diff-write hiccup must not masquerade as a
@@ -699,63 +761,9 @@ class Pipeline:
         }
 
         print(_dim("  Calling reviewer..."))
-        max_retries = 3
-        reviewer_unavailable = False
         with self._pr_head_worktree() as explore_root:
             reviewer = Reviewer(REPO_ROOT, explore_root=explore_root, verbose=self.verbose)
-            for attempt in range(max_retries):
-                try:
-                    self.reviewer_output = reviewer.review(
-                        self.pr,
-                        self.classification,
-                        gate_context,
-                        diff_path=diff_path,
-                    )
-                    break
-                except Exception as e:
-                    err_str = str(e)
-                    is_retryable = _is_retryable_error(err_str)
-
-                    if is_retryable and attempt < max_retries - 1:
-                        wait = 2 ** (attempt + 1)
-                        print(_warn(f"Reviewer failed (attempt {attempt + 1}/{max_retries}): {e}"))
-                        print(_dim(f"  Retrying in {wait}s..."))
-                        time.sleep(wait)
-                    else:
-                        reviewer_unavailable = True
-                        if is_retryable:
-                            print(_fail(f"Reviewer failed after {max_retries} attempts: {e}"))
-                            print(
-                                _warn(
-                                    "  This is an LLM backend failure (credentials, credit, or outage), "
-                                    "not a verdict on the PR. Check the STAMPHOG_ANTHROPIC_API_KEY "
-                                    "secret (or local ANTHROPIC_API_KEY)."
-                                )
-                            )
-                            self.reviewer_output = {
-                                "verdict": "ERROR",
-                                "reasoning": (
-                                    "The review agent couldn't reach its LLM backend — an infrastructure "
-                                    "or credentials issue, not a problem with this PR. The `stamphog` label "
-                                    "has been kept; the review retries automatically on the next push, or "
-                                    "re-apply the label once the backend recovers."
-                                ),
-                                "risk": "unknown",
-                                "issues": [err_str],
-                            }
-                        else:
-                            print(_fail(f"Reviewer hit a non-retryable error: {e}"))
-                            self.reviewer_output = {
-                                "verdict": "ERROR",
-                                "reasoning": (
-                                    "The review agent could not complete its analysis for this PR "
-                                    "(likely too complex for the allocated turn budget). "
-                                    "The `stamphog` label has been kept; a human review is needed."
-                                ),
-                                "risk": "unknown",
-                                "issues": [err_str],
-                            }
-                        break
+            reviewer_unavailable = self._run_reviewer_with_retries(reviewer, gate_context, diff_path)
 
         llm_verdict = self.reviewer_output.get("verdict", "UNKNOWN")
         print(f"  Verdict: {llm_verdict}")

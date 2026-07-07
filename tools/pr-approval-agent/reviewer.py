@@ -307,6 +307,13 @@ class Reviewer:
             # configuration. This is the guardrail that makes pointing cwd at
             # PR-controlled files safe.
             setting_sources=[],
+            # setting_sources=[] covers settings.json but not .mcp.json, which
+            # has its own discovery. The CLI's project-trust gate already
+            # refuses an unapproved .mcp.json in headless mode, but pin it:
+            # strict config + empty server map ignore any .mcp.json the PR
+            # ships in the head tree, regardless of CLI defaults.
+            mcp_servers={},
+            strict_mcp_config=True,
             max_turns=5 if quick else 20,
             model=MODEL,
             permission_mode="dontAsk",
@@ -493,10 +500,8 @@ class Reviewer:
                 "scripts or lifecycle hooks changed."
             )
 
-        # Stacked PRs target a parent branch, not master. The working tree is
-        # the PR head, so it already contains code from not-yet-merged parent
-        # PRs — that's why Read/Grep/Glob resolve symbols that aren't in the
-        # diff. Tell the agent so it doesn't flag those as missing.
+        # For a stacked PR the working tree is the PR head, so parent-PR symbols
+        # resolve in Read/Grep/Glob though absent from the diff; tell the agent.
         if pr.base_ref != "master":
             constraint += (
                 f"\nStacked PR: this targets `{pr.base_ref}`, not master. The working tree reflects the "
