@@ -342,6 +342,7 @@ jobs:
                         - 'products/tasks/backend/temporal/**/*'
                       product_yamls:
                         - 'products/*/product.yaml'
+                        - '**/owners.yaml'
                       openapi_types:
                         # Generated OpenAPI types - validate they match schema
                         - 'frontend/src/generated/**/*'
@@ -907,6 +908,12 @@ jobs:
                     exit 0
                   fi
                   ./bin/hogli product:lint:owners "${existing[@]}"
+
+            # Lints the distributed owners.yaml tree: schema, product.yaml/owners.yaml
+            # conflicts, dead rule globs, and coverage (warn-only). Runs without --live
+            # so it needs no GitHub API — team-slug validation stays in product:lint:owners.
+            - name: Lint owners.yaml files
+              run: ./bin/hogli owners:lint
 
     # Migration validation and OpenAPI type generation.
     # This job needs Docker + DB — it checks out master first to run baseline

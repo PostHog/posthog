@@ -103,6 +103,19 @@ def _validate_owners_live(all_owners: set[str]) -> list[str]:
     return errors
 
 
+def _reserved_location_error(rel: str) -> str | None:
+    """Reject owners.yaml where other tooling globs every YAML in the directory:
+    Actions/actionlint treat all of .github/workflows/ as workflows, and
+    services/mcp generate-tools globs YAML in products/*/mcp/. Hoist ownership
+    into the parent's rules instead."""
+    if rel.startswith(".github/workflows/"):
+        return f"{rel}: owners.yaml is not allowed under .github/workflows/ (Actions parses every YAML there as a workflow); move it to .github/owners.yaml rules"
+    parts = rel.split("/")
+    if parts[0] == "products" and "mcp" in parts[:-1]:
+        return f"{rel}: owners.yaml is not allowed inside a products/*/mcp/ directory (mcp tooling globs every YAML there); move it to the product's product.yaml or a parent owners.yaml"
+    return None
+
+
 @click.command(name="owners:lint", help="Validate owners.yaml files, conflicts, dead globs, and coverage")
 @click.option("--live", is_flag=True, help="Also validate team slugs and @handles against the GitHub org")
 def cmd_lint(live: bool) -> None:
@@ -121,6 +134,11 @@ def cmd_lint(live: bool) -> None:
     for owners_file in resolver.ownership_files():
         rel = owners_file.relative_to(repo_root).as_posix()
         directory = rel.rsplit("/", 1)[0] if "/" in rel else ""
+
+        if owners_file.name == OWNERS_FILENAME:
+            reserved_error = _reserved_location_error(rel)
+            if reserved_error is not None:
+                errors.append(reserved_error)
 
         if owners_file.name == PRODUCT_FILENAME:
             # Only flags a conflict; product.yaml owners are validated by product:lint:owners.

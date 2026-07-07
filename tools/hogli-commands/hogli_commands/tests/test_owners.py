@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from hogli_commands.owners.cli import _reserved_location_error
 from hogli_commands.owners.conversion import Converter, parse_soft_file, render_owners_yaml
 from hogli_commands.owners.legacy_diff import DiffClass, LegacyOwners, classify
 from hogli_commands.owners.matcher import path_matches_pattern
@@ -182,6 +183,22 @@ def test_conversion_mapping(conversion_repo: Path) -> None:
 )
 def test_diff_classify(old: set[str], new: set[str], expected: DiffClass) -> None:
     assert classify(old, new) == expected
+
+
+@pytest.mark.parametrize(
+    "rel,reserved",
+    [
+        (".github/workflows/owners.yaml", True),
+        (".github/workflows/sub/owners.yaml", True),
+        ("products/error_tracking/mcp/owners.yaml", True),
+        ("products/foo/mcp/sub/owners.yaml", True),
+        (".github/owners.yaml", False),
+        ("products/foo/backend/owners.yaml", False),
+        ("mcp/owners.yaml", False),
+    ],
+)
+def test_reserved_location_error(rel: str, reserved: bool) -> None:
+    assert (_reserved_location_error(rel) is not None) is reserved
 
 
 def test_legacy_owners_unions_matching_rules(tmp_path: Path) -> None:
