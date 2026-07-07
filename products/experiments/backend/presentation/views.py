@@ -1125,6 +1125,6 @@ def _serialize_recalculation(recalc: ExperimentMetricsRecalculation) -> dict:
     `results` field — recomputing per-metric fingerprints once per request is enough.
     """
     results = get_run_results(recalc)
-    payload = build_job_payload(recalc, results=results)
+    payload = build_job_payload(recalc, results=results, include_live_progress=True)
     payload["results"] = results
     return ExperimentMetricsRecalculationSerializer(payload).data
