@@ -1036,6 +1036,17 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         return Response(CustomPropertyValueSerializer(value).data, status=status.HTTP_201_CREATED)
 
 
+@extend_schema(
+    tags=["customer_analytics"],
+    parameters=[
+        OpenApiParameter(
+            name="account_id",
+            type=OpenApiTypes.UUID,
+            location=OpenApiParameter.PATH,
+            description="UUID of the parent account.",
+        ),
+    ],
+)
 class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
     scope_object = "account"
     serializer_class = AccountRelationshipSerializer
