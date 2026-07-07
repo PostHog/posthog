@@ -97,6 +97,18 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
         self.assertEqual(action.delivery_config[0]["integration_id"], self.integration.id)
         self.assertIsNotNone(action.next_run_at)
 
+    def test_second_digest_for_scanner_rejected(self) -> None:
+        first = self.client.post(
+            self.actions_url, data=self._create_payload(name="digest-1", is_scanner_digest=True), format="json"
+        )
+        self.assertEqual(first.status_code, 201, first.content)
+        self.assertTrue(first.json()["is_scanner_digest"])
+        second = self.client.post(
+            self.actions_url, data=self._create_payload(name="digest-2", is_scanner_digest=True), format="json"
+        )
+        self.assertEqual(second.status_code, 400, second.content)
+        self.assertIn("daily digest", second.json()["detail"].lower())
+
     def test_list(self) -> None:
         self.client.post(self.actions_url, data=self._create_payload(), format="json")
         resp = self.client.get(self.actions_url)
