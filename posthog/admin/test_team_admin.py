@@ -503,7 +503,7 @@ class TestTeamAdminAIGatewayWallet(BaseTest):
     def test_add_credit_impersonated_session_is_captured_and_displayed(self) -> None:
         request = self._post({"amount_usd": "5", "reason": "x", "form_nonce": "n1"})
         result = CreditResult(team_id=self.team.id, entry_id="e1", amount_usd="5", balance_usd="5", duplicate=False)
-        with patch("posthog.admin.admins.team_admin.is_impersonated_session", return_value=True):
+        with patch("posthog.admin.admins.team_admin.is_impersonated", return_value=True):
             with patch("posthog.admin.admins.team_admin.add_credit", return_value=result):
                 self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
 
@@ -538,6 +538,16 @@ class TestTeamAdminAIGatewayWallet(BaseTest):
             with patch("posthog.admin.admins.team_admin.add_credit", return_value=result):
                 self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
         assert ActivityLog.objects.filter(scope="AIGatewayCredit", team_id=self.team.id, item_id="e1").count() == 1
+
+    def test_add_credit_dedup_check_is_team_scoped(self) -> None:
+        # A shared entry_id across teams must not make one team's credit skip the audit write.
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        for team in (self.team, other_team):
+            request = self._post({"amount_usd": "5", "reason": "x", "form_nonce": "n1"})
+            result = CreditResult(team_id=team.id, entry_id="shared", amount_usd="5", balance_usd="5", duplicate=False)
+            with patch("posthog.admin.admins.team_admin.add_credit", return_value=result):
+                self.admin.add_ai_gateway_credit_view(request, str(team.pk))
+        assert ActivityLog.objects.filter(scope="AIGatewayCredit", item_id="shared").count() == 2
 
     def test_credit_history_renders_recorded_top_ups(self) -> None:
         request = self._post({"amount_usd": "25.00", "reason": "goodwill", "form_nonce": "n1"})

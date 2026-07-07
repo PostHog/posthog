@@ -33,10 +33,10 @@ from posthog.admin.inlines.organization_member_for_related_inline import Organiz
 from posthog.admin.inlines.team_experiments_config_inline import TeamExperimentsConfigInline
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
 from posthog.admin.inlines.user_product_list_inline import UserProductListInline
+from posthog.helpers.impersonation import is_impersonated
 from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, add_credit, get_wallet
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import ActivityContextBase, ActivityLog, Detail, log_activity
-from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import DEPRECATED_ATTRS
@@ -702,12 +702,12 @@ class TeamAdmin(admin.ModelAdmin):
         # so a replay backfills the audit if an earlier attempt's write was lost after
         # the money moved. The existence check dedupes best-effort; admin-only, so a
         # concurrent-double-submit race writing a second row isn't worth a constraint.
-        if not ActivityLog.objects.filter(scope="AIGatewayCredit", item_id=result.entry_id).exists():
+        if not ActivityLog.objects.filter(scope="AIGatewayCredit", team_id=team.id, item_id=result.entry_id).exists():
             log_activity(
                 organization_id=team.organization_id,
                 team_id=team.id,
                 user=request.user,
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
                 item_id=result.entry_id,
                 scope="AIGatewayCredit",
                 activity="credit_added",
