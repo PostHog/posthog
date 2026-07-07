@@ -115,8 +115,13 @@ def health(request):
     plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
     status = 503 if plan else 200
     if status == 503:
-        err = Exception("Migrations are not up to date. If this continues migrations have failed")
-        capture_exception(err)
+        # Pending migrations are expected mid-deploy while migrations are applying. The 503 signals
+        # orchestrators to hold off routing traffic; log it rather than capturing an exception so
+        # this normal, high-frequency readiness-probe state does not flood error tracking.
+        logger.warning(
+            "health_check_migrations_pending",
+            pending_migrations=[f"{migration.app_label}.{migration.name}" for migration, _ in plan],
+        )
         return HttpResponse("Migrations are not up to date", status=status, content_type="text/plain")
     if status == 200:
         return HttpResponse("ok", status=status, content_type="text/plain")
