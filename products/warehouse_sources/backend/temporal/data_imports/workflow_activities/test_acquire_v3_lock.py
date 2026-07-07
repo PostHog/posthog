@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -238,7 +239,7 @@ class TestTakeOverStaleLock:
 class TestTakeOverStaleRunningJob:
     HOLDER_TOKEN = "stale-run-999"
 
-    def _run(self) -> bool:
+    def _run(self, *, holder_created_at: datetime | None = None) -> bool:
         from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
             _take_over_stale_running_job,
         )
@@ -247,6 +248,7 @@ class TestTakeOverStaleRunningJob:
         holder_job = MagicMock()
         holder_job.id = "job-123"
         holder_job.status = "Running"
+        holder_job.created_at = holder_created_at or datetime.now(UTC) - timedelta(hours=1)
         return _take_over_stale_running_job(inputs, self.HOLDER_TOKEN, WORKFLOW_RUN_ID, holder_job, MagicMock())
 
     @patch(f"{MODULE}._release_and_acquire", return_value=True)
@@ -304,6 +306,65 @@ class TestTakeOverStaleRunningJob:
     ) -> None:
         mock_conn_cls.connect.side_effect = RuntimeError("connection refused")
         assert self._run() is False
+
+    @patch(f"{MODULE}._release_and_acquire", return_value=True)
+    @patch(f"{MODULE}.update_external_job_status")
+    @patch(f"{MODULE}.BatchQueue")
+    @patch(f"{MODULE}.psycopg.Connection")
+    def test_max_hold_exceeded_takes_over_despite_active_consumer(
+        self,
+        mock_conn_cls: MagicMock,
+        mock_queue: MagicMock,
+        mock_update: MagicMock,
+        mock_release: MagicMock,
+    ) -> None:
+        # Without the max-hold backstop, a fooled staleness heuristic can block
+        # takeover forever.
+        mock_queue.get_run_activity_summary.return_value = RunActivitySummary(
+            has_batches=True, has_non_terminal=True, is_stale=False
+        )
+        assert self._run(holder_created_at=datetime.now(UTC) - timedelta(hours=25)) is True
+        mock_update.assert_called_once()
+
+    @patch(f"{MODULE}._release_and_acquire", return_value=True)
+    @patch(f"{MODULE}.update_external_job_status")
+    @patch(f"{MODULE}.BatchQueue")
+    @patch(f"{MODULE}.psycopg.Connection")
+    def test_takeover_fails_the_holders_queue_batches(
+        self,
+        mock_conn_cls: MagicMock,
+        mock_queue: MagicMock,
+        mock_update: MagicMock,
+        mock_release: MagicMock,
+    ) -> None:
+        # Leftover claimable batches loaded after takeover stale-overwrite newer
+        # data or flip the FAILED job back to COMPLETED.
+        mock_queue.get_run_activity_summary.return_value = RunActivitySummary(
+            has_batches=True, has_non_terminal=True, is_stale=True
+        )
+        assert self._run() is True
+        mock_queue.fail_batches_for_job_sync.assert_called_once()
+        assert mock_queue.fail_batches_for_job_sync.call_args[1]["job_id"] == "job-123"
+
+    @patch(f"{MODULE}.capture_exception")
+    @patch(f"{MODULE}.update_external_job_status")
+    @patch(f"{MODULE}.BatchQueue")
+    @patch(f"{MODULE}.psycopg.Connection")
+    def test_fails_closed_when_queue_batch_fail_fails(
+        self,
+        mock_conn_cls: MagicMock,
+        mock_queue: MagicMock,
+        mock_update: MagicMock,
+        mock_capture: MagicMock,
+    ) -> None:
+        # If the batches can't be made terminal, stealing the lock would leave
+        # them claimable under a FAILED job — the exact window this guards.
+        mock_queue.get_run_activity_summary.return_value = RunActivitySummary(
+            has_batches=True, has_non_terminal=True, is_stale=True
+        )
+        mock_queue.fail_batches_for_job_sync.side_effect = RuntimeError("queue write failed")
+        assert self._run() is False
+        mock_update.assert_not_called()
 
 
 class TestReleaseV3PipelineLockActivity:
