@@ -2094,7 +2094,6 @@ def relay_task_run_message(
     from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
         SlackThreadTaskMapping,
     )
-    from products.tasks.backend.models import TaskRun  # noqa: PLC0415 — keep ORM off the api import path
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
         execute_posthog_code_agent_relay_workflow,
         signal_agent_text_delta,
@@ -2116,7 +2115,7 @@ def relay_task_run_message(
 
     if bool((run.state or {}).get(AGENT_DESIGN_STATE_KEY)):
         try:
-            signal_agent_text_delta(TaskRun.get_workflow_id(str(run.task_id), str(run.id)), trimmed)
+            signal_agent_text_delta(run.workflow_id, trimmed)
         except Exception:
             logger.exception("task_run_relay_text_signal_failed", extra={"run_id": str(run.id)})
         return "skipped", None
@@ -3608,7 +3607,12 @@ def _slack_repo_research_dto(
         except Exception:
             logger.exception("slack_thread_context_research_log_presign_failed", extra={"run_id": research_run_id})
             log_url = None
-    workflow_id = TaskRun.get_workflow_id(research_task_id, research_run_id)
+    # Prefer the run's actual id (prefixed dispatches persist it); fall back to derived when the row is gone.
+    workflow_id = (
+        research_run.workflow_id
+        if research_run is not None
+        else TaskRun.get_workflow_id(research_task_id, research_run_id)
+    )
     return contracts.SlackThreadContextRepoResearchDTO(
         task_id=research_task_id,
         run_id=research_run_id,
@@ -3671,7 +3675,7 @@ def resolve_slack_thread_context(
     for run in runs:
         state = run.state if isinstance(run.state, dict) else {}
         output = run.output if isinstance(run.output, dict) else {}
-        task_processing_workflow_id = TaskRun.get_workflow_id(task.id, run.id)
+        task_processing_workflow_id = run.workflow_id
         mention_workflow_id = state.get("slack_mention_workflow_id")
         try:
             presigned_log_url = object_storage.get_presigned_url(run.log_url, expiration=3600)

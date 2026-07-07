@@ -72,6 +72,7 @@ async def deduplicate_issues(
     pr_comments: list[PRComment],
     branch: str,
     repository: str,
+    workflow_id_prefix: str | None = None,
 ) -> list[Issue]:
     """Deduplicate the in-scope issues and return the survivors (the canonical post-dedup set).
 
@@ -127,6 +128,7 @@ async def deduplicate_issues(
             system_prompt=_SYSTEM_PROMPT,
             model_to_validate=IssueDeduplication,
             step_name="dedup",
+            workflow_id_prefix=workflow_id_prefix,
         )
     # `unique` issues always survive; only positional candidates can be dropped by the LLM.
     duplicate_ids = {dup.id for dup in deduplication_result.duplicates}

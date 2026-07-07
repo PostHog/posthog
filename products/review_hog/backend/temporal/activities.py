@@ -348,6 +348,15 @@ class AppendCodeReviewArtefactInput:
 # --- Setup activities ------------------------------------------------------------------------------
 
 
+def _sandbox_workflow_id_prefix(step_name: str) -> str:
+    """Brand a sandbox run's Temporal workflow id with the review it belongs to.
+
+    `{review workflow id}:{step}` (lowercased), so one Temporal UI search by PR number surfaces the
+    review, its children, and every sandbox run; a failed sandbox workflow is self-describing.
+    """
+    return f"{activity.info().workflow_id}:{step_name}".lower()
+
+
 def _github_integration_exists(team_id: int) -> bool:
     return Integration.objects.filter(team_id=team_id, kind="github").exists()
 
@@ -631,6 +640,7 @@ async def split_chunks_activity(input: SandboxStageInput) -> list[int]:
                 system_prompt=CHUNKING_SYSTEM_PROMPT,
                 model_to_validate=ChunksList,
                 step_name="chunking",
+                workflow_id_prefix=_sandbox_workflow_id_prefix("chunking"),
             )
     await database_sync_to_async(persist_chunk_set, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, chunks=chunks
@@ -752,6 +762,7 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
             system_prompt=REVIEW_SYSTEM_PROMPT,
             model_to_validate=IssuesReview,
             step_name=step_name,
+            workflow_id_prefix=_sandbox_workflow_id_prefix(step_name),
             runtime_adapter=REVIEW_RUNTIME_ADAPTER,
             model=REVIEW_MODEL,
             reasoning_effort=REVIEW_REASONING_EFFORT,
@@ -812,6 +823,7 @@ async def dedup_activity(input: DedupInput) -> DedupResult:
             pr_comments=snapshot.pr_comments,
             branch=input.branch,
             repository=input.repository,
+            workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),
         )
     findings_count = await database_sync_to_async(persist_findings, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, issues=survivors, run_index=input.run_index
@@ -904,6 +916,7 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
                             system_prompt=VALIDATION_SYSTEM_PROMPT,
                             model_to_validate=IssueValidation,
                             step_name=f"validation-c{input.chunk_id}",
+                            workflow_id_prefix=_sandbox_workflow_id_prefix(f"validation-c{input.chunk_id}"),
                             runtime_adapter=VALIDATION_RUNTIME_ADAPTER,
                             model=VALIDATION_MODEL,
                             reasoning_effort=VALIDATION_REASONING_EFFORT,

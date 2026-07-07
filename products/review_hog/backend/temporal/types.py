@@ -68,10 +68,14 @@ class ReviewPRWorkflowInputs:
 
 
 def review_pr_workflow_id(*, team_id: int, owner: str, repo: str, pr_number: int) -> str:
-    """Deterministic per-PR workflow id, so a re-trigger of the same PR review collapses by id."""
-    return f"review-pr:{team_id}:{owner}/{repo}:{pr_number}"
+    """Deterministic per-PR workflow id, so a re-trigger of the same PR review collapses by id.
+
+    Lowercased (GitHub owner/repo are case-insensitive) so this id — and every sandbox workflow id
+    prefixed with it — is searchable in the Temporal UI with one casing.
+    """
+    return f"review-pr:{team_id}:{owner}/{repo}:{pr_number}".lower()
 
 
 def review_branch_workflow_id(*, team_id: int, owner: str, repo: str, head_branch: str) -> str:
     """Deterministic per-branch workflow id for PR-less targets, mirroring `review_pr_workflow_id`."""
-    return f"review-branch:{team_id}:{owner}/{repo}:{head_branch}"
+    return f"review-branch:{team_id}:{owner}/{repo}:{head_branch}".lower()

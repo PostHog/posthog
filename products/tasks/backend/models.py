@@ -124,6 +124,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         # ticket's Code chat carry this origin (previously "support_queue", which
         # collided with the conversations support pipeline).
         HOGDESK = "hogdesk", "HogDesk"
+        # ReviewHog PR reviewer — its sandbox steps (chunking/review/validation/dedup) spawn one task each.
+        REVIEW_HOG = "review_hog", "ReviewHog"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -645,6 +647,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         ai_stage: str | None = None,
         wizard_config: dict | None = None,
         pending_user_message: str | None = None,
+        workflow_id_prefix: str | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import _normalize_slack_context, execute_task_processing_workflow
 
@@ -684,6 +687,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
                 "posthog_mcp_scopes": posthog_mcp_scopes,
                 "user_id": user_id,
                 "slack_thread_context": _normalize_slack_context(slack_thread_context),
+                "workflow_id_prefix": workflow_id_prefix,
             }
 
         task_run = task.create_run(mode=mode, extra_state=run_extra_state or None, branch=branch)
@@ -712,6 +716,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
                     create_pr=create_pr,
                     slack_thread_context=slack_thread_context,
                     posthog_mcp_scopes=posthog_mcp_scopes,
+                    workflow_id_prefix=workflow_id_prefix,
                 )
 
             transaction.on_commit(_dispatch)
@@ -1061,13 +1066,24 @@ class TaskRun(models.Model):
         return cls.mutate_state_atomic(run_id, _mutator)
 
     @staticmethod
-    def get_workflow_id(task_id: str | uuid.UUID, run_id: str | uuid.UUID) -> str:
-        """Get the Temporal workflow ID for a task run."""
+    def get_workflow_id(
+        task_id: str | uuid.UUID, run_id: str | uuid.UUID, workflow_id_prefix: str | None = None
+    ) -> str:
+        """Get the Temporal workflow ID for a task run, optionally under a caller-supplied prefix."""
+        if workflow_id_prefix:
+            return f"{workflow_id_prefix}-{task_id}-{run_id}"
         return f"task-processing-{task_id}-{run_id}"
 
     @property
     def workflow_id(self) -> str:
-        """Get the Temporal workflow ID for this task run."""
+        """The run's actual Temporal workflow ID.
+
+        A prefixed dispatch persists the started ID in `state` (it isn't derivable from ids alone);
+        the default ID stays derived.
+        """
+        persisted = self.state.get("workflow_id") if isinstance(self.state, dict) else None
+        if persisted:
+            return persisted
         return self.get_workflow_id(self.task_id, self.id)
 
     def heartbeat_workflow(self, agent_active: bool = False) -> None:

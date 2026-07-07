@@ -105,6 +105,7 @@ async def test_turn_failure_fails_the_activity_so_temporal_retries() -> None:
     mock_continue = AsyncMock(side_effect=RuntimeError("upstream timeout"))
     mock_end = AsyncMock()
     mock_persist = MagicMock(return_value=True)
+    env = _env(attempt=1)
     with (
         _chunk_context(done={done_issue.id: _verdict()}),
         patch(f"{_MODULE}.persist_verdict", mock_persist),
@@ -113,12 +114,15 @@ async def test_turn_failure_fails_the_activity_so_temporal_retries() -> None:
         patch(f"{_MODULE}.end_sandbox_session", mock_end),
     ):
         with pytest.raises(RuntimeError):
-            await _env(attempt=1).run(validate_chunk_activity, _input([done_issue, ok_issue, failing_issue]))
+            await env.run(validate_chunk_activity, _input([done_issue, ok_issue, failing_issue]))
 
     assert mock_start.call_count == 1  # only the first pending issue opened the session — not the done one
     assert mock_persist.call_count == 1
     assert mock_persist.call_args.kwargs["issue"].id == ok_issue.id
     mock_end.assert_awaited_once_with(session)
+    # The session's Temporal workflow id is branded with the review's workflow id + step, lowercased.
+    expected_prefix = f"{env.info.workflow_id}:validation-c{_CHUNK_ID}".lower()
+    assert mock_start.call_args.kwargs["workflow_id_prefix"] == expected_prefix
 
 
 @pytest.mark.asyncio

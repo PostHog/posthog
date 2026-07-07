@@ -4,6 +4,7 @@ from typing import TypeVar
 from pydantic import BaseModel
 
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession
+from products.tasks.backend.facade.api import TaskOriginProduct
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
 
@@ -17,6 +18,7 @@ async def _run_prompt(
     *,
     branch: str | None = None,
     step_name: str = "",
+    workflow_id_prefix: str | None = None,
 ) -> _ModelT:
     """Spawn a single-turn sandbox agent and return its validated end-of-turn.
 
@@ -36,6 +38,12 @@ async def _run_prompt(
             model=model,
             branch=branch or None,
             step_name=step_name,
+            workflow_id_prefix=workflow_id_prefix,
+            # ReviewHog-attributed and internal (pipeline plumbing, not a user-facing task); the step
+            # lands on $ai_generation as ai_stage for per-stage cost attribution.
+            origin_product=TaskOriginProduct.REVIEW_HOG,
+            internal=True,
+            ai_stage=step_name or None,
         )
     except Exception:
         logger.exception("Sandbox execution failed")
@@ -56,6 +64,7 @@ async def run_sandbox_review(
     system_prompt: str,
     model_to_validate: type[_ModelT],
     step_name: str = "",
+    workflow_id_prefix: str | None = None,
     runtime_adapter: str | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
@@ -89,7 +98,14 @@ async def run_sandbox_review(
         reasoning_effort=reasoning_effort,
         initial_permission_mode=initial_permission_mode,
     )
-    return await _run_prompt(full_prompt, context, model_to_validate, branch=branch, step_name=step_name)
+    return await _run_prompt(
+        full_prompt,
+        context,
+        model_to_validate,
+        branch=branch,
+        step_name=step_name,
+        workflow_id_prefix=workflow_id_prefix,
+    )
 
 
 async def start_sandbox_session(
@@ -102,6 +118,7 @@ async def start_sandbox_session(
     system_prompt: str,
     model_to_validate: type[_ModelT],
     step_name: str = "",
+    workflow_id_prefix: str | None = None,
     runtime_adapter: str | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
@@ -134,6 +151,11 @@ async def start_sandbox_session(
             model=model_to_validate,
             branch=branch or None,
             step_name=step_name,
+            workflow_id_prefix=workflow_id_prefix,
+            # Same attribution trio as _run_prompt: ReviewHog-origin, internal, step as ai_stage.
+            origin_product=TaskOriginProduct.REVIEW_HOG,
+            internal=True,
+            ai_stage=step_name or None,
         )
     except Exception:
         logger.exception("Sandbox session start failed")

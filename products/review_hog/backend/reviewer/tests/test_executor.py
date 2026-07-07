@@ -6,7 +6,8 @@ from unittest.mock import AsyncMock, patch
 from parameterized import parameterized
 from pydantic import BaseModel
 
-from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_review
+from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_review, start_sandbox_session
+from products.tasks.backend.facade.api import TaskOriginProduct
 
 _EXECUTOR_PREFIX = "products.review_hog.backend.reviewer.sandbox.executor"
 
@@ -45,6 +46,11 @@ class TestRunSandboxReview:
         assert "user prompt" in call_kwargs["prompt"]
         assert call_kwargs["branch"] == "test-branch"
         assert call_kwargs["step_name"] == "split"
+        # Spawn attribution: dropping any of these silently reverts ReviewHog's sandbox tasks to
+        # user-visible "user_created" ones with no per-stage $ai_generation attribution.
+        assert call_kwargs["origin_product"] == TaskOriginProduct.REVIEW_HOG
+        assert call_kwargs["internal"] is True
+        assert call_kwargs["ai_stage"] == "split"
 
     @pytest.mark.asyncio
     async def test_context_built_from_explicit_identity(self) -> None:
@@ -104,6 +110,32 @@ class TestRunSandboxReview:
             reasoning_effort,
             initial_permission_mode,
         )
+
+    @pytest.mark.asyncio
+    async def test_warm_session_carries_the_same_spawn_attribution(self) -> None:
+        # The validation warm sessions spawn through start_sandbox_session, not _run_prompt — the
+        # attribution trio (ReviewHog origin, internal, step as ai_stage) and the workflow-id prefix
+        # must hold on this path too or only the single-turn steps stay attributed.
+        mock_start = AsyncMock(return_value=(AsyncMock(), DummyModel(result="ok")))
+
+        with patch(f"{_EXECUTOR_PREFIX}.MultiTurnSession.start", mock_start):
+            await start_sandbox_session(
+                team_id=1,
+                user_id=2,
+                repository="test/repo",
+                branch="b",
+                prompt="p",
+                system_prompt="s",
+                model_to_validate=DummyModel,
+                step_name="validation-c3",
+                workflow_id_prefix="review-pr:1:o/r:7/validate:validation-c3",
+            )
+
+        call_kwargs = mock_start.call_args.kwargs
+        assert call_kwargs["origin_product"] == TaskOriginProduct.REVIEW_HOG
+        assert call_kwargs["internal"] is True
+        assert call_kwargs["ai_stage"] == "validation-c3"
+        assert call_kwargs["workflow_id_prefix"] == "review-pr:1:o/r:7/validate:validation-c3"
 
     @pytest.mark.asyncio
     async def test_start_failure_propagates(self) -> None:

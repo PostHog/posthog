@@ -297,7 +297,8 @@ def _build_sandbox_tags(
         "task_run_id": ctx.run_id,
         "origin_product": ctx.origin_product,
         "team_id": ctx.team_id,
-        "workflow_id": TaskRun.get_workflow_id(ctx.task_id, ctx.run_id),
+        # The running workflow's real id — a re-derived default would mislabel prefixed dispatches.
+        "workflow_id": activity.info().workflow_id,
         "image_source": prepared.image_source,
         "sandbox_runtime": "vm" if use_vm_sandbox else "gvisor",
     }

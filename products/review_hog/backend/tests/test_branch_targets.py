@@ -73,6 +73,13 @@ class TestBuildInputs(BaseTest):
         assert inputs.pr_url is None
         assert inputs.head_branch == "feat"
 
+    def test_workflow_id_lowercases_a_mixed_case_repository(self) -> None:
+        # The id (and every sandbox workflow id prefixed with it) must search as one casing in the
+        # Temporal UI; GitHub owner/repo are case-insensitive, so lowercasing loses nothing.
+        _inputs, workflow_id = self._build(repository="PostHog/PostHog.com", head_branch="Feat")
+
+        assert workflow_id == f"review-branch:{self.team.id}:posthog/posthog.com:feat"
+
 
 class TestFetchBranchTarget(BaseTest):
     def _fetch(self) -> object:

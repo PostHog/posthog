@@ -266,7 +266,9 @@ async def _relay_loop(
         from posthog.temporal.common.client import async_connect
 
         temporal_client = await async_connect()
-        workflow_id = TaskRunModel.get_workflow_id(task_id, run_id)
+        # Signals our own parent workflow — its real id, not a re-derived default (which a
+        # prefixed dispatch wouldn't match).
+        workflow_id = activity.info().workflow_id
         workflow_handle = temporal_client.get_workflow_handle(workflow_id)
     except Exception as e:
         logger.warning("relay_workflow_handle_init_failed", run_id=run_id, error=str(e))
