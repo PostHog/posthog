@@ -45,7 +45,7 @@ export function ElementInfo(): JSX.Element | null {
                         clickCount={clickCount || 0}
                         rageclickCount={rageclickCount || 0}
                         deadclickCount={deadclickCount || 0}
-                        dateRange={dateRange}
+                        dateRange={dateRange ?? undefined}
                     />
                 </div>
             ) : null}
