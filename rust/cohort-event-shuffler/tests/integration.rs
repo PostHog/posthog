@@ -18,6 +18,7 @@ use lifecycle::{ComponentOptions, Manager};
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::{ClientConfig, Message, TopicPartitionList};
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 const INPUT_TOPIC: &str = "clickhouse_events_json";
@@ -374,4 +375,129 @@ async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
     // Commit progression: every input offset — settled drops/skips, acked forwards, and the
     // poison pill — ends up covered by an explicit ledger commit.
     wait_for_committed_offset(&bootstrap, "shuffler-itest", total_input_messages).await;
+}
+
+/// Graceful shutdown must commit through the drain path, not the periodic tick. With
+/// `commit_interval_ms` set to an hour the periodic committer cannot cover the input before
+/// shutdown, so the only way the committed offset reaches the full input count is
+/// `EventShuffler::drain_and_commit` running its final Sync commit after the shutdown signal. That
+/// path (producer flush, ack drain, final commit) runs on every pod rotation and is otherwise
+/// unexercised; a regression there would silently replay up to `commit_interval` of events per deploy.
+#[tokio::test]
+async fn shuffler_commits_via_drain_on_graceful_shutdown() {
+    let (cluster, input_producer): (_, FutureProducer<_>) =
+        common_kafka::test::create_mock_kafka().await;
+    cluster
+        .create_topic(INPUT_TOPIC, 1, 1)
+        .expect("create input topic");
+    cluster
+        .create_topic(OUTPUT_TOPIC, OUTPUT_PARTITIONS, 1)
+        .expect("create output topic");
+    let bootstrap = cluster.bootstrap_servers();
+    let mut config = test_config(&bootstrap);
+    // An hour out: the periodic tick can't fire during the test, so only the drain's final commit
+    // can carry the committed offset to the full input count.
+    config.commit_interval_ms = 3_600_000;
+
+    let team_index = Arc::new(TeamIndex::from_teams([2, 7]));
+
+    // Forward, drop, skip, then forward last: seeing every forward in the output proves intake
+    // consumed the whole input (including the poison pill) before we trigger shutdown.
+    let inputs = [
+        InputSpec {
+            team_id: 2,
+            person_id: Some("pA"),
+            event: "$pageview",
+            forwardable: true,
+        },
+        InputSpec {
+            team_id: 2,
+            person_id: None,
+            event: "$pageview",
+            forwardable: false,
+        },
+        InputSpec {
+            team_id: 99,
+            person_id: Some("pX"),
+            event: "$pageview",
+            forwardable: false,
+        },
+        InputSpec {
+            team_id: 7,
+            person_id: Some("pB"),
+            event: "$pageview",
+            forwardable: true,
+        },
+    ];
+    const GARBAGE_AFTER_INDEX: usize = 2;
+
+    let mut total_input_messages = 0i64;
+    for (index, spec) in inputs.iter().enumerate() {
+        let uuid = Uuid::from_u128(0xD0_0000 + index as u128);
+        let payload = serde_json::to_string(&clickhouse_event(uuid, spec)).unwrap();
+        let key = uuid.to_string();
+        input_producer
+            .send_result(FutureRecord::to(INPUT_TOPIC).key(&key).payload(&payload))
+            .expect("enqueue input")
+            .await
+            .expect("input produce canceled")
+            .expect("input produce failed");
+        total_input_messages += 1;
+
+        if index == GARBAGE_AFTER_INDEX {
+            input_producer
+                .send_result(
+                    FutureRecord::to(INPUT_TOPIC)
+                        .key("garbage")
+                        .payload("this is not json"),
+                )
+                .expect("enqueue garbage")
+                .await
+                .expect("garbage produce canceled")
+                .expect("garbage produce failed");
+            total_input_messages += 1;
+        }
+    }
+
+    let expected_forwardable = inputs.iter().filter(|s| s.forwardable).count();
+
+    let shutdown = CancellationToken::new();
+    let mut manager = Manager::builder("shuffler-drain-itest")
+        .with_trap_signals(false)
+        .with_shutdown_token(shutdown.clone())
+        .build();
+    let handle = manager.register(
+        "consumer",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
+    );
+    let _monitor = manager.monitor_background();
+
+    let consumer =
+        SingleTopicConsumer::new(config.build_kafka_config(), config.build_consumer_config())
+            .expect("create shuffler consumer");
+    let producer =
+        CohortStreamProducer::new(&config.build_kafka_config(), OUTPUT_TOPIC.to_string())
+            .await
+            .expect("create shuffler producer");
+    let shuffler = EventShuffler::new(
+        consumer,
+        producer,
+        team_index,
+        handle,
+        config.shuffler_settings(),
+    );
+    let task = tokio::spawn(async move { shuffler.process().await });
+
+    let output = collect_output(&bootstrap, expected_forwardable, Duration::from_secs(40)).await;
+    assert_eq!(
+        output.len(),
+        expected_forwardable,
+        "forwards must flow before shutdown so the ledger has observed every offset",
+    );
+
+    // Nothing has committed the input yet (periodic tick is an hour out); the drain must.
+    shutdown.cancel();
+    wait_for_committed_offset(&bootstrap, "shuffler-itest", total_input_messages).await;
+
+    task.await.expect("shuffler task panicked");
 }

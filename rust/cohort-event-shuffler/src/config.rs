@@ -82,9 +82,15 @@ pub struct Config {
     #[envconfig(from = "REALTIME_COHORT_TEAM_ALLOWLIST", default = "2")]
     pub team_allowlist: TeamAllowlist,
 
-    /// Cap on unresolved forwards; intake pauses at the cap while acks and commits keep
-    /// draining. Steady state is ~two orders of magnitude below this.
-    #[envconfig(default = "10000")]
+    /// Cap on unresolved forwards; intake pauses here while acks and commits keep draining. Sized
+    /// so this count cap — not librdkafka's `kafka_producer_queue_mib` byte queue — is the binding
+    /// backpressure limit: at the 64 MiB queue default it stays under the byte budget for forwards
+    /// up to ~16 KiB serialized, so a slow-ack burst pauses intake cleanly instead of spilling into
+    /// the churnier `QueueFull` retry path. Larger-event bursts still fall back to that path. Keep
+    /// the two knobs in step (`max_inflight_forwards × avg_forward_bytes ≲ kafka_producer_queue_mib`)
+    /// so the in-flight gate stays the one that actually governs. Steady state sits in the low
+    /// hundreds, far below this ceiling.
+    #[envconfig(default = "4000")]
     pub max_inflight_forwards: usize,
 
     /// Also bounds the crash-replay window: interval × consume rate events per pod, deduped
@@ -159,9 +165,12 @@ impl Config {
             kafka_message_timeout_ms: 20_000,
             kafka_producer_batch_size: None,
             kafka_producer_batch_num_messages: None,
-            // Idempotence stays off (librdkafka retries can reorder — accepted for the PoC).
-            // A strict-ordering flip requires enable.idempotence=true, which in turn caps
-            // max.in.flight.requests.per.connection at 5.
+            // Idempotence stays off: librdkafka retries can reorder, but the pipeline is
+            // at-least-once and the downstream processor dedups on `source_partition`/
+            // `source_offset`, so per-partition produce ordering is never relied on. A deliberate
+            // steady-state tradeoff, not a temporary shortcut — enabling it
+            // (enable.idempotence=true) would cap max.in.flight.requests.per.connection at 5 and
+            // throttle the pipeline for an ordering guarantee nothing downstream needs.
             kafka_producer_enable_idempotence: None,
             kafka_producer_max_in_flight_requests_per_connection: None,
             kafka_producer_topic_metadata_refresh_interval_ms: None,

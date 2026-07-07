@@ -10,16 +10,27 @@
 //! only lift `high_watermark`. Gaps (offsets never observed, e.g. transaction markers) are
 //! covered when the next observed message lifts the watermark past them.
 //!
-//! # Rebalance stance (eager, no `ConsumerContext` — deliberate PoC scope)
+//! # Rebalance stance (eager, no `ConsumerContext` — a deliberate, accepted scope)
 //!
 //! Explicit-TPL commits are fenced by group generation, not per-partition ownership, so a stale
 //! commit for a revoked partition can succeed. Defenses, all in [`Ledger::commit_plan`]:
 //! (1) partitions absent from the current assignment snapshot are pruned; (2) delta suppression —
 //! only committable > confirmed-committed is emitted; (3) commit values derive only from
-//! self-consumed + resolved positions. Residual race (revoke lands between snapshot and commit):
-//! the stale value ≤ what this pod actually consumed **and acked**, so a new owner resuming there
-//! skips only events this pod already forwarded — at-least-once holds; worst case is bounded
-//! duplicates.
+//! self-consumed + resolved positions.
+//!
+//! Two residual races remain, both accepted because the pipeline is at-least-once and the
+//! downstream processor dedups on `source_partition`/`source_offset`:
+//!
+//! - Revoke lands between snapshot and commit: the stale value ≤ what this pod actually consumed
+//!   **and acked**, so a new owner resuming there skips only events this pod already forwarded —
+//!   at-least-once holds; worst case is bounded duplicates.
+//! - Same partition revoked and reassigned to *this* pod with no intervening [`Ledger::commit_plan`]
+//!   prune: the surviving `PartitionLedger` re-observes a replayed offset while its first forward is
+//!   still in flight, and because `in_flight` is a set the two forwards collapse to one entry. The
+//!   watermark can then advance after only one resolves, so an offset abandoned on *both* attempts
+//!   is committed over without ever delivering — a single-offset loss, not a duplicate. Narrow (needs
+//!   a same-pod reassign plus a double abandon) and out of scope to close without a `ConsumerContext`
+//!   revoke hook; called out here so the guarantee doesn't read as duplicates-only.
 
 use std::collections::{BTreeMap, BTreeSet};
 

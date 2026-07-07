@@ -133,18 +133,17 @@ fn decode_gated(payload: &[u8], team_index: &TeamIndex) -> Decoded {
     }
 }
 
-type AckFuture = Pin<
-    Box<
-        dyn Future<
-                Output = (
-                    SourcePartition,
-                    SourceOffset,
-                    Instant,
-                    Result<(), KafkaError>,
-                ),
-            > + Send,
-    >,
->;
+/// Resolved delivery of one forwarded event, carried back to the pipeline task by an
+/// [`AckFuture`]. Named (not a bare tuple) so each destructuring site reads by field instead of
+/// re-establishing what each position means.
+struct DeliveryAck {
+    partition: SourcePartition,
+    offset: SourceOffset,
+    sent_at: Instant,
+    result: Result<(), KafkaError>,
+}
+
+type AckFuture = Pin<Box<dyn Future<Output = DeliveryAck> + Send>>;
 type CommitResult = Result<Result<(), KafkaError>, JoinError>;
 type CommitFuture =
     Pin<Box<dyn Future<Output = (Vec<(SourcePartition, NextOffset)>, CommitResult)> + Send>>;
@@ -251,8 +250,8 @@ impl EventShuffler {
                     break;
                 }
 
-                Some((partition, offset, sent_at, result)) = pending_acks.next() => {
-                    record_delivery(&mut ledger, partition, offset, sent_at, result);
+                Some(ack) = pending_acks.next() => {
+                    record_delivery(&mut ledger, ack);
                 }
 
                 Some((offsets, result)) = pending_commit.next() => {
@@ -315,7 +314,7 @@ impl EventShuffler {
             // Heartbeat gated by commit freshness: a wedged committer with committable work must
             // trip the stall detector, but an idle topic (nothing to commit) stays healthy.
             let commit_is_stale = last_commit_ok.elapsed() > staleness_threshold;
-            if !commit_is_stale || !ledger.has_committable() {
+            if should_heartbeat(commit_is_stale, ledger.has_committable()) {
                 self.handle.report_healthy();
             }
         }
@@ -397,7 +396,12 @@ impl EventShuffler {
                         Ok(Err((err, _message))) => Err(err),
                         Err(_canceled) => Err(KafkaError::Canceled),
                     };
-                    (partition, offset, sent_at, result)
+                    DeliveryAck {
+                        partition,
+                        offset,
+                        sent_at,
+                        result,
+                    }
                 }));
                 Intake::Open
             }
@@ -503,8 +507,8 @@ impl EventShuffler {
 
         while !pending_acks.is_empty() {
             match tokio::time::timeout_at(pre_commit_deadline, pending_acks.next()).await {
-                Ok(Some((partition, offset, sent_at, result))) => {
-                    record_delivery(&mut ledger, partition, offset, sent_at, result);
+                Ok(Some(ack)) => {
+                    record_delivery(&mut ledger, ack);
                 }
                 Ok(None) => break,
                 Err(_) => {
@@ -528,13 +532,13 @@ impl EventShuffler {
     }
 }
 
-fn record_delivery(
-    ledger: &mut Ledger,
-    partition: SourcePartition,
-    offset: SourceOffset,
-    sent_at: Instant,
-    result: Result<(), KafkaError>,
-) {
+fn record_delivery(ledger: &mut Ledger, ack: DeliveryAck) {
+    let DeliveryAck {
+        partition,
+        offset,
+        sent_at,
+        result,
+    } = ack;
     let outcome = match &result {
         Ok(()) => {
             counter!(EVENTS_FORWARDED).increment(1);
@@ -594,6 +598,14 @@ fn apply_commit_result(
     }
 }
 
+/// Liveness gate for the pipeline loop. Stale-and-committable is the only state that withholds the
+/// heartbeat — a committer wedged for [`COMMIT_STALENESS_FACTOR`] intervals while committable work
+/// waits must trip the stall detector. An idle topic (nothing committable) stays healthy even when
+/// the last commit is old, and any fresh commit clears the staleness.
+fn should_heartbeat(commit_stale: bool, has_committable: bool) -> bool {
+    !commit_stale || !has_committable
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -606,6 +618,18 @@ mod tests {
 
     fn gate_fields(team_id: i32, person_id: Option<IgnoredAny>) -> GateFields {
         GateFields { team_id, person_id }
+    }
+
+    #[test]
+    fn heartbeat_withheld_only_when_stale_and_committable() {
+        // The single false case: a wedged committer with work waiting must stop heartbeating so
+        // the stall detector restarts the pod.
+        assert!(!should_heartbeat(true, true));
+        // Stale but nothing to commit = idle topic, stays healthy.
+        assert!(should_heartbeat(true, false));
+        // Fresh commits keep the pod healthy regardless of pending work.
+        assert!(should_heartbeat(false, true));
+        assert!(should_heartbeat(false, false));
     }
 
     #[test]

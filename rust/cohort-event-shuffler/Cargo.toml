@@ -33,3 +33,4 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 proptest = "1"
+tokio-util = { workspace = true }
