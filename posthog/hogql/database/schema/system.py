@@ -388,7 +388,9 @@ experiments: PostgresTable = PostgresTable(
             name="filters", description="JSON definition of the experiment's goal metric filters."
         ),
         "parameters": StringJSONDatabaseField(
-            name="parameters", description="JSON experiment parameters (variants, exposure, etc.)."
+            name="parameters",
+            description="JSON experiment parameters (e.g. sample size settings). Flag config such as "
+            "variants lives on the linked feature flag's filters, not in this column.",
         ),
         "start_date": DateTimeDatabaseField(
             name="start_date", description="When the experiment was launched; NULL if not started."
