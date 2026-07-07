@@ -5,9 +5,10 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
+import { updateNotebookCodeBlockText } from './documentModel'
 import { findTextPosition, getElementLineHeight, isSelectionAnchoredInsideElement } from './domSelection'
 import { TextSelectionPointerStartEvent } from './editorTypes'
-import { NotebookBlockNode, NotebookCodeBlockNode, NotebookMode } from './types'
+import { NotebookBlockNode, NotebookCodeBlockNode, NotebookCodeRefMark, NotebookMode } from './types'
 
 function measureCharacterRect(element: HTMLElement, offset: number): DOMRect | null {
     const startPosition = findTextPosition(element, offset)
@@ -64,6 +65,79 @@ function areNumberArraysEqual(left: number[], right: number[]): boolean {
     return left.length === right.length && left.every((value, index) => value === right[index])
 }
 
+type CodeRefRect = {
+    refId: string
+    top: number
+    left: number
+    width: number
+    height: number
+}
+
+// Code renders as plain text (input handling reads `textContent`), so comment highlights can't be
+// inline spans — they're measured from each anchor's text range and painted as an absolutely
+// positioned overlay behind the text, one box per rendered line fragment.
+function measureCodeRefRects(
+    frameElement: HTMLElement,
+    codeElement: HTMLElement,
+    refs: NotebookCodeRefMark[]
+): CodeRefRect[] {
+    if (typeof frameElement.getBoundingClientRect !== 'function') {
+        return []
+    }
+
+    const frameRect = frameElement.getBoundingClientRect()
+    const textLength = (codeElement.textContent ?? '').length
+    const rects: CodeRefRect[] = []
+    for (const ref of refs) {
+        const start = Math.min(ref.start, textLength)
+        const end = Math.min(ref.end, textLength)
+        if (end <= start) {
+            continue
+        }
+
+        const startPosition = findTextPosition(codeElement, start)
+        const endPosition = findTextPosition(codeElement, end)
+        const range = codeElement.ownerDocument.createRange()
+        range.setStart(startPosition.node, startPosition.offset)
+        range.setEnd(endPosition.node, endPosition.offset)
+        // jsdom ranges have no getClientRects; the highlight is skipped there
+        if (typeof range.getClientRects !== 'function') {
+            continue
+        }
+
+        for (const rect of Array.from(range.getClientRects())) {
+            if (!rect.width || !rect.height) {
+                continue
+            }
+            rects.push({
+                refId: ref.id,
+                top: rect.top - frameRect.top,
+                left: rect.left - frameRect.left,
+                width: rect.width,
+                height: rect.height,
+            })
+        }
+    }
+
+    return rects
+}
+
+function areCodeRefRectsEqual(left: CodeRefRect[], right: CodeRefRect[]): boolean {
+    return (
+        left.length === right.length &&
+        left.every((rect, index) => {
+            const other = right[index]
+            return (
+                rect.refId === other.refId &&
+                rect.top === other.top &&
+                rect.left === other.left &&
+                rect.width === other.width &&
+                rect.height === other.height
+            )
+        })
+    )
+}
+
 // A trailing <br> makes the final empty line visible: browsers collapse a trailing "\n" in
 // pre-wrap rendering, so without the sentinel trailing blank lines would not render or be
 // reachable with the caret. <br> contributes nothing to textContent, so text offsets are stable.
@@ -94,10 +168,13 @@ export function EditableCodeBlock({
     startTextSelectionPointer: (event: TextSelectionPointerStartEvent) => void
 }): JSX.Element {
     const elementRef = useRef<HTMLPreElement | null>(null)
+    const frameRef = useRef<HTMLDivElement | null>(null)
     const skipDomSyncForTextRef = useRef<string | null>(null)
     const [lineTops, setLineTops] = useState<number[]>([])
+    const [refRects, setRefRects] = useState<CodeRefRect[]>([])
 
     const lines = node.text.split('\n')
+    const refs = node.refs
 
     const setElementRef = useCallback(
         (element: HTMLPreElement | null): void => {
@@ -139,9 +216,21 @@ export function EditableCodeBlock({
         setLineTops((currentTops) => (areNumberArraysEqual(currentTops, nextTops) ? currentTops : nextTops))
     }, [])
 
+    const measureRefRects = useCallback((): void => {
+        const element = elementRef.current
+        const frameElement = frameRef.current
+        if (!element || !frameElement) {
+            return
+        }
+
+        const nextRects = refs?.length ? measureCodeRefRects(frameElement, element, refs) : []
+        setRefRects((currentRects) => (areCodeRefRectsEqual(currentRects, nextRects) ? currentRects : nextRects))
+    }, [refs])
+
     useLayoutEffect(() => {
         measureLineTops()
-    }, [measureLineTops, node.text])
+        measureRefRects()
+    }, [measureLineTops, measureRefRects, node.text])
 
     useEffect(() => {
         const element = elementRef.current
@@ -149,10 +238,13 @@ export function EditableCodeBlock({
             return
         }
 
-        const observer = new ResizeObserver(() => measureLineTops())
+        const observer = new ResizeObserver(() => {
+            measureLineTops()
+            measureRefRects()
+        })
         observer.observe(element)
         return () => observer.disconnect()
-    }, [measureLineTops])
+    }, [measureLineTops, measureRefRects])
 
     const updateText = (text: string): void => {
         skipDomSyncForTextRef.current = text
@@ -161,7 +253,7 @@ export function EditableCodeBlock({
                 return currentNode
             }
 
-            return { ...currentNode, text }
+            return updateNotebookCodeBlockText(currentNode, text)
         })
     }
 
@@ -177,7 +269,24 @@ export function EditableCodeBlock({
     }
 
     return (
-        <div className="MarkdownNotebook__code-block-frame">
+        <div className="MarkdownNotebook__code-block-frame" ref={frameRef}>
+            {refRects.length ? (
+                <div className="MarkdownNotebook__code-ref-overlay" contentEditable={false} aria-hidden="true">
+                    {refRects.map((rect, rectIndex) => (
+                        <div
+                            key={`${rect.refId}-${rectIndex}`}
+                            className="MarkdownNotebook__code-ref-highlight"
+                            data-notebook-ref={rect.refId}
+                            style={{
+                                top: `${rect.top}px`,
+                                left: `${rect.left}px`,
+                                width: `${rect.width}px`,
+                                height: `${rect.height}px`,
+                            }}
+                        />
+                    ))}
+                </div>
+            ) : null}
             <div
                 className="MarkdownNotebook__code-block-gutter"
                 contentEditable={false}

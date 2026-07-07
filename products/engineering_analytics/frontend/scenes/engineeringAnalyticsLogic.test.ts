@@ -5,6 +5,7 @@ import { ApiConfig, ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
 import {
@@ -250,6 +251,7 @@ describe('engineeringAnalyticsLogic', () => {
 
     afterEach(() => {
         jest.restoreAllMocks()
+        resumeKeaLoadersErrors()
     })
 
     it.each([
@@ -683,6 +685,7 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('flags notConnected when no GitHub source is connected (cards 400s)', async () => {
+        silenceKeaLoadersErrors() // the 400 loader failure is the scenario under test
         mockCiCards.mockRejectedValue(
             new ApiError('Connect a GitHub data warehouse source to use engineering analytics.', 400)
         )
@@ -696,6 +699,7 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('flags notConnected from the workflow-health loader too (the Workflows scene renders no cards)', async () => {
+        silenceKeaLoadersErrors() // the 400 loader failure is the scenario under test
         // notConnected must react to any loader's 400, not cards alone — else the Workflows scene
         // could miss the connect prompt.
         mockWorkflowHealth.mockRejectedValue(new ApiError('Connect a GitHub data warehouse source.', 400))
@@ -708,6 +712,7 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('a cards/PR 500 errors the PR scene only — not the Workflows scene', async () => {
+        silenceKeaLoadersErrors() // the 500 loader failure is the scenario under test
         mockCiCards.mockRejectedValue(new ApiError('Internal Server Error', 500))
         logic = engineeringAnalyticsLogic()
         logic.mount()
@@ -719,6 +724,7 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('a workflow-health 500 errors the Workflows scene only — not the PR scene', async () => {
+        silenceKeaLoadersErrors() // the 500 loader failure is the scenario under test
         mockWorkflowHealth.mockRejectedValue(new ApiError('Internal Server Error', 500))
         logic = engineeringAnalyticsLogic()
         logic.mount()
@@ -829,6 +835,7 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('flags quarantineLoadFailed when the quarantine endpoint 400s', async () => {
+        silenceKeaLoadersErrors() // the loader failure is the scenario under test
         mockQuarantine.mockRejectedValue(
             new Error('Connect a GitHub data warehouse source to use engineering analytics.')
         )
@@ -914,6 +921,7 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('a failed submit keeps the modal open so the user can retry', async () => {
+        silenceKeaLoadersErrors() // the submit failure is the scenario under test
         mockQuarantineRequest.mockRejectedValue({ detail: "The App isn't installed on PostHog." })
         logic = engineeringAnalyticsLogic()
         logic.mount()

@@ -5,12 +5,9 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 import { elapsedSecondsFrom } from 'lib/utils/datetime'
-import { wizardActiveSessionDetectorLogic } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep/wizardActiveSessionDetectorLogic'
-import {
-    activeCloudRunLogic,
-    type CloudRunHandle,
-} from 'scenes/onboarding/self-driving/sdks/OnboardingInstallStep/activeCloudRunLogic'
-import { installationProgressLogic } from 'scenes/onboarding/self-driving/sdks/OnboardingInstallStep/installationProgressLogic'
+import { activeCloudRunLogic, type CloudRunHandle } from 'scenes/onboarding/shared/wizard-sync/activeCloudRunLogic'
+import { installationProgressLogic } from 'scenes/onboarding/shared/wizard-sync/installationProgressLogic'
+import { wizardActiveSessionDetectorLogic } from 'scenes/onboarding/shared/wizard-sync/wizardActiveSessionDetectorLogic'
 
 import { installationStatusNavLogic, type NavInstallationPhase } from './installationStatusNavLogic'
 

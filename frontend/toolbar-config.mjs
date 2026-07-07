@@ -47,8 +47,6 @@ const deniedThirdPartyPackages = [
     // mermaid diagram rendering (via LemonMarkdownWithMermaid). Denying the entry cascades to
     // its exclusive deps: katex, cytoscape, @mermaid-js/parser, dagre-d3-es, layout/cose-base.
     /^mermaid(\/|$)/,
-    // @posthog/brand illustration components (e.g. hoggies), pulled in by AI product scenes.
-    /^@posthog\/brand(\/|$)/,
     // chart.js + its annotation plugin (via Sparkline). Charts in the toolbar go through the
     // already-denied LineGraph.
     /^chart\.js(\/|$)/,

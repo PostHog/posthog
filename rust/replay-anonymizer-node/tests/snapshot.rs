@@ -365,35 +365,50 @@ impl Rng {
 
 fn assert_stream_matches_tree(allow: &AllowLists, inner_json: &str, label: &str) {
     let payload = serde_json::to_string(&json!({"distinct_id": "d", "data": inner_json})).unwrap();
-    let ctx = Ctx::new(allow);
-    let tree = anonymize_via_tree(&ctx, "d", inner_json.as_bytes());
+    // Hosts that appear across the fixture corpus, so first-party collapsing is differentially
+    // pinned alongside the no-hosts configuration.
+    let host_configs: &[&[&str]] = &[&[], &["example.com", "example-vendor.co"]];
+    for hosts in host_configs {
+        let hosts: Vec<String> = hosts.iter().map(|h| h.to_string()).collect();
+        let ctx = Ctx::with_first_party_hosts(allow, hosts.clone());
+        let tree = anonymize_via_tree(&ctx, "d", inner_json.as_bytes());
 
-    // Both scrub engines are pinned: the parse-free byte walk (with its per-event fallbacks) and
-    // the simd path.
-    for byte_walk in [true, false] {
-        let mut bytes = payload.as_bytes().to_vec();
-        let stream = anonymize_kafka_payload_opts(allow, &mut bytes, AnonymizeOpts { byte_walk });
-        match (&stream, &tree) {
-            (Ok(s), Ok(t)) => {
-                let s_lines = parse_lines(&s.lines);
-                let t_lines = parse_lines(&t.lines);
-                assert_eq!(
-                    s_lines, t_lines,
-                    "lines diverged (walk={byte_walk}): {label}"
-                );
-                assert_eq!(s.meta, t.meta, "meta diverged (walk={byte_walk}): {label}");
+        // Both scrub engines are pinned: the parse-free byte walk (with its per-event fallbacks)
+        // and the simd path.
+        for byte_walk in [true, false] {
+            let fp = !hosts.is_empty();
+            let mut bytes = payload.as_bytes().to_vec();
+            let stream = anonymize_kafka_payload_opts(
+                allow,
+                &mut bytes,
+                AnonymizeOpts { byte_walk },
+                hosts.clone(),
+            );
+            match (&stream, &tree) {
+                (Ok(s), Ok(t)) => {
+                    let s_lines = parse_lines(&s.lines);
+                    let t_lines = parse_lines(&t.lines);
+                    assert_eq!(
+                        s_lines, t_lines,
+                        "lines diverged (walk={byte_walk} fp={fp}): {label}"
+                    );
+                    assert_eq!(
+                        s.meta, t.meta,
+                        "meta diverged (walk={byte_walk} fp={fp}): {label}"
+                    );
+                }
+                (Err(s), Err(t)) => {
+                    assert_eq!(
+                        s.kind, t.kind,
+                        "failure kind diverged (walk={byte_walk} fp={fp}): {label}"
+                    );
+                }
+                (s, t) => panic!(
+                    "outcome diverged (walk={byte_walk} fp={fp}) for {label}: stream={:?} tree={:?}",
+                    s.as_ref().map(|m| parse_lines(&m.lines)),
+                    t.as_ref().map(|m| parse_lines(&m.lines)),
+                ),
             }
-            (Err(s), Err(t)) => {
-                assert_eq!(
-                    s.kind, t.kind,
-                    "failure kind diverged (walk={byte_walk}): {label}"
-                );
-            }
-            (s, t) => panic!(
-                "outcome diverged (walk={byte_walk}) for {label}: stream={:?} tree={:?}",
-                s.as_ref().map(|m| parse_lines(&m.lines)),
-                t.as_ref().map(|m| parse_lines(&m.lines)),
-            ),
         }
     }
 }
@@ -514,6 +529,59 @@ fn differential_stream_vs_tree() {
     assert!(
         checked > 100,
         "the differential corpus should stay meaningful, got {checked}"
+    );
+}
+
+#[test]
+fn stylesheet_data_images_are_neutralized_and_engines_agree() {
+    // CSS reaches the anonymizer as an inlined `<link>` `_cssText` attribute and as the incremental
+    // stylesheet events (StyleSheetRule/StyleDeclaration/AdoptedStyleSheet); a data-image in any of
+    // them must be blurred like a `style` attribute, and the byte walk must match the tree on these
+    // arms (the shared fixture corpus carries no CSS cases, so the differential alone never hits them).
+    const ONE_PX: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAJUlEQVQokWN4plEBRyInbOAIlzjDINRAjCJk8cGoYRAG60iMBwA8H08Qor0ygQAAAABJRU5ErkJggg==";
+    let css = format!(".a{{background:url({ONE_PX})}}");
+    let inner = snapshot_message(json!([
+        {
+            "type": 2,
+            "timestamp": TS0,
+            "data": {
+                "node": {"type": 0, "childNodes": [{
+                    "type": 2,
+                    "tagName": "link",
+                    "attributes": {"rel": "stylesheet", "_cssText": css},
+                    "childNodes": []
+                }]},
+                "initialOffset": {"top": 0, "left": 0}
+            }
+        },
+        {
+            "type": 3,
+            "timestamp": TS0 + 1.0,
+            "data": {"source": 8, "id": 1, "adds": [{"rule": css}], "replace": css, "replaceSync": css}
+        },
+        {
+            "type": 3,
+            "timestamp": TS0 + 2.0,
+            "data": {"source": 13, "id": 1, "index": [0], "set": {"property": "background", "value": format!("url({ONE_PX})")}}
+        },
+        {
+            "type": 3,
+            "timestamp": TS0 + 3.0,
+            "data": {"source": 15, "id": 1, "styleIds": [1], "styles": [{"styleId": 1, "rules": [{"rule": css}]}]}
+        },
+    ]));
+    let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+    assert_stream_matches_tree(
+        &allow,
+        &serde_json::to_string(&inner).unwrap(),
+        "css data images",
+    );
+    let out = run(&allow, &payload_of(&inner)).expect("anonymizes");
+    let lines = String::from_utf8(out.lines.clone()).unwrap();
+    assert_eq!(parse_lines(&out.lines).len(), 4, "all four events survive");
+    assert!(
+        !lines.contains(ONE_PX),
+        "raw css data image must not pass through any stylesheet route"
     );
 }
 

@@ -33,6 +33,29 @@ describe('loginLogic', () => {
         })
     })
 
+    describe('wasSignedOutForSessionRisk', () => {
+        let logic: ReturnType<typeof loginLogic.build>
+
+        beforeEach(() => {
+            initKeaTests()
+            logic = loginLogic()
+            logic.mount()
+        })
+
+        const cases: [string, boolean][] = [
+            ['/login?reason=session_risk', true],
+            ['/login?reason=something_else', false],
+            ['/login', false],
+        ]
+
+        for (const [url, expected] of cases) {
+            it(`for "${url}" it returns ${expected}`, () => {
+                router.actions.push(url)
+                expect(logic.values.wasSignedOutForSessionRisk).toEqual(expected)
+            })
+        }
+    })
+
     describe('parseLoginRedirectURL', () => {
         let logic: ReturnType<typeof loginLogic.build>
 

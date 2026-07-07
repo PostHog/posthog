@@ -26,7 +26,11 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 
-from products.data_modeling.backend.facade.api import delete_node_from_dag, sync_saved_query_to_dag
+from products.data_modeling.backend.facade.api import (
+    delete_node_from_dag,
+    saved_query_materialized_at,
+    sync_saved_query_to_dag,
+)
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.endpoints.backend.constants import DATA_FRESHNESS_BUCKETS
 from products.endpoints.backend.logic.activity import EndpointContext
@@ -77,12 +81,12 @@ def prepare_executable_query(saved_query: DataWarehouseSavedQuery) -> None:
 def build_materialization_info(version: EndpointVersion, endpoint_name: str | None = None) -> dict:
     """Build the materialization status dict for a version."""
     if version.saved_query:
+        # v2 never writes saved_query.last_run_at; derive freshness from DataModelingJob.
+        materialized_at = saved_query_materialized_at(version.saved_query)
         result = {
             "status": version.saved_query.status or "Unknown",
             "can_materialize": True,
-            "last_materialized_at": (
-                version.saved_query.last_run_at.isoformat() if version.saved_query.last_run_at else None
-            ),
+            "last_materialized_at": materialized_at.isoformat() if materialized_at else None,
             "error": (version.saved_query.latest_error or "")
             if version.saved_query.status != DataWarehouseSavedQuery.Status.COMPLETED
             else "",

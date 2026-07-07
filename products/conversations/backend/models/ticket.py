@@ -108,6 +108,11 @@ class Ticket(UUIDTModel):
     # Customer's PostHog org group key, resolved once at creation (local org pk or cross-region analytics key).
     organization_id = models.CharField(max_length=400, null=True, blank=True)
 
+    # Zendesk import dedup — set when a ticket is imported from Zendesk Support.
+    # No standalone index: the partial unique constraint below covers the dedup lookup
+    # (team + zendesk_ticket_id), mirroring the GitHub issue-number pattern.
+    zendesk_ticket_id = models.BigIntegerField(null=True, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -150,6 +155,11 @@ class Ticket(UUIDTModel):
                 fields=["team", "github_repo", "github_issue_number"],
                 condition=models.Q(github_repo__isnull=False, github_issue_number__isnull=False),
                 name="posthog_con_github_issue_uniq",
+            ),
+            models.UniqueConstraint(
+                fields=["team", "zendesk_ticket_id"],
+                condition=models.Q(zendesk_ticket_id__isnull=False),
+                name="posthog_con_zendesk_ticket_uniq",
             ),
         ]
 

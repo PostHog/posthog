@@ -80,12 +80,12 @@ function BarChartInner<Meta = unknown>({
         barLayout = 'stacked',
         axisOrientation = 'vertical',
         xTickFormatter,
+        barCornerRadius = 0,
         yAxes: configYAxes,
     } = config ?? {}
     const { x: xAxisLine, y: yAxisLine } = resolveAxisLines(showAxisLines)
     const axisLines = useMemo(() => ({ x: xAxisLine, y: yAxisLine }), [xAxisLine, yAxisLine])
     const {
-        cornerRadius: barCornerRadius = 0,
         track: trackConfig = false,
         shadow: barShadow,
         divergingStack = false,
