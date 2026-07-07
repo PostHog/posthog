@@ -939,8 +939,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         }
         exported_data: dict[str, Any] = {"type": "embed" if embedded else "scene"}
 
-        available_features = resource.team.organization.available_product_features or []
-        if "whitelabel" in request.GET and "white_labelling" in [feature["key"] for feature in available_features]:
+        if "whitelabel" in request.GET and resource.team.organization.is_feature_available(
+            AvailableFeature.WHITE_LABELLING
+        ):
             exported_data.update({"whitelabel": True})
 
         if isinstance(resource, SharingConfiguration) and resource.password_required:

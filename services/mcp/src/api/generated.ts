@@ -14668,6 +14668,10 @@ export namespace Schemas {
       date_from?: string | null;
       date_to?: string | null;
       explicitDate?: boolean | null;
+      /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
+      filterTestAccounts?: boolean | null;
+      /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
+      interval?: IntervalType | null;
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
     }
 

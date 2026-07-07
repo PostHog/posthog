@@ -97,7 +97,10 @@ jobs:
                   PR=${{ github.event.pull_request.number }}
                   REPO=${{ github.repository }}
                   VERDICT=$(jq -r '.final_verdict // ""' /tmp/review.json 2>/dev/null || echo "")
-                  REASONING=$(jq -r '.reviewer.reasoning // ""' /tmp/review.json 2>/dev/null || echo "")
+                  # Prefer the structured comment body (reasoning + judgment
+                  # bullets + folded gate mechanics); fall back to the bare
+                  # reasoning when the script predates the field.
+                  REASONING=$(jq -r '.review_body // .reviewer.reasoning // ""' /tmp/review.json 2>/dev/null || echo "")
                   REVIEWED_SHA=$(jq -r '.head_sha // ""' /tmp/review.json 2>/dev/null || echo "")
 
                   # Lock the review to the sha the LLM actually saw — `gh pr
