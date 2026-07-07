@@ -1,5 +1,5 @@
 name: 'Paths Changes Filter'
-description: 'Execute your workflow steps only if relevant files are modified. Vendored fork of dorny/paths-filter with an include-exclude matching mode.'
+description: 'Execute your workflow steps only if relevant files are modified. Vendored fork of dorny/paths-filter with include-exclude matching (positive patterns are OR-ed includes, ! patterns veto).'
 author: 'Michal Dorner <dorner.michal@gmail.com>'
 inputs:
     token:
@@ -44,17 +44,6 @@ inputs:
             This option takes effect only when changes are detected using git against different base branch.
         required: false
         default: '100'
-    predicate-quantifier:
-        description: |
-            Controls how a file is matched against the patterns of a filter:
-              'some'            - (default) file matches if it matches at least one pattern.
-              'every'           - file matches only if it matches every pattern.
-              'include-exclude' - positive patterns are OR-ed as includes and every '!' pattern is an
-                                  exclude that vetoes a match. A file matches when it matches at least one
-                                  include (or there are no includes) and matches no exclude. This is the
-                                  only mode that can express "everything in folder X, except *.md".
-        required: false
-        default: 'some'
 outputs:
     changes:
         description: JSON array with names of all filters matching any of changed files

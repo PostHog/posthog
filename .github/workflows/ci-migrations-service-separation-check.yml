@@ -75,14 +75,13 @@ jobs:
                       nodejs:
                           - 'nodejs/**'
 
-            # include-exclude so rust_services matches any rust/** change except the
-            # migration directories the ! patterns carve out.
+            # rust_services matches any rust/** change except the migration directories
+            # the ! patterns carve out.
             - uses: ./.github/actions/paths-filter
               id: rust-filter
               if: steps.skip-label.outputs.skip != 'true'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
-                  predicate-quantifier: include-exclude
                   filters: |
                       rust_services:
                           - 'rust/**'

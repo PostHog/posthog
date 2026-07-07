@@ -24,9 +24,10 @@ Upstream's `predicate-quantifier` is global per filter and can't express a commo
 - With `every` (AND), the `!` excludes work, but the positive patterns can no longer be
   OR-ed together — a file must match _all_ of them.
 
-## What we added: `predicate-quantifier: include-exclude`
+## How matching works
 
-A third matching mode that separates includes from excludes:
+This fork drops upstream's `some`/`every` quantifiers and always uses include/exclude
+matching (there is no `predicate-quantifier` input):
 
 - Positive patterns are **includes**, OR-ed together.
 - Every `!`-prefixed pattern is an **exclude** that vetoes a match.
@@ -36,7 +37,6 @@ A third matching mode that separates includes from excludes:
 ```yaml
 - uses: ./.github/actions/paths-filter
   with:
-    predicate-quantifier: include-exclude
     filters: |
       backend:
         - 'posthog/**'
@@ -44,7 +44,8 @@ A third matching mode that separates includes from excludes:
         - '!**/*.md'
 ```
 
-The `some` and `every` modes are unchanged and remain byte-for-byte compatible with upstream.
+For a filter with only positive patterns this behaves exactly like upstream's default
+`some` — so plain filters are unaffected.
 
 ## Rebuilding after source changes
 

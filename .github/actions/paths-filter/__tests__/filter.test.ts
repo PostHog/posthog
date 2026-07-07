@@ -1,4 +1,4 @@
-import {Filter, FilterConfig, PredicateQuantifier} from '../src/filter'
+import {Filter} from '../src/filter'
 import {File, ChangeStatus} from '../src/file'
 
 describe('yaml filter parsing tests', () => {
@@ -117,15 +117,14 @@ describe('matching tests', () => {
     expect(pyMatch.backend).toEqual(pyFiles)
   })
 
-  test('matches only files that are matching EVERY pattern when set to PredicateQuantifier.EVERY', () => {
+  test('excludes multiple patterns and filters file lists', () => {
     const yaml = `
     backend:
       - 'pkg/a/b/c/**'
       - '!**/*.jpeg'
       - '!**/*.md'
     `
-    const filterConfig: FilterConfig = {predicateQuantifier: PredicateQuantifier.EVERY}
-    const filter = new Filter(yaml, filterConfig)
+    const filter = new Filter(yaml)
 
     const typescriptFiles = modified(['pkg/a/b/c/some-class.ts', 'pkg/a/b/c/src/main/some-class.ts'])
     const otherPkgTypescriptFiles = modified(['pkg/x/y/z/some-class.ts', 'pkg/x/y/z/src/main/some-class.ts'])
@@ -163,9 +162,7 @@ describe('matching tests', () => {
     expect(match.src).toEqual(files)
   })
 
-  describe('PredicateQuantifier.INCLUDE_EXCLUDE', () => {
-    const filterConfig: FilterConfig = {predicateQuantifier: PredicateQuantifier.INCLUDE_EXCLUDE}
-
+  describe('include/exclude matching', () => {
     const backendExceptDocs = `
     backend:
       - 'posthog/**'
@@ -186,7 +183,7 @@ describe('matching tests', () => {
       ['exclude-only matches everything else', everythingExceptDocs, 'src/app.ts', true],
       ['exclude-only still vetoes', everythingExceptDocs, 'docs/guide.md', false]
     ])('%s', (_label, yaml, filename, shouldMatch) => {
-      const filter = new Filter(yaml as string, filterConfig)
+      const filter = new Filter(yaml as string)
       const files = modified([filename as string])
       const key = (yaml as string).includes('backend:') ? 'backend' : 'any'
       const match = filter.match(files)

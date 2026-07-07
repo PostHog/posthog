@@ -17,9 +17,9 @@
  * exclusion from there means a new product's services/ are excluded automatically
  * once added to the workspace file — no product names hardcoded in the workflows.
  *
- * Output (fed into `filters:` with `predicate-quantifier: include-exclude`; the
- * filter is exclude-only, so it is true only when some changed file lives OUTSIDE
- * every excluded dir):
+ * Output (fed into the vendored .github/actions/paths-filter, whose include-exclude
+ * matching makes this exclude-only filter true only when some changed file lives
+ * OUTSIDE every excluded dir):
  *   outside_node_product_workspaces:
  *     - '!products/agent_platform/packages/**'
  *     - '!products/agent_platform/services/**'

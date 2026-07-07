@@ -33,60 +33,6 @@ function positivePattern(pattern: string): string {
   return isNegatedPattern(pattern) ? pattern.slice(1) : pattern
 }
 
-/**
- * Enumerates the possible logic quantifiers that can be used when determining
- * if a file is a match or not with multiple patterns.
- *
- * The YAML configuration property that is parsed into one of these values is
- * 'predicate-quantifier' on the top level of the configuration object of the
- * action.
- *
- * The default is to use 'some' which used to be the hardcoded behavior prior to
- * the introduction of the new mechanism.
- *
- * @see https://en.wikipedia.org/wiki/Quantifier_(logic)
- */
-export enum PredicateQuantifier {
-  /**
-   * When choosing 'every' in the config it means that files will only get matched
-   * if all the patterns are satisfied by the path of the file, not just at least one of them.
-   */
-  EVERY = 'every',
-  /**
-   * When choosing 'some' in the config it means that files will get matched as long as there is
-   * at least one pattern that matches them. This is the default behavior if you don't
-   * specify anything as a predicate quantifier.
-   */
-  SOME = 'some',
-  /**
-   * When choosing 'include-exclude' the positive patterns are OR-ed together as includes and
-   * every '!' pattern is treated as an exclude that vetoes a match. A file matches the filter
-   * when it matches at least one include (or there are no includes) and matches no exclude.
-   *
-   * This is the only quantifier that can express "everything in folder X, except *.md":
-   *   - 'X/**'
-   *   - '!**\/*.md'
-   * Under 'some' the exclude is ignored (any non-md file still matches X/**); under 'every'
-   * the includes can no longer be OR-ed together.
-   */
-  INCLUDE_EXCLUDE = 'include-exclude'
-}
-
-/**
- * Used to define customizations for how the file filtering should work at runtime.
- */
-export type FilterConfig = {readonly predicateQuantifier: PredicateQuantifier}
-
-/**
- * An array of strings (at runtime) that contains the valid/accepted values for
- * the configuration parameter 'predicate-quantifier'.
- */
-export const SUPPORTED_PREDICATE_QUANTIFIERS = Object.values(PredicateQuantifier)
-
-export function isPredicateQuantifier(x: unknown): x is PredicateQuantifier {
-  return SUPPORTED_PREDICATE_QUANTIFIERS.includes(x as PredicateQuantifier)
-}
-
 export interface FilterResults {
   [key: string]: File[]
 }
@@ -95,7 +41,7 @@ export class Filter {
   rules: {[key: string]: FilterRuleItem[]} = {}
 
   // Creates instance of Filter and load rules from YAML if it's provided
-  constructor(yaml?: string, readonly filterConfig?: FilterConfig) {
+  constructor(yaml?: string) {
     if (yaml) {
       this.load(yaml)
     }
@@ -125,28 +71,19 @@ export class Filter {
     return result
   }
 
+  // Positive patterns are includes, OR-ed together; every '!' pattern is an exclude
+  // that vetoes a match. A file matches when it hits at least one include (or there
+  // are no includes) and hits no exclude.
   private isMatch(file: File, patterns: FilterRuleItem[]): boolean {
-    const statusMatches = (rule: Readonly<FilterRuleItem>): boolean =>
-      rule.status === undefined || rule.status.includes(file.status)
+    const matches = (rule: Readonly<FilterRuleItem>): boolean =>
+      (rule.status === undefined || rule.status.includes(file.status)) && rule.isMatch(file.filename)
 
-    if (this.filterConfig?.predicateQuantifier === PredicateQuantifier.INCLUDE_EXCLUDE) {
-      const includes = patterns.filter(rule => !rule.negated)
-      const excludes = patterns.filter(rule => rule.negated)
-      const included =
-        includes.length === 0 || includes.some(rule => statusMatches(rule) && rule.isMatch(file.filename))
-      const excluded = excludes.some(rule => statusMatches(rule) && rule.isMatch(file.filename))
-      return included && !excluded
-    }
+    const includes = patterns.filter(rule => !rule.negated)
+    const excludes = patterns.filter(rule => rule.negated)
 
-    const aPredicate = (rule: Readonly<FilterRuleItem>): boolean => {
-      const globMatches = rule.negated ? !rule.isMatch(file.filename) : rule.isMatch(file.filename)
-      return statusMatches(rule) && globMatches
-    }
-    if (this.filterConfig?.predicateQuantifier === PredicateQuantifier.EVERY) {
-      return patterns.every(aPredicate)
-    } else {
-      return patterns.some(aPredicate)
-    }
+    const included = includes.length === 0 || includes.some(matches)
+    const excluded = excludes.some(matches)
+    return included && !excluded
   }
 
   private parseFilterItemYaml(item: FilterItemYaml): FilterRuleItem[] {

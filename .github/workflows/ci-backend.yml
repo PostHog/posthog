@@ -116,7 +116,6 @@ jobs:
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   list-files: 'escape'
-                  predicate-quantifier: include-exclude
                   filters: |
                       backend:
                         # Avoid running backend tests for irrelevant changes

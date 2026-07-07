@@ -36415,7 +36415,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.Filter = exports.isPredicateQuantifier = exports.SUPPORTED_PREDICATE_QUANTIFIERS = exports.PredicateQuantifier = void 0;
+exports.Filter = void 0;
 const jsyaml = __importStar(__nccwpck_require__(1917));
 const picomatch_1 = __importDefault(__nccwpck_require__(8569));
 // Minimatch options used in all matchers
@@ -36429,58 +36429,9 @@ function isNegatedPattern(pattern) {
 function positivePattern(pattern) {
     return isNegatedPattern(pattern) ? pattern.slice(1) : pattern;
 }
-/**
- * Enumerates the possible logic quantifiers that can be used when determining
- * if a file is a match or not with multiple patterns.
- *
- * The YAML configuration property that is parsed into one of these values is
- * 'predicate-quantifier' on the top level of the configuration object of the
- * action.
- *
- * The default is to use 'some' which used to be the hardcoded behavior prior to
- * the introduction of the new mechanism.
- *
- * @see https://en.wikipedia.org/wiki/Quantifier_(logic)
- */
-var PredicateQuantifier;
-(function (PredicateQuantifier) {
-    /**
-     * When choosing 'every' in the config it means that files will only get matched
-     * if all the patterns are satisfied by the path of the file, not just at least one of them.
-     */
-    PredicateQuantifier["EVERY"] = "every";
-    /**
-     * When choosing 'some' in the config it means that files will get matched as long as there is
-     * at least one pattern that matches them. This is the default behavior if you don't
-     * specify anything as a predicate quantifier.
-     */
-    PredicateQuantifier["SOME"] = "some";
-    /**
-     * When choosing 'include-exclude' the positive patterns are OR-ed together as includes and
-     * every '!' pattern is treated as an exclude that vetoes a match. A file matches the filter
-     * when it matches at least one include (or there are no includes) and matches no exclude.
-     *
-     * This is the only quantifier that can express "everything in folder X, except *.md":
-     *   - 'X/**'
-     *   - '!**\/*.md'
-     * Under 'some' the exclude is ignored (any non-md file still matches X/**); under 'every'
-     * the includes can no longer be OR-ed together.
-     */
-    PredicateQuantifier["INCLUDE_EXCLUDE"] = "include-exclude";
-})(PredicateQuantifier || (exports.PredicateQuantifier = PredicateQuantifier = {}));
-/**
- * An array of strings (at runtime) that contains the valid/accepted values for
- * the configuration parameter 'predicate-quantifier'.
- */
-exports.SUPPORTED_PREDICATE_QUANTIFIERS = Object.values(PredicateQuantifier);
-function isPredicateQuantifier(x) {
-    return exports.SUPPORTED_PREDICATE_QUANTIFIERS.includes(x);
-}
-exports.isPredicateQuantifier = isPredicateQuantifier;
 class Filter {
     // Creates instance of Filter and load rules from YAML if it's provided
-    constructor(yaml, filterConfig) {
-        this.filterConfig = filterConfig;
+    constructor(yaml) {
         this.rules = {};
         if (yaml) {
             this.load(yaml);
@@ -36506,26 +36457,16 @@ class Filter {
         }
         return result;
     }
+    // Positive patterns are includes, OR-ed together; every '!' pattern is an exclude
+    // that vetoes a match. A file matches when it hits at least one include (or there
+    // are no includes) and hits no exclude.
     isMatch(file, patterns) {
-        var _a, _b;
-        const statusMatches = (rule) => rule.status === undefined || rule.status.includes(file.status);
-        if (((_a = this.filterConfig) === null || _a === void 0 ? void 0 : _a.predicateQuantifier) === PredicateQuantifier.INCLUDE_EXCLUDE) {
-            const includes = patterns.filter(rule => !rule.negated);
-            const excludes = patterns.filter(rule => rule.negated);
-            const included = includes.length === 0 || includes.some(rule => statusMatches(rule) && rule.isMatch(file.filename));
-            const excluded = excludes.some(rule => statusMatches(rule) && rule.isMatch(file.filename));
-            return included && !excluded;
-        }
-        const aPredicate = (rule) => {
-            const globMatches = rule.negated ? !rule.isMatch(file.filename) : rule.isMatch(file.filename);
-            return statusMatches(rule) && globMatches;
-        };
-        if (((_b = this.filterConfig) === null || _b === void 0 ? void 0 : _b.predicateQuantifier) === PredicateQuantifier.EVERY) {
-            return patterns.every(aPredicate);
-        }
-        else {
-            return patterns.some(aPredicate);
-        }
+        const matches = (rule) => (rule.status === undefined || rule.status.includes(file.status)) && rule.isMatch(file.filename);
+        const includes = patterns.filter(rule => !rule.negated);
+        const excludes = patterns.filter(rule => rule.negated);
+        const included = includes.length === 0 || includes.some(matches);
+        const excluded = excludes.some(matches);
+        return included && !excluded;
     }
     parseFilterItemYaml(item) {
         if (Array.isArray(item)) {
@@ -36968,18 +36909,11 @@ async function run() {
         const filtersYaml = isPathInput(filtersInput) ? getConfigFileContent(filtersInput) : filtersInput;
         const listFiles = core.getInput('list-files', { required: false }).toLowerCase() || 'none';
         const initialFetchDepth = parseInt(core.getInput('initial-fetch-depth', { required: false })) || 10;
-        const predicateQuantifier = core.getInput('predicate-quantifier', { required: false }) || filter_1.PredicateQuantifier.SOME;
         if (!isExportFormat(listFiles)) {
             core.setFailed(`Input parameter 'list-files' is set to invalid value '${listFiles}'`);
             return;
         }
-        if (!(0, filter_1.isPredicateQuantifier)(predicateQuantifier)) {
-            const predicateQuantifierInvalidErrorMsg = `Input parameter 'predicate-quantifier' is set to invalid value ` +
-                `'${predicateQuantifier}'. Valid values: ${filter_1.SUPPORTED_PREDICATE_QUANTIFIERS.join(', ')}`;
-            throw new Error(predicateQuantifierInvalidErrorMsg);
-        }
-        const filterConfig = { predicateQuantifier };
-        const filter = new filter_1.Filter(filtersYaml, filterConfig);
+        const filter = new filter_1.Filter(filtersYaml);
         const files = await getChangedFiles(token, base, ref, initialFetchDepth);
         core.info(`Detected ${files.length} changed files`);
         const results = filter.match(files);
