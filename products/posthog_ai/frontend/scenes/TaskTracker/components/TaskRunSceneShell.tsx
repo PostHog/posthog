@@ -25,6 +25,7 @@ import {
 
 import { Task, TaskRun } from '../../../types/taskTypes'
 import { TaskPanelSkeleton, TaskRunMetadataSkeleton } from './taskDetailSkeletons'
+import { TaskDebugLogsMenu } from './TaskDebugLogsMenu'
 import { TaskErrorBanner } from './TaskErrorBanner'
 import { TaskRunMetadata } from './TaskRunMetadata'
 
@@ -77,6 +78,7 @@ export function TaskRunSceneShell({
                             Archive task
                         </SceneMenuBarItem>
                     </SceneMenuBarMenu>
+                    <TaskDebugLogsMenu />
                 </SceneMenuBar>
             )}
             <ScenePanel>
