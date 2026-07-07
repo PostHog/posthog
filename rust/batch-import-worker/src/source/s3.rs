@@ -30,7 +30,11 @@ pub(crate) fn extract_user_friendly_error(
 ) -> String {
     let error_string = format!("{error:?}");
 
-    if error_string.contains("InvalidAccessKeyId") {
+    if error_string.contains("AssumeRole") || error_string.contains("sts.amazonaws.com") {
+        "PostHog could not assume the configured IAM role - check the role's trust policy and External ID".to_string()
+    } else if error_string.contains("ExpiredToken") {
+        "Temporary AWS credentials expired and could not be refreshed - check that the IAM role still trusts PostHog".to_string()
+    } else if error_string.contains("InvalidAccessKeyId") {
         "Invalid AWS Access Key ID - please check your credentials".to_string()
     } else if error_string.contains("SignatureDoesNotMatch") {
         "Invalid AWS Secret Access Key - please check your credentials".to_string()
@@ -208,6 +212,31 @@ mod tests {
         let err = MockS3Error("Request timeout: Connection timed out".to_string());
         let msg = extract_user_friendly_error(&err, "my-bucket", "get object chunk");
         assert_eq!(msg, "S3 get object chunk operation timed out - check your network connection and region settings");
+    }
+
+    #[test]
+    fn test_extract_user_friendly_error_assume_role_failure() {
+        for raw in [
+            "service error: AssumeRole operation failed: AccessDenied",
+            "dispatch failure connecting to https://sts.amazonaws.com/",
+        ] {
+            let err = MockS3Error(raw.to_string());
+            let msg = extract_user_friendly_error(&err, "my-bucket", "list objects");
+            assert_eq!(
+                msg,
+                "PostHog could not assume the configured IAM role - check the role's trust policy and External ID"
+            );
+        }
+    }
+
+    #[test]
+    fn test_extract_user_friendly_error_expired_token() {
+        let err = MockS3Error("ExpiredToken: The security token has expired".to_string());
+        let msg = extract_user_friendly_error(&err, "my-bucket", "get object");
+        assert_eq!(
+            msg,
+            "Temporary AWS credentials expired and could not be refreshed - check that the IAM role still trusts PostHog"
+        );
     }
 
     #[test]

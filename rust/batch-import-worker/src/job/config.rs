@@ -2,6 +2,7 @@ use std::{collections::HashMap, net::IpAddr, path::PathBuf, sync::Arc, time::Dur
 
 use anyhow::Error;
 use aws_config::{retry::RetryConfig, timeout::TimeoutConfig, BehaviorVersion, Region};
+use aws_sdk_s3::config::ProvideCredentials;
 use base64::{prelude::BASE64_URL_SAFE, Engine};
 use chrono::{DateTime, Utc};
 use fernet::MultiFernet;
@@ -14,6 +15,7 @@ use crate::{
         capture::CaptureEmitter, kafka::KafkaEmitter, Emitter, FileEmitter, NoOpEmitter,
         StdoutEmitter,
     },
+    error::{ToUserError, UserError},
     extractor::ExtractorType,
     parse::format::FormatConfig,
     source::{
@@ -72,8 +74,17 @@ pub struct FolderSourceConfig {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct S3SourceConfig {
-    access_key_id_key: String,
-    secret_access_key_key: String,
+    #[serde(default)]
+    access_key_id_key: Option<String>,
+    #[serde(default)]
+    secret_access_key_key: Option<String>,
+    // Cross-account IAM role auth: the customer's role assumed via STS, with the per-team
+    // external id their trust policy conditions on (confused-deputy guard). Mutually
+    // exclusive with the access-key fields above.
+    #[serde(default)]
+    role_arn: Option<String>,
+    #[serde(default)]
+    external_id: Option<String>,
     bucket: String,
     prefix: String,
     region: String,
@@ -345,44 +356,112 @@ impl S3SourceConfig {
         Ok(())
     }
 
-    fn build_s3_config(&self, secrets: &JobSecrets) -> Result<aws_sdk_s3::config::Builder, Error> {
+    fn static_key_credentials(
+        &self,
+        secrets: &JobSecrets,
+    ) -> Result<aws_sdk_s3::config::Credentials, Error> {
+        let access_key_id_key = self
+            .access_key_id_key
+            .as_deref()
+            .ok_or(Error::msg("Missing access_key_id_key in source config"))?;
+        let secret_access_key_key = self
+            .secret_access_key_key
+            .as_deref()
+            .ok_or(Error::msg("Missing secret_access_key_key in source config"))?;
+
         let access_key_id = secrets
             .secrets
-            .get(&self.access_key_id_key)
+            .get(access_key_id_key)
             .ok_or(Error::msg(format!(
-                "Missing access key id as key {}",
-                self.access_key_id_key
+                "Missing access key id as key {access_key_id_key}"
             )))?
             .as_str()
             .ok_or(Error::msg(format!(
-                "Access key id as key {} is not a string",
-                self.access_key_id_key
+                "Access key id as key {access_key_id_key} is not a string"
             )))?;
 
         let secret_access_key = secrets
             .secrets
-            .get(&self.secret_access_key_key)
+            .get(secret_access_key_key)
             .ok_or(Error::msg(format!(
-                "Missing secret access key as key {}",
-                self.secret_access_key_key
+                "Missing secret access key as key {secret_access_key_key}"
             )))?
             .as_str()
             .ok_or(Error::msg(format!(
-                "Secret access key as key {} is not a string",
-                self.secret_access_key_key
+                "Secret access key as key {secret_access_key_key} is not a string"
             )))?;
 
-        let aws_credentials = aws_sdk_s3::config::Credentials::new(
+        Ok(aws_sdk_s3::config::Credentials::new(
             access_key_id,
             secret_access_key,
             None,
             None,
             "job_config",
-        );
+        ))
+    }
 
+    // Session policy pinning every assumed-role session to read-only access on the configured
+    // bucket/prefix, regardless of how broad the customer's role permissions are.
+    fn session_policy(&self) -> String {
+        serde_json::json!({
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Action": ["s3:ListBucket"],
+                    "Resource": format!("arn:aws:s3:::{}", self.bucket),
+                },
+                {
+                    "Effect": "Allow",
+                    "Action": ["s3:GetObject"],
+                    "Resource": format!("arn:aws:s3:::{}/{}*", self.bucket, self.prefix),
+                },
+            ],
+        })
+        .to_string()
+    }
+
+    async fn assume_role_credentials(
+        &self,
+        role_arn: &str,
+    ) -> Result<aws_config::sts::AssumeRoleProvider, Error> {
+        if self.endpoint_url.is_some() {
+            return Err(Error::from(UserError::new(
+                "IAM role authentication only works with AWS S3 - S3-compatible stores must use access keys",
+            )));
+        }
+
+        let external_id = self
+            .external_id
+            .as_deref()
+            .ok_or(Error::msg("Missing external_id in role-auth source config"))?;
+
+        let provider = aws_config::sts::AssumeRoleProvider::builder(role_arn)
+            .session_name("posthog-batch-import")
+            .external_id(external_id)
+            .region(Region::new(self.region.clone()))
+            .session_length(Duration::from_secs(3600))
+            .policy(self.session_policy())
+            .build()
+            .await;
+
+        // Fail fast so a misconfigured trust policy pauses the job with an actionable
+        // message instead of surfacing as an opaque S3 error mid-import.
+        provider.provide_credentials().await.user_error(format!(
+            "PostHog could not assume IAM role {role_arn}. Verify the role exists, its trust \
+             policy allows PostHog's import role, and the External ID matches the one shown in \
+             the migration setup."
+        ))?;
+
+        Ok(provider)
+    }
+
+    async fn build_s3_config(
+        &self,
+        secrets: &JobSecrets,
+    ) -> Result<aws_sdk_s3::config::Builder, Error> {
         let mut builder = aws_sdk_s3::config::Builder::new()
             .region(Region::new(self.region.clone()))
-            .credentials_provider(aws_credentials)
             .behavior_version(BehaviorVersion::latest())
             // S3-compatible stores (GCS) return whole-object checksums on ranged GETs, which the
             // SDK then validates against the partial body and fails. Only validate when requested.
@@ -395,6 +474,23 @@ impl S3SourceConfig {
                     .build(),
             )
             .retry_config(RetryConfig::standard());
+
+        builder = match (&self.role_arn, &self.access_key_id_key) {
+            (Some(role_arn), None) => {
+                builder.credentials_provider(self.assume_role_credentials(role_arn).await?)
+            }
+            (None, Some(_)) => builder.credentials_provider(self.static_key_credentials(secrets)?),
+            (Some(_), Some(_)) => {
+                return Err(Error::msg(
+                    "S3 source config sets both role_arn and access keys - exactly one auth method is required",
+                ))
+            }
+            (None, None) => {
+                return Err(Error::from(UserError::new(
+                    "S3 source has no authentication configured - provide an IAM role or access keys",
+                )))
+            }
+        };
 
         if let Some(ref url) = self.endpoint_url {
             Self::validate_endpoint_url(url, self.allow_internal_ips)?;
@@ -414,7 +510,7 @@ impl S3SourceConfig {
     }
 
     pub async fn create_source(&self, secrets: &JobSecrets) -> Result<S3Source, Error> {
-        let builder = self.build_s3_config(secrets)?;
+        let builder = self.build_s3_config(secrets).await?;
         let client = aws_sdk_s3::Client::from_conf(builder.build());
 
         Ok(S3Source::new(
@@ -430,7 +526,7 @@ impl S3SourceConfig {
         staging_dir: PathBuf,
         staging_max_bytes: u64,
     ) -> Result<GzipS3Source, Error> {
-        let builder = self.build_s3_config(secrets)?;
+        let builder = self.build_s3_config(secrets).await?;
         let client = aws_sdk_s3::Client::from_conf(builder.build());
 
         Ok(GzipS3Source::new(
@@ -849,6 +945,125 @@ mod tests {
         }"#;
         let config: S3SourceConfig = serde_json::from_str(json).unwrap();
         assert!(config.allow_internal_ips);
+    }
+
+    #[test]
+    fn test_s3_source_config_legacy_key_auth_deserializes() {
+        let json = r#"{
+            "access_key_id_key": "ak",
+            "secret_access_key_key": "sk",
+            "bucket": "b",
+            "prefix": "p",
+            "region": "us-east-1"
+        }"#;
+        let config: S3SourceConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.access_key_id_key.as_deref(), Some("ak"));
+        assert_eq!(config.secret_access_key_key.as_deref(), Some("sk"));
+        assert!(config.role_arn.is_none());
+        assert!(config.external_id.is_none());
+    }
+
+    #[test]
+    fn test_s3_source_config_role_auth_deserializes() {
+        let json = r#"{
+            "bucket": "b",
+            "prefix": "p",
+            "region": "us-east-1",
+            "role_arn": "arn:aws:iam::123456789012:role/posthog-import",
+            "external_id": "posthog-us-some-team-uuid"
+        }"#;
+        let config: S3SourceConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            config.role_arn.as_deref(),
+            Some("arn:aws:iam::123456789012:role/posthog-import")
+        );
+        assert_eq!(
+            config.external_id.as_deref(),
+            Some("posthog-us-some-team-uuid")
+        );
+        assert!(config.access_key_id_key.is_none());
+        assert!(config.secret_access_key_key.is_none());
+    }
+
+    fn role_auth_config(json_patch: Value) -> S3SourceConfig {
+        let mut base = serde_json::json!({
+            "bucket": "b",
+            "prefix": "p",
+            "region": "us-east-1",
+            "role_arn": "arn:aws:iam::123456789012:role/posthog-import",
+            "external_id": "posthog-us-some-team-uuid"
+        });
+        base.as_object_mut()
+            .unwrap()
+            .extend(json_patch.as_object().unwrap().clone());
+        serde_json::from_value(base).unwrap()
+    }
+
+    fn empty_secrets() -> JobSecrets {
+        JobSecrets {
+            secrets: HashMap::new(),
+        }
+    }
+
+    // These rejection paths all error before any credentials provider is built, so no
+    // network access happens.
+    #[tokio::test]
+    async fn test_build_s3_config_rejects_role_with_endpoint_url() {
+        let config = role_auth_config(
+            serde_json::json!({"endpoint_url": "https://acct123.r2.cloudflarestorage.com"}),
+        );
+        let err = config
+            .build_s3_config(&empty_secrets())
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("IAM role authentication only works with AWS S3"));
+    }
+
+    #[tokio::test]
+    async fn test_build_s3_config_rejects_role_without_external_id() {
+        let mut config = role_auth_config(serde_json::json!({}));
+        config.external_id = None;
+        let err = config
+            .build_s3_config(&empty_secrets())
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("external_id"));
+    }
+
+    #[tokio::test]
+    async fn test_build_s3_config_rejects_both_auth_methods() {
+        let config = role_auth_config(
+            serde_json::json!({"access_key_id_key": "ak", "secret_access_key_key": "sk"}),
+        );
+        let err = config
+            .build_s3_config(&empty_secrets())
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("exactly one auth method"));
+    }
+
+    #[tokio::test]
+    async fn test_build_s3_config_rejects_missing_auth() {
+        let json = r#"{"bucket": "b", "prefix": "p", "region": "us-east-1"}"#;
+        let config: S3SourceConfig = serde_json::from_str(json).unwrap();
+        let err = config
+            .build_s3_config(&empty_secrets())
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("no authentication configured"));
+    }
+
+    #[test]
+    fn test_session_policy_scopes_to_bucket_and_prefix() {
+        let config = role_auth_config(serde_json::json!({}));
+        let policy: Value = serde_json::from_str(&config.session_policy()).unwrap();
+        let statements = policy["Statement"].as_array().unwrap();
+        assert_eq!(statements[0]["Resource"], "arn:aws:s3:::b");
+        assert_eq!(statements[1]["Resource"], "arn:aws:s3:::b/p*");
     }
 
     #[test]
