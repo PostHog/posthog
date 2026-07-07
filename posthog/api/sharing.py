@@ -15,7 +15,6 @@ import jwt
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
-from loginas.utils import is_impersonated_session
 from pydantic import BaseModel
 from rest_framework import mixins, response, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -33,6 +32,7 @@ from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtec
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.impersonation import is_impersonated
 from posthog.hogql_queries.query_runner import ExecutionMode, shared_insights_execution_mode
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import SessionRecording, SharePassword, SharingConfiguration, Team
@@ -445,7 +445,11 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
                         dashboard.is_shared = False
                     dashboard.save(update_fields=["share_token", "is_shared"])
                 else:
-                    instance.enabled = dashboard.is_shared
+                    # The legacy token isn't owned by any config, so adopt it onto this one. Only
+                    # migrate the token, never ``enabled``: this helper runs on the read path
+                    # (``list``), and ``dashboard.is_shared`` is a deprecated field holding stale
+                    # legacy data, so enabling off it would let a plain GET silently make a
+                    # dashboard public. Sharing is only ever turned on through an explicit PATCH.
                     instance.access_token = dashboard.share_token
                     instance.save()
 
@@ -490,7 +494,7 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
                 organization_id=None,
                 team_id=self.team_id,
                 user=cast(User, self.request.user),
-                was_impersonated=is_impersonated_session(self.request),
+                was_impersonated=is_impersonated(self.request),
                 item_id=instance.insight.pk,
                 scope="Insight",
                 activity="sharing " + ("enabled" if serializer.data.get("enabled") else "disabled"),
@@ -513,7 +517,7 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
                 organization_id=None,
                 team_id=self.team_id,
                 user=cast(User, self.request.user),
-                was_impersonated=is_impersonated_session(self.request),
+                was_impersonated=is_impersonated(self.request),
                 item_id=instance.dashboard.pk,
                 scope="Dashboard",
                 activity="sharing " + ("enabled" if serializer.data.get("enabled") else "disabled"),
@@ -535,7 +539,7 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
                 organization_id=None,
                 team_id=self.team_id,
                 user=cast(User, self.request.user),
-                was_impersonated=is_impersonated_session(self.request),
+                was_impersonated=is_impersonated(self.request),
                 item_id=instance.notebook.short_id,
                 scope="Notebook",
                 activity="sharing " + ("enabled" if serializer.data.get("enabled") else "disabled"),
@@ -580,7 +584,7 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
                 organization_id=None,
                 team_id=self.team_id,
                 user=cast(User, self.request.user),
-                was_impersonated=is_impersonated_session(self.request),
+                was_impersonated=is_impersonated(self.request),
                 item_id=new_instance.insight.pk,
                 scope="Insight",
                 activity="access token refreshed",
@@ -595,7 +599,7 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
                 organization_id=None,
                 team_id=self.team_id,
                 user=cast(User, self.request.user),
-                was_impersonated=is_impersonated_session(self.request),
+                was_impersonated=is_impersonated(self.request),
                 item_id=new_instance.dashboard.pk,
                 scope="Dashboard",
                 activity="access token refreshed",
@@ -607,7 +611,7 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
                 organization_id=None,
                 team_id=self.team_id,
                 user=cast(User, self.request.user),
-                was_impersonated=is_impersonated_session(self.request),
+                was_impersonated=is_impersonated(self.request),
                 item_id=new_instance.notebook.short_id,
                 scope="Notebook",
                 activity="access token refreshed",

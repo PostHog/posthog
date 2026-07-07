@@ -342,6 +342,14 @@ export interface PatchedOrganizationMemberApi {
     readonly search_match_type?: SearchMatchTypeEnumApi | null
 }
 
+export interface OrganizationMemberGithubLoginApi {
+    /**
+     * The member's GitHub username (login), resolved from their linked GitHub integration or OAuth identity. Null when the member has no GitHub identity linked.
+     * @nullable
+     */
+    github_login: string | null
+}
+
 export interface OrganizationPersonalAPIKeyOwnerApi {
     /** First name of the key's owner. */
     readonly first_name: string
@@ -985,6 +993,7 @@ export type ActivityLogListParams = {
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
      * * `InstanceSetting` - InstanceSetting
+     * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
      * @minLength 1
      */
@@ -1065,6 +1074,7 @@ export const ActivityLogListScope = {
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
     InstanceSetting: 'InstanceSetting',
+    SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
 } as const
 
@@ -1132,6 +1142,7 @@ export const ActivityLogListScope = {
  * * `ProductTour` - ProductTour
  * * `Ticket` - Ticket
  * * `InstanceSetting` - InstanceSetting
+ * * `SignalReport` - SignalReport
  * * `SignalScoutConfig` - SignalScoutConfig
  */
 export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof typeof ActivityLogListScopesItem]
@@ -1200,6 +1211,7 @@ export const ActivityLogListScopesItem = {
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
     InstanceSetting: 'InstanceSetting',
+    SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
 } as const
 

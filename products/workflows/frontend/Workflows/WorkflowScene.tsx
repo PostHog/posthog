@@ -8,9 +8,13 @@ import { LemonSwitch, Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { LastSavedIndicator } from 'lib/components/LastSavedIndicator'
 import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -21,6 +25,8 @@ import { ActivityScope } from '~/types'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { Workflow } from './Workflow'
+import { WorkflowAssets } from './WorkflowAssets'
+import { WorkflowInvocations } from './WorkflowInvocations'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowLogs } from './WorkflowLogs'
 import { WorkflowMetrics } from './WorkflowMetrics'
@@ -44,6 +50,8 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     }
     const sceneLogic = workflowSceneLogic(workflowSceneProps)
     const { currentTab } = useValues(sceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const emailAssetsUIEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOW_EMAIL_ASSETS_UI]
     const { searchParams } = useValues(router)
     const templateId = searchParams.templateId as string | undefined
     const editTemplateId = searchParams.editTemplateId as string | undefined
@@ -55,6 +63,8 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const { setAutoSaveEnabled } = useActions(logic)
     const showSaving = useDebouncedValue(isAutoSavePending || workflowLoading, 1000)
     const isDraft = originalWorkflow?.status === 'draft'
+
+    const runsV2Enabled = useFeatureFlag('HOG_INVOCATION_RESULTS_RUNS_TAB')
 
     // Attach child logics to the scene logic so they persist across tab switches
     useAttachedLogic(batchJobsLogic, sceneLogic)
@@ -76,10 +86,26 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         },
 
         {
-            label: 'Invocations',
+            // Once the new Invocations (beta) tab is on, the old log viewer becomes "Logs"
+            // to match the hog function scene and avoid two "Invocations" tabs.
+            label: runsV2Enabled ? 'Logs' : 'Invocations',
             key: 'logs',
             content: <WorkflowLogs id={workflowSceneProps.id!} />,
         },
+        runsV2Enabled
+            ? {
+                  label: (
+                      <div className="flex flex-row">
+                          <div>Invocations</div>
+                          <LemonTag className="ml-2 uppercase" type="warning">
+                              Beta
+                          </LemonTag>
+                      </div>
+                  ),
+                  key: 'invocations',
+                  content: <WorkflowInvocations id={workflowSceneProps.id!} />,
+              }
+            : null,
         {
             label: 'Metrics',
             key: 'metrics',
@@ -89,6 +115,17 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
              */
             content: <WorkflowMetrics id={workflowSceneProps.id!} />,
         },
+        emailAssetsUIEnabled
+            ? {
+                  label: 'Assets',
+                  key: 'assets',
+                  /**
+                   * If we're rendering tabs, props.id is guaranteed to be
+                   * defined and not "new" (see return statement below)
+                   */
+                  content: <WorkflowAssets id={workflowSceneProps.id!} />,
+              }
+            : null,
         {
             label: 'History',
             key: 'history',

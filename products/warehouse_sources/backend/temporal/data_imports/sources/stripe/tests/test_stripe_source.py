@@ -1,3 +1,4 @@
+import functools
 from typing import Any, cast
 
 import pytest
@@ -17,15 +18,32 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
     RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
+    SUBSCRIPTION_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import (
+    SUBSCRIPTION_PAGE_LIMIT,
     StripeAuthenticationError,
     StripeNestedResource,
     StripeResource,
     _all_known_webhook_events,
     _coerce_incremental_cursor,
+    _is_truncated_stripe_list_response,
+    _RateLimitRetryingRequestsClient,
     get_rows,
+)
+
+_COMPLETE_LIST_BODY = b'{\n  "object": "list",\n  "data": [],\n  "has_more": false\n}'
+# A list page cut off mid-string — what Stripe later fails to decode as "Invalid response body".
+_TRUNCATED_LIST_BODY = (
+    b'{\n  "object": "list",\n  "data": [\n    {\n      "id": "in_1",\n      "description": "a value that got cut'
+)
+# Webhook write responses are single objects, not lists — must never trigger the read-only retry.
+_TRUNCATED_WEBHOOK_BODY = b'{\n  "object": "webhook_endpoint",\n  "id": "we_1",\n  "url": "https://example.com/cut'
+# A truncated single object whose head contains the tokens "object" and "list" without being a
+# list response (here `"type": "list.updated"`) — must not be mistaken for a truncated list.
+_TRUNCATED_NON_LIST_WITH_LIST_TOKEN = (
+    b'{\n  "object": "event",\n  "type": "list.updated",\n  "data": {\n    "id": "evt_1'
 )
 
 
@@ -75,7 +93,7 @@ class TestStripeGetRowsIncrementalCursor:
             "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe._build_resources",
             return_value={"charge": resource},
         ):
-            rows = list(
+            tables = list(
                 get_rows(
                     api_key="sk_test_123",
                     endpoint="charge",
@@ -88,7 +106,39 @@ class TestStripeGetRowsIncrementalCursor:
                 )
             )
 
-        assert [obj["id"] for obj in rows] == ["ch_2"]
+        rows = [row for table in tables for row in table.to_pylist()]
+        assert [row["id"] for row in rows] == ["ch_2"]
+
+    def test_backfill_branch_yields_all_earlier_objects_in_bounded_chunks(self):
+        # The created[lt] backfill must yield every earlier object AND batch them into bounded chunks:
+        # each yielded chunk is what makes the pipeline persist the `earliest` watermark, so a large
+        # backfill checkpoints progress mid-attempt instead of restarting the whole scan on a
+        # heartbeat timeout. A single giant batch (the previous behaviour) never checkpoints.
+        objects = [{"id": f"ch_{i}", "created": 1700000000 - i} for i in range(5)]
+        resource = StripeResource(method=lambda params: cast(ListObject[Any], _FakeStripeList(objects)))
+        resumable_source_manager = mock.MagicMock()
+        resumable_source_manager.can_resume.return_value = False
+
+        with (
+            mock.patch.object(stripe_module, "STRIPE_CHUNK_SIZE", 2),
+            mock.patch.object(stripe_module, "_build_resources", return_value={"charge": resource}),
+        ):
+            tables = list(
+                get_rows(
+                    api_key="sk_test_123",
+                    endpoint="charge",
+                    account_id=None,
+                    db_incremental_field_last_value=None,
+                    db_incremental_field_earliest_value=1700000100,
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=resumable_source_manager,
+                    should_use_incremental_field=True,
+                )
+            )
+
+        rows = [row for table in tables for row in table.to_pylist()]
+        assert [row["id"] for row in rows] == [f"ch_{i}" for i in range(5)]
+        assert len(tables) > 1
 
 
 class TestStripeSource:
@@ -171,6 +221,44 @@ class TestStripeSource:
         assert pasted_secret not in message
         assert message.startswith("Stripe rejected the API key.")
 
+    @pytest.mark.parametrize(
+        "body,expected",
+        [
+            (_TRUNCATED_LIST_BODY, True),
+            (_TRUNCATED_LIST_BODY.decode(), True),  # str bodies behave the same as bytes
+            (_COMPLETE_LIST_BODY, False),  # complete responses always close with "}"
+            (_TRUNCATED_WEBHOOK_BODY, False),  # truncated, but a single object — not a list read
+            # truncated non-list whose head still contains the "object" and "list" tokens
+            (_TRUNCATED_NON_LIST_WITH_LIST_TOKEN, False),
+            (b'{\n  "object": "webhook_endpoint",\n  "id": "we_1"\n}', False),
+            (b"", False),
+            (None, False),
+        ],
+    )
+    def test_is_truncated_stripe_list_response(self, body, expected):
+        assert _is_truncated_stripe_list_response(body) is expected
+
+    @pytest.mark.parametrize(
+        "response,num_retries,expected",
+        [
+            # 2xx with a truncated list body is retried while budget remains...
+            ((_TRUNCATED_LIST_BODY, 200, {}), 0, True),
+            # ...but not once the network-retry budget is exhausted.
+            ((_TRUNCATED_LIST_BODY, 200, {}), 2, False),
+            # A complete 2xx list body is not retried.
+            ((_COMPLETE_LIST_BODY, 200, {}), 0, False),
+            # A truncated single-object (webhook write) body is not retried.
+            ((_TRUNCATED_WEBHOOK_BODY, 200, {}), 0, False),
+            # A truncated non-list body that merely mentions "list" is not retried.
+            ((_TRUNCATED_NON_LIST_WITH_LIST_TOKEN, 200, {}), 0, False),
+            # 429s stay retryable (regression guard for the existing rate-limit handling).
+            ((b'{\n  "error": {}\n}', 429, {}), 0, True),
+        ],
+    )
+    def test_rate_limit_client_should_retry(self, response, num_retries, expected):
+        client = _RateLimitRetryingRequestsClient()
+        assert client._should_retry(response, None, num_retries=num_retries, max_network_retries=2) is expected
+
 
 def _run_nested_get_rows(nested_method, parent_objects=None, parent_has_nested=None):
     if parent_objects is None:
@@ -251,6 +339,129 @@ class TestStripeNestedResourceGetRows:
         # cus_zero is skipped entirely — no API call, no rows.
         assert called_for == ["cus_credit", "cus_owed"]
         assert {row["customer"] for row in rows} == {"cus_credit", "cus_owed"}
+
+
+class TestSubscriptionPageSize:
+    def test_build_resources_caps_subscription_page_size(self):
+        # Subscriptions expand discounts at two levels, so a full DEFAULT_LIMIT page can grow past the
+        # size that transfers intact and arrives truncated mid-stream. The endpoint must request a
+        # smaller page than the default to keep each response transferable.
+        resources = stripe_module._build_resources(MagicMock(), logger=None)
+
+        subscription = resources[SUBSCRIPTION_RESOURCE_NAME]
+        assert subscription.params["limit"] == SUBSCRIPTION_PAGE_LIMIT
+        assert SUBSCRIPTION_PAGE_LIMIT < stripe_module.DEFAULT_LIMIT
+
+    def test_get_rows_sends_resource_limit_over_default(self):
+        # A resource's own `limit` must win over DEFAULT_LIMIT in the merged params — otherwise the
+        # reduced subscription page size would be clobbered back up to 100.
+        captured: dict = {}
+
+        def capturing_list(params):
+            captured.update(params)
+            return _FakeStripeList([])
+
+        resource = StripeResource(method=capturing_list, params={"limit": SUBSCRIPTION_PAGE_LIMIT})
+        resumable_source_manager = MagicMock()
+        resumable_source_manager.can_resume.return_value = False
+
+        with patch.object(stripe_module, "_build_resources", return_value={SUBSCRIPTION_RESOURCE_NAME: resource}):
+            list(
+                get_rows(
+                    api_key="sk_test_123",
+                    endpoint=SUBSCRIPTION_RESOURCE_NAME,
+                    account_id=None,
+                    db_incremental_field_last_value=None,
+                    db_incremental_field_earliest_value=None,
+                    logger=MagicMock(),
+                    resumable_source_manager=resumable_source_manager,
+                )
+            )
+
+        assert captured["limit"] == SUBSCRIPTION_PAGE_LIMIT
+
+
+class TestStripeBatcherDrainsSplitChunks:
+    def test_flat_resource_drains_all_split_chunks_per_batch(self):
+        # A single batch() can split a flushed buffer into several ready chunks (large rows over the
+        # per-table byte cap). get_rows must drain every chunk before batching the next object,
+        # otherwise the following batch() raises "Batcher already has a table ready to yield."
+        objects = [{"id": f"ch_{i}", "description": "x" * 10} for i in range(6)]
+        resource = StripeResource(method=lambda params: cast(ListObject[Any], _FakeStripeList(objects)))
+
+        resumable_source_manager = MagicMock()
+        resumable_source_manager.can_resume.return_value = False
+
+        # Tiny caps force every 2-row buffer flush to split into single-row chunks.
+        splitting_batcher = functools.partial(stripe_module.Batcher, max_table_bytes=1, max_column_offset_bytes=1)
+
+        with (
+            patch.object(stripe_module, "StripeClient"),
+            patch.object(stripe_module, "STRIPE_CHUNK_SIZE", 2),
+            patch.object(stripe_module, "Batcher", splitting_batcher),
+            patch.object(stripe_module, "_build_resources", return_value={"charge": resource}),
+        ):
+            rows: list[dict] = []
+            for table in get_rows(
+                api_key="sk_test_123",
+                endpoint="charge",
+                account_id=None,
+                db_incremental_field_last_value=None,
+                db_incremental_field_earliest_value=None,
+                logger=MagicMock(),
+                resumable_source_manager=resumable_source_manager,
+            ):
+                rows.extend(table.to_pylist())
+
+        assert [row["id"] for row in rows] == [f"ch_{i}" for i in range(6)]
+
+    def test_nested_resource_drains_all_split_chunks_per_batch(self):
+        nested_objects = [{"id": f"cbt_{i}", "amount": 100, "note": "y" * 10} for i in range(6)]
+
+        def nested_method(customer=None, params=None):
+            return _list_object(nested_objects)
+
+        splitting_batcher = functools.partial(stripe_module.Batcher, max_table_bytes=1, max_column_offset_bytes=1)
+
+        with (
+            patch.object(stripe_module, "STRIPE_CHUNK_SIZE", 2),
+            patch.object(stripe_module, "Batcher", splitting_batcher),
+        ):
+            rows = _run_nested_get_rows(nested_method, parent_objects=[{"id": "cus_1"}])
+
+        assert [row["id"] for row in rows] == [f"cbt_{i}" for i in range(6)]
+
+    def test_final_incomplete_chunk_drain_splits(self):
+        # The final drain takes a different path: get_table() flushes the leftover buffer and can
+        # itself produce multiple chunks. A large chunk_size keeps every row in the buffer until the
+        # end, so all rows go through that final drain — which must drain every split chunk.
+        objects = [{"id": f"ch_{i}", "description": "z" * 10} for i in range(4)]
+        resource = StripeResource(method=lambda params: cast(ListObject[Any], _FakeStripeList(objects)))
+
+        resumable_source_manager = MagicMock()
+        resumable_source_manager.can_resume.return_value = False
+
+        splitting_batcher = functools.partial(stripe_module.Batcher, max_table_bytes=1, max_column_offset_bytes=1)
+
+        with (
+            patch.object(stripe_module, "StripeClient"),
+            patch.object(stripe_module, "STRIPE_CHUNK_SIZE", 100),
+            patch.object(stripe_module, "Batcher", splitting_batcher),
+            patch.object(stripe_module, "_build_resources", return_value={"charge": resource}),
+        ):
+            rows: list[dict] = []
+            for table in get_rows(
+                api_key="sk_test_123",
+                endpoint="charge",
+                account_id=None,
+                db_incremental_field_last_value=None,
+                db_incremental_field_earliest_value=None,
+                logger=MagicMock(),
+                resumable_source_manager=resumable_source_manager,
+            ):
+                rows.extend(table.to_pylist())
+
+        assert [row["id"] for row in rows] == [f"ch_{i}" for i in range(4)]
 
 
 class TestCustomerMightHaveBalanceTransactions:

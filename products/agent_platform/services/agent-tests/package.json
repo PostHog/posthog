@@ -31,7 +31,7 @@
         "express": "^4.21.1",
         "supertest": "^7.0.0",
         "typescript": "catalog:",
-        "vitest": "^2.1.9",
+        "vitest": "^4.1.0",
         "zod": "^4.3.6"
     },
     "engines": {

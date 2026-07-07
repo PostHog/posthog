@@ -121,6 +121,13 @@ pub struct Config {
     #[envconfig(default = "500")]
     pub consumer_batch_timeout_ms: u64,
 
+    /// Upper bound on retrying a batch's deferred messages (held because no
+    /// worker was routable) before failing the batch (milliseconds). Bounds how
+    /// long a full worker outage holds offsets before the process exits and
+    /// restarts.
+    #[envconfig(default = "60000")]
+    pub consumer_deferred_flush_timeout_ms: u64,
+
     /// Maximum Kafka batches to process concurrently. Matches the Node.js
     /// CONSUMER_MAX_BACKGROUND_TASKS setting used by the Kafka consumer wrapper.
     #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]
@@ -237,6 +244,20 @@ pub struct Config {
 
     #[envconfig(default = "true")]
     pub export_prometheus: bool,
+
+    // ---- Metric labels (match Node.js global default labels) ----
+    /// Ingestion pipeline this consumer serves (e.g. `analytics`). Emitted as a
+    /// global `ingestion_pipeline` label on every metric, mirroring the Node.js
+    /// `initializePrometheusLabels` default labels so dashboards, alerts, and
+    /// KEDA lag triggers select this consumer's series the same way.
+    #[envconfig(from = "INGESTION_PIPELINE")]
+    pub ingestion_pipeline: Option<String>,
+
+    /// Ingestion lane this consumer serves (e.g. `main`, `overflow`). Emitted as
+    /// a global `ingestion_lane` label on every metric, matching the Node.js
+    /// default labels. The lag-based KEDA autoscaler selects on this label.
+    #[envconfig(from = "INGESTION_LANE")]
+    pub ingestion_lane: Option<String>,
 }
 
 /// Parse `KAFKA_CONSUMER_*` env vars into rdkafka config key-value pairs.

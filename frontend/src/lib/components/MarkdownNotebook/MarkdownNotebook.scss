@@ -1651,6 +1651,30 @@ h3.MarkdownNotebook__text-block--heading {
     white-space: nowrap;
 }
 
+.MarkdownNotebook__component-toolbar-title--input {
+    padding: 0.125rem 0.375rem;
+    color: var(--color-text-primary);
+    appearance: none;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 0.25rem;
+
+    &::placeholder {
+        color: var(--color-text-tertiary);
+        opacity: 1;
+    }
+
+    &:hover {
+        border-color: var(--color-border-primary);
+    }
+
+    &:focus,
+    &:focus-visible {
+        border-color: var(--color-accent);
+        outline: none;
+    }
+}
+
 .MarkdownNotebook__component-actions {
     flex: 0 0 auto;
 }
@@ -1851,7 +1875,7 @@ button.MarkdownNotebook__component-title:focus-visible {
 .MarkdownNotebook__real-node {
     display: flex;
     flex-direction: column;
-    min-height: 8rem;
+    min-height: var(--markdown-notebook-real-node-min-height, 8rem);
     background: var(--markdown-notebook-component-background);
 }
 
@@ -1867,7 +1891,7 @@ button.MarkdownNotebook__component-title:focus-visible {
     // overrides the inline `height` and the resize drag has no visible effect.
     flex: 1 1 auto;
     flex-direction: column;
-    min-height: 8rem;
+    min-height: var(--markdown-notebook-real-node-min-height, 8rem);
     overflow: hidden;
 }
 

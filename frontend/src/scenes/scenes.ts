@@ -610,6 +610,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Analyze your web analytics data to understand website performance and user behavior.',
         iconType: 'web_analytics',
     },
+    [Scene.WebAnalyticsRecap]: {
+        projectBased: true,
+        name: 'Weekly recap',
+        layout: 'app-raw',
+        description: "A delightful weekly recap of this project's web analytics.",
+        iconType: 'web_analytics',
+    },
     [Scene.Wizard]: { projectBased: true, name: 'Wizard', layout: 'plain' },
     [Scene.OrganizationDeactivated]: {
         projectBased: false,
@@ -785,6 +792,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.webAnalyticsBotAnalytics()]: [Scene.WebAnalytics, 'webAnalyticsBotAnalytics'],
     [urls.webAnalyticsHealth()]: [Scene.WebAnalyticsHealth, 'webAnalyticsHealth'],
     [urls.webAnalyticsLive()]: [Scene.WebAnalyticsLive, 'webAnalyticsLive'],
+    [urls.webAnalyticsRecap()]: [Scene.WebAnalyticsRecap, 'webAnalyticsRecap'],
     [urls.webAnalyticsPageReports()]: [Scene.WebAnalytics, 'webAnalyticsPageReports'],
     [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
     [urls.marketingAnalyticsApp()]: [Scene.MarketingAnalytics, 'marketingAnalytics'],

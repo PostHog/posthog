@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 
+import { HedgehogEinstein } from '@posthog/brand/hoggies'
 import { IconBell, IconGraph, IconRocket, IconTarget } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
-import { ProfessorHog } from 'lib/components/hedgehogs'
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
 import { SurveyEditSection, surveyLogic } from 'scenes/surveys/surveyLogic'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
@@ -32,7 +32,7 @@ export function FirstSurveyHelper({ onTabChange }: FirstSurveyHelperProps): JSX.
         <div className="bg-bg-light border border-border rounded-lg p-6">
             <div className="flex items-center gap-6">
                 <div className="hidden sm:block flex-shrink-0">
-                    <ProfessorHog width={180} height={180} className="scale-x-[-1]" />
+                    <HedgehogEinstein width={180} height={180} className="scale-x-[-1]" />
                 </div>
                 <div className="flex-1 min-w-0">
                     <div className="mb-6">

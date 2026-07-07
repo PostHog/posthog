@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand, CommandError
 
 import psycopg
@@ -30,8 +31,37 @@ class Command(BaseCommand):
         parser.add_argument("--team-id", type=int, help="Scope by team (with --schema-id)")
         parser.add_argument("--schema-id", type=str, help="Reset all failed duckgres runs of this schema")
         parser.add_argument("--dry-run", action="store_true", help="Report what would be reset without writing")
+        parser.add_argument(
+            "--replan-backfill",
+            metavar="SCHEMA_ID",
+            help="Retire the schema's current backfill run and re-enter backfill planning "
+            "(use when extracts were lost to retention or the backfill is wedged)",
+        )
 
     def handle(self, *args, **options):
+        replan_schema = options.get("replan_backfill")
+        if replan_schema:
+            from posthog.models import DuckgresSinkSchemaState
+
+            from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill import (
+                replan_backfill,
+            )
+
+            try:
+                state = DuckgresSinkSchemaState.objects.get(schema_id=replan_schema)
+            except (DuckgresSinkSchemaState.DoesNotExist, ValueError, ValidationError) as e:
+                raise CommandError(f"No duckgres sink state for schema {replan_schema!r}: {e}")
+            if options.get("dry_run"):
+                self.stdout.write(
+                    f"Would retire backfill run {state.backfill_run_uuid!r} "
+                    f"(state={state.state}, applied={state.chunks_applied}/{state.chunk_count}) "
+                    "and re-enter planning. Dry run — no changes written."
+                )
+                return
+            replan_backfill(replan_schema)
+            self.stdout.write(self.style.SUCCESS(f"Schema {replan_schema} re-entered backfill planning."))
+            return
+
         run_uuid = options.get("run_uuid")
         team_id = options.get("team_id")
         schema_id = options.get("schema_id")

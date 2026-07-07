@@ -18,7 +18,7 @@ export function ZenModeButton(): JSX.Element | null {
             type="secondary"
             size="small"
             icon={<IconX />}
-            onClick={() => setZenMode(false)}
+            onClick={() => setZenMode(false, 'exit_button')}
             tooltip="Exit zen mode"
         >
             Exit zen mode

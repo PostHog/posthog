@@ -18,6 +18,8 @@ const EVALUATION_FIELDS = [
     'e.output_type',
     'e.output_config',
     'e.conditions',
+    'e.target',
+    'e.target_config',
     'e.created_at',
     'e.updated_at',
 ]

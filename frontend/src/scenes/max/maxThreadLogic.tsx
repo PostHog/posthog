@@ -65,12 +65,12 @@ import {
 } from '~/types'
 
 import {
-    SANDBOX_INITIAL_PERMISSION_MODE,
+    getRandomThinkingMessage,
     isTerminalRunStatus,
-    sandboxStreamLogic,
-} from 'products/posthog_ai/frontend/sandbox/sandboxStreamLogic'
-import { getRandomThinkingMessage } from 'products/posthog_ai/frontend/sandbox/utils/thinkingMessages'
-import { LogEntry, parseLogEvent } from 'products/tasks/frontend/lib/parse-logs'
+    INITIAL_PERMISSION_MODE,
+    runStreamLogic,
+} from 'products/posthog_ai/frontend/api/logics'
+import { LogEntry, parseLogEvent } from 'products/posthog_ai/frontend/lib/parse-logs'
 
 import { handsFreeLogic } from './handsFreeLogic'
 import { summariseAssistantThread } from './handsFreeUtils'
@@ -82,7 +82,7 @@ import {
     getModeDisplayName,
 } from './max-constants'
 import { PENDING_AI_PROMPT_KEY } from './max-storage-keys'
-import { MaxBillingContext, MaxBillingContextSubscriptionLevel, maxBillingContextLogic } from './maxBillingContextLogic'
+import { MaxBillingContext, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { SCENE_PANEL_ID, SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
@@ -181,10 +181,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // mounts it itself).
             posthogAiContextLogic({ conversationId }),
             ['attachments as sandboxAttachments'],
-            // Surfaces the sandbox stream's input-area state to components outside SandboxThread's
+            // Surfaces the sandbox stream's input-area state to components outside ThreadView's
             // BindLogic subtree (the input area renders for LangGraph conversations too, so they
             // can't bind the keyed stream logic themselves).
-            sandboxStreamLogic({ streamKey: conversationId, conversationId }),
+            runStreamLogic({ streamKey: conversationId, conversationId }),
             ['pendingPermissionRequest as pendingSandboxPermissionRequest', 'currentMode as sandboxCurrentMode'],
         ],
         actions: [
@@ -204,14 +204,15 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             maxGlobalLogic,
             ['loadConversation'],
             // Pulling the action in (rather than calling the instance's actions directly) mounts this
-            // conversation's stream logic as a dependency, so its listeners actually run. SandboxThread
+            // conversation's stream logic as a dependency, so its listeners actually run. ThreadView
             // only mounts it while a sandbox conversation is rendered — too late for the first message
             // of a new one.
-            sandboxStreamLogic({ streamKey: conversationId, conversationId }),
+            runStreamLogic({ streamKey: conversationId, conversationId }),
             [
                 'openSseForRun as openSandboxSse',
                 'pushHumanMessage as pushSandboxHumanMessage',
                 'pushErrorItem as pushSandboxError',
+                'setRunOpening as setSandboxRunOpening',
                 'bootstrapRun as bootstrapSandboxRun',
                 'reset as resetSandboxStream',
                 'cancelRun as cancelSandboxRun',
@@ -669,7 +670,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             actions.setTraceId(traceId)
 
             // Sandbox runtime: route the message to a non-streaming products/tasks Run, then hand the
-            // SSE connection off to sandboxStreamLogic. The LangGraph EventSource loop below is never
+            // SSE connection off to runStreamLogic. The LangGraph EventSource loop below is never
             // entered for sandbox conversations.
             //
             // An *existing* sandbox conversation (`agent_runtime === 'sandbox'`) uses the dedicated
@@ -681,9 +682,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             const isSandboxConversation = isExistingSandboxConversation || !!isSandbox
 
             // Echo the human message into whichever thread the renderer actually shows. A sandbox
-            // conversation renders sandboxStreamLogic's threadItems (not this logic's thread) and
+            // conversation renders runStreamLogic's threadItems (not this logic's thread) and
             // echoes via pushSandboxHumanMessage below; adding it to the legacy thread too would
-            // briefly show a duplicate (until the runtime resolves to the SandboxThread) that vanishes
+            // briefly show a duplicate (until the runtime resolves to the ThreadView) that vanishes
             // on reload, since sandbox turns live in the run log, not the legacy conversation messages.
             if (generationAttempt === 0 && streamData.content && addToThread && !isSandboxConversation) {
                 const message: ThreadMessage = {
@@ -696,7 +697,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
 
             if (isSandboxConversation) {
-                // SandboxThread renders sandboxStreamLogic's threadItems, not this logic's thread,
+                // ThreadView renders runStreamLogic's threadItems, not this logic's thread,
                 // so the human message must be echoed there to show up in the UI.
                 if (generationAttempt === 0 && streamData.content && addToThread) {
                     actions.pushSandboxHumanMessage(streamData.content)
@@ -717,6 +718,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                 value: `The user selected a mode: "${getModeDisplayName(values.agentMode)}". It was in the legacy implementation. Acknowledge the mode if the user refers to it.`,
                             })
                         }
+                        // Optimistic boot indicator: light the "spinning up sandbox" provisioning state
+                        // for the duration of the open POST, before any SSE state exists. `openSandboxSse`
+                        // (success) clears it via the reducer; the failure/no-handle paths clear it below.
+                        actions.setSandboxRunOpening(true)
                         // Single create-or-resume opener: it creates the conversation row on first use,
                         // starts/continues the Run, and returns the (task, run) handle. A message always
                         // provisions a run (a null handle only happens on a warm with a full pool).
@@ -724,7 +729,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             content: streamData.content,
                             trace_id: traceId,
                             attached_context: attachedContext,
-                            initial_permission_mode: SANDBOX_INITIAL_PERMISSION_MODE,
+                            initial_permission_mode: INITIAL_PERMISSION_MODE,
                             // Bind a brand-new conversation to an existing Task (inbox "Open task") so the
                             // backend resumes that Task's run. Only the first message carries it.
                             ...(values.pendingBindTaskId ? { task_id: values.pendingBindTaskId } : {}),
@@ -749,7 +754,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             // The streaming lock must span the whole SSE stream so the input stays
                             // guarded until `_posthog/turn_complete` or a terminal/error event —
                             // mirrors the LangGraph path holding the lock for its entire stream.
-                            // Released exactly once by the sandboxStreamLogic listeners below; the
+                            // Released exactly once by the runStreamLogic listeners below; the
                             // closure nulls itself so a second terminal event is a no-op.
                             cache.sandboxStreamRelease = (): void => {
                                 cache.sandboxStreamRelease = null
@@ -763,7 +768,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     posthog.captureException(e)
                     actions.pushSandboxError('Failed to send your message. Please try again.')
                 }
-                // The POST failed or no run was started — nothing will stream, release the lock now.
+                // The POST failed or no run was started — nothing will stream. Drop the optimistic boot
+                // indicator and release the lock now.
+                actions.setSandboxRunOpening(false)
                 actions.decrActiveStreamingThreads()
                 releaseStreamingLock()
                 return
@@ -983,12 +990,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             releaseStreamingLock() // release the lock
         },
     })),
-    // Sandbox runs stream through this conversation's sandboxStreamLogic instance, so the streaming
+    // Sandbox runs stream through this conversation's runStreamLogic instance, so the streaming
     // lock taken in streamConversation can only be released when that instance signals the turn
     // ended — on turn completion, a terminal run status, or a stream error. Its action types are
     // per-instance (the key is in the path), so they're resolved from props at build time.
     listeners(({ props, cache, actions, values }) => {
-        const sandboxStreamActionTypes = sandboxStreamLogic({ streamKey: props.conversationId }).actionTypes
+        const sandboxStreamActionTypes = runStreamLogic({ streamKey: props.conversationId }).actionTypes
         // Normal turn completion: full turn-end, including the sandbox queue-drain that starts the
         // next queued message (completeThreadGeneration's intended next-turn behavior).
         const completeSandboxTurn = (): void => {
@@ -1011,7 +1018,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             [sandboxStreamActionTypes.markTurnComplete]: completeSandboxTurn,
             // handleTerminalStatus fires for every task_run_state frame, including the initial
             // non-terminal queued/in_progress ones — only tear down on an actually terminal
-            // status, mirroring sandboxStreamLogic's own guard.
+            // status, mirroring runStreamLogic's own guard.
             [sandboxStreamActionTypes.handleTerminalStatus]: ({ status }: { status: string }) => {
                 if (isTerminalRunStatus(status)) {
                     endSandboxStream()
@@ -1095,7 +1102,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 // pool returns null — nothing to release).
                 const warm = await api.conversations.open(values.conversationId, {
                     content: null,
-                    initial_permission_mode: SANDBOX_INITIAL_PERMISSION_MODE,
+                    initial_permission_mode: INITIAL_PERMISSION_MODE,
                 })
                 cache.warmRun = warm ? { taskId: warm.task_id, runId: warm.run_id } : null
                 cache.prewarmed = true
@@ -2117,20 +2124,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ],
 
         filteredCommands: [
-            (s) => [s.question, s.featureFlags, s.threadLoading, s.billingContext, s.conversation],
+            (s) => [s.question, s.featureFlags, s.threadLoading, s.conversation],
             (
                 question: string,
                 featureFlags: Record<string, boolean | string>,
                 threadLoading: boolean,
-                billingContext: MaxBillingContext | null,
                 conversation: Conversation | null
             ): SlashCommand[] => {
-                const hasPaidPlan =
-                    billingContext?.subscription_level === MaxBillingContextSubscriptionLevel.PAID ||
-                    billingContext?.subscription_level === MaxBillingContextSubscriptionLevel.CUSTOM ||
-                    billingContext?.trial?.is_active ||
-                    process.env.NODE_ENV === 'development'
-
                 // Sandbox runtime drops core-memory commands; LangGraph keeps the full set.
                 const isSandboxRuntime = conversation?.agent_runtime === 'sandbox'
 
@@ -2139,7 +2139,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         command.name.toLowerCase().startsWith(question.toLowerCase()) &&
                         (!command.flag || featureFlags[command.flag]) &&
                         (!command.requiresIdle || !threadLoading) &&
-                        (!command.requiresPaidPlan || hasPaidPlan) &&
                         (!command.hiddenInSandbox || !isSandboxRuntime)
                 )
             },
@@ -2264,10 +2263,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
         // Sandbox history-load branch. Sandbox conversations don't persist messages Django-side —
         // history lives in S3 ACP logs, read via the products/tasks logs/ endpoint. Hand off to
-        // sandboxStreamLogic, which replays logs/ then opens SSE if non-terminal. The LangGraph
+        // runStreamLogic, which replays logs/ then opens SSE if non-terminal. The LangGraph
         // reconnect path below is never entered for sandbox runtimes (coexistence).
         if (conversation.agent_runtime === 'sandbox') {
-            // sandboxStreamLogic and posthogAiContextLogic are connected (so already mounted) for this
+            // runStreamLogic and posthogAiContextLogic are connected (so already mounted) for this
             // conversation. Reset their per-conversation state before replaying this run's history.
             actions.resetSandboxStream()
             actions.clearSandboxAttachments()
@@ -2491,10 +2490,14 @@ export async function onEventImplementation(
                 .find(([m]) => isHumanMessage(m))?.[1]
 
             const lastHumanMessage = lastHumanIndex != null ? values.threadRaw[lastHumanIndex] : null
+            // Match the streamed human echo to the provisional bubble by trace_id when the server
+            // provides one, otherwise fall back to content so an echo without a trace_id replaces
+            // the provisional message instead of appending a duplicate.
             const shouldReplace =
                 isHumanMessage(lastHumanMessage) &&
-                parsedResponse.trace_id &&
-                lastHumanMessage.trace_id === parsedResponse.trace_id
+                (parsedResponse.trace_id
+                    ? lastHumanMessage.trace_id === parsedResponse.trace_id
+                    : lastHumanMessage.content === parsedResponse.content)
 
             if (lastHumanIndex != null && shouldReplace) {
                 actions.replaceMessage(lastHumanIndex, {

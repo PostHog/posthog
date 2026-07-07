@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 
 import structlog
 import temporalio
@@ -18,7 +18,7 @@ from posthog.temporal.ai_observability.evaluation_types import EvaluationActivit
 from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome
 
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
-from products.ai_observability.backend.models.evaluations import Evaluation
+from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationStatus
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
 logger = structlog.get_logger(__name__)
@@ -70,6 +70,8 @@ async def fetch_evaluation_activity(inputs: RunEvaluationInputs) -> dict[str, An
                 "output_config": evaluation.output_config,
                 "team_id": evaluation.team_id,
                 "model_configuration": model_configuration,
+                "enabled": evaluation.enabled,
+                "deleted": evaluation.deleted,
             }
         except Evaluation.DoesNotExist:
             logger.exception("Evaluation not found", evaluation_id=inputs.evaluation_id)
@@ -126,16 +128,30 @@ async def increment_trial_eval_count_activity(team_id: int) -> int | None:
 
 
 @temporalio.activity.defn
-async def disable_evaluation_activity(evaluation_id: str, team_id: int, status_reason: str = "") -> None:
-    """Transition an evaluation into the ERROR state when the workflow hits a terminal skippable error."""
+async def disable_evaluation_activity(
+    evaluation_id: str, team_id: int, status_reason: str = "", status_reason_detail: str | None = None
+) -> bool:
+    """Transition an evaluation into the ERROR state when the workflow hits a terminal skippable error.
 
-    def _disable() -> None:
+    Returns True only for the first workflow that disables the evaluation. Later in-flight
+    workflows can hit the same terminal error after the first transition, but shouldn't send
+    duplicate disabled notifications or write duplicate activity log rows.
+    """
+
+    def _disable() -> bool:
         reason = status_reason or "trial_limit_reached"
-        evaluation = Evaluation.objects.filter(id=evaluation_id, team_id=team_id).first()
-        if evaluation is not None:
-            evaluation.set_status("error", reason)
+        with transaction.atomic():
+            evaluation = Evaluation.objects.select_for_update().filter(id=evaluation_id, team_id=team_id).first()
+            if evaluation is None:
+                return False
 
-    await database_sync_to_async(_disable)()
+            if evaluation.status == EvaluationStatus.ERROR and not evaluation.enabled:
+                return False
+
+            evaluation.set_status("error", reason, status_reason_detail)
+            return True
+
+    return await database_sync_to_async(_disable)()
 
 
 @dataclass
@@ -228,11 +244,19 @@ class SendEvaluationDisabledEmailInputs:
     evaluation_name: str
     status_reason: str
     human_readable_reason: str
+    disabled_at: datetime | None = None
 
 
 _STATUS_REASON_SUBJECTS = {
     "model_not_allowed": "Your AI observability evaluation was disabled because its model isn't supported on the trial plan",
+    "no_default_model": "Your AI observability evaluation was disabled because no default model is configured",
     "provider_key_deleted": "Your AI observability evaluation was disabled because its provider API key was removed",
+    "provider_key_invalid": "Your AI observability evaluation was disabled because its provider API key is invalid",
+    "provider_key_permission_denied": "Your AI observability evaluation was disabled because its provider API key lacks model access",
+    "provider_key_quota_exceeded": "Your AI observability evaluation was disabled because its provider API key quota was exceeded",
+    "provider_key_rate_limited": "Your AI observability evaluation was disabled because its provider API key is being rate limited",
+    "model_not_found": "Your AI observability evaluation was disabled because its model was not found",
+    "hog_error": "Your AI observability evaluation was disabled because its Hog code failed",
 }
 
 
@@ -260,6 +284,8 @@ async def send_evaluation_disabled_email_activity(inputs: SendEvaluationDisabled
         settings_url = f"/project/{team.pk}/settings/project-ai-observability#ai-observability-byok"
         evaluation_url = f"/project/{team.pk}/ai-evals/evaluations/{inputs.evaluation_id}"
         campaign_key = f"llm_analytics_eval_disabled_{inputs.evaluation_id}_{inputs.status_reason}"
+        if inputs.disabled_at is not None:
+            campaign_key = f"{campaign_key}_{int(inputs.disabled_at.timestamp() * 1_000_000)}"
         subject = _STATUS_REASON_SUBJECTS.get(
             inputs.status_reason, f'Your evaluation "{inputs.evaluation_name}" has been disabled'
         )
@@ -307,6 +333,60 @@ class EmitEvaluationEventInputs:
         }
 
 
+def build_evaluation_event_properties(
+    evaluation: dict[str, Any], result: EvaluationActivityResult, start_time: datetime
+) -> dict[str, Any]:
+    """Assemble the target-independent `$ai_evaluation` properties shared by all emit paths.
+
+    Callers add the target linkage on top ($ai_target_id / $ai_target_type and friends) —
+    generation evals point at the source event UUID, trace evals at the trace id.
+    """
+    allows_na = result.get("allows_na", False)
+    evaluation_type = evaluation.get("evaluation_type", "llm_judge")
+
+    properties: dict[str, Any] = {
+        "$ai_evaluation_id": evaluation["id"],
+        "$ai_evaluation_name": evaluation["name"],
+        "$ai_evaluation_type": "online",
+        "$ai_evaluation_runtime": evaluation_type,
+        "$ai_evaluation_result_type": result["result_type"],
+        "$ai_evaluation_start_time": start_time.isoformat(),
+        "$ai_evaluation_reasoning": result["reasoning"],
+    }
+
+    if result.get("skipped"):
+        properties["$ai_evaluation_skipped"] = True
+        properties["$ai_evaluation_skip_reason"] = result.get("skip_reason")
+
+    if evaluation_type == "llm_judge" and not result.get("skipped"):
+        properties["$ai_model"] = result.get("model", DEFAULT_JUDGE_MODEL)
+        properties["$ai_provider"] = result.get("provider", "openai")
+        properties["$ai_input_tokens"] = result.get("input_tokens", 0)
+        properties["$ai_output_tokens"] = result.get("output_tokens", 0)
+        properties["$ai_evaluation_model"] = result.get("model", DEFAULT_JUDGE_MODEL)
+        properties["$ai_evaluation_provider"] = result.get("provider", "openai")
+        properties["$ai_evaluation_key_type"] = "byok" if result.get("is_byok") else "posthog"
+        properties["$ai_evaluation_key_id"] = result.get("key_id")
+
+    if result["result_type"] == "sentiment":
+        properties["$ai_sentiment_label"] = result.get("sentiment_label")
+        properties["$ai_sentiment_score"] = result.get("sentiment_score")
+        properties["$ai_sentiment_scores"] = result.get("sentiment_scores")
+        properties["$ai_sentiment_messages"] = result.get("sentiment_messages")
+        properties["$ai_sentiment_message_count"] = result.get("sentiment_message_count")
+    else:
+        properties["$ai_evaluation_allows_na"] = allows_na
+        if allows_na:
+            applicable = result.get("applicable", True)
+            properties["$ai_evaluation_applicable"] = applicable
+            if applicable:
+                properties["$ai_evaluation_result"] = result["verdict"]
+        else:
+            properties["$ai_evaluation_result"] = result["verdict"]
+
+    return properties
+
+
 @temporalio.activity.defn
 async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> None:
     """Emit $ai_evaluation event via capture_internal so it routes through the ingestion pipeline for cost calculation."""
@@ -322,64 +402,27 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
             logger.exception("Team not found", team_id=event_data["team_id"])
             raise ValueError(f"Team {event_data['team_id']} not found")
 
-        allows_na = result.get("allows_na", False)
-        evaluation_type = evaluation.get("evaluation_type", "llm_judge")
-
         source_props = (
             json.loads(event_data["properties"])
             if isinstance(event_data["properties"], str)
             else event_data["properties"]
         )
 
-        properties: dict[str, Any] = {
-            "$ai_evaluation_id": evaluation["id"],
-            "$ai_evaluation_name": evaluation["name"],
-            "$ai_evaluation_type": "online",
-            "$ai_evaluation_runtime": evaluation_type,
-            "$ai_evaluation_result_type": result["result_type"],
-            "$ai_evaluation_start_time": start_time.isoformat(),
-            "$ai_evaluation_reasoning": result["reasoning"],
-            "$ai_target_event_id": event_data["uuid"],
-            "$ai_target_event_type": event_data["event"],
-            "$ai_target_id": event_data["uuid"],
-            "$ai_target_type": "generation_uuid",
-            "$ai_trace_id": source_props.get("$ai_trace_id"),
-            "$session_id": source_props.get("$session_id"),
-        }
+        properties = build_evaluation_event_properties(evaluation, result, start_time)
+        properties.update(
+            {
+                "$ai_target_event_id": event_data["uuid"],
+                "$ai_target_event_type": event_data["event"],
+                "$ai_target_id": event_data["uuid"],
+                "$ai_target_type": "generation_uuid",
+                "$ai_trace_id": source_props.get("$ai_trace_id"),
+                "$session_id": source_props.get("$session_id"),
+            }
+        )
 
         for property_name in SOURCE_AI_PROPERTIES_TO_COPY:
             if source_props.get(property_name) is not None:
                 properties[property_name] = source_props[property_name]
-
-        if result.get("skipped"):
-            properties["$ai_evaluation_skipped"] = True
-            properties["$ai_evaluation_skip_reason"] = result.get("skip_reason")
-
-        if evaluation_type == "llm_judge" and not result.get("skipped"):
-            properties["$ai_model"] = result.get("model", DEFAULT_JUDGE_MODEL)
-            properties["$ai_provider"] = result.get("provider", "openai")
-            properties["$ai_input_tokens"] = result.get("input_tokens", 0)
-            properties["$ai_output_tokens"] = result.get("output_tokens", 0)
-            properties["$ai_evaluation_model"] = result.get("model", DEFAULT_JUDGE_MODEL)
-            properties["$ai_evaluation_provider"] = result.get("provider", "openai")
-            properties["$ai_evaluation_key_type"] = "byok" if result.get("is_byok") else "posthog"
-            properties["$ai_evaluation_key_id"] = result.get("key_id")
-
-        if result["result_type"] == "sentiment":
-            properties["$ai_sentiment_label"] = result.get("sentiment_label")
-            properties["$ai_sentiment_score"] = result.get("sentiment_score")
-            properties["$ai_sentiment_scores"] = result.get("sentiment_scores")
-            properties["$ai_sentiment_messages"] = result.get("sentiment_messages")
-            properties["$ai_sentiment_message_count"] = result.get("sentiment_message_count")
-        else:
-            properties["$ai_evaluation_allows_na"] = allows_na
-            if allows_na:
-                applicable = result.get("applicable", True)
-                properties["$ai_evaluation_applicable"] = applicable
-                if applicable:
-                    properties["$ai_evaluation_result"] = result["verdict"]
-            else:
-                properties["$ai_evaluation_result"] = result["verdict"]
 
         event_timestamp = datetime.now(UTC)
 

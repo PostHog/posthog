@@ -236,7 +236,8 @@ export function getMarkdownNotebookNodeTitle(
     }
 
     if (nodeType === NotebookNodeType.Query) {
-        return getQueryTitle(attributes.query) ?? fallback
+        // No fallback label: an unnamed/SQL query stays empty so the title field reads as "Add a title"
+        return getQueryTitle(attributes.query)
     }
     if (nodeType === NotebookNodeType.Embed) {
         return getUnknownStringProp(attributes.src) ?? fallback
@@ -254,7 +255,8 @@ export function getMarkdownNotebookNodeTitle(
         nodeType === NotebookNodeType.DuckSQL ||
         nodeType === NotebookNodeType.HogQLSQL
     ) {
-        return summarizeTitle(getUnknownStringProp(attributes.code)) ?? fallback
+        // Never suggest the code/SQL body itself as a title — fall back to the language label
+        return fallback
     }
 
     return (
@@ -291,7 +293,8 @@ export function getQueryTitle(queryValue: unknown): string | null {
         return getNotebookStringProp(query.name) ?? getNotebookStringProp(query.shortId) ?? 'Saved insight'
     }
     if (sourceKind === 'HogQLQuery') {
-        return summarizeTitle(getNotebookStringProp(source?.query)) ?? 'SQL query'
+        // Leave SQL queries untitled initially — never suggest the SQL body or a generic label
+        return null
     }
     if (sourceKind === 'TrendsQuery') {
         return source ? (getSeriesTitle(source) ?? 'Trend') : 'Trend'
@@ -302,8 +305,12 @@ export function getQueryTitle(queryValue: unknown): string | null {
     if (sourceKind === 'EventsQuery') {
         return 'Events'
     }
+    if (sourceKind === 'ActorsQuery') {
+        return 'People'
+    }
 
-    return queryKind ?? sourceKind
+    // Don't suggest raw schema kinds (e.g. "DataTableNode") as a title
+    return null
 }
 
 export function getSeriesTitle(query: Record<string, NotebookPropValue>): string | null {
@@ -482,6 +489,14 @@ export function MountedRealNotebookNodeComponent({
         isResizeable || attributes.height
             ? { height: attributes.height ?? options.heightEstimate, minHeight: options.minHeight }
             : undefined
+    // Nodes that declare their own minHeight (e.g. LaTeX) size to their content instead of the 8rem default
+    const nodeStyle: CSSProperties | undefined =
+        options.minHeight !== undefined
+            ? ({
+                  '--markdown-notebook-real-node-min-height':
+                      typeof options.minHeight === 'number' ? `${options.minHeight}px` : options.minHeight,
+              } as CSSProperties)
+            : undefined
 
     // Native CSS resize writes to style.height; the new height is persisted on mouseup so the
     // table or visualization keeps its size after reloads.
@@ -537,7 +552,7 @@ export function MountedRealNotebookNodeComponent({
     return (
         <NotebookNodeContext.Provider value={nodeLogic}>
             <BindLogic logic={notebookNodeLogic} props={logicProps}>
-                <div className="MarkdownNotebook__real-node">
+                <div className="MarkdownNotebook__real-node" style={nodeStyle}>
                     {showSettings ? (
                         <div className="MarkdownNotebook__real-node-settings">
                             <Settings attributes={attributes} updateAttributes={updateAttributes} />

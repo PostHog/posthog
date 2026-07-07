@@ -15,8 +15,9 @@ import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsCo
 import { GoalsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/GoalsConfiguration'
 
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'scenes/experiments/constants'
 import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
 import { GitHub, Linear, Slack } from 'scenes/integrations/definitions'
@@ -43,7 +44,6 @@ import {
 import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
-import { ChannelsSection } from 'products/conversations/frontend/scenes/settings/ChannelsSection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
 import { CustomerAnalyticsAccountConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/CustomerAnalyticsAccountConfig'
@@ -168,6 +168,7 @@ import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
 import { UserDangerZone } from './user/UserDangerZone'
 import { UserDetails } from './user/UserDetails'
+import { WebAnalyticsAchievementsSetting } from './user/WebAnalyticsAchievementsSetting'
 
 export const SETTINGS_MAP: SettingSection[] = [
     // ENVIRONMENT
@@ -498,7 +499,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Rate limits',
                 component: <RateLimitSettings />,
                 flag: 'ERROR_TRACKING_RATE_LIMITING',
-                keywords: ['rate', 'limit', 'throttle', 'ingestion', 'cap'],
+                keywords: ['rate', 'limit', 'throttle', 'ingestion', 'cap', 'bypass'],
             },
             {
                 id: 'error-tracking-auto-assignment',
@@ -677,7 +678,17 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'feature-flag-secure-api-key',
                 title: 'Feature flags secure API key',
-                description:
+                description: (
+                    <FlaggedFeature
+                        flag={FEATURE_FLAGS.PROJECT_SECRET_API_KEYS}
+                        fallback="Use this key for local evaluation of feature flags or remote config settings. Replaces personal API keys for local evaluation."
+                    >
+                        Deprecated. This key is still usable for local evaluation of feature flags or remote config
+                        settings, but new integrations should use a project secret API key with the feature_flag:read
+                        scope instead.
+                    </FlaggedFeature>
+                ),
+                searchDescription:
                     'Use this key for local evaluation of feature flags or remote config settings. Replaces personal API keys for local evaluation.',
                 docsUrl: 'https://posthog.com/docs/feature-flags/local-evaluation',
                 component: <FlagsSecureApiKeys />,
@@ -1100,19 +1111,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'domain',
                     'identity',
                     'secret',
-                ],
-            },
-            {
-                id: 'conversations-channels',
-                title: 'Channels',
-                description: 'Choose where customers can reach you. Each channel can be configured independently.',
-                component: <ChannelsSection />,
-                allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: [
-                    'conversation',
-                    'ticket',
-                    'message',
-                    'support',
                     'channel',
                     'widget',
                     'email',
@@ -1879,6 +1877,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'After you take an action in PostHog (creating a feature flag, building a dashboard, etc.), show a small hint that the same action can be done from your IDE via the PostHog MCP. Rate-limited to once a week.',
                 component: <MCPHintsSetting />,
                 keywords: ['mcp', 'claude', 'cursor', 'codex', 'ide', 'hints', 'wizard'],
+            },
+            {
+                id: 'web-analytics-achievements',
+                title: 'Web analytics achievements',
+                description:
+                    'Show playful achievement badges and streaks on the Web analytics dashboard. Applies to your current project.',
+                component: <WebAnalyticsAchievementsSetting />,
+                flag: 'WEB_ANALYTICS_ACHIEVEMENTS',
+                keywords: ['web analytics', 'achievements', 'gamification', 'badges', 'streak'],
             },
             {
                 id: 'hedgehog-mode',

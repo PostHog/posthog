@@ -817,7 +817,7 @@ SELECT
     stack_trace,
 
     JSONExtractInt(log_comment, 'team_id') as team_id,
-    log_comment,
+    if(isValidJSON(log_comment), log_comment, '{}') AS log_comment,
     ProfileEvents
 FROM system.query_log
 WHERE

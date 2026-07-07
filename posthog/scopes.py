@@ -38,7 +38,6 @@ APIScopeObject = Literal[
     "event_filter",
     "dashboard_template",
     "dataset",
-    "desktop_recording",
     "early_access_feature",
     "endpoint",
     "engineering_analytics",
@@ -81,6 +80,7 @@ APIScopeObject = Literal[
     "organization_member",
     "person",
     "plugin",
+    "product_enablement",
     "product_tour",
     "project",
     "property_definition",
@@ -93,6 +93,7 @@ APIScopeObject = Literal[
     "sharing_configuration",
     "signal_scout",
     "signal_scout_internal",
+    "signal_scout_report",
     "streamlit_app",
     "subscription",
     "survey",
@@ -138,6 +139,11 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         # finding emit). Read access for the same surface lives on the public
         # `signal_scout` object so user-grantable PAKs can still inspect runs/memory.
         "signal_scout_internal",
+        # Sandbox-only write for the scout report channel (emit_report / edit_report).
+        # Split out from `signal_scout_internal` so it can be granted ONLY to scouts that
+        # opted into the report tools (via the `signals_scout_reports` posture) — every
+        # other scout's token lacks it, so the MCP server strips those tools entirely.
+        "signal_scout_report",
     }
 )
 

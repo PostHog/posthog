@@ -8,6 +8,7 @@ use super::{deserialize_datetime, serialize_datetime};
 pub enum Source {
     Hoghooks,
     Cyclotron,
+    Exceptions,
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Clone)]
@@ -17,6 +18,8 @@ pub enum Kind {
     Failure,
     Canceled,
     Unknown,
+    #[serde(rename = "rate_limiting")]
+    RateLimiting,
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Clone)]

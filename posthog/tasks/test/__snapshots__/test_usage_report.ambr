@@ -1429,11 +1429,16 @@
   '''
   
   SELECT team_id,
-         COUNT() as count
-  FROM events
-  WHERE event IN ['$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
-    AND timestamp >= '2022-01-10 00:00:00'
-    AND timestamp < '2022-01-10 23:59:59'
+         COUNT() - uniqExactIf(request_id, verified
+                               AND request_id != '') as count
+  FROM
+    (SELECT team_id,
+            JSONExtractBool(properties, '$ai_gateway_verified') as verified,
+            if(verified, JSONExtractString(properties, '$ai_gateway_request_id'), '') as request_id
+     FROM events
+     WHERE event IN ['$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
+       AND timestamp >= '2022-01-10 00:00:00'
+       AND timestamp < '2022-01-10 23:59:59')
   GROUP BY team_id
   '''
 # ---

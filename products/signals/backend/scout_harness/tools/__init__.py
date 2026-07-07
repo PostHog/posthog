@@ -21,6 +21,15 @@ from products.signals.backend.scout_harness.tools.profile import (
     compute_project_profile,
     get_project_profile,
 )
+from products.signals.backend.scout_harness.tools.report import (
+    EditReportResult,
+    EmitReportResult,
+    ReportEvidence,
+    edit_report,
+    edit_report_sync,
+    emit_report,
+    emit_report_sync,
+)
 from products.signals.backend.scout_harness.tools.runs import (
     DEFAULT_RUN_SEARCH_LIMIT,
     MAX_RUN_SEARCH_LIMIT,
@@ -39,6 +48,8 @@ from products.signals.backend.scout_harness.tools.scratchpad import (
 
 __all__ = [
     "DEFAULT_RUN_SEARCH_LIMIT",
+    "EditReportResult",
+    "EmitReportResult",
     "EmitResult",
     "EvidenceEntry",
     "InvalidEmitError",
@@ -49,11 +60,16 @@ __all__ = [
     "MAX_TAGS_PER_FINDING",
     "PROFILE_TTL",
     "ProjectProfile",
+    "ReportEvidence",
     "ScratchpadEntry",
     "RunDetail",
     "RunSummary",
     "compute_project_profile",
+    "edit_report",
+    "edit_report_sync",
     "emit_finding",
+    "emit_report",
+    "emit_report_sync",
     "forget",
     "get_project_profile",
     "get_run",

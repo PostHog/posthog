@@ -35,8 +35,7 @@ import { NotebookArtifactContent } from '~/queries/schema/schema-assistant-messa
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 
-import { MarkdownMessage } from 'products/posthog_ai/frontend/sandbox/MarkdownMessage'
-import { MessageTemplate } from 'products/posthog_ai/frontend/sandbox/messages/MessageTemplate'
+import { MarkdownMessage, MessageTemplate } from 'products/posthog_ai/frontend/api/primitives'
 
 import { MessageStatus } from '../maxLogic'
 import { castAssistantQuery, visualizationTypeToQuery } from '../utils'

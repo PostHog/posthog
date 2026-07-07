@@ -130,6 +130,16 @@ class OrganizationMemberSerializer(SearchMatchTypeSerializerMixin, serializers.M
         return updated_membership
 
 
+class OrganizationMemberGithubLoginSerializer(serializers.Serializer):
+    github_login = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The member's GitHub username (login), resolved from their linked GitHub integration or OAuth "
+            "identity. Null when the member has no GitHub identity linked."
+        ),
+    )
+
+
 @extend_schema(extensions={"x-product": "platform_features"})
 @extend_schema_view(
     list=extend_schema(
@@ -262,6 +272,12 @@ class OrganizationMemberViewSet(
         )
 
         instance.user.leave(organization=instance.organization)
+
+    @extend_schema(responses=OrganizationMemberGithubLoginSerializer)
+    @action(detail=True, methods=["get"], url_path="github_login", required_scopes=["organization_member:read"])
+    def github_login(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = cast(OrganizationMembership, self.get_object())
+        return Response({"github_login": instance.user.get_github_login()})
 
     @action(detail=True, methods=["get"])
     def scoped_api_keys(self, request, *args, **kwargs):

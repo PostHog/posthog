@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     PendingBatch,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
+    OLDEST_UNCLAIMED_BATCH_SECONDS,
     RUNS_RECONCILED_TOTAL,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
@@ -54,6 +55,7 @@ class DeltaBatchConsumerAdapter:
     executing_state: str = SourceBatchStatus.State.EXECUTING.value
     succeeded_state: str = SourceBatchStatus.State.SUCCEEDED.value
     waiting_retry_state: str = SourceBatchStatus.State.WAITING_RETRY.value
+    per_group_connections: bool = True
 
     async def fetch_and_lock(
         self,
@@ -61,11 +63,15 @@ class DeltaBatchConsumerAdapter:
         *,
         limit: int,
         retry_backoff_base_seconds: int,
+        owner_token: str,
+        lease_ttl_seconds: int,
     ) -> list[PendingBatch]:
         return await BatchQueue.get_unprocessed_and_lock(
             conn,
+            owner_token=owner_token,
             limit=limit,
             retry_backoff_base_seconds=retry_backoff_base_seconds,
+            lease_ttl_seconds=lease_ttl_seconds,
         )
 
     async def unlock(
@@ -73,8 +79,17 @@ class DeltaBatchConsumerAdapter:
         conn: psycopg.AsyncConnection[Any],
         *,
         batches: list[PendingBatch],
+        owner_token: str,
     ) -> None:
-        await BatchQueue.unlock_for_batches(conn, batches=batches)
+        await BatchQueue.unlock_for_batches(conn, batches=batches, owner_token=owner_token)
+
+    async def release_all_owned(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        owner_token: str,
+    ) -> None:
+        await BatchQueue.release_all_owned_leases(conn, owner_token=owner_token)
 
     async def update_status(
         self,
@@ -153,8 +168,28 @@ class DeltaBatchConsumerAdapter:
         *,
         team_id: int,
         schema_id: str,
+        owner_token: str,
     ) -> bool:
-        return await BatchQueue.verify_advisory_lock(conn, team_id=team_id, schema_id=schema_id)
+        return await BatchQueue.verify_advisory_lock(
+            conn, team_id=team_id, schema_id=schema_id, owner_token=owner_token
+        )
+
+    async def renew_lease(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+        owner_token: str,
+        lease_ttl_seconds: int,
+    ) -> bool:
+        return await BatchQueue.renew_lease(
+            conn,
+            team_id=team_id,
+            schema_id=schema_id,
+            owner_token=owner_token,
+            lease_ttl_seconds=lease_ttl_seconds,
+        )
 
     async def get_stale_executing(
         self,
@@ -163,7 +198,9 @@ class DeltaBatchConsumerAdapter:
         grace_seconds: int,
         keep_locks: bool = False,
     ) -> list[PendingBatch]:
-        return await BatchQueue.get_stale_executing(conn, grace_seconds=grace_seconds, keep_locks=keep_locks)
+        # keep_locks is meaningless for the lease sink: get_stale_executing holds
+        # no locks and the lease LEFT JOIN already excludes live groups.
+        return await BatchQueue.get_stale_executing(conn, grace_seconds=grace_seconds)
 
     async def reconcile_failed_runs(
         self,
@@ -174,6 +211,10 @@ class DeltaBatchConsumerAdapter:
         limit: int,
     ) -> None:
         """Mark ExternalDataJobs Failed when their run has a failed queue batch but the app-DB write never landed."""
+        # Piggyback the reconcile cadence for the queue-freshness gauge: same
+        # connection, same periodicity, and isolated so it can't break the sweep.
+        await self._observe_queue_freshness(conn)
+
         refs = await BatchQueue.get_failed_runs(
             conn,
             grace_seconds=grace_seconds,
@@ -182,7 +223,7 @@ class DeltaBatchConsumerAdapter:
         )
         for ref in refs:
             try:
-                reconciled = await sync_to_async(_mark_job_failed_if_not_terminal)(
+                reconciled = await sync_to_async(mark_job_failed_if_not_terminal)(
                     job_id=ref.job_id,
                     team_id=ref.team_id,
                     error=ref.reason or "run failed (reconciled from queue)",
@@ -221,6 +262,22 @@ class DeltaBatchConsumerAdapter:
                     )
                     capture_exception(e)
 
+    async def _observe_queue_freshness(self, conn: psycopg.AsyncConnection[Any]) -> None:
+        """Report the age of the oldest batch no consumer has picked up yet.
+
+        This is the loader's data-freshness signal: it rises whenever loading
+        stalls, no matter why — the alert on it fires even when every other
+        health signal looks green. Failures are swallowed-with-capture so a
+        broken probe can't take the reconcile sweep down with it.
+        """
+        try:
+            age = await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn)
+        except Exception as e:
+            logger.exception("queue_freshness_probe_failed")
+            capture_exception(e)
+            return
+        OLDEST_UNCLAIMED_BATCH_SECONDS.set(age or 0.0)
+
     async def should_process_batch(
         self,
         conn: psycopg.AsyncConnection[Any],
@@ -254,7 +311,7 @@ class BatchConsumer(SharedBatchConsumer):
 
 
 def _update_job_status_to_failed(*, job_id: str, team_id: int, error: str) -> None:
-    from products.data_warehouse.backend.logic.external_data_source.jobs import update_external_job_status
+    from products.data_warehouse.backend.facade.api import update_external_job_status
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
     # Drop stale app-DB connections so this write reconnects instead of leaving the job stuck in Running.
@@ -273,8 +330,12 @@ def _update_job_status_to_failed(*, job_id: str, team_id: int, error: str) -> No
     )
 
 
-def _mark_job_failed_if_not_terminal(*, job_id: str, team_id: int, error: str) -> bool:
-    """Mark a non-terminal ExternalDataJob Failed; returns True if it transitioned (terminal jobs are a no-op)."""
+def mark_job_failed_if_not_terminal(*, job_id: str, team_id: int, error: str) -> bool:
+    """Mark a non-terminal ExternalDataJob Failed; returns True if it transitioned (terminal jobs are a no-op).
+
+    Public seam shared by the reconcile sweep and the manage_warehouse_queue ops
+    command, so both fail paths agree on the terminal-status check.
+    """
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
     close_old_connections()
@@ -300,4 +361,5 @@ __all__ = [
     "RECOVERY_INTERVAL_SECONDS",
     "RETRY_BACKOFF_BASE_SECONDS",
     "_group_by_key",
+    "mark_job_failed_if_not_terminal",
 ]

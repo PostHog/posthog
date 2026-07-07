@@ -126,32 +126,26 @@ describe('chat trigger: real e2e', () => {
         expect(res.body).toMatchObject({ error: 'no_chat_trigger' })
     })
 
-    it('stamps client_kind on the session row when X-PostHog-Client is supplied at /run', async () => {
+    it('stamps supported_client_tools from the /run body', async () => {
         c.setScript([fauxText('ok')])
-        await c.deployAgent({ slug: 'kind' })
+        await c.deployAgent({ slug: 'supports' })
         const res = await request(c.ingress)
-            .post('/agents/kind/run')
-            .set('X-PostHog-Client', 'posthog-code')
-            .send({ message: 'hi' })
+            .post('/agents/supports/run')
+            .send({ message: 'hi', supported_client_tools: ['connect_mcp', 'set_secret'] })
         expect(res.status).toBe(200)
         const session = await c.queue.get(res.body.session_id)
-        // Posthog-code is the only recognised value today; the runner
-        // gates the approval-URL prose on this exact string.
-        expect(session!.trigger_metadata).toMatchObject({ kind: 'chat', client_kind: 'posthog-code' })
+        expect(session!.trigger_metadata).toEqual({
+            kind: 'chat',
+            supported_client_tools: ['connect_mcp', 'set_secret'],
+        })
     })
 
-    it('drops an unrecognised X-PostHog-Client value silently (no client_kind stamped)', async () => {
+    it('omits supported_client_tools when none are supplied', async () => {
         c.setScript([fauxText('ok')])
-        await c.deployAgent({ slug: 'kind-unknown' })
-        const res = await request(c.ingress)
-            .post('/agents/kind-unknown/run')
-            .set('X-PostHog-Client', 'not-a-real-client')
-            .send({ message: 'hi' })
+        await c.deployAgent({ slug: 'supports-none' })
+        const res = await request(c.ingress).post('/agents/supports-none/run').send({ message: 'hi' })
         expect(res.status).toBe(200)
         const session = await c.queue.get(res.body.session_id)
-        // Unrecognised → null; never crash, never store the unknown value
-        // (so a future allowlist add can't pick up stale rows from old
-        // clients that guessed the new name).
         expect(session!.trigger_metadata).toEqual({ kind: 'chat' })
     })
 })

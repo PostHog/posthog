@@ -30,10 +30,19 @@ from dataclasses import (
 from datetime import UTC, datetime
 from typing import Any
 
+import pyarrow as pa
+
+from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCTransactionTooLargeError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.position import PgLSN
 
 logger = logging.getLogger(__name__)
+
+# A transaction is buffered entirely in memory until its COMMIT, when every event is yielded
+# at once. Cap the buffer so a single pathologically large transaction can't OOM the worker;
+# the orchestration layer classifies CDCTransactionTooLargeError as a non-retryable failure.
+# Spill-to-disk is out of scope.
+MAX_TX_BUFFER_EVENTS = 500_000
 
 # PostgreSQL epoch: 2000-01-01 00:00:00 UTC
 # Timestamps in pgoutput are microseconds since this epoch
@@ -73,6 +82,9 @@ class Relation:
     table_name: str
     replica_identity: int  # 0=default, 1=nothing, 2=full, 3=index
     columns: list[RelationColumn] = field(default_factory=list)
+    # Arrow type per column, derived once from the column OIDs. Stamped onto every
+    # ChangeEvent so the batcher types all-null micro-batches consistently.
+    column_arrow_types: dict[str, pa.DataType] = field(default_factory=dict)
 
     @property
     def qualified_name(self) -> str:
@@ -221,6 +233,7 @@ class PgOutputDecoder:
             table_name=table_name,
             replica_identity=replica_identity,
             columns=columns,
+            column_arrow_types={col.name: _arrow_type_for_oid(col.type_oid) for col in columns},
         )
 
     def _handle_insert(self, payload: bytes, lsn: str) -> None:
@@ -235,13 +248,14 @@ class PgOutputDecoder:
 
         columns = _decode_tuple(tuple_data, relation)
 
-        self._tx_buffer.append(
+        self._buffer_event(
             ChangeEvent(
                 operation="I",
                 table_name=relation.qualified_name,
                 position_serialized=lsn,
                 timestamp=self._tx_timestamp or datetime.now(tz=UTC),
                 columns=columns,
+                column_types=relation.column_arrow_types,
             )
         )
 
@@ -272,13 +286,14 @@ class PgOutputDecoder:
 
         columns = _decode_tuple(payload[offset:], relation)
 
-        self._tx_buffer.append(
+        self._buffer_event(
             ChangeEvent(
                 operation="U",
                 table_name=relation.qualified_name,
                 position_serialized=lsn,
                 timestamp=self._tx_timestamp or datetime.now(tz=UTC),
                 columns=columns,
+                column_types=relation.column_arrow_types,
             )
         )
 
@@ -302,13 +317,14 @@ class PgOutputDecoder:
 
         columns = _decode_tuple(payload[offset:], relation)
 
-        self._tx_buffer.append(
+        self._buffer_event(
             ChangeEvent(
                 operation="D",
                 table_name=relation.qualified_name,
                 position_serialized=lsn,
                 timestamp=self._tx_timestamp or datetime.now(tz=UTC),
                 columns=columns,
+                column_types=relation.column_arrow_types,
             )
         )
 
@@ -344,6 +360,14 @@ class PgOutputDecoder:
         if relation is None:
             logger.warning("Received event for unknown relation_id %d — missing R message?", relation_id)
         return relation
+
+    def _buffer_event(self, event: ChangeEvent) -> None:
+        """Buffer a decoded change until COMMIT, guarding against an unbounded transaction."""
+        self._tx_buffer.append(event)
+        if len(self._tx_buffer) > MAX_TX_BUFFER_EVENTS:
+            raise CDCTransactionTooLargeError(
+                f"Transaction buffered more than {MAX_TX_BUFFER_EVENTS} changes before COMMIT"
+            )
 
 
 def _read_cstring(data: bytes, offset: int) -> tuple[str, int]:
@@ -415,6 +439,24 @@ def _skip_tuple(data: bytes, offset: int, relation: Relation) -> tuple[dict[str,
     # Decode the tuple we just skipped for return value
     columns = _decode_tuple(data[start:offset], relation)
     return columns, offset
+
+
+def _arrow_type_for_oid(type_oid: int) -> pa.DataType:
+    """Arrow type matching the Python value ``_cast_text_value`` produces for this OID.
+
+    Must stay in lockstep with ``_cast_text_value``: bool→bool_, integers→int64,
+    floats→float64, everything else (numeric, json, text, …) stays string. Used to
+    type a column the same way in every micro-batch, so an all-null flush is not
+    inferred as string and then rejected when merged with a concrete int64 flush.
+    """
+    if type_oid == _OID_BOOL:
+        return pa.bool_()
+    elif type_oid in (_OID_INT2, _OID_INT4, _OID_INT8):
+        return pa.int64()
+    elif type_oid in (_OID_FLOAT4, _OID_FLOAT8):
+        return pa.float64()
+    else:
+        return pa.string()
 
 
 def _cast_text_value(text: str, type_oid: int) -> Any:

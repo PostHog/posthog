@@ -53,6 +53,17 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
 }
 let codeEditorIndex = 0
 
+// Monaco measures glyph dimensions when an editor is created. If a web font is still
+// loading at that moment it can latch onto stale (oversized) metrics and never relayout,
+// surfacing as a giant-font editor (notably in visual snapshots). Remeasure once fonts
+// settle so first paint — and the captured snapshot — is deterministic.
+function remeasureFontsWhenReady(monaco: Monaco): void {
+    if (typeof document === 'undefined' || !document.fonts) {
+        return
+    }
+    void document.fonts.ready.then(() => monaco.editor.remeasureFonts())
+}
+
 function initEditor(
     monaco: Monaco,
     editor: importedEditor.IStandaloneCodeEditor,
@@ -404,6 +415,7 @@ export function CodeEditor({
         trackEditorModels(editor, monaco)
         setMonacoAndEditor([monaco, editor])
         initEditor(monaco, editor, editorProps, options ?? {}, builtCodeEditorLogic)
+        remeasureFontsWhenReady(monaco)
 
         // Override Monaco's suggestion widget styling to prevent truncation
         const styleId = 'monaco-suggestion-widget-fix'
@@ -518,6 +530,7 @@ export function CodeEditor({
                 editorModelsRef.current.add(original)
             }
             setMonacoAndEditor([monaco, modifiedEditor])
+            remeasureFontsWhenReady(monaco)
 
             if (editorProps.onChange) {
                 const disposable = modifiedEditor.onDidChangeModelContent((event: editor.IModelContentChangedEvent) => {

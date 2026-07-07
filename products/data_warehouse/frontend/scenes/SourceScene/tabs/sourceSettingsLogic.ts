@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
@@ -694,8 +695,11 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                                     fileReader.readAsText(sanitizedPayload[field.name][0])
                                 })
                                 newJobInputs[field.name] = JSON.parse(loadedFile)
-                            } catch {
-                                lemonToast.error('File is not valid')
+                            } catch (e: any) {
+                                posthog.captureException(e)
+                                lemonToast.error(
+                                    `The "${field.name}" file is not valid — it must be a readable JSON file.`
+                                )
                                 return
                             }
                         }
@@ -712,6 +716,11 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     })
                     actions.loadSource()
                     lemonToast.success('Source updated')
+                    tryShowMCPHint('data_warehouse_sources.update', {
+                        derivedPrompt: values.source?.source_type
+                            ? `Update the configuration on my ${values.source.source_type} source`
+                            : undefined,
+                    })
                 } catch (e: any) {
                     if (e.message) {
                         lemonToast.error(e.message)

@@ -1,9 +1,8 @@
-import time
 from typing import Any, cast
 from uuid import uuid4
 
 from freezegun import freeze_time
-from posthog.test.base import BaseTest, FuzzyInt, _create_event
+from posthog.test.base import BaseTest, FuzzyInt, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
 from django.test import override_settings
@@ -102,7 +101,7 @@ class TestQuotaLimiting(BaseTest):
                 )
 
         org_id = str(self.organization.id)
-        time.sleep(1)
+        flush_persons_and_events()
 
         quota_limited_orgs, quota_limiting_suspended_orgs, _stats = update_all_orgs_billing_quotas()
         # feature_enabled will be called for AI billing check and then for data retention flag
@@ -225,7 +224,7 @@ class TestQuotaLimiting(BaseTest):
         self.organization.customer_trust_scores = zero_trust_scores()
         self.organization.save()
 
-        time.sleep(1)
+        flush_persons_and_events()
         with self.assertNumQueries(FuzzyInt(3, 9)):
             quota_limited_orgs, quota_limiting_suspended_orgs, _stats = update_all_orgs_billing_quotas()
         assert patch_capture.call_count == 0  # No events should be captured since org won't be limited
@@ -333,7 +332,7 @@ class TestQuotaLimiting(BaseTest):
                     timestamp=now(),
                     team=self.team,
                 )
-            time.sleep(1)
+            flush_persons_and_events()
             quota_limited_orgs, quota_limiting_suspended_orgs, _stats = update_all_orgs_billing_quotas()
             # Will be immediately rate limited as trust score was unset.
             org_id = str(self.organization.id)
@@ -1829,7 +1828,7 @@ class TestQuotaLimiting(BaseTest):
                     timestamp=now() - relativedelta(hours=1),
                     team=self.team,
                 )
-            time.sleep(1)
+            flush_persons_and_events()
 
             fresh_usage = {
                 "events": {"usage": 0, "limit": 10_000_000, "todays_usage": 0},
@@ -1910,7 +1909,7 @@ class TestQuotaLimiting(BaseTest):
                     timestamp=now() - relativedelta(hours=1),
                     team=self.team,
                 )
-            time.sleep(1)
+            flush_persons_and_events()
 
             mid_loop_webhook = {
                 "events": {"usage": 0, "limit": 50_000_000, "todays_usage": 0},
@@ -1980,7 +1979,7 @@ class TestQuotaLimiting(BaseTest):
                     timestamp=now() - relativedelta(hours=1),
                     team=self.team,
                 )
-            time.sleep(1)
+            flush_persons_and_events()
 
             # A billing webhook lands a fresh paid plan with much higher limits before
             # the org loop reaches this org.
@@ -2045,7 +2044,7 @@ class TestQuotaLimiting(BaseTest):
                     timestamp=now() - relativedelta(hours=1),
                     team=self.team,
                 )
-            time.sleep(1)
+            flush_persons_and_events()
 
             # Mid-loop downgrade lands a much lower limit; the 50 events from
             # ClickHouse now exceed it. A candidate-refresh would catch this; a

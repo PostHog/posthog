@@ -775,7 +775,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     def _earliest_timestamp(self) -> datetime | None:
         if self.query.dateRange and self.query.dateRange.date_from == "all":
             # Get earliest timestamp across all series in this insight
-            return get_earliest_timestamp_from_series(team=self.team, series=[series.series for series in self.series])
+            return get_earliest_timestamp_from_series(
+                team=self.team, series=[series.series for series in self.series], user=self.user
+            )
 
         return None
 
@@ -1148,9 +1150,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
             table_or_view = get_view_or_table_by_name(self.team, series.table_name)
 
-            if not table_or_view:
-                raise ValueError(f"Table {series.table_name} not found")
-            if table_or_view.columns is None:
+            # A DataWarehouseNode may target a native HogQL table (e.g. a preaggregated table) that has
+            # no warehouse-catalog entry — it's simply not a boolean breakdown field, so fall through.
+            if not table_or_view or table_or_view.columns is None:
                 return False
 
             breakdown_key = breakdown_value[0] if isinstance(breakdown_value, list) else breakdown_value

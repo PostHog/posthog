@@ -22,6 +22,7 @@ from posthog.test.base import (
 )
 from unittest.mock import MagicMock, Mock, patch
 
+from django.apps import apps
 from django.test import TestCase
 from django.utils.timezone import now
 
@@ -76,8 +77,7 @@ from products.batch_exports.backend.models.batch_export import (
 )
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
@@ -90,6 +90,8 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSourceTy
 from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.materialized_columns.columns import materialize
 from ee.models.license import License
+
+ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
 
 logger = structlog.get_logger(__name__)
 
@@ -5510,6 +5512,98 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
 
         billable_result_final = get_teams_with_billable_event_count_in_period(self.begin, self.end)
         self.assertEqual(billable_result_final[0][1], baseline_count + 1)
+
+    def test_gateway_verified_ai_events_excluded_from_ai_count(self) -> None:
+        """Gateway-originated events carry the ingestion-verified $ai_gateway_verified
+        marker and are billed via the gateway wallet, so they must not be counted in
+        the AIO llm_events meter (double-billing)."""
+        from posthog.tasks.usage_report import get_teams_with_ai_event_count_in_period
+
+        def ai_count() -> int:
+            result = get_teams_with_ai_event_count_in_period(self.begin, self.end)
+            return result[0][1] if result else 0
+
+        baseline_count = ai_count()
+
+        # Normal AI events: counted.
+        for i in range(3):
+            _create_event(
+                event="$ai_generation",
+                team=self.team,
+                distinct_id=f"sdk_ai_user_{i}",
+                timestamp=self.begin + relativedelta(hours=i + 1),
+                properties={"$ai_model": "claude-3"},
+            )
+        flush_persons_and_events()
+        self.assertEqual(ai_count(), baseline_count + 3, "normal AI events should be counted")
+
+        # Gateway-verified events with distinct (signature-bound) request_ids:
+        # each earns one exemption, so the count must not move.
+        for i in range(2):
+            _create_event(
+                event="$ai_generation",
+                team=self.team,
+                distinct_id=f"gateway_ai_user_{i}",
+                timestamp=self.begin + relativedelta(hours=i + 1),
+                properties={
+                    "$ai_model": "claude-3",
+                    "$ai_gateway_verified": True,
+                    "$ai_gateway_request_id": f"gw-req-{i}",
+                },
+            )
+        flush_persons_and_events()
+        self.assertEqual(ai_count(), baseline_count + 3, "gateway-verified events should be excluded")
+
+        # Client-forged $ai_gateway without the ingestion-verified marker: still
+        # counted, since the filter keys only on $ai_gateway_verified (which a
+        # client can't set — ingestion strips $ai_gateway* and stamps it).
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="forged_gateway_user",
+            timestamp=self.begin + relativedelta(hours=1),
+            properties={"$ai_model": "claude-3", "$ai_gateway": True},
+        )
+        flush_persons_and_events()
+        self.assertEqual(ai_count(), baseline_count + 4, "forged $ai_gateway (no verified marker) should be counted")
+
+        # Replay: three verified events sharing one request_id (a captured signature
+        # replayed) earn only a single exemption — the other two stay billable.
+        for i in range(3):
+            _create_event(
+                event="$ai_generation",
+                team=self.team,
+                distinct_id=f"replay_user_{i}",
+                timestamp=self.begin + relativedelta(hours=i + 1),
+                properties={
+                    "$ai_model": "claude-3",
+                    "$ai_gateway_verified": True,
+                    "$ai_gateway_request_id": "replayed-req",
+                },
+            )
+        flush_persons_and_events()
+        self.assertEqual(
+            ai_count(),
+            baseline_count + 6,
+            "a replayed request_id earns one exemption; the other two replays stay billable",
+        )
+
+        # Verified but no request_id: can't be deduped, so they stay billable
+        # rather than collapsing the empty-string bucket into one exemption.
+        for i in range(2):
+            _create_event(
+                event="$ai_generation",
+                team=self.team,
+                distinct_id=f"no_req_id_user_{i}",
+                timestamp=self.begin + relativedelta(hours=i + 1),
+                properties={"$ai_model": "claude-3", "$ai_gateway_verified": True},
+            )
+        flush_persons_and_events()
+        self.assertEqual(
+            ai_count(),
+            baseline_count + 8,
+            "verified events with no request_id are not blanket-deduped; both stay counted",
+        )
 
     def test_conversations_events_excluded_from_billable_count(self) -> None:
         """Test that Conversations widget events are excluded from billable event counts."""

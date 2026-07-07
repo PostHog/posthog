@@ -28,7 +28,7 @@ describe('sqlChartComponentFor', () => {
         ['bar', ChartDisplayType.ActionsBar, true, 'SqlBarGraph'],
         ['line with the flag off', ChartDisplayType.ActionsLineGraph, false, 'LegacyLineGraph'],
         // Pie is not routed here — it has its own wrapper (see PieChart.test.tsx).
-        ['pie (handled by the PieChart wrapper, not here)', ChartDisplayType.ActionsPie, true, 'LegacyLineGraph'],
+        ['pie (handled by the PieChart wrapper, not here)', ChartDisplayType.ActionsPie, true, 'SqlLineGraph'],
     ])('routes %s to the right component', (_name, visualizationType, newChartsEnabled, expected) => {
         expect(sqlChartComponentFor(baseProps(visualizationType), newChartsEnabled).name).toBe(expected)
     })

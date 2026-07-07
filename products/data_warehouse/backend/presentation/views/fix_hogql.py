@@ -22,7 +22,7 @@ class FixHogQLViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
     def create(self, request: Request, *args, **kwargs) -> Response:
-        from products.data_warehouse.backend.hogql_fixer_ai import HogQLQueryFixerTool
+        from products.data_warehouse.backend.facade.api import HogQLQueryFixerTool
 
         query = request.data.get("query", None)
         error = request.data.get("error", "")

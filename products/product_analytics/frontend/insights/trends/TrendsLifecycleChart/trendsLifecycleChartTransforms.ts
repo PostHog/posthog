@@ -1,4 +1,10 @@
-import type { Series, TimeInterval, TimeSeriesBarChartConfig, ValueLabelFormatter } from '@posthog/quill-charts'
+import type {
+    Series,
+    TimeInterval,
+    TimeSeriesBarChartConfig,
+    ValueLabelFormatter,
+    YAxisConfig,
+} from '@posthog/quill-charts'
 
 import { buildTrendsYAxisConfig } from '../shared/trendsAxisFormat'
 import type { YFormatterFields } from '../shared/trendsChartDisplayOptions'
@@ -30,8 +36,13 @@ export interface LifecycleValueLabelOptions {
     showPercentages: boolean
 }
 
-// Each segment's percentage is its share of the band's absolute total — `abs` so the negative
-// dormant series contributes a sensible denominator instead of cancelling the positives.
+// Positives only — dormant is the lone negative series, so it's excluded from the active total.
+function activeBandTotal(bandValues: number[] | undefined): number {
+    return (bandValues ?? []).reduce((sum, v) => (v > 0 ? sum + v : sum), 0)
+}
+
+// Dormant orgs lapsed from the *previous* period's active pool, so their share divides by that
+// period's total rather than the current one.
 export function buildLifecycleValueLabelFormatter(
     formatValue: (value: number) => string,
     { showValues, showPercentages }: LifecycleValueLabelOptions
@@ -41,11 +52,15 @@ export function buildLifecycleValueLabelFormatter(
         if (!showPercentages || context.isPercent) {
             return valueText
         }
-        const absTotal = context.bandValues.reduce((sum, v) => sum + Math.abs(v), 0)
-        if (absTotal === 0) {
-            return valueText
+        const isDormant = context.rawValue < 0
+        const denominator = isDormant
+            ? activeBandTotal(context.previousBandValues)
+            : activeBandTotal(context.bandValues)
+        if (denominator === 0) {
+            // Dormant in the first period has no previous band to divide by — show its value rather than blank.
+            return isDormant ? formatValue(value) : valueText
         }
-        const pct = Math.round((Math.abs(context.rawValue) / absTotal) * 100)
+        const pct = Math.round((Math.abs(context.rawValue) / denominator) * 100)
         return showValues ? `${valueText} (${pct}%)` : `${pct}%`
     }
 }
@@ -115,7 +130,9 @@ export interface BuildTrendsLifecycleConfigOpts {
     legend?: TimeSeriesBarChartConfig['legend']
 }
 
-export function buildTrendsLifecycleConfig(opts: BuildTrendsLifecycleConfigOpts): TimeSeriesBarChartConfig {
+export function buildTrendsLifecycleConfig(
+    opts: BuildTrendsLifecycleConfigOpts
+): TimeSeriesBarChartConfig & { yAxis?: YAxisConfig } {
     const yAxis = buildTrendsYAxisConfig(opts.trendsFilter, false, opts.baseCurrency, {
         yAxisScaleType: opts.yAxisScaleType,
         showGrid: true,

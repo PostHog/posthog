@@ -12,11 +12,11 @@ import { DataTableNode, NodeKind, RecordingsQuery } from '~/queries/schema/schem
 import { isInsightQueryNode } from '~/queries/utils'
 import { RecordingUniversalFilters } from '~/types'
 
-import type { SandboxToolCallMessage } from '../../maxTypes'
+import type { ToolCallMessage } from '../../maxTypes'
 
 /**
  * Shared shape extractors for the sandbox MCP tool renderer widgets. Each turns a flattened
- * `SandboxToolCallMessage` (built by `sandboxStreamLogic` from ACP frames) into the props the atomic
+ * `ToolCallMessage` (built by `runStreamLogic` from ACP frames) into the props the atomic
  * `messages/*` widgets expect.
  */
 
@@ -42,7 +42,7 @@ const QUERY_WRAPPER_KIND_BY_TOOL_KEY: Record<string, NodeKind> = {
     'query-retention-actors': NodeKind.InsightActorsQuery,
 }
 
-function queryFromToolInput(message: SandboxToolCallMessage): Record<string, unknown> | null {
+function queryFromToolInput(message: ToolCallMessage): Record<string, unknown> | null {
     const input = asRecord(message.innerInput)
     if (!input) {
         return null
@@ -71,7 +71,7 @@ export interface VisualizationArtifactExtraction {
  * (create / update / get) carry a `short_id` in the REST payload (or an explicit `artifact_id`);
  * query-only outputs carry neither and render inline as ephemeral visualizations.
  */
-export function extractVisualizationArtifact(message: SandboxToolCallMessage): VisualizationArtifactExtraction | null {
+export function extractVisualizationArtifact(message: ToolCallMessage): VisualizationArtifactExtraction | null {
     const output = asRecord(message.rawOutput)
     if (!output) {
         return null
@@ -117,7 +117,7 @@ export interface QueryResultExtraction {
  * table-renderable kinds are wrapped in a `DataTableNode` here. Kinds without an inline
  * renderer (e.g. a single LLM trace) return null and fall back to the generic card.
  */
-export function extractQueryResult(message: SandboxToolCallMessage): QueryResultExtraction | null {
+export function extractQueryResult(message: ToolCallMessage): QueryResultExtraction | null {
     const output = asRecord(message.rawOutput)
     const query = (output ? asRecord(output.query) : null) ?? queryFromToolInput(message)
     if (!query || typeof query.kind !== 'string') {
@@ -160,7 +160,7 @@ export interface DashboardExtraction {
     url?: string
 }
 
-export function extractDashboard(message: SandboxToolCallMessage): DashboardExtraction | null {
+export function extractDashboard(message: ToolCallMessage): DashboardExtraction | null {
     const output = asRecord(message.rawOutput)
     if (!output) {
         return null
@@ -179,7 +179,7 @@ export function extractDashboard(message: SandboxToolCallMessage): DashboardExtr
  * ready-made universal filters object under `rawOutput.filters` is passed through. Anything else
  * falls back to the generic card rather than feeding the playlist a shape it can't use.
  */
-export function extractRecordingFilters(message: SandboxToolCallMessage): RecordingUniversalFilters | null {
+export function extractRecordingFilters(message: ToolCallMessage): RecordingUniversalFilters | null {
     const output = asRecord(message.rawOutput)
     if (!output) {
         return null
@@ -222,7 +222,7 @@ const ERROR_TRACKING_RESPONSE_KEYS: readonly (keyof MaxErrorTrackingSearchRespon
  * previews) for `ErrorTrackingFiltersWidget`. Outputs that carry none of its fields — e.g. a raw
  * REST issues list — fall back to the generic card instead of rendering empty filter chips.
  */
-export function extractErrorTrackingResponse(message: SandboxToolCallMessage): MaxErrorTrackingSearchResponse | null {
+export function extractErrorTrackingResponse(message: ToolCallMessage): MaxErrorTrackingSearchResponse | null {
     const output = asRecord(message.rawOutput)
     if (!output || !ERROR_TRACKING_RESPONSE_KEYS.some((key) => key in output)) {
         return null

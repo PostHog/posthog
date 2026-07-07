@@ -7,8 +7,7 @@ from unittest.mock import patch
 from asgiref.sync import sync_to_async
 
 from posthog.models import Team
-from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.person_db_router import PERSONS_DB_FOR_WRITE
+from posthog.persons_db import persons_db_connection
 from posthog.temporal.backfill_group_type_created_at.activities import (
     _build_backfill_plan,
     apply_group_type_created_at_backfill,
@@ -22,6 +21,8 @@ from posthog.temporal.backfill_group_type_created_at.types import (
 )
 from posthog.test.persons import create_group_type_mapping
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+pytestmark = pytest.mark.persons_db_direct
 
 CREATED_AT = datetime(2026, 5, 31, 22, 33, tzinfo=UTC)
 EARLIER = datetime(2026, 5, 12, 0, 0, tzinfo=UTC)
@@ -105,21 +106,22 @@ def _seed_event(team: Team, distinct_id: str, group_index: int, group_key: str, 
 
 
 def _read_created_at(project_id: int, index: int) -> datetime | None:
-    return (
-        GroupTypeMapping.objects.using(PERSONS_DB_FOR_WRITE)  # nosemgrep: no-direct-persons-db-orm
-        .get(project_id=project_id, group_type_index=index)
-        .created_at
-    )
+    with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT created_at FROM posthog_grouptypemapping WHERE project_id = %s AND group_type_index = %s",
+            (project_id, index),
+        )
+        row = cursor.fetchone()
+        return row[0] if row else None
 
 
-@pytest.mark.django_db(transaction=True, databases=["default", "persons_db_writer", "persons_db_reader"])
+@pytest.mark.django_db(transaction=True)
 class TestPlanGroupTypeCreatedAtBackfillIntegration:
     @pytest.fixture(autouse=True)
     def setup(self, team, activity_environment):
         self.team = team
         self.activity_environment = activity_environment
         yield
-        GroupTypeMapping.objects.filter(project_id=self.team.project_id).delete()
 
     @pytest.mark.asyncio
     async def test_lowers_created_at_to_earliest_event(self):
@@ -250,14 +252,13 @@ class TestPlanGroupTypeCreatedAtBackfillIntegration:
         assert datetime.fromisoformat(result["updates"][0]["new_created_at"]) == datetime(2023, 3, 1, tzinfo=UTC)
 
 
-@pytest.mark.django_db(transaction=True, databases=["default", "persons_db_writer", "persons_db_reader"])
+@pytest.mark.django_db(transaction=True)
 class TestApplyGroupTypeCreatedAtBackfillIntegration:
     @pytest.fixture(autouse=True)
     def setup(self, team, activity_environment):
         self.team = team
         self.activity_environment = activity_environment
         yield
-        GroupTypeMapping.objects.filter(project_id=self.team.project_id).delete()
 
     def _update(self, index: int, new_created_at: datetime) -> GroupTypeUpdate:
         return {
@@ -333,8 +334,6 @@ class TestApplyGroupTypeCreatedAtBackfillIntegration:
         assert await sync_to_async(_read_created_at)(self.team.project_id, 0) == target
         # The other project's mapping must be untouched.
         assert await sync_to_async(_read_created_at)(other_project_id, 0) == MAPPING_CREATED_AT
-
-        await sync_to_async(GroupTypeMapping.objects.filter(project_id=other_project_id).delete)()
 
     @pytest.mark.asyncio
     async def test_invalidates_group_types_cache(self):

@@ -1,6 +1,5 @@
-// Collapses a PR's raw lifecycle events (opened, ci_started, ci_finished, merged,
-// closed — one pair per workflow run, so dozens per PR) into the few facts the
-// drill-in panel renders: milestones plus a verdict rollup with failures called out.
+// Collapses a PR's raw lifecycle events (opened, ci_started, ci_finished, merged, closed — dozens per
+// PR) into the facts the drill-in panel renders: milestones plus a verdict rollup.
 
 import type { PRLifecycleEventApi } from '../generated/api.schemas'
 
@@ -43,9 +42,14 @@ export function isPassingConclusion(conclusion: string): boolean {
     return PASSING_CONCLUSIONS.has(conclusion)
 }
 
+/** A decisive failure — the verdict that turns a run red. Cancelled/skipped/neutral are not failures. */
+export function isDecisiveFailure(conclusion: string | null): boolean {
+    return conclusion === 'failure' || conclusion === 'timed_out'
+}
+
 /**
- * ci_finished detail is "workflow name: conclusion" (the name itself may contain ": "), assembled
- * by backend/logic/queries/pr_lifecycle.py from structured fields the API then flattens.
+ * ci_finished detail is "workflow name: conclusion" (the name may contain ": "), flattened by the API
+ * from structured backend fields.
  * TODO: expose workflow/conclusion as structured fields on PRLifecycleEventApi and delete this parse.
  */
 function parseFinishedDetail(detail: string | null | undefined): { workflow: string; conclusion: string | null } {
@@ -60,9 +64,8 @@ function parseFinishedDetail(detail: string | null | undefined): { workflow: str
 }
 
 /**
- * Pairs ci_started / ci_finished events into per-workflow runs with durations.
- * Pairing is FIFO by workflow name (re-runs of the same workflow pair in order);
- * a finish without a matching start (events outside the window) still yields a row.
+ * Pairs ci_started / ci_finished events into per-workflow runs with durations, FIFO by workflow name.
+ * A finish without a matching start (events outside the window) still yields a row.
  */
 export function workflowRuns(events: PRLifecycleEventApi[]): WorkflowRun[] {
     const runs: WorkflowRun[] = []

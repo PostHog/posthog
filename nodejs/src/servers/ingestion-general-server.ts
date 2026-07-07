@@ -14,6 +14,8 @@ import {
 import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
 import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
+import { HogTransformerComponent } from '~/common/hog-transformations/hog-transformer-component'
+import { IngestionOutputsComponent } from '~/common/outputs/ingestion-outputs'
 import { PersonHogConfig, buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 import { ServerCommands } from '~/common/utils/commands'
@@ -24,14 +26,15 @@ import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
 import { TeamManagerComponent } from '~/common/utils/team-manager'
 import { CookielessManagerComponent } from '~/ingestion/common/cookieless/cookieless-manager'
-import { KafkaProducerRegistryComponent } from '~/ingestion/common/producer-registry'
+import { KafkaProducerRegistryComponent } from '~/ingestion/common/outputs/producer-registry'
 import {
     KafkaDownstreamProducerEnvConfig,
     KafkaUpstreamProducerEnvConfig,
     getDefaultKafkaDownstreamProducerEnvConfig,
     getDefaultKafkaUpstreamProducerEnvConfig,
-} from '~/ingestion/common/producers'
-import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
+} from '~/ingestion/common/outputs/producers'
+import { createAiConsumer, createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
+import { createOutputsRegistry as createAiOutputsRegistry } from '~/ingestion/pipelines/ai/outputs/registry'
 import { createOutputsRegistry } from '~/ingestion/pipelines/analytics/outputs/registry'
 import { createClientWarningsConsumer } from '~/ingestion/pipelines/clientwarnings'
 import { createHeatmapsConsumer } from '~/ingestion/pipelines/heatmaps'
@@ -303,6 +306,39 @@ export class IngestionGeneralServer implements NodeServer {
             })
         }
 
+        const startAi = (override?: { topic: string; groupId: string }) => {
+            serviceLoaders.push(async () => {
+                const consumerConfig = override
+                    ? {
+                          ...this.config,
+                          INGESTION_CONSUMER_CONSUME_TOPIC: override.topic,
+                          INGESTION_CONSUMER_GROUP_ID: override.groupId,
+                      }
+                    : this.config
+                // The AI lane can't construct the cdp-owned hog transformer itself (boundary),
+                // so the server injects it (and the lane's outputs, which also back the
+                // transformer's monitoring) through an AI-specific scope. The consumer owns
+                // everything else (incl. its personhog client), taking only config + parent scope.
+                const aiOutputs = createAiOutputsRegistry().build(ingestionProducerRegistry, this.config)
+                const aiSharedScope = extend(sharedServicesScope, 'ai-shared', (_container, builder) =>
+                    builder
+                        .add(
+                            'hogTransformer',
+                            new HogTransformerComponent(() =>
+                                createHogTransformerService(this.config, {
+                                    ...hogTransformerDeps,
+                                    monitoringOutputs: aiOutputs,
+                                })
+                            )
+                        )
+                        .add('outputs', new IngestionOutputsComponent(() => aiOutputs))
+                )
+                const consumerScope = createAiConsumer(consumerConfig, aiSharedScope)
+                const { consumer, stop } = await consumerScope.start()
+                return ingestionConsumerService(consumer, stop)
+            })
+        }
+
         if (isCombinedMode) {
             // Local dev / hobby: run multiple consumers for all ingestion topics in one process
             const consumersOptions = [
@@ -335,6 +371,12 @@ export class IngestionGeneralServer implements NodeServer {
             startClientWarnings()
         } else if (this.config.INGESTION_PIPELINE === 'heatmaps') {
             startHeatmaps()
+        } else if (this.config.INGESTION_PIPELINE === 'ai') {
+            // Dedicated AI pipeline deployment. Not started in combined mode: the
+            // combined analytics consumers already process AI events on the shared
+            // topic, so running this in parallel there would double-process them.
+            // Switchover to this pipeline is driven by capture-side routing.
+            startAi()
         } else {
             // Production ingestion-v2: single consumer using config-provided topic
             serviceLoaders.push(async () => {

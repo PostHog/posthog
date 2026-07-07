@@ -341,3 +341,45 @@ export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
         })
         .describe('The metric query to execute.'),
 })
+
+/**
+ * Raw individual emissions for a metric (the events model), newest
+ * first — backs the Samples view and the metric->trace pivot.
+ */
+export const metricsSamplesCreateBodyQueryOneMetricNameMax = 255
+
+export const metricsSamplesCreateBodyQueryOneTraceIdMax = 255
+
+export const metricsSamplesCreateBodyQueryOneLimitDefault = 100
+export const metricsSamplesCreateBodyQueryOneLimitMax = 1000
+
+export const MetricsSamplesCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .object({
+            metricName: zod
+                .string()
+                .max(metricsSamplesCreateBodyQueryOneMetricNameMax)
+                .describe("Exact metric name to list raw emissions for (e.g. 'http.server.duration')."),
+            dateFrom: zod.iso
+                .datetime({ offset: true })
+                .describe('Lower bound (inclusive) for the sample window. ISO 8601.'),
+            dateTo: zod.iso
+                .datetime({ offset: true })
+                .optional()
+                .describe('Upper bound (exclusive) for the sample window. Defaults to now if omitted.'),
+            traceId: zod
+                .string()
+                .max(metricsSamplesCreateBodyQueryOneTraceIdMax)
+                .optional()
+                .describe(
+                    'Restrict to emissions on this trace — the reverse metric->trace pivot. Omit for all traces.'
+                ),
+            limit: zod
+                .number()
+                .min(1)
+                .max(metricsSamplesCreateBodyQueryOneLimitMax)
+                .default(metricsSamplesCreateBodyQueryOneLimitDefault)
+                .describe('Max emissions to return, newest first. Defaults to 100, capped at 1000.'),
+        })
+        .describe('The raw-emissions query to execute.'),
+})

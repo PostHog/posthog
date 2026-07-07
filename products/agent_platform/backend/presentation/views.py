@@ -62,6 +62,7 @@ from posthog.schema import ProductKey
 
 from posthog.api.log_entries import LogEntryRequestSerializer, LogEntrySerializer, fetch_log_entries
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.streaming import streaming_response
 from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.helpers.encrypted_fields import EncryptedTextField
@@ -73,6 +74,7 @@ from posthog.security.outbound_proxy import internal_requests
 from ..db import WRITER_DB
 from ..logic.internal_jwt import AgentInternalAudience, encode_agent_internal_jwt
 from ..logic.janitor_client import JanitorClient, JanitorClientError, default_client
+from ..logic.kernel_skills import all_kernel_skill_ids, kernel_skills_for
 from ..logic.posthog_identity_app import provision_posthog_identity_apps
 from ..logic.skill_resolution import assert_skill_refs_readable, resolve_skill_ref, stamp_skill_provenance
 from ..logic.spec_schema import missing_required_secrets
@@ -161,22 +163,50 @@ class JanitorUpstreamError(APIException):
         # still see the upstream payload.
         if isinstance(e.body, dict):
             msg = e.body.get("error") or e.body.get("detail") or e.body.get("message")
-            # Append structured upstream errors (custom-tool compile failures carry
-            # errors=[{kind, message, line}]) so the caller + concierge model see the
-            # concrete reason, not just the opaque `tool_compile_failed` code.
+            # Append structured upstream errors so the caller + concierge model
+            # see the concrete reason, not just the opaque code. Two shapes:
+            # custom-tool compile -> top-level errors=[{kind, message, line}];
+            # freeze/validate -> report.errors=[{code, message, pointer}] (e.g.
+            # invalid_model from the models gate).
             sub_errors = e.body.get("errors")
+            if not sub_errors:
+                report = e.body.get("report")
+                sub_errors = report.get("errors") if isinstance(report, dict) else None
             if isinstance(sub_errors, list) and sub_errors:
                 parts: list[str] = []
                 for er in sub_errors:
                     if not isinstance(er, dict) or not isinstance(er.get("message"), str):
                         continue
-                    kind = er.get("kind")
+                    kind = er.get("kind") or er.get("code")
                     line = er.get("line")
+                    pointer = er.get("pointer")
                     prefix = f"{kind}: " if isinstance(kind, str) else ""
-                    suffix = f" (line {line})" if isinstance(line, int) else ""
+                    suffix = (
+                        f" (line {line})"
+                        if isinstance(line, int)
+                        else f" [{pointer}]"
+                        if isinstance(pointer, str)
+                        else ""
+                    )
                     parts.append(f"{prefix}{er['message']}{suffix}")
                 if parts:
                     joined = "; ".join(parts)
+                    msg = f"{msg}: {joined}" if isinstance(msg, str) else joined
+            # Zod-validation rejects (typed-bundle PUTs: spec/agent_md/skill_refs/
+            # tools) -> issues=[{message, path:[...]}] with `error=invalid_request`.
+            # Surface `message [path]` so the caller sees the offending field, not
+            # just the opaque code.
+            issues = e.body.get("issues")
+            if isinstance(issues, list) and issues:
+                issue_parts: list[str] = []
+                for iss in issues:
+                    if not isinstance(iss, dict) or not isinstance(iss.get("message"), str):
+                        continue
+                    path = iss.get("path")
+                    loc = ".".join(str(p) for p in path) if isinstance(path, list) and path else ""
+                    issue_parts.append(f"{iss['message']} [{loc}]" if loc else iss["message"])
+                if issue_parts:
+                    joined = "; ".join(issue_parts)
                     msg = f"{msg}: {joined}" if isinstance(msg, str) else joined
             detail_str: str = msg if isinstance(msg, str) else json.dumps(e.body)
         elif isinstance(e.body, str):
@@ -577,6 +607,8 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object_read_actions = [
         "list",
         "retrieve",
+        "models",
+        "spec_schema",
         "sessions_list",
         "sessions_retrieve",
         "session_logs",
@@ -772,10 +804,10 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             finally:
                 await sync_to_async(upstream.close, thread_sensitive=False)()
 
-        resp = StreamingHttpResponse(
+        resp = streaming_response(
             _stream(),
-            status=upstream.status_code,
             content_type=upstream.headers.get("Content-Type", "application/octet-stream"),
+            status=upstream.status_code,
         )
         # Forward upstream response headers verbatim minus connection-control
         # ones that Django handles itself.
@@ -961,6 +993,66 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(payload)
 
     @extend_schema(
+        operation_id="agent_applications_models",
+        description=(
+            "Served-model catalog — each model's id, provider, context window, and "
+            "USD-per-million-token pricing — plus the curated auto-level → model map. "
+            "Project-agnostic; sourced from the AI gateway catalog. Powers the config "
+            "UI model browser and the agent builder's model-choosing skill."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="models")
+    def models(self, request: Request, **kwargs) -> Response:
+        """The model catalog. Proxies the janitor, which owns the gateway-catalog
+        client and the level map (single source for runtime + UI + agents)."""
+        try:
+            payload = _janitor().get_models()
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
+
+    @extend_schema(
+        operation_id="agent_applications_spec_schema",
+        parameters=[
+            OpenApiParameter(
+                "section",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Return only this top-level slice of the spec schema to save tokens — one of "
+                    "`models`, `triggers`, `tools`, `mcps`, `skills`, `identity_providers`, `secrets`, "
+                    "`limits`, `reasoning`, `framework_prompt`, `resume`. Omit for the whole spec schema."
+                ),
+            ),
+        ],
+        description=(
+            "The canonical JSON Schema for an agent `spec` — every field, type, enum, default, and the "
+            "discriminated unions for `models` / `triggers[]` / `tools[]`, each with an inline description. "
+            "Emitted from the same source the runner validates against (fields with a default are optional "
+            "on write), so read it BEFORE composing a spec for create / revisions-spec-update instead of "
+            "guessing the shape. Pass `section` to fetch just one part."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="spec_schema")
+    def spec_schema(self, request: Request, **kwargs) -> Response:
+        """The agent-spec JSON Schema, proxied from the janitor, which emits it
+        from the canonical zod `AgentSpecSchema` (no Python mirror — the schema
+        an author reads can't drift from the one the runner parses). Optional
+        `section` slices one top-level property."""
+        section = request.query_params.get("section") or None
+        try:
+            payload = _janitor().get_spec_schema(section=section)
+        except JanitorClientError as e:
+            # A bad `section` is a client error — the janitor returns 400 with the
+            # valid section list. Surface that as a clean 400, not a 502.
+            if e.status_code == status.HTTP_400_BAD_REQUEST:
+                body = e.body if isinstance(e.body, dict) else {"detail": e.message}
+                return Response(body, status=status.HTTP_400_BAD_REQUEST)
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
+
+    @extend_schema(
         operation_id="agent_applications_sessions_list",
         parameters=[
             OpenApiParameter("limit", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
@@ -1016,11 +1108,12 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                                     allow_null=True,
                                     required=False,
                                     help_text=(
-                                        "Trigger-specific metadata stamped at session creation. Shape varies "
-                                        "by trigger kind; cron firings carry "
-                                        "`{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. "
-                                        "Render this on session-detail so the operator can tell at a glance "
-                                        "that a session was fired by which cron / when."
+                                        "Trigger-specific metadata stamped at session creation. Discriminated on "
+                                        "`kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is "
+                                        "`agent-shared/src/runtime/trigger-metadata.ts`; the node side validates "
+                                        "and strips unknown keys at the persistence boundary, so consumers can "
+                                        "trust `kind` and per-kind fields. TODO: narrow this DictField to a "
+                                        "polymorphic serializer mirroring the union (needs `hogli build:openapi`)."
                                     ),
                                 ),
                                 "principal": _AGENT_SESSION_PRINCIPAL,
@@ -1222,11 +1315,12 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         allow_null=True,
                         required=False,
                         help_text=(
-                            "Trigger-specific metadata stamped at session creation. Shape varies "
-                            "by trigger kind; cron firings carry "
-                            "`{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. "
-                            "Render this on session-detail so the operator can tell at a glance "
-                            "that a session was fired by which cron / when."
+                            "Trigger-specific metadata stamped at session creation. Discriminated on "
+                            "`kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is "
+                            "`agent-shared/src/runtime/trigger-metadata.ts`; the node side validates and "
+                            "strips unknown keys at the persistence boundary, so consumers can trust "
+                            "`kind` and per-kind fields. TODO: narrow this DictField to a polymorphic "
+                            "serializer mirroring the union (needs `hogli build:openapi`)."
                         ),
                     ),
                     "state": drf_serializers.ChoiceField(choices=_AGENT_SESSION_STATE_VALUES),
@@ -2016,10 +2110,16 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response({**result, "events_url": events_url, "interactivity_url": interactivity_url})
 
     # DRF routes the typed bundle verbs across @action + .mapping.<verb>
-    # chains. Three separate @action decorators with the same url_path
-    # don't merge — the last one registered wins and the others 405. So
-    # GET+PUT under /bundle/, PUT+DELETE under /skills/<id>/ and
-    # /tools/<id>/ share a single @action with mapping chains below.
+    # chains. Separate @action decorators with the same url_path don't merge —
+    # the last one registered wins and the others 405 — so GET+PUT under /bundle/
+    # share a single @action with a mapping chain below.
+    # NOTE: skill folders are deliberately NOT author-writable through Django.
+    # There is no `skills/<id>` author action (only agent_md/spec/skill_refs/tools);
+    # `skills/` is populated only at freeze (resolved store `skill_refs` + injected
+    # platform kernel skills). The janitor's `PUT/DELETE /revisions/:id/skills/:id`
+    # is internal-only, reachable solely via `janitor_client.put_skill`/`delete_skill`
+    # during freeze. Do NOT proxy it through to authors — that re-opens the
+    # store-only boundary kernel skills + skill_refs are built to enforce.
 
     # ── typed bundle authoring API ──────────────────────────────────────
     # Django
@@ -2142,7 +2242,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["post"], url_path="validate")
     def validate(self, request: Request, **kwargs) -> Response:
-        """Pre-flight checks before freeze + promote: entrypoint file exists,
+        """Pre-flight checks before freeze + promote: agent.md exists,
         every native tool id is registered, every custom tool has its
         compiled.js + schema.json, every skill path exists, every declared
         secret has a value set in this revision's env block. Returns
@@ -2264,7 +2364,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                             "Fully-assembled system prompt the runner would pass "
                             "to pi-ai for a session against this revision. "
                             "Concatenates the platform framework preamble, the "
-                            "bundle's `agent.md` (or `spec.entrypoint`), and the "
+                            "bundle's `agent.md`, and the "
                             "skills index. Inspect before promotion to confirm "
                             "the model will see what you expect."
                         ),
@@ -2346,6 +2446,24 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             r.alias: {"from_template": r.from_template, "version": r.version, "source_version_id": r.source_version_id}
             for r in resolved_skills
         }
+        # Platform kernel skills — code-locked operator behaviour injected from
+        # backend code, never authored through the API. The store (`skill_refs`)
+        # is the only author path into `skills/`, so an author can't supply or
+        # forge these; the freeze materializes them alongside the resolved store
+        # skills below and merges both into the derived `spec.skills[]`. Empty for
+        # any agent the platform hasn't designated (see logic/kernel_skills.py).
+        # Per-slug targeting is safe to key on the slug only because human-readable
+        # slugs are gated behind a first-party allowlist
+        # (AGENT_PLATFORM_EXPLICIT_SLUG_TEAM_IDS); a normal team gets an opaque
+        # server-minted slug it can't use to claim e.g. `agent-builder`.
+        kernel_skills = kernel_skills_for(revision.application.slug)
+        kernel_ids = {k.id for k in kernel_skills}
+        collisions = sorted(kernel_ids & aliases)
+        if collisions:
+            raise ValidationError(
+                f"Skill reference alias(es) {collisions} collide with a platform kernel skill id — "
+                "rename the alias in `skill_refs`."
+            )
         # Migration guard for pre-store agents: a revision forked from one authored
         # before the store became canonical carries inline skill entries in its
         # spec with no store provenance. Discriminate on `source_version_id`, NOT
@@ -2358,16 +2476,30 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # left by a failed prior freeze — absent from the spec — is swept on retry
         # rather than misclassified as legacy. An unreferenced inline skill is
         # refused: silently dropping it would lose real content.
+        #
+        # Exempt ANY shipped kernel id (`all_kernel_ids`), not just this agent's
+        # applicable set (`kernel_ids`): an inline entry whose id is a platform
+        # kernel skill is platform-owned content the author can't author or remove
+        # (there is no `skills` write path). It reaches a fork two ways the guard
+        # must not brick — a kernel de-designated for this slug, or a cross-team
+        # `clone_from` that lands an opaque slug no kernel targets. In both the id
+        # is still a shipped kernel, so it's safe to let through: the sweep below
+        # drops it from the bundle when it's no longer applicable, re-injecting only
+        # what `kernel_ids` still designates. Only a genuinely deleted kernel folder
+        # falls through to the legacy path, which is the honest outcome.
+        all_kernel_ids = all_kernel_skill_ids()
         legacy_orphans = sorted(
             sid
             for s in ((revision.spec or {}).get("skills") or [])
-            if (sid := s.get("id")) and not s.get("source_version_id") and sid not in aliases
+            if (sid := s.get("id"))
+            and not s.get("source_version_id")
+            and sid not in aliases
+            and sid not in all_kernel_ids
         )
         if legacy_orphans:
             raise ValidationError(
-                f"Revision carries inline skill(s) {legacy_orphans} not backed by a store reference "
-                "(authored before the skill store became canonical). Recreate them in the skill store and set "
-                "`skill_refs` before freezing — otherwise the freeze would silently drop them."
+                f"Revision carries inline skill(s) {legacy_orphans} not backed by a store reference. "
+                "These predate the skill store — recreate them in the store and set `skill_refs` before freezing."
             )
         # Materialize the resolved refs into the bundle, then seal. Skills are
         # store-only — nothing else writes `skills/` — so the frozen bundle must
@@ -2376,6 +2508,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # freeze already sealed the bundle (its HTTP response was lost): the
         # janitor refuses edits to a sealed bundle, and its `freeze` is idempotent
         # — it re-derives the sha + spec from what's already sealed.
+        bundle_already_sealed = False
         try:
             manifest = janitor_client.manifest(str(revision.id))
             # Only `skills/<alias>/<file>` paths whose alias matches the janitor's
@@ -2393,7 +2526,14 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # leave a window where the draft has neither the old nor the new skill.
             for resolved in resolved_skills:
                 janitor_client.put_skill(str(revision.id), resolved.alias, resolved.put_skill_payload())
-            for stale in bundle_aliases - aliases:
+            # Inject the platform kernel skills the same way — re-written from
+            # backend code every freeze, so the frozen bundle always carries the
+            # current bytes (never a stale DB copy) and stays in lockstep.
+            for kskill in kernel_skills:
+                janitor_client.put_skill(str(revision.id), kskill.id, kskill.put_skill_payload())
+            # Sweep store-orphan folders, but keep the kernel folders just written:
+            # `kernel_ids` are legitimate, not leftovers from a removed ref.
+            for stale in bundle_aliases - aliases - kernel_ids:
                 try:
                     janitor_client.delete_skill(str(revision.id), stale)
                 except JanitorClientError as e:
@@ -2407,6 +2547,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # to the idempotent freeze below. Any other error is a real failure.
             if not _is_sealed_bundle_conflict(e):
                 raise JanitorUpstreamError(e) from e
+            bundle_already_sealed = True
         result = self._call(janitor_client.freeze, str(revision.id))
         # Pin resolved versions back into `skill_refs` so an unpinned ref becomes a
         # concrete pin after its first freeze. A fork copies `skill_refs` verbatim,
@@ -2425,6 +2566,29 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         derived_spec = result.get("derived_spec")
         if derived_spec is not None:
             stamp_skill_provenance(derived_spec, provenance_by_alias)
+            # Post-seal invariant: every kernel skill we injected must be present in
+            # the sealed spec. A 2xx `put_skill` whose body didn't materialize (S3
+            # eventual consistency, a future janitor derivation change) would
+            # otherwise flip a `ready` agent live while silently missing a kernel
+            # skill — e.g. `safety-and-boundaries`. Fail before the draft→ready flip
+            # so the revision stays a draft and the freeze is retriable.
+            #
+            # Only enforce it when we actually (re)wrote the bundle this freeze. On
+            # the sealed-bundle fall-through the bytes are immutable and `put_skill`
+            # can no longer touch them — the freeze that sealed them already ran this
+            # check. Re-running it here would permanently wedge the draft whenever
+            # the kernel set drifted (grew/renamed) after that seal, or whenever a
+            # concurrent freeze won the seal first — turning a lost-response retry
+            # into a dead end. The conditional draft→ready UPDATE below is what keeps
+            # concurrent freezes consistent in that case.
+            if not bundle_already_sealed:
+                materialized_ids = {s.get("id") for s in derived_spec.get("skills") or []}
+                missing_kernel = sorted(kernel_ids - materialized_ids)
+                if missing_kernel:
+                    raise APIException(
+                        detail=f"Freeze sealed without kernel skill(s) {missing_kernel}; materialization failed — "
+                        "revision left in draft. Retry the freeze."
+                    )
             fields["spec"] = derived_spec
         # Conditional draft→ready flip: only the first freeze of a draft wins, so
         # two concurrent freezes can't both stamp the row, and a `set_skill_refs`
@@ -3091,11 +3255,12 @@ class AgentFleetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                                     allow_null=True,
                                     required=False,
                                     help_text=(
-                                        "Trigger-specific metadata stamped at session creation. Shape varies "
-                                        "by trigger kind; cron firings carry "
-                                        "`{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. "
-                                        "Render this on session-detail so the operator can tell at a glance "
-                                        "that a session was fired by which cron / when."
+                                        "Trigger-specific metadata stamped at session creation. Discriminated on "
+                                        "`kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is "
+                                        "`agent-shared/src/runtime/trigger-metadata.ts`; the node side validates "
+                                        "and strips unknown keys at the persistence boundary, so consumers can "
+                                        "trust `kind` and per-kind fields. TODO: narrow this DictField to a "
+                                        "polymorphic serializer mirroring the union (needs `hogli build:openapi`)."
                                     ),
                                 ),
                                 "principal": _AGENT_SESSION_PRINCIPAL,

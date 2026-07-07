@@ -178,9 +178,6 @@ interface HealthAlertTemplateCopy {
     slackHeader: string
     slackBody: string
     webhookSummary: string
-    emailSubject: string
-    emailHtml: string
-    emailText: string
     discordContent: string
     teamsText: string
     actionButtonText: string
@@ -188,7 +185,7 @@ interface HealthAlertTemplateCopy {
     descriptionVerb: string
 }
 
-// Builds the 5 destination variants for a health-alert sub-template. The body
+// Builds the destination variants for a health-alert sub-template. The body
 // strings reference only the event envelope (title/summary/link/severity/kind),
 // so adding a new health-check kind requires no changes here.
 function buildHealthAlertSubTemplates(
@@ -264,27 +261,6 @@ function buildHealthAlertSubTemplates(
             name: `Post to Microsoft Teams when a ${copy.namePrefix}`,
             description: `Post to a Microsoft Teams channel when a health check ${copy.descriptionVerb}`,
             inputs: { text: { value: copy.teamsText } },
-        },
-        {
-            ...common,
-            template_id: 'template-email',
-            name: `Email when a ${copy.namePrefix}`,
-            description: `Send an email when a health check ${copy.descriptionVerb}`,
-            inputs: {
-                email: {
-                    value: {
-                        to: { email: '', name: '' },
-                        from: { email: '', name: 'PostHog' },
-                        replyTo: '',
-                        cc: '',
-                        bcc: '',
-                        subject: copy.emailSubject,
-                        preheader: '{event.properties.summary}',
-                        text: copy.emailText,
-                        html: copy.emailHtml,
-                    },
-                },
-            },
         },
     ]
 }
@@ -1175,11 +1151,6 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
         slackHeader: '{event.properties.title}',
         slackBody: '{event.properties.summary}',
         webhookSummary: '{event.properties.title}: {event.properties.summary}',
-        emailSubject: 'PostHog health check: {event.properties.title}',
-        emailHtml:
-            '<p><strong>{event.properties.title}</strong></p><p>{event.properties.summary}</p><p>Severity: {event.properties.severity}</p><p><a href="{project.url}{event.properties.link}">View in PostHog</a></p>',
-        emailText:
-            '{event.properties.title}\n\n{event.properties.summary}\n\nSeverity: {event.properties.severity}\n\n{project.url}{event.properties.link}',
         discordContent:
             '**🩺 PostHog health check**\n\n*{event.properties.title}*\n{event.properties.summary}\n\n[View in PostHog]({project.url}{event.properties.link})',
         teamsText:
@@ -1192,11 +1163,6 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
         slackHeader: 'Resolved: {event.properties.title}',
         slackBody: '{event.properties.summary}',
         webhookSummary: 'Resolved: {event.properties.title} — {event.properties.summary}',
-        emailSubject: 'PostHog health check resolved: {event.properties.title}',
-        emailHtml:
-            '<p><strong>Resolved: {event.properties.title}</strong></p><p>{event.properties.summary}</p><p><a href="{project.url}{event.properties.link}">View in PostHog</a></p>',
-        emailText:
-            'Resolved: {event.properties.title}\n\n{event.properties.summary}\n\n{project.url}{event.properties.link}',
         discordContent:
             '**✅ PostHog health check resolved**\n\n*{event.properties.title}*\n{event.properties.summary}\n\n[View in PostHog]({project.url}{event.properties.link})',
         teamsText:

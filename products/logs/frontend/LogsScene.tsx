@@ -6,6 +6,7 @@ import { LemonBanner, LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconFeedback } from 'lib/lemon-ui/icons'
+import { cn } from 'lib/utils/css-classes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { Settings } from 'scenes/settings/Settings'
@@ -135,13 +136,16 @@ const LogsSceneTabbedContent = (): JSX.Element => {
                 tabs={tabs}
                 sceneInset
             />
-            {activeTab === 'viewer' && (
+            {/* Keep the viewer mounted across tab switches (just hidden when inactive) so its loaded
+                logs, scroll position, and virtualized-list state survive — switching away and back
+                should not replay the initial loading animation. */}
+            <div className={cn('flex flex-col flex-1 min-h-0', activeTab !== 'viewer' && 'hidden')}>
                 <LogsSetupPrompt>
                     <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
                         <LogsViewer id={LOGS_SCENE_VIEWER_ID} showSavedViewsButton />
                     </div>
                 </LogsSetupPrompt>
-            )}
+            </div>
             {activeTab === 'services' && showServicesView && (
                 <>
                     <LogsServices />

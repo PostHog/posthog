@@ -176,6 +176,40 @@ export interface PatchedElementApi {
     order?: number | null
 }
 
+export interface ElementStatsApi {
+    /** Number of events matching this element chain */
+    count: number
+    /**
+     * Stable identity of the raw element chain (hash computed before any attribute filtering), for deduplicating rows across pages
+     * @nullable
+     */
+    hash: string | null
+    /** Event type: $autocapture, $rageclick, or $dead_click */
+    type: string
+    /** Parsed elements of the chain, clicked element first */
+    elements: ElementApi[]
+}
+
+export interface ElementStatsResponseApi {
+    /** Element chains with event counts, ordered by count */
+    results: ElementStatsApi[]
+    /**
+     * URL for the next page of results, if any
+     * @nullable
+     */
+    next: string | null
+    /**
+     * URL for the previous page of results, if any
+     * @nullable
+     */
+    previous: string | null
+}
+
+export interface ElementValueApi {
+    /** A distinct value of the requested element property */
+    name: string
+}
+
 export type InsightVizNodeApiKind = (typeof InsightVizNodeApiKind)[keyof typeof InsightVizNodeApiKind]
 
 export const InsightVizNodeApiKind = {
@@ -523,6 +557,15 @@ export interface PersonPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export interface PersonMetadataPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Top-level columns on the persons table (e.g. created_at), not properties JSON */
+    type?: 'person_metadata'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export type Key10Api = (typeof Key10Api)[keyof typeof Key10Api]
 
 export const Key10Api = {
@@ -712,6 +755,7 @@ export interface PropertyGroupFilterValueApi {
         | PropertyGroupFilterValueApi
         | EventPropertyFilterApi
         | PersonPropertyFilterApi
+        | PersonMetadataPropertyFilterApi
         | ElementPropertyFilterApi
         | EventMetadataPropertyFilterApi
         | SessionPropertyFilterApi
@@ -1087,6 +1131,7 @@ export interface EventsNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -1134,6 +1179,7 @@ export interface EventsNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -1168,6 +1214,7 @@ export interface ActionsNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -1213,6 +1260,7 @@ export interface ActionsNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -1249,6 +1297,7 @@ export interface DataWarehouseNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -1295,6 +1344,7 @@ export interface DataWarehouseNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -1331,6 +1381,7 @@ export interface GroupNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -1382,6 +1433,7 @@ export interface GroupNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -1652,6 +1704,7 @@ export interface TrendsQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -1706,6 +1759,7 @@ export interface FunnelExclusionEventsNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -1755,6 +1809,7 @@ export interface FunnelExclusionEventsNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -1789,6 +1844,7 @@ export interface FunnelExclusionActionsNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -1836,6 +1892,7 @@ export interface FunnelExclusionActionsNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -1980,6 +2037,7 @@ export interface FunnelsDataWarehouseNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -2026,6 +2084,7 @@ export interface FunnelsDataWarehouseNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -2078,6 +2137,7 @@ export interface FunnelsQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -2231,6 +2291,7 @@ export interface RetentionEntityApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -2319,6 +2380,7 @@ export interface RetentionQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -2450,6 +2512,7 @@ export interface PathsQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -2569,6 +2632,7 @@ export interface StickinessQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -2656,6 +2720,7 @@ export interface LifecycleDataWarehouseNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -2701,6 +2766,7 @@ export interface LifecycleDataWarehouseNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -2751,6 +2817,7 @@ export interface LifecycleQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -3706,6 +3773,8 @@ export const IntegrationKindApi = {
     CustomerioWebhook: 'customerio-webhook',
     CustomerioTrack: 'customerio-track',
     Postgresql: 'postgresql',
+    AwsS3: 'aws-s3',
+    S3Compatible: 's3-compatible',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
@@ -4065,6 +4134,7 @@ export const TaxonomicFilterGroupTypeApi = {
     Cohorts: 'cohorts',
     CohortsWithAll: 'cohorts_with_all',
     DataWarehouse: 'data_warehouse',
+    DataWarehouseSourceTables: 'data_warehouse_source_tables',
     DataWarehouseProperties: 'data_warehouse_properties',
     DataWarehousePersonProperties: 'data_warehouse_person_properties',
     Elements: 'elements',
@@ -4076,6 +4146,7 @@ export const TaxonomicFilterGroupTypeApi = {
     EventMetadata: 'event_metadata',
     NumericalEventProperties: 'numerical_event_properties',
     PersonProperties: 'person_properties',
+    PersonMetadata: 'person_metadata',
     PageviewUrls: 'pageview_urls',
     PageviewEvents: 'pageview_events',
     Screens: 'screens',
@@ -4149,6 +4220,7 @@ export interface EventsQueryActionStepApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -4286,6 +4358,7 @@ export interface EventsQueryApi {
               | PropertyGroupFilterValueApi
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -4322,6 +4395,7 @@ export interface EventsQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -4364,6 +4438,7 @@ export interface PersonsNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -4394,6 +4469,7 @@ export interface PersonsNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -4525,6 +4601,7 @@ export interface FunnelCorrelationActorsQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -4564,6 +4641,7 @@ export interface ExperimentEventExposureConfigApi {
     properties: (
         | EventPropertyFilterApi
         | PersonPropertyFilterApi
+        | PersonMetadataPropertyFilterApi
         | ElementPropertyFilterApi
         | EventMetadataPropertyFilterApi
         | SessionPropertyFilterApi
@@ -4613,6 +4691,7 @@ export interface ExperimentDataWarehouseNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -4657,6 +4736,7 @@ export interface ExperimentDataWarehouseNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -4980,6 +5060,7 @@ export interface HogQLFiltersApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -5080,7 +5161,13 @@ export interface HogQLQueryApi {
 export interface ActorsQueryApi {
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
     fixedProperties?:
-        | (PersonPropertyFilterApi | CohortPropertyFilterApi | HogQLPropertyFilterApi | EmptyPropertyFilterApi)[]
+        | (
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | CohortPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+          )[]
         | null
     kind?: 'ActorsQuery'
     limit?: number | null
@@ -5090,7 +5177,13 @@ export interface ActorsQueryApi {
     orderBy?: string[] | null
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
     properties?:
-        | (PersonPropertyFilterApi | CohortPropertyFilterApi | HogQLPropertyFilterApi | EmptyPropertyFilterApi)[]
+        | (
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | CohortPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+          )[]
         | PropertyGroupFilterValueApi
         | null
     response?: ActorsQueryResponseApi | null
@@ -5498,6 +5591,7 @@ export interface SessionsQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -5527,6 +5621,7 @@ export interface SessionsQueryApi {
               | PropertyGroupFilterValueApi
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -5563,6 +5658,7 @@ export interface SessionsQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -5873,6 +5969,7 @@ export interface ConversionGoalFilter1Api {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -5920,6 +6017,7 @@ export interface ConversionGoalFilter1Api {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -5959,6 +6057,7 @@ export interface ConversionGoalFilter2Api {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -6004,6 +6103,7 @@ export interface ConversionGoalFilter2Api {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -6045,6 +6145,7 @@ export interface ConversionGoalFilter3Api {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -6091,6 +6192,7 @@ export interface ConversionGoalFilter3Api {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -6601,6 +6703,7 @@ export interface TracesQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -6666,6 +6769,7 @@ export interface TraceQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -7014,6 +7118,30 @@ export interface YAxisSettingsApi {
     startAtZero?: boolean | null
 }
 
+export type SliceContentApi = (typeof SliceContentApi)[keyof typeof SliceContentApi]
+
+export const SliceContentApi = {
+    Labels: 'labels',
+    Values: 'values',
+    None: 'none',
+} as const
+
+export type ValueDisplayApi = (typeof ValueDisplayApi)[keyof typeof ValueDisplayApi]
+
+export const ValueDisplayApi = {
+    Absolute: 'absolute',
+    Percentage: 'percentage',
+} as const
+
+export interface PieChartSettingsApi {
+    /** Whether to show the aggregation total below the chart. Defaults to on. */
+    showTotal?: boolean | null
+    /** What to render on each slice. Defaults to labels. */
+    sliceContent?: SliceContentApi | null
+    /** Whether slice values show as absolute amounts or shares of the total. Only applies when `sliceContent` is `values`. */
+    valueDisplay?: ValueDisplayApi | null
+}
+
 export type DisplayTypeApi = (typeof DisplayTypeApi)[keyof typeof DisplayTypeApi]
 
 export const DisplayTypeApi = {
@@ -7073,6 +7201,7 @@ export interface ChartSettingsApi {
     goalLines?: GoalLineApi[] | null
     heatmap?: HeatmapSettingsApi | null
     leftYAxisSettings?: YAxisSettingsApi | null
+    pie?: PieChartSettingsApi | null
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: ChartSettingsApiResultCustomizations
     rightYAxisSettings?: YAxisSettingsApi | null
@@ -7539,9 +7668,10 @@ export interface ActivityLogPaginatedResponseApi {
  * * `remove` - remove
  * * `set` - set
  */
-export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+export type BulkUpdateTagsRequestActionEnumApi =
+    (typeof BulkUpdateTagsRequestActionEnumApi)[keyof typeof BulkUpdateTagsRequestActionEnumApi]
 
-export const ActionEnumApi = {
+export const BulkUpdateTagsRequestActionEnumApi = {
     Add: 'add',
     Remove: 'remove',
     Set: 'set',
@@ -7558,7 +7688,7 @@ export interface BulkUpdateTagsRequestApi {
      * * `add` - add
      * * `remove` - remove
      * * `set` - set */
-    action: ActionEnumApi
+    action: BulkUpdateTagsRequestActionEnumApi
     /** Tag names to add, remove, or set. */
     tags: string[]
 }
@@ -7666,6 +7796,56 @@ export type ElementsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type ElementsStatsRetrieveParams = {
+    /**
+     * Comma-separated data attribute names (wildcards allowed, e.g. data-*). When provided, each element's attributes map is filtered to matching attr__* keys, shrinking the response.
+     */
+    data_attributes?: string
+    /**
+     * Start of the date range (e.g. -7d, 2024-01-01). Defaults to last 7 days.
+     */
+    date_from?: string
+    /**
+     * End of the date range (e.g. 2024-01-31). Defaults to now.
+     */
+    date_to?: string
+    /**
+     * When true, applies the project's internal-and-test-account filters to the underlying events. Pass the lowercase string true; other truthy spellings are ignored.
+     */
+    filter_test_accounts?: boolean
+    /**
+     * Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three. Accepts repeated parameters, a JSON array, or a comma-separated list.
+     */
+    include?: string[]
+    /**
+     * Maximum rows per page
+     */
+    limit?: number
+    /**
+     * Pagination offset
+     */
+    offset?: number
+    /**
+     * JSON-encoded list of property filters to apply to the underlying events, e.g. [{"key": "$current_url", "value": "https://example.com/page"}] or [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}]. Supports event, person, cohort, element, and HogQL property filter types.
+     */
+    properties?: string
+    /**
+     * Sampling factor between 0 and 1
+     */
+    sampling_factor?: number
+}
+
+export type ElementsValuesListParams = {
+    /**
+     * Element property to list values for: tag_name, text, href, or attr_id.
+     */
+    key: string
+    /**
+     * Optional substring to filter values by (case-sensitive contains match).
+     */
+    value?: string
 }
 
 export type InsightsListParams = {

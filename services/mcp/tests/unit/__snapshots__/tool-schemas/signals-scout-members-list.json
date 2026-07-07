@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "search": {
+            "description": "Case-insensitive substring filter over member email and first/last name. Use it to narrow a large project's roster to the owner you're trying to match instead of pulling every member.",
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

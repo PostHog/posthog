@@ -16,6 +16,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.experiments.models import (
+    TIMESERIES_METRIC_MAX_ATTEMPTS,
     ExperimentRegularMetricInput,
     ExperimentRegularMetricResult,
     ExperimentSavedMetricInput,
@@ -27,6 +28,8 @@ from posthog.temporal.experiments.utils import (
     get_metric,
 )
 
+from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
+from products.experiments.backend.hogql_queries.error_handling import capture_experiment_metric_error_event
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
@@ -117,6 +120,7 @@ def _calculate_experiment_regular_metric_sync(
     experiment_id: int,
     metric_uuid: str,
     fingerprint: str,
+    attempt: int = 1,
 ) -> ExperimentRegularMetricResult:
     close_old_connections()
 
@@ -181,7 +185,8 @@ def _calculate_experiment_regular_metric_sync(
         )
 
     query_from_utc = experiment.start_date
-    query_to_utc = datetime.now(ZoneInfo("UTC"))
+    now_utc = datetime.now(ZoneInfo("UTC"))
+    query_to_utc = experiment_window_end(experiment, now_utc)
 
     try:
         experiment_query = ExperimentQuery(
@@ -192,10 +197,15 @@ def _calculate_experiment_regular_metric_sync(
         query_runner = ExperimentQueryRunner(
             query=experiment_query,
             team=experiment.team,
+            as_of=query_to_utc,
             workload=Workload.OFFLINE,
             # Scheduled recalc has no request user. Attribute the query to the experiment's creator so
             # warehouse HogQL access control is enforced.
             user=experiment.created_by,
+            # Internal caller: keep exceptions raw so the except branches below see original types
+            # (StatisticError must not arrive pre-converted to ValidationError). Also silences the
+            # runner-level error event — this activity emits its own, on the final attempt.
+            user_facing=False,
         )
         # .run() writes to the response cache. The "warming/*" trigger tells
         # run() this is a scheduled job, not a user query, so it skips logging
@@ -259,6 +269,18 @@ def _calculate_experiment_regular_metric_sync(
             error=str(e),
         )
 
+        # Permanent failure, returned (not raised) — terminal on the first attempt.
+        capture_experiment_metric_error_event(
+            team=experiment.team,
+            error=e,
+            context="scheduled",
+            mechanism="orchestrated",
+            experiment_id=experiment_id,
+            metric_uuid=metric_uuid,
+            metric_kind=metric_type,
+            user=experiment.created_by,
+        )
+
         return ExperimentRegularMetricResult(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
@@ -289,6 +311,20 @@ def _calculate_experiment_regular_metric_sync(
             metric_uuid=metric_uuid,
         )
 
+        # Temporal retries this activity; emit only when retries are exhausted so a transient
+        # failure that recovers on a later attempt is never counted.
+        if attempt >= TIMESERIES_METRIC_MAX_ATTEMPTS:
+            capture_experiment_metric_error_event(
+                team=experiment.team,
+                error=e,
+                context="scheduled",
+                mechanism="orchestrated",
+                experiment_id=experiment_id,
+                metric_uuid=metric_uuid,
+                metric_kind=metric_type,
+                user=experiment.created_by,
+            )
+
         raise
 
 
@@ -299,7 +335,9 @@ async def calculate_experiment_regular_metric(
     fingerprint: str,
 ) -> ExperimentRegularMetricResult:
     """Calculate timeseries results for a single experiment-metric combination."""
-    return await _calculate_experiment_regular_metric_sync(experiment_id, metric_uuid, fingerprint)
+    return await _calculate_experiment_regular_metric_sync(
+        experiment_id, metric_uuid, fingerprint, attempt=temporalio.activity.info().attempt
+    )
 
 
 @database_sync_to_async
@@ -373,6 +411,7 @@ def _calculate_experiment_saved_metric_sync(
     experiment_id: int,
     metric_uuid: str,
     fingerprint: str,
+    attempt: int = 1,
 ) -> ExperimentSavedMetricResult:
     close_old_connections()
 
@@ -451,7 +490,8 @@ def _calculate_experiment_saved_metric_sync(
         )
 
     query_from_utc = experiment.start_date
-    query_to_utc = datetime.now(ZoneInfo("UTC"))
+    now_utc = datetime.now(ZoneInfo("UTC"))
+    query_to_utc = experiment_window_end(experiment, now_utc)
 
     try:
         experiment_query = ExperimentQuery(
@@ -462,10 +502,15 @@ def _calculate_experiment_saved_metric_sync(
         query_runner = ExperimentQueryRunner(
             query=experiment_query,
             team=experiment.team,
+            as_of=query_to_utc,
             workload=Workload.OFFLINE,
             # Scheduled recalc has no request user. Attribute the query to the experiment's creator so
             # warehouse HogQL access control is enforced.
             user=experiment.created_by,
+            # Internal caller: keep exceptions raw so the except branches below see original types
+            # (StatisticError must not arrive pre-converted to ValidationError). Also silences the
+            # runner-level error event — this activity emits its own, on the final attempt.
+            user_facing=False,
         )
         # .run() writes to the response cache. The "warming/*" trigger tells
         # run() this is a scheduled job, not a user query, so it skips logging
@@ -529,6 +574,18 @@ def _calculate_experiment_saved_metric_sync(
             error=str(e),
         )
 
+        # Permanent failure, returned (not raised) — terminal on the first attempt.
+        capture_experiment_metric_error_event(
+            team=experiment.team,
+            error=e,
+            context="scheduled",
+            mechanism="orchestrated",
+            experiment_id=experiment_id,
+            metric_uuid=metric_uuid,
+            metric_kind=metric_type,
+            user=experiment.created_by,
+        )
+
         return ExperimentSavedMetricResult(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
@@ -559,6 +616,20 @@ def _calculate_experiment_saved_metric_sync(
             metric_uuid=metric_uuid,
         )
 
+        # Temporal retries this activity; emit only when retries are exhausted so a transient
+        # failure that recovers on a later attempt is never counted.
+        if attempt >= TIMESERIES_METRIC_MAX_ATTEMPTS:
+            capture_experiment_metric_error_event(
+                team=experiment.team,
+                error=e,
+                context="scheduled",
+                mechanism="orchestrated",
+                experiment_id=experiment_id,
+                metric_uuid=metric_uuid,
+                metric_kind=metric_type,
+                user=experiment.created_by,
+            )
+
         raise
 
 
@@ -569,7 +640,9 @@ async def calculate_experiment_saved_metric(
     fingerprint: str,
 ) -> ExperimentSavedMetricResult:
     """Calculate timeseries results for a single experiment-saved metric combination."""
-    return await _calculate_experiment_saved_metric_sync(experiment_id, metric_uuid, fingerprint)
+    return await _calculate_experiment_saved_metric_sync(
+        experiment_id, metric_uuid, fingerprint, attempt=temporalio.activity.info().attempt
+    )
 
 
 def _backfill_experiment_metric_sync(recalculation_id: str) -> dict[str, Any]:
@@ -625,11 +698,13 @@ def _backfill_experiment_metric_sync(recalculation_id: str) -> dict[str, Any]:
                 query_runner = ExperimentQueryRunner(
                     query=experiment_query,
                     team=experiment.team,
-                    override_end_date=query_to_utc,
+                    as_of=query_to_utc,
                     workload=Workload.OFFLINE,
                     # Scheduled backfill has no request user. Attribute the query to the experiment's creator
                     # so warehouse HogQL access control is enforced.
                     user=experiment.created_by,
+                    # Backfilling historical points is not user-visible pain — no terminal error event.
+                    error_event_context=None,
                 )
                 result = query_runner._calculate()
 

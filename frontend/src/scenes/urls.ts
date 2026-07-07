@@ -309,8 +309,11 @@ export const urls = {
     },
     // Scout fleet memory (scratchpad) browse/search surface, reached from the fleet-memory callout.
     inboxScratchpad: (): string => '/inbox/scouts/scratchpad',
+    // Cross-fleet findings browse/search surface, reached from the scout-findings callout.
+    inboxFindings: (): string => '/inbox/scouts/findings',
     webAnalyticsBotAnalytics: (): string => '/web/bots',
     webAnalyticsHealth: (): string => '/web/health',
+    webAnalyticsRecap: (): string => '/web/recap',
     pipelineStatus: (): string => '/health/pipeline-status',
     sdkHealth: (): string => '/health/sdk-health',
     exports: (): string => '/exports',

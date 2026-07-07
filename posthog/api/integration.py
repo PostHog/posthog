@@ -6,6 +6,7 @@ from urllib.parse import urlencode
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import transaction
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
@@ -14,7 +15,7 @@ import requests
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
-from rest_framework import mixins, serializers, viewsets
+from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -37,6 +38,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.fuzzy_search import fuzzy_filter
@@ -176,9 +178,25 @@ class NativeEmailIntegrationSerializer(serializers.Serializer):
 
 
 class GitHubRepoSerializer(serializers.Serializer):
-    id = serializers.IntegerField()
-    name = serializers.CharField()
-    full_name = serializers.CharField()
+    id = serializers.IntegerField(help_text="GitHub repository numeric identifier.")
+    name = serializers.CharField(help_text="Repository short name (without the owner prefix).")
+    full_name = serializers.CharField(help_text="Fully-qualified repository name as 'owner/repo'.")
+    # The fields below come free from GitHub's installation/repositories payload. They are optional so
+    # repositories cached before this change (which stored only id/name/full_name) still validate.
+    private = serializers.BooleanField(required=False, help_text="Whether the repository is private.")
+    default_branch = serializers.CharField(required=False, help_text="The repository's default branch (e.g. 'main').")
+    language = serializers.CharField(
+        required=False, help_text="Primary programming language GitHub detected for the repository."
+    )
+    pushed_at = serializers.CharField(
+        required=False,
+        help_text="ISO 8601 timestamp of the most recent push, useful for sorting by recent activity.",
+    )
+    archived = serializers.BooleanField(required=False, help_text="Whether the repository is archived.")
+    can_push = serializers.BooleanField(
+        required=False,
+        help_text="Whether the PostHog GitHub App has write access — required to open pull requests.",
+    )
 
 
 class GitHubReposQuerySerializer(serializers.Serializer):
@@ -210,6 +228,25 @@ class GitHubReposResponseSerializer(serializers.Serializer):
 
 class GitHubReposRefreshResponseSerializer(serializers.Serializer):
     repositories = GitHubRepoSerializer(many=True, help_text="The refreshed repository cache.")
+
+
+class JiraProjectSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Jira project ID.")
+    key = serializers.CharField(help_text="Jira project key to pass as error tracking config.project_key.")
+    name = serializers.CharField(help_text="Jira project display name.")
+
+
+class JiraProjectsResponseSerializer(serializers.Serializer):
+    projects = JiraProjectSerializer(many=True, help_text="Jira projects available to this integration.")
+
+
+class LinearTeamSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Linear team ID to pass as error tracking config.team_id.")
+    name = serializers.CharField(help_text="Linear team display name.")
+
+
+class LinearTeamsResponseSerializer(serializers.Serializer):
+    teams = LinearTeamSerializer(many=True, help_text="Linear teams available to this integration.")
 
 
 class GitHubTeamSerializer(serializers.Serializer):
@@ -372,6 +409,28 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         return value
 
     def create(self, validated_data: Any) -> Any:
+        team_id = self.context["team_id"]
+        kind = validated_data["kind"]
+
+        # `create` is a POST with upsert semantics: each kind's helper does an `update_or_create`
+        # keyed on (team, kind, integration_id), so re-submitting the same resource overwrites the
+        # existing integration instead of adding a new one. Adding is allowed for any project
+        # member, but overwriting an existing integration is an edit and requires admin. If a
+        # non-admin's request resolves to an integration that already existed, roll the write back
+        # and reject.
+        with transaction.atomic():
+            existing_integration_ids = set(
+                Integration.objects.filter(team_id=team_id, kind=kind).values_list("integration_id", flat=True)
+            )
+            instance = self._build_integration(validated_data)
+            is_overwrite = instance.integration_id in existing_integration_ids
+            if is_overwrite and not github_callback_state.has_team_management_access(
+                self.context["request"].user, self.context["get_team"]()
+            ):
+                raise PermissionDenied("Editing an existing integration requires project admin access.")
+            return instance
+
+    def _build_integration(self, validated_data: Any) -> Any:
         request = self.context["request"]
         team_id = self.context["team_id"]
 
@@ -783,6 +842,21 @@ class GitHubOAuthAuthorizeResponseSerializer(serializers.Serializer):
     oauth_url = serializers.CharField(help_text="GitHub User OAuth URL the client should redirect to.")
 
 
+def github_rate_limited_response(exc: GitHubRateLimitError) -> Response:
+    """The 429 + Retry-After response for a GitHub rate limit.
+
+    Shared by every GitHub-backed endpoint (integration and user-integration viewsets, signals)
+    so the egress ``GitHubRateLimitError`` maps the same way everywhere instead of surfacing a 500.
+    """
+    response = Response(
+        {"detail": "GitHub API rate limit exceeded. Please retry later.", "code": "rate_limited"},
+        status=status.HTTP_429_TOO_MANY_REQUESTS,
+    )
+    if exc.retry_after:
+        response["Retry-After"] = str(exc.retry_after)
+    return response
+
+
 @extend_schema(extensions={"x-product": "integrations"})
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
@@ -800,6 +874,8 @@ class IntegrationViewSet(
         "github_repos",
         "github_branches",
         "github_teams",
+        "jira_projects",
+        "linear_teams",
         "anthropic_managed_agents",
         "anthropic_managed_agent_environments",
         "anthropic_managed_agent_vaults",
@@ -826,23 +902,27 @@ class IntegrationViewSet(
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["kind"]
 
+    def handle_exception(self, exc: Exception) -> Response:
+        # GitHub rate limits surface from any GitHub-backed action (teams, repos, branches, refresh);
+        # map them to 429 + Retry-After once here instead of per action.
+        if isinstance(exc, GitHubRateLimitError):
+            return github_rate_limited_response(exc)
+        return super().handle_exception(exc)
+
     def dangerously_get_permissions(self):
+        base_permissions = [
+            IsAuthenticated(),
+            APIScopePermission(),
+            AccessControlPermission(),
+            TeamMemberAccessPermission(),
+        ]
+        # Adding (connecting) an integration only requires project membership; editing or removing
+        # one still requires admin, enforced by the default TeamMemberStrictManagementPermission.
+        # The GitHub browser callback applies the same create-vs-modify split (see github_callback).
+        if self.action in ("create", "github_link_existing", "github_oauth_authorize", "request_access"):
+            return base_permissions
         if self.action == "refresh_github_repos":
-            return [
-                IsAuthenticated(),
-                APIScopePermission(),
-                AccessControlPermission(),
-                TeamMemberAccessPermission(),
-                TeamMemberLightManagementPermission(),
-            ]
-        # Any project member may ask an admin to connect an integration — connecting still requires admin.
-        if self.action == "request_access":
-            return [
-                IsAuthenticated(),
-                APIScopePermission(),
-                AccessControlPermission(),
-                TeamMemberAccessPermission(),
-            ]
+            return [*base_permissions, TeamMemberLightManagementPermission()]
         raise NotImplementedError()
 
     def get_throttles(self):
@@ -1110,7 +1190,7 @@ class IntegrationViewSet(
         """List the Search Console properties the connected Google account has access to."""
         # Lazy import — keeps the Google data-imports SDK dependency off the api/ module
         # import path, mirroring how other ad-platform endpoints stay self-contained.
-        from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.google_search_console import (  # noqa: PLC0415 — keeps the heavy dep off the import path
+        from products.warehouse_sources.backend.facade.source_management import (  # noqa: PLC0415 — keeps the heavy dep off the import path
             google_search_console_session,
             list_sites,
         )
@@ -1245,9 +1325,12 @@ class IntegrationViewSet(
 
         return Response({"workspaces": workspaces})
 
+    @extend_schema(responses={200: LinearTeamsResponseSerializer})
     @action(methods=["GET"], detail=True, url_path="linear_teams")
     def linear_teams(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        if instance.kind != "linear":
+            raise ValidationError("linear_teams endpoint is only supported for Linear integrations")
         _ensure_oauth_token_valid(instance)
         linear = LinearIntegration(instance)
         return Response({"teams": linear.list_teams()})
@@ -1545,9 +1628,12 @@ class IntegrationViewSet(
 
         return Response({"branches": branches, "default_branch": default_branch, "has_more": has_more})
 
+    @extend_schema(responses={200: JiraProjectsResponseSerializer})
     @action(methods=["GET"], detail=True, url_path="jira_projects")
     def jira_projects(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        if instance.kind != "jira":
+            raise ValidationError("jira_projects endpoint is only supported for Jira integrations")
         _ensure_oauth_token_valid(instance)
         jira = JiraIntegration(instance)
         return Response({"projects": jira.list_projects()})

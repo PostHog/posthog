@@ -26,6 +26,7 @@ function recordingFn(impl) {
 function runs(name, conclusions) {
     return conclusions.map((conclusion, i) => ({
         name,
+        status: 'completed',
         conclusion,
         head_sha: `sha_${name}_${i}`,
         html_url: `https://github.com/runs/${name}/${i}`,
@@ -34,6 +35,17 @@ function runs(name, conclusions) {
 }
 
 const failingRuns = (name, failCount) => runs(name, [...Array(failCount).fill('failure'), ...Array(5).fill('success')])
+
+// A non-terminal Backend CI run (no conclusion yet); status defaults to in_progress.
+const nonTerminalRun = (key, status = 'in_progress') => ({
+    name: 'Backend CI',
+    status,
+    conclusion: null,
+    head_sha: key,
+    html_url: `https://github.com/runs/${key}`,
+    created_at: minutes(0).toISOString(),
+    updated_at: minutes(0).toISOString(),
+})
 
 const allPassing = () => ({
     'ci-backend.yml': runs('Backend CI', ['success']),
@@ -55,6 +67,7 @@ function commitsWithRuns(perCommitConclusions) {
             if (!runsByWorkflow[wf]) runsByWorkflow[wf] = []
             runsByWorkflow[wf].push({
                 name: wf === 'ci-backend.yml' ? 'Backend CI' : 'Frontend CI',
+                status: 'completed',
                 conclusion,
                 head_sha: `commit_sha_${i}`,
                 html_url: `https://github.com/runs/${wf}/${i}`,
@@ -105,8 +118,8 @@ const activeAnchor = (payload = {}) => ({
 // One failure that landed `redMins` ago, preceded by a green run. count=1 (below the streak
 // threshold), so this drives the wall-clock arm in isolation; redForMins == redMins.
 const failingFor = (redMins, name = 'Backend CI') => [
-    { name, conclusion: 'failure', head_sha: `f_${redMins}`, html_url: `https://github.com/runs/${name}/f`, updated_at: minutes(-redMins).toISOString() },
-    { name, conclusion: 'success', head_sha: `g_${redMins}`, html_url: `https://github.com/runs/${name}/g`, updated_at: minutes(-(redMins + 30)).toISOString() },
+    { name, status: 'completed', conclusion: 'failure', head_sha: `f_${redMins}`, html_url: `https://github.com/runs/${name}/f`, updated_at: minutes(-redMins).toISOString() },
+    { name, status: 'completed', conclusion: 'success', head_sha: `g_${redMins}`, html_url: `https://github.com/runs/${name}/g`, updated_at: minutes(-(redMins + 30)).toISOString() },
 ]
 
 // A single commit `ageMins` old — drives recentActivity. No matching run SHA, so it classifies
@@ -136,7 +149,7 @@ function run(github, { history = [], now = minutes(0), env = {} } = {}) {
     })
     return ciAlertsDevex(
         { context: { repo: { owner: 'PostHog', repo: 'posthog' } }, github, core },
-        { now, slack }
+        { now, slack, sleep: () => Promise.resolve() }
     ).then(() => ({ slack, outputs }))
 }
 
@@ -305,6 +318,320 @@ describe('ci-alerts-devex', () => {
         assert.match(body, /Backend CI/)
         assert.match(body, /red for 25m/)
         assert.doesNotMatch(body, /failed runs? in a row/) // duration-only bullet omits the count
+    })
+
+    // --- Stale-bridge duration ---
+    const failureRun = (name, key, createdAt, updatedAt) => ({
+        name,
+        status: 'completed',
+        conclusion: 'failure',
+        head_sha: `${name}_${key}`,
+        html_url: `https://github.com/runs/${name}/${key}`,
+        created_at: createdAt,
+        updated_at: updatedAt,
+    })
+    const pushAt = (iso) => [
+        { sha: 'push', html_url: 'https://github.com/commit/push', author: { login: 'dev' }, commit: { message: 'p', author: { name: 'dev', date: iso } } },
+    ]
+    // A runs page anchored ~3 days back — the shape both observed phantoms ("red 70h", "red 141h")
+    // were built from.
+    const stalePage = (conclusion = 'failure') => [
+        { ...failureRun('Backend CI', 'stale1', minutes(-4200).toISOString(), minutes(-4186).toISOString()), conclusion },
+        { ...failureRun('Backend CI', 'stale2', minutes(-4215).toISOString(), minutes(-4201).toISOString()), conclusion },
+    ]
+
+    it('bridged stale failures do not inflate the displayed duration (regression)', async () => {
+        // Recent failure + stale failure (the cancelled runs between are dropped) → the detection
+        // streak spans multiple days. Must still open, but report the recent contiguous red.
+        const now = minutes(13)
+        const github = createGithubMock(
+            {
+                'ci-rust.yml': [
+                    failureRun('Rust CI', 'recent', minutes(-9).toISOString(), minutes(5).toISOString()),
+                    failureRun('Rust CI', 'stale', minutes(-3600).toISOString(), minutes(-3586).toISOString()),
+                ],
+                'ci-backend.yml': [
+                    failureRun('Backend CI', 'recent', minutes(-21).toISOString(), minutes(6).toISOString()),
+                    failureRun('Backend CI', 'stale', minutes(-3590).toISOString(), minutes(-3576).toISOString()),
+                ],
+            },
+            { commits: pushAt(minutes(8).toISOString()) }
+        )
+        const { slack, outputs } = await run(github, { now, env: { GATING_WORKFLOWS: 'ci-rust.yml,ci-backend.yml' } })
+
+        assert.equal(outputs.action, 'create') // detection unchanged: full-span byDuration still opens
+        const anchor = slack.postMessage.calls[0][0]
+        const body = JSON.stringify(anchor.attachments)
+        assert.match(body, /Rust CI/)
+        assert.match(body, /Backend CI/)
+        assert.doesNotMatch(body, /\d{2,}h/) // no stale multi-day duration survives
+        assert.match(anchor.text, /\(\d+m\)/) // summary duration is minutes of recent contiguous red
+        // anchored to the recent failure, not the stale run
+        assert.equal(anchor.metadata.event_payload.since, minutes(-21).toISOString())
+    })
+
+    it('does not falsely resolve an open incident while the newest run is still failing (regression)', async () => {
+        // Newest run still failing, prior failure >180m back — detection uses the full span, so the
+        // incident must stay open (never a false "master recovered").
+        const now = minutes(13)
+        const github = createGithubMock({
+            'ci-backend.yml': [
+                failureRun('Backend CI', 'recent', minutes(-10).toISOString(), minutes(5).toISOString()),
+                failureRun('Backend CI', 'stale', minutes(-3600).toISOString(), minutes(-3586).toISOString()),
+            ],
+            'ci-frontend.yml': runs('Frontend CI', ['success']),
+        })
+        const { slack, outputs } = await run(github, { now, history: [activeAnchor()] })
+        assert.equal(outputs.action, 'update') // stays open — not 'resolve'
+        assert.equal(slack.update.calls[0][0].attachments[0].color, '#E01E5A')
+        assert.equal(slack.update.calls[0][0].metadata.event_payload.status, 'active')
+    })
+
+    it('still pages for a sparse workflow whose genuine failures are far apart (regression)', async () => {
+        // Sparse workflow: two genuine failures >180m apart, no green between. Must still open.
+        const now = minutes(13)
+        const github = createGithubMock(
+            {
+                'ci-rust.yml': [
+                    failureRun('Rust CI', 'recent', minutes(-5).toISOString(), minutes(2).toISOString()),
+                    failureRun('Rust CI', 'older', minutes(-270).toISOString(), minutes(-255).toISOString()),
+                ],
+                'ci-frontend.yml': runs('Frontend CI', ['success']),
+            },
+            { commits: pushAt(minutes(8).toISOString()) }
+        )
+        const { slack, outputs } = await run(github, { now, env: { GATING_WORKFLOWS: 'ci-rust.yml,ci-frontend.yml' } })
+        assert.equal(outputs.action, 'create') // old gap-break would have missed this entirely
+        const body = JSON.stringify(slack.postMessage.calls[0][0].attachments)
+        assert.match(body, /red for \d+m/) // shows the recent contiguous red, not the ~4.5h span
+        assert.doesNotMatch(body, /red for \d+h/)
+    })
+
+    it('re-running a run inside the streak does not collapse the shown duration to ~0', async () => {
+        // Oldest failure re-run (updated_at bumped to ~now) — created_at anchor keeps the full span.
+        const now = minutes(13)
+        const f = (key, created, updated) => failureRun('Backend CI', key, created, updated)
+        const github = createGithubMock({
+            'ci-backend.yml': [
+                f('f5', minutes(0).toISOString(), minutes(7).toISOString()),
+                f('f4', minutes(-5).toISOString(), minutes(2).toISOString()),
+                f('f3', minutes(-10).toISOString(), minutes(-3).toISOString()),
+                f('f2', minutes(-15).toISOString(), minutes(-8).toISOString()),
+                f('f1', minutes(-20).toISOString(), minutes(11).toISOString()), // oldest, re-run → updated bumped
+            ],
+            'ci-frontend.yml': runs('Frontend CI', ['success']),
+        })
+        const { slack, outputs } = await run(github, { now })
+        assert.equal(outputs.action, 'create')
+        const body = JSON.stringify(slack.postMessage.calls[0][0].attachments)
+        assert.match(body, /5 failed runs in a row/)
+        assert.match(body, /red for 33m/) // from f1's created_at, not its re-run updated_at
+    })
+
+    it('reports the honest full duration for a genuinely-continuous outage', async () => {
+        // Dense failures, no gap > 180m — the cap must NOT fire, so the full ~1h13m is reported.
+        const now = minutes(13)
+        const f = (key, created, updated) => failureRun('Backend CI', key, created, updated)
+        const github = createGithubMock(
+            {
+                'ci-backend.yml': [
+                    f('c3', minutes(-5).toISOString(), minutes(5).toISOString()),
+                    f('c2', minutes(-30).toISOString(), minutes(-20).toISOString()),
+                    f('c1', minutes(-60).toISOString(), minutes(-50).toISOString()),
+                ],
+                'ci-frontend.yml': runs('Frontend CI', ['success']),
+            },
+            { commits: pushAt(minutes(8).toISOString()) }
+        )
+        const { slack, outputs } = await run(github, { now })
+        assert.equal(outputs.action, 'create')
+        const body = JSON.stringify(slack.postMessage.calls[0][0].attachments)
+        assert.match(body, /red for 1h 13m/)
+    })
+
+    // --- Stale / non-terminal fetch (the 70h phantom-flap root cause) ---
+
+    it('does not open a phantom incident when the status=completed index serves a stale page (regression)', async () => {
+        // Reproduces the observed GitHub quirk behind the "opened + resolved in 4 minutes, red 70h"
+        // flap: the status=completed index intermittently returns a page anchored days back (its
+        // newest run an ancient failure), while master is actually green. The fix reads the fresh
+        // (unfiltered) index, so a stale filtered page must never reach detection.
+        const freshGreen = runs('Backend CI', ['success', 'success', 'success'])
+        const github = {
+            rest: {
+                actions: {
+                    // Serve the stale page ONLY to a status=completed request — exactly the API's behavior.
+                    listWorkflowRuns: ({ workflow_id, status }) => {
+                        const table = {
+                            'ci-backend.yml': status === 'completed' ? stalePage() : freshGreen,
+                            'ci-frontend.yml': runs('Frontend CI', ['success']),
+                        }
+                        return Promise.resolve({ data: { workflow_runs: table[workflow_id] || [] } })
+                    },
+                },
+                repos: { listCommits: () => Promise.resolve({ data: pushAt(minutes(-3).toISOString()) }) },
+            },
+        }
+        const { slack, outputs } = await run(github)
+        assert.equal(outputs.action, 'none') // fresh index shows green → no incident
+        assert.equal(slack.postMessage.calls.length, 0)
+        assert.equal(slack.update.calls.length, 0)
+    })
+
+    it('fetchWorkflowRuns reads the fresh index and drops non-terminal runs (regression)', async () => {
+        const page = [
+            nonTerminalRun('ip'),
+            nonTerminalRun('q', 'queued'),
+            failureRun('Backend CI', 'f', minutes(-5).toISOString(), minutes(-5).toISOString()),
+            { ...failureRun('Backend CI', 'x', minutes(-10).toISOString(), minutes(-10).toISOString()), conclusion: 'cancelled' },
+            runs('Backend CI', ['success'])[0],
+        ]
+        let capturedParams
+        const github = {
+            rest: {
+                actions: {
+                    listWorkflowRuns: (params) => {
+                        capturedParams = params
+                        return Promise.resolve({ data: { workflow_runs: page } })
+                    },
+                },
+            },
+        }
+        const result = await ciAlertsDevex.fetchWorkflowRuns(github, 'PostHog', 'posthog', 'ci-backend.yml', 40)
+        // The root-cause guard: never request the eventually-consistent status=completed index.
+        assert.equal(capturedParams.status, undefined)
+        // in_progress/queued/cancelled dropped; settled runs kept, newest-first order preserved.
+        assert.deepEqual(
+            result.map((r) => r.conclusion),
+            ['failure', 'success']
+        )
+    })
+
+    it('pages past a head full of non-terminal runs to reach real failures (regression)', async () => {
+        // A push burst leaves the newest page full of in-progress runs; per_page truncates the raw page
+        // before the client-side status filter, so the completed failures sit on a later page. The
+        // alerter must page to them rather than silently miss the incident (the inverse of the flap).
+        const inProgress = (n) => Array.from({ length: n }, (_, i) => nonTerminalRun(`ip_${i}`))
+        const failures = runs('Backend CI', Array(5).fill('failure'))
+        const github = {
+            rest: {
+                actions: {
+                    listWorkflowRuns: ({ workflow_id, per_page, page }) => {
+                        if (workflow_id !== 'ci-backend.yml') {
+                            return Promise.resolve({ data: { workflow_runs: runs('Frontend CI', ['success']) } })
+                        }
+                        // First page fills the whole page with in-progress (forcing a second fetch); page 2
+                        // carries the genuine completed failures the raw page-1 truncation hid. A single-page
+                        // fetch (page undefined) only ever sees the in-progress head, so it must miss the incident.
+                        return Promise.resolve({ data: { workflow_runs: page >= 2 ? failures : inProgress(per_page) } })
+                    },
+                },
+                repos: { listCommits: () => Promise.resolve({ data: pushAt(minutes(-3).toISOString()) }) },
+            },
+        }
+        const { outputs } = await run(github)
+        assert.equal(outputs.action, 'create')
+        assert.equal(outputs.blocking_count, '1')
+    })
+
+    it('an in-progress run at the head does not mask a real failure streak (regression)', async () => {
+        // A just-started run sits atop the fresh page; the 5 completed failures beneath it must still
+        // page. Since we now fetch non-terminal runs (no server-side status filter), dropping them
+        // client-side — rather than letting the head short-circuit the streak walk — is what holds.
+        const github = createGithubMock({
+            'ci-backend.yml': [nonTerminalRun('ip'), ...runs('Backend CI', Array(5).fill('failure'))],
+            'ci-frontend.yml': runs('Frontend CI', ['success']),
+        })
+        const { outputs } = await run(github)
+        assert.equal(outputs.action, 'create')
+        assert.equal(outputs.blocking_count, '1')
+    })
+
+    // --- Stale pages on the branch/event-filtered index (the 141h phantom root cause) ---
+
+    // A github mock whose ci-backend runs read misbehaves (`backendResponse` thunk) while
+    // ci-frontend and commits stay healthy — the fixture for every unreadable-data case.
+    const brokenBackendGithub = (backendResponse, onBackendRead = () => {}) => ({
+        rest: {
+            actions: {
+                listWorkflowRuns: ({ workflow_id }) => {
+                    if (workflow_id !== 'ci-backend.yml') {
+                        return Promise.resolve({ data: { workflow_runs: runs('Frontend CI', ['success']) } })
+                    }
+                    onBackendRead()
+                    return backendResponse()
+                },
+            },
+            repos: { listCommits: () => Promise.resolve({ data: pushAt(minutes(-3).toISOString()) }) },
+        },
+    })
+
+    it('a stale runs page anchored days back cannot open a phantom incident (regression)', async () => {
+        // The "red 141h 45m" phantom: even without status=completed, the branch/event-filtered
+        // index served a days-old page while master's newest commit was minutes old.
+        let backendReads = 0
+        const github = brokenBackendGithub(
+            () => Promise.resolve({ data: { workflow_runs: stalePage() } }),
+            () => backendReads++
+        )
+        const { slack, outputs } = await run(github)
+        assert.equal(backendReads, 3) // initial read + 2 retries before declaring the page unreadable
+        assert.equal(outputs.action, 'none')
+        assert.equal(slack.postMessage.calls.length, 0)
+        assert.equal(slack.update.calls.length, 0)
+    })
+
+    // Unreadable data — an ancient page, an empty page, or a fetch error — must hold an open
+    // incident, never read as "no failures" and strike through the anchor with a phantom recovery.
+    for (const [scenario, backendResponse] of [
+        ['a stale runs page', () => Promise.resolve({ data: { workflow_runs: stalePage('success') } })],
+        ['an empty runs page', () => Promise.resolve({ data: { workflow_runs: [] } })],
+        ['a failed runs fetch', () => Promise.reject(new Error('boom'))],
+    ]) {
+        it(`${scenario} cannot resolve an open incident (regression)`, async () => {
+            const { slack, outputs } = await run(brokenBackendGithub(backendResponse), {
+                history: [activeAnchor()],
+            })
+            assert.equal(outputs.action, 'hold')
+            assert.equal(slack.update.calls.length, 0)
+            assert.equal(slack.postMessage.calls.length, 0)
+        })
+    }
+
+    it('a failed commits fetch cannot open a phantom incident via the streak-count arm (regression)', async () => {
+        // Without the commits anchor no runs page is verifiable — a stale 5-failure page must not
+        // open through byCount (which is not gated on recent activity).
+        const github = {
+            rest: {
+                actions: {
+                    listWorkflowRuns: ({ workflow_id }) => {
+                        const table = {
+                            'ci-backend.yml': runs('Backend CI', Array(5).fill('failure')),
+                            'ci-frontend.yml': runs('Frontend CI', ['success']),
+                        }
+                        return Promise.resolve({ data: { workflow_runs: table[workflow_id] || [] } })
+                    },
+                },
+                repos: { listCommits: () => Promise.reject(new Error('boom')) },
+            },
+        }
+        const { slack, outputs } = await run(github)
+        assert.equal(outputs.action, 'none')
+        assert.equal(slack.postMessage.calls.length, 0)
+        assert.equal(slack.update.calls.length, 0)
+    })
+
+    it('activity gate uses the committer date, not squash-merge author dates (regression)', async () => {
+        // A squash merge keeps the branch's original author date (days old); the committer date is
+        // the push time. A just-merged commit must count as activity for the wall-clock arm.
+        const squashMerged = commitsAt(6000)
+        squashMerged[0].commit.committer = { name: 'dev', date: minutes(-3).toISOString() }
+        const github = createGithubMock(
+            { 'ci-backend.yml': failingFor(25), 'ci-frontend.yml': runs('Frontend CI', ['success']) },
+            { commits: squashMerged }
+        )
+        const { outputs } = await run(github)
+        assert.equal(outputs.action, 'create')
     })
 
     it('stays silent when red past the threshold but no recent push (quiet weekend)', async () => {

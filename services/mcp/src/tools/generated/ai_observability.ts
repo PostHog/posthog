@@ -31,6 +31,8 @@ import {
     LlmAnalyticsEvaluationSummaryCreateBody,
     LlmAnalyticsModelsRetrieveQueryParams,
     LlmAnalyticsPersonalSpendListQueryParams,
+    LlmAnalyticsProviderKeysListQueryParams,
+    LlmAnalyticsProviderKeysRetrieveParams,
     LlmAnalyticsReviewQueueItemsCreateBody,
     LlmAnalyticsReviewQueueItemsDestroyParams,
     LlmAnalyticsReviewQueueItemsListQueryParams,
@@ -290,6 +292,12 @@ const llmaEvaluationCreate = (): ToolBase<typeof LlmaEvaluationCreateSchema, Sch
         }
         if (params.conditions !== undefined) {
             body['conditions'] = params.conditions
+        }
+        if (params.target !== undefined) {
+            body['target'] = params.target
+        }
+        if (params.target_config !== undefined) {
+            body['target_config'] = params.target_config
         }
         if (params.model_configuration !== undefined) {
             body['model_configuration'] = params.model_configuration
@@ -713,6 +721,12 @@ const llmaEvaluationUpdate = (): ToolBase<typeof LlmaEvaluationUpdateSchema, Sch
         if (params.conditions !== undefined) {
             body['conditions'] = params.conditions
         }
+        if (params.target !== undefined) {
+            body['target'] = params.target
+        }
+        if (params.target_config !== undefined) {
+            body['target_config'] = params.target_config
+        }
         if (params.model_configuration !== undefined) {
             body['model_configuration'] = params.model_configuration
         }
@@ -866,6 +880,43 @@ const llmaPromptUpdate = (): ToolBase<typeof LlmaPromptUpdateSchema, Schemas.LLM
             body,
         })
         return result
+    },
+})
+
+const LlmaProviderKeyGetSchema = LlmAnalyticsProviderKeysRetrieveParams.omit({ project_id: true })
+
+const llmaProviderKeyGet = (): ToolBase<typeof LlmaProviderKeyGetSchema, Schemas.LLMProviderKey> => ({
+    name: 'llma-provider-key-get',
+    schema: LlmaProviderKeyGetSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaProviderKeyGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.LLMProviderKey>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/provider_keys/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const LlmaProviderKeyListSchema = LlmAnalyticsProviderKeysListQueryParams
+
+const llmaProviderKeyList = (): ToolBase<
+    typeof LlmaProviderKeyListSchema,
+    WithPostHogUrl<Schemas.PaginatedLLMProviderKeyList>
+> => ({
+    name: 'llma-provider-key-list',
+    schema: LlmaProviderKeyListSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaProviderKeyListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedLLMProviderKeyList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/provider_keys/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/ai-observability')
     },
 })
 
@@ -1545,6 +1596,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-prompt-get': llmaPromptGet,
     'llma-prompt-list': llmaPromptList,
     'llma-prompt-update': llmaPromptUpdate,
+    'llma-provider-key-get': llmaProviderKeyGet,
+    'llma-provider-key-list': llmaProviderKeyList,
     'llma-review-queue-create': llmaReviewQueueCreate,
     'llma-review-queue-delete': llmaReviewQueueDelete,
     'llma-review-queue-get': llmaReviewQueueGet,

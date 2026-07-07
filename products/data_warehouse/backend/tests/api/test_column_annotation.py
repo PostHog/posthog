@@ -3,9 +3,11 @@ from posthog.test.base import APIBaseTest
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 
-from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    WarehouseColumnAnnotation,
+)
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -138,10 +140,10 @@ class TestWarehouseColumnAnnotation(APIBaseTest):
         assert response.status_code == 403, response.json()
         assert not WarehouseColumnAnnotation.objects.for_team(self.team.pk).filter(table=self.table).exists()
 
-    def test_cannot_repoint_annotation_to_denied_table(self):
-        # A user may edit an annotation on a table they can reach, but must not move it onto a
-        # same-team table they are explicitly denied.
-        allowed_table = DataWarehouseTable.objects.create(
+    def test_table_is_immutable_on_update(self):
+        # The table an annotation points at cannot change after creation — a PATCH that includes a
+        # different table is ignored, not applied. Guards against re-introducing the repoint permission trap.
+        other_table = DataWarehouseTable.objects.create(
             name="stripe_customers",
             format="Parquet",
             team=self.team,
@@ -150,44 +152,43 @@ class TestWarehouseColumnAnnotation(APIBaseTest):
         )
         annotation = WarehouseColumnAnnotation.objects.for_team(self.team.pk).create(
             team=self.team,
-            table=allowed_table,
-            column_name="email",
-            description="customer email",
+            table=self.table,
+            column_name="amount",
+            description="charge amount in cents",
             description_source=WarehouseColumnAnnotation.DescriptionSource.AI_GENERATED,
         )
 
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
-        ]
-        self.organization.save()
-
-        member = self._create_user("member@posthog.com")
-        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
-        membership.level = OrganizationMembership.Level.MEMBER
-        membership.save()
-
-        # General editor access to the resource, but denied on the table we try to move the annotation to.
-        AccessControl.objects.create(
-            team=self.team,
-            resource="warehouse_table",
-            resource_id=None,
-            access_level="editor",
-            organization_member=membership,
+        response = self.client.patch(
+            self._url(f"{annotation.id}/"),
+            {"table": str(other_table.id), "description": "amount the customer paid, USD"},
         )
-        AccessControl.objects.create(
-            team=self.team,
-            resource="warehouse_table",
-            resource_id=str(self.table.id),
-            access_level="none",
-            organization_member=membership,
-        )
-
-        self.client.force_login(member)
-        response = self.client.patch(self._url(f"{annotation.id}/"), {"table": str(self.table.id)})
-        assert response.status_code == 403, response.json()
+        assert response.status_code == 200, response.json()
 
         annotation.refresh_from_db()
-        assert annotation.table_id == allowed_table.id
+        assert annotation.table_id == self.table.id
+        assert annotation.description == "amount the customer paid, USD"
+
+    def test_duplicate_create_upserts(self):
+        # Creating an annotation for a (table, column) that already has one updates it in place rather than
+        # 500ing on the unique constraint — so agents can call create idempotently.
+        first = self.client.post(
+            self._url(),
+            {"table": str(self.table.id), "column_name": "amount", "description": "first"},
+        )
+        assert first.status_code == 201, first.json()
+        second = self.client.post(
+            self._url(),
+            {"table": str(self.table.id), "column_name": "amount", "description": "second"},
+        )
+        assert second.status_code == 201, second.json()
+
+        annotations = WarehouseColumnAnnotation.objects.for_team(self.team.pk).filter(
+            table=self.table, column_name="amount"
+        )
+        assert annotations.count() == 1
+        annotation = annotations.first()
+        assert annotation is not None
+        assert annotation.description == "second"
 
     def test_cannot_delete_annotation_on_view_only_table(self):
         # A user who can only view a table (so its annotations are readable) must not be able to delete
@@ -224,16 +225,9 @@ class TestWarehouseColumnAnnotation(APIBaseTest):
         assert response.status_code == 403, getattr(response, "data", response.status_code)
         assert WarehouseColumnAnnotation.objects.for_team(self.team.pk).filter(id=annotation.id).exists()
 
-    def test_cannot_move_annotation_off_view_only_table(self):
-        # Editor on the destination table is not enough: a user with only view access to the annotation's
-        # current table must not be able to move it off that table.
-        editable_table = DataWarehouseTable.objects.create(
-            name="stripe_customers",
-            format="Parquet",
-            team=self.team,
-            credential=self.credential,
-            url_pattern="https://bucket.s3/data/*",
-        )
+    def test_viewer_cannot_edit_annotation_on_view_only_table(self):
+        # A user with only view access to a table can read its annotations but must not edit them —
+        # perform_update requires editor access on the annotation's table (distinct path from destroy).
         annotation = WarehouseColumnAnnotation.objects.for_team(self.team.pk).create(
             team=self.team,
             table=self.table,
@@ -252,7 +246,6 @@ class TestWarehouseColumnAnnotation(APIBaseTest):
         membership.level = OrganizationMembership.Level.MEMBER
         membership.save()
 
-        # View-only on the annotation's current table, editor on the destination.
         AccessControl.objects.create(
             team=self.team,
             resource="warehouse_table",
@@ -260,17 +253,10 @@ class TestWarehouseColumnAnnotation(APIBaseTest):
             access_level="viewer",
             organization_member=membership,
         )
-        AccessControl.objects.create(
-            team=self.team,
-            resource="warehouse_table",
-            resource_id=str(editable_table.id),
-            access_level="editor",
-            organization_member=membership,
-        )
 
         self.client.force_login(member)
-        response = self.client.patch(self._url(f"{annotation.id}/"), {"table": str(editable_table.id)})
+        response = self.client.patch(self._url(f"{annotation.id}/"), {"description": "changed"})
         assert response.status_code == 403, getattr(response, "data", response.status_code)
 
         annotation.refresh_from_db()
-        assert annotation.table_id == self.table.id
+        assert annotation.description == "charge amount in cents"

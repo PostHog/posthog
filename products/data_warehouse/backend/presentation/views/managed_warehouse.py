@@ -208,6 +208,12 @@ def provision(
         "/provision",
         json_body={
             "database_name": database_name,
+            # The provisioning team is the warehouse's default team: duckgres pins it so
+            # queries without an explicit team resolve to this environment's tables. It's
+            # required — duckgres denies a provision without it. In-product this is the
+            # calling (currently active) team; in the Django admin it's the mandatory team
+            # field on the provision form.
+            "default_team_id": team_id,
             "ducklake": {"enabled": True},
             "metadata_store": {"type": "cnpg-shard"},
             "data_store": {"type": "s3bucket"},
@@ -250,8 +256,8 @@ def _register_provisioning_team(organization_id: UUID | str, team_id: int, table
     """Record the provisioning (calling) team's duckling membership and enable its backfill.
 
     A managed warehouse is org-scoped, but membership and backfills are per team, so provision
-    registers only the provisioning team: its `DuckgresServerTeam` link (first-class membership)
-    and a `DuckLakeBackfill` enabled with the per-environment table name the admin chose at
+    registers only the provisioning team: a single `DuckgresServerTeam` row carrying its
+    membership and a backfill enabled with the per-environment table name the admin chose at
     provision — so a newly provisioned org writes to its own `events_<suffix>` tables. Other teams
     join later via `enable_backfill`, which runs the same path.
 
@@ -314,8 +320,8 @@ def enable_backfill(
 ) -> Response:
     """Enable warehouse backfill for a team's environment with dedicated per-environment tables.
 
-    Per-team (not org-wide): persists the per-environment table suffix on the team's
-    DuckLakeBackfill and records team↔duckling membership. Gated on the org's feature flag so
+    Per-team (not org-wide): persists the per-environment table suffix and team↔duckling
+    membership on the team's DuckgresServerTeam. Gated on the org's feature flag so
     a team can't enable a backfill for an org that isn't entitled to the managed warehouse;
     backend/ops callers (the Django admin) pass `require_enabled=False` to bypass that gate.
     """

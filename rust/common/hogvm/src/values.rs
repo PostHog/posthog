@@ -1,6 +1,7 @@
-use std::{cmp::Ordering, collections::HashMap, fmt::Display, str::FromStr};
+use std::{cell::RefCell, cmp::Ordering, collections::HashMap, fmt::Display, rc::Rc, str::FromStr};
 
 use chrono::NaiveDate;
+use indexmap::IndexMap;
 use serde_json::Value as JsonValue;
 
 use crate::{
@@ -9,6 +10,20 @@ use crate::{
     memory::{HeapReference, VmHeap},
     vm::MAX_JSON_SERDE_DEPTH,
 };
+
+/// A closure upvalue, Lua-style. While **open** it is a view onto a live stack slot at `location`
+/// (reads/writes go through `stack[location]`); when the slot leaves scope it is **closed** —
+/// `value` is snapshotted from the slot and the upvalue owns it thereafter. Shared via
+/// [`UpvalueCell`] so several closures (and the VM's open-upvalue list) reference the same cell and
+/// all observe the close.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Upvalue {
+    pub location: usize,
+    pub closed: bool,
+    pub value: Option<HogValue>,
+}
+
+pub type UpvalueCell = Rc<RefCell<Upvalue>>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Num {
@@ -19,11 +34,14 @@ pub enum Num {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Callable {
     Local(LocalCallable),
+    // A reference to a native (STL) function used as a first-class value, e.g. `let f := base64Encode`.
+    // Calling it dispatches to the native function by name rather than jumping to hog bytecode.
+    Stl(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Closure {
-    pub captures: Vec<HeapReference>,
+    pub captures: Vec<UpvalueCell>,
     pub callable: Callable,
 }
 
@@ -51,7 +69,13 @@ pub enum HogLiteral {
     Boolean(bool),
     String(String),
     Array(Vec<HogValue>),
-    Object(HashMap<String, HogValue>),
+    // A tuple is an array that prints as `(a, b)` and whose `typeof` is "tuple"; for every other
+    // operation it behaves exactly like an array (the reference duck-types it as an array with an
+    // `__isHogTuple` marker). Kept as a distinct variant so those two behaviors can diverge.
+    Tuple(Vec<HogValue>),
+    // Insertion-ordered (IndexMap, not HashMap) to match the reference VMs: object literals,
+    // `keys()`/`values()`, JSON serialization, and `print` all preserve the order keys were added.
+    Object(IndexMap<String, HogValue>),
     Callable(Callable),
     Closure(Closure),
     Null,
@@ -106,19 +130,42 @@ impl HogValue {
 
         match lit {
             HogLiteral::Object(map) => {
-                let key: &str = chain[0].deref(heap)?.try_as()?;
-                let Some(found) = map.get(key) else {
+                // The reference VM keys objects with whatever scalar the program used (a JS Map),
+                // and integer keys are common (`{96: 'x'}`). We store string keys, so coerce
+                // numbers to their string form for lookup, matching the construction-time coercion.
+                // Any other key type (null included — `props[inputs.x]` with an unset input) is a
+                // plain miss for the reference (Map.get), never an error.
+                let key_lit = chain[0].deref(heap)?;
+                let found = match key_lit {
+                    HogLiteral::String(key) => map.get(key),
+                    HogLiteral::Number(n) => map.get(&num_key_string(n)),
+                    _ => None,
+                };
+                let Some(found) = found else {
                     return Ok(None);
                 };
                 found.get_nested(&chain[1..], heap)
             }
-            HogLiteral::Array(vals) => {
+            HogLiteral::Array(vals) | HogLiteral::Tuple(vals) => {
                 let index: &Num = chain[0].deref(heap)?.try_as()?;
-                if index.is_float() || index.to_integer() < 1 {
+                if index.is_float() {
                     return Err(VmError::InvalidIndex);
                 }
-                let index = (index.to_integer() as usize) - 1; // Hog indices are 1 based
-                let Some(found) = vals.get(index) else {
+                let raw = index.to_integer();
+                // Hog indices are 1-based; the reference VMs also allow negative indices counting
+                // from the end (-1 is the last element). Index 0 is an error; out of range is null.
+                let resolved = match raw {
+                    0 => return Err(VmError::InvalidIndex),
+                    r if r > 0 => (r as usize) - 1,
+                    r => {
+                        let from_end = vals.len() as i64 + r;
+                        if from_end < 0 {
+                            return Ok(None);
+                        }
+                        from_end as usize
+                    }
+                };
+                let Some(found) = vals.get(resolved) else {
                     return Ok(None);
                 };
                 found.get_nested(&chain[1..], heap)
@@ -139,6 +186,10 @@ impl HogValue {
         self.equals(rhs, heap)?.not()
     }
 
+    // Backs the `in`/`notIn` opcodes (`x in y`). The reference IN opcode is `haystack.includes(needle)`
+    // (TS) / `needle in haystack` (Python): substring for a string haystack, element membership for an
+    // array, key membership for an object. (The `has` STL is different — array-only — so it has its own
+    // check and does NOT route through here.)
     pub fn contains(&self, other: &HogValue, heap: &VmHeap) -> Result<HogLiteral, VmError> {
         let (haystack, needle) = (self.deref(heap)?, other.deref(heap)?);
         match haystack {
@@ -146,7 +197,7 @@ impl HogValue {
                 let needle: &str = needle.try_as()?;
                 Ok(s.contains(needle).into())
             }
-            HogLiteral::Array(vals) => {
+            HogLiteral::Array(vals) | HogLiteral::Tuple(vals) => {
                 for val in vals.iter() {
                     if *val.equals(other, heap)?.try_as::<bool>()? {
                         return Ok(true.into());
@@ -180,6 +231,7 @@ impl HogLiteral {
             HogLiteral::Number(_) => "Number",
             HogLiteral::Boolean(_) => "Boolean",
             HogLiteral::Array(_) => "Array",
+            HogLiteral::Tuple(_) => "Tuple",
             HogLiteral::Object(_) => "Object",
             HogLiteral::Null => "Null",
             HogLiteral::Callable(_) => "Callable",
@@ -196,13 +248,13 @@ impl HogLiteral {
             HogLiteral::String(s) => s.len(),
             HogLiteral::Number(_) => std::mem::size_of::<f64>(),
             HogLiteral::Boolean(_) => std::mem::size_of::<bool>(),
-            HogLiteral::Array(a) => a.iter().map(|v| v.size()).sum(),
+            HogLiteral::Array(a) | HogLiteral::Tuple(a) => a.iter().map(|v| v.size()).sum(),
             HogLiteral::Object(o) => o.iter().map(|(k, v)| k.len() + v.size()).sum(),
             HogLiteral::Null => std::mem::size_of::<()>(),
             HogLiteral::Callable(_) => std::mem::size_of::<Callable>(),
             HogLiteral::Closure(c) => {
                 std::mem::size_of::<Closure>()
-                    + (c.captures.len() * std::mem::size_of::<HeapReference>())
+                    + (c.captures.len() * std::mem::size_of::<UpvalueCell>())
             }
         }
     }
@@ -221,16 +273,35 @@ impl HogLiteral {
         T::from_val(self)
     }
 
+    // JS-style truthiness, matching the reference VMs' `!!` coercion in AND/OR/NOT/JUMP_IF_FALSE:
+    // false, 0, NaN, "" and null are falsy; everything else (including empty arrays/objects) is truthy.
+    pub fn truthy(&self) -> bool {
+        match self {
+            Self::Boolean(b) => *b,
+            Self::Number(n) => {
+                if n.is_float() {
+                    let f = n.to_float();
+                    f != 0.0 && !f.is_nan()
+                } else {
+                    n.to_integer() != 0
+                }
+            }
+            Self::String(s) => !s.is_empty(),
+            Self::Null => false,
+            _ => true,
+        }
+    }
+
     pub fn and(&self, rhs: &HogLiteral) -> Result<HogLiteral, VmError> {
-        Ok(Self::Boolean(*self.try_as()? && *rhs.try_as()?))
+        Ok(Self::Boolean(self.truthy() && rhs.truthy()))
     }
 
     pub fn or(&self, rhs: &HogLiteral) -> Result<HogLiteral, VmError> {
-        Ok(Self::Boolean(*self.try_as()? || *rhs.try_as()?))
+        Ok(Self::Boolean(self.truthy() || rhs.truthy()))
     }
 
     pub fn not(&self) -> Result<HogLiteral, VmError> {
-        Ok(Self::Boolean(!*self.try_as::<bool>()?))
+        Ok(Self::Boolean(!self.truthy()))
     }
 
     fn coerce_types(&self, rhs: &HogLiteral) -> Result<(HogLiteral, HogLiteral), VmError> {
@@ -356,9 +427,15 @@ pub fn compare_values(
         return Num::binary_op(op, &Num::Float(a_secs), &Num::Float(b_secs));
     }
 
-    use HogLiteral::{Boolean, Number, String as HString};
+    use HogLiteral::{Boolean, Null, Number, String as HString};
     match (a, b) {
         (Number(x), Number(y)) => Num::binary_op(op, x, y),
+        // JS relational coercion: null behaves as 0 against numbers and booleans.
+        (Null, Number(y)) => Num::binary_op(op, &Num::Integer(0), y),
+        (Number(x), Null) => Num::binary_op(op, x, &Num::Integer(0)),
+        (Null, Null) => Num::binary_op(op, &Num::Integer(0), &Num::Integer(0)),
+        (Null, Boolean(y)) => Num::binary_op(op, &Num::Integer(0), &bool_to_num(*y)),
+        (Boolean(x), Null) => Num::binary_op(op, &bool_to_num(*x), &Num::Integer(0)),
         (Number(x), HString(s)) => Num::binary_op(op, x, &Num::from_str(s)?),
         (HString(s), Number(y)) => Num::binary_op(op, &Num::from_str(s)?, y),
         (Boolean(x), Number(y)) => Num::binary_op(op, &bool_to_num(*x), y),
@@ -550,6 +627,14 @@ impl From<Vec<HogValue>> for HogLiteral {
 
 impl From<HashMap<String, HogValue>> for HogLiteral {
     fn from(value: HashMap<String, HogValue>) -> Self {
+        // External callers handing us an unordered HashMap get arbitrary key order; internal
+        // object construction (Dict op, json_to_hog) builds the IndexMap directly, in order.
+        Self::Object(value.into_iter().collect())
+    }
+}
+
+impl From<IndexMap<String, HogValue>> for HogLiteral {
+    fn from(value: IndexMap<String, HogValue>) -> Self {
         Self::Object(value)
     }
 }
@@ -670,7 +755,9 @@ impl Num {
             (Num::Float(a), Num::Float(b)) => a.total_cmp(b),
             (Num::Integer(a), Num::Integer(b)) => a.cmp(b),
             (Num::Float(a), Num::Integer(b)) => a.total_cmp(&(*b as f64)),
-            (Num::Integer(a), Num::Float(b)) => (*a as f64).partial_cmp(b).unwrap(),
+            // total_cmp (like the other arms) so a NaN operand yields a deterministic ordering
+            // instead of panicking — reachable from min2/max2/arraySort via Hog-produced NaN.
+            (Num::Integer(a), Num::Float(b)) => (*a as f64).total_cmp(b),
         }
     }
 
@@ -703,7 +790,9 @@ impl Num {
                 NumOp::Add => Ok((a.saturating_add(b)).into()),
                 NumOp::Sub => Ok((a.saturating_sub(b)).into()),
                 NumOp::Mul => Ok((a.saturating_mul(b)).into()),
-                NumOp::Div => Ok((a.saturating_div(b)).into()),
+                // `/` is float division in the reference VMs (JS `/`, Python true division), even
+                // for two integers: 3 / 2 is 1.5, not 1. Use `intDiv` for integer division.
+                NumOp::Div => Ok(((a as f64) / (b as f64)).into()),
                 NumOp::Mod => Ok((a % b).into()),
                 NumOp::Gt => Ok((a > b).into()),
                 NumOp::Lt => Ok((a < b).into()),
@@ -724,6 +813,7 @@ impl Display for Callable {
                     c.name, c.stack_arg_count, c.capture_count, c.ip
                 )
             }
+            Self::Stl(name) => write!(f, "native fn {name}"),
         }
     }
 }
@@ -743,6 +833,14 @@ impl Display for Closure {
 /// `ExecutionContext::execute_native_function_call` correctly maps the return
 /// value of the native function call to the VM's memory space, making values
 /// constructed with this method safe to return from native extensions.
+// The string form a numeric object key coerces to, shared by dict construction and lookup.
+pub(crate) fn num_key_string(n: &Num) -> String {
+    match n {
+        Num::Integer(i) => i.to_string(),
+        Num::Float(f) => format!("{f}"),
+    }
+}
+
 pub fn construct_free_standing(current: JsonValue, depth: usize) -> Result<HogValue, VmError> {
     if depth > MAX_JSON_SERDE_DEPTH {
         return Err(VmError::OutOfResource(
@@ -763,11 +861,39 @@ pub fn construct_free_standing(current: JsonValue, depth: usize) -> Result<HogVa
             Ok(HogLiteral::Array(values).into())
         }
         JsonValue::Object(obj) => {
-            let mut map = HashMap::new();
+            let mut map = IndexMap::new();
             for (key, value) in obj {
                 map.insert(key, construct_free_standing(value, depth + 1)?);
             }
             Ok(HogLiteral::Object(map).into())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Num;
+    use std::cmp::Ordering;
+
+    #[test]
+    fn compare_with_nan_does_not_panic() {
+        // A NaN operand must yield a deterministic ordering rather than panicking. This path is
+        // reachable from min2/max2/arraySort with a Hog-produced NaN, so a panic here is a
+        // process-crash DoS. Every arm must return some Ordering.
+        let nan = Num::Float(f64::NAN);
+        let int = Num::Integer(1);
+        let float = Num::Float(1.0);
+        for (a, b) in [
+            (&int, &nan),
+            (&nan, &int),
+            (&float, &nan),
+            (&nan, &float),
+            (&nan, &nan),
+        ] {
+            assert!(matches!(
+                a.compare(b),
+                Ordering::Less | Ordering::Equal | Ordering::Greater
+            ));
         }
     }
 }

@@ -22,6 +22,7 @@
 
 import { z } from 'zod'
 
+import { SecretRefSchema } from '../spec/spec'
 import { BundleEntry, BundleStore } from './bundle'
 
 // ─── Canonical S3 paths ──────────────────────────────────────────────
@@ -106,14 +107,16 @@ export type TypedTool = z.infer<typeof TypedToolSchema>
  */
 export const TypedSpecSchema = z
     .object({
-        model: z.string().min(1).optional(),
+        models: z.unknown().optional(),
         triggers: z.array(z.unknown()).optional(),
         mcps: z.array(z.unknown()).optional(),
         identity_providers: z.array(z.unknown()).optional(),
-        secrets: z.array(z.string()).optional(),
+        // The canonical secret shape: a bare key string OR a host-scoped
+        // `{ name, allowed_hosts }` object. Reuse `SecretRefSchema` (the single
+        // source of truth) rather than re-spelling it — the old string-only
+        // array silently rejected host-scoped secrets at bundle PUT.
+        secrets: z.array(SecretRefSchema).optional(),
         limits: z.unknown().optional(),
-        auth: z.unknown().optional(),
-        entrypoint: z.string().optional(),
         reasoning: z.string().optional(),
         framework_prompt: z.unknown().optional(),
         resume: z.unknown().optional(),

@@ -182,10 +182,9 @@ tools:
             idempotent: true
         title: Get evaluation config
         description: >
-            Retrieve the team's evaluation configuration, including the active LLM provider key used to run llm_judge
-            evaluations and remaining trial credits. Call this before creating an llm_judge evaluation to verify the
-            team has either trial credits available or an active provider key configured — without one, llm_judge runs
-            will fail. Returns trial limits, the active provider key (or null if on trial credits), and timestamps.
+            Retrieve the team's evaluation config and active provider key. Call before creating an llm_judge eval to
+            confirm a provider key is configured — evals should run on the team's own key. Returns the active key and
+            timestamps.
     llma-evaluation-config-set-active-key:
         operation: llm_analytics_evaluation_config_set_active_key_create
         enabled: true
@@ -212,11 +211,11 @@ tools:
             idempotent: false
         title: Create evaluation
         description: >
-            Create a new AI observability evaluation. For 'llm_judge' type, provide evaluation_config.prompt and
-            model_configuration (provider + model). For 'hog' type, provide evaluation_config.source (Hog code returning
-            a boolean). For 'sentiment' type, use output_type='sentiment', omit model_configuration, and optionally set
-            evaluation_config.source='user_messages'. When enabled, the evaluation runs automatically on new
-            $ai_generation events. Results appear as '$ai_evaluation' events.
+            Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration (provider + model +
+            provider_key_id from llma-provider-key-list, preferring a provider the team already has a key for). 'hog':
+            evaluation_config.source (Hog returning a boolean). 'sentiment': output_type='sentiment', omit
+            model_configuration, optional evaluation_config.source='user_messages'. When enabled, runs on new
+            $ai_generation events; results are '$ai_evaluation' events.
     llma-evaluation-delete:
         operation: evaluations_destroy
         enabled: true
@@ -255,12 +254,10 @@ tools:
             idempotent: true
         title: List supported llm_judge models
         description: >
-            List the provider+model combinations supported for llm_judge evaluations. Pass a `provider` query parameter
-            (one of openai, anthropic, gemini, openrouter, fireworks, azure_openai) and optionally `key_id` to scope the
-            list to deployments reachable with a specific provider key (mainly relevant for azure_openai). Each entry
-            returns the model id and whether it is available on PostHog trial credits. Call this before creating an
-            llm_judge evaluation when the user has not specified a model, so a valid provider+model combination is
-            chosen.
+            List provider+model combinations supported for llm_judge. Pass `provider` (openai, anthropic, gemini,
+            openrouter, fireworks, azure_openai, together_ai, minimax); optional `key_id` scopes to a key's reachable
+            deployments (mainly azure_openai). Call before creating an llm_judge eval to pick a valid combo — prefer a
+            provider the team already has a key for (see llma-provider-key-list).
     llma-evaluation-list:
         operation: evaluations_list
         enabled: true
@@ -483,10 +480,10 @@ tools:
         title: Get my LLM spend analysis
         description: >
             Retrieve the current user's personal LLM spend analysis across PostHog products over the last N days
-            (default 30, max 90). Returns a summary plus breakdowns by product, tool, model, and top traces. The
-            `product` query param is required and scopes the tool / model / trace breakdowns to a single product;
-            currently only `posthog_code` is supported. `by_product` always returns the cross-product view. Pass
-            `refresh=true` to bypass the 5-minute cache.
+            (default 30, max 90). Returns a summary plus breakdowns by product, tool, model and UTC day. The `product`
+            query param is required and scopes the tool / model / day breakdowns to a single product; currently only
+            `posthog_code` is supported. `by_product` always returns the cross-product view, and `by_day` is a
+            day-ascending series for spend-over-time questions. Pass `refresh=true` to bypass the 5-minute cache.
     llma-prompt-archive:
         operation: llm_prompts_name_archive_create
         enabled: false
@@ -592,10 +589,33 @@ tools:
         enabled: false
     llma-provider-key-get:
         operation: llm_analytics_provider_keys_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_provider_key:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get LLM provider key
+        description: >
+            Fetch one LLM provider key by ID — its provider, name, and validation state, with a masked preview (never
+            the secret). Use when you have a key ID to resolve, e.g. the key an evaluation references.
     llma-provider-key-list:
         operation: llm_analytics_provider_keys_list
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_provider_key:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List LLM provider keys
+        description: >
+            List the team's configured LLM provider keys (OpenAI, Anthropic, Azure, etc.). Returns each key's provider,
+            name, validation state, and a masked preview — never the secret itself. Call this before creating an
+            llm_judge evaluation to discover which providers have a usable ('ok' state) key available. Creating,
+            updating, and deleting keys are intentionally UI-only.
     llma-provider-key-trial-evaluations-get:
         operation: llm_analytics_provider_keys_trial_evaluations_retrieve
         enabled: false

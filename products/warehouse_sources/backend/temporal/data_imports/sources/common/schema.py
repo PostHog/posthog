@@ -44,6 +44,12 @@ class SourceSchema:
     label: str | None = None
     detected_primary_keys: list[str] | None = None
     rls_warning: str | None = None
+    # Per-source default for the incremental overlap re-read window, applied at schema
+    # creation when the caller doesn't set one. Sources whose recent rows get restated
+    # upstream (e.g. Google Ads stats tables, which Google keeps revising for days) set
+    # this so each incremental run re-reads a trailing window instead of freezing a day
+    # at its first-imported value. Only consumed for schemas synced incrementally.
+    default_incremental_lookback_seconds: int | None = None
 
 
 def _select_incremental_field(incremental_fields: list[IncrementalField]) -> IncrementalField | None:

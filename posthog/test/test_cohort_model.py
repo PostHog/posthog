@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from posthog.test.base import BaseTest
@@ -10,12 +11,20 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 from posthog.helpers.batch_iterators import FunctionBatchIterator
-from posthog.models import Team
+from posthog.models import Person, Team
+from posthog.models.person.util import get_person_by_id
 from posthog.test.persons import add_cohort_members, create_person
 
-from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.sql import GET_COHORTPEOPLE_BY_COHORT_ID
+from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
+
+
+def _require_person_by_id(team_id: int, person_id: int) -> Person:
+    person = get_person_by_id(team_id, person_id)
+    assert person is not None
+    return person
 
 
 class TestCohort(BaseTest):
@@ -32,17 +41,17 @@ class TestCohort(BaseTest):
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
         cohort.insert_users_by_list(["a header or something", "123", "000", "email@example.org"])
         cohort.refresh_from_db()
-        self.assertEqual(cohort.people.count(), 2)
+        self.assertEqual(count_cohort_members(self.team.id, cohort.pk), 2)
         self.assertEqual(cohort.is_calculating, False)
 
         #  If we accidentally call calculate_people it shouldn't erase people
         cohort.calculate_people_ch(pending_version=0)
-        self.assertEqual(cohort.people.count(), 2)
+        self.assertEqual(count_cohort_members(self.team.id, cohort.pk), 2)
 
         # if we add people again, don't increase the number of people in cohort
         cohort.insert_users_by_list(["123"])
         cohort.refresh_from_db()
-        self.assertEqual(cohort.people.count(), 2)
+        self.assertEqual(count_cohort_members(self.team.id, cohort.pk), 2)
         self.assertEqual(cohort.is_calculating, False)
 
     def test_insert_by_distinct_id_in_batches(self):
@@ -64,7 +73,7 @@ class TestCohort(BaseTest):
         )
         self.assertEqual(batch_count, 5)
         cohort.refresh_from_db()
-        self.assertEqual(cohort.people.count(), 11)
+        self.assertEqual(count_cohort_members(self.team.id, cohort.pk), 11)
         self.assertEqual(cohort.is_calculating, False)
 
     @pytest.mark.ee
@@ -345,8 +354,9 @@ class TestCohort(BaseTest):
         # Fetch all persons in the cohort
         cohort.refresh_from_db()
         assert cohort.count == 11
-        assert cohort.people.count() == 11
-        cohort_person_uuids = {str(p.uuid) for p in cohort.people.all()}
+        assert count_cohort_members(self.team.id, cohort.pk) == 11
+        member_ids = list_cohort_member_ids(team_id=self.team.id, cohort_id=cohort.pk)
+        cohort_person_uuids = {str(_require_person_by_id(self.team.id, pid).uuid) for pid in member_ids}
         assert cohort_person_uuids == set(uuids)
         assert cohort.is_calculating is False
 
@@ -361,7 +371,7 @@ class TestCohort(BaseTest):
         # First insertion - add users 0-4 (batch size 3 will create batches: [0,1,2], [3,4])
         cohort.insert_users_by_list(["user0", "user1", "user2", "user3", "user4"], batch_size=3)
         cohort.refresh_from_db()
-        self.assertEqual(cohort.people.count(), 5)
+        self.assertEqual(count_cohort_members(self.team.id, cohort.pk), 5)
 
         # Second insertion - try to add users 2-7 (users 2,3,4 are already in cohort)
         # This tests that our LEFT JOIN optimization works across batch boundaries
@@ -369,12 +379,12 @@ class TestCohort(BaseTest):
         cohort.refresh_from_db()
 
         # Should have 8 people total (user0-user7) - no duplicates
-        self.assertEqual(cohort.people.count(), 8)
+        self.assertEqual(count_cohort_members(self.team.id, cohort.pk), 8)
 
         # Verify all expected people are in the cohort
-        cohort_person_distinct_ids = set()
-        for person in cohort.people.all():
-            cohort_person_distinct_ids.update(person.distinct_ids)
+        cohort_person_distinct_ids: set[str] = set()
+        for pid in list_cohort_member_ids(team_id=self.team.id, cohort_id=cohort.pk):
+            cohort_person_distinct_ids.update(_require_person_by_id(self.team.id, pid).distinct_ids)
 
         expected_distinct_ids = {f"user{i}" for i in range(8)}
         self.assertEqual(cohort_person_distinct_ids, expected_distinct_ids)
@@ -399,8 +409,9 @@ class TestCohort(BaseTest):
             )
 
         cohort.refresh_from_db()
-        assert cohort.people.count() == 1
-        assert str(cohort.people.first().uuid) == str(person.uuid)
+        member_ids = list_cohort_member_ids(team_id=self.team.id, cohort_id=cohort.pk)
+        assert len(member_ids) == 1
+        assert str(_require_person_by_id(self.team.id, member_ids[0]).uuid) == str(person.uuid)
 
     @override_settings(DEBUG=False)
     def test_insert_re_raises_soft_time_limit_exceeded(self):
@@ -593,3 +604,98 @@ class TestCohort(BaseTest):
         cohort.refresh_from_db()
         self.assertEqual(cohort.version, 1)
         self.assertEqual(cohort.count, 42)
+
+
+_PERSON_FILTERS = {
+    "properties": {
+        "type": "AND",
+        "values": [{"type": "AND", "values": [{"key": "email", "value": "a@a.com", "type": "person"}]}],
+    }
+}
+
+_BEHAVIORAL_FILTERS = {
+    "properties": {
+        "type": "AND",
+        "values": [
+            {
+                "type": "AND",
+                "values": [
+                    {"type": "behavioral", "value": "performed_event", "event_type": "events", "key": "$pageview"}
+                ],
+            }
+        ],
+    }
+}
+
+_MIXED_FILTERS = {
+    "properties": {
+        "type": "AND",
+        "values": [
+            {"type": "AND", "values": [{"key": "email", "value": "a@a.com", "type": "person"}]},
+            {
+                "type": "AND",
+                "values": [
+                    {"type": "behavioral", "value": "performed_event", "event_type": "events", "key": "$pageview"}
+                ],
+            },
+        ],
+    }
+}
+
+_COHORT_REF_FILTERS = {
+    "properties": {
+        "type": "AND",
+        "values": [{"type": "AND", "values": [{"key": "id", "value": 1, "type": "cohort"}]}],
+    }
+}
+
+_FIXED_TS = datetime(2026, 1, 1, tzinfo=UTC)
+
+
+class TestCohortIsFlagCompatible(BaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @parameterized.expand(
+        [
+            # (label, cohort_type, filters, person_ts, events_ts, expected)
+            # Non-realtime cohort types are never flag-compatible
+            ("static_never_compatible", CohortType.STATIC, _PERSON_FILTERS, _FIXED_TS, _FIXED_TS, False),
+            ("behavioral_type_never_compatible", CohortType.BEHAVIORAL, _PERSON_FILTERS, _FIXED_TS, _FIXED_TS, False),
+            (
+                "person_property_type_never_compatible",
+                CohortType.PERSON_PROPERTY,
+                _PERSON_FILTERS,
+                _FIXED_TS,
+                None,
+                False,
+            ),
+            # Realtime + person filters: gate on person timestamp
+            ("realtime_person_no_ts", CohortType.REALTIME, _PERSON_FILTERS, None, None, False),
+            ("realtime_person_only_person_ts", CohortType.REALTIME, _PERSON_FILTERS, _FIXED_TS, None, True),
+            ("realtime_person_only_events_ts", CohortType.REALTIME, _PERSON_FILTERS, None, _FIXED_TS, False),
+            ("realtime_person_both_ts", CohortType.REALTIME, _PERSON_FILTERS, _FIXED_TS, _FIXED_TS, True),
+            # Realtime + behavioral filters: gate on events timestamp
+            ("realtime_behavioral_no_ts", CohortType.REALTIME, _BEHAVIORAL_FILTERS, None, None, False),
+            ("realtime_behavioral_only_person_ts", CohortType.REALTIME, _BEHAVIORAL_FILTERS, _FIXED_TS, None, False),
+            ("realtime_behavioral_only_events_ts", CohortType.REALTIME, _BEHAVIORAL_FILTERS, None, _FIXED_TS, True),
+            ("realtime_behavioral_both_ts", CohortType.REALTIME, _BEHAVIORAL_FILTERS, _FIXED_TS, _FIXED_TS, True),
+            # Realtime + mixed filters: require both timestamps
+            ("realtime_mixed_no_ts", CohortType.REALTIME, _MIXED_FILTERS, None, None, False),
+            ("realtime_mixed_only_person_ts", CohortType.REALTIME, _MIXED_FILTERS, _FIXED_TS, None, False),
+            ("realtime_mixed_only_events_ts", CohortType.REALTIME, _MIXED_FILTERS, None, _FIXED_TS, False),
+            ("realtime_mixed_both_ts", CohortType.REALTIME, _MIXED_FILTERS, _FIXED_TS, _FIXED_TS, True),
+            # Realtime + no recognized filter types: never compatible, regardless of timestamps
+            ("realtime_empty_filters_no_ts", CohortType.REALTIME, {}, None, None, False),
+            ("realtime_empty_filters_with_ts", CohortType.REALTIME, {}, _FIXED_TS, _FIXED_TS, False),
+            ("realtime_cohort_ref_with_ts", CohortType.REALTIME, _COHORT_REF_FILTERS, _FIXED_TS, _FIXED_TS, False),
+        ]
+    )
+    def test_is_flag_compatible(self, _label, cohort_type, filters, person_ts, events_ts, expected):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters=filters,
+            cohort_type=cohort_type,
+            last_backfill_person_properties_at=person_ts,
+            last_backfill_events_at=events_ts,
+        )
+        self.assertEqual(cohort.is_flag_compatible, expected)

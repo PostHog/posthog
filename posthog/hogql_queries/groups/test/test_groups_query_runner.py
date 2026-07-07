@@ -12,7 +12,7 @@ from posthog.schema import GroupPropertyFilter, GroupsQuery, PropertyOperator
 
 from posthog.hogql_queries.groups.groups_query_runner import GroupsQueryRunner
 from posthog.models.group.util import create_group, raw_create_group_ch
-from posthog.test.persons import create_group_type_mapping
+from posthog.test.persons import create_group_type_mapping, update_group
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
@@ -422,7 +422,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         # Saving in Postgres won't update ClickHouse
         group.group_properties["arr"] = 200
-        group.save()
+        update_group(group)
         # ... so we need to update ClickHouse too.
         raw_create_group_ch(
             team_id=self.team.pk,

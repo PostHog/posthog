@@ -737,6 +737,7 @@ class TestTikTokAdsPaginator:
             ("validation_error", 40002, "Invalid parameter", False),  # Client error - not retryable
             ("server_error", 50000, "Internal server error", True),
             ("internal_service_timeout", 51001, "internal service timeout", True),  # Transient - retryable
+            ("internal_service_timeout_51039", 51039, "internal service timeout", True),  # Transient - retryable
         ]
     )
     def test_update_state_api_error_codes(self, name, api_code, message, should_be_retryable):

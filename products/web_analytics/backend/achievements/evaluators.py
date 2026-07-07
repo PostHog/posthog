@@ -1,16 +1,18 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Any
 
-from posthog.schema import CompareFilter, DateRange, WebGoalsQuery, WebOverviewQuery
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.property import action_to_expr
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.actions.backend.models.action import Action
 from products.web_analytics.backend.achievements.definitions import STREAK_ARM_WEEKLY
-from products.web_analytics.backend.hogql_queries.web_goals import NoActionsError, WebGoalsQueryRunner
-from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import test_account_filter_expr
 from products.web_analytics.backend.models import WebAnalyticsInteraction, WebAnalyticsVisit
 
 
@@ -92,45 +94,54 @@ def _project_environment_teams(team: Team) -> list[Team]:
     return list(Team.objects.filter(project_id=team.project_id))
 
 
+def _test_account_filter_expr(team: Team) -> ast.Expr:
+    filters = team.test_account_filters if isinstance(team.test_account_filters, list) else []
+    return test_account_filter_expr(test_account_filters=filters, team=team)
+
+
 def evaluate_cumulative_pageviews(ctx: EvalContext) -> int:
     total = 0
     for team in _project_environment_teams(ctx.team):
-        query = WebOverviewQuery(
-            dateRange=DateRange(date_from="all"),
-            compareFilter=CompareFilter(compare=False),
-            filterTestAccounts=True,
-            properties=[],
+        query = parse_select(
+            "SELECT count() FROM events WHERE and(event IN ('$pageview', '$screen'), {test})",
+            placeholders={"test": _test_account_filter_expr(team)},
         )
-        response = WebOverviewQueryRunner(team=team, query=query).calculate()
-        for item in response.results or []:
-            if item.key == "views":
-                total += int(item.value or 0)
-                break
+        response = execute_hogql_query(query=query, team=team, query_type="web_achievements_pageviews")
+        if response.results:
+            total += int(response.results[0][0] or 0)
     return total
 
 
-def _first_value(value: object) -> Any:
-    return value[0] if isinstance(value, list | tuple) else value
+CONVERSIONS_LOOKBACK_DAYS = 90
 
 
 def evaluate_conversions(ctx: EvalContext) -> int:
-    num_goals = 0
-    best_goal_conversions = 0
+    actions = list(
+        Action.objects.filter(team__project_id=ctx.team.project_id, deleted=False).order_by(
+            "pinned_at", "-last_calculated_at"
+        )[:5]
+    )
+    if not actions:
+        return 0
+
+    per_action_totals = [0] * len(actions)
     for team in _project_environment_teams(ctx.team):
-        query = WebGoalsQuery(
-            dateRange=DateRange(date_from="all"),
-            compareFilter=CompareFilter(compare=False),
-            properties=[],
+        query = parse_select(
+            "SELECT 1 FROM events WHERE and(timestamp >= now() - toIntervalDay({days}), {test})",
+            placeholders={
+                "days": ast.Constant(value=CONVERSIONS_LOOKBACK_DAYS),
+                "test": _test_account_filter_expr(team),
+            },
         )
-        try:
-            response = WebGoalsQueryRunner(team=team, query=query).calculate()
-        except NoActionsError:
-            continue
-        results = response.results or []
-        num_goals += len(results)
-        for row in results:
-            best_goal_conversions = max(best_goal_conversions, int(_first_value(row[2]) or 0))
-    return max(num_goals, best_goal_conversions)
+        if not isinstance(query, ast.SelectQuery):
+            raise TypeError(f"evaluate_conversions: expected SelectQuery, got {type(query)}")
+        query.select = [ast.Call(name="countIf", args=[action_to_expr(action)]) for action in actions]
+        response = execute_hogql_query(query=query, team=team, query_type="web_achievements_conversions")
+        if response.results:
+            for index, value in enumerate(response.results[0]):
+                per_action_totals[index] += int(value or 0)
+
+    return max(len(actions), max(per_action_totals, default=0))
 
 
 def _interaction_count(ctx: EvalContext, kind: str) -> int:

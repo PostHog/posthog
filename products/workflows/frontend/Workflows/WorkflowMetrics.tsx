@@ -1,16 +1,19 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useMemo } from 'react'
 
-import { LemonCollapse, LemonSelect, ProfilePicture, Spinner } from '@posthog/lemon-ui'
+import { HedgehogGreek } from '@posthog/brand/hoggies'
+import { IconLetter } from '@posthog/icons'
+import { LemonButton, LemonCollapse, LemonSelect, ProfilePicture, Spinner } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
-import { ListHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { urls } from 'scenes/urls'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { EmailMetricsSummary } from './EmailMetricsSummary'
@@ -18,6 +21,7 @@ import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlowBatchJob } from './hogflows/types'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 import { WorkflowMetricsSummary } from './WorkflowMetricsSummary'
+import { type EmailMetric, buildEmailMetricLogSearchParams } from './workflowMetricsSummaryLogic'
 
 const OVERVIEW_OPTION_VALUE = '__workflow_overview__'
 
@@ -60,7 +64,8 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
 
     const { workflow, hogFunctionTemplatesById } = useValues(workflowLogic)
 
-    const { appMetricsTrendsLoading, appMetricsTrends, getSingleTrendSeries, params } = useValues(logic)
+    const { appMetricsTrendsLoading, appMetricsTrends, getSingleTrendSeries, params, getDateRangeAbsolute } =
+        useValues(logic)
     const { setParams } = useActions(logic)
 
     const selectedAction = workflow.actions.find((action) => action.id === params.instanceId)
@@ -97,10 +102,19 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
         [workflow.actions, hogFunctionTemplatesById]
     )
 
+    // Drill an email metric into the logs tab filtered to its log entries over the current window.
+    const onEmailMetricClick = (metricKey: EmailMetric): void => {
+        const { dateFrom, dateTo } = getDateRangeAbsolute()
+        const searchParams = buildEmailMetricLogSearchParams(metricKey, dateFrom.toISOString(), dateTo.toISOString())
+        if (searchParams && props.id) {
+            router.actions.push(urls.workflow(props.id, 'logs'), searchParams)
+        }
+    }
+
     return (
         <div className="flex flex-col gap-2" data-attr="workflow-metrics">
             <div className="flex flex-row gap-2 flex-wrap justify-between">
-                <div>
+                <div className="flex flex-row gap-2 items-center flex-wrap">
                     <LemonSelect
                         size="small"
                         options={workflowStepOptions.filter((option) => option.value !== 'trigger_node')}
@@ -112,6 +126,16 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
                             })
                         }
                     />
+                    {selectedAction?.type === 'function_email' && props.id ? (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconLetter />}
+                            to={`${urls.workflow(props.id, 'assets')}?assetAction=${encodeURIComponent(params.instanceId as string)}`}
+                        >
+                            View sent emails
+                        </LemonButton>
+                    ) : null}
                 </div>
                 <AppMetricsFilters logicKey={logicKey} />
             </div>
@@ -121,9 +145,10 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
                     logicKey={logicKey}
                     id={props.id ?? ''}
                     onSelectAction={(actionId) => setParams({ ...params, instanceId: actionId })}
+                    onMetricClick={onEmailMetricClick}
                 />
             ) : selectedAction?.type === 'function_email' ? (
-                <EmailMetricsSummary logicKey={logicKey} />
+                <EmailMetricsSummary logicKey={logicKey} onMetricClick={onEmailMetricClick} />
             ) : (
                 <>
                     <div className="flex flex-row gap-2 flex-wrap justify-center">
@@ -227,7 +252,7 @@ function BatchJobMetrics({ job }: { job: HogFlowBatchJob }): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
             <div className="flex flex-row gap-2 flex-wrap justify-between">
-                <div>
+                <div className="flex flex-row gap-2 items-center flex-wrap">
                     <LemonSelect
                         size="small"
                         options={workflowStepOptions.filter((option) => option.value !== 'trigger_node')}
@@ -239,6 +264,16 @@ function BatchJobMetrics({ job }: { job: HogFlowBatchJob }): JSX.Element {
                             })
                         }
                     />
+                    {selectedAction?.type === 'function_email' ? (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconLetter />}
+                            to={`${urls.workflow(workflow.id, 'assets')}?assetAction=${encodeURIComponent(params.instanceId as string)}`}
+                        >
+                            View sent emails
+                        </LemonButton>
+                    ) : null}
                 </div>
                 <AppMetricsFilters logicKey={logicKey} />
             </div>
@@ -289,7 +324,7 @@ function WorkflowBatchMetrics(props: WorkflowLogicProps): JSX.Element {
     if (!jobs.length) {
         return (
             <div className="flex flex-col bg-surface-primary rounded px-4 py-8 items-center text-center mx-auto">
-                <ListHog width="100" height="100" className="mb-4" />
+                <HedgehogGreek width="100" height="100" className="mb-4" />
                 <h2 className="text-xl leading-tight">No batch workflow jobs have been run yet</h2>
                 <p className="text-sm text-balance text-tertiary">
                     Once a batch workflow job is triggered, metrics will appear here.

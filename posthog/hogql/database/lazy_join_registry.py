@@ -2,7 +2,6 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from posthog.hogql.database import lazy_join_tags as tags
-from posthog.hogql.database.schema.account_aggregates import account_notebooks_join, account_tags_join
 from posthog.hogql.database.schema.error_tracking_fingerprint_issue_state import (
     join_with_error_tracking_fingerprint_issue_state_table,
 )
@@ -30,6 +29,12 @@ from posthog.hogql.database.warehouse_join_resolvers import (
     resolve_data_warehouse_experiments_join,
     resolve_data_warehouse_join,
     resolve_foreign_key_join,
+)
+
+from products.customer_analytics.backend.facade.hogql import (
+    account_custom_properties_join,
+    account_notebooks_join,
+    account_tags_join,
 )
 
 if TYPE_CHECKING:
@@ -71,6 +76,7 @@ RESOLVERS: dict[str, LazyJoinResolver] = {
     tags.ERROR_TRACKING_FINGERPRINT_ISSUE_STATE: join_with_error_tracking_fingerprint_issue_state_table,
     tags.ACCOUNT_TAGS: account_tags_join,
     tags.ACCOUNT_NOTEBOOKS: account_notebooks_join,
+    tags.ACCOUNT_CUSTOM_PROPERTIES: account_custom_properties_join,
 }
 
 
