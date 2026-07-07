@@ -19,6 +19,7 @@ from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo, 
 from products.signals.backend.facade.api import ScoutProvisionResult
 from products.slack_app.backend import api, persona_onboarding
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
+from products.slack_app.backend.services import slack_app_home
 from products.tasks.backend.models import Task, TaskRun
 
 WORKSPACE = "T1"
@@ -68,6 +69,14 @@ def _mute_analytics():
     # Every handler fires capture_slack_event, whose ph_scoped_capture flushes on a blocking
     # network shutdown — no flow test asserts analytics, so mock it to keep the suite fast.
     with patch("products.slack_app.backend.persona_onboarding.capture_slack_event"):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _inline_background_work():
+    # Handlers ack Slack fast and do their real work off-thread; run that work inline so tests
+    # observe effects synchronously and DB access stays on the test connection.
+    with patch.object(persona_onboarding, "_run_in_background", side_effect=lambda fn, task: fn()):
         yield
 
 
@@ -583,6 +592,13 @@ class TestChannelStep(_FlowTestBase):
         assert row.onboarding_state["pending_channel_id"] == PICKED_CHANNEL
         assert row.onboarding_state["invite_message_ts"] == "1.3"
         assert "/invite" in self._posted_text(client)
+        # The clicked picker was frozen for feedback — a fresh one must come back, or a user
+        # who picked an uninvitable channel is wedged on /invite-or-skip.
+        assert any(
+            block.get("block_id") == persona_onboarding.CHANNEL_SELECT_BLOCK_ID
+            for call in client.chat_postMessage.call_args_list
+            for block in call.kwargs.get("blocks") or []
+        )
 
         client.chat_postMessage.side_effect = None
         verify_action = {"action_id": persona_onboarding.CHANNEL_VERIFY_ACTION_ID, "value": PICKED_CHANNEL}
@@ -625,6 +641,57 @@ class TestChannelStep(_FlowTestBase):
         assert "#scout-hq" in text
         row.refresh_from_db()
         assert row.onboarded_at is not None
+
+
+class TestFastAck(_FlowTestBase):
+    @patch(WEBCLIENT)
+    def test_slow_handlers_never_run_on_the_ack_thread(self, mock_webclient):
+        # Slack voids a block action after 3s — if a handler's Slack/DB work creeps back onto
+        # the request thread, users see "operation timed out" on the button again.
+        client = self._client(mock_webclient)
+        self._seed_state(persona_onboarding.STEP_AWAITING_PERSONA)
+        action = {"action_id": f"{persona_onboarding.PERSONA_SELECT_ACTION_ID}:csm", "value": "csm"}
+        deferred: list = []
+        with patch.object(persona_onboarding, "_run_in_background", side_effect=lambda fn, task: deferred.append(fn)):
+            response = persona_onboarding.handle_block_action(self._payload(action), action)
+        assert response.status_code == 200
+        assert len(deferred) == 1
+        client.chat_postMessage.assert_not_called()
+        client.chat_update.assert_not_called()
+
+
+class TestKickoffSingleFlight(_FlowTestBase):
+    @patch(WEBCLIENT)
+    def test_held_claim_blocks_duplicate_kickoff(self, mock_webclient):
+        # The kickoff runs off-thread, so a double-clicked Start (or a redelivered DM event)
+        # races state creation — the cache claim must make the second entry a no-op.
+        client = self._client(mock_webclient)
+        cache.add(f"slack_persona_onboarding_start:{WORKSPACE}:{SLACK_USER}", "1", timeout=60)
+
+        persona_onboarding.start_onboarding_dm(
+            self.integration, SLACK_USER, posthog_user_id=self.user.id, entry_point="home_button"
+        )
+
+        client.chat_postMessage.assert_not_called()
+        assert self._row().onboarding_state is None
+
+
+class TestOnboardingHomeView(_FlowTestBase):
+    @patch(FLAG, return_value=True)
+    @patch(WEBCLIENT)
+    def test_home_is_onboarding_only_with_dm_deep_link_until_onboarded(self, mock_webclient, _flag):
+        client = self._client(mock_webclient)
+        self._seed_state(persona_onboarding.STEP_AWAITING_PERSONA)
+
+        slack_app_home.republish_home_for_user(self.integration, SLACK_USER)
+
+        view = client.views_publish.call_args.kwargs["view"]
+        flat = str(view["blocks"])
+        assert "AI model" not in flat  # settings sections stay hidden pre-onboarding
+        card = view["blocks"][-1]
+        assert card["accessory"]["action_id"] == persona_onboarding.OPEN_DM_ACTION_ID
+        query = parse_qs(urlparse(card["accessory"]["url"]).query)
+        assert query == {"team": [WORKSPACE], "channel": [DM_CHANNEL]}
 
 
 class TestHomeOnboardingStatus(_FlowTestBase):
@@ -822,8 +889,9 @@ class TestMcpConnectReturn(_FlowTestBase):
 
 class TestHomeStartFlow(_FlowTestBase):
     # The Start button must ack inside Slack's 3s budget, so the kickoff work runs in a
-    # background task; this pins the wiring end to end — click → kickoff DM posted, state row
-    # created, home republished — with the background seam collapsed to inline.
+    # background task; this pins the wiring end to end — click → interim card published,
+    # kickoff DM posted, state row created, home republished — with the background seam
+    # collapsed to inline.
     @patch(WEBCLIENT)
     def test_click_posts_kickoff_and_republishes_home(self, mock_webclient_class):
         client = self._client(mock_webclient_class)
@@ -847,4 +915,29 @@ class TestHomeStartFlow(_FlowTestBase):
         # Follow-ups must thread under the kickoff — an unthreaded reply roots a brand-new
         # conversation in the assistant surface instead of continuing this one.
         assert row.onboarding_state["thread_ts"] == "111.222"
+        republish.assert_called_once()
+        # The interim card is the click's only immediate feedback — it must land before the
+        # kickoff's Slack round-trips, not after (the truthful republish is mocked out above,
+        # so this is the sole views_publish).
+        assert "Setting things up" in str(client.views_publish.call_args.kwargs["view"]["blocks"])
+        call_order = [name for name, _args, _kwargs in client.method_calls]
+        assert call_order.index("views_publish") < call_order.index("chat_postMessage")
+
+    @patch(WEBCLIENT)
+    def test_home_republished_even_when_kickoff_raises(self, mock_webclient_class):
+        # A kickoff that dies mid-flight (Slack hiccup, dev-server reload) must still converge
+        # the Home tab to the truthful state — otherwise the stale Start card sits there until
+        # the user happens to re-open the tab.
+        client = self._client(mock_webclient_class)
+        client.chat_postMessage.side_effect = RuntimeError("slack down")
+        workspace_result = MagicMock(candidates=[self.integration], integration=self.integration)
+        user_resolution = MagicMock(user=self.user, integration=self.integration, candidates=[self.integration])
+        with (
+            patch(FLAG, return_value=True),
+            patch.object(persona_onboarding, "load_integrations", return_value=workspace_result),
+            patch.object(persona_onboarding, "resolve_user_for_workspace", return_value=user_resolution),
+            patch.object(persona_onboarding, "_republish_home") as republish,
+            pytest.raises(RuntimeError),
+        ):
+            persona_onboarding._run_home_start(WORKSPACE, SLACK_USER)
         republish.assert_called_once()

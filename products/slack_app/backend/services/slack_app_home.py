@@ -351,7 +351,6 @@ def render_home_view(
     account_state: AccountState | None = None,
     project_state: ProjectState | None = None,
     tasks_state: TasksState | None = None,
-    onboarding_status: str = "hidden",
 ) -> dict:
     """Render the Block Kit payload for `views.publish` on the App Home tab."""
 
@@ -359,12 +358,6 @@ def render_home_view(
     blocks: list[dict] = []
 
     blocks.extend(_header_blocks())
-
-    # Persona onboarding card — shown only while the user is un-onboarded (flag-gated by the
-    # caller). Once onboarding completes, the card disappears and home reverts to settings.
-    if onboarding_status != "hidden":
-        blocks.append({"type": "divider"})
-        blocks.extend(_onboarding_card_blocks(onboarding_status))
 
     # Section 1 — project routing. Personal pick on top; admins get an
     # editable workspace default below, others see it as read-only context.
@@ -420,14 +413,45 @@ def _header_blocks() -> list[dict]:
     ]
 
 
-def _onboarding_card_blocks(status: str) -> list[dict]:
+def render_onboarding_home_view(status: str, dm_link: str | None) -> dict:
+    """Pre-onboarding home: just a welcome and the onboarding card. The settings sections stay
+    hidden until the user finishes (or skips) onboarding, so setup is the only thing to do here."""
+    blocks: list[dict] = [
+        _section_title(
+            "Welcome to PostHog! 👋",
+            "I'm PostHog's Slack agent. I can dig into data, ship code, and help get things done.\n",
+        ),
+        {"type": "divider"},
+        *_onboarding_card_blocks(status, dm_link),
+    ]
+    return {"type": "home", "callback_id": HOME_CALLBACK_ID, "blocks": blocks}
+
+
+def _onboarding_card_blocks(status: str, dm_link: str | None) -> list[dict]:
+    if status == "starting":
+        # Optimistic card published the moment the Start click is handled — the kickoff makes
+        # several Slack API round-trips, so the truthful "in progress" republish lags by seconds.
+        text = "✨ *Setting things up…* I'll DM you in a moment."
+        return [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
     if status == "in_progress":
-        button: dict = {
-            "type": "button",
-            "text": {"type": "plain_text", "text": "Resume in DMs"},
-            "action_id": persona_onboarding.START_ACTION_ID,
-        }
-        text = "✨ *Onboarding in progress* — check your DMs from me."
+        if dm_link:
+            # Deep link straight into the conversation — a DM from a bot is easy to miss in the
+            # sidebar, and the whole flow should keep the user inside Slack.
+            button: dict = {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Open our conversation"},
+                "action_id": persona_onboarding.OPEN_DM_ACTION_ID,
+                "url": dm_link,
+                "style": "primary",
+            }
+            text = "✨ *Onboarding in progress* — I've sent you a DM to continue."
+        else:
+            button = {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Resume in DMs"},
+                "action_id": persona_onboarding.START_ACTION_ID,
+            }
+            text = "✨ *Onboarding in progress* — check your DMs from me."
     else:
         button = {
             "type": "button",
@@ -1068,9 +1092,46 @@ def handle_app_home_opened(event: dict, slack_team_id: str) -> None:
     republish_home_for_user(integration, slack_user_id)
 
 
+def _publish_onboarding_home_if_needed(integration: Integration, slack_user_id: str) -> bool:
+    """Publish the onboarding-only home when the user hasn't onboarded yet (flag-gated inside
+    the status computation). Returns True when it published — the caller must then skip the
+    settings view, which also skips its several Slack/DB round-trips of state resolution."""
+    onboarding_status = persona_onboarding.compute_home_onboarding_status(
+        integration, integration.integration_id, slack_user_id
+    )
+    if onboarding_status == "hidden":
+        return False
+    dm_link = (
+        persona_onboarding.onboarding_dm_deep_link(integration.integration_id, slack_user_id)
+        if onboarding_status == "in_progress"
+        else None
+    )
+    _publish_home_view(integration, slack_user_id, render_onboarding_home_view(onboarding_status, dm_link))
+    return True
+
+
+def publish_onboarding_starting_home(integration: Integration, slack_user_id: str) -> None:
+    """Optimistic Home update for the Start onboarding click: the kickoff makes several Slack
+    API round-trips before the truthful republish, and the click itself gives no feedback."""
+    _publish_home_view(integration, slack_user_id, render_onboarding_home_view("starting", None))
+
+
+def _publish_home_view(integration: Integration, slack_user_id: str, view: dict) -> None:
+    try:
+        SlackIntegration(integration).client.views_publish(user_id=slack_user_id, view=view)
+    except Exception:
+        logger.exception(
+            "slack_app_home_publish_failed",
+            slack_user_id=slack_user_id,
+            slack_team_id=integration.integration_id,
+        )
+
+
 def republish_home_for_user(integration: Integration, slack_user_id: str) -> None:
     """Recompute and publish the Home tab for one user — the shared publish path for
     `app_home_opened` and for flows (persona onboarding) that change what home shows."""
+    if _publish_onboarding_home_if_needed(integration, slack_user_id):
+        return
     effective = resolve_ai_preferences(integration, slack_user_id)
     user_row, workspace_row = _load_rows(integration, slack_user_id)
 
@@ -1079,9 +1140,6 @@ def republish_home_for_user(integration: Integration, slack_user_id: str) -> Non
     account_state = _resolve_account_state(integration, slack_user_id)
     project_state = _resolve_project_state(integration, slack_user_id)
     tasks_state = _resolve_tasks_state(integration, slack_user_id)
-    onboarding_status = persona_onboarding.compute_home_onboarding_status(
-        integration, integration.integration_id, slack_user_id
-    )
 
     view = render_home_view(
         effective=effective,
@@ -1091,16 +1149,8 @@ def republish_home_for_user(integration: Integration, slack_user_id: str) -> Non
         account_state=account_state,
         project_state=project_state,
         tasks_state=tasks_state,
-        onboarding_status=onboarding_status,
     )
-    try:
-        slack.client.views_publish(user_id=slack_user_id, view=view)
-    except Exception:
-        logger.exception(
-            "slack_app_home_publish_failed",
-            slack_user_id=slack_user_id,
-            slack_team_id=integration.integration_id,
-        )
+    _publish_home_view(integration, slack_user_id, view)
 
 
 def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpResponse:
@@ -1446,6 +1496,8 @@ def _republish_home(
     selected_status: str | None = None,
     page: int = 0,
 ) -> None:
+    if _publish_onboarding_home_if_needed(integration, slack_user_id):
+        return
     user_row, workspace_row = _load_rows(integration, slack_user_id)
     effective = resolve_ai_preferences(integration, slack_user_id)
     slack = SlackIntegration(integration)

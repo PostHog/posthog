@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlencode
 
 from django.core import signing
+from django.core.cache import cache
 from django.db import close_old_connections
 from django.http import HttpResponse
 from django.utils import timezone
@@ -51,6 +52,8 @@ logger = structlog.get_logger(__name__)
 # dispatcher and region-locality arms can route on it without per-step registration.
 ACTION_PREFIX = "persona_onboarding_"
 START_ACTION_ID = "persona_onboarding_start"
+# URL button on the App Home card that deep-links into the onboarding DM; ack-only.
+OPEN_DM_ACTION_ID = "persona_onboarding_open_dm"
 PERSONA_SELECT_ACTION_ID = "persona_onboarding_select"  # values: "csm" | "engineer" | "other"
 SKIP_ACTION_ID = "persona_onboarding_skip"
 CHANNEL_SELECT_ACTION_ID = "persona_onboarding_channel_select"
@@ -64,6 +67,9 @@ CHANNEL_SELECT_BLOCK_ID = "persona_onboarding_channel_block"
 CONNECT_SOURCE_ACTION_ID = "persona_onboarding_connect_source"
 
 SCOUTS_DOC_URL = "https://posthog.com/docs/self-driving/scouts"
+
+# Single-flight window for the kickoff post (see `start_onboarding_dm`).
+_START_CLAIM_TTL_SECONDS = 60
 
 EVENT_STARTED = "slack_persona_onboarding_started"
 EVENT_PERSONA_SELECTED = "slack_persona_onboarding_persona_selected"
@@ -241,6 +247,20 @@ def mcp_store_url(team_id: int, template_id: str | None = None) -> str:
 
 def inbox_url(team_id: int) -> str:
     return _public_url(f"/project/{team_id}/inbox")
+
+
+def slack_dm_deep_link(workspace_id: str, dm_channel_id: str) -> str:
+    """https deep link that opens the Slack client on the DM — works in Block Kit URL buttons
+    on every client, unlike the slack:// protocol form."""
+    return f"https://slack.com/app_redirect?{urlencode({'team': workspace_id, 'channel': dm_channel_id})}"
+
+
+def onboarding_dm_deep_link(workspace_id: str, slack_user_id: str) -> str | None:
+    """Deep link to the in-flight onboarding conversation, for the App Home card."""
+    row = SlackSettings.objects.filter(slack_workspace_id=workspace_id, slack_user_id=slack_user_id).first()
+    state = row.onboarding_state if row is not None and isinstance(row.onboarding_state, dict) else None
+    dm_channel_id = str(state.get("dm_channel_id") or "") if state else ""
+    return slack_dm_deep_link(workspace_id, dm_channel_id) if dm_channel_id else None
 
 
 # ============================================================================
@@ -490,7 +510,7 @@ def _button(label: str, action_id: str, value: str = "", *, style: str | None = 
 
 
 def build_kickoff_blocks(display_name: str, candidate: str | None) -> list[dict]:
-    hey = f"👋 Hey {display_name}! I'm PostHog's AI co-worker."
+    hey = f"🦔 Hey {display_name}! I'm PostHog's Slack agent. I can dig into data, ship code, and help get things done."
     skip = _button("Skip setup", SKIP_ACTION_ID)
     if candidate == PERSONA_CSM:
         intro = f"{hey} Before we get going, let me set things up right for you.\n\nIt looks like you're a CSM — is that right?"
@@ -511,7 +531,7 @@ def build_kickoff_blocks(display_name: str, candidate: str | None) -> list[dict]
             skip,
         ]
     else:
-        intro = f"{hey} Quick question so I can set things up right for you — which best describes what you do?"
+        intro = f"{hey}\n\nQuick question so I can set things up right for you — which best describes what you do?"
         buttons = [
             _button("Engineer", PERSONA_SELECT_ACTION_ID, PERSONA_ENGINEER),
             _button("Customer success (CSM)", PERSONA_SELECT_ACTION_ID, PERSONA_CSM),
@@ -553,7 +573,7 @@ def build_fleet_reveal_blocks(
     ready_details = readiness.get("ready_details") or {}
     blocks: list[dict] = [
         _section(
-            "Great — I'm going to create a few scouts for you. Scouts are little agents that patrol "
+            "Great, I'm going to create a few scouts for you. Scouts are little agents that patrol "
             "your data on a schedule and ping you whenever there's something to worry about "
             f"(<{SCOUTS_DOC_URL}|here's how they work>)."
         )
@@ -561,9 +581,8 @@ def build_fleet_reveal_blocks(
     if any(not readiness.get(spec.readiness_key) for spec in PERSONA_SCOUT_CATALOG[PERSONA_CSM]):
         blocks.append(
             _context(
-                "Scouts use your PostHog data by default — product usage, revenue analytics, and "
-                "customer analytics are already in reach. Connecting a tool below is optional; it "
-                "just gives them more signal."
+                "Scouts use your PostHog data by default. Connecting a tool below is optional; "
+                "it just gives them more signal."
             )
         )
     for index, spec in enumerate(PERSONA_SCOUT_CATALOG[PERSONA_CSM], start=1):
@@ -612,7 +631,6 @@ def build_fleet_reveal_blocks(
                     ],
                 }
             )
-    blocks.append(_context("Don't worry, I'll create these now and they activate themselves as data shows up."))
     return blocks
 
 
@@ -651,8 +669,9 @@ def build_channel_prompt_blocks(can_create_channel: bool) -> list[dict]:
 def build_invite_needed_blocks(channel_id: str, channel_name: str) -> list[dict]:
     return [
         _section(
-            f"I can't post in #{channel_name} yet — I'm not a member. Type `/invite @PostHog` in that "
-            "channel, then tap Verify."
+            f"I can't post in #{channel_name} yet — I'm not a member. Type `/invite @PostHog` there "
+            "(or mention @PostHog in the channel and Slack will offer to add me), then tap Verify. "
+            "Or pick a different channel above."
         ),
         {
             "type": "actions",
@@ -693,8 +712,8 @@ def build_locked_in_blocks(
         )
     blocks.append(
         _section(
-            f"Manage your scouts (pause, cadence, run history) any time from your <{inbox_url(team_id)}|PostHog inbox>."
-            "\n\nIn the meantime, do you want to work on anything? You can ask me things like:\n"
+            f"Manage your scouts (pause, cadence, run history) any time from your <{inbox_url(team_id)}|PostHog inbox>, or ask me to do it for you."
+            "\n\nIn the meantime, do you want to work on anything? You can ask me things like:\n\n"
             "• _Which of my accounts had the biggest usage drop this month?_\n"
             "• _Summarize what Acme did last week._"
         )
@@ -828,6 +847,18 @@ def _republish_home(integration: Integration, slack_user_id: str) -> None:
         logger.warning("persona_onboarding_home_republish_failed", exc_info=True)
 
 
+def _publish_starting_home(integration: Integration, slack_user_id: str) -> None:
+    # Deferred: slack_app_home imports this module for the onboarding card, so a module-level
+    # import here would be a true circular import.
+    from products.slack_app.backend.services.slack_app_home import publish_onboarding_starting_home  # noqa: PLC0415
+
+    # Swallow like _republish_home: feedback is best-effort, the kickoff must still run.
+    try:
+        publish_onboarding_starting_home(integration, slack_user_id)
+    except Exception:
+        logger.warning("persona_onboarding_home_republish_failed", exc_info=True)
+
+
 def start_onboarding_dm(
     integration: Integration,
     slack_user_id: str,
@@ -846,6 +877,32 @@ def start_onboarding_dm(
         ctx = _FlowContext(integration, slack, row, workspace_id, slack_user_id, row.onboarding_state)
         _repost_current_step(ctx)
         return
+    # Kickoff runs off the request thread, so a double-click on Start (or a redelivered DM
+    # event) can race here before state is saved — the claim makes the kickoff single-flight.
+    claim_key = f"slack_persona_onboarding_start:{workspace_id}:{slack_user_id}"
+    if not cache.add(claim_key, "1", timeout=_START_CLAIM_TTL_SECONDS):
+        return
+    try:
+        row.refresh_from_db(fields=["onboarding_state"])
+        if isinstance(row.onboarding_state, dict):
+            return
+        _post_kickoff(integration, slack, row, slack_user_id, entry_point, channel_id, thread_ts, posthog_user_id)
+    finally:
+        # By now state is saved (or the kickoff failed and may be retried) — the claim has done its job.
+        cache.delete(claim_key)
+
+
+def _post_kickoff(
+    integration: Integration,
+    slack: SlackIntegration,
+    row: SlackSettings,
+    slack_user_id: str,
+    entry_point: str,
+    channel_id: str | None,
+    thread_ts: str | None,
+    posthog_user_id: int,
+) -> None:
+    workspace_id = integration.integration_id
     candidate, source = detect_persona(slack, workspace_id, slack_user_id)
     display_name = _display_name(slack, slack_user_id)
     if channel_id is None:
@@ -906,12 +963,15 @@ def maybe_intercept_assistant_surface(
         # An established user predating this flow — never ambush them with onboarding.
         _grandfather(integration, row, slack_user_id)
         return False
+    # The consume/pass-through decision must be made inline, but everything past it talks to
+    # Slack (detection searches, posts) — run it off the event-request thread so the events API
+    # gets its ack inside Slack's 3s window (late acks trigger redelivery, i.e. duplicate posts).
     if isinstance(row.onboarding_state, dict):
         ctx = _FlowContext(
             integration, SlackIntegration(integration), row, workspace_id, slack_user_id, row.onboarding_state
         )
         if entry_point == "first_dm":
-            _post_nudge(ctx)
+            _run_in_background(lambda: _post_nudge(ctx), task="nudge")
         else:
             # A re-opened assistant container is a fresh thread — retarget the stored pointer so the
             # repost lands where the user is looking, not in the (now hidden) original thread.
@@ -919,15 +979,18 @@ def maybe_intercept_assistant_surface(
                 ctx.state["dm_channel_id"] = channel_id
                 ctx.state["thread_ts"] = thread_ts
                 _save_state(ctx.row, ctx.state)
-            _repost_current_step(ctx)
+            _run_in_background(lambda: _repost_current_step(ctx), task="repost_step")
         return True
-    start_onboarding_dm(
-        integration,
-        slack_user_id,
-        posthog_user_id=posthog_user_id,
-        entry_point=entry_point,
-        channel_id=channel_id,
-        thread_ts=thread_ts,
+    _run_in_background(
+        lambda: start_onboarding_dm(
+            integration,
+            slack_user_id,
+            posthog_user_id=posthog_user_id,
+            entry_point=entry_point,
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+        ),
+        task="start_onboarding",
     )
     return True
 
@@ -973,31 +1036,45 @@ def _run_home_start(workspace_id: str, slack_user_id: str) -> None:
     if is_onboarded(row):
         _republish_home(target, slack_user_id)
         return
-    start_onboarding_dm(target, slack_user_id, posthog_user_id=resolution.user.id, entry_point="home_button")
-    _republish_home(target, slack_user_id)
+    # Flip the Home card before the kickoff's Slack round-trips so the click gets instant
+    # feedback, then converge to the truthful state however the kickoff ends — without the
+    # finally, an exception mid-kickoff leaves the stale Start card up until the next open.
+    _publish_starting_home(target, slack_user_id)
+    try:
+        start_onboarding_dm(target, slack_user_id, posthog_user_id=resolution.user.id, entry_point="home_button")
+    finally:
+        _republish_home(target, slack_user_id)
 
 
 def handle_block_action(payload: dict, action: dict) -> HttpResponse:
     # Valued buttons carry their value as an ":<value>" action_id suffix (see `_button`);
-    # routing happens on the base id.
+    # routing happens on the base id. Every handler that talks to Slack or the DB runs off
+    # the request thread: Slack voids a block action after 3s and paints a warning on the
+    # clicked button, so the ack must never wait on our work.
     action_id = str(action.get("action_id") or "").split(":", 1)[0]
+    if action_id == START_ACTION_ID:
+        return handle_home_start(payload)
+    if action_id in (OPEN_DM_ACTION_ID, CHANNEL_SELECT_ACTION_ID):
+        # Open-DM is a URL button (the client navigates on its own); picking from the
+        # dropdown is inert — Add PostHog commits the choice. Ack only.
+        return HttpResponse(status=200)
+    handlers: dict[str, Callable[[], None]] = {
+        CONNECT_SOURCE_ACTION_ID: lambda: _handle_connect_click(payload, action),
+        PERSONA_SELECT_ACTION_ID: lambda: _handle_persona_select(payload, action),
+        SKIP_ACTION_ID: lambda: _handle_skip(payload),
+        CHANNEL_CONFIRM_ACTION_ID: lambda: _handle_channel_confirm(payload),
+        CHANNEL_CREATE_ACTION_ID: lambda: _handle_channel_create(payload),
+        CHANNEL_VERIFY_ACTION_ID: lambda: _handle_channel_verify(payload, action),
+    }
+    handler = handlers.get(action_id)
+    if handler is not None:
+        _run_in_background(lambda: _run_action(handler, payload, action_id), task=action_id)
+    return HttpResponse(status=200)
+
+
+def _run_action(handler: Callable[[], None], payload: dict, action_id: str) -> None:
     try:
-        if action_id == START_ACTION_ID:
-            return handle_home_start(payload)
-        if action_id == CONNECT_SOURCE_ACTION_ID:
-            _handle_connect_click(payload, action)
-        elif action_id == PERSONA_SELECT_ACTION_ID:
-            _handle_persona_select(payload, action)
-        elif action_id == SKIP_ACTION_ID:
-            _handle_skip(payload)
-        elif action_id == CHANNEL_SELECT_ACTION_ID:
-            pass  # picking from the dropdown is inert — Add PostHog commits the choice
-        elif action_id == CHANNEL_CONFIRM_ACTION_ID:
-            _handle_channel_confirm(payload)
-        elif action_id == CHANNEL_CREATE_ACTION_ID:
-            _handle_channel_create(payload)
-        elif action_id == CHANNEL_VERIFY_ACTION_ID:
-            _handle_channel_verify(payload, action)
+        handler()
     except Exception:
         logger.exception("persona_onboarding_action_failed", action_id=action_id)
         ctx = _load_context(payload)
@@ -1006,7 +1083,6 @@ def handle_block_action(payload: dict, action: dict) -> HttpResponse:
                 _post(ctx, [_section(ERROR_TEXT)], ERROR_TEXT)
             except Exception:
                 logger.warning("persona_onboarding_error_post_failed", exc_info=True)
-    return HttpResponse(status=200)
 
 
 def _post_nudge(ctx: _FlowContext) -> None:
@@ -1136,7 +1212,12 @@ def _handle_persona_select(payload: dict, action: dict) -> None:
     if persona not in (PERSONA_CSM, PERSONA_ENGINEER, PERSONA_OTHER):
         return
     labels = {PERSONA_CSM: "Customer success (CSM)", PERSONA_ENGINEER: "Engineer", PERSONA_OTHER: "Something else"}
-    _freeze_buttons(ctx, payload, f"You picked: {labels[persona]}")
+    # The CSM branch probes data readiness + workspace tools before its next post lands —
+    # the freeze note doubles as a "working on it" so those seconds don't read as a hang.
+    note = f"You picked: {labels[persona]}"
+    if persona == PERSONA_CSM:
+        note += " — one sec while I look at what data you have…"
+    _freeze_buttons(ctx, payload, note)
     capture_slack_event(
         ctx.integration,
         EVENT_PERSONA_SELECTED,
@@ -1230,7 +1311,10 @@ def _handle_channel_confirm(payload: dict) -> None:
         _post(ctx, [_section(PICK_CHANNEL_FIRST_TEXT)], PICK_CHANNEL_FIRST_TEXT)
         return
     channel_name = _channel_name_best_effort(ctx.slack, channel_id)
-    _attempt_channel_setup(ctx, channel_id, channel_name, method="selected")
+    # Instant feedback + double-click protection: the whole setup runs off the ack thread and
+    # takes seconds (hello post, provisioning, first runs), so the clicked controls must react now.
+    _freeze_buttons(ctx, payload, f"⏳ Setting up #{channel_name} — sending your scouts on their first patrol…")
+    _attempt_channel_setup(ctx, channel_id, channel_name, method="selected", repost_picker_on_invite=True)
 
 
 def _handle_channel_create(payload: dict) -> None:
@@ -1243,13 +1327,17 @@ def _handle_channel_create(payload: dict) -> None:
     if not _can_create_channel(ctx.slack):
         _post_channel_prompt(ctx, can_create=False)
         return
+    _freeze_buttons(ctx, payload, "⏳ Creating #posthog-inbox and sending your scouts on their first patrol…")
     ensured = ensure_inbox_channel(ctx.integration)
     if ensured is None:
+        _post_channel_prompt(ctx)
         _post(ctx, [_section(ERROR_TEXT)], ERROR_TEXT)
         return
     channel_id, channel_target_name = ensured
     invite_user_to_inbox(ctx.integration, channel_id, ctx.slack_user_id)
-    _attempt_channel_setup(ctx, channel_id, channel_target_name.lstrip("#"), method="created")
+    _attempt_channel_setup(
+        ctx, channel_id, channel_target_name.lstrip("#"), method="created", repost_picker_on_invite=True
+    )
 
 
 def _handle_channel_verify(payload: dict, action: dict) -> None:
@@ -1263,6 +1351,7 @@ def _handle_channel_verify(payload: dict, action: dict) -> None:
     if not channel_id:
         return
     channel_name = ctx.state.get("pending_channel_name") or _channel_name_best_effort(ctx.slack, channel_id)
+    _freeze_buttons(ctx, payload, f"⏳ Checking #{channel_name}…")
     _attempt_channel_setup(ctx, channel_id, channel_name, method="selected", invite_required=True)
 
 
@@ -1303,7 +1392,13 @@ def _try_join_channel(slack: SlackIntegration, channel_id: str) -> bool:
 
 
 def _attempt_channel_setup(
-    ctx: _FlowContext, channel_id: str, channel_name: str, *, method: str, invite_required: bool = False
+    ctx: _FlowContext,
+    channel_id: str,
+    channel_name: str,
+    *,
+    method: str,
+    invite_required: bool = False,
+    repost_picker_on_invite: bool = False,
 ) -> None:
     error = _post_channel_hello(ctx, channel_id)
     if error == "not_in_channel" and _try_join_channel(ctx.slack, channel_id):
@@ -1312,6 +1407,10 @@ def _attempt_channel_setup(
     if error is not None:
         ctx.state.update({"pending_channel_id": channel_id, "pending_channel_name": channel_name})
         _save_state(ctx.row, ctx.state)
+        if repost_picker_on_invite:
+            # The clicked picker was frozen for feedback — put a fresh one back so choosing a
+            # different channel stays possible alongside the /invite path.
+            _post_channel_prompt(ctx)
         _post_invite_needed(ctx, channel_id, channel_name)
         return
     capture_slack_event(
@@ -1332,8 +1431,9 @@ def _resolve_channel_prompts(ctx: _FlowContext, channel_name: str) -> None:
     dm_channel_id = ctx.state.get("dm_channel_id")
     if not dm_channel_id:
         return
-    for key in ("channel_prompt_ts", "invite_message_ts"):
-        ts = ctx.state.get(key)
+    # Deduped: both keys can point at the same message (e.g. after a repost), and one
+    # rewrite per message is enough.
+    for ts in dict.fromkeys(ctx.state.get(key) for key in ("channel_prompt_ts", "invite_message_ts")):
         if not ts:
             continue
         try:
