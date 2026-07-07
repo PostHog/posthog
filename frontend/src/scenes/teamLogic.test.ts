@@ -1,10 +1,12 @@
-import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AppContext } from '~/types'
 
+import { projectLogic } from './projectLogic'
 import { teamLogic } from './teamLogic'
 
 describe('teamLogic', () => {
@@ -50,6 +52,41 @@ describe('teamLogic', () => {
 
         it('currentTeamId returns null (non-breaking)', () => {
             expect(logic.values.currentTeamId).toBeNull()
+        })
+    })
+
+    describe('renaming the project', () => {
+        let projectPatchBody: { name?: string } | null
+
+        beforeEach(() => {
+            initKeaTests()
+            projectPatchBody = null
+            useMocks({
+                patch: {
+                    '/api/environments/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        return [200, { ...MOCK_DEFAULT_TEAM, ...body }]
+                    },
+                    '/api/projects/:id/': async ({ request }) => {
+                        projectPatchBody = (await request.json()) as { name?: string }
+                        return [200, { ...MOCK_DEFAULT_PROJECT, ...projectPatchBody }]
+                    },
+                },
+            })
+            logic = teamLogic()
+            logic.mount()
+        })
+
+        it('writes the new name to the project and refreshes it in-session', async () => {
+            await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
+
+            logic.actions.updateCurrentTeam({ name: 'Renamed project' })
+            await expectLogic(logic).toDispatchActions(['updateCurrentTeamSuccess'])
+
+            // The Project.name write must fire (it was silently skipped when currentProject was unloaded)
+            expect(projectPatchBody).toEqual({ name: 'Renamed project' })
+            // and projectLogic.currentProject must reflect it so the switcher/breadcrumbs update in-session
+            expect(projectLogic.values.currentProject?.name).toBe('Renamed project')
         })
     })
 })
