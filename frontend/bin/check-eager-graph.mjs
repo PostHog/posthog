@@ -204,6 +204,10 @@ function eagerChunkClosure(entry) {
 const summaryLines = ['## Eager graph check', '', '| Root | Eager size | Budget | Files |', '| --- | --- | --- | --- |']
 const report = { roots: [], errors: [] }
 
+// Computed once: the full set of module paths known to this build. Shared across all roots
+// because `inputs` is the global metafile index, not per-root.
+const allInputKeys = Object.keys(inputs)
+
 for (const { root, label, budgetBytes, forbidden } of ROOTS) {
     const entry = entryChunk(root)
     if (!entry) {
@@ -254,7 +258,6 @@ for (const { root, label, budgetBytes, forbidden } of ROOTS) {
     // the metafile inputs. If it matches nothing, the path string is stale (dist layout changed,
     // package renamed) and the guard silently stops enforcing. Warn loudly so the pattern stays
     // in sync with the actual build output.
-    const allInputKeys = Object.keys(inputs)
     for (const forbiddenSubstr of forbidden) {
         if (!allInputKeys.some((f) => f.includes(forbiddenSubstr))) {
             warnViolation(
