@@ -200,6 +200,10 @@ function collapsedHost(ctx: ScrubContext, hostPort: string): string {
 
 const SCHEME_NO_SLASHES = /^[A-Za-z][A-Za-z0-9+.-]*:/ // RFC 3986 scheme, e.g. `mailto:`, `tel:`
 
+// Only these schemes survive without slashes; an arbitrary token before a colon (`user:secret`)
+// must not pass through as a "scheme", so anything else redacts whole like a relative path.
+const KNOWN_SLASHLESS_SCHEMES = new Set(['about', 'data', 'javascript', 'mailto', 'sms', 'tel'])
+
 // Split into scheme prefix (incl. `://` or `//`), authority (`[userinfo@]host[:port]`), and path.
 function splitUrl(s: string): { scheme: string; authority: string; path: string } {
     let scheme = ''
@@ -213,7 +217,7 @@ function splitUrl(s: string): { scheme: string; authority: string; path: string 
         rest = s.slice(2)
     } else {
         const m = SCHEME_NO_SLASHES.exec(s)
-        if (m) {
+        if (m && KNOWN_SLASHLESS_SCHEMES.has(m[0].slice(0, -1).toLowerCase())) {
             // No slashes, no authority: everything after the scheme scrubs as a path.
             return { scheme: m[0], authority: '', path: s.slice(m[0].length) }
         }

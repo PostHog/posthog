@@ -229,5 +229,15 @@
     "input": "https://evil-customer-site.test/x",
     "collapseHost": false,
     "expected": "https://evil-customer-site.test/[redacted]"
+  },
+  {
+    "name": "unknown token before a colon is not treated as a scheme",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "input": "john.fakename:secret-chat",
+    "collapseHost": false,
+    "expected": "[redacted]"
   }
 ]

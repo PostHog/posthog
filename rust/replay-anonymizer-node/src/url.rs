@@ -192,15 +192,16 @@ fn collapsed_host(allow: &AllowLists, host_port: &str) -> String {
     }
 }
 
-// RFC 3986 scheme, e.g. `mailto:`, `tel:`.
+// Only these schemes survive without slashes; an arbitrary token before a colon (`user:secret`)
+// must not pass through as a "scheme", so anything else redacts whole like a relative path.
+const KNOWN_SLASHLESS_SCHEMES: &[&str] = &["about", "data", "javascript", "mailto", "sms", "tel"];
+
 fn scheme_without_slashes(s: &str) -> Option<usize> {
     let colon = s.find(':')?;
-    let prefix = s[..colon].as_bytes();
-    let (&first, rest) = prefix.split_first()?;
-    if first.is_ascii_alphabetic()
-        && rest
-            .iter()
-            .all(|&b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.'))
+    let prefix = &s[..colon];
+    if KNOWN_SLASHLESS_SCHEMES
+        .iter()
+        .any(|scheme| prefix.eq_ignore_ascii_case(scheme))
     {
         Some(colon + 1)
     } else {
