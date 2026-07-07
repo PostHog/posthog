@@ -29,7 +29,8 @@ def strip_feature_flag_config(apps, schema_editor):
         to_update = []
         for experiment in Experiment.objects.filter(id__in=batch_ids).only("id", "parameters"):
             parameters = experiment.parameters
-            if not parameters:
+            # jsonb `?` also matches string elements of arrays, so the filter can pass non-dicts
+            if not parameters or not isinstance(parameters, dict):
                 continue
             stripped = {k: v for k, v in parameters.items() if k not in FEATURE_FLAG_CONFIG_KEYS}
             if stripped != parameters:
