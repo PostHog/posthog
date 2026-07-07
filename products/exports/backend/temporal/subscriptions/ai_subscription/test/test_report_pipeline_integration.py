@@ -79,8 +79,6 @@ class TestAIReportPipelineIntegration(ClickhouseTestMixin, NonAtomicBaseTest):
         report = await generate_ai_report(team=self.team, user=self.user, prompt="x", window_days=7)
 
         assert "Query failed to run" in captured["human"]
-        # Every query failed, so the delivered report leads with the deterministic failure notice
-        # (prepended to the synthesis output) instead of a confident-looking but empty report.
         assert "could not be generated" in report.markdown
         assert "# Degraded report" in report.markdown
         # The degraded step's generated HogQL + error type are captured for persistence/debugging.

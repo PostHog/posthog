@@ -107,8 +107,6 @@ async def test_persist_ai_report_omits_blank_prompt(team, user, prompt) -> None:
     assert AI_REPORT_PROMPT_SNAPSHOT_KEY not in snapshot
 
 
-# These counts drive the workflow's FAILED-vs-COMPLETED decision: every query failing must report
-# failed == total so the delivery is recorded FAILED rather than a misleading "completed".
 class TestReportDiagnosticCounts:
     @parameterized.expand(
         [
