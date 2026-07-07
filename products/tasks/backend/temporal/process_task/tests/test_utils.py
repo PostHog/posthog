@@ -507,6 +507,28 @@ class TestGetGitIdentityEnvVars(TestCase):
         assert result["GIT_AUTHOR_EMAIL"] == "anon@example.com"
 
 
+class TestGetGithubToken(TestCase):
+    def test_raises_credential_unavailable_for_dead_installation_instead_of_stale_token(self):
+        from posthog.models import Integration, Organization, Team
+
+        from products.tasks.backend.exceptions import CredentialUnavailableError
+        from products.tasks.backend.temporal.process_task.utils import get_github_token
+
+        org = Organization.objects.create(name="o")
+        team = Team.objects.create(organization=org, name="t")
+        # A disarmed dead installation: expires_in/refreshed_at dropped (so access_token_expired()
+        # is False forever) with the unavailable marker set and a stale token still stored.
+        integration = Integration.objects.create(
+            team=team,
+            kind="github",
+            config={"installation_id": "INSTALL", "installation_unavailable_since": 1700000000},
+            sensitive_config={"access_token": "ghs_stale"},
+        )
+
+        with self.assertRaises(CredentialUnavailableError):
+            get_github_token(integration.id)
+
+
 class TestGetSandboxGitHubToken(TestCase):
     @parameterized.expand(
         [

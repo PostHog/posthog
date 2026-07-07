@@ -45,6 +45,10 @@ GITHUB_REPOSITORY_CACHE_TTL_SECONDS = 60 * 60
 GITHUB_BRANCH_CACHE_TTL_SECONDS = 60 * 10
 GITHUB_BRANCH_CACHE_TIMEOUT_SECONDS = 60 * 60 * 24
 
+# Stamped into config when a token mint reports the installation permanently gone
+# (uninstalled/suspended); cleared by the next successful mint. See installation_unavailable().
+INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY = "installation_unavailable_since"
+
 
 @dataclass(frozen=True)
 class GitHubCommitAuthor:
@@ -338,11 +342,14 @@ class GitHubIntegrationBase:
         except ValueError as e:
             raise Exception(f"Invalid expires_at format from GitHub: {e}")
 
-        self.integration.config = {
+        config = {
             **self.integration.config,
             "expires_in": expires_in,
             "refreshed_at": int(time.time()),
         }
+        # A successful mint proves the installation is back — clear the dead-installation marker.
+        config.pop(INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY, None)
+        self.integration.config = config
         self.integration.sensitive_config = {
             **(self.integration.sensitive_config or {}),
             "access_token": data["token"],
@@ -380,19 +387,32 @@ class GitHubIntegrationBase:
         ``access_token_expired()`` returns False when ``config`` lacks ``expires_in``/``refreshed_at``,
         so dropping those two keys permanently disarms proactive refresh for this row. Only fires for a
         permanently-gone installation (404 uninstalled / 403 suspended), never a transient failure.
+        Also stamps ``installation_unavailable_since`` so callers can distinguish a dead installation's
+        stale stored token from a usable one (see :meth:`installation_unavailable`).
         Self-healing: if the installation is later restored, a real API call 401s and ``api_request``'s
-        refresh-retry mints successfully and re-persists the fields. Mutates ``config`` in memory and
-        returns whether anything changed; the caller owns the save.
+        refresh-retry mints successfully, re-persists the fields, and clears the marker. Mutates
+        ``config`` in memory and returns whether anything changed; the caller owns the save.
         """
         if not self._installation_permanently_unavailable(response):
             return False
         config = {**self.integration.config}
-        if "expires_in" not in config and "refreshed_at" not in config:
-            return False
-        config.pop("expires_in", None)
-        config.pop("refreshed_at", None)
-        self.integration.config = config
-        return True
+        changed = False
+        if "expires_in" in config or "refreshed_at" in config:
+            config.pop("expires_in", None)
+            config.pop("refreshed_at", None)
+            changed = True
+        if INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY not in config:
+            config[INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY] = int(time.time())
+            changed = True
+        if changed:
+            self.integration.config = config
+        return changed
+
+    def installation_unavailable(self) -> bool:
+        """Whether a failed mint marked this installation permanently gone (uninstalled or
+        suspended) and no mint has succeeded since. While True, the stored access token is
+        stale — it survives disarming but GitHub will reject it once it expires server-side."""
+        return bool(self.integration.config.get(INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY))
 
     def _on_token_refresh_failed(self, response: requests.Response) -> None:
         """Called when the installation token refresh request fails.
