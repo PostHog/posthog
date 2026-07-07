@@ -900,7 +900,7 @@ function SearchResults({
                                                                                 disabled: !!item.disabledReason,
                                                                                 inert: !!item.disabledReason,
                                                                                 className: item.disabledReason
-                                                                                    ? 'opacity-50'
+                                                                                    ? 'opacity-50 cursor-not-allowed'
                                                                                     : undefined,
                                                                             }}
                                                                             {...props}

@@ -354,7 +354,7 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
                                 !isEmptyFolder && !item.disabledReason,
                             'hover:bg-transparent opacity-50 cursor-default':
                                 (selectMode === 'folder-only' && !isFolder) || isEmptyFolder,
-                            'opacity-50 cursor-default': !!item.disabledReason,
+                            'opacity-50 cursor-not-allowed': !!item.disabledReason,
                             'rounded-l-[var(--radius)] justify-center [&_svg]:size-4': size === 'narrow',
                             'group-hover/lemon-tree-button-group:pr-[30px] group-has-data-[state=open]/lemon-tree-button-group:pr-[30px] group-has-focus-within/lemon-tree-button-group:pr-[30px]':
                                 size !== 'narrow',
