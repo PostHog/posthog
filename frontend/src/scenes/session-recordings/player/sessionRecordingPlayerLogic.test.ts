@@ -842,6 +842,34 @@ describe('sessionRecordingPlayerLogic', () => {
         )
     })
 
+    describe('cross-origin iframe media playback', () => {
+        it('pauseIframePlayback bails out instead of crashing when the replay iframe is cross-origin', () => {
+            // Reading contentWindow.document on a cross-origin iframe throws SecurityError on the
+            // property access itself, so optional chaining can't guard it; the seek path must catch it.
+            const crossOriginIframe = {
+                get contentWindow() {
+                    return {
+                        get document() {
+                            throw new DOMException(
+                                'Blocked a frame from accessing a cross-origin frame',
+                                'SecurityError'
+                            )
+                        },
+                    }
+                },
+            }
+            const stubFrame = {
+                innerHTML: '',
+                querySelector: () => crossOriginIframe,
+            } as unknown as HTMLDivElement
+
+            logic.actions.setRootFrame(stubFrame)
+
+            expect(() => logic.actions.pauseIframePlayback()).not.toThrow()
+            expect(logic.cache.pausedMediaElements).toEqual([])
+        })
+    })
+
     describe('delete session recording', () => {
         const mockedDeleteRecording = deleteRecordingMock as jest.MockedFunction<typeof deleteRecordingMock>
 

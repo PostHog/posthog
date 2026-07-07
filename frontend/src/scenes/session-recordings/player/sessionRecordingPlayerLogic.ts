@@ -212,6 +212,27 @@ const trackingStateMap: Record<SessionPlayerState, PlayerTimeTracking['state']> 
 const isMediaElementPlaying = (element: HTMLMediaElement): boolean =>
     !!(element.currentTime > 0 && !element.paused && !element.ended && element.readyState > 2)
 
+// Driving the replayer (play/pause) triggers an rrweb DOM rebuild that can throw synchronously
+// on some seeks, e.g. HierarchyRequestError from a malformed snapshot inside bundled rrweb.
+// Swallow it so one bad rebuild can't crash the seek handler and take the whole player down.
+function safelyDriveReplayer(
+    replayer: Replayer | null | undefined,
+    sessionRecordingId: string,
+    drive: (replayer: Replayer) => void
+): void {
+    if (!replayer) {
+        return
+    }
+    try {
+        drive(replayer)
+    } catch (error) {
+        posthog.captureException(error, {
+            feature: 'replayer play/pause swallowed',
+            playbackSessionId: sessionRecordingId,
+        })
+    }
+}
+
 function removeFromLocalStorageWithPrefix(prefix: string): void {
     for (let i = localStorage.length - 1; i >= 0; i--) {
         const key = localStorage.key(i)
@@ -1695,7 +1716,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // Everything is loaded and no FullSnapshot could render this position — playback here can never work, so buffering would be pointless.
             if (renderability.kind === 'unplayable') {
                 actions.endBuffer()
-                values.player?.replayer?.pause()
+                safelyDriveReplayer(values.player?.replayer, values.sessionRecordingId, (replayer) => replayer.pause())
                 actions.setPlayerError('noPlayableFullSnapshot')
                 return
             }
@@ -1708,7 +1729,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             // Buffer while the position's data is pending; waitingForIngestion lands here too, polling for late sources instead of showing the terminal error.
             if (segment?.kind === 'buffer' || isAwaitingMoreData(renderability)) {
-                values.player?.replayer?.pause()
+                safelyDriveReplayer(values.player?.replayer, values.sessionRecordingId, (replayer) => replayer.pause())
                 actions.startBuffer()
                 actions.clearPlayerError()
                 // Re-target the (window-blind) loader with the segment's windowId, or it may consider a seek satisfied by another window's FullSnapshot and never load what this position needs.
@@ -1731,10 +1752,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // NOTE: when we show a preview pane, this branch runs
                 // in very large recordings this call to pause
                 // can consume 100% CPU and freeze the entire page
-                values.player?.replayer?.pause(values.toRRWebPlayerTime(timestamp))
+                safelyDriveReplayer(values.player?.replayer, values.sessionRecordingId, (replayer) =>
+                    replayer.pause(values.toRRWebPlayerTime(timestamp))
+                )
                 actions.clearPlayerError()
             } else {
-                values.player?.replayer?.play(values.toRRWebPlayerTime(timestamp))
+                safelyDriveReplayer(values.player?.replayer, values.sessionRecordingId, (replayer) =>
+                    replayer.play(values.toRRWebPlayerTime(timestamp))
+                )
                 actions.updateAnimation()
                 actions.clearPlayerError()
             }
@@ -2224,22 +2249,33 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache._frameState = initialFrameState()
         },
         pauseIframePlayback: () => {
-            const iframe = values.rootFrame?.querySelector('iframe')
-            const iframeDocument = iframe?.contentWindow?.document
-            if (!iframeDocument) {
-                return
+            try {
+                const iframe = values.rootFrame?.querySelector('iframe')
+                // Reading .contentWindow.document on a cross-origin iframe throws SecurityError;
+                // the optional chaining can't guard it since the throw is on the property access itself.
+                const iframeDocument = iframe?.contentWindow?.document
+                if (!iframeDocument) {
+                    return
+                }
+
+                const audioElements = Array.from(iframeDocument.getElementsByTagName('audio')) as HTMLAudioElement[]
+                const videoElements = Array.from(iframeDocument.getElementsByTagName('video')) as HTMLVideoElement[]
+                const mediaElements: HTMLMediaElement[] = [...audioElements, ...videoElements]
+                const playingElements = mediaElements.filter(isMediaElementPlaying)
+
+                mediaElements.forEach((el) => el.pause())
+                cache.pausedMediaElements = values.endReached ? [] : playingElements
+            } catch {
+                // A foreign iframe must not be able to take down the seek handler; bail out gracefully.
+                cache.pausedMediaElements = []
             }
-
-            const audioElements = Array.from(iframeDocument.getElementsByTagName('audio')) as HTMLAudioElement[]
-            const videoElements = Array.from(iframeDocument.getElementsByTagName('video')) as HTMLVideoElement[]
-            const mediaElements: HTMLMediaElement[] = [...audioElements, ...videoElements]
-            const playingElements = mediaElements.filter(isMediaElementPlaying)
-
-            mediaElements.forEach((el) => el.pause())
-            cache.pausedMediaElements = values.endReached ? [] : playingElements
         },
         restartIframePlayback: () => {
-            cache.pausedMediaElements?.forEach((el: HTMLMediaElement) => el.play())
+            try {
+                cache.pausedMediaElements?.forEach((el: HTMLMediaElement) => el.play())
+            } catch {
+                // ignore: media may no longer be reachable (e.g. cross-origin iframe navigated away)
+            }
             cache.pausedMediaElements = []
         },
 
