@@ -224,7 +224,7 @@ class TestSessionQueryRunner(ClickhouseTestMixin, BaseTest):
         assert trace.events[0].sentiment.messages is not None
         self.assertEqual(trace.events[0].sentiment.messages["0"].score, 0.8)
 
-    def test_does_not_fallback_to_events_without_complete_date_range(self) -> None:
+    def test_does_not_fallback_to_events_without_date_range(self) -> None:
         _create_ai_generation_event_in_events_table(
             team=self.team,
             session_id="session-no-bounds",
@@ -245,21 +245,20 @@ class TestSessionQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertIn("ai_events", select_queries[0])
         self.assertEqual(response.results, [])
 
-    def test_falls_back_to_events_with_complete_date_range(self) -> None:
+    def test_falls_back_to_events_with_date_from_only_range(self) -> None:
         _create_ai_generation_event_in_events_table(
             team=self.team,
-            session_id="session-with-bounds",
-            trace_id="trace-with-bounds",
+            session_id="session-date-from",
+            trace_id="trace-date-from",
             timestamp=datetime(2025, 1, 15, 0, 0, tzinfo=UTC),
         )
 
         runner = SessionQueryRunner(
             team=self.team,
             query=SessionQuery(
-                sessionId="session-with-bounds",
+                sessionId="session-date-from",
                 dateRange=DateRange(
                     date_from="2025-01-15T00:00:00Z",
-                    date_to="2025-01-15T01:00:00Z",
                     explicitDate=True,
                 ),
             ),
@@ -274,5 +273,5 @@ class TestSessionQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertIn("FROM events", select_queries[1])
         self.assertIn("events.timestamp", select_queries[1])
         self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, "trace-with-bounds")
+        self.assertEqual(response.results[0].id, "trace-date-from")
         self.assertEqual(response.results[0].events[0].properties["$ai_output_choices"][0]["content"], "hi")

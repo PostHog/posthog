@@ -1,6 +1,7 @@
 import api from 'lib/api'
 
-import { LLMTrace, NodeKind, TraceQuery } from '~/queries/schema/schema-general'
+import { NodeKind } from '~/queries/schema/schema-general'
+import type { LLMTrace, SessionQueryResponse, TraceQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { aiObservabilitySessionDataLogic } from './aiObservabilitySessionDataLogic'
@@ -21,8 +22,13 @@ describe('aiObservabilitySessionDataLogic', () => {
         return {
             id: 'trace-1',
             createdAt: '2026-01-01T00:00:00Z',
+            distinctId: 'person1',
             events,
-        } as LLMTrace
+        }
+    }
+
+    function sessionResponse(results: LLMTrace[] = []): SessionQueryResponse {
+        return { results }
     }
 
     function traceQueryCalls(): TraceQuery[] {
@@ -33,7 +39,7 @@ describe('aiObservabilitySessionDataLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        querySpy = jest.spyOn(api, 'query').mockResolvedValue({ results: [traceWithEvents()] } as any)
+        querySpy = jest.spyOn(api, 'query').mockResolvedValue(sessionResponse([traceWithEvents()]))
         sessionLogic = aiObservabilitySessionLogic()
         sessionLogic.mount()
         sessionLogic.actions.setSessionId('session-1')
@@ -41,7 +47,7 @@ describe('aiObservabilitySessionDataLogic', () => {
         logic = aiObservabilitySessionDataLogic({
             sessionId: 'session-1',
             query: sessionLogic.values.query,
-            cachedResults: { results: [] } as any,
+            cachedResults: sessionResponse(),
         })
         logic.mount()
     })
@@ -83,13 +89,13 @@ describe('aiObservabilitySessionDataLogic', () => {
                     $ai_output_choices: [{ role: 'assistant', content: 'hi' }],
                 },
             },
-        ] as LLMTrace['events'])
+        ])
         querySpy.mockClear()
 
         logic = aiObservabilitySessionDataLogic({
             sessionId: 'session-1',
             query: sessionLogic.values.query,
-            cachedResults: { results: [trace] } as any,
+            cachedResults: sessionResponse([trace]),
         })
         logic.mount()
         await settleListeners()
@@ -101,17 +107,26 @@ describe('aiObservabilitySessionDataLogic', () => {
 
     it('expands the first trace event when opening the drawer without a focus target', async () => {
         querySpy.mockImplementation((query) => {
-            return Promise.resolve({
-                results:
-                    query?.kind === NodeKind.TraceQuery
-                        ? [
-                              traceWithEvents([
-                                  { id: 'second-event', event: '$ai_span', createdAt: '2026-01-01T00:00:02Z' },
-                                  { id: 'first-event', event: '$ai_generation', createdAt: '2026-01-01T00:00:01Z' },
-                              ] as LLMTrace['events']),
-                          ]
-                        : [],
-            } as any)
+            return Promise.resolve(
+                query?.kind === NodeKind.TraceQuery
+                    ? sessionResponse([
+                          traceWithEvents([
+                              {
+                                  id: 'second-event',
+                                  event: '$ai_span',
+                                  createdAt: '2026-01-01T00:00:02Z',
+                                  properties: {},
+                              },
+                              {
+                                  id: 'first-event',
+                                  event: '$ai_generation',
+                                  createdAt: '2026-01-01T00:00:01Z',
+                                  properties: {},
+                              },
+                          ]),
+                      ])
+                    : sessionResponse()
+            )
         })
 
         logic.actions.openStepsDrawer('trace-1')

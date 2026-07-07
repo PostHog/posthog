@@ -57,14 +57,6 @@ SESSION_TRACE_FIELDS_MAPPING: dict[str, str] = {
 }
 
 
-class SessionQueryDateRange(QueryDateRange):
-    def date_from_for_filtering(self) -> datetime:
-        return super().date_from()
-
-    def date_to_for_filtering(self) -> datetime:
-        return super().date_to()
-
-
 class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
     query: SessionQuery
     cached_response: CachedSessionQueryResponse
@@ -263,11 +255,11 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
         return last_refresh + timedelta(minutes=1)
 
     @cached_property
-    def _date_range(self) -> SessionQueryDateRange:
-        return SessionQueryDateRange(self.query.dateRange, self.team, IntervalType.MINUTE, datetime.now())
+    def _date_range(self) -> QueryDateRange:
+        return QueryDateRange(self.query.dateRange, self.team, IntervalType.MINUTE, datetime.now())
 
-    def _has_complete_fallback_date_range(self) -> bool:
-        return bool(self.query.dateRange and self.query.dateRange.date_from and self.query.dateRange.date_to)
+    def _has_fallback_date_range(self) -> bool:
+        return bool(self.query.dateRange and self.query.dateRange.date_from)
 
     def _get_session_filter(self) -> ast.Expr:
         return ast.And(
@@ -288,7 +280,7 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
         )
 
     def _get_events_fallback_filter(self) -> ast.Expr | None:
-        if not self._has_complete_fallback_date_range():
+        if not self._has_fallback_date_range():
             return None
 
         return ast.And(
