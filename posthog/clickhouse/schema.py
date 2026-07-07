@@ -144,6 +144,7 @@ from posthog.models.app_metrics2.sql import (
 from posthog.models.channel_type.sql import (
     CHANNEL_DEFINITION_DATA_SQL,
     CHANNEL_DEFINITION_DICTIONARY_SQL,
+    CHANNEL_DEFINITION_TABLE_NAME,
     CHANNEL_DEFINITION_TABLE_SQL,
 )
 from posthog.models.cohortmembership.sql import (
@@ -178,6 +179,7 @@ from posthog.models.event.sql import (
 from posthog.models.exchange_rate.sql import (
     EXCHANGE_RATE_DATA_BACKFILL_SQL,
     EXCHANGE_RATE_DICTIONARY_SQL,
+    EXCHANGE_RATE_TABLE_NAME,
     EXCHANGE_RATE_TABLE_SQL,
 )
 from posthog.models.group.sql import (
@@ -554,8 +556,17 @@ CREATE_DICTIONARY_QUERIES = (
 )
 
 
+# Single source of truth for seed-data tables: (table_name, query_fn).
+# CREATE_DATA_QUERIES is derived from this tuple; conftest.py imports it too
+# so the per-table skip-if-present gate in create_clickhouse_tables stays in sync.
+SEED_DATA_TABLES: tuple[tuple[str, object], ...] = (
+    (CHANNEL_DEFINITION_TABLE_NAME, CHANNEL_DEFINITION_DATA_SQL),
+    (EXCHANGE_RATE_TABLE_NAME, EXCHANGE_RATE_DATA_BACKFILL_SQL),
+)
+
+
 def CREATE_DATA_QUERIES():
-    return (CHANNEL_DEFINITION_DATA_SQL(), EXCHANGE_RATE_DATA_BACKFILL_SQL())
+    return tuple(fn() for _, fn in SEED_DATA_TABLES)
 
 
 CREATE_VIEW_QUERIES = (

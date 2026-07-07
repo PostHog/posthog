@@ -76,22 +76,12 @@ def create_clickhouse_tables():
     # Building the exchange-rate INSERT parses a 9 MB CSV and renders a ~100k-row VALUES
     # string on every pytest invocation. With a reused database the seed data is already
     # there, so skip the reload per-table (mirroring the `missing()` check above for tables).
-    # Gated per-table so a new entry in CREATE_DATA_QUERIES is never silently skipped.
+    # Derived from SEED_DATA_TABLES in schema.py, which also drives CREATE_DATA_QUERIES,
+    # so a new seed table added there is automatically picked up here.
     # TRUNCATE-based resets go through reset_clickhouse_tables, which reloads unconditionally.
-    from posthog.models.channel_type.sql import (  # noqa: PLC0415
-        CHANNEL_DEFINITION_DATA_SQL,
-        CHANNEL_DEFINITION_TABLE_NAME,
-    )
-    from posthog.models.exchange_rate.sql import (  # noqa: PLC0415
-        EXCHANGE_RATE_DATA_BACKFILL_SQL,
-        EXCHANGE_RATE_TABLE_NAME,
-    )
+    from posthog.clickhouse.schema import SEED_DATA_TABLES  # noqa: PLC0415
 
-    seed_table_queries = [
-        (CHANNEL_DEFINITION_TABLE_NAME, CHANNEL_DEFINITION_DATA_SQL),
-        (EXCHANGE_RATE_TABLE_NAME, EXCHANGE_RATE_DATA_BACKFILL_SQL),
-    ]
-    for table_name, query_fn in seed_table_queries:
+    for table_name, query_fn in SEED_DATA_TABLES:
         count = sync_execute(f"SELECT count() FROM {table_name}")[0][0]
         if not count:
             run_clickhouse_statement_in_parallel([build_query(query_fn)])

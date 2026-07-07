@@ -157,13 +157,13 @@ def _cache_url_resolution() -> None:
             hit = orig_resolve(self, path)
             by_path[path_str] = hit
         # ResolverMatch blocks copy.copy via __reduce_ex__, so clone through __dict__.
-        # Copy every mutable attribute so consumers can mutate the match freely without
-        # poisoning the cached original for subsequent tests.
+        # Copy the kwargs dicts — the attributes consumers realistically mutate — so
+        # mutation can't poison the cached original.
         match = object.__new__(type(hit))
         match.__dict__.update(hit.__dict__)
         match.kwargs = dict(hit.kwargs)
-        match.captured_kwargs = dict(getattr(hit, "captured_kwargs", {}))
-        match.extra_kwargs = dict(getattr(hit, "extra_kwargs", {}))
+        match.captured_kwargs = dict(getattr(hit, "captured_kwargs", None) or {})
+        match.extra_kwargs = dict(getattr(hit, "extra_kwargs", None) or {})
         return match
 
     resolvers.URLResolver.resolve = resolve  # type: ignore[method-assign]
