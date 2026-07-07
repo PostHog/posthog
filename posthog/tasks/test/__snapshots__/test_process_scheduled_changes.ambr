@@ -813,14 +813,77 @@
          "posthog_scheduledchange"."change_request_id",
          "posthog_scheduledchange"."created_at",
          "posthog_scheduledchange"."created_by_id",
-         "posthog_scheduledchange"."updated_at"
+         "posthog_scheduledchange"."updated_at",
+         "posthog_changerequest"."created_by_id",
+         "posthog_changerequest"."created_at",
+         "posthog_changerequest"."updated_at",
+         "posthog_changerequest"."id",
+         "posthog_changerequest"."action_key",
+         "posthog_changerequest"."action_version",
+         "posthog_changerequest"."team_id",
+         "posthog_changerequest"."organization_id",
+         "posthog_changerequest"."resource_type",
+         "posthog_changerequest"."resource_id",
+         "posthog_changerequest"."intent",
+         "posthog_changerequest"."intent_display",
+         "posthog_changerequest"."policy_snapshot",
+         "posthog_changerequest"."validation_status",
+         "posthog_changerequest"."validation_errors",
+         "posthog_changerequest"."validated_at",
+         "posthog_changerequest"."state",
+         "posthog_changerequest"."applied_by_id",
+         "posthog_changerequest"."expires_at",
+         "posthog_changerequest"."applied_at",
+         "posthog_changerequest"."apply_error",
+         "posthog_changerequest"."result_data",
+         "posthog_user"."id",
+         "posthog_user"."password",
+         "posthog_user"."last_login",
+         "posthog_user"."first_name",
+         "posthog_user"."last_name",
+         "posthog_user"."is_staff",
+         "posthog_user"."date_joined",
+         "posthog_user"."uuid",
+         "posthog_user"."current_organization_id",
+         "posthog_user"."current_team_id",
+         "posthog_user"."email",
+         "posthog_user"."pending_email",
+         "posthog_user"."distinct_id",
+         "posthog_user"."is_email_verified",
+         "posthog_user"."credentials_reviewed_at",
+         "posthog_user"."requested_password_reset_at",
+         "posthog_user"."requested_2fa_reset_at",
+         "posthog_user"."has_seen_product_intro_for",
+         "posthog_user"."strapi_id",
+         "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
+         "posthog_user"."theme_mode",
+         "posthog_user"."partial_notification_settings",
+         "posthog_user"."anonymize_data",
+         "posthog_user"."allow_impersonation",
+         "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
+         "posthog_user"."shortcut_position",
+         "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."hide_mcp_hints",
+         "posthog_user"."onboarding_skipped_at",
+         "posthog_user"."onboarding_skipped_reason",
+         "posthog_user"."onboarding_skipped_organization_id",
+         "posthog_user"."onboarding_delegated_to_invite_id",
+         "posthog_user"."onboarding_delegated_to_organization_id",
+         "posthog_user"."onboarding_delegation_accepted_at",
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_scheduledchange"
+  LEFT OUTER JOIN "posthog_changerequest" ON ("posthog_scheduledchange"."change_request_id" = "posthog_changerequest"."id")
+  LEFT OUTER JOIN "posthog_user" ON ("posthog_scheduledchange"."created_by_id" = "posthog_user"."id")
   WHERE ("posthog_scheduledchange"."executed_at" IS NULL
          AND "posthog_scheduledchange"."scheduled_at" <= '2023-12-21 09:00:00+00:00'::timestamptz)
   ORDER BY "posthog_scheduledchange"."scheduled_at" ASC
   LIMIT 10000
   FOR
-  UPDATE NOWAIT
+  UPDATE OF "posthog_scheduledchange" NOWAIT
   '''
 # ---
 # name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.30
