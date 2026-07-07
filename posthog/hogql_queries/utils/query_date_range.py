@@ -9,19 +9,9 @@ from posthog.schema import DateRange, IntervalType
 
 from posthog.hogql.parser import ast
 
+from posthog.interval_specs import ORDERED_INTERVALS, PERIOD_MAP, IntervalLiteral, get_trunc_func, interval_spec
 from posthog.models.team import Team, WeekStartDay
-from posthog.queries.util import get_trunc_func_ch
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_date_parse_with_delta_mapping
-
-IntervalLiteral = Literal["second", "minute", "hour", "day", "week", "month"]
-ORDERED_INTERVALS = [
-    IntervalType.SECOND,
-    IntervalType.MINUTE,
-    IntervalType.HOUR,
-    IntervalType.DAY,
-    IntervalType.WEEK,
-    IntervalType.MONTH,
-]
 
 
 def compare_interval_length(
@@ -205,35 +195,12 @@ class QueryDateRange:
         return self._date_range.explicitDate
 
     def align_with_interval(self, start: datetime, *, interval_name: Optional[IntervalLiteral] = None) -> datetime:
-        interval_name = interval_name or self.interval_name
-
-        if interval_name == "second":
-            return start.replace(microsecond=0)
-        if interval_name == "minute":
-            return start.replace(second=0, microsecond=0)
-        if interval_name == "hour":
-            return start.replace(minute=0, second=0, microsecond=0)
-        elif interval_name == "day":
-            return start.replace(hour=0, minute=0, second=0, microsecond=0)
-        elif interval_name == "week":
-            start = start.replace(hour=0, minute=0, second=0, microsecond=0)
-            week_start_alignment_days = start.isoweekday() % 7
-            if self._team.week_start_day == WeekStartDay.MONDAY:
-                week_start_alignment_days = start.weekday()
-            start -= timedelta(days=week_start_alignment_days)
-            return start
-        elif interval_name == "month":
-            return start.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        spec = interval_spec(interval_name or self.interval_name)
+        return spec.align(start, self._team.week_start_day)
 
     def interval_relativedelta(self) -> relativedelta:
-        return relativedelta(
-            days=self.interval_count if self.interval_name == "day" else 0,
-            weeks=self.interval_count if self.interval_name == "week" else 0,
-            months=self.interval_count if self.interval_name == "month" else 0,
-            hours=self.interval_count if self.interval_name == "hour" else 0,
-            minutes=self.interval_count if self.interval_name == "minute" else 0,
-            seconds=self.interval_count if self.interval_name == "second" else 0,
-        )
+        spec = interval_spec(self.interval_name)
+        return relativedelta(**{spec.relativedelta_kwarg: self.interval_count})  # type: ignore[arg-type]
 
     def all_values(self, *, interval_name: Optional[IntervalLiteral] = None) -> list[datetime]:
         start = self.align_with_interval(self.date_from(), interval_name=interval_name)
@@ -271,19 +238,20 @@ class QueryDateRange:
 
     def one_interval_period(self) -> ast.Expr:
         return ast.Call(
-            name=f"toInterval{self.interval_name.capitalize()}",
+            name=interval_spec(self.interval_name).interval_func,
             args=[ast.Constant(value=self.interval_count)],
         )
 
     def number_interval_periods_hogql(self) -> ast.Expr:
+        interval_func = interval_spec(self.interval_name).interval_func
         if self.interval_count == 1:
             return ast.Call(
-                name=f"toInterval{self.interval_name.capitalize()}",
+                name=interval_func,
                 args=[ast.Field(chain=["number"])],
             )
         else:
             return ast.Call(
-                name=f"toInterval{self.interval_name.capitalize()}",
+                name=interval_func,
                 args=[
                     ast.Call(
                         name="multiply", args=[ast.Field(chain=["number"]), ast.Constant(value=self.interval_count)]
@@ -389,16 +357,6 @@ class QueryDateRange:
         }
 
 
-PERIOD_MAP: dict[str, timedelta | relativedelta] = {
-    "second": timedelta(seconds=1),
-    "minute": timedelta(minutes=1),
-    "hour": timedelta(hours=1),
-    "day": timedelta(days=1),
-    "week": timedelta(weeks=1),
-    "month": relativedelta(months=1),
-}
-
-
 class QueryDateRangeWithIntervals(QueryDateRange):
     """
     Only used in retention queries where we need to figure out date_from
@@ -468,7 +426,7 @@ class QueryDateRangeWithIntervals(QueryDateRange):
         return date_to
 
     def get_start_of_interval_hogql(self, *, source: ast.Expr | None = None) -> ast.Expr:
-        trunc_func = get_trunc_func_ch(self.interval_type.name.lower())
+        trunc_func = get_trunc_func(self.interval_type)
         trunc_func_args: list[ast.Expr] = [source] if source else [ast.Constant(value=self.date_from())]
         if trunc_func == "toStartOfWeek":
             trunc_func_args.append(
@@ -478,18 +436,4 @@ class QueryDateRangeWithIntervals(QueryDateRange):
 
 
 def date_to_start_of_interval(date: datetime, interval: IntervalType, team: Team) -> datetime:
-    match interval:
-        case IntervalType.HOUR:
-            return date.replace(minute=0, second=0, microsecond=0)
-        case IntervalType.DAY:
-            return date.replace(hour=0, minute=0, second=0, microsecond=0)
-        case IntervalType.WEEK:
-            week_start_alignment_days = date.isoweekday() % 7
-            if team.week_start_day == WeekStartDay.MONDAY:
-                week_start_alignment_days = date.weekday()
-
-            return (date - timedelta(days=week_start_alignment_days)).replace(hour=0, minute=0, second=0, microsecond=0)
-        case IntervalType.MONTH:
-            return date.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        case _:
-            raise ValueError(f"Unsupported interval {interval}")
+    return interval_spec(interval).align(date, team.week_start_day)

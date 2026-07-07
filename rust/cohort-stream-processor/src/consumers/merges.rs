@@ -230,13 +230,14 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
                     let now = tokio::time::Instant::now();
                     if now >= commit_deadline {
                         fsync_then_commit(
-                            self.dispatcher.store(),
+                            self.dispatcher.handle(),
                             &self.consumer,
                             self.tracker(),
                             self.owned_committable_offsets(),
                             &self.topic,
                             CommitMode::Async,
-                        );
+                        )
+                        .await;
                         commit_deadline = now + self.offset_commit_interval;
                     }
                 }
@@ -246,13 +247,14 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
         // Final sync commit runs before the events consumer's shutdown; workers may still be marking
         // offsets at this point, but follower offsets are independent.
         fsync_then_commit(
-            self.dispatcher.store(),
+            self.dispatcher.handle(),
             &self.consumer,
             self.tracker(),
             self.owned_committable_offsets(),
             &self.topic,
             CommitMode::Sync,
-        );
+        )
+        .await;
         info!(topic = %self.topic, "follower consume loop stopped");
     }
 

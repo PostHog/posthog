@@ -1,5 +1,6 @@
 import type {
     CustomPropertyDisplayTypeEnumApi,
+    CustomPropertyOptionApi,
     CustomPropertySourceApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
@@ -8,6 +9,7 @@ import {
     formatCustomPropertyValue,
     isNumericDisplayType,
     labelForDisplayType,
+    optionLabelError,
     sourceSyncStatus,
 } from './customPropertyTypes'
 
@@ -67,6 +69,24 @@ describe('customPropertyTypes', () => {
         it('returns text and non-numeric input as-is', () => {
             expect(formatCustomPropertyValue('enterprise', definition('text'))).toBe('enterprise')
             expect(formatCustomPropertyValue('n/a', definition('number'))).toBe('n/a')
+        })
+    })
+
+    describe('optionLabelError', () => {
+        const options = [
+            { label: 'Open', color: 'preset-1' },
+            { label: ' Open ', color: 'preset-2' },
+            { label: '  ', color: 'preset-3' },
+            { label: 'Closed', color: 'preset-4' },
+        ] as CustomPropertyOptionApi[]
+
+        it.each([
+            ['first occurrence is valid', 0, undefined],
+            ['later duplicate after trim is flagged', 1, 'Duplicate option label.'],
+            ['blank label is flagged', 2, 'Please enter a label.'],
+            ['unique label is valid', 3, undefined],
+        ])('%s', (_name, index, expected) => {
+            expect(optionLabelError(options, index)).toBe(expected)
         })
     })
 

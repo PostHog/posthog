@@ -21,7 +21,7 @@ import {
     SnapshotSourceType,
 } from '~/types'
 
-import { LoadingScheduler } from './snapshot-store/LoadingScheduler'
+import { SeekTarget, planNextBatch } from './snapshot-store/planNextBatch'
 import type { snapshotDataLogicType } from './snapshotDataLogicType'
 
 const DEFAULT_V2_POLLING_INTERVAL_MS: number = 10000
@@ -35,14 +35,7 @@ export interface SnapshotLogicProps {
     accessToken?: string
 }
 
-// Reactivity note (#53893): `cache.store` (SnapshotStore) and `cache.scheduler`
-// (LoadingScheduler) live outside Kea. Their mutations are invisible to
-// selectors unless `storeUpdated()` is dispatched. Any listener that
-// mutates either — scheduler.seekTo, scheduler.clearSeek, store.markLoaded,
-// store.setSources — MUST dispatch `storeUpdated()` afterwards. Any selector
-// that reads `cache.scheduler.currentMode` or `cache.store` state MUST depend
-// on `storeUpdateCount` (not `storeVersion`, which only bumps on data mutations
-// and would memoize to stale values across pure mode transitions).
+// Reactivity note (#53893): `cache.store` (SnapshotStore) lives outside Kea, so any listener that mutates it (markFetched, setSources) MUST dispatch `storeUpdated()` afterwards, and any selector reading it MUST depend on `storeVersion`.
 export const snapshotDataLogic = kea<snapshotDataLogicType>([
     path((key) => ['scenes', 'session-recordings', 'snapshotLogic', key]),
     props({} as SnapshotLogicProps),
@@ -71,8 +64,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         updatePlaybackPosition: (timestamp: number, windowId?: number) => ({ timestamp, windowId }),
         setPlayerActive: (active: boolean) => ({ active }),
         loadAllSources: true,
-        // dispatch after any mutation to cache.store or cache.scheduler —
-        // these live outside Kea's reactivity and need explicit invalidation
+        // dispatch after any mutation to cache.store — it lives outside Kea's reactivity and needs explicit invalidation
         storeUpdated: true,
     }),
     reducers(() => ({
@@ -80,6 +72,19 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             0,
             {
                 storeUpdated: (state: number) => state + 1,
+            },
+        ],
+        seekTarget: [
+            null as SeekTarget | null,
+            {
+                setTargetTimestamp: (_: SeekTarget | null, { timestamp, windowId }) =>
+                    timestamp === null ? null : { timestamp, windowId },
+            },
+        ],
+        loadAllMode: [
+            false,
+            {
+                loadAllSources: () => true,
             },
         ],
         loadingSources: [
@@ -223,50 +228,19 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             },
         ],
     })),
-    listeners(({ values, actions, cache, props }) => ({
-        setTargetTimestamp: ({ timestamp, windowId }) => {
-            if (!cache.scheduler || !cache.store) {
+    listeners(({ values, actions, cache, props, selectors }) => ({
+        setTargetTimestamp: ({ timestamp, windowId }, _breakpoint, __, previousState) => {
+            if (timestamp === null) {
                 return
             }
-            if (timestamp !== null) {
-                cache.playbackPosition = timestamp
-                cache.playbackWindowId = windowId
-
-                const currentMode = cache.scheduler.currentMode
-                // Don't interrupt load_all (e.g. during export)
-                if (currentMode.kind === 'load_all') {
-                    actions.loadNextSnapshotSource()
-                    return
-                }
-                // Don't re-seek to the same target
-                if (
-                    currentMode.kind === 'seek' &&
-                    currentMode.targetTimestamp === timestamp &&
-                    currentMode.targetWindowId === windowId
-                ) {
-                    return
-                }
-                // If we can already play at this position (data is loaded), no need to seek —
-                // this handles segment transitions during normal forward playback
-                if (cache.store.canPlayAt(timestamp, windowId)) {
-                    actions.loadNextSnapshotSource()
-                    return
-                }
-                // Don't enter seek mode when at source 0 and already in buffer_ahead mode —
-                // buffer_ahead loading already starts from the beginning. An empty store
-                // returns null here, which naturally falls through to scheduler.seekTo —
-                // that's required for ?t=<past-end> URLs that arrive before sources load
-                // (see #53893).
-                const targetIndex = cache.store.getSourceIndexForTimestamp(timestamp)
-                if (targetIndex === 0 && currentMode.kind === 'buffer_ahead') {
-                    actions.loadNextSnapshotSource()
-                    return
-                }
-
-                cache.scheduler.seekTo(timestamp, windowId)
-                actions.storeUpdated()
-                actions.loadNextSnapshotSource()
+            cache.playbackPosition = timestamp
+            cache.playbackWindowId = windowId
+            const previousTarget = selectors.seekTarget(previousState)
+            if (previousTarget?.timestamp !== timestamp || previousTarget?.windowId !== windowId) {
+                // A genuinely new target grants fresh retries after the permanent-failure cap.
+                cache.loadFailureCount = 0
             }
+            actions.loadNextSnapshotSource()
         },
 
         updatePlaybackPosition: ({ timestamp, windowId }) => {
@@ -284,18 +258,21 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         },
 
         loadAllSources: () => {
-            if (cache.scheduler) {
-                cache.scheduler.loadAll()
-                actions.loadNextSnapshotSource()
-            }
+            actions.loadNextSnapshotSource()
+        },
+
+        // Sources can become playable (promotion) without any new fetch completing, and polling only arms once everything is loaded — so the poll gate re-checks on every store mutation; it is fully guarded and inert mid-fetch.
+        storeUpdated: () => {
+            actions.maybeStartPolling()
         },
 
         setSnapshots: ({ snapshots }: { snapshots: RecordingSnapshot[] }) => {
             if (cache.store) {
                 const fileSource = { source: SnapshotSourceType.file } as SessionRecordingSnapshotSource
                 cache.store.setSources([fileSource])
-                cache.store.markLoaded(0, snapshots)
+                cache.store.markFetched(0, snapshots)
                 cache.pendingBatch = { snapshots, sources: [fileSource] }
+                actions.storeUpdated()
             }
 
             // Set sources first, then trigger the success action
@@ -326,18 +303,17 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
 
             cache.previousSourceKeys = currentSourceKeys
 
+            // Close the poll cycle on both branches, or maybeStartPolling's isPolling gate blocks every future poll after the first unchanged response.
+            actions.stopPolling()
             if (sourcesChanged) {
                 actions.resetPollingInterval()
                 cache.lastSourcesChangeTime = Date.now()
-                actions.stopPolling()
+                cache.store?.setSources(snapshotSources)
+                actions.storeUpdated()
             } else {
                 const currentInterval = values.pollingInterval
                 const newInterval = Math.min(currentInterval * 2, MAX_V2_POLLING_INTERVAL_MS)
                 actions.setPollingInterval(newInterval)
-            }
-
-            if (sourcesChanged) {
-                cache.store?.setSources(snapshotSources)
             }
 
             actions.loadNextSnapshotSource()
@@ -391,7 +367,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 buckets.get(sourceEntries[seIdx].sourceIndex)?.push(snap)
             }
             for (const se of sourceEntries) {
-                cache.store?.markLoaded(se.sourceIndex, buckets.get(se.sourceIndex)!)
+                // fetched, not loaded — sources become playable only once a processing pass promotes them
+                cache.store?.markFetched(se.sourceIndex, buckets.get(se.sourceIndex)!)
             }
             actions.storeUpdated()
 
@@ -408,6 +385,10 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         },
 
         maybeStartPolling: () => {
+            // file playback has no recording id and nothing server-side to poll
+            if (!props.sessionRecordingId) {
+                return
+            }
             if (props.blobV2PollingDisabled || !values.allSourcesLoaded || values.isPolling || document.hidden) {
                 return
             }
@@ -438,17 +419,15 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 return
             }
 
-            if (!cache.scheduler || !cache.store) {
+            if (!cache.store) {
                 return
             }
-            // getNextBatch may flip the scheduler out of seek mode without
-            // mutating the store. Kea can't see that, so dispatch storeUpdated
-            // to invalidate selectors that read scheduler state (#53893).
-            const wasSeeking = cache.scheduler.currentMode.kind === 'seek'
-            const batch = cache.scheduler.getNextBatch(cache.store, 10, cache.playbackPosition, cache.playbackWindowId)
-            if (wasSeeking && cache.scheduler.currentMode.kind !== 'seek') {
-                actions.storeUpdated()
-            }
+            const batch = planNextBatch(cache.store, {
+                target: values.seekTarget,
+                loadAll: values.loadAllMode,
+                playbackPosition: cache.playbackPosition,
+                playbackWindowId: cache.playbackWindowId,
+            })
             if (!batch) {
                 actions.maybeStartPolling()
                 return
@@ -463,11 +442,10 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
     selectors(({ cache }) => ({
         snapshotsLoading: [
             (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading, s.storeVersion],
-            (snapshotSourcesLoading: boolean, snapshotsForSourceLoading: boolean): boolean => {
-                return (
-                    (cache.store?.getAllLoadedSnapshots().length ?? 0) === 0 &&
-                    (snapshotSourcesLoading || snapshotsForSourceLoading)
-                )
+            (snapshotSourcesLoading: boolean, snapshotsForSourceLoading: boolean, _storeVersion: number): boolean => {
+                // Keyed on loaded-source state (not snapshot arrays, which the coordinator releases after processing), so a fully-watchable recording doesn't flap back to loading during source polls.
+                const hasLoadedAnySource = cache.store?.hasLoadedAnySource ?? false
+                return !hasLoadedAnySource && (snapshotSourcesLoading || snapshotsForSourceLoading)
             },
         ],
 
@@ -481,8 +459,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         ],
 
         allSourcesLoaded: [
-            (s) => [s.snapshotSources, s.storeUpdateCount],
-            (snapshotSources): boolean => {
+            (s) => [s.snapshotSources, s.storeVersion],
+            (snapshotSources, _storeVersion: number): boolean => {
                 if (!snapshotSources || snapshotSources.length === 0) {
                     return false
                 }
@@ -510,24 +488,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             (s) => [s.storeVersion],
             (): SourceLoadingState[] => {
                 return cache.store?.getSourceStates() ?? []
-            },
-        ],
-
-        isWaitingForPlayableFullSnapshot: [
-            // Depends on storeUpdateCount (not storeVersion) because this
-            // selector reads scheduler state, which can mutate without
-            // bumping store.version — storeVersion would memoize to a
-            // stale value. storeUpdateCount invalidates on every storeUpdated.
-            (s) => [s.storeUpdateCount],
-            (): boolean => {
-                if (!cache.scheduler || !cache.store) {
-                    return false
-                }
-                const mode = cache.scheduler.currentMode
-                if (mode.kind !== 'seek') {
-                    return false
-                }
-                return !cache.store.canPlayAt(mode.targetTimestamp, mode.targetWindowId)
             },
         ],
 
@@ -561,7 +521,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
     afterMount(({ actions, cache }) => {
         cache.playerActive = true
         cache.store = new SnapshotStore()
-        cache.scheduler = new LoadingScheduler()
         actions.storeUpdated()
 
         cache.disposables.add(() => {
@@ -583,11 +542,11 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
     beforeUnmount(({ cache }) => {
         cache.playerActive = false
         cache.store = undefined
-        cache.scheduler = undefined
         cache.pendingBatch = undefined
         cache.previousSourceKeys = undefined
         cache.lastSourcesChangeTime = undefined
         cache.playbackPosition = undefined
+        cache.playbackWindowId = undefined
         cache.loadFailureCount = undefined
     }),
 ])

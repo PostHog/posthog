@@ -417,6 +417,32 @@ export const AgentApplicationsRevisionsToolsUpdateBody = /* @__PURE__ */ zod
     .describe('Body shape for PUT \/revisions\/<id>\/tools\/<tool_id>\/.')
 
 /**
+ * Execute one persisted custom tool in a single-shot sandbox.
+ *
+ * Authoring loop's "test this tool" button. The tool's source must
+ * already be PUT (compiled.js is what runs); this just invokes it
+ * with the caller-supplied args and a stubbed ctx. No real secrets
+ * leave Django — `mock_secrets` is a `{name → placeholder}` map.
+ */
+export const AgentApplicationsRevisionsToolsDryRunCreateBody = /* @__PURE__ */ zod
+    .object({
+        args: zod
+            .unknown()
+            .describe(
+                "Synthetic args the tool's `actions.default` is called with. Free-form JSON; the sandbox doesn't validate against the tool's `args_schema` — that's the author's responsibility to keep in sync."
+            ),
+        mock_secrets: zod
+            .record(zod.string(), zod.string())
+            .optional()
+            .describe(
+                'Optional `{secret_name → placeholder_string}` map. The string is returned verbatim by `ctx.secrets.ref(name)` inside the tool. The real secret value never enters the sandbox.'
+            ),
+    })
+    .describe(
+        "Body shape for POST \/revisions\/<id>\/tools\/<tool_id>\/dry_run\/.\n\nExecutes the persisted compiled.js once in the janitor's single-shot\nsandbox with caller-supplied args + a stubbed ctx. No real secrets\nleave Django — `mock_secrets` is a `{name → opaque nonce}` map the\nsandbox plumbs into `ctx.secrets.ref(name)` so the tool body returns\nsomething deterministic to the author."
+    )
+
+/**
  * Create a fresh draft revision under `application_id` and seed it
  * from `source_revision_id`. Saves the MCP one round-trip vs the
  * explicit create + clone_from sequence.

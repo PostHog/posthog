@@ -1372,6 +1372,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             ],
         )
 
+    def test_dashboard_interval_and_test_account_overrides_round_trip(self):
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-24h"}})
+
+        _, response = self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {"filters": {"date_from": "-24h", "interval": "week", "filterTestAccounts": True}},
+        )
+
+        self.assertEqual(response["filters"]["interval"], "week")
+        self.assertEqual(response["filters"]["filterTestAccounts"], True)
+
+        read_back = self.dashboard_api.get_dashboard(dashboard_id)
+        self.assertEqual(read_back["filters"]["interval"], "week")
+        self.assertEqual(read_back["filters"]["filterTestAccounts"], True)
+
     def test_dashboard_filter_is_applied_even_if_insight_is_created_before_dashboard(self):
         insight_id, _ = self.dashboard_api.create_insight(
             {"filters": {"hello": "test", "date_from": "-7d"}, "name": "some_item"}
