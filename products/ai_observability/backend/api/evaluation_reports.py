@@ -284,8 +284,12 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         team = self.context["get_team"]()
         evaluation = validated_data["evaluation"]
-        defaults = {**validated_data, "team": team, "created_by": request.user}
-        report, created = EvaluationReport.objects.get_or_create(evaluation=evaluation, defaults=defaults)
+        defaults = {**validated_data, "created_by": request.user}
+        report, created = EvaluationReport.objects.get_or_create(
+            evaluation=evaluation,
+            team_id=team.id,
+            defaults=defaults,
+        )
         self.created_instance = created
         if created:
             return report
