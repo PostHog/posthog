@@ -88,6 +88,19 @@ async def prepare_pulse_brief_subscription(inputs: PreparePulseBriefInputs) -> P
     if existing_brief_id is not None:
         await LOGGER.ainfo("prepare_pulse_brief.already_prepared", subscription_id=subscription.id)
         result.brief_id = existing_brief_id
+        # The brief row's period_days is authoritative — read it back so a retry starts the
+        # child workflow with the window the brief was created with, not a since-changed frequency.
+        existing_period_days = await database_sync_to_async(
+            lambda: (
+                ProductBrief.objects.for_team(team_id)
+                .filter(id=existing_brief_id)
+                .values_list("period_days", flat=True)
+                .first()
+            ),
+            thread_sensitive=False,
+        )()
+        if existing_period_days is not None:
+            result.period_days = existing_period_days
         return result
 
     brief = await database_sync_to_async(
