@@ -8,35 +8,37 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { DESKTOP_SCHEME } from './desktopScheme'
 
-export interface CodeCanvasLinkProps {
+export interface CodeChannelLinkProps {
     channelId: string
-    dashboardId: string
+    taskId?: string
 }
 
-export const scene: SceneExport<CodeCanvasLinkProps> = {
-    component: CodeCanvasLink,
-    paramsToProps: ({ params: { channelId, dashboardId } }) => ({
+export const scene: SceneExport<CodeChannelLinkProps> = {
+    component: CodeChannelLink,
+    paramsToProps: ({ params: { channelId, taskId } }) => ({
         channelId: channelId ?? '',
-        dashboardId: dashboardId ?? '',
+        taskId: taskId || undefined,
     }),
 }
 
-function canvasDeepLink(channelId: string, dashboardId: string): string {
-    return `${DESKTOP_SCHEME}://canvas/${encodeURIComponent(channelId)}/${encodeURIComponent(dashboardId)}`
+function channelDeepLink(channelId: string, taskId?: string): string {
+    const base = `${DESKTOP_SCHEME}://channel/${encodeURIComponent(channelId)}`
+    return taskId ? `${base}/tasks/${encodeURIComponent(taskId)}` : base
 }
 
 /**
- * Public, unauthenticated bridge for desktop-app "canvas" share links
- * (`/code/canvas/<channelId>/<dashboardId>`). On mount it deep-links into the desktop
- * app via the `posthog-code(-dev)://` custom scheme; for visitors without the app it
- * shows an explanation, a manual "open" button (in case the browser blocks the
- * auto-redirect), and a download link. The canvas itself only exists in the desktop
+ * Public, unauthenticated bridge for desktop-app "channel" share links
+ * (`/code/channel/<channelId>` and `/code/channel/<channelId>/tasks/<taskId>`). On mount it
+ * deep-links into the desktop app via the `posthog-code(-dev)://` custom scheme; for visitors
+ * without the app it shows an explanation, a manual "open" button (in case the browser blocks
+ * the auto-redirect), and a download link. Channels and their threads only exist in the desktop
  * app, so nothing is rendered here beyond this interstitial.
  */
-export function CodeCanvasLink({ channelId, dashboardId }: CodeCanvasLinkProps): JSX.Element {
-    // Null when a param is missing (a partial URL or params not yet resolved) —
-    // firing with an empty id would send a malformed `<scheme>://canvas//`.
-    const deepLink = channelId && dashboardId ? canvasDeepLink(channelId, dashboardId) : null
+export function CodeChannelLink({ channelId, taskId }: CodeChannelLinkProps): JSX.Element {
+    // Null when the channel id is missing (a partial URL or params not yet resolved), since
+    // firing with an empty id would send a malformed `<scheme>://channel/`.
+    const deepLink = channelId ? channelDeepLink(channelId, taskId) : null
+    const target = taskId ? 'thread' : 'channel'
 
     useEffect(() => {
         if (deepLink) {
@@ -45,13 +47,13 @@ export function CodeCanvasLink({ channelId, dashboardId }: CodeCanvasLinkProps):
     }, [deepLink])
 
     return (
-        <BridgePage view="code-canvas-link">
+        <BridgePage view="code-channel-link">
             <div className="flex flex-col items-center gap-4 text-center max-w-lg mx-auto">
                 <IconLaptop className="text-5xl shrink-0" />
                 <h2 className="text-xl font-semibold m-0">Opening in PostHog Code…</h2>
                 <p className="text-muted mb-0">
-                    Canvases live in the PostHog Code desktop app. If it's installed, it should open automatically. If
-                    it didn't, use the button below — or download the app.
+                    This {target} lives in the PostHog Code desktop app. If it's installed, it should open
+                    automatically. If it didn't, use the button below, or download the app.
                 </p>
                 <div className="flex flex-col items-center gap-2">
                     {deepLink && (
@@ -73,4 +75,4 @@ export function CodeCanvasLink({ channelId, dashboardId }: CodeCanvasLinkProps):
     )
 }
 
-export default CodeCanvasLink
+export default CodeChannelLink
