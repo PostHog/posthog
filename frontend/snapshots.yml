@@ -1217,9 +1217,9 @@ snapshots:
     components-markdown-notebook--selection-toolbar-state--light:
         hash: v1.k794b7964.f5c91317fef4dbd71945a2c2cc95bb37ecdf276020aa959a2745b8273e9e41b5.fsryMCCBVtHpn2nZHOTISpKXxKhCkvPnaxXcUpY5qiA
     components-markdown-notebook--slash-menu-and-insertion--dark:
-        hash: v1.k794b7964.a8e03cc86a51e29941d4f0305d2c042e44a766346cd1ba34207845e9660f5579.LcTMbbSSSV0fgK-DogkQr15rB76cB4d7Q6dStpnm2ho
+        hash: v1.k794b7964.226ccc85aab91ac7b729103db595c69e1ba1a01fd7d4541c7ab8790a4510e2ea.gBbTKWw9HuIhArY_kbRFcrpzn6FoIm3xyUinqK2RzT8
     components-markdown-notebook--slash-menu-and-insertion--light:
-        hash: v1.k794b7964.e59aa2895abf4d9ac2815b7d582be6ef32094daefef6710ca41b4690e7effff5.jwmQtjoVadLAMzej6MQE4-W8rw5_lfT35V7uwLvkw14
+        hash: v1.k794b7964.8ddf6af31b7d9b712c95ae38c11d12d301c3324e62badf18abef74717a574a1a.D-dkvZd470v-LmFak4uLdbNupq_Ijwbs4Xwtm9l3J7Q
     components-markdown-notebook--text-only-notebook--dark:
         hash: v1.k794b7964.180d01e7e88e19ca74879f6117c37d9f305df0ff2bb1b5582b283b73736f1937.WwPaxf-nmSkk-7TRBJBziJOQnvi437cFgh59fEMqLQ4
     components-markdown-notebook--text-only-notebook--light:
