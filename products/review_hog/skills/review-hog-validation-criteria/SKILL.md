@@ -66,6 +66,6 @@ Drop it if it is any of:
 2. Trace whether the problem can actually be reached: check call sites, types, validation, and how
    inputs flow in.
 3. Weigh real impact (who is affected, how badly) against the bar above.
-4. When the evidence for "real problem" is thin or you're on the fence, **drop it**.
+4. On the fence → **drop** (precision over recall, as above).
 5. Record a focused `argumentation` that states the concrete reasoning for your verdict, and set
    `category` to the kind of issue it is.

@@ -4,10 +4,9 @@ description: >
   How to author custom ReviewHog skills — the review perspectives, blind-spot checks, and
   validation criteria that drive ReviewHog's automated PR reviews. Use when a user wants a new
   review perspective (a specialist lens on their PRs), a custom blind-spot sweep, or their own
-  validation bar for which findings get published. Covers the skill anatomy per kind, the naming
-  contract and category, how to ground on the existing set before authoring, and how the user
-  activates the result. Trigger on "create a ReviewHog perspective", "custom review perspective",
-  "my own blind-spot check", "custom validation criteria", "tune what ReviewHog publishes".
+  validation bar for which findings get published. Trigger on "create a ReviewHog perspective",
+  "custom review perspective", "my own blind-spot check", "custom validation criteria", "tune what
+  ReviewHog publishes".
 metadata:
   owner_team: review_hog
   skill_type: authoring
@@ -62,27 +61,32 @@ whether it _runs_ is a per-user setting in **Inbox → Code review**.
 
 ## Writing a review perspective
 
-The body instructs one specialist review pass over one PR chunk. It should define:
+The body instructs one specialist review pass over one PR chunk. Match the canonical
+logic-correctness skill's shape:
 
-- **The lane** — what this lens is responsible for, and an explicit note that other concerns are
-  covered by other perspectives (stay in lane; report everything in lane without worrying about
-  overlap).
-- **What to hunt** — a handful of concrete investigation areas with specific checks, not abstract
-  virtues. The canonical logic-correctness skill's numbered "primary investigation areas" is the
-  shape to match.
-- **What to ignore** — the noise this lens must not report (style, speculation, things outside the
-  diff's blast radius).
-- **What a publishable finding looks like** — concrete, evidenced, tied to changed code, with a
-  clear "why it matters".
+- **The lane** — one sentence on what this lens is responsible for; report everything in lane and
+  leave the rest to the other perspectives.
+- **Hunting grounds** — a numbered handful of concrete places to look, each a specific check the
+  agent can walk against the chunk ("transaction boundaries that split writes that must land
+  together"), not an abstract virtue ("ensure correctness").
+- **Lane boundary** — which perspective owns each adjacent concern this lens must leave alone.
+- **The finding bar** — a publishable finding names the concrete trigger and the concrete
+  consequence; close with a completion criterion ("done when every changed file is flagged or
+  cleared against every hunting ground").
+
+The review harness already tells the agent the pipeline mechanics — parallel perspectives, later
+deduplication, severity levels, the non-test-files rule — so the skill carries only the lens;
+restating harness rules dilutes it.
 
 ## Writing a blind-spot check
 
 The body instructs the final sweep that runs after every enabled perspective finished a chunk. It
 is **conditioned on the covered findings** (the prompt lists which perspectives ran and what they
-found), so the body should say how to use that: study where attention already went, then hunt
-everywhere else — error paths, unhandled inputs, cross-file interactions, assumptions. It is not
-scoped to one specialty, and an empty result beats padding. A custom sweep narrows or re-weights
-this hunt (e.g. toward a domain the team keeps getting burned by).
+found), so the body should say how to use that: the covered findings map where attention already
+went, and the sweep's value is the negative space — error paths, unhandled inputs, cross-file
+interactions, assumptions. It is not scoped to one specialty, and an empty result beats padding. A
+custom sweep narrows or re-weights this hunt (e.g. toward a domain the team keeps getting burned
+by).
 
 ## Writing validation criteria
 
