@@ -80,7 +80,13 @@ def _render_goal_block(goal_status: GoalStatus | None, period_days: int) -> str:
         return ""
     if goal_status.metric_state == "none":
         metric_line = ""
-    elif goal_status.metric_state == "unavailable":
+    elif (
+        goal_status.metric_state == "unavailable"
+        or goal_status.current_rate is None
+        or goal_status.previous_rate is None
+    ):
+        # "ok" always carries both rates from collect_goal_status; the None-guard keeps a
+        # malformed status from leaking the literal "None" into the prompt.
         metric_line = "\nThe configured goal metric could not be read this period, so no goal figures are available."
     else:
         delta = (
