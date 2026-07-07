@@ -23,7 +23,8 @@ from temporalio import activity
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.logic.services.sandbox import Sandbox
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.logic.services.sandbox_usage import close_sandbox_session
+from products.tasks.backend.models import SandboxSession, TaskRun
 from products.tasks.backend.temporal.execute_sandbox.activities.sandbox_state import SANDBOX_ID_STATE_KEY
 from products.tasks.backend.temporal.observability import log_activity_execution
 
@@ -69,6 +70,11 @@ def reap_orphaned_sandbox(input: ReapOrphanedSandboxInput) -> ReapOrphanedSandbo
             # Modal TTL is the backstop; we still clear state below so the
             # next start doesn't re-reap a dead id forever.
             destroy_succeeded = False
+
+        # Best-effort usage-ledger end stamp (swallows its own failures), regardless of
+        # destroy outcome — the TTL kills any undead sandbox anyway, and the ledger
+        # prefers a slightly early end over an open-ended row.
+        close_sandbox_session(sandbox_id, reason=SandboxSession.EndedReason.REAPED)
 
         TaskRun.update_state_atomic(input.run_id, remove_keys=[SANDBOX_ID_STATE_KEY])
         return ReapOrphanedSandboxResult(reaped_sandbox_id=sandbox_id, destroy_succeeded=destroy_succeeded)

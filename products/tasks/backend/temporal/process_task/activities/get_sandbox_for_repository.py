@@ -21,7 +21,8 @@ from products.tasks.backend.logic.services.sandbox import (
     SandboxTemplate,
     parse_sandbox_repo_mount_map,
 )
-from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
+from products.tasks.backend.logic.services.sandbox_usage import close_sandbox_session, open_sandbox_session
+from products.tasks.backend.models import SandboxSession, SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import StepTimer, increment_snapshot_restore, increment_snapshot_usage
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
@@ -288,6 +289,9 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         metrics_snapshot_kind = snapshot_kind if snapshot_source != "none" else "none"
         increment_snapshot_usage(used_snapshot, snapshot_source=snapshot_source, snapshot_kind=metrics_snapshot_kind)
         increment_snapshot_restore(snapshot_source, metrics_snapshot_kind, snapshot_outcome)
+        # Best-effort usage-ledger row (swallows its own failures); the error paths
+        # below that destroy the sandbox close it with reason=provision_failed.
+        open_sandbox_session(run_id=ctx.run_id, sandbox_id=sandbox.id, config=sandbox.config)
         _emit_provisioning_diagnostics(ctx, sandbox)
         emit_agent_log(ctx.run_id, "debug", f"Sandbox provisioned: {sandbox.id}")
 
@@ -307,6 +311,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                 clone_result = sandbox.clone_repository(repository, github_token=github_token, shallow=shallow)
             if clone_result.exit_code != 0:
                 sandbox.destroy()
+                close_sandbox_session(sandbox.id, reason=SandboxSession.EndedReason.PROVISION_FAILED)
                 raise RuntimeError(f"Failed to clone repository {repository}: {clone_result.stderr}")
 
         if has_repo and ctx.branch:
@@ -339,9 +344,11 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                 result = sandbox.execute(fetch_and_checkout, timeout_seconds=5 * 60)
             except Exception:
                 sandbox.destroy()
+                close_sandbox_session(sandbox.id, reason=SandboxSession.EndedReason.PROVISION_FAILED)
                 raise
             if result.exit_code != 0:
                 sandbox.destroy()
+                close_sandbox_session(sandbox.id, reason=SandboxSession.EndedReason.PROVISION_FAILED)
                 logger.warning("Branch checkout failed", extra={"branch": ctx.branch, "stderr": result.stderr})
                 raise RuntimeError(f"Failed to checkout branch {ctx.branch}")
 

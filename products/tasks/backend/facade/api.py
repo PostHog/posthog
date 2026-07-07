@@ -1981,7 +1981,22 @@ def signal_task_run_user_message(
     except Exception:
         logger.exception("Failed to signal follow-up message for task run %s", run.id)
         return False
+    record_task_run_user_activity(run.id)
     return True
+
+
+def record_task_run_user_activity(run_id: str | UUID) -> None:
+    """Stamp a user message against the run's open sandbox usage sessions.
+
+    Best-effort (the ledger swallows its own failures): records last-activity on
+    every message and starts the user-attributable billing window on the first one.
+    Usage ledger only — no workflow side effects.
+    """
+    from products.tasks.backend.logic.services.sandbox_usage import (  # noqa: PLC0415 — keep sandbox deps off the api import path
+        record_task_run_user_activity as _record_user_activity,
+    )
+
+    _record_user_activity(run_id)
 
 
 def get_task_run_sandbox_connection(

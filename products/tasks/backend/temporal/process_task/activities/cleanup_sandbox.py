@@ -7,8 +7,9 @@ from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.exceptions import SandboxNotFoundError
 from products.tasks.backend.logic.services.sandbox import Sandbox
+from products.tasks.backend.logic.services.sandbox_usage import close_sandbox_session
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_complete
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.models import SandboxSession, TaskRun
 from products.tasks.backend.redis import run_uses_dedicated_stream
 from products.tasks.backend.temporal.observability import log_activity_execution
 
@@ -46,6 +47,11 @@ def cleanup_sandbox(input: CleanupSandboxInput) -> None:
             except Exception:
                 # The sandbox has a timeout, and it will eventually terminate if we failed to cleanup.
                 logger.warning("cleanup_sandbox_destroy_failed", extra={"sandbox_id": input.sandbox_id}, exc_info=True)
+
+        # Best-effort usage-ledger end stamp (swallows its own failures). Stamped even when
+        # destroy failed or the sandbox was already gone: the TTL kills any undead sandbox
+        # anyway, and the ledger prefers a slightly early end over an open-ended row.
+        close_sandbox_session(input.sandbox_id, reason=SandboxSession.EndedReason.CLEANUP)
 
         if input.complete_stream_on_cleanup and input.run_id and stream_completion_safe:
             use_dedicated = False

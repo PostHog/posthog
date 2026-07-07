@@ -388,6 +388,10 @@ class SandboxSession(BaseSandboxService):
             )
             raise Conflict("The sandbox run is no longer accepting messages. Please try again.") from e
 
+        # Attribution stamp for the sandbox usage ledger: starts the user-attributable
+        # window on a claimed warm Run and records last-activity on every follow-up.
+        tasks_facade.record_task_run_user_activity(run.id)
+
         # The Run has received its first human message, so it is no longer speculative — drop the
         # warm flag so the warm-pool cap stops counting it (it's now an active Run governed by AI
         # credits). Best-effort: a failure only over-counts the warm pool until the Run terminates,
