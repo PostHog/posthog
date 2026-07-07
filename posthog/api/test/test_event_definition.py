@@ -528,6 +528,44 @@ class TestEventDefinitionExcludeStale(APIBaseTest):
         names = {row["name"] for row in response.json()["results"]}
         assert names == expected_names
 
+    def test_bulk_update_tags_with_uuid_ids(self):
+        # Event definitions have UUID PKs and are not an object-level access-controlled resource, so the
+        # inherited mixin action (integer PKs + per-object access filter) can't be reused. If that override
+        # regresses, UUID ids 400 on the integer serializer or every object gets filtered out as inaccessible.
+        ed1 = EventDefinition.objects.create(team=self.demo_team, name="bulk_a")
+        ed2 = EventDefinition.objects.create(team=self.demo_team, name="bulk_b")
+
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_tags/",
+            {"ids": [str(ed1.id), str(ed2.id)], "action": "add", "tags": ["pii", "billing"]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["skipped"] == []
+        assert {row["id"]: sorted(row["tags"]) for row in data["updated"]} == {
+            str(ed1.id): ["billing", "pii"],
+            str(ed2.id): ["billing", "pii"],
+        }
+        for ed in (ed1, ed2):
+            assert sorted(ed.tagged_items.values_list("tag__name", flat=True)) == ["billing", "pii"]
+
+    def test_bulk_update_tags_ignores_event_definitions_in_other_project(self):
+        # Project-scoping / IDOR guard: a definition in another project must be reported "Not found" and left untouched.
+        other_team = create_team(organization=create_organization(name="other org"))
+        foreign = EventDefinition.objects.create(team=other_team, name="foreign_event")
+
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_tags/",
+            {"ids": [str(foreign.id)], "action": "add", "tags": ["pii"]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["updated"] == []
+        assert data["skipped"] == [{"id": str(foreign.id), "reason": "Not found"}]
+        assert foreign.tagged_items.count() == 0
+
 
 @dataclasses.dataclass
 class EventData:

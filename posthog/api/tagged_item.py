@@ -42,6 +42,42 @@ def cleanup_orphan_tags(team_id: int) -> None:
     Tag.objects.filter(Q(team_id=team_id) & Q(tagged_items__isnull=True)).delete()
 
 
+def apply_bulk_tag_changes(objects: Sequence, tag_action: str, tags: list[str]) -> list[dict[str, Any]]:
+    """Apply an add/remove/set tag mutation to each object and return a per-object result.
+
+    Callers are responsible for team-scoping and access-checking ``objects`` first. When a
+    ``prefetched_tags`` attribute is present it is used to avoid a per-object tag query.
+    Orphaned tags are cleaned up once at the end.
+    """
+    normalized_tags = {tagify(t) for t in tags}
+    updated: list[dict[str, Any]] = []
+    team_id = None
+
+    for obj in objects:
+        team_id = obj.team_id
+        current_tags = {
+            ti.tag.name
+            for ti in (
+                obj.prefetched_tags if hasattr(obj, "prefetched_tags") else obj.tagged_items.select_related("tag").all()
+            )
+        }
+
+        if tag_action == "add":
+            new_tags = current_tags | normalized_tags
+        elif tag_action == "remove":
+            new_tags = current_tags - normalized_tags
+        else:  # set
+            new_tags = set(normalized_tags)
+
+        set_tags_on_object(list(new_tags), obj)
+        updated.append({"id": obj.id, "tags": sorted(new_tags)})
+
+    if team_id is not None:
+        cleanup_orphan_tags(team_id)
+
+    return updated
+
+
 class TaggedItemSerializerMixin(serializers.Serializer):
     """
     Serializer mixin that handles tags for objects.
@@ -117,6 +153,35 @@ class BulkUpdateTagsErrorSerializer(serializers.Serializer):
 class BulkUpdateTagsResponseSerializer(serializers.Serializer):
     updated = BulkUpdateTagsItemSerializer(many=True)
     skipped = BulkUpdateTagsErrorSerializer(many=True)
+
+
+class BulkUpdateTagsUUIDRequestSerializer(BulkUpdateTagsRequestSerializer):
+    """Variant of ``BulkUpdateTagsRequestSerializer`` for resources keyed by UUID (e.g. event definitions)."""
+
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=BULK_UPDATE_TAGS_MAX_IDS,
+        help_text="List of object UUIDs to update tags on.",
+    )
+
+
+class BulkUpdateTagsUUIDItemSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="UUID of the object whose tags were updated.")
+    tags = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="The object's full tag list after the update.",
+    )
+
+
+class BulkUpdateTagsUUIDErrorSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="UUID of the object that was skipped.")
+    reason = serializers.CharField(help_text="Why the object was skipped, e.g. 'Not found'.")
+
+
+class BulkUpdateTagsUUIDResponseSerializer(serializers.Serializer):
+    updated = BulkUpdateTagsUUIDItemSerializer(many=True, help_text="Objects whose tags were successfully updated.")
+    skipped = BulkUpdateTagsUUIDErrorSerializer(many=True, help_text="Objects that were skipped, with a reason each.")
 
 
 def _prefetch_tags_for_instances(instances: Sequence) -> None:
@@ -230,38 +295,7 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
             if obj_id not in found_ids:
                 errors.append({"id": obj_id, "reason": "Not found"})
 
-        # Normalize input tags
-        normalized_tags = {tagify(t) for t in tags}
-
-        # Apply tag changes
-        updated: list[dict[str, Any]] = []
-        team_id = None
-
-        for obj in editable_objects:
-            team_id = obj.team_id
-            current_tags = {
-                ti.tag.name
-                for ti in (
-                    obj.prefetched_tags
-                    if hasattr(obj, "prefetched_tags")
-                    else obj.tagged_items.select_related("tag").all()
-                )
-            }
-
-            if tag_action == "add":
-                new_tags = current_tags | normalized_tags
-            elif tag_action == "remove":
-                new_tags = current_tags - normalized_tags
-            else:  # set
-                new_tags = set(normalized_tags)
-
-            set_tags_on_object(list(new_tags), obj)
-            updated.append({"id": obj.id, "tags": sorted(new_tags)})
-
-        # Cleanup orphan tags once at the end
-        if team_id is not None:
-            cleanup_orphan_tags(team_id)
-
+        updated = apply_bulk_tag_changes(editable_objects, tag_action, tags)
         return response.Response({"updated": updated, "skipped": errors})
 
 
