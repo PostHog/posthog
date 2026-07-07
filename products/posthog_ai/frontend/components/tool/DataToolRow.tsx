@@ -12,11 +12,15 @@ import type { ToolRendererProps } from './toolRegistry'
 export function DataToolRow({ children, ...props }: PropsWithChildren<ToolRendererProps>): JSX.Element {
     const { message, icon, displayName, turnComplete, turnCancelled } = props
 
+    // Single-exec inner tools carry the outer tool's frame title (a bare "exec") — the registry
+    // display name or the resolved inner tool name is the meaningful label there.
+    const title = message.innerToolName ? displayName || message.innerToolName : message.title || displayName || 'Tool'
+
     return (
         <ToolActivity
             message={message}
             icon={icon}
-            title={message.title || displayName || 'Tool'}
+            title={title}
             turnComplete={turnComplete}
             turnCancelled={turnCancelled}
         >
