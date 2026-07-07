@@ -395,8 +395,7 @@ export function FinishExperimentModal(): JSX.Element {
                             data-attr="experiment-open-cleanup-pr"
                             label={
                                 <span>
-                                    Also open a draft PR that removes <code>{experiment.feature_flag?.key}</code> from
-                                    your codebase, keeping only the code path that matches the conclusion.
+                                    Open a draft PR removing <code>{experiment.feature_flag?.key}</code> from your code
                                 </span>
                             }
                         />
