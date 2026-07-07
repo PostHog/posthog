@@ -9,6 +9,9 @@ feature: customer_analytics
 url_prefix: /customer-analytics
 ui_apps: {}
 tools:
+    account-notes-list:
+        operation: account_notes_list
+        enabled: false
     accounts-create:
         operation: accounts_create
         enabled: true
@@ -269,6 +272,10 @@ tools:
             percent, date, datetime, boolean), and `is_big_number` flag. Definitions are team-scoped and shared across
             all accounts; the value a specific account holds for a definition is managed separately via the account
             custom property value tools. Use `custom-property-definitions-retrieve` to fetch a single definition by id.
+            To list or filter accounts by a custom property value in bulk, take a definition `id` from this tool and
+            query it via HogQL against `system.accounts`, selecting ``custom_properties.values.`<definition_id>` ``
+            (backtick-quote the id) and filtering it `IS NOT NULL`. The per-account value tools return one account at a
+            time; this HogQL path scales to all accounts.
         feature_flag: customer-analytics-csp
     custom-property-definitions-partial-update:
         operation: custom_property_definitions_partial_update
@@ -304,6 +311,24 @@ tools:
         feature_flag: customer-analytics-csp
     custom-property-definitions-update:
         operation: custom_property_definitions_update
+        enabled: false
+    custom-property-sources-create:
+        operation: custom_property_sources_create
+        enabled: false
+    custom-property-sources-destroy:
+        operation: custom_property_sources_destroy
+        enabled: false
+    custom-property-sources-list:
+        operation: custom_property_sources_list
+        enabled: false
+    custom-property-sources-partial-update:
+        operation: custom_property_sources_partial_update
+        enabled: false
+    custom-property-sources-retrieve:
+        operation: custom_property_sources_retrieve
+        enabled: false
+    custom-property-sources-update:
+        operation: custom_property_sources_update
         enabled: false
     customer-journeys-create:
         operation: customer_journeys_create

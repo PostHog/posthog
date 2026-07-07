@@ -1,43 +1,32 @@
+// The full workflow list behind the hub's capped workflows section. Every row opens the workflow page.
+
 import { useActions, useValues } from 'kea'
 
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { dateFilterToText, dateMapping } from 'lib/utils/dateFilters'
+import { LemonButton, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 
-import { BranchFilter } from '../components/BranchFilter'
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
+import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { WorkflowHealthTable } from '../components/WorkflowHealthTable'
 import { WorkflowsHealthHeader } from '../components/WorkflowsHealthHeader'
-import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
-import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
-
-// The endpoint caps the window at 366 days, so "All time" and week/month snaps are out.
-const WORKFLOW_DATE_OPTIONS = dateMapping.filter(({ key }) =>
-    [
-        'Custom',
-        'Last 24 hours',
-        'Last 7 days',
-        'Last 14 days',
-        'Last 30 days',
-        'Last 90 days',
-        'Last 180 days',
-        'Year to date',
-    ].includes(key)
-)
+import { WORKFLOW_HEALTH_LIMIT, WorkflowStatusFilter, engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 
 export function EngineeringAnalyticsWorkflows(): JSX.Element {
     const {
-        workflowHealth,
-        workflowHealthLoading,
-        notConnected,
-        workflowHealthLoadError,
-        sourceId,
         fleetSummary,
         fleetTruncated,
+        filteredWorkflowHealth,
+        workflowHealthLoading,
+        workflowSearch,
+        workflowStatusFilter,
+        hasActiveWorkflowFilters,
+        workflowCostAvailable,
+        sourceId,
+        notConnected,
+        workflowHealthLoadError,
     } = useValues(engineeringAnalyticsLogic)
-    const { refresh } = useActions(engineeringAnalyticsLogic)
-    const { dateFrom, dateTo, appliedBranch } = useValues(engineeringAnalyticsFiltersLogic)
-    const { setDateRange } = useActions(engineeringAnalyticsFiltersLogic)
+    const { setWorkflowSearch, setWorkflowStatusFilter, resetWorkflowFilters, refresh } =
+        useActions(engineeringAnalyticsLogic)
 
     if (notConnected) {
         return <ConnectGitHubSource />
@@ -46,35 +35,60 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
         return <CIAnalyticsLoadError onRetry={refresh} />
     }
 
-    const windowLabel = dateFilterToText(dateFrom, dateTo, 'Last 7 days') ?? 'Last 7 days'
-
     return (
         <div className="flex flex-col gap-4">
-            <div className="flex items-center gap-2">
-                <DateFilter
-                    dateFrom={dateFrom}
-                    dateTo={dateTo}
-                    onChange={(from, to) => setDateRange(from ?? SHARED_DEFAULT_DATE_FROM, to ?? null)}
-                    dateOptions={WORKFLOW_DATE_OPTIONS}
+            <ScopeBar repoSlot={<SourceScopeChip />} showBranch />
+
+            <WorkflowsHealthHeader summary={fleetSummary} truncated={fleetTruncated} />
+
+            <div className="flex flex-wrap items-center gap-2">
+                <LemonInput
+                    type="search"
+                    placeholder="Search workflows…"
+                    value={workflowSearch}
+                    onChange={setWorkflowSearch}
+                    className="w-64"
+                    data-attr="engineering-analytics-workflow-search"
                 />
-                <BranchFilter />
+                <LemonSegmentedButton
+                    size="small"
+                    value={workflowStatusFilter}
+                    onChange={(value) => setWorkflowStatusFilter(value as WorkflowStatusFilter)}
+                    options={[
+                        { value: 'all', label: 'All' },
+                        {
+                            value: 'failing',
+                            label: fleetSummary.failingNow > 0 ? `Failing (${fleetSummary.failingNow})` : 'Failing',
+                        },
+                        { value: 'passing', label: 'Passing' },
+                    ]}
+                />
             </div>
-            {workflowHealth.length > 0 && <WorkflowsHealthHeader summary={fleetSummary} truncated={fleetTruncated} />}
+
             <WorkflowHealthTable
-                rows={workflowHealth}
+                rows={filteredWorkflowHealth}
                 loading={workflowHealthLoading}
                 sourceId={sourceId}
-                showCost={workflowHealth.some((row) => row.billableMinutes != null || row.estimatedCostUsd != null)}
+                showCost={workflowCostAvailable}
+                defaultSorting={{ columnKey: 'runCount', order: -1 }}
                 emptyState={
-                    appliedBranch
-                        ? `No workflow runs on '${appliedBranch}' in this window.`
-                        : 'No workflow runs in this window.'
+                    hasActiveWorkflowFilters ? (
+                        <div className="flex flex-col items-center gap-2">
+                            <span>No workflows match these filters.</span>
+                            <LemonButton type="secondary" size="small" onClick={resetWorkflowFilters}>
+                                Clear filters
+                            </LemonButton>
+                        </div>
+                    ) : (
+                        'No workflow runs in this window. Try widening the date range or branch scope.'
+                    )
                 }
             />
+
             <div className="text-xs text-tertiary">
-                Success rate and durations are computed over completed runs only — a run that hasn't settled is
-                excluded, not counted as a failure. Window: {windowLabel}
-                {appliedBranch ? ` · branch: ${appliedBranch}` : ''}.
+                Pass rate and durations cover completed runs only. A run that hasn't settled is excluded, never counted
+                as a failure. Health is workflow-level, not per-job.
+                {fleetTruncated && ` Showing the top ${WORKFLOW_HEALTH_LIMIT} workflows by run count.`}
             </div>
         </div>
     )

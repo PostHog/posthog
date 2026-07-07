@@ -57,6 +57,34 @@ class NotebookActivitySummary:
 
 
 @dataclass(frozen=True)
+class NotebookUserInfo:
+    """The creator/modifier of a notebook — raw user values, mirroring UserBasicSerializer's input."""
+
+    id: int
+    uuid: UUID
+    distinct_id: str | None
+    first_name: str
+    last_name: str
+    email: str
+    is_email_verified: bool | None
+    hedgehog_config: Any
+    role_at_organization: str | None
+
+
+@dataclass(frozen=True)
+class TeamAccountNote:
+    """A row of a team-wide account-notes list: an internal notebook plus the account it's linked to."""
+
+    short_id: str
+    title: str | None
+    created_at: datetime
+    last_modified_at: datetime
+    account_id: UUID
+    account_name: str
+    created_by: NotebookUserInfo | None = None
+
+
+@dataclass(frozen=True)
 class MarkdownNotebookMigrationStats:
     """Markdown migration status for notebooks in an optional team scope."""
 
@@ -100,21 +128,6 @@ class AccountNote:
 
     title: str | None
     short_id: str
-
-
-@dataclass(frozen=True)
-class NotebookUserInfo:
-    """The creator/modifier of a notebook — raw user values, mirroring UserBasicSerializer's input."""
-
-    id: int
-    uuid: UUID
-    distinct_id: str | None
-    first_name: str
-    last_name: str
-    email: str
-    is_email_verified: bool | None
-    hedgehog_config: Any
-    role_at_organization: str | None
 
 
 @dataclass(frozen=True)

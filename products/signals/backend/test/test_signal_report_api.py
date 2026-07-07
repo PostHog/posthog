@@ -23,6 +23,7 @@ from posthog.models.team.team import Team
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
 from products.signals.backend.task_run_artefacts import append_task_run_artefact, record_implementation_task
+from products.signals.backend.temporal.signal_queries import ReportSignalMeta
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import Task, TaskRun
@@ -874,12 +875,18 @@ class TestSignalReportListAPI(APIBaseTest):
 
         with patch(
             "products.signals.backend.views.fetch_source_products_for_reports",
-            return_value={str(report.id): ["zendesk", "github"]},
+            return_value={
+                str(report.id): ReportSignalMeta(
+                    source_products=["zendesk", "github"], scout_name="signals-scout-error-tracking"
+                )
+            },
         ):
             response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["source_products"] == ["zendesk", "github"]
+        # scout_name flows from the ClickHouse meta through the view's map split into the serializer.
+        assert response.json()["scout_name"] == "signals-scout-error-tracking"
 
     def test_source_products_present_on_signals_action(self):
         report = self._create_report()
@@ -887,7 +894,7 @@ class TestSignalReportListAPI(APIBaseTest):
         with (
             patch(
                 "products.signals.backend.views.fetch_source_products_for_reports",
-                return_value={str(report.id): ["zendesk"]},
+                return_value={str(report.id): ReportSignalMeta(source_products=["zendesk"], scout_name=None)},
             ),
             patch("products.signals.backend.views.fetch_signals_for_report_sync", return_value=[]),
         ):
@@ -907,6 +914,27 @@ class TestSignalReportListAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["source_products"] == []
+
+    @parameterized.expand(
+        [
+            ("source_products", "fetch_source_products_for_reports"),
+            ("implementation_pr_urls", "fetch_implementation_pr_urls_for_reports"),
+        ]
+    )
+    def test_list_resilient_to_supplementary_fetch_failure(self, _name, fetch_fn):
+        # A transient failure in either decorative metadata fetch must degrade to empty badges
+        # rather than 500 the whole inbox load — the list still renders from Postgres data.
+        report = self._create_report()
+
+        with patch(
+            f"products.signals.backend.views.{fetch_fn}",
+            side_effect=Exception("clickhouse timeout"),
+        ):
+            response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["source_products"] == []
 
     # --- suppressed report reachability ---
     #
@@ -930,7 +958,7 @@ class TestSignalReportListAPI(APIBaseTest):
         with (
             patch(
                 "products.signals.backend.views.fetch_source_products_for_reports",
-                return_value={str(report.id): ["zendesk"]},
+                return_value={str(report.id): ReportSignalMeta(source_products=["zendesk"], scout_name=None)},
             ),
             patch("products.signals.backend.views.fetch_signals_for_report_sync", return_value=[]),
         ):
@@ -1253,7 +1281,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
 
         with patch(
             "products.signals.backend.views.fetch_source_products_for_reports",
-            return_value={str(report.id): ["zendesk"]},
+            return_value={str(report.id): ReportSignalMeta(source_products=["zendesk"], scout_name=None)},
         ):
             response = self.client.post(
                 self._state_url(str(report.id)),

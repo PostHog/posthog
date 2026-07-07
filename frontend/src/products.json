@@ -310,7 +310,6 @@
             "type": null,
             "intents": []
         },
-        { "path": "Exports", "category": "Pipeline", "iconType": "exports", "type": null, "intents": [] },
         { "path": "Endpoints", "category": "Tools", "iconType": null, "type": null, "intents": [] },
         {
             "path": "Event definitions",

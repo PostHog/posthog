@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { memo } from 'react'
 
 import { IconMegaphone, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
@@ -23,7 +24,10 @@ export interface SourceCatalogProps {
     allowedSources?: ExternalDataSourceType[]
 }
 
-function SourceTile({
+// Memoized so the whole grid doesn't re-render per keystroke in the search input or request
+// modal: item references are stable across unrelated updates (catalogItems has a result
+// equality check) and the callbacks are kea actions.
+const SourceTile = memo(function SourceTile({
     item,
     accessDisabledReason,
     onNotify,
@@ -83,7 +87,7 @@ function SourceTile({
             {content}
         </Link>
     )
-}
+})
 
 function RequestSourceTile({ onRequest }: { onRequest: () => void }): JSX.Element {
     return (

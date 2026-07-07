@@ -1,11 +1,12 @@
 /** Routes each parsed rrweb event to the right scrubber by type/source. */
 import { logger } from '~/common/utils/logger'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
+import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
 import { RRWebEventSource, RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
 
 import { runBlurJobs } from './blur'
 import { scrubCanvasMutation } from './canvas'
-import { BlurJob, ScrubContext, ScrubTiming, isObject } from './config'
+import { BlurCache, BlurJob, ScrubContext, ScrubTiming, isObject } from './config'
 import { scrubCompressedFullSnapshot, scrubCompressedMutation } from './cv'
 import { scrubFullSnapshot, scrubMutation } from './dom'
 import { scrubText } from './text'
@@ -30,8 +31,10 @@ export async function anonymizeParsedMessage(
     parsedMessage: ParsedMessageData
 ): Promise<{ failed: boolean }> {
     const blurJobs: BlurJob[] = []
+    // One memo per Kafka message: identical images across its rrweb events share a single sharp call.
+    const blurCache: BlurCache = new Map()
     const timing: ScrubTiming = { decompressMs: 0, recompressMs: 0 }
-    const ctx: ScrubContext = { ...scrubContext, blurJobs, timing }
+    const ctx: ScrubContext = { ...scrubContext, blurJobs, blurCache, timing }
 
     const scrubStart = performance.now()
     let eventCount = 0
@@ -44,6 +47,7 @@ export async function anonymizeParsedMessage(
                     error: String(error),
                     type: isObject(event) ? event.type : undefined,
                 })
+                SessionRecordingIngesterMetrics.incrementMlAnonymizeFailed('ts')
                 return { failed: true }
             }
             eventCount++
@@ -56,6 +60,8 @@ export async function anonymizeParsedMessage(
     await runBlurJobs(blurJobs)
     const blurMs = performance.now() - blurStart
 
+    SessionRecordingIngesterMetrics.observeMlAnonymizeDuration('ts', scrubMs + blurMs)
+
     if (scrubMs + blurMs > ANON_SLOW_LOG_THRESHOLD_MS) {
         logger.warn('🕒', 'anonymize_slow_breakdown', {
             totalMs: Math.round(scrubMs + blurMs),
@@ -66,6 +72,12 @@ export async function anonymizeParsedMessage(
             walkMs: Math.round(scrubMs - timing.decompressMs - timing.recompressMs),
             events: eventCount,
             blurJobs: blurJobs.length,
+            sessionId: parsedMessage.session_id,
+            topic: parsedMessage.metadata.topic,
+            partition: parsedMessage.metadata.partition,
+            offset: parsedMessage.metadata.offset,
+            kafkaTimestamp: parsedMessage.metadata.timestamp,
+            rawSize: parsedMessage.metadata.rawSize,
         })
     }
 

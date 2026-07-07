@@ -24,8 +24,9 @@ import { useTracesQueryContext } from '../AIObservabilityTracesScene'
 import { MarkdownOutline } from '../components/MarkdownOutline'
 import { CreatePromptExperimentModal } from './CreatePromptExperimentModal'
 import { createPromptExperimentModalLogic } from './createPromptExperimentModalLogic'
-import { PROMPT_NAME_MAX_LENGTH, PromptAnalyticsScope, isPrompt, llmPromptLogic } from './llmPromptLogic'
+import { PromptAnalyticsScope, isPrompt, llmPromptLogic } from './llmPromptLogic'
 import { promptExperimentsLogic } from './promptExperimentsLogic'
+import { PROMPT_NAME_MAX_LENGTH } from './utils'
 
 const MonacoDiffEditor = lazy(() => import('lib/components/MonacoDiffEditor'))
 
@@ -478,11 +479,20 @@ export function PromptEditForm({
     isHistoricalVersion: boolean
     selectedVersion: number | null
 }): JSX.Element {
-    const { promptVariables, isNewPrompt, isRenderingMarkdown, promptForm } = useValues(llmPromptLogic)
+    const { promptVariables, isNewPrompt, isRenderingMarkdown, promptForm, publishConflict } = useValues(llmPromptLogic)
     const { toggleMarkdownRendering } = useActions(llmPromptLogic)
 
     return (
         <div className="mt-4 max-w-3xl space-y-4">
+            {publishConflict ? (
+                <LemonBanner type="warning" data-attr="llma-prompt-publish-conflict-banner">
+                    {publishConflict.latestVersion
+                        ? `v${publishConflict.latestVersion} was published while you were editing.`
+                        : 'This prompt changed while you were editing.'}{' '}
+                    Your edits below are preserved — review them before publishing again.
+                </LemonBanner>
+            ) : null}
+
             {isHistoricalVersion && selectedVersion ? (
                 <LemonBanner type="info">
                     You are publishing a new latest version from historical version v{selectedVersion}. The original

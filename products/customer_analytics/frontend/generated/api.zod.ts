@@ -196,6 +196,7 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
 export const customPropertyDefinitionsCreateBodyNameMax = 400
 
 export const customPropertyDefinitionsCreateBodyIsBigNumberDefault = false
+export const customPropertyDefinitionsCreateBodyOptionsItemLabelMax = 400
 
 export const CustomPropertyDefinitionsCreateBody = /* @__PURE__ */ zod
     .object({
@@ -205,25 +206,66 @@ export const CustomPropertyDefinitionsCreateBody = /* @__PURE__ */ zod
             .describe('Human-readable name of the custom property. Unique within the team.'),
         description: zod.string().nullish().describe('Optional description of what the property represents.'),
         display_type: zod
-            .enum(['text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean'])
+            .enum(['text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', 'select'])
             .describe(
-                '\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean'
+                '\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select'
             )
             .describe(
-                "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.\n\n\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean"
+                "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select"
             ),
         is_big_number: zod
             .boolean()
             .default(customPropertyDefinitionsCreateBodyIsBigNumberDefault)
             .describe('Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties.'),
+        options: zod
+            .array(
+                zod
+                    .object({
+                        id: zod
+                            .string()
+                            .nullish()
+                            .describe(
+                                'Server-assigned stable id of the option. Omit for new options; send it back unchanged when editing so renames and removals can be told apart.'
+                            ),
+                        label: zod
+                            .string()
+                            .max(customPropertyDefinitionsCreateBodyOptionsItemLabelMax)
+                            .describe("Display label of the option. Stored as the account's value when picked."),
+                        color: zod
+                            .enum([
+                                'preset-1',
+                                'preset-2',
+                                'preset-3',
+                                'preset-4',
+                                'preset-5',
+                                'preset-6',
+                                'preset-7',
+                                'preset-8',
+                                'preset-9',
+                                'preset-10',
+                            ])
+                            .describe(
+                                '\* `preset-1` - preset-1\n\* `preset-2` - preset-2\n\* `preset-3` - preset-3\n\* `preset-4` - preset-4\n\* `preset-5` - preset-5\n\* `preset-6` - preset-6\n\* `preset-7` - preset-7\n\* `preset-8` - preset-8\n\* `preset-9` - preset-9\n\* `preset-10` - preset-10'
+                            )
+                            .describe(
+                                "Preset color token used to render the option ('preset-1' through 'preset-10').\n\n\* `preset-1` - preset-1\n\* `preset-2` - preset-2\n\* `preset-3` - preset-3\n\* `preset-4` - preset-4\n\* `preset-5` - preset-5\n\* `preset-6` - preset-6\n\* `preset-7` - preset-7\n\* `preset-8` - preset-8\n\* `preset-9` - preset-9\n\* `preset-10` - preset-10"
+                            ),
+                    })
+                    .describe('An allowed value of a select custom property.')
+            )
+            .nullish()
+            .describe(
+                "For select properties: the allowed options. Required (non-empty) when display_type is 'select'; cleared server-side for other types."
+            ),
     })
     .describe(
-        "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values. The numeric-only\nbig-number rule and the unique-name conflict are enforced behind the facade."
+        "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values."
     )
 
 export const customPropertyDefinitionsUpdateBodyNameMax = 400
 
 export const customPropertyDefinitionsUpdateBodyIsBigNumberDefault = false
+export const customPropertyDefinitionsUpdateBodyOptionsItemLabelMax = 400
 
 export const CustomPropertyDefinitionsUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -233,25 +275,66 @@ export const CustomPropertyDefinitionsUpdateBody = /* @__PURE__ */ zod
             .describe('Human-readable name of the custom property. Unique within the team.'),
         description: zod.string().nullish().describe('Optional description of what the property represents.'),
         display_type: zod
-            .enum(['text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean'])
+            .enum(['text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', 'select'])
             .describe(
-                '\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean'
+                '\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select'
             )
             .describe(
-                "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.\n\n\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean"
+                "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select"
             ),
         is_big_number: zod
             .boolean()
             .default(customPropertyDefinitionsUpdateBodyIsBigNumberDefault)
             .describe('Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties.'),
+        options: zod
+            .array(
+                zod
+                    .object({
+                        id: zod
+                            .string()
+                            .nullish()
+                            .describe(
+                                'Server-assigned stable id of the option. Omit for new options; send it back unchanged when editing so renames and removals can be told apart.'
+                            ),
+                        label: zod
+                            .string()
+                            .max(customPropertyDefinitionsUpdateBodyOptionsItemLabelMax)
+                            .describe("Display label of the option. Stored as the account's value when picked."),
+                        color: zod
+                            .enum([
+                                'preset-1',
+                                'preset-2',
+                                'preset-3',
+                                'preset-4',
+                                'preset-5',
+                                'preset-6',
+                                'preset-7',
+                                'preset-8',
+                                'preset-9',
+                                'preset-10',
+                            ])
+                            .describe(
+                                '\* `preset-1` - preset-1\n\* `preset-2` - preset-2\n\* `preset-3` - preset-3\n\* `preset-4` - preset-4\n\* `preset-5` - preset-5\n\* `preset-6` - preset-6\n\* `preset-7` - preset-7\n\* `preset-8` - preset-8\n\* `preset-9` - preset-9\n\* `preset-10` - preset-10'
+                            )
+                            .describe(
+                                "Preset color token used to render the option ('preset-1' through 'preset-10').\n\n\* `preset-1` - preset-1\n\* `preset-2` - preset-2\n\* `preset-3` - preset-3\n\* `preset-4` - preset-4\n\* `preset-5` - preset-5\n\* `preset-6` - preset-6\n\* `preset-7` - preset-7\n\* `preset-8` - preset-8\n\* `preset-9` - preset-9\n\* `preset-10` - preset-10"
+                            ),
+                    })
+                    .describe('An allowed value of a select custom property.')
+            )
+            .nullish()
+            .describe(
+                "For select properties: the allowed options. Required (non-empty) when display_type is 'select'; cleared server-side for other types."
+            ),
     })
     .describe(
-        "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values. The numeric-only\nbig-number rule and the unique-name conflict are enforced behind the facade."
+        "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values."
     )
 
 export const customPropertyDefinitionsPartialUpdateBodyNameMax = 400
 
 export const customPropertyDefinitionsPartialUpdateBodyIsBigNumberDefault = false
+export const customPropertyDefinitionsPartialUpdateBodyOptionsItemLabelMax = 400
 
 export const CustomPropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -262,21 +345,144 @@ export const CustomPropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
             .describe('Human-readable name of the custom property. Unique within the team.'),
         description: zod.string().nullish().describe('Optional description of what the property represents.'),
         display_type: zod
-            .enum(['text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean'])
+            .enum(['text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', 'select'])
             .describe(
-                '\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean'
+                '\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select'
             )
             .optional()
             .describe(
-                "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.\n\n\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean"
+                "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select"
             ),
         is_big_number: zod
             .boolean()
             .default(customPropertyDefinitionsPartialUpdateBodyIsBigNumberDefault)
             .describe('Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties.'),
+        options: zod
+            .array(
+                zod
+                    .object({
+                        id: zod
+                            .string()
+                            .nullish()
+                            .describe(
+                                'Server-assigned stable id of the option. Omit for new options; send it back unchanged when editing so renames and removals can be told apart.'
+                            ),
+                        label: zod
+                            .string()
+                            .max(customPropertyDefinitionsPartialUpdateBodyOptionsItemLabelMax)
+                            .describe("Display label of the option. Stored as the account's value when picked."),
+                        color: zod
+                            .enum([
+                                'preset-1',
+                                'preset-2',
+                                'preset-3',
+                                'preset-4',
+                                'preset-5',
+                                'preset-6',
+                                'preset-7',
+                                'preset-8',
+                                'preset-9',
+                                'preset-10',
+                            ])
+                            .describe(
+                                '\* `preset-1` - preset-1\n\* `preset-2` - preset-2\n\* `preset-3` - preset-3\n\* `preset-4` - preset-4\n\* `preset-5` - preset-5\n\* `preset-6` - preset-6\n\* `preset-7` - preset-7\n\* `preset-8` - preset-8\n\* `preset-9` - preset-9\n\* `preset-10` - preset-10'
+                            )
+                            .describe(
+                                "Preset color token used to render the option ('preset-1' through 'preset-10').\n\n\* `preset-1` - preset-1\n\* `preset-2` - preset-2\n\* `preset-3` - preset-3\n\* `preset-4` - preset-4\n\* `preset-5` - preset-5\n\* `preset-6` - preset-6\n\* `preset-7` - preset-7\n\* `preset-8` - preset-8\n\* `preset-9` - preset-9\n\* `preset-10` - preset-10"
+                            ),
+                    })
+                    .describe('An allowed value of a select custom property.')
+            )
+            .nullish()
+            .describe(
+                "For select properties: the allowed options. Required (non-empty) when display_type is 'select'; cleared server-side for other types."
+            ),
     })
     .describe(
-        "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values. The numeric-only\nbig-number rule and the unique-name conflict are enforced behind the facade."
+        "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values."
+    )
+
+export const customPropertySourcesCreateBodySourceColumnMax = 400
+
+export const customPropertySourcesCreateBodyKeyColumnMax = 400
+
+export const customPropertySourcesCreateBodyIsEnabledDefault = true
+
+export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
+    .object({
+        definition: zod
+            .uuid()
+            .describe('UUID of the custom property definition this source feeds. One source per definition.'),
+        saved_query: zod
+            .uuid()
+            .describe('UUID of the data-warehouse saved query (materialized view) to read values from.'),
+        source_column: zod
+            .string()
+            .max(customPropertySourcesCreateBodySourceColumnMax)
+            .describe('Column in the view whose value is written to the property.'),
+        key_column: zod
+            .string()
+            .max(customPropertySourcesCreateBodyKeyColumnMax)
+            .describe("Column in the view whose value matches an account's external_id."),
+        is_enabled: zod
+            .boolean()
+            .default(customPropertySourcesCreateBodyIsEnabledDefault)
+            .describe(
+                'Whether the source syncs. Auto-disabled after repeated failures or a missing view; re-enabling resets the failure count.'
+            ),
+    })
+    .describe(
+        "Binds a materialized data-warehouse view column to a custom property definition; the view's\nvalues are synced onto matching accounts on each materialization."
+    )
+
+export const customPropertySourcesUpdateBodySourceColumnMax = 400
+
+export const customPropertySourcesUpdateBodyKeyColumnMax = 400
+
+export const CustomPropertySourcesUpdateBody = /* @__PURE__ */ zod
+    .object({
+        source_column: zod
+            .string()
+            .max(customPropertySourcesUpdateBodySourceColumnMax)
+            .optional()
+            .describe('Column in the view whose value is written to the property.'),
+        key_column: zod
+            .string()
+            .max(customPropertySourcesUpdateBodyKeyColumnMax)
+            .optional()
+            .describe("Column in the view whose value matches an account's external_id."),
+        is_enabled: zod
+            .boolean()
+            .optional()
+            .describe('Whether the source syncs; re-enabling it resets the failure count.'),
+    })
+    .describe(
+        "Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so\nthey are intentionally absent — only these reach the facade's update."
+    )
+
+export const customPropertySourcesPartialUpdateBodySourceColumnMax = 400
+
+export const customPropertySourcesPartialUpdateBodyKeyColumnMax = 400
+
+export const CustomPropertySourcesPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        source_column: zod
+            .string()
+            .max(customPropertySourcesPartialUpdateBodySourceColumnMax)
+            .optional()
+            .describe('Column in the view whose value is written to the property.'),
+        key_column: zod
+            .string()
+            .max(customPropertySourcesPartialUpdateBodyKeyColumnMax)
+            .optional()
+            .describe("Column in the view whose value matches an account's external_id."),
+        is_enabled: zod
+            .boolean()
+            .optional()
+            .describe('Whether the source syncs; re-enabling it resets the failure count.'),
+    })
+    .describe(
+        "Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so\nthey are intentionally absent — only these reach the facade's update."
     )
 
 export const customerJourneysCreateBodyNameMax = 400

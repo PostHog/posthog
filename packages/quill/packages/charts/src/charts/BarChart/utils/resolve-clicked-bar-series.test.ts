@@ -90,6 +90,43 @@ describe('resolveClickedBarSeries', () => {
         })
     })
 
+    describe('grouped layout with a per-bar track ceiling', () => {
+        const labels = ['x']
+        // `b` fills to 20 with its track capped at 60: above 60 is the blank volume gap (inert).
+        const series: Series[] = [
+            { key: 'a', label: 'A', data: [100] },
+            { key: 'b', label: 'B', data: [20], trackData: [60] },
+        ]
+        const scales = createBarScales(series, labels, dimensions, {
+            barLayout: 'grouped',
+            axisOrientation: 'vertical',
+        })
+        const subBandCenterX = (key: string): number =>
+            scales.band('x')! + scales.group!(key)! + scales.group!.bandwidth() / 2
+
+        const resolve = (cursor: { x: number; y: number }): PointClickData | null =>
+            resolveClickedBarSeries({
+                clickData: baseClickData(series, 0, 'x', cursor),
+                scales,
+                barLayout: 'grouped',
+                isHorizontal: false,
+                stackedData: undefined,
+                topStackedKeyByAxis: new Map(),
+                series,
+                labels,
+            })
+
+        it('flags inTrackArea between the bar fill and the ceiling', () => {
+            const result = resolve({ x: subBandCenterX('b'), y: scales.value(40) })
+            expect(result?.series.key).toBe('b')
+            expect(result?.inTrackArea).toBe(true)
+        })
+
+        it('returns null above the ceiling — the blank volume gap is non-interactive', () => {
+            expect(resolve({ x: subBandCenterX('b'), y: scales.value(80) })).toBeNull()
+        })
+    })
+
     describe('stacked layout', () => {
         const labels = ['Mon']
         const series: Series[] = [

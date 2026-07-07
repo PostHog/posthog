@@ -18,7 +18,6 @@ import { toParams } from 'lib/utils/url'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
 import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
 import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
-import { SignalNode } from 'scenes/debug/signals/types'
 import {
     SignalReport,
     SignalReportArtefact,
@@ -3016,6 +3015,9 @@ const api = {
                 serviceNames?: string[]
                 statusCodes?: number[]
                 filterGroup?: PropertyGroupFilter
+                // true (default) buckets root spans only (a distribution of traces); false buckets
+                // every matching span — pair with a span name filter for operation-scoped pages.
+                rootSpans?: boolean
             },
             signal?: AbortSignal
         ): Promise<{
@@ -5164,9 +5166,6 @@ const api = {
         ): Promise<SignalReportArtefactResponse> {
             return await new ApiRequest().signalReport(id).withAction('artefacts').withQueryString(params).get()
         },
-        async getReportSignals(reportId: string): Promise<{ report: SignalReport | null; signals: SignalNode[] }> {
-            return await new ApiRequest().signalReport(reportId).withAction('signals').get()
-        },
         async delete(id: SignalReport['id']): Promise<void> {
             await new ApiRequest().signalReport(id).delete()
         },
@@ -5257,6 +5256,9 @@ const api = {
             },
             async update(id: string, data: SignalScoutConfigUpdate): Promise<SignalScoutConfig> {
                 return await new ApiRequest().signalScoutConfig(id).update({ data })
+            },
+            async delete(id: string): Promise<void> {
+                return await new ApiRequest().signalScoutConfig(id).delete()
             },
         },
     },

@@ -103,7 +103,13 @@ export const TileWrapper = ({ title, tooltip, extra, children, context }: TileWr
             'results' in response &&
             response.results.length === 0
         ) {
-            return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+            return (
+                <InsightEmptyState
+                    heading={context?.emptyStateHeading}
+                    detail={context?.emptyStateDetail}
+                    sampleDataVariant="line"
+                />
+            )
         }
 
         if (responseErrorObject) {

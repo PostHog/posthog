@@ -103,6 +103,11 @@ export interface SignalReportApi {
     /** Distinct source products contributing signals to this report (from ClickHouse). */
     readonly source_products: readonly string[]
     /**
+     * skill_name slug of the scout that authored this report, when scout-authored (from ClickHouse); null otherwise.
+     * @nullable
+     */
+    readonly scout_name: string | null
+    /**
      * PR URL from the latest implementation task run, if available.
      * @nullable
      */
@@ -138,6 +143,424 @@ export interface PatchedSignalReportContentUpdateApi {
      * @maxLength 10000
      */
     summary?: string
+}
+
+/**
+ * * `session_replay` - session_replay
+ * * `llm_analytics` - llm_analytics
+ * * `github` - github
+ * * `linear` - linear
+ * * `zendesk` - zendesk
+ * * `conversations` - conversations
+ * * `error_tracking` - error_tracking
+ * * `endpoints` - endpoints
+ * * `pganalyze` - pganalyze
+ * * `signals_scout` - signals_scout
+ * * `logs` - logs
+ * * `health_checks` - health_checks
+ * * `replay_vision` - replay_vision
+ */
+export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
+
+export const SignalSourceProductApi = {
+    SessionReplay: 'session_replay',
+    LlmAnalytics: 'llm_analytics',
+    Github: 'github',
+    Linear: 'linear',
+    Zendesk: 'zendesk',
+    Conversations: 'conversations',
+    ErrorTracking: 'error_tracking',
+    Endpoints: 'endpoints',
+    Pganalyze: 'pganalyze',
+    SignalsScout: 'signals_scout',
+    Logs: 'logs',
+    HealthChecks: 'health_checks',
+    ReplayVision: 'replay_vision',
+} as const
+
+/**
+ * * `session_analysis_cluster` - session_analysis_cluster
+ * * `session_problem` - session_problem
+ * * `evaluation` - evaluation
+ * * `evaluation_report` - evaluation_report
+ * * `issue` - issue
+ * * `ticket` - ticket
+ * * `issue_created` - issue_created
+ * * `issue_reopened` - issue_reopened
+ * * `issue_spiking` - issue_spiking
+ * * `endpoint_execution_failed` - endpoint_execution_failed
+ * * `endpoint_breakdown_limit_exceeded` - endpoint_breakdown_limit_exceeded
+ * * `cross_source_issue` - cross_source_issue
+ * * `alert_state_change` - alert_state_change
+ * * `health_issue` - health_issue
+ * * `scanner_finding` - scanner_finding
+ */
+export type SignalSourceTypeApi = (typeof SignalSourceTypeApi)[keyof typeof SignalSourceTypeApi]
+
+export const SignalSourceTypeApi = {
+    SessionAnalysisCluster: 'session_analysis_cluster',
+    SessionProblem: 'session_problem',
+    Evaluation: 'evaluation',
+    EvaluationReport: 'evaluation_report',
+    Issue: 'issue',
+    Ticket: 'ticket',
+    IssueCreated: 'issue_created',
+    IssueReopened: 'issue_reopened',
+    IssueSpiking: 'issue_spiking',
+    EndpointExecutionFailed: 'endpoint_execution_failed',
+    EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
+    CrossSourceIssue: 'cross_source_issue',
+    AlertStateChange: 'alert_state_change',
+    HealthIssue: 'health_issue',
+    ScannerFinding: 'scanner_finding',
+} as const
+
+export type ProblemTypeEnumApi = (typeof ProblemTypeEnumApi)[keyof typeof ProblemTypeEnumApi]
+
+export const ProblemTypeEnumApi = {
+    Confusion: 'confusion',
+    Abandonment: 'abandonment',
+    BlockingException: 'blocking_exception',
+    NonBlockingException: 'non_blocking_exception',
+    Failure: 'failure',
+} as const
+
+export interface SessionProblemEventEntryApi {
+    event: string
+    timestamp: string
+    current_url?: string | null
+    event_type?: string | null
+    interaction_text?: string | null
+}
+
+export interface SessionProblemSignalExtraApi {
+    session_id: string
+    segment_title: string
+    start_time: string
+    end_time: string
+    problem_type: ProblemTypeEnumApi
+    distinct_id: string
+    session_start_time?: string | null
+    session_end_time?: string | null
+    session_duration?: number | null
+    session_active_seconds?: number | null
+    exported_asset_id?: number | null
+    event_history?: SessionProblemEventEntryApi[] | null
+}
+
+export interface LlmEvalSignalExtraApi {
+    evaluation_id: string
+    target_event_id?: string | null
+    target_event_type?: string | null
+    trace_id: string
+    model?: string | null
+    provider?: string | null
+}
+
+export interface LlmEvalReportSignalExtraApi {
+    evaluation_id: string
+    evaluation_name: string
+    evaluation_description: string
+    report_id: string
+    report_run_id: string
+    period_start: string
+    period_end: string
+}
+
+export interface ZendeskTicketSignalExtraApi {
+    url: string
+    type: string | null
+    tags: string[]
+    created_at: string
+    priority: string | null
+    status: string
+}
+
+export interface GithubIssueSignalExtraApi {
+    html_url: string
+    number: number
+    labels: string[]
+    created_at: string
+    updated_at: string
+    locked: boolean
+    state: string
+}
+
+export interface LinearIssueSignalExtraApi {
+    url: string
+    identifier: string
+    number: number
+    priority: number
+    priority_label: string
+    labels: string[]
+    state_name: string | null
+    state_type: string | null
+    team_name: string | null
+    created_at: string
+    updated_at: string
+}
+
+export interface ConversationsTicketSignalExtraApi {
+    ticket_number: number
+    channel_source: string
+    channel_detail: string | null
+    status: string
+    priority: string | null
+    created_at: string
+    email_subject: string | null
+}
+
+export interface ErrorTrackingSignalExtraApi {
+    fingerprint: string
+}
+
+export interface PgAnalyzeIssueReferenceApi {
+    kind?: string | null
+    name?: string | null
+    url?: string | null
+    queryText?: string | null
+}
+
+export interface PgAnalyzeIssueSignalExtraApi {
+    severity: string | null
+    references: PgAnalyzeIssueReferenceApi[]
+    database_id: string | null
+    server_human_id: string | null
+    server_name: string | null
+    synced_at: string
+}
+
+export interface EndpointExecutionFailedSignalExtraApi {
+    endpoint_name: string
+    endpoint_version: number | null
+    materialized: boolean
+    saved_query_id: string | null
+    error_class: string
+    error_message: string
+}
+
+export interface EndpointBreakdownLimitExceededSignalExtraApi {
+    endpoint_name: string
+    breakdown_limit: number
+}
+
+export type ReportPriorityApi = (typeof ReportPriorityApi)[keyof typeof ReportPriorityApi]
+
+export const ReportPriorityApi = {
+    P0: 'P0',
+    P1: 'P1',
+    P2: 'P2',
+    P3: 'P3',
+    P4: 'P4',
+} as const
+
+export interface SignalsScoutEvidenceEntryApi {
+    source_product: string
+    entity_id?: string | null
+    summary: string
+}
+
+export interface SignalsScoutTimeRangeApi {
+    date_from: string
+    date_to: string
+}
+
+export interface SignalsScoutSignalExtraApi {
+    scout_run_id: string
+    task_run_id: string
+    task_id?: string | null
+    finding_id: string
+    skill_name: string
+    skill_version: number
+    confidence: number
+    severity?: ReportPriorityApi | null
+    hypothesis?: string | null
+    evidence: SignalsScoutEvidenceEntryApi[]
+    dedupe_keys?: string[] | null
+    tags?: string[] | null
+    time_range?: SignalsScoutTimeRangeApi | null
+    mcp_trace_id?: string | null
+}
+
+export type LogsAlertStateChangeSignalExtraActionEnumApi =
+    (typeof LogsAlertStateChangeSignalExtraActionEnumApi)[keyof typeof LogsAlertStateChangeSignalExtraActionEnumApi]
+
+export const LogsAlertStateChangeSignalExtraActionEnumApi = {
+    Firing: 'firing',
+    Broken: 'broken',
+} as const
+
+export type LogsAlertStateChangeSignalExtraThresholdOperatorEnumApi =
+    (typeof LogsAlertStateChangeSignalExtraThresholdOperatorEnumApi)[keyof typeof LogsAlertStateChangeSignalExtraThresholdOperatorEnumApi]
+
+export const LogsAlertStateChangeSignalExtraThresholdOperatorEnumApi = {
+    Above: 'above',
+    Below: 'below',
+} as const
+
+export type LogsAlertStateChangeSignalExtraApiFilters = { [key: string]: unknown }
+
+export interface LogsAlertStateChangeSignalExtraApi {
+    alert_id: string
+    alert_name: string
+    action: LogsAlertStateChangeSignalExtraActionEnumApi
+    threshold_count: number
+    threshold_operator: LogsAlertStateChangeSignalExtraThresholdOperatorEnumApi
+    window_minutes: number
+    result_count: number | null
+    consecutive_failures: number
+    filters: LogsAlertStateChangeSignalExtraApiFilters
+    url: string
+}
+
+export interface ReplayVisionScannerFindingSignalExtraApi {
+    scanner_id: string
+    scanner_name: string
+    scanner_type: string
+    observation_id: string
+    session_id: string
+    confidence: number
+    problem_type: string
+    start_time: number
+    end_time: number
+    url: string
+    exported_asset_id: number
+    distinct_id?: string | null
+    recording_start_time?: string | null
+    recording_end_time?: string | null
+    recording_duration?: number | null
+    recording_active_seconds?: number | null
+}
+
+export type HealthCheckSignalExtraSeverityEnumApi =
+    (typeof HealthCheckSignalExtraSeverityEnumApi)[keyof typeof HealthCheckSignalExtraSeverityEnumApi]
+
+export const HealthCheckSignalExtraSeverityEnumApi = {
+    Critical: 'critical',
+    Warning: 'warning',
+    Info: 'info',
+} as const
+
+export type HealthCheckSignalExtraApiPayload = { [key: string]: unknown }
+
+export interface HealthCheckSignalExtraApi {
+    kind: string
+    severity: HealthCheckSignalExtraSeverityEnumApi
+    issue_id: string
+    title: string
+    summary: string
+    link: string
+    url: string
+    payload: HealthCheckSignalExtraApiPayload
+}
+
+export type SignalExtraApi =
+    | SessionProblemSignalExtraApi
+    | LlmEvalSignalExtraApi
+    | LlmEvalReportSignalExtraApi
+    | ZendeskTicketSignalExtraApi
+    | GithubIssueSignalExtraApi
+    | LinearIssueSignalExtraApi
+    | ConversationsTicketSignalExtraApi
+    | ErrorTrackingSignalExtraApi
+    | PgAnalyzeIssueSignalExtraApi
+    | EndpointExecutionFailedSignalExtraApi
+    | EndpointBreakdownLimitExceededSignalExtraApi
+    | SignalsScoutSignalExtraApi
+    | LogsAlertStateChangeSignalExtraApi
+    | ReplayVisionScannerFindingSignalExtraApi
+    | HealthCheckSignalExtraApi
+
+export interface SpecificityMetadataApi {
+    /** Title of the PR the specificity gate evaluated. */
+    pr_title: string
+    /** Whether the report passed the PR-specificity gate. */
+    specific_enough: boolean
+    /** The gate's reasoning. */
+    reason: string
+}
+
+export interface MatchedMetadataApi {
+    /** Signal already in the report that this one matched. */
+    parent_signal_id: string
+    /** Query used to find the parent signal. */
+    match_query: string
+    /** Why the signals were judged to describe the same issue. */
+    reason: string
+    /** PR-specificity gate result, when the gate ran. */
+    specificity?: SpecificityMetadataApi | null
+}
+
+export interface NoMatchMetadataApi {
+    /** Why no existing report matched. */
+    reason: string
+    /** Candidate signals that were considered and rejected. */
+    rejected_signal_ids: string[]
+    /** PR-specificity gate result that caused a rejection, when present. */
+    specificity_rejection?: SpecificityMetadataApi | null
+}
+
+export type SignalMatchMetadataApi = MatchedMetadataApi | NoMatchMetadataApi
+
+export interface SignalNodeApi {
+    /** ClickHouse document id of the signal. */
+    signal_id: string
+    /** The signal's human-readable description. */
+    content: string
+    /** Product that emitted the signal.
+     *
+     * * `session_replay` - session_replay
+     * * `llm_analytics` - llm_analytics
+     * * `github` - github
+     * * `linear` - linear
+     * * `zendesk` - zendesk
+     * * `conversations` - conversations
+     * * `error_tracking` - error_tracking
+     * * `endpoints` - endpoints
+     * * `pganalyze` - pganalyze
+     * * `signals_scout` - signals_scout
+     * * `logs` - logs
+     * * `health_checks` - health_checks
+     * * `replay_vision` - replay_vision */
+    source_product: SignalSourceProductApi
+    /** Signal type within the source product.
+     *
+     * * `session_analysis_cluster` - session_analysis_cluster
+     * * `session_problem` - session_problem
+     * * `evaluation` - evaluation
+     * * `evaluation_report` - evaluation_report
+     * * `issue` - issue
+     * * `ticket` - ticket
+     * * `issue_created` - issue_created
+     * * `issue_reopened` - issue_reopened
+     * * `issue_spiking` - issue_spiking
+     * * `endpoint_execution_failed` - endpoint_execution_failed
+     * * `endpoint_breakdown_limit_exceeded` - endpoint_breakdown_limit_exceeded
+     * * `cross_source_issue` - cross_source_issue
+     * * `alert_state_change` - alert_state_change
+     * * `health_issue` - health_issue
+     * * `scanner_finding` - scanner_finding */
+    source_type: SignalSourceTypeApi
+    /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
+    source_id: string
+    /** Signal weight in [0, 1]; drives report ranking. */
+    weight: number
+    /** Emission timestamp. */
+    timestamp: string
+    /** Product-specific payload; shape depends on (source_product, source_type). */
+    extra: SignalExtraApi
+    /** Clustering match/no-match metadata, when present. */
+    match_metadata?: SignalMatchMetadataApi | null
+}
+
+/**
+ * Response body for GET /api/projects/:id/signals/reports/:id/signals/.
+ */
+export interface ReportSignalsResponseApi {
+    /** The report these signals were clustered into. */
+    report: SignalReportApi
+    /** All signals contributing to the report. */
+    signals: SignalNodeApi[]
 }
 
 /**
@@ -646,6 +1069,23 @@ export interface SignalSourceConfigsBucketsApi {
 }
 
 /**
+ * `inventory.emit_eligibility` — whether scout findings can reach the inbox for this team.
+ */
+export interface EmitEligibilityApi {
+    /** Whether the organization has approved AI data processing (an org-level gate on all scout emits). */
+    ai_processing_approved: boolean
+    /** Whether the `signals_scout` signal source is enabled for this team. */
+    source_enabled: boolean
+    /** True only when both team/org-level gates pass, so scout findings (signal and report channels alike) actually reach the inbox. When False, every emit is silently dropped — quick-close instead of doing throwaway investigation. Does not account for a scout's own dry-run `emit` toggle, which is per-config, not team-wide. */
+    can_emit: boolean
+    /**
+     * One-line next step to unblock emits when `can_emit` is False; null when emits can flow.
+     * @nullable
+     */
+    remediation: string | null
+}
+
+/**
  * One bucket in `inventory.existing_inbox_reports.by_status`.
  */
 export interface InboxReportStatusBucketApi {
@@ -690,6 +1130,38 @@ export interface RecentActivityApi {
     window_days: number
     /** Per-scope activity rows, busiest scope first. Triage which entity type the team has worked in lately. */
     by_scope: ScopeActivityEntryApi[]
+}
+
+/**
+ * One row in `inventory.recent_reviewer_corrections.corrections`.
+ */
+export interface ReviewerCorrectionEntryApi {
+    /** UUID of the report whose reviewers a human edited. */
+    report_id: string
+    /**
+     * Report title at the time of the edit.
+     * @nullable
+     */
+    report_title: string | null
+    /** GitHub logins on the report before the human edit (lowercased). */
+    before: string[]
+    /** GitHub logins on the report after the human edit (lowercased). */
+    after: string[]
+    /**
+     * ISO-8601 timestamp of the edit.
+     * @nullable
+     */
+    at: string | null
+}
+
+/**
+ * `inventory.recent_reviewer_corrections` — human edits to report reviewer lists.
+ */
+export interface RecentReviewerCorrectionsApi {
+    /** Lookback window in days the corrections cover. */
+    window_days: number
+    /** Human reviewer edits, newest first. A human swapping a report's suggested reviewers is authoritative ownership precedent — route to who they chose. */
+    corrections: ReviewerCorrectionEntryApi[]
 }
 
 /**
@@ -1050,10 +1522,14 @@ export interface ProjectProfileInventoryApi {
     external_data_sources: ExternalDataSourceEntryApi[]
     /** Signal source configs split into enabled / disabled buckets. */
     signal_source_configs: SignalSourceConfigsBucketsApi
+    /** Whether scout findings can actually reach the inbox for this team — the org-level AI data-processing consent gate and the `signals_scout` source toggle, plus a one-line remediation pointer. Read at cold start to quick-close before doing throwaway work. */
+    emit_eligibility: EmitEligibilityApi
     /** Counts of reports already in the inbox, grouped by status. */
     existing_inbox_reports: ExistingInboxReportsApi
     /** Per-scope counts off the activity log over the recent-activity window — cross-cutting orientation across every entity type (surveys, feature flags, experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each scope reports `edits` (total log entries), `users` (distinct user count), and `last_edit` (ISO-8601). Use to triage which scope a team has been working in lately before drilling down via the per-entity readers or `activity-log-list`. */
     recent_activity: RecentActivityApi
+    /** Recent human edits to report reviewer lists (before/after GitHub logins). The strongest ownership precedent available — check it before setting `suggested_reviewers` and fold what it shows into `reviewer:` memory keys. */
+    recent_reviewer_corrections: RecentReviewerCorrectionsApi
     /** Up to 20 dashboards on this team sorted by `last_accessed_at` desc — what the team is currently looking at, not necessarily the most-trafficked. We don't have per-dashboard view counts in Postgres, only the timestamp of the most recent access. */
     recent_dashboards: RecentDashboardEntryApi[]
     /** Surveys orientation: total + active count, plus the 5 most recently updated surveys with id, name, type, status (draft / running / stopped / archived), and updated_at. */
@@ -1484,6 +1960,11 @@ export interface EmitReportResponseApi {
      * @nullable
      */
     safety_explanation: string | null
+    /**
+     * One-line, actionable next step when `skipped_reason` is set and the block is fixable (e.g. an org admin must approve AI data processing). Null when the report was authored or the skip isn't something the scout can act on.
+     * @nullable
+     */
+    remediation: string | null
 }
 
 /**
@@ -1574,6 +2055,11 @@ export interface EmitFindingResponseApi {
      * @nullable
      */
     skipped_reason: string | null
+    /**
+     * One-line, actionable next step when `skipped_reason` is set and the block is fixable (e.g. an org admin must approve AI data processing). Null when emitted normally or the skip isn't something the scout can act on.
+     * @nullable
+     */
+    remediation: string | null
 }
 
 /**
@@ -1692,9 +2178,10 @@ export interface ForgetResponseApi {
  * * `endpoints` - Endpoints
  * * `replay_vision` - Replay Vision
  */
-export type SourceProductEnumApi = (typeof SourceProductEnumApi)[keyof typeof SourceProductEnumApi]
+export type SignalSourceConfigSourceProductEnumApi =
+    (typeof SignalSourceConfigSourceProductEnumApi)[keyof typeof SignalSourceConfigSourceProductEnumApi]
 
-export const SourceProductEnumApi = {
+export const SignalSourceConfigSourceProductEnumApi = {
     SessionReplay: 'session_replay',
     LlmAnalytics: 'llm_analytics',
     Github: 'github',
@@ -1713,6 +2200,7 @@ export const SourceProductEnumApi = {
 /**
  * * `session_analysis_cluster` - Session analysis cluster
  * * `evaluation` - Evaluation
+ * * `evaluation_report` - Evaluation report
  * * `issue` - Issue
  * * `ticket` - Ticket
  * * `issue_created` - Issue created
@@ -1731,6 +2219,7 @@ export type SignalSourceConfigSourceTypeEnumApi =
 export const SignalSourceConfigSourceTypeEnumApi = {
     SessionAnalysisCluster: 'session_analysis_cluster',
     Evaluation: 'evaluation',
+    EvaluationReport: 'evaluation_report',
     Issue: 'issue',
     Ticket: 'ticket',
     IssueCreated: 'issue_created',
@@ -1746,7 +2235,7 @@ export const SignalSourceConfigSourceTypeEnumApi = {
 
 export interface SignalSourceConfigApi {
     readonly id: string
-    source_product: SourceProductEnumApi
+    source_product: SignalSourceConfigSourceProductEnumApi
     source_type: SignalSourceConfigSourceTypeEnumApi
     enabled?: boolean
     config?: unknown
@@ -1767,7 +2256,7 @@ export interface PaginatedSignalSourceConfigListApi {
 
 export interface PatchedSignalSourceConfigApi {
     readonly id?: string
-    source_product?: SourceProductEnumApi
+    source_product?: SignalSourceConfigSourceProductEnumApi
     source_type?: SignalSourceConfigSourceTypeEnumApi
     enabled?: boolean
     config?: unknown

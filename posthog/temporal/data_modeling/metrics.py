@@ -1,4 +1,4 @@
-from temporalio import workflow
+from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricHistogramFloat
 
 # custom latency histogram buckets,
@@ -34,6 +34,17 @@ def get_data_modeling_finished_metric(status: str) -> MetricCounter:
         .with_additional_attributes({"status": status})
         .create_counter(
             "data_modeling_finished", "Number of data modeling runs finished, for any reason (including failure)."
+        )
+    )
+
+
+def get_node_suspended_metric(engine: str) -> MetricCounter:
+    return (
+        activity.metric_meter()
+        .with_additional_attributes({"engine": engine})
+        .create_counter(
+            "data_modeling_node_suspended",
+            "Number of nodes suspended after repeated materialization failures, by engine.",
         )
     )
 

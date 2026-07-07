@@ -79,7 +79,7 @@ export function GlobalShortcuts(): null {
         keybind: [keyBinds.zenMode],
         intent: 'Toggle zen mode',
         interaction: 'function',
-        callback: toggleZenMode,
+        callback: () => toggleZenMode('shortcut'),
     })
 
     useShortcut({

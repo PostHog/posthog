@@ -202,10 +202,10 @@ class TestCdcPgConnectionSsl:
             if is_new_source
             else SSL_REQUIRED_AFTER_DATE - dt.timedelta(days=1)
         )
-        source = SimpleNamespace(job_inputs={}, created_at=created_at)
+        source = SimpleNamespace(job_inputs={}, created_at=created_at, team_id=1)
 
         @contextmanager
-        def fake_tunnel(self, config):
+        def fake_tunnel(self, config, team_id=None):
             yield ("127.0.0.1", 44549)
 
         with (
