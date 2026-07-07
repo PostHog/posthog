@@ -20,22 +20,38 @@ export const asNonEmptyString = (v: unknown): string | null => (typeof v === 'st
 
 // `fetch` that always resolves to something safe to read `.status`/`.ok`/`.json()` off. A
 // site-level `window.fetch` wrapper on the customer page can resolve to `undefined`/`null` (or
-// another non-object), which makes every downstream `.status` access throw a TypeError. It can also
-// reject outright on an ordinary network failure (dropped connection, ad blocker, CORS) — left
-// unhandled that rejection bubbles into the toolbar's exception autocapture as a spurious
-// "Failed to fetch". Normalize both cases into a synthetic failed response so the toolbar's OAuth
-// chain and its callers can treat it as an ordinary request failure rather than crashing.
+// another non-object), which makes every downstream `.status` access throw a TypeError. Normalize
+// any non-object value into a synthetic failed response so the toolbar's OAuth chain and its
+// callers can treat it as an ordinary request failure rather than crashing.
+//
+// A rejected `fetch` (network drop, ad blocker, CORS, a customer wrapper throwing) is deliberately
+// left to propagate: callers already catch it and classify it via `isBenignNetworkError` so these
+// expected, environmental failures are logged rather than reported to error tracking.
 export async function safeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-    let response: Response
-    try {
-        response = await fetch(input, init)
-    } catch {
-        return new Response(JSON.stringify({ results: [], detail: 'fetch_failed' }), { status: 502 })
-    }
+    const response = await fetch(input, init)
     if (response && typeof response === 'object') {
         return response
     }
     return new Response(JSON.stringify({ results: [], detail: 'invalid_fetch_response' }), { status: 502 })
+}
+
+/**
+ * True when an error came from a `fetch` that never reached the server: connectivity loss, DNS
+ * failure, CORS, an ad blocker or a customer-page `fetch` wrapper throwing, or our own
+ * `AbortSignal.timeout` firing. The toolbar runs on arbitrary customer pages where these are
+ * expected and not actionable, so callers log them (and keep per-request telemetry) rather than
+ * surfacing them as error-tracking exceptions.
+ */
+export function isBenignNetworkError(error: unknown): boolean {
+    // `fetch` rejects with a TypeError on network-level failures ("Failed to fetch").
+    if (error instanceof TypeError) {
+        return true
+    }
+    // `AbortSignal.timeout()` / `abort()` reject with a DOMException named AbortError.
+    if (error instanceof DOMException && error.name === 'AbortError') {
+        return true
+    }
+    return false
 }
 
 const elementToQueryCache = new WeakMap<HTMLElement, string | undefined>()

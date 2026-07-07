@@ -8,6 +8,7 @@ import { toolbarFetch } from '~/toolbar/toolbarFetch'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
 import type { ElementsEventType, WebExperiment } from '~/toolbar/types'
+import { isBenignNetworkError } from '~/toolbar/utils'
 import type { ActionType, CombinedFeatureFlagAndValueType, EventDefinition, ProductTour, Survey } from '~/types'
 
 /**
@@ -164,7 +165,10 @@ async function request<T>(
             isNetworkError: true,
         }
         toolbarLogger.error('api', `Request failed (network): ${context}`, { context, method, pathname })
-        if (captureOnError) {
+        // A fetch that never reached the server (offline, ad blocker, CORS, a customer-page fetch
+        // wrapper throwing) is expected on customer pages. Log it and toast the caller, but don't
+        // report these benign network failures as error-tracking exceptions.
+        if (captureOnError && !isBenignNetworkError(e)) {
             captureToolbarException(e, context, { reason: 'network' })
         }
         emitToast(toastOnError, error)

@@ -11,6 +11,7 @@ import {
     asNonEmptyString,
     cleanToolbarAuthHash,
     generatePKCE,
+    isBenignNetworkError,
     LOCALSTORAGE_KEY,
     OAUTH_LOCALSTORAGE_KEY,
     PKCE_STORAGE_KEY,
@@ -657,9 +658,14 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            // An unreachable uiHost on a customer page is usually environmental (offline, CORS, ad
+            // blocker, our own 5s timeout) — surface it via the config modal + telemetry below, but
+            // don't report these benign network failures as error-tracking exceptions.
+            if (!isBenignNetworkError(error)) {
+                captureToolbarException(error, 'ui_host_check', {
+                    error_type: classifyFetchError(error),
+                })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',

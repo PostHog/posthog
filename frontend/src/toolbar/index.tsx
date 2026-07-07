@@ -18,6 +18,7 @@ import { canonicalizeApiHost } from '~/toolbar/toolbarConfigLogic'
 import { posthogToolbarController, setToolbarRefs } from '~/toolbar/toolbarController'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
+import { isBenignNetworkError } from '~/toolbar/utils'
 import { ToolbarParams } from '~/types'
 
 interface InitKeaProps {
@@ -49,10 +50,14 @@ const initKeaInToolbar = ({ routerHistory, routerLocation, beforePlugins }: Init
                     reducer_key: reducerKey,
                     action_key: actionKey,
                 })
-                captureToolbarException(error, 'kea_loader', {
-                    reducer_key: reducerKey,
-                    action_key: actionKey,
-                })
+                // A loader whose request failed at the network level (offline, ad blocker, CORS, a
+                // customer-page fetch wrapper throwing) is expected noise on customer pages, not a bug.
+                if (!isBenignNetworkError(error)) {
+                    captureToolbarException(error, 'kea_loader', {
+                        reducer_key: reducerKey,
+                        action_key: actionKey,
+                    })
+                }
             },
         }),
         subscriptionsPlugin,

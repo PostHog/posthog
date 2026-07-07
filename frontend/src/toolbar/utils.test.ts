@@ -1,4 +1,4 @@
-import { asNonEmptyString, joinWithUiHost, safeFetch, slashDotDataAttrUnescape } from './utils'
+import { asNonEmptyString, isBenignNetworkError, joinWithUiHost, safeFetch, slashDotDataAttrUnescape } from './utils'
 
 describe('utils', () => {
     describe('asNonEmptyString', () => {
@@ -135,14 +135,31 @@ describe('utils', () => {
             }
         )
 
-        it('returns a synthetic failed response when fetch rejects', async () => {
+        it('lets a rejected fetch propagate so callers can classify it', async () => {
             global.fetch = jest.fn(() => Promise.reject(new TypeError('Failed to fetch'))) as jest.Mock
 
-            const result = await safeFetch('https://example.com/api')
+            await expect(safeFetch('https://example.com/api')).rejects.toThrow('Failed to fetch')
+        })
+    })
 
-            expect(result).toBeInstanceOf(Response)
-            expect(result.ok).toBe(false)
-            expect(result.status).toBe(502)
+    describe('isBenignNetworkError', () => {
+        it.each([
+            { name: 'fetch network failure (TypeError)', error: new TypeError('Failed to fetch'), expected: true },
+            {
+                name: 'aborted/timed-out request (AbortError)',
+                error: new DOMException('The operation timed out', 'AbortError'),
+                expected: true,
+            },
+            { name: 'genuine bug (plain Error)', error: new Error('boom'), expected: false },
+            { name: 'HTTP status error', error: new Error('HTTP 500'), expected: false },
+            {
+                name: 'other DOMException',
+                error: new DOMException('Something else', 'NotFoundError'),
+                expected: false,
+            },
+            { name: 'non-error value', error: 'nope', expected: false },
+        ])('classifies $name as benign=$expected', ({ error, expected }) => {
+            expect(isBenignNetworkError(error)).toBe(expected)
         })
     })
 })
