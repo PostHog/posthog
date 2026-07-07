@@ -29,7 +29,8 @@ use simd_json::prelude::Writable;
 use crate::allow_lists::AllowLists;
 use crate::context::Ctx;
 use crate::event::{
-    route_data, route_event, SOURCE_CANVAS_MUTATION, SOURCE_INPUT, SOURCE_MUTATION, TYPE_CUSTOM,
+    route_data, route_event, SOURCE_ADOPTED_STYLESHEET, SOURCE_CANVAS_MUTATION, SOURCE_INPUT,
+    SOURCE_MUTATION, SOURCE_STYLESHEET_RULE, SOURCE_STYLE_DECLARATION, TYPE_CUSTOM,
     TYPE_FULL_SNAPSHOT, TYPE_INCREMENTAL, TYPE_META, TYPE_PLUGIN,
 };
 use crate::json::{
@@ -993,7 +994,7 @@ fn process_event_at(
         return Ok(end);
     }
 
-    // Incremental events only route to a scrubber for mutation/input/canvas sources.
+    // Incremental events only route to a scrubber for mutation/input/canvas/stylesheet sources.
     let source = es
         .source
         .and_then(|s| scan::parse_number(inner, s))
@@ -1001,7 +1002,12 @@ fn process_event_at(
     if ty == Some(TYPE_INCREMENTAL)
         && !matches!(
             source,
-            Some(SOURCE_MUTATION) | Some(SOURCE_INPUT) | Some(SOURCE_CANVAS_MUTATION)
+            Some(SOURCE_MUTATION)
+                | Some(SOURCE_INPUT)
+                | Some(SOURCE_CANVAS_MUTATION)
+                | Some(SOURCE_STYLESHEET_RULE)
+                | Some(SOURCE_STYLE_DECLARATION)
+                | Some(SOURCE_ADOPTED_STYLESHEET)
         )
     {
         pass_through(inner, span, ts, ty, Some(&es), sink);

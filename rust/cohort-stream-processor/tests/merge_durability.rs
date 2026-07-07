@@ -50,7 +50,7 @@ use cohort_stream_processor::store::durability::{
     OffsetManifest, RestoreSource, S3Uploader,
 };
 use cohort_stream_processor::store::{
-    CohortStore, LeafStateKey, OffloadConfig, OffloadMode, Stage1Key, StoreConfig, StoreHandle,
+    BehavioralKey, CohortStore, LeafStateKey, OffloadConfig, OffloadMode, StoreConfig, StoreHandle,
     TombstoneKey,
 };
 use cohort_stream_processor::sweep::Sweeper;
@@ -515,14 +515,9 @@ fn stage1_state(
     lsk: LeafStateKey,
     person: Uuid,
 ) -> Option<Stage1State> {
-    let key = Stage1Key {
-        partition_id,
-        team_id: TEAM as u64,
-        leaf_state_key: lsk,
-        person_id: person,
-    };
+    let key = BehavioralKey::new(partition_id, TEAM as u64, person, lsk);
     store
-        .get_stage1(&key)
+        .get_behavioral(&key)
         .unwrap()
         .map(|bytes| StatefulRecord::decode(&bytes).unwrap().state)
 }

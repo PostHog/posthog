@@ -10,6 +10,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
+import { emptyPaginated } from '~/test/mocks/taxonomicFilterApiMock'
 
 import { TaxonomicFilterHeadless } from '../headless'
 import { __clearTaxonomicResourceCache } from '../hooks/useTaxonomicResource'
@@ -26,22 +27,7 @@ jest.mock('posthog-js', () => ({
     default: { capture: jest.fn() },
 }))
 
-jest.mock('lib/api', () => {
-    const emptyPaginated = (): Promise<{ results: any[]; count: number; next: null }> =>
-        Promise.resolve({ results: [], count: 0, next: null })
-    return {
-        __esModule: true,
-        default: {
-            get: jest.fn().mockImplementation(emptyPaginated),
-            actions: { list: jest.fn().mockImplementation(emptyPaginated) },
-            dataWarehouseSavedQueries: { list: jest.fn().mockImplementation(emptyPaginated) },
-            dataWarehouseTables: { list: jest.fn().mockImplementation(emptyPaginated) },
-            queryTabState: { list: jest.fn().mockImplementation(emptyPaginated) },
-            dashboards: { list: jest.fn().mockImplementation(emptyPaginated) },
-            cohorts: { listPaginated: jest.fn().mockImplementation(emptyPaginated) },
-        },
-    }
-})
+jest.mock('lib/api', () => require('~/test/mocks/taxonomicFilterApiMock').buildTaxonomicFilterApiMock())
 
 const apiGet = jest.requireMock('lib/api').default.get as jest.MockedFunction<any>
 const captureMock = jest.requireMock('posthog-js').default.capture as jest.Mock
@@ -116,6 +102,7 @@ describe('MenuFilterCombobox', () => {
     beforeEach(() => {
         __clearTaxonomicResourceCache()
         apiGet.mockReset()
+        apiGet.mockImplementation(emptyPaginated)
         captureMock.mockClear()
         ;(performQuery as jest.Mock).mockResolvedValue({ tables: {}, joins: [] })
         useMocks({})
@@ -583,7 +570,11 @@ describe('MenuFilterCombobox', () => {
                 if (url.includes('property_definitions')) {
                     return Promise.resolve({ results: [{ id: 1, name: '$browser' }], count: 1 })
                 }
-                return Promise.resolve([])
+                if (url.includes('events/values')) {
+                    return Promise.resolve([])
+                }
+                // Paginated floor for everything else (dashboardsModel & co load on mount)
+                return Promise.resolve({ results: [], count: 0 })
             })
             // What TaxonomicPopoverMenu builds when reopening an existing
             // `$current_url icontains <value>` filter picked via the shortcut.

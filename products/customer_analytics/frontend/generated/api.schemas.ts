@@ -280,6 +280,45 @@ export interface PaginatedAccountNotebookListApi {
 }
 
 /**
+ * A user assigned to an account relationship (read shape).
+ */
+export interface AccountAssignmentApi {
+    /** PostHog user id of the assignee. */
+    readonly id: number
+    /** Email of the assignee. */
+    readonly email: string
+}
+
+/**
+ * One assignment of a user to an account relationship, with its effective range.
+ */
+export interface AccountRelationshipApi {
+    /** Unique id of this assignment row. */
+    readonly id: string
+    /** The relationship type this assignment belongs to. */
+    readonly definition: AccountRelationshipDefinitionApi
+    /** The assigned user; null when their account was deleted. */
+    readonly user: AccountAssignmentApi | null
+    /** When this assignment became effective. */
+    readonly started_at: string
+    /**
+     * When this assignment ended; null while it is active.
+     * @nullable
+     */
+    readonly ended_at: string | null
+}
+
+/**
+ * Input for assigning a user to an account relationship.
+ */
+export interface AccountRelationshipWriteApi {
+    /** Id of the relationship definition to assign. */
+    definition: string
+    /** PostHog user id of the assignee. Must be a member of the account's organization. */
+    user: number
+}
+
+/**
  * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
  * @nullable
  */
@@ -951,6 +990,13 @@ export type AccountsNotebooksListParams = {
      * Full-text search across notebook title and content.
      */
     search?: string
+}
+
+export type AccountsRelationshipsListParams = {
+    /**
+     * Include ended assignments (the full timeline), not just active ones.
+     */
+    include_history?: boolean
 }
 
 export type CustomPropertyDefinitionsListParams = {

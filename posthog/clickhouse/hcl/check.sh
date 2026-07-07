@@ -42,7 +42,7 @@ skip_for() {
     # DATA is the hub: it hosts Distributed read proxies into every satellite cluster
     # (aux web/marketing preaggregated, ai_events, sessions), none of whose sharded
     # remotes live on the data node.
-    data)          echo "${_shared},${_qla},ai_events,conversion_goal_attributed_preaggregated,distributed_system_processes,error_tracking_fingerprint_issue_state,experiment_metric_events_preaggregated,hog_invocation_results,marketing_conversions_preaggregated,marketing_costs_preaggregated,marketing_touchpoints_preaggregated,message_assets,property_values_distributed,session_replay_features,usage_report_events_preagg,web_bot_definition,web_bounces_dimensional_preaggregated,web_goals_preaggregated,web_overview_preaggregated,web_stats_dimensional_preaggregated,web_stats_frustration_preaggregated,web_stats_paths_preaggregated,web_stats_paths_preaggregated_pathkey,web_stats_preaggregated,web_vitals_paths_preaggregated" ;;
+    data)          echo "${_shared},${_qla},ai_events,conversion_goal_attributed_preaggregated,distributed_system_processes,error_tracking_fingerprint_issue_state,experiment_metric_events_preaggregated,hog_invocation_results,ingestion_warnings_v2_distributed,marketing_conversions_preaggregated,marketing_costs_preaggregated,marketing_touchpoints_preaggregated,message_assets,property_values_distributed,session_replay_features,usage_report_events_preagg,web_bot_definition,web_bounces_dimensional_preaggregated,web_goals_preaggregated,web_overview_preaggregated,web_stats_dimensional_preaggregated,web_stats_frustration_preaggregated,web_stats_paths_preaggregated,web_stats_paths_preaggregated_pathkey,web_stats_preaggregated,web_vitals_paths_preaggregated" ;;
     *)             echo "" ;;
   esac
 }

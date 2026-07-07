@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { toolbarApi } from '~/toolbar/toolbarApi'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
@@ -27,6 +28,11 @@ function statsRow(overrides: Partial<ElementsEventType>): ElementsEventType {
 }
 
 describe('heatmapToolbarMenuLogic', () => {
+    // These suites intentionally reject requests to exercise error states; the
+    // failures are asserted via authStatus/values, so skip the global loader logging.
+    beforeAll(silenceKeaLoadersErrors)
+    afterAll(resumeKeaLoadersErrors)
+
     describe('dedupeByChainIdentity', () => {
         const cases = [
             {

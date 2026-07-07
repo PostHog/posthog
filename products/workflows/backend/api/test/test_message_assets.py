@@ -2,7 +2,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -61,12 +60,6 @@ class TestMessageAssets(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
         self.hog_flow = HogFlow.objects.create(team=self.team, name="Test Flow")
-        ff_patcher = patch(
-            "products.workflows.backend.api.message_assets.posthoganalytics.feature_enabled",
-            return_value=True,
-        )
-        self.feature_enabled_mock = ff_patcher.start()
-        self.addCleanup(ff_patcher.stop)
 
     def _base(self) -> str:
         return f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow.id}"
@@ -222,30 +215,12 @@ class TestMessageAssets(ClickhouseTestMixin, APIBaseTest):
         assert res.status_code == 403, res.json()
         assert "person:read" in res.json().get("detail", "")
 
-    @parameterized.expand(
-        [
-            "assets/",
-            "assets/content/?invocation_id=inv-1&action_id=step-a",
-        ]
-    )
-    def test_404_when_ui_flag_disabled(self, path: str):
-        self._seed("inv-1", action_id="step-a")
-        self.feature_enabled_mock.return_value = False
-        res = self.client.get(f"{self._base()}/{path}")
-        assert res.status_code == status.HTTP_404_NOT_FOUND
-
 
 class TestPersonEmails(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
         self.person = create_person(team=self.team, distinct_ids=["distinct-1"], properties={"email": "p@example.com"})
         self.hog_flow = HogFlow.objects.create(team=self.team, name="Welcome flow")
-        ff_patcher = patch(
-            "products.workflows.backend.api.message_assets.posthoganalytics.feature_enabled",
-            return_value=True,
-        )
-        self.feature_enabled_mock = ff_patcher.start()
-        self.addCleanup(ff_patcher.stop)
 
     def _emails(self, params=None):
         return self.client.get(f"/api/projects/{self.team.id}/persons/{self.person.uuid}/emails/", params)
@@ -353,8 +328,3 @@ class TestPersonEmails(ClickhouseTestMixin, APIBaseTest):
         )
         assert res.status_code == 403, res.json()
         assert "person:read" in res.json().get("detail", "")
-
-    def test_404_when_ui_flag_disabled(self):
-        self._seed("inv-1")
-        self.feature_enabled_mock.return_value = False
-        assert self._emails().status_code == status.HTTP_404_NOT_FOUND
