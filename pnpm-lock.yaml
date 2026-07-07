@@ -3932,6 +3932,12 @@ importers:
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+      kea-router:
+        specifier: 'catalog:'
+        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+      posthog-js:
+        specifier: 'catalog:'
+        version: 1.398.0
       react:
         specifier: 18.3.1
         version: 18.3.1
