@@ -179,6 +179,7 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
         props = {
             "alert_id": str(alert.id),
             "alert_name": alert.name,
+            "project_name": alert.team.name,
             "insight_name": alert.insight.name,
             "insight_id": alert.insight.short_id,
             "state": alert.state,
