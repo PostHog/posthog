@@ -294,16 +294,16 @@ class VisionActionSerializer(serializers.ModelSerializer):
             # for_team()'s filter doesn't propagate into create(), so team is still passed explicitly.
             return VisionAction.objects.for_team(team.id).create(team=team, created_by=user, **validated_data)
         except IntegrityError as e:
-            self._reraise_unique_name_violation(e)
+            self._reraise_unique_violation(e)
 
     def update(self, instance: VisionAction, validated_data: dict[str, Any]) -> VisionAction:
         try:
             return super().update(instance, validated_data)
         except IntegrityError as e:
-            self._reraise_unique_name_violation(e)
+            self._reraise_unique_violation(e)
 
     @staticmethod
-    def _reraise_unique_name_violation(error: IntegrityError) -> NoReturn:
+    def _reraise_unique_violation(error: IntegrityError) -> NoReturn:
         if "vision_action_unique_team_name" in str(error):
             raise serializers.ValidationError({"name": "An action with this name already exists in this team."})
         if "vision_action_unique_scanner_digest" in str(error):
