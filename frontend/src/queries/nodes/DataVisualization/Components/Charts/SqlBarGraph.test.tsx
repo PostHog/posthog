@@ -17,8 +17,8 @@ import {
 import { ChartDisplayType } from '~/types'
 
 // Neither timeout is set globally (jest.setup leaves asyncUtilTimeout at 1s, jest.config has no
-// testTimeout → 5s): this heavy ~7-logic mount needs findByRole headroom beyond 1s on CI, and
-// sqlChart.hoverTooltip's internal waits (findByRole + tooltip poll) can sum past the 5s default.
+// testTimeout → 5s): this heavy ~7-logic mount needs findBy* headroom beyond 1s on CI, and
+// sqlChart.hoverTooltip's internal waits (findBy* + tooltip poll) can sum past the 5s default.
 configure({ asyncUtilTimeout: 5000 })
 jest.setTimeout(15000)
 
@@ -76,7 +76,7 @@ describe('SqlBarGraph', () => {
         ])('renders both series in the $name layout', async ({ display, extra }) => {
             renderBar(display, { yAxis: [{ column: 'a' }, { column: 'b' }], ...extra }, twoSeries())
 
-            await screen.findByRole('img', { name: /chart with 2 data series/i })
+            await screen.findByLabelText(/chart with 2 data series/i)
             await waitFor(() => expect(getHogChart().yTicks().length).toBeGreaterThan(0))
         })
 
@@ -87,7 +87,7 @@ describe('SqlBarGraph', () => {
                 twoSeries()
             )
 
-            await screen.findByRole('img', { name: /chart with 2 data series/i })
+            await screen.findByLabelText(/chart with 2 data series/i)
             await waitFor(() => expect(getHogChart().yTicks().length).toBeGreaterThan(0))
             for (const tick of getHogChart().yTicks()) {
                 expect(tick).toMatch(/%$/)
@@ -105,7 +105,7 @@ describe('SqlBarGraph', () => {
                 barFixture([{ name: 'a', valueAt: (i) => (i + 1) * 1000 }])
             )
 
-            await screen.findByRole('img', { name: /chart with/i })
+            await screen.findByLabelText(/chart with/i)
             const tooltip = await sqlChart.hoverTooltip(HOVER, MONTHS.length)
 
             expect(tooltip.value('a')).toBe('3,000')
@@ -125,7 +125,7 @@ describe('SqlBarGraph', () => {
                 twoSeries()
             )
 
-            await screen.findByRole('img', { name: /chart with 2 data series/i })
+            await screen.findByLabelText(/chart with 2 data series/i)
             const labels = [...getLegend(container).querySelectorAll('button')].map((b) => b.textContent)
             expect(labels).toEqual(['a', 'b'])
         })
@@ -137,7 +137,7 @@ describe('SqlBarGraph', () => {
                 twoSeries()
             )
 
-            await screen.findByRole('img', { name: /chart with 2 data series/i })
+            await screen.findByLabelText(/chart with 2 data series/i)
             const bButton = [...getLegend(container).querySelectorAll('button')].find((b) =>
                 b.textContent?.includes('b')
             )!
@@ -155,7 +155,7 @@ describe('SqlBarGraph', () => {
                 barFixture([{ name: 'a', valueAt: (i) => (i + 1) * 100 }])
             )
 
-            await screen.findByRole('img', { name: /chart with/i })
+            await screen.findByLabelText(/chart with/i)
             const lines = getHogChart().referenceLines()
             expect(lines.map((l) => l.label)).toEqual(['Target'])
             expect(lines[0].orientation).toBe('horizontal')

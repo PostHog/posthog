@@ -43,6 +43,9 @@ class TestCheckProductAccess:
             ("llm_gateway", "personal_api_key", None, "claude-3-opus", True, None),
             ("llm_gateway", "oauth_access_token", "any-app-id", "gpt-4o", False, "not authorized"),
             ("llm_gateway", "personal_api_key", None, None, True, None),
+            # ci allows API keys with any model (used by e2e test runs); OAuth rejected (no app IDs)
+            ("ci", "personal_api_key", None, "claude-3-opus", True, None),
+            ("ci", "oauth_access_token", "any-app-id", "gpt-4o", False, "not authorized"),
             # posthog_code requires OAuth with valid app ID
             ("posthog_code", "personal_api_key", None, None, False, "requires OAuth"),
             ("posthog_code", "oauth_access_token", "invalid-app-id", None, False, "not authorized"),

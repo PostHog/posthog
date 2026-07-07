@@ -6365,9 +6365,9 @@ snapshots:
     scenes-app-people-groups--groups--light:
         hash: v1.k794b7964.894dcc1b6beb88e930a72308a4d1008244f7305a071d3ab38fc87919ac14dd8c.m0FdetDwDmNWz-hch9f3fOiPFpzYh4Op2P_OaaWz3jk
     scenes-app-people-person--person--dark:
-        hash: v1.k794b7964.4a46194e47a2e29e8347deaec80f795129ddbcebcb78b56750d318ae1c9cdd62.eO-T-SKxiZVeD9E-axeTh2g67Z5h7ZHpU03cKjcUESY
+        hash: v1.k794b7964.556a7e84b23616d3a1692e8612d00ddd2f344b2fc192b309ca33578acd5c599d.txNhtR_9XnShJkFE7ocSBO2Es3MkojKmatQ1eFQ-Pi0
     scenes-app-people-person--person--light:
-        hash: v1.k794b7964.0a63996549fc71cab17f6e7d57b4529920b63db646f8e1e373791668e556a93b.h90Ly27-QFuia41VvZaip0tk9-QAKw2EKm1vhWcTD1E
+        hash: v1.k794b7964.ebfa0a58e5c8ffe4768203ea8ffdb023625af85b56b624a29e3cb25c9b705752.qykleErq4ZzoltxkYeeujNnuSw65dGytbXzrC7P7pcU
     scenes-app-people-person--person-not-found--dark:
         hash: v1.k794b7964.ce572a54f38627af650ca022bce22418ba4f4df4a2adc99d73d9080d79f82591.VQJZMjET9BIhBZGP9V0L96mX6Rcku3XZ4zcpJgCQGXk
     scenes-app-people-person--person-not-found--light:
@@ -6767,7 +6767,7 @@ snapshots:
     scenes-app-settings-organization--settings-organization-details--dark:
         hash: v1.k794b7964.42bb07ba29e5727f687fd3792eff1df7c8cb4b536343c95d9e51658a89677e3e.cGfJpWmm01Oxd5JLWEfkzexgdZI7AGiVVPdWvziNzPI
     scenes-app-settings-organization--settings-organization-details--light:
-        hash: v1.k794b7964.29b8ac9b106df49b30d8acd6aeca3b24ff6f5754066f4f97d1e7b7ae5f6a0354.XR0nCLUHueSiJ3lsue0N67EIY-inQ5eoldh5MqE_iTg
+        hash: v1.k794b7964.5832cdd23724d21e797adaeb677a0ee983e7e61bd3ec7095aff87966b99a3f3b.hqLxN9o3Ki2bs4ZUCNCgCF07IvOl6mm-DzG0H3ku2S8
     scenes-app-settings-organization--settings-organization-members--dark:
         hash: v1.k794b7964.9b7c856187e6b01c2abe4dfcfcba4593258de828b3a289d2924cfcf1fb5497dc.n-Z_pbWeZvSzYjKOkvb-ajQi97HcZHzhXCPKhN6M1g0
     scenes-app-settings-organization--settings-organization-members--light:
