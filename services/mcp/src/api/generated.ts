@@ -157,6 +157,16 @@ export namespace Schemas {
     }
 
     /**
+     * A user assigned to an account relationship (read shape).
+     */
+    export interface AccountAssignment {
+      /** PostHog user id of the assignee. */
+      readonly id: number;
+      /** Email of the assignee. */
+      readonly email: string;
+    }
+
+    /**
      * * `engineering` - Engineering
      * * `data` - Data
      * * `product` - Product Management
@@ -276,6 +286,25 @@ export namespace Schemas {
       description?: string | null;
       /** Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account. */
       is_single_holder?: boolean;
+    }
+
+    /**
+     * One assignment of a user to an account relationship, with its effective range.
+     */
+    export interface AccountRelationship {
+      /** Unique id of this assignment row. */
+      readonly id: string;
+      /** The relationship type this assignment belongs to. */
+      readonly definition: AccountRelationshipDefinition;
+      /** The assigned user; null when their account was deleted. */
+      readonly user: AccountAssignment | null;
+      /** When this assignment became effective. */
+      readonly started_at: string;
+      /**
+         * When this assignment ended; null while it is active.
+         * @nullable
+         */
+      readonly ended_at: string | null;
     }
 
     export type BounceRatePageViewMode = typeof BounceRatePageViewMode[keyof typeof BounceRatePageViewMode];
@@ -61875,6 +61904,13 @@ export namespace Schemas {
      * Full-text search across notebook title and content.
      */
     search?: string;
+    };
+
+    export type AccountsRelationshipsListParams = {
+    /**
+     * Include ended assignments (the full timeline), not just active ones.
+     */
+    include_history?: boolean;
     };
 
     export type ActionsListParams = {
