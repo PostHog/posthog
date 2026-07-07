@@ -1608,15 +1608,16 @@ def _route_assistant_event(
 
     probe = result.integration if result.integration in result.candidates else result.candidates[0]
 
-    # Cached region-locally (post region resolution) so persona onboarding's workspace search
-    # finds the token in the region that will consume it. Message events are the only assistant
-    # events Slack attaches search action tokens to.
-    if event_type == "message":
-        slack_search.cache_action_token_from_event(slack_team_id, event)
-
     # Kill-switch first: stay fully dark (no user resolution, no Slack reply) when the flag is off.
     if not is_slack_app_assistant_enabled(probe.team):
         return ROUTE_HANDLED_LOCALLY
+
+    # Cached region-locally (post region resolution) so persona onboarding's workspace search
+    # finds the token in the region that will consume it. Message events are the only assistant
+    # events Slack attaches search action tokens to. Gated behind the kill-switch so disabled
+    # workspaces don't take a Redis write for a token nothing reads.
+    if event_type == "message":
+        slack_search.cache_action_token_from_event(slack_team_id, event)
 
     # Share the mention path's user resolution + access filter, so the DM only ever sees and runs
     # against projects the resolved PostHog user can actually access (no cross-org metadata leak).
@@ -1634,8 +1635,15 @@ def _route_assistant_event(
     posthog_user = resolution.user
 
     if event_type == "assistant_thread_started":
+        # Land onboarding on the same project the first-DM path resolves to, so the CSM fleet
+        # doesn't depend on which entry point fired first. Fall back to the workspace probe when
+        # the user's target is ambiguous (multi-project, no default) — the picker resolves that on
+        # the first DM.
+        onboarding_target = (
+            resolution.integration or (resolution.candidates[0] if len(resolution.candidates) == 1 else None) or probe
+        )
         if persona_onboarding.maybe_intercept_assistant_surface(
-            probe,
+            onboarding_target,
             posthog_user_id=posthog_user.id,
             workspace_id=slack_team_id,
             slack_user_id=slack_user_id,
