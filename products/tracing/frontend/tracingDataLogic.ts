@@ -749,37 +749,41 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         },
         cancelInProgressSpans: ({ controller }) => {
             if (values.spansAbortController !== null) {
-                values.spansAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.spansAbortController.abort(new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'))
             }
             actions.setSpansAbortController(controller)
         },
         cancelInProgressSparkline: ({ controller }) => {
             if (values.sparklineAbortController !== null) {
-                values.sparklineAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.sparklineAbortController.abort(new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'))
             }
             actions.setSparklineAbortController(controller)
         },
         cancelInProgressMatchingCounts: ({ controller }) => {
             if (values.matchingCountsAbortController !== null) {
-                values.matchingCountsAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.matchingCountsAbortController.abort(
+                    new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError')
+                )
             }
             actions.setMatchingCountsAbortController(controller)
         },
         cancelInProgressDurationHistogram: ({ controller }) => {
             if (values.durationHistogramAbortController !== null) {
-                values.durationHistogramAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.durationHistogramAbortController.abort(
+                    new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError')
+                )
             }
             actions.setDurationHistogramAbortController(controller)
         },
         cancelInProgressAggregation: ({ controller }) => {
             if (values.aggregationAbortController !== null) {
-                values.aggregationAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.aggregationAbortController.abort(new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'))
             }
             actions.setAggregationAbortController(controller)
         },
         cancelInProgressSpanTree: ({ controller }) => {
             if (values.spanTreeAbortController !== null) {
-                values.spanTreeAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.spanTreeAbortController.abort(new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'))
             }
             actions.setSpanTreeAbortController(controller)
         },

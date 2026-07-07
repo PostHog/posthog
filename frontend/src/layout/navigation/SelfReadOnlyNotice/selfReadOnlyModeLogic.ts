@@ -14,23 +14,6 @@ export const ESCALATION_OPTIONS = [
     { seconds: 300, label: 'Allow for 5 min' },
 ] as const
 
-// Filters `$exception` events whose chain contains a ReadOnlyModeError so the
-// read-only feature doesn't spam error tracking for blocks-by-design. The
-// chain walk catches wrapped errors (e.g. `new Error('...', { cause: e })`).
-// Exported for unit testing.
-export function dropReadOnlyExceptions<T extends { event?: string; properties?: Record<string, any> } | null>(
-    event: T
-): T | null {
-    if (!event || event.event !== '$exception') {
-        return event
-    }
-    const list = (event.properties?.$exception_list ?? []) as Array<{ type?: string }>
-    if (list.some((ex) => ex?.type === 'ReadOnlyModeError')) {
-        return null
-    }
-    return event
-}
-
 export const selfReadOnlyModeLogic = kea<selfReadOnlyModeLogicType>([
     path(['layout', 'navigation', 'SelfReadOnlyNotice', 'selfReadOnlyModeLogic']),
 
@@ -102,11 +85,10 @@ export const selfReadOnlyModeLogic = kea<selfReadOnlyModeLogicType>([
         setReadOnlyGetter(() => selfReadOnlyModeLogic.findMounted()?.values.isReadOnly ?? false)
         setReadOnlyNotifier((method) => actions.notifyBlocked(method))
 
-        // Central error-tracking filter — drops any `$exception` event whose
-        // chain contains a ReadOnlyModeError. Catches direct captures *and*
-        // wrapped errors (`new Error('...', { cause: readOnlyErr })`). No
-        // existing code sets `before_send`, so we own this config slot.
-        posthog.set_config({ before_send: dropReadOnlyExceptions })
+        // The error-tracking filter that drops ReadOnlyModeError `$exception`
+        // events (`dropReadOnlyExceptions`) is installed centrally at posthog
+        // init in `loadPostHogJS`, so it applies for the whole app lifetime and
+        // is not clobbered by this logic mounting/unmounting.
 
         // The user-facing toast for blocked writes is shown by the standard
         // `e instanceof ApiError → lemonToast.error(e.detail)` pattern that
@@ -118,8 +100,5 @@ export const selfReadOnlyModeLogic = kea<selfReadOnlyModeLogicType>([
     beforeUnmount(() => {
         setReadOnlyGetter(null)
         setReadOnlyNotifier(null)
-        // Releasing ownership of `before_send` — if PostHog adds another filter
-        // here in the future, it should compose rather than be clobbered.
-        posthog.set_config({ before_send: undefined })
     }),
 ])
