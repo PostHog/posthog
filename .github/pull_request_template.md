@@ -68,7 +68,7 @@
 - Use GitHub's rich markdown when it makes review faster, never as decoration:
   - If the change alters a flow or topology (CI wiring, pipelines, state machines, request paths), include before/after mermaid diagrams as two separate `flowchart LR` blocks, before first. Keep them simple: a syntax error renders as an error block. Skip diagrams for trivial changes.
   - Use alerts (`> [!WARNING]`, `> [!NOTE]`) for behavior changes and risk callouts.
-  - Collapse long supporting content (test output, logs) in `<details>` blocks.
+  - If you have to include long supporting content (test output, logs), collapse it in `<details>` blocks.
   - Use fenced `diff` code blocks for config before/after.
   - Line-range permalinks to code in this repo render as embedded snippets: prefer them over pasting existing code.
 - Write with a crisp, direct Silicon Valley communication style. Use concise language that gets straight to the point. Sentences that are easy on the reader, paragraphs that are each about one thing. Prioritize clarity and brevity over elaborate explanations. Avoid corporate jargon, buzzwords, and unnecessary embellishments. Communicate as if you're explaining a complex concept to a smart colleague over coffee, keeping the tone light but substantive. No em-dashes, only en-dashes if needed. Spare use of inline code. Limited use of the colon and semicolon.
