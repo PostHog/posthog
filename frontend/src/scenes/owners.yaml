@@ -1,0 +1,5 @@
+version: 1
+owners: []
+rules:
+    - match: '/FeatureFlagPermissions.tsx'
+      owners: [team-feature-flags]

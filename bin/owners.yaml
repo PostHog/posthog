@@ -1,0 +1,5 @@
+version: 1
+owners: []
+rules:
+    - match: '/start-llm-gateway'
+      owners: [team-devex, team-ai-gateway]

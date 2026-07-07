@@ -997,6 +997,25 @@ tools:
     ci:preflight:
         click: hogli_commands.ci_preflight:ci_preflight
         description: Catch deterministic CI failures reachable from your diff before you push (advisory; --fix, --strict)
+owners:
+    owners:resolve:
+        click: hogli_commands.owners.cli:cmd_resolve
+        description: Resolve ownership for paths (args or newline-delimited stdin); --json for machine output
+    owners:who:
+        click: hogli_commands.owners.cli:cmd_who
+        description: Show who owns a single path (owners, status, slack, source)
+    owners:unowned:
+        click: hogli_commands.owners.cli:cmd_unowned
+        description: List unowned tracked files, respecting owners:null exemptions (optional PREFIX)
+    owners:lint:
+        click: hogli_commands.owners.cli:cmd_lint
+        description: Validate owners.yaml schema, product.yaml conflicts, dead globs, coverage (--live checks the GitHub org)
+    owners:convert:
+        click: hogli_commands.owners.cli:cmd_convert
+        description: Generate distributed owners.yaml from .github/CODEOWNERS-soft (--dry-run)
+    owners:diff-legacy:
+        click: hogli_commands.owners.cli:cmd_diff_legacy
+        description: Prove owners.yaml resolution matches legacy CODEOWNERS-soft + product.yaml (--report)
 devex:
     devex:feedback:
         click: hogli_commands.feedback:devex_feedback

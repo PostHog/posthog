@@ -1,0 +1,31 @@
+version: 1
+owners: null
+rules:
+    - match: Dockerfile.llm-analytics
+      owners: [team-ai-observability]
+    - match: Dockerfile
+      owners: [team-devex]
+    - match: 'docker-compose*.yml'
+      owners: [team-devex]
+    - match: '.prettierrc'
+      owners: [team-devex]
+    - match: '.test_quarantine.json'
+      owners: [team-devex]
+    - match: hogli.yaml
+      owners: [team-devex]
+    - match: tach.toml
+      owners: [team-devex]
+    - match: bin/
+      owners: [team-devex]
+    - match: CODEOWNERS-soft
+      owners: [team-devex]
+    - match: CODEOWNERS
+      owners: [team-devex]
+    - match: CLAUDE.md
+      owners: [team-devex]
+    - match: AGENTS.md
+      owners: [team-devex]
+    - match: '.claude/'
+      owners: [team-devex]
+    - match: greptile.json
+      owners: [team-devex]

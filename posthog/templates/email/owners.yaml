@@ -1,0 +1,7 @@
+version: 1
+owners: []
+rules:
+  - match: '/ai_observability_*.html'
+    owners: [team-ai-observability]
+  - match: '/proxy_provisioned.html'
+    owners: [team-platform-features]

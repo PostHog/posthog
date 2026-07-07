@@ -1,0 +1,11 @@
+version: 1
+owners: []
+rules:
+    - match: '/test_stop_surveys_reached_target.py'
+      owners: [team-surveys]
+    - match: '/test_update_survey_adaptive_sampling.py'
+      owners: [team-surveys]
+    - match: '/test_update_survey_iteration.py'
+      owners: [team-surveys]
+    - match: '/test_ai_observability_usage_report.py'
+      owners: [team-ai-observability]

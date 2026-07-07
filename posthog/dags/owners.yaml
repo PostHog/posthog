@@ -1,0 +1,13 @@
+version: 1
+owners: []
+rules:
+    - match: '/sessions.py'
+      owners: [team-analytics-platform]
+    - match: '/detach_distinct_id.py'
+      owners: [team-ingestion]
+    - match: '/fix_missing_person_overrides.py'
+      owners: [team-ingestion]
+    - match: '/fix_person_id_overrides.py'
+      owners: [team-ingestion]
+    - match: '/person_property_reconciliation.py'
+      owners: [team-ingestion]

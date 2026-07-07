@@ -1,0 +1,9 @@
+version: 1
+owners: []
+rules:
+    - match: '/auto-assign-labels.json'
+      owners: [team-feature-flags]
+    - match: '/dependabot.yml'
+      owners: [team-devex]
+    - match: '/pull_request_template.md'
+      owners: [team-devex]

@@ -1,0 +1,9 @@
+version: 1
+owners: []
+rules:
+    - match: '/heatmaps.py'
+      owners: [team-web-analytics]
+    - match: '/ai_events.py'
+      owners: [team-ai-observability]
+    - match: '/sessions*.py'
+      owners: [team-analytics-platform]

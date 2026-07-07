@@ -1,0 +1,5 @@
+version: 1
+owners: []
+rules:
+    - match: '/test_proxy.py'
+      owners: [team-ai-gateway]

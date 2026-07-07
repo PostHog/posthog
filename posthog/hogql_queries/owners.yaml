@@ -1,0 +1,19 @@
+version: 1
+owners: []
+rules:
+    - match: '/sessions_query_runner.py'
+      owners: [team-analytics-platform]
+    - match: '/sessions_timeline_query_runner.py'
+      owners: [team-analytics-platform]
+    - match: '/hogql_cohort_query.py'
+      owners: [team-feature-flags]
+    - match: '/hogql_query_runner.py'
+      owners: [team-data-tools]
+    - match: '/events_query_runner.py'
+      owners: [team-product-analytics]
+    - match: '/actors_query_runner.py'
+      owners: [team-product-analytics]
+    - match: '/property_values_query_runner.py'
+      owners: [team-product-analytics]
+    - match: '/document_embeddings_query_runner.py'
+      owners: [team-self-driving]

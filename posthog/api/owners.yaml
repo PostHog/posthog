@@ -1,0 +1,27 @@
+version: 1
+owners: []
+rules:
+    - match: '/schema_property_group.py'
+      owners: [team-analytics-platform]
+    - match: '/cohort.py'
+      owners: [team-feature-flags]
+    - match: '/comments.py'
+      owners: [team-platform-features]
+    - match: '/resource_transfer.py'
+      owners: [team-platform-features]
+    - match: '/event_definition.py'
+      owners: [team-product-analytics]
+    - match: '/event.py'
+      owners: [team-product-analytics]
+    - match: '/element.py'
+      owners: [team-product-analytics]
+    - match: '/person.py'
+      owners: [team-product-analytics]
+    - match: '/documentation.py'
+      owners: [team-devex]
+    - match: '/mixins.py'
+      owners: [team-devex]
+    - match: '/proxy_record.py'
+      owners: [team-platform-features]
+    - match: '/proxy_record_diagnostics.py'
+      owners: [team-platform-features]
