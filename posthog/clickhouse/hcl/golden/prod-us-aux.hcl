@@ -381,6 +381,131 @@ database "posthog" {
     }
   }
 
+  table "ingestion_warnings_v2" {
+    order_by     = ["team_id", "type", "timestamp"]
+    partition_by = "toYYYYMM(timestamp)"
+    ttl          = "toDateTime(timestamp) + toIntervalDay(90)"
+    settings = {
+      index_granularity = "8192"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "source" {
+      type = "LowCardinality(String)"
+    }
+    column "type" {
+      type = "LowCardinality(String)"
+    }
+    column "details" {
+      type = "String"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "category" {
+      type         = "LowCardinality(String)"
+      materialized = "coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown')"
+    }
+    column "severity" {
+      type         = "LowCardinality(String)"
+      materialized = "coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning')"
+    }
+    column "pipeline_step" {
+      type         = "LowCardinality(String)"
+      materialized = "coalesce(nullIf(JSONExtractString(details, 'pipeline_step'), ''), 'unknown')"
+    }
+    column "event_uuid" {
+      type         = "Nullable(UUID)"
+      materialized = "toUUIDOrNull(JSONExtractString(details, 'eventUuid'))"
+    }
+    column "distinct_id" {
+      type         = "Nullable(String)"
+      materialized = "nullIf(JSONExtractString(details, 'distinctId'), '')"
+    }
+    column "group_key" {
+      type         = "Nullable(String)"
+      materialized = "nullIf(JSONExtractString(details, 'groupKey'), '')"
+    }
+    column "person_id" {
+      type         = "Nullable(UUID)"
+      materialized = "toUUIDOrNull(JSONExtractString(details, 'personId'))"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "replicated_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.ingestion_warnings_v2"
+      replica_name = "{replica}-{shard}"
+    }
+  }
+
+  table "ingestion_warnings_v2_distributed" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "source" {
+      type = "LowCardinality(String)"
+    }
+    column "type" {
+      type = "LowCardinality(String)"
+    }
+    column "details" {
+      type = "String"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "category" {
+      type         = "LowCardinality(String)"
+      materialized = "coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown')"
+    }
+    column "severity" {
+      type         = "LowCardinality(String)"
+      materialized = "coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning')"
+    }
+    column "pipeline_step" {
+      type         = "LowCardinality(String)"
+      materialized = "coalesce(nullIf(JSONExtractString(details, 'pipeline_step'), ''), 'unknown')"
+    }
+    column "event_uuid" {
+      type         = "Nullable(UUID)"
+      materialized = "toUUIDOrNull(JSONExtractString(details, 'eventUuid'))"
+    }
+    column "distinct_id" {
+      type         = "Nullable(String)"
+      materialized = "nullIf(JSONExtractString(details, 'distinctId'), '')"
+    }
+    column "group_key" {
+      type         = "Nullable(String)"
+      materialized = "nullIf(JSONExtractString(details, 'groupKey'), '')"
+    }
+    column "person_id" {
+      type         = "Nullable(UUID)"
+      materialized = "toUUIDOrNull(JSONExtractString(details, 'personId'))"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "ingestion_warnings_v2"
+    }
+  }
+
   table "kafka_hog_invocation_results" {
     column "team_id" {
       type = "Int64"
@@ -455,6 +580,30 @@ database "posthog" {
       skip_broken_messages = 100
       poll_timeout_ms      = 10000
       thread_per_consumer  = true
+    }
+  }
+
+  table "kafka_ingestion_warnings_v2" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "source" {
+      type = "LowCardinality(String)"
+    }
+    column "type" {
+      type = "String"
+    }
+    column "details" {
+      type = "String"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    engine "kafka" {
+      broker_list = "warpstream_ingestion"
+      topic_list  = "kafka_topic_list = 'clickhouse_ingestion_warnings'"
+      group_name  = "kafka_group_name = 'clickhouse_ingestion_warnings_v2'"
+      format      = "kafka_format = 'JSONEachRow'"
     }
   }
 
@@ -3407,6 +3556,47 @@ SQL
     }
     column "is_deleted" {
       type = "UInt8"
+    }
+    column "_timestamp" {
+      type = "Nullable(DateTime)"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+  }
+
+  materialized_view "ingestion_warnings_v2_mv" {
+    to_table = "posthog.ingestion_warnings_v2"
+    query    = <<SQL
+SELECT
+  team_id,
+  source,
+  type,
+  details,
+  timestamp,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_ingestion_warnings_v2
+SQL
+
+    column "team_id" {
+      type = "Int64"
+    }
+    column "source" {
+      type = "LowCardinality(String)"
+    }
+    column "type" {
+      type = "String"
+    }
+    column "details" {
+      type = "String"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
     }
     column "_timestamp" {
       type = "Nullable(DateTime)"

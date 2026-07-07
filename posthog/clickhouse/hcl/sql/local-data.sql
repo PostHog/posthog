@@ -284,6 +284,23 @@ CREATE TABLE posthog.hog_invocation_results (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('aux', 'posthog', 'hog_invocation_results_data');
+CREATE TABLE posthog.ingestion_warnings_v2_distributed (
+  team_id Int64,
+  source LowCardinality(String),
+  type LowCardinality(String),
+  details String,
+  timestamp DateTime64(6, 'UTC'),
+  category LowCardinality(String) MATERIALIZED coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown'),
+  severity LowCardinality(String) MATERIALIZED coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning'),
+  pipeline_step LowCardinality(String) MATERIALIZED coalesce(nullIf(JSONExtractString(details, 'pipeline_step'), ''), 'unknown'),
+  event_uuid Nullable(UUID) MATERIALIZED toUUIDOrNull(JSONExtractString(details, 'eventUuid')),
+  distinct_id Nullable(String) MATERIALIZED nullIf(JSONExtractString(details, 'distinctId'), ''),
+  group_key Nullable(String) MATERIALIZED nullIf(JSONExtractString(details, 'groupKey'), ''),
+  person_id Nullable(UUID) MATERIALIZED toUUIDOrNull(JSONExtractString(details, 'personId')),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('aux', 'posthog', 'ingestion_warnings_v2');
 CREATE TABLE posthog.kafka_events_json (
   uuid UUID,
   event String,
