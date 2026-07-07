@@ -91,7 +91,7 @@ describe('installationProgressLogic merge', () => {
             ['something-else', 'pending'],
         ])('maps backend step status %s → %s', (raw, expected) => {
             const result = cloudProgress(taskState(), [step({ status: raw })], 'open', null)
-            expect(result.steps[0].status).toBe(expected)
+            expect(result.steps.find((s) => s.id === 'setup:clone')?.status).toBe(expected)
         })
 
         it('maps a step to id/label/detail', () => {
@@ -101,7 +101,7 @@ describe('installationProgressLogic merge', () => {
                 'open',
                 null
             )
-            expect(result.steps[0]).toEqual({
+            expect(result.steps.find((s) => s.id === 'setup:clone')).toEqual({
                 id: 'setup:clone',
                 label: 'Cloning',
                 status: 'in_progress',
@@ -128,6 +128,7 @@ describe('installationProgressLogic merge', () => {
                 NOW
             )
             expect(result.steps.map((s) => [s.label, s.status, s.source ?? null])).toEqual([
+                ['Setting up sandbox', 'pending', null],
                 ['Cloned repository', 'completed', null],
                 ['Detect framework', 'completed', 'wizard'],
                 ['Install SDK', 'in_progress', 'wizard'],
@@ -135,7 +136,7 @@ describe('installationProgressLogic merge', () => {
             ])
         })
 
-        it('appends session tasks at the end when no wizard stage has been announced', () => {
+        it('slots session tasks into the skeleton wizard slot before any stage is announced', () => {
             const result = cloudProgress(
                 taskState(),
                 [],
@@ -144,26 +145,22 @@ describe('installationProgressLogic merge', () => {
                 false,
                 NOW
             )
-            expect(result.steps).toEqual([
-                {
-                    id: 'wizard-task:a',
-                    label: 'Detect framework',
-                    status: 'in_progress',
-                    detail: null,
-                    source: 'wizard',
-                },
+            expect(result.steps.map((s) => [s.label, s.status, s.source ?? null])).toEqual([
+                ['Setting up sandbox', 'pending', null],
+                ['Cloning repository', 'pending', null],
+                ['Detect framework', 'in_progress', 'wizard'],
+                ['Opening a pull request', 'pending', null],
             ])
         })
 
-        it('keeps the timeline bare when there is no session', () => {
+        it('keeps the announced wizard stage when there is no session', () => {
             const result = cloudProgress(
                 taskState(),
                 [step({ step: 'wizard', status: 'in_progress', detail: 'own detail' })],
                 'open',
                 null
             )
-            expect(result.steps).toHaveLength(1)
-            expect(result.steps[0].detail).toBe('own detail')
+            expect(result.steps.find((s) => s.id === 'setup:wizard')?.detail).toBe('own detail')
         })
 
         it('clamps lingering in-progress wizard tasks once the run completes', () => {
@@ -175,8 +172,11 @@ describe('installationProgressLogic merge', () => {
                 false,
                 NOW
             )
-            expect(result.steps).toHaveLength(1)
-            expect(result.steps[0]).toMatchObject({ label: 'Install SDK', status: 'completed', source: 'wizard' })
+            expect(result.steps.find((s) => s.source === 'wizard')).toMatchObject({
+                label: 'Install SDK',
+                status: 'completed',
+            })
+            expect(result.steps.find((s) => s.id === 'setup:wizard')).toBeUndefined()
         })
 
         it('uses the task run error message on failure', () => {
@@ -314,20 +314,24 @@ describe('installationProgressLogic merge', () => {
 
     describe('cloudProgress agent-gap bridging', () => {
         const NOW_MS = new Date('2026-01-01T00:00:30Z').getTime()
-        it('synthesizes an in-progress PR step and hides the agent plumbing row', () => {
+        it('flips the pending PR slot to in-progress and hides the agent plumbing row', () => {
             // The quiet window between agent start and the PR opening must not read as stalled,
             // and 'Started agent' is internal plumbing the user shouldn't see at all.
             const result = cloudProgress(
                 taskState(),
                 [
+                    step({ step: 'sandbox', status: 'completed', label: 'Set up sandbox' }),
                     step({ step: 'clone', status: 'completed', label: 'Cloned repository' }),
+                    step({ step: 'wizard', status: 'completed', label: 'Ran setup wizard' }),
                     step({ step: 'agent', status: 'completed', label: 'Started agent' }),
                 ],
                 'open',
                 null
             )
             expect(result.steps.map((s) => [s.label, s.status])).toEqual([
+                ['Set up sandbox', 'completed'],
                 ['Cloned repository', 'completed'],
+                ['Ran setup wizard', 'completed'],
                 ['Opening a pull request', 'in_progress'],
             ])
         })
@@ -352,7 +356,7 @@ describe('installationProgressLogic merge', () => {
                 false,
                 NOW_MS
             )
-            expect(result.steps.find((s) => s.id === 'synthetic:pr')).toBeUndefined()
+            expect(result.steps.find((s) => s.id.endsWith(':pr'))?.status ?? 'pending').not.toBe('in_progress')
         })
     })
 
@@ -367,7 +371,7 @@ describe('installationProgressLogic merge', () => {
                 error: { message: 'old boom' },
             })
             const running = cloudProgress(taskState(), [], 'open', stale, false, NOW_MS)
-            expect(running.steps).toEqual([])
+            expect(running.steps.filter((s) => s.source === 'wizard')).toEqual([])
             const failed = cloudProgress(
                 taskState({ status: 'failed', error_message: null }),
                 [],
@@ -379,7 +383,7 @@ describe('installationProgressLogic merge', () => {
             expect(failed.error?.detail).toBeNull()
         })
 
-        it('inserts wizard tasks before the first unfinished pipeline step when no wizard stage exists', () => {
+        it('replaces the skeleton wizard slot with wizard tasks', () => {
             const result = cloudProgress(
                 taskState(),
                 [
@@ -392,6 +396,7 @@ describe('installationProgressLogic merge', () => {
                 NOW_MS
             )
             expect(result.steps.map((s) => s.label)).toEqual([
+                'Setting up sandbox',
                 'Cloned repository',
                 'Install SDK',
                 'Opening pull request',

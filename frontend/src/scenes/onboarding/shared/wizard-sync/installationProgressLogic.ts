@@ -95,6 +95,16 @@ const STEP_STATUSES: Record<string, InstallationStepStatus> = {
     canceled: 'failed',
 }
 
+// The stages every cloud run walks, in order — the timeline's fixed plan. Labels match the
+// connecting preview (UPCOMING_STEPS) so the handoff between the two is seamless; announced steps
+// override them with the backend's own labels.
+const CLOUD_PIPELINE_SKELETON: { group: string; step: string; label: string }[] = [
+    { group: 'setup', step: 'sandbox', label: 'Setting up sandbox' },
+    { group: 'setup', step: 'clone', label: 'Cloning repository' },
+    { group: 'setup', step: 'wizard', label: 'Running setup wizard' },
+    { group: 'deliver', step: 'pr', label: 'Opening a pull request' },
+]
+
 function stepStatus(raw: string): InstallationStepStatus {
     return STEP_STATUSES[raw] ?? 'pending'
 }
@@ -139,16 +149,33 @@ export function cloudProgress(
         phase === 'completed' && status === 'in_progress' ? 'completed' : status
 
     // 'Started agent' is internal plumbing — it tells the user nothing about their setup. Hide it;
-    // the synthetic bridging step below narrates that window as "Opening a pull request" instead.
-    const pipelineSteps: InstallationStep[] = progressSteps
-        .filter((p) => p.step !== 'agent')
-        .map((p) => ({
-            id: `${p.group}:${p.step}`,
-            label: p.label,
-            status: clamp(stepStatus(p.status)),
-            // The "pr" step carries the PR url in `detail` (surfaced as the CTA, not as raw step text).
-            detail: p.step === 'pr' ? null : p.detail,
-        }))
+    // the pending "Opening a pull request" row (flipped in-progress below) narrates that window.
+    const announced = progressSteps.filter((p) => p.step !== 'agent')
+    const mapStep = (p: TaskRunProgressStep): InstallationStep => ({
+        id: `${p.group}:${p.step}`,
+        label: p.label,
+        status: clamp(stepStatus(p.status)),
+        // The "pr" step carries the PR url in `detail` (surfaced as the CTA, not as raw step text).
+        detail: p.step === 'pr' ? null : p.detail,
+    })
+    // Every cloud run walks the same pipeline, so the whole plan is visible from the start as
+    // pending rows — announced steps light their slot up in place (keeping the backend's label and
+    // detail), and anything outside the skeleton (e.g. "Keeping CI green") appends in arrival
+    // order. Skipped when no run state exists yet: the view's connecting preview owns that window.
+    let pipelineSteps: InstallationStep[]
+    if (taskRunState) {
+        const byName = new Map(announced.map((p) => [p.step, p]))
+        pipelineSteps = CLOUD_PIPELINE_SKELETON.map((sk) => {
+            const real = byName.get(sk.step)
+            return real
+                ? mapStep(real)
+                : { id: `${sk.group}:${sk.step}`, label: sk.label, status: 'pending' as const, detail: null }
+        })
+        const skeletonNames = new Set(CLOUD_PIPELINE_SKELETON.map((sk) => sk.step))
+        pipelineSteps.push(...announced.filter((p) => !skeletonNames.has(p.step)).map(mapStep))
+    } else {
+        pipelineSteps = announced.map(mapStep)
+    }
 
     // The session stream is keyed by workflow only and replays the latest session on connect even
     // when it's a stale terminal row from a previous (possibly local) run — apply the same freshness
@@ -187,22 +214,21 @@ export function cloudProgress(
 
     const prUrl = taskRunPrUrl(taskRunState, progressSteps)
 
-    // The pipeline goes quiet between "Started agent" and the PR opening: every row reads completed
-    // while the agent is still writing code, committing, and drafting the PR — which looks stalled
-    // (or worse, finished without a payoff). Bridge the gap with a synthetic in-progress step until
-    // the real deliver-stage steps arrive and replace the narrative.
-    const anythingInFlight = steps.some((s) => s.status === 'in_progress' || s.status === 'pending')
-    const hasDeliverStep = steps.some((s) => s.id.startsWith('deliver:'))
-    if (phase === 'running' && steps.length > 0 && !anythingInFlight && !hasDeliverStep && !prUrl) {
-        steps = [
-            ...steps,
-            {
-                id: 'synthetic:pr',
-                label: 'Opening a pull request',
-                status: 'in_progress',
-                detail: 'The agent is committing its changes and drafting the PR',
-            },
-        ]
+    // The pipeline goes quiet between agent start and the PR opening: everything reads completed
+    // while the agent is still writing code, committing, and drafting the PR — which looks stalled.
+    // Flip the still-pending PR slot to in-progress with an honest detail line for that window; the
+    // real deliver-stage step replaces it when it arrives.
+    const allDoneExceptPr = steps.every((s) => s.id.endsWith(':pr') || s.status === 'completed')
+    if (phase === 'running' && !prUrl && allDoneExceptPr) {
+        steps = steps.map((s) =>
+            s.id.endsWith(':pr') && s.status === 'pending'
+                ? {
+                      ...s,
+                      status: 'in_progress' as const,
+                      detail: 'The agent is committing its changes and drafting the PR',
+                  }
+                : s
+        )
     }
 
     const error =
