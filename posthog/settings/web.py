@@ -344,6 +344,12 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "posthog.auth.ZxcvbnValidator"},
 ]
 
+if TEST:
+    # PBKDF2 is deliberately slow (~150ms per hash), which adds up because every
+    # per-test user creation hashes a password. MD5 keeps the same hasher API with
+    # none of the cost. Never used outside tests.
+    PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
+
 PASSWORD_RESET_TIMEOUT = 86_400  # 1 day
 
 ####
