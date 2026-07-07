@@ -372,6 +372,13 @@ def update_external_account(
     if account is None:
         return contracts.ExternalAccountUpdateResult(error=contracts.ExternalAccountUpdateError.NOT_FOUND)
 
+    # Stored properties are re-serialized onto the success response, so reject accounts
+    # whose stored JSON no longer validates before writing anything.
+    try:
+        _ = account.properties
+    except PydanticValidationError:
+        return contracts.ExternalAccountUpdateResult(error=contracts.ExternalAccountUpdateError.INVALID_PROPERTIES)
+
     try:
         with transaction.atomic():
             error_result = _apply_external_relationship_assignments(account, relationship_assignments)
