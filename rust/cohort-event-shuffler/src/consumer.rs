@@ -52,9 +52,11 @@ const COMMIT_STALENESS_FACTOR: u32 = 3;
 const SHUTDOWN_DRAIN_BUDGET: Duration = Duration::from_secs(14);
 /// librdkafka-internal bound on the shutdown flush; the shared budget applies on top.
 const SHUTDOWN_FLUSH_TIMEOUT: Duration = Duration::from_secs(5);
-/// Slice of the shared budget reserved for the final Sync commit — the step that turns drained
-/// work into committed progress must not be starved by a slow flush or ack drain.
-const SHUTDOWN_COMMIT_TIMEOUT: Duration = Duration::from_secs(4);
+/// Floor of the shared budget held back for the final Sync commit — the step that turns drained
+/// work into committed progress must not be starved by a slow flush or ack drain. The commit may
+/// run for longer (up to the full budget) if earlier steps finish early; this only reserves the
+/// minimum.
+const SHUTDOWN_COMMIT_RESERVE: Duration = Duration::from_secs(4);
 
 /// Only the fields the team gate needs. Every undeclared field (notably the large
 /// `properties` / `person_properties` / `groupN_properties` JSON-string blobs) is skipped by
@@ -176,8 +178,10 @@ enum Intake {
         resume_at: tokio::time::Instant,
         backoff: Duration,
     },
-    /// Transient kafka-level recv error; resume consuming at `resume_at`.
-    Backoff {
+    /// Transient kafka-level recv error; resume consuming at `resume_at`. Named for its trigger
+    /// (the recv error) to distinguish it from [`Intake::RetryForward`], which carries its own
+    /// `backoff`.
+    RecvBackoff {
         resume_at: tokio::time::Instant,
     },
 }
@@ -191,7 +195,9 @@ impl Intake {
     fn resume_at(&self) -> tokio::time::Instant {
         match self {
             Intake::Open => tokio::time::Instant::now(),
-            Intake::RetryForward { resume_at, .. } | Intake::Backoff { resume_at } => *resume_at,
+            Intake::RetryForward { resume_at, .. } | Intake::RecvBackoff { resume_at } => {
+                *resume_at
+            }
         }
     }
 }
@@ -272,7 +278,7 @@ impl EventShuffler {
                         Intake::RetryForward { forward, backoff, .. } => {
                             self.try_enqueue(forward, backoff, &mut ledger, &mut pending_acks)
                         }
-                        Intake::Open | Intake::Backoff { .. } => Intake::Open,
+                        Intake::Open | Intake::RecvBackoff { .. } => Intake::Open,
                     };
                 }
 
@@ -300,7 +306,7 @@ impl EventShuffler {
                             }
                             RecvErr::Kafka(e) => {
                                 warn!(error = %e, "kafka recv error; pausing intake");
-                                intake = Intake::Backoff {
+                                intake = Intake::RecvBackoff {
                                     resume_at: tokio::time::Instant::now() + RECV_ERROR_BACKOFF,
                                 };
                             }
@@ -465,7 +471,7 @@ impl EventShuffler {
         intake: Intake,
     ) {
         let deadline = tokio::time::Instant::now() + SHUTDOWN_DRAIN_BUDGET;
-        let pre_commit_deadline = deadline - SHUTDOWN_COMMIT_TIMEOUT;
+        let pre_commit_deadline = deadline - SHUTDOWN_COMMIT_RESERVE;
 
         // Settle the in-flight commit first so the final plan is a real delta.
         if !pending_commit.is_empty() {

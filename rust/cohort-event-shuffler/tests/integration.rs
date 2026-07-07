@@ -55,7 +55,7 @@ fn test_config(bootstrap: &str) -> Config {
         team_index_refresh_secs: 300,
         team_index_refresh_jitter_secs: 0,
         team_allowlist: TeamAllowlist::All,
-        max_inflight_forwards: 10_000,
+        max_inflight_forwards: 4000, // matches the production default
         commit_interval_ms: 200,
         queue_full_backoff_ms: 100,
         kafka_producer_linger_ms: 20,
@@ -500,4 +500,111 @@ async fn shuffler_commits_via_drain_on_graceful_shutdown() {
     wait_for_committed_offset(&bootstrap, "shuffler-itest", total_input_messages).await;
 
     task.await.expect("shuffler task panicked");
+}
+
+/// The `QueueFull` → `Intake::RetryForward` path keeps the pipeline non-blocking under producer
+/// backpressure, but the other tests leave the producer queue at 100k messages so an enqueue never
+/// fails and it never runs. Here the queue holds a single message, so every forward after the first
+/// trips `QueueFull`, parks in `RetryForward`, and is re-enqueued by the timer arm. The pipeline
+/// must still deliver every forward and commit the full input: a parked forward that got dropped
+/// would miss the output, and one observed in the ledger before its enqueue landed would let the
+/// commit run past an undelivered offset.
+#[tokio::test]
+async fn shuffler_retries_forwards_parked_on_queue_full() {
+    let (cluster, input_producer): (_, FutureProducer<_>) =
+        common_kafka::test::create_mock_kafka().await;
+    cluster
+        .create_topic(INPUT_TOPIC, 1, 1)
+        .expect("create input topic");
+    cluster
+        .create_topic(OUTPUT_TOPIC, OUTPUT_PARTITIONS, 1)
+        .expect("create output topic");
+    let bootstrap = cluster.bootstrap_servers();
+    let mut config = test_config(&bootstrap);
+    // One-message producer queue: a second concurrent enqueue fails with QueueFull, forcing the
+    // whole burst through the RetryForward path.
+    config.kafka_producer_queue_messages = 1;
+
+    let team_index = Arc::new(TeamIndex::from_teams([2, 7]));
+
+    // A drop and a skip, then a burst of forwards (all re-keyed to one partition), so both settled
+    // and acked offsets are committed under queue pressure.
+    let mut inputs = vec![
+        InputSpec {
+            team_id: 2,
+            person_id: None,
+            event: "$pageview",
+            forwardable: false,
+        },
+        InputSpec {
+            team_id: 99,
+            person_id: Some("pX"),
+            event: "$pageview",
+            forwardable: false,
+        },
+    ];
+    for _ in 0..10 {
+        inputs.push(InputSpec {
+            team_id: 2,
+            person_id: Some("pA"),
+            event: "$pageview",
+            forwardable: true,
+        });
+    }
+
+    let mut total_input_messages = 0i64;
+    let mut forwardable_uuids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for (index, spec) in inputs.iter().enumerate() {
+        let uuid = Uuid::from_u128(0xE0_0000 + index as u128);
+        if spec.forwardable {
+            forwardable_uuids.insert(uuid.to_string());
+        }
+        let payload = serde_json::to_string(&clickhouse_event(uuid, spec)).unwrap();
+        let key = uuid.to_string();
+        input_producer
+            .send_result(FutureRecord::to(INPUT_TOPIC).key(&key).payload(&payload))
+            .expect("enqueue input")
+            .await
+            .expect("input produce canceled")
+            .expect("input produce failed");
+        total_input_messages += 1;
+    }
+
+    let expected_forwardable = forwardable_uuids.len();
+
+    let mut manager = Manager::builder("shuffler-queuefull-itest")
+        .with_trap_signals(false)
+        .build();
+    let handle = manager.register(
+        "consumer",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
+    );
+    let _monitor = manager.monitor_background();
+
+    let consumer =
+        SingleTopicConsumer::new(config.build_kafka_config(), config.build_consumer_config())
+            .expect("create shuffler consumer");
+    let producer =
+        CohortStreamProducer::new(&config.build_kafka_config(), OUTPUT_TOPIC.to_string())
+            .await
+            .expect("create shuffler producer");
+    let shuffler = EventShuffler::new(
+        consumer,
+        producer,
+        team_index,
+        handle,
+        config.shuffler_settings(),
+    );
+    tokio::spawn(async move { shuffler.process().await });
+
+    let output = collect_output(&bootstrap, expected_forwardable, Duration::from_secs(40)).await;
+    let output_uuids: std::collections::HashSet<String> =
+        output.iter().map(|(_, e)| e.uuid.clone()).collect();
+    assert_eq!(
+        output_uuids, forwardable_uuids,
+        "every forward must reach the output topic despite QueueFull backpressure",
+    );
+
+    // Commit must still advance past the whole burst (settled drop/skip + acked forwards).
+    wait_for_committed_offset(&bootstrap, "shuffler-itest", total_input_messages).await;
 }
