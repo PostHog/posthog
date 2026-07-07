@@ -4,7 +4,11 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { atColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
+import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { urls } from 'scenes/urls'
+
+import { InsightShortId } from '~/types'
 
 import { CitationTag } from './CitationTag'
 import type { OpportunityApi, ProposedExperimentApi } from './generated/api.schemas'
@@ -179,7 +183,10 @@ export function ProposedExperimentSummary({
             </span>
             {proposal.target_metric && (
                 <span>
-                    <strong>Target metric:</strong> {proposal.target_metric.insight_short_id}
+                    <strong>Target metric:</strong>{' '}
+                    <Link to={urls.insightView(proposal.target_metric.insight_short_id as InsightShortId)}>
+                        {proposal.target_metric.insight_short_id}
+                    </Link>
                 </span>
             )}
             {footer && <span className="text-muted">{footer}</span>}
