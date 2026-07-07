@@ -395,6 +395,10 @@ class DuckgresBatchConsumerAdapter:
         if not batch.is_final_batch:
             await DuckgresBatchQueue.mark_applied(conn, batch=batch)
 
+    def is_retryable_error(self, err: Exception) -> bool:
+        # No known deterministic duckgres failure signatures yet; retry everything.
+        return True
+
 
 class DuckgresBatchConsumer(SharedBatchConsumer):
     """The shared engine plus the sink's lease-safety overrides, kept out of the

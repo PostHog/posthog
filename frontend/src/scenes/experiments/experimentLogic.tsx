@@ -2530,7 +2530,8 @@ export const experimentLogic = kea<experimentLogicType>([
                     const { experiment, usesNewQueryRunner } = values
 
                     if (!usesNewQueryRunner) {
-                        return
+                        // A bare `return` would make kea error ("Reducer returned undefined")
+                        return values.exposures
                     }
 
                     const query = setLatestVersionsOnQuery({

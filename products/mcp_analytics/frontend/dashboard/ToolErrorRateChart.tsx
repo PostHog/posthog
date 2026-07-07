@@ -62,7 +62,8 @@ export function ToolErrorRateChart({
             yTickFormatter: (value: number) => formatPercentage(value, { compact: true }),
             tooltip: { placement: 'cursor' },
             margins: { top: 4, right: 20, bottom: 22 },
-            bars: { cornerRadius: 4, minBandSize: 30, valueDomain: [0, axisMax] },
+            barCornerRadius: 4,
+            bars: { minBandSize: 30, valueDomain: [0, axisMax] },
         }
     }, [sorted])
     const byTool = useMemo(() => new Map(sorted.map((r) => [r.tool, r])), [sorted])

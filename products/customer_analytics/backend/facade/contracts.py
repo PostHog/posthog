@@ -30,6 +30,31 @@ class AccountAssignment:
     email: str
 
 
+@stdlib_dataclass(frozen=True)
+class AccountRelationshipDefinition:
+    """A team-defined account relationship type (CSM, Onboarding manager, ...).
+
+    Stdlib dataclass with defaults so the wrapping ``DataclassSerializer`` can construct it
+    from partial request bodies (see :class:`CustomPropertyDefinitionView`).
+    """
+
+    id: UUID | None = None
+    name: str = ""
+    description: str | None = None
+    is_single_holder: bool = True
+
+
+@dataclass(frozen=True)
+class AccountRelationship:
+    """One assignment of a user to an account relationship, with its effective range."""
+
+    id: UUID
+    definition: AccountRelationshipDefinition
+    user: AccountAssignment | None
+    started_at: datetime
+    ended_at: datetime | None
+
+
 @dataclass(frozen=True)
 class AccountProperties:
     """Typed account properties — assignment roles and external-system identifiers.
@@ -98,6 +123,7 @@ class AccountContextData:
     properties: AccountProperties
     tags: list[str] = field(default_factory=list)
     notes: list[AccountNote] = field(default_factory=list)
+    relationships: list[AccountRelationship] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -116,6 +142,7 @@ class ExternalAccount:
     name: str
     properties: dict
     tags: list[str] = field(default_factory=list)
+    relationships: dict[str, list[dict]] = field(default_factory=dict)
 
 
 class ExternalAccountUpdateError(Enum):
@@ -124,6 +151,7 @@ class ExternalAccountUpdateError(Enum):
 
     NOT_FOUND = "not_found"
     USER_NOT_IN_ORGANIZATION = "user_not_in_organization"
+    RELATIONSHIP_DEFINITION_NOT_FOUND = "relationship_definition_not_found"
     INVALID_PROPERTIES = "invalid_properties"
     UPDATE_FAILED = "update_failed"
 

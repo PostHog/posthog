@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 from temporalio import activity
 
-from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs
+from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs, coerce_mention_workflow_inputs
 from posthog.temporal.common.utils import close_db_connections
 
 if TYPE_CHECKING:
@@ -28,6 +28,7 @@ def post_posthog_code_no_repos_activity(
 ) -> None:
     from posthog.models.integration import Integration, SlackIntegration
 
+    inputs = coerce_mention_workflow_inputs(inputs)
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
         kind="slack",
@@ -69,6 +70,7 @@ def post_posthog_code_repo_picker_activity(
     """
     from posthog.models.integration import Integration, SlackIntegration
 
+    inputs = coerce_mention_workflow_inputs(inputs)
     if user_id is None:
         logger.warning(
             "posthog_code_picker_legacy_call_skipped",
@@ -170,6 +172,7 @@ def block_posthog_code_task_if_no_personal_github_activity(
 
     from products.slack_app.backend.feature_flags import is_slack_app_bot_prs_enabled
 
+    inputs = coerce_mention_workflow_inputs(inputs)
     has_personal_github = UserIntegration.objects.filter(
         user_id=user_id,
         kind=UserIntegration.IntegrationKind.GITHUB,
@@ -222,6 +225,7 @@ def resolve_posthog_code_authorship_activity(
     from products.slack_app.backend.feature_flags import is_slack_app_bot_prs_enabled
     from products.tasks.backend.facade import api as tasks_facade
 
+    inputs = coerce_mention_workflow_inputs(inputs)
     if tasks_facade.user_can_author_repository(user_id, repository):
         return "proceed"
 
@@ -329,6 +333,7 @@ def post_posthog_code_authorship_timeout_activity(
 
     from products.slack_app.backend.models import SlackThreadTaskMapping
 
+    inputs = coerce_mention_workflow_inputs(inputs)
     # Skip the expired message if another workflow already created a task for this thread.
     if SlackThreadTaskMapping.objects.filter(
         integration_id=inputs.integration_id,
@@ -360,6 +365,7 @@ def post_posthog_code_picker_timeout_activity(
     from products.slack_app.backend.api import _clear_pending_repo_picker
     from products.slack_app.backend.models import SlackThreadTaskMapping
 
+    inputs = coerce_mention_workflow_inputs(inputs)
     slack_user_id = inputs.event.get("user")
     if isinstance(slack_user_id, str) and slack_user_id:
         _clear_pending_repo_picker(
@@ -401,6 +407,7 @@ def post_posthog_code_internal_error_activity(
 
     from products.slack_app.backend.api import _clear_pending_repo_picker
 
+    inputs = coerce_mention_workflow_inputs(inputs)
     slack_user_id = inputs.event.get("user")
     if isinstance(slack_user_id, str) and slack_user_id:
         _clear_pending_repo_picker(

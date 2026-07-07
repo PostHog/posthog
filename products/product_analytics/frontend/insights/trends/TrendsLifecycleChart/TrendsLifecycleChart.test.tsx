@@ -92,16 +92,7 @@ describe('TrendsLifecycleChart', () => {
         expect(tooltip.row('Returning')).toBeTruthy()
         expect(tooltip.row('Resurrecting')).toBeTruthy()
         expect(tooltip.row('Dormant')).toBeTruthy()
-    })
-
-    it('uses "Users" as the group type label in the tooltip', async () => {
-        renderInsight({
-            query: buildLifecycleQuery() as unknown as InsightQuery,
-            mocks: { additionalMockResponses: lifecycleMocks },
-        })
-
-        await screen.findByTestId('trend-lifecycle-graph')
-        const tooltip = await chart.hoverTooltip(2)
+        // "Users" is the group type label.
         expect(tooltip.element.textContent).toMatch(/Users/)
     })
 
@@ -133,26 +124,33 @@ describe('TrendsLifecycleChart', () => {
         )
     })
 
-    it('renders the legend items in the same order as the rendered series', async () => {
+    // Status order must match buildTrendsLifecycleSeries' sort: dormant → returning → resurrecting → new.
+    it.each([
+        {
+            name: 'renders the legend items in series order when showLegend is set',
+            showLegend: true,
+            expectedLabels: ['Dormant', 'Returning', 'Resurrecting', 'New'],
+        },
+        {
+            name: 'omits the legend when showLegend is not set',
+            showLegend: undefined,
+            expectedLabels: null,
+        },
+    ])('$name', async ({ showLegend, expectedLabels }) => {
         renderInsight({
-            query: buildLifecycleQuery({ lifecycleFilter: { showLegend: true } }) as unknown as InsightQuery,
+            query: buildLifecycleQuery(
+                showLegend ? { lifecycleFilter: { showLegend } } : {}
+            ) as unknown as InsightQuery,
             mocks: { additionalMockResponses: lifecycleMocks },
         })
 
         await screen.findByTestId('trend-lifecycle-graph')
-        // Status order must match buildTrendsLifecycleSeries' sort: dormant → returning → resurrecting → new.
-        const legend = await screen.findByTestId('hog-chart-timeseries-bar-legend')
-        const labels = Array.from(legend.children).map((el) => el.textContent?.trim())
-        expect(labels).toEqual(['Dormant', 'Returning', 'Resurrecting', 'New'])
-    })
-
-    it('omits the legend when showLegend is not set', async () => {
-        renderInsight({
-            query: buildLifecycleQuery() as unknown as InsightQuery,
-            mocks: { additionalMockResponses: lifecycleMocks },
-        })
-
-        await screen.findByTestId('trend-lifecycle-graph')
-        expect(screen.queryByTestId('hog-chart-timeseries-bar-legend')).not.toBeInTheDocument()
+        if (expectedLabels) {
+            const legend = await screen.findByTestId('hog-chart-timeseries-bar-legend')
+            const labels = Array.from(legend.children).map((el) => el.textContent?.trim())
+            expect(labels).toEqual(expectedLabels)
+        } else {
+            expect(screen.queryByTestId('hog-chart-timeseries-bar-legend')).not.toBeInTheDocument()
+        }
     })
 })
