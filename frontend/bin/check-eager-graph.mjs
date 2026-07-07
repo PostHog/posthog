@@ -85,7 +85,7 @@ function assertReport(reportFilePath) {
     const reportToAssert = JSON.parse(fs.readFileSync(reportFilePath, 'utf-8'))
     let violations = 0
     for (const message of reportToAssert.warnings ?? []) {
-        console.warn(`\n⚠️ ${message}`)
+        warnViolation(message)
     }
     const topLevelErrors = reportToAssert.errors ?? []
     for (const message of topLevelErrors) {
