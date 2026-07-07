@@ -205,7 +205,12 @@ export function LemonModal({
                     maxWidth,
                 },
             }}
-            appElement={document.getElementById('root') as HTMLElement}
+            // Aria-hide the app behind the modal only when the app root exists. Without it
+            // (jsdom tests, embedded contexts) there is nothing to hide that doesn't also
+            // contain the modal portal itself — hiding `document.body` would remove the modal
+            // from the accessibility tree too.
+            appElement={document.getElementById('root') ?? document.body}
+            ariaHideApp={document.getElementById('root') !== null}
             contentRef={contentRef}
             overlayRef={overlayRef}
             parentSelector={floatingContainer ? () => floatingContainer : undefined}

@@ -48,7 +48,7 @@ use crate::partitions::shuffle_message::ShuffleMessage;
 use crate::producer::MembershipSink;
 use crate::store::durability::OffsetManifest;
 use crate::store::StoreHandle;
-use crate::workers::{EventNameGating, MergeWorkerDeps, PersonMemoConfig, Stage1Worker};
+use crate::workers::{EventNameGating, MergeWorkerDeps, Stage1Worker};
 
 /// Back-off after a Kafka transport error so a fast-failing `recv()` can't spin a consume loop.
 pub(crate) const RECV_ERROR_BACKOFF: Duration = Duration::from_millis(500);
@@ -128,8 +128,6 @@ pub struct EventDispatcher {
     /// after boot. `OnceLock` is `Sync`; the only race (get sees `None` before set) resolves to
     /// "skip", so a boot partition is never wiped.
     boot_assignment: OnceLock<HashSet<i32>>,
-    /// Person-memo config for spawned workers, set once at startup. Unset → disabled.
-    person_memo: OnceLock<PersonMemoConfig>,
     /// Event-name fan-out gating for spawned workers, set once at startup. Unset → disabled.
     event_name_gating: OnceLock<EventNameGating>,
 }
@@ -155,7 +153,6 @@ impl EventDispatcher {
             draining: AtomicBool::new(false),
             durable_restore: AtomicBool::new(false),
             boot_assignment: OnceLock::new(),
-            person_memo: OnceLock::new(),
             event_name_gating: OnceLock::new(),
         }
     }
@@ -167,18 +164,6 @@ impl EventDispatcher {
 
     pub fn durable_restore_enabled(&self) -> bool {
         self.durable_restore.load(Ordering::SeqCst)
-    }
-
-    /// Must be called before any worker spawns; later calls are ignored.
-    pub fn set_person_memo_config(&self, config: PersonMemoConfig) {
-        let _ = self.person_memo.set(config);
-    }
-
-    fn person_memo_config(&self) -> PersonMemoConfig {
-        self.person_memo
-            .get()
-            .copied()
-            .unwrap_or(PersonMemoConfig::DISABLED)
     }
 
     /// Must be called before any worker spawns; later calls are ignored.
@@ -467,7 +452,7 @@ impl EventDispatcher {
                 }
                 match self.router.add_partition(partition) {
                     Some(receiver) => {
-                        let worker = Stage1Worker::spawn_with_memo(
+                        let worker = Stage1Worker::spawn_with_gating(
                             partition as u16,
                             receiver,
                             self.handle.clone(),
@@ -476,7 +461,6 @@ impl EventDispatcher {
                             self.tracker.clone(),
                             self.merge.clone(),
                             self.durable_restore_enabled(),
-                            self.person_memo_config(),
                             self.event_name_gating(),
                         );
                         slot.insert(worker);
@@ -1388,8 +1372,8 @@ mod tests {
     use crate::stage1::state::AppliedOffsets;
     use crate::stage1::{Stage1State, StatefulRecord};
     use crate::store::{
-        CohortStore, LeafStateKey, MergeAppliedKey, MergeDrainKey, OffloadConfig, OffloadMode,
-        PendingTransferKey, Stage1Key, StoreConfig, TombstoneKey,
+        Behavioral, BehavioralKey, CohortStore, LeafStateKey, MergeAppliedKey, MergeDrainKey,
+        OffloadConfig, OffloadMode, PendingTransferKey, StoreConfig, TombstoneKey,
     };
     use crate::workers::TransferRetryPolicy;
 
@@ -1802,14 +1786,9 @@ mod tests {
         person: Uuid,
         lsk: LeafStateKey,
     ) -> Option<Stage1State> {
-        let key = Stage1Key {
-            partition_id,
-            team_id: TEAM as u64,
-            leaf_state_key: lsk,
-            person_id: person,
-        };
+        let key = BehavioralKey::new(partition_id, TEAM as u64, person, lsk);
         store
-            .get_stage1(&key)
+            .get_behavioral(&key)
             .unwrap()
             .map(|bytes| StatefulRecord::decode(&bytes).unwrap().state)
     }
@@ -1817,13 +1796,8 @@ mod tests {
     fn seed_slice(store: &CohortStore, partition: u16, lsk: LeafStateKey) {
         store
             .write_batch(|b| {
-                b.put_stage1(
-                    &Stage1Key {
-                        partition_id: partition,
-                        team_id: TEAM as u64,
-                        leaf_state_key: lsk,
-                        person_id: person(1),
-                    },
+                b.put::<Behavioral>(
+                    &BehavioralKey::new(partition, TEAM as u64, person(1), lsk),
                     b"state",
                 )
             })
@@ -1832,12 +1806,7 @@ mod tests {
 
     fn slice_present(store: &CohortStore, partition: u16, lsk: LeafStateKey) -> bool {
         store
-            .get_stage1(&Stage1Key {
-                partition_id: partition,
-                team_id: TEAM as u64,
-                leaf_state_key: lsk,
-                person_id: person(1),
-            })
+            .get_behavioral(&BehavioralKey::new(partition, TEAM as u64, person(1), lsk))
             .unwrap()
             .is_some()
     }
@@ -2821,6 +2790,8 @@ mod tests {
             source_offset: source.1,
             leaves,
             forward_hops: 0,
+
+            person_dedup: None,
         }
     }
 
@@ -3488,23 +3459,10 @@ mod tests {
         let partition = partition_of(TeamId(TEAM), &p_new, COHORT_PARTITION_COUNT) as i32;
         let p_old = person(1);
         let lsk = LeafStateKey([0xAB; 16]);
-        let p_old_key = Stage1Key {
-            partition_id: partition as u16,
-            team_id: TEAM as u64,
-            leaf_state_key: lsk,
-            person_id: p_old,
-        };
+        let p_old_key = BehavioralKey::new(partition as u16, TEAM as u64, p_old, lsk);
         store
             .write_batch(|batch| {
-                batch.put_stage1(&p_old_key, &behavioral_match_record().encode());
-                batch.merge_person_index(
-                    &crate::store::PersonIndexKey {
-                        partition_id: partition as u16,
-                        team_id: TEAM as u64,
-                        person_id: p_old,
-                    },
-                    crate::store::IndexOp::Append(lsk),
-                );
+                batch.put::<Behavioral>(&p_old_key, &behavioral_match_record().encode());
             })
             .unwrap();
 
@@ -3536,7 +3494,7 @@ mod tests {
             .unwrap()
             .is_some(),);
         assert!(
-            store.get_stage1(&p_old_key).unwrap().is_none(),
+            store.get_behavioral(&p_old_key).unwrap().is_none(),
             "P_old's state was deleted",
         );
         assert!(sink.changes().is_empty(), "drifted leaves emit nothing");
@@ -3591,12 +3549,7 @@ mod tests {
         );
         assert!(
             store
-                .get_stage1(&Stage1Key {
-                    partition_id: 0,
-                    team_id: TEAM as u64,
-                    leaf_state_key: lsk,
-                    person_id: p_new,
-                })
+                .get_behavioral(&BehavioralKey::new(0, TEAM as u64, p_new, lsk))
                 .unwrap()
                 .is_none(),
             "the drifted leaf wrote no state",

@@ -4028,6 +4028,28 @@ class TestGitHubIntegrationUninstall:
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not Integration.objects.filter(id=integration.id).exists()
 
+    @patch("posthog.api.integration.GitHubIntegration.uninstall_app_installation")
+    @patch("posthog.api.integration.count_in_progress_runs_for_github_integration")
+    def test_destroy_github_blocked_while_background_agent_runs_in_progress(
+        self, mock_count, _mock_uninstall, client: HttpClient
+    ):
+        integration = self._create_github_integration("12345")
+        mock_count.return_value = 2
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "2 in-progress background agent runs" in response.json()["detail"]
+        assert Integration.objects.filter(id=integration.id).exists()
+        mock_count.assert_called_once_with(team_id=self.team.pk, integration_id=integration.id)
+
+        mock_count.return_value = 0
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=integration.id).exists()
+
 
 class TestIntegrationDeletionWorkflowGuard:
     @pytest.fixture(autouse=True)

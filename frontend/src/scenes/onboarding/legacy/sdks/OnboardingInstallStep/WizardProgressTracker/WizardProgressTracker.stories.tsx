@@ -5,7 +5,7 @@ import { useEffect } from 'react'
 import { IconArrowRight, IconCheckCircle } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { Logomark } from 'lib/brand/Logomark'
+import { Logomark } from 'lib/brand'
 
 import { wizardSessionStreamLogic } from 'products/wizard/frontend/wizardSessionStreamLogic'
 
@@ -306,7 +306,7 @@ function FullInstallSceneFrame({
             <div className="border-b border-border bg-bg-light px-6 py-3 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                     <span className="inline-flex w-8 h-8 items-center justify-center">
-                        <Logomark />
+                        <Logomark className="w-8 h-auto" />
                     </span>
                 </div>
                 <div className="flex items-center gap-4 text-sm">
