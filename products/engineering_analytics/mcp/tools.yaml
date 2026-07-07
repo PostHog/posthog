@@ -73,6 +73,9 @@ tools:
     engineering-analytics-repo-run-activity:
         operation: engineering_analytics_repo_run_activity
         enabled: false
+    engineering-analytics-resolve-commit:
+        operation: engineering_analytics_resolve_commit
+        enabled: false
     engineering-analytics-run-failure-logs:
         operation: engineering_analytics_run_failure_logs
         enabled: false

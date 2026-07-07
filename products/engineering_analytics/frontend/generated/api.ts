@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     CICardSummaryApi,
     CIFailureLogsApi,
+    CommitPRMatchApi,
     EngineeringAnalyticsAuthorWorkflowCostsParams,
     EngineeringAnalyticsCiCardsParams,
     EngineeringAnalyticsCiFailureLogsParams,
@@ -23,6 +24,7 @@ import type {
     EngineeringAnalyticsQuarantineParams,
     EngineeringAnalyticsRepoOverviewParams,
     EngineeringAnalyticsRepoRunActivityParams,
+    EngineeringAnalyticsResolveCommitParams,
     EngineeringAnalyticsRunFailureLogsParams,
     EngineeringAnalyticsWorkflowHealthParams,
     EngineeringAnalyticsWorkflowJobsParams,
@@ -453,6 +455,39 @@ export const engineeringAnalyticsRepoRunActivity = async (
     options?: RequestInit
 ): Promise<WorkflowRunActivityApi> => {
     return apiMutator<WorkflowRunActivityApi>(getEngineeringAnalyticsRepoRunActivityUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsResolveCommitUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsResolveCommitParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/resolve_commit/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/resolve_commit/`
+}
+
+/**
+ * Resolve a git commit SHA and/or branch to the pull request(s) it belongs to — the cross-product link seam so another product (the LLM analytics UI) can turn a git ref into a PR detail link. The SHA path resolves through each workflow run's pull_requests association (so it survives every push, unlike a head-SHA join against the current-state PR snapshot); the branch path matches the PR's head ref. At least one of `sha`/`branch` is required. Returns a possibly-empty, possibly-multi list — an empty list is a valid 200 (the caller renders a plain chip).
+ */
+export const engineeringAnalyticsResolveCommit = async (
+    projectId: string,
+    params?: EngineeringAnalyticsResolveCommitParams,
+    options?: RequestInit
+): Promise<CommitPRMatchApi[]> => {
+    return apiMutator<CommitPRMatchApi[]>(getEngineeringAnalyticsResolveCommitUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

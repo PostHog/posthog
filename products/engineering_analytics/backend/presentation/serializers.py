@@ -16,6 +16,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     CIFailureLogs,
     CIJobFailureLog,
     CIStatusRollup,
+    CommitPRMatch,
     CostPerMergeBucket,
     GitHubSource,
     MasterFailureGroup,
@@ -429,6 +430,24 @@ class PullRequestListSerializer(DataclassSerializer):
                 "and the aggregate counts in ci_cards can exceed it.",
             },
             "limit": {"help_text": "Maximum number of pull requests returned in `items`."},
+        }
+
+
+class CommitPRMatchSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = CommitPRMatch
+        extra_kwargs = {
+            "repo": {"help_text": "Repository the pull request belongs to, as 'owner/name'."},
+            "number": {"help_text": "Pull request number within the repository — pair with `repo` to link to it."},
+            "title": {
+                "help_text": "Pull request title, or null when the PR is no longer in the current-state warehouse "
+                "snapshot (the SHA still resolved it through a workflow run association).",
+                "allow_null": True,
+            },
+            "state": {
+                "help_text": "Derived PR state ('open', 'closed', 'merged'), or null when the PR is not in the snapshot.",
+                "allow_null": True,
+            },
         }
 
 

@@ -365,6 +365,55 @@ class TestEndpointMapping(BaseTest):
         assert items[1].last_failure_at is None
 
 
+class TestResolveCommitMapping(BaseTest):
+    """Row mapping and the sha→branch fallback for resolve_commit (query method mocked, no warehouse).
+    A GitHub source is connected (ORM only) so the resolver succeeds before the mocked query runs."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        connect_github_source_without_data(self.team)
+
+    def test_sha_path_maps_rows_and_normalizes_missing_snapshot(self) -> None:
+        # sha columns: repo_owner, repo_name, pr_number, title, state. The second row is a LEFT JOIN
+        # miss (PR aged out of the snapshot) -> '' title / None state normalize to None.
+        rows = [("PostHog", "posthog", 42, "Fix bug", "merged"), ("PostHog", "posthog", 7, "", None)]
+        with mock.patch(_RUN_QUERY, return_value=_resp(rows)) as run:
+            matches = api.resolve_commit(team=self.team, sha="abc1234")
+        assert [(m.repo, m.number, m.title, m.state) for m in matches] == [
+            ("PostHog/posthog", 42, "Fix bug", "merged"),
+            ("PostHog/posthog", 7, None, None),
+        ]
+        assert run.call_count == 1  # sha matched -> no branch fallback query
+
+    def test_falls_back_to_branch_only_when_sha_matches_nothing(self) -> None:
+        branch_rows = [("PostHog", "posthog", 9, "Branch PR", "open")]
+        with mock.patch(_RUN_QUERY, side_effect=[_resp([]), _resp(branch_rows)]) as run:
+            matches = api.resolve_commit(team=self.team, sha="abc1234", branch="feat/x")
+        assert [m.number for m in matches] == [9]
+        assert run.call_count == 2  # empty sha result -> branch query runs
+
+    def test_branch_only_issues_a_single_query(self) -> None:
+        rows = [("PostHog", "posthog", 9, "Branch PR", "open")]
+        with mock.patch(_RUN_QUERY, return_value=_resp(rows)) as run:
+            matches = api.resolve_commit(team=self.team, branch="feat/x")
+        assert [m.number for m in matches] == [9]
+        assert run.call_count == 1  # no sha given -> no sha query
+
+    @parameterized.expand(
+        [
+            ("neither_given", None, None),
+            ("both_blank", "   ", ""),
+            ("sha_too_short", "abc12", None),
+            ("sha_too_short_with_branch", "abc12", "feat/x"),  # a bad sha rejects, never silently falls back
+        ]
+    )
+    def test_rejects_bad_input(self, _name: str, sha: str | None, branch: str | None) -> None:
+        # Validation raises before any query is issued (source resolution still succeeds first).
+        with mock.patch(_RUN_QUERY) as run, self.assertRaises(ValueError):
+            api.resolve_commit(team=self.team, sha=sha, branch=branch)
+        run.assert_not_called()
+
+
 class TestCostPerMergeSeries(BaseTest):
     """The cost-per-merged-PR trend on the repo hub: bucketing, zero-fill, and the cost/merge
     division guard. The two warehouse scans are mocked (curated fully faked), so this tests the
@@ -783,6 +832,44 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         )
         assert {i.number for i in api.list_pull_requests(team=self.team, author="alice").items} == {81}
         assert {i.number for i in api.list_pull_requests(team=self.team, author="bob").items} == {82}
+
+    def test_resolve_commit_by_sha_resolves_through_run_association(self) -> None:
+        # The SHA path finds the PR through a workflow run's pull_requests association (survives every
+        # push), then enriches title/state from the PR snapshot. Matched as a prefix of the run head SHA.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(60, "alice", "closed", 0, _ago(10), merged_at=_ago(2), head_sha="sha60")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [_run_row(6000, "CI", "deadbeefcafe", "completed", "success", _ago(3), _ago(3), pr_number=60)],
+        )
+        matches = api.resolve_commit(team=self.team, sha="deadbee")
+        assert [(m.number, m.repo, m.state, m.title) for m in matches] == [(60, "PostHog/posthog", "merged", "PR 60")]
+        # A prefix matching no run resolves to nothing (empty list, not an error).
+        assert api.resolve_commit(team=self.team, sha="0000000") == []
+
+    def test_resolve_commit_by_branch_orders_open_first(self) -> None:
+        # The branch path matches the PR head ref (head.ref); open PRs come before merged/closed ones,
+        # and PRs on other branches are excluded.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(62, "bob", "closed", 0, _ago(6), merged_at=_ago(1), head_sha="sha62", head_ref="feat/login"),
+                _pr_row(61, "alice", "open", 0, _ago(2), head_sha="sha61", head_ref="feat/login"),
+                _pr_row(63, "carol", "open", 0, _ago(1), head_sha="sha63", head_ref="other"),
+            ],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [_run_row(6100, "CI", "sha61", "completed", "success", _ago(1), _ago(1), pr_number=61)],
+        )
+        matches = api.resolve_commit(team=self.team, branch="feat/login")
+        assert [m.number for m in matches] == [61, 62]  # only feat/login PRs, open first
 
     def test_workflow_health_aggregates(self) -> None:
         self._seed()

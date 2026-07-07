@@ -680,6 +680,23 @@ export interface WorkflowRunActivityApi {
     limit: number
 }
 
+export interface CommitPRMatchApi {
+    /** Repository the pull request belongs to, as 'owner/name'. */
+    repo: string
+    /** Pull request number within the repository — pair with `repo` to link to it. */
+    number: number
+    /**
+     * Pull request title, or null when the PR is no longer in the current-state warehouse snapshot (the SHA still resolved it through a workflow run association).
+     * @nullable
+     */
+    title: string | null
+    /**
+     * Derived PR state ('open', 'closed', 'merged'), or null when the PR is not in the snapshot.
+     * @nullable
+     */
+    state: string | null
+}
+
 export interface RunFailureLogsApi {
     /** Failed CI jobs of this run with their thinned failure logs, grouped by job. */
     jobs: CIJobFailureLogApi[]
@@ -1011,6 +1028,25 @@ export type EngineeringAnalyticsRepoRunActivityParams = {
      * Window end: relative or ISO8601. Defaults to now.
      */
     date_to?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
+export type EngineeringAnalyticsResolveCommitParams = {
+    /**
+     * Git branch (the PR's head ref) to resolve. Used only when `sha` resolves nothing or is omitted. Open PRs are returned first, then most recently updated.
+     */
+    branch?: string
+    /**
+     * Optional 'owner/name' repository to narrow matching to a single repo.
+     */
+    repo?: string
+    /**
+     * Full or short commit SHA (at least 7 characters) to resolve. Matched as a prefix of the workflow-run head SHA, so a run's pull_requests association carries the PR across every push.
+     */
+    sha?: string
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */

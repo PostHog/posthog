@@ -16,6 +16,7 @@ from posthog.utils import relative_date_parse
 from products.engineering_analytics.backend.facade.contracts import (
     CICardSummary,
     CIFailureLogs,
+    CommitPRMatch,
     GitHubSource,
     MasterFailureGroup,
     PRCostSummary,
@@ -53,6 +54,7 @@ from products.engineering_analytics.backend.logic.queries.pr_runs import query_p
 from products.engineering_analytics.backend.logic.queries.pull_request_list import query_pull_request_list
 from products.engineering_analytics.backend.logic.queries.repo_overview import query_default_branch, query_repo_overview
 from products.engineering_analytics.backend.logic.queries.repo_run_activity import query_repo_run_activity
+from products.engineering_analytics.backend.logic.queries.resolve_commit import query_resolve_commit
 from products.engineering_analytics.backend.logic.queries.workflow_health import query_workflow_health
 from products.engineering_analytics.backend.logic.queries.workflow_jobs import query_workflow_jobs
 from products.engineering_analytics.backend.logic.queries.workflow_run import query_workflow_run
@@ -91,6 +93,27 @@ def build_pr_runs(*, curated: CuratedGitHubSource, pr_number: int, repo: str | N
     if not (owner and name):
         raise ValueError("repo must be in 'owner/name' format")
     return query_pr_runs(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
+
+
+def build_resolve_commit(
+    *, curated: CuratedGitHubSource, sha: str | None, branch: str | None, repo: str | None
+) -> list[CommitPRMatch]:
+    resolved_sha = (sha or "").strip()
+    resolved_branch = (branch or "").strip()
+    if not resolved_sha and not resolved_branch:
+        raise ValueError("provide a commit sha or a branch to resolve")
+    # A too-short prefix would over-match unrelated commits; reject it rather than resolve to noise.
+    if resolved_sha and len(resolved_sha) < 7:
+        raise ValueError("sha must be at least 7 characters")
+    # repo is an optional narrowing filter: absent -> (None, None); malformed (bare org) -> raises.
+    owner, name = _split_repo(repo)
+    return query_resolve_commit(
+        curated=curated,
+        sha=resolved_sha or None,
+        branch=resolved_branch or None,
+        repo_owner=owner,
+        repo_name=name,
+    )
 
 
 def build_ci_failure_logs(*, curated: CuratedGitHubSource, pr_number: int, repo: str | None) -> CIFailureLogs:

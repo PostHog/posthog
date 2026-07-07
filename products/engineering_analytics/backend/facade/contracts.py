@@ -483,6 +483,20 @@ class PullRequestList:
 
 
 @dataclass(frozen=True)
+class CommitPRMatch:
+    """A pull request a commit SHA or branch resolves to — the cross-product link seam so a caller
+    (e.g. the LLM analytics UI) can turn a git ref into a PR detail link. ``repo`` is 'owner/name'.
+    ``title`` / ``state`` are null when the PR is no longer in the current-state snapshot (e.g. it
+    aged out) but the SHA still resolves to it through a workflow run's ``pull_requests`` association.
+    """
+
+    repo: str
+    number: int
+    title: str | None
+    state: str | None
+
+
+@dataclass(frozen=True)
 class CICardSummary:
     """Headline counts for the open-PR backlog. ``failing_ci`` rests on the
     head-SHA CI join and can lag (see ``CIStatusRollup``).

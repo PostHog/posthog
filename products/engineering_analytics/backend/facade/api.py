@@ -25,6 +25,7 @@ from products.engineering_analytics.backend import logic
 from products.engineering_analytics.backend.facade.contracts import (
     CICardSummary,
     CIFailureLogs,
+    CommitPRMatch,
     GitHubSource,
     MasterFailureGroup,
     PRCostSummary,
@@ -107,6 +108,24 @@ def list_pr_runs(
 ) -> list[WorkflowRunDetail]:
     return logic.build_pr_runs(
         curated=_authorized_source(team, source_id, user_access_control), pr_number=pr_number, repo=repo
+    )
+
+
+def resolve_commit(
+    *,
+    team: Team,
+    sha: str | None = None,
+    branch: str | None = None,
+    repo: str | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> list[CommitPRMatch]:
+    """Resolve a git commit SHA and/or branch to the pull request(s) it belongs to — the cross-product
+    link seam (LLM analytics links a git ref to a PR detail page). At least one of ``sha`` / ``branch``
+    is required; ``repo`` ('owner/name') optionally narrows to one repository.
+    """
+    return logic.build_resolve_commit(
+        curated=_authorized_source(team, source_id, user_access_control), sha=sha, branch=branch, repo=repo
     )
 
 

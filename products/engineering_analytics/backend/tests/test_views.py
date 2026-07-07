@@ -105,6 +105,7 @@ def _pr_row(
     *,
     merged_at: str | None = None,
     head_sha: str = "",
+    head_ref: str = "",
     full_name: str = "PostHog/posthog",
     labels: tuple[str, ...] = (),
 ) -> dict[str, Any]:
@@ -119,7 +120,7 @@ def _pr_row(
         "merged_at": merged_at,
         "closed_at": merged_at,
         "user": _user(login),
-        "head": f'{{"sha": "{head_sha}"}}',
+        "head": f'{{"sha": "{head_sha}", "ref": "{head_ref}"}}',
         "base": _base(full_name),
         "labels": _labels(*labels),
     }
@@ -265,7 +266,8 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         raw = (
             "(SELECT 100 AS id, 5 AS number, 'PR 5' AS title, 'open' AS state, false AS draft, "
             f"nullIf('', '') AS user, '{head_json}' AS head, '{base_json}' AS base, '[]' AS labels, "
-            "'2026-01-10 10:00:00' AS created_at, nullIf('', '') AS merged_at, nullIf('', '') AS closed_at)"
+            "'2026-01-10 10:00:00' AS created_at, '2026-01-10 10:00:00' AS updated_at, "
+            "nullIf('', '') AS merged_at, nullIf('', '') AS closed_at)"
         )
         rows = self._select(
             f"SELECT author_handle, author_avatar_url, is_bot FROM ({pull_requests.build_query(raw)}) AS pr"

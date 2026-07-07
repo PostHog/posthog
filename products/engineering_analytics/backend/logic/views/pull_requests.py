@@ -52,9 +52,11 @@ def build_query(table_name: str) -> str:
             if(merged_at IS NOT NULL, 'merged', raw_state) AS state,
             is_draft,
             created_at,
+            updated_at,
             merged_at,
             closed_at,
             head_sha,
+            head_branch,
             if(merged_at IS NOT NULL, dateDiff('second', created_at, merged_at), NULL) AS open_to_merge_seconds
         FROM (
             SELECT
@@ -70,7 +72,10 @@ def build_query(table_name: str) -> str:
                 splitByChar('/', ifNull(JSONExtractString(base, 'repo', 'full_name'), '')) AS repo_parts,
                 ifNull(labels, '[]') AS labels_json,
                 JSONExtractString(head, 'sha') AS head_sha,
+                -- head.ref is the PR's source branch — the key a branch → PR resolution matches on.
+                JSONExtractString(head, 'ref') AS head_branch,
                 parseDateTimeBestEffort(created_at) AS created_at,
+                parseDateTimeBestEffort(updated_at) AS updated_at,
                 parseDateTimeBestEffort(merged_at) AS merged_at,
                 parseDateTimeBestEffort(closed_at) AS closed_at
             FROM {table_name}
