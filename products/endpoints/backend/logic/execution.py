@@ -344,7 +344,11 @@ class EndpointExecutionService(PydanticModelMixin):
     # ------------------------------------------------------------------
 
     def should_use_materialized_table(
-        self, endpoint: Endpoint, data: EndpointRunRequest, version: EndpointVersion
+        self,
+        endpoint: Endpoint,
+        data: EndpointRunRequest,
+        version: EndpointVersion,
+        materialized_at: datetime | None,
     ) -> bool:
         """
         Decide whether to use materialized table or inline execution.
@@ -372,7 +376,6 @@ class EndpointExecutionService(PydanticModelMixin):
 
         # Check if materialized data is stale. Keyed on the version's freshness target, not
         # saved_query.sync_frequency_interval — the v2 schedule migration nulls that field.
-        materialized_at = saved_query_materialized_at(saved_query)
         if materialized_at and version.data_freshness_seconds:
             next_refresh_due = materialized_at + timedelta(seconds=version.data_freshness_seconds)
             if timezone.now() >= next_refresh_due:
@@ -482,7 +485,14 @@ class EndpointExecutionService(PydanticModelMixin):
             self.log_rejected_run(endpoint, self.format_validation_detail(exc.detail))
             raise
 
-        use_materialized = self.should_use_materialized_table(endpoint, data, version_obj)
+        # Computed once per request: the gate and the materialized path both need it.
+        # v2 never writes saved_query.last_run_at; the helper derives from DataModelingJob.
+        materialized_at = (
+            saved_query_materialized_at(version_obj.saved_query)
+            if version_obj.is_materialized and version_obj.saved_query
+            else None
+        )
+        use_materialized = self.should_use_materialized_table(endpoint, data, version_obj, materialized_at)
 
         report_user_action(
             cast("User | SyntheticUser", self.request.user),
@@ -520,7 +530,13 @@ class EndpointExecutionService(PydanticModelMixin):
             if use_materialized:
                 try:
                     result = self._execute_materialized_endpoint(
-                        endpoint, data, version=version_obj, debug=debug, limit=limit, offset=offset
+                        endpoint,
+                        data,
+                        version=version_obj,
+                        materialized_at=materialized_at,
+                        debug=debug,
+                        limit=limit,
+                        offset=offset,
                     )
                 except ConcurrencyLimitExceeded:
                     raise
@@ -689,6 +705,7 @@ class EndpointExecutionService(PydanticModelMixin):
         endpoint: Endpoint,
         data: EndpointRunRequest,
         version: EndpointVersion,
+        materialized_at: datetime | None,
         debug: bool = False,
         limit: int | None = None,
         offset: int | None = None,
@@ -696,14 +713,10 @@ class EndpointExecutionService(PydanticModelMixin):
         """Execute against a materialized table in S3."""
         materialized_hogql_query = None
         query_kind = None
-        materialized_at = None
         saved_query = version.saved_query
         try:
             if not saved_query:
                 raise ValidationError("No materialized query found for this endpoint")
-
-            # v2 never writes saved_query.last_run_at; derive freshness from DataModelingJob.
-            materialized_at = saved_query_materialized_at(saved_query)
 
             strategy = strategy_for(endpoint, version, self.team)
             query_kind = strategy.query_kind

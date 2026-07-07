@@ -24,7 +24,7 @@ def saved_query_materialized_at(saved_query: DataWarehouseSavedQuery) -> datetim
             status=DataModelingJobStatus.COMPLETED,
             engine=DataModelingJobEngine.CLICKHOUSE,
         )
-        .order_by("-created_at")
+        .order_by("-last_run_at")
         .values_list("last_run_at", flat=True)
         .first()
     )

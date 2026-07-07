@@ -14,9 +14,17 @@ from products.data_modeling.backend.models.datawarehouse_saved_query import Data
 class TestSavedQueryMaterializedAt(BaseTest):
     @parameterized.expand(
         [
-            # (name, saved_query_last_run_minutes_ago, jobs as (status, engine, minutes_ago), expected_minutes_ago)
+            # (name, saved_query_last_run_minutes_ago,
+            #  jobs as (status, engine, completed_minutes_ago[, created_minutes_ago]), expected_minutes_ago)
             # v2 DAG runs write DataModelingJob but never saved_query.last_run_at
             ("completed_job_beats_frozen_saved_query", 3 * 24 * 60, [("Completed", "clickhouse", 5)], 5),
+            (
+                # a slow scheduled run created before a quick manual one can still finish last
+                "freshest_completion_wins_over_newest_created",
+                3 * 24 * 60,
+                [("Completed", "clickhouse", 10, 60), ("Completed", "clickhouse", 35, 30)],
+                10,
+            ),
             (
                 "newest_failed_job_ignored",
                 3 * 24 * 60,
@@ -45,15 +53,16 @@ class TestSavedQueryMaterializedAt(BaseTest):
             query={"kind": "HogQLQuery", "query": "SELECT 1"},
             last_run_at=now - timedelta(minutes=saved_query_minutes_ago) if saved_query_minutes_ago else None,
         )
-        for job_status, engine, minutes_ago in jobs:
+        for job_status, engine, completed_minutes_ago, *created in jobs:
             job = DataModelingJob.objects.create(
                 team=self.team,
                 saved_query=saved_query,
                 status=job_status,
                 engine=engine,
-                last_run_at=now - timedelta(minutes=minutes_ago),
+                last_run_at=now - timedelta(minutes=completed_minutes_ago),
             )
-            DataModelingJob.objects.filter(id=job.id).update(created_at=now - timedelta(minutes=minutes_ago))
+            created_minutes_ago = created[0] if created else completed_minutes_ago
+            DataModelingJob.objects.filter(id=job.id).update(created_at=now - timedelta(minutes=created_minutes_ago))
 
         expected = now - timedelta(minutes=expected_minutes_ago) if expected_minutes_ago else None
         self.assertEqual(saved_query_materialized_at(saved_query), expected)
