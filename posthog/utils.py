@@ -26,8 +26,8 @@ from zoneinfo import ZoneInfo
 from django.apps import apps
 from django.conf import settings
 from django.core.cache import cache
-from django.db import ProgrammingError
-from django.db.models.functions import Lower
+from django.db import ProgrammingError, models
+from django.db.models.functions import Coalesce, Lower
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
@@ -403,6 +403,62 @@ def get_js_url(request: HttpRequest) -> str:
     return settings.JS_URL
 
 
+@lru_cache(maxsize=2)
+def _resolve_entry_assets(include_authenticated_shell: bool) -> tuple[str, tuple[str, ...], str]:
+    """
+    Return (css_url, js_preload_urls, font_url) for <head> preload tags, relative to JS_URL.
+    Preloading lets the browser fetch the boot chain (entry -> App -> AuthenticatedShell chunks,
+    the CSS bundle, and the Inter font, which is otherwise discovered only once the CSS is parsed)
+    in parallel instead of as a waterfall.
+
+    Reads the esbuild preload manifest (see writePreloadManifest in frontend/build.mjs). Returns
+    empty values in debug/test mode and when no manifest exists (e.g. a Vite build, which isn't
+    wired for production serving). Cached per process: manifests are immutable within a deploy.
+    """
+    if settings.DEBUG or settings.TEST:
+        return ("", (), "")
+    return _read_preload_manifest(
+        os.path.join(settings.BASE_DIR, "frontend", "dist", "preload-manifest.json"),
+        include_authenticated_shell,
+    )
+
+
+def _read_preload_manifest(manifest_path: str, include_authenticated_shell: bool) -> tuple[str, tuple[str, ...], str]:
+    """
+    Parse preload-manifest.json defensively: hints are an optimization, so any failure must
+    degrade to "no hints" rather than break page rendering — but loudly, because the caller
+    caches the result for the process lifetime, so a silent failure would turn the
+    optimization off fleet-wide until the next deploy.
+    """
+    try:
+        if not os.path.isfile(manifest_path):
+            return ("", (), "")
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+        css = manifest.get("css", "")
+        font = manifest.get("font", "")
+        js = manifest.get("js", [])
+        authenticated_js = manifest.get("authenticatedJs", []) if include_authenticated_shell else []
+        if not (
+            isinstance(css, str)
+            and isinstance(font, str)
+            and isinstance(js, list)
+            and isinstance(authenticated_js, list)
+        ):
+            raise ValueError("preload manifest fields have unexpected types")
+        js_urls: list[str] = []
+        for url in [*js, *authenticated_js]:
+            if not isinstance(url, str):
+                raise ValueError("preload manifest fields have unexpected types")
+            if url not in js_urls:
+                js_urls.append(url)
+        return (css, tuple(js_urls), font)
+    except Exception as e:
+        logger.warning("preload_manifest_unreadable", manifest_path=manifest_path, error=str(e))
+        capture_exception(e)
+        return ("", (), "")
+
+
 @tracer.start_as_current_span("template.context")
 def get_context_for_template(
     template_name: str,
@@ -572,6 +628,7 @@ def _build_template_context(
                 posthog_app_context["default_event_name"] = event_info["default_event_name"]
                 posthog_app_context["has_pageview"] = event_info["has_pageview"]
                 posthog_app_context["has_screen"] = event_info["has_screen"]
+                posthog_app_context["has_person_email"] = get_has_person_email(user.team)
 
                 with tracer.start_as_current_span("template.user_product_list"):
                     user_product_list = UserProductListSerializer(
@@ -626,6 +683,19 @@ def _build_template_context(
     context["posthog_bootstrap"] = json.dumps(posthog_bootstrap)
 
     context["posthog_js_uuid_version"] = settings.POSTHOG_JS_UUID_VERSION
+
+    # Only the SPA shell references these; other templates (exporter, layout, ...) load different bundles
+    if template_name == "index.html":
+        context["preload_css_url"], context["preload_js_urls"], context["preload_font_url"] = _resolve_entry_assets(
+            bool(request.user and request.user.is_authenticated)
+        )
+        # Theme for the pre-React shell (critical CSS in index.html), mirroring the app's
+        # themeLogic.isDarkModeOn: anonymous pages are always light, a missing theme_mode
+        # means light, and only "system" defers to prefers-color-scheme.
+        user_theme_mode = (
+            getattr(request.user, "theme_mode", None) if request.user and request.user.is_authenticated else None
+        )
+        context["boot_theme"] = user_theme_mode or "light"
 
     if posthog_distinct_id:
         from posthog.models.instance_setting import get_instance_setting
@@ -842,6 +912,58 @@ def invalidate_default_event_info_cache(team_id: int) -> None:
 
 def get_default_event_name(team: "Team") -> str | None:
     return get_default_event_info(team)["default_event_name"]
+
+
+HAS_PERSON_EMAIL_PRESENT_TTL_SECONDS = 24 * 60 * 60
+HAS_PERSON_EMAIL_ABSENT_TTL_SECONDS = 30 * 60
+HAS_PERSON_EMAIL_ABSENT_YOUNG_PROJECT_TTL_SECONDS = 60
+YOUNG_PROJECT_AGE = datetime.timedelta(days=7)
+
+
+def _has_person_email_cache_key(project_id: int) -> str:
+    return f"has_person_email:project:{project_id}"
+
+
+def _has_person_email_ttl(team: "Team", has_person_email: bool) -> int:
+    if has_person_email:
+        return HAS_PERSON_EMAIL_PRESENT_TTL_SECONDS
+    # Most writes bypass the invalidation signal (raw-SQL ingestion via
+    # property-defs-rs, bulk_create/queryset.update, renames, the EE subclass), so
+    # these TTLs are the real freshness bound — for a project still setting up, the
+    # only thing standing between "started sending email" and the flag flipping.
+    if timezone.now() - team.project.created_at < YOUNG_PROJECT_AGE:
+        return HAS_PERSON_EMAIL_ABSENT_YOUNG_PROJECT_TTL_SECONDS
+    return HAS_PERSON_EMAIL_ABSENT_TTL_SECONDS
+
+
+@tracer.start_as_current_span("template.has_person_email")
+def get_has_person_email(team: "Team") -> bool:
+    from posthog.models import PropertyDefinition
+
+    from products.event_definitions.backend.models.property_definition import PERSON_EMAIL_PROPERTY_NAME
+
+    cache_key = _has_person_email_cache_key(team.project_id)
+    cached = get_safe_cache(cache_key)
+    if cached is not None:
+        return cached
+
+    has_person_email = (
+        PropertyDefinition.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+        )
+        .filter(
+            effective_project_id=team.project_id, type=PropertyDefinition.Type.PERSON, name=PERSON_EMAIL_PROPERTY_NAME
+        )
+        .exists()
+    )
+
+    safe_cache_set(cache_key, has_person_email, timeout=_has_person_email_ttl(team, has_person_email))
+
+    return has_person_email
+
+
+def invalidate_has_person_email_cache(project_id: int) -> None:
+    safe_cache_delete(_has_person_email_cache_key(project_id))
 
 
 @tracer.start_as_current_span("template.frontend_apps")

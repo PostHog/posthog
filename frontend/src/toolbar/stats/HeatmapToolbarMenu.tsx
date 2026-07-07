@@ -2,8 +2,8 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import React from 'react'
 
-import { IconMagicWand } from '@posthog/icons'
-import { LemonButton, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { IconMagicWand, IconTarget } from '@posthog/icons'
+import { LemonButton, LemonSnack, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
@@ -18,8 +18,9 @@ import { urls } from 'scenes/urls'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
-import { ELEMENT_STATS_PAGE_LIMIT, heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
+import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
+import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
 import { joinWithUiHost } from '~/toolbar/utils'
 
 import { toolbarConfigLogic } from '../toolbarConfigLogic'
@@ -83,6 +84,7 @@ const SectionButton = ({
 export const HeatmapToolbarMenu = (): JSX.Element => {
     const { wildcardHref, autoWildcardEnabled } = useValues(currentPageLogic)
     const { setWildcardHref, autoWildcardHref, setAutoWildcardEnabled } = useActions(currentPageLogic)
+    const areaFilterFlagEnabled = useToolbarFeatureFlag('toolbar-heatmap-area-filter')
 
     const {
         matchLinksByHref,
@@ -91,6 +93,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         commonFilters,
         heatmapFilters,
         canLoadMoreElementStats,
+        loadedElementStatsCount,
         viewportRange,
         rawHeatmapLoading,
         elementStatsLoading,
@@ -100,6 +103,8 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         samplingFactor,
         elementsLoading,
         processingProgress,
+        areaSelectionActive,
+        heatmapAreaFilter,
     } = useValues(heatmapToolbarMenuLogic)
     const {
         setCommonFilters,
@@ -110,6 +115,9 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         setHeatmapFixedPositionMode,
         setHeatmapColorPalette,
         setSamplingFactor,
+        startAreaSelection,
+        cancelAreaSelection,
+        selectHeatmapAreaFilter,
     } = useActions(heatmapToolbarMenuLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
@@ -166,7 +174,43 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                         }}
                         dateOptions={heatmapDateOptions}
                     />
+                    {areaFilterFlagEnabled ? (
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            icon={<IconTarget />}
+                            active={areaSelectionActive}
+                            data-attr="heatmap-area-filter-toggle"
+                            onClick={() => (areaSelectionActive ? cancelAreaSelection() : startAreaSelection())}
+                            tooltip={
+                                <>
+                                    Filter the heatmap and clickmap to one part of the page, e.g. the nav or the main
+                                    content. Click this, then hover the page and click an area. Press <kbd>↑</kbd> to
+                                    grow the selection to a bigger container, <kbd>↓</kbd> to shrink it, and{' '}
+                                    <kbd>Esc</kbd> to cancel. Heatmap points on fixed or sticky elements are only
+                                    included when the chosen area is itself fixed or sticky.
+                                </>
+                            }
+                        >
+                            {areaSelectionActive ? 'Click an area of the page…' : 'Filter to area'}
+                        </LemonButton>
+                    ) : null}
                 </div>
+                {heatmapAreaFilter && !areaSelectionActive ? (
+                    <div className="flex flex-row items-center gap-2 py-2 border-b">
+                        <span className="text-muted text-xs">Filtered to</span>
+                        <LemonSnack
+                            className="font-mono text-xs shrink min-w-0 truncate"
+                            title={
+                                heatmapAreaFilter.selector ??
+                                'No unique selector could be derived for this element, so the clickmap is filtered client-side only and may be limited to the loaded data.'
+                            }
+                            onClose={() => selectHeatmapAreaFilter(null)}
+                        >
+                            {heatmapAreaFilter.selector ?? `<${heatmapAreaFilter.element.tagName.toLowerCase()}>`}
+                        </LemonSnack>
+                    </div>
+                ) : null}
             </ToolbarMenu.Header>
             <ToolbarMenu.Body>
                 <div className="border-b p-2">
@@ -310,10 +354,11 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                     '!'
                                 )}
                             </div>
-                            {canLoadMoreElementStats && (
+                            {canLoadMoreElementStats && loadedElementStatsCount > 0 && (
                                 <div className="mb-2 text-muted text-xs">
-                                    Showing the top {ELEMENT_STATS_PAGE_LIMIT.toLocaleString()} element groups by click
-                                    count — load more for the full data range.
+                                    {elementStatsLoading
+                                        ? `Showing the top ${loadedElementStatsCount.toLocaleString()} element groups by click count — loading the rest automatically…`
+                                        : `Showing the top ${loadedElementStatsCount.toLocaleString()} element groups by click count — load more for the full data range.`}
                                 </div>
                             )}
                             <div className="flex flex-col w-full h-full">

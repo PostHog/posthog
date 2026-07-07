@@ -32,7 +32,7 @@ use crate::producer::{
 };
 use crate::stage1::key::Stage1Key;
 use crate::stage1::transition::LeafTransition;
-use crate::store::{CohortStore, PendingTransferKey};
+use crate::store::{PendingTransferKey, StoreHandle};
 use crate::sweep::EvictionQueue;
 use crate::workers::stage2_path::compose_stage2;
 use crate::workers::worker::{
@@ -142,7 +142,7 @@ impl MergeWorkerDeps {
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle_merge(
     partition_id: u16,
-    store: &CohortStore,
+    handle: &StoreHandle,
     catalog: &CatalogHandle,
     sink: &Arc<dyn MembershipSink>,
     merge: &MergeWorkerDeps,
@@ -153,8 +153,42 @@ pub(crate) async fn handle_merge(
 ) {
     let msg_coords = (partition_id as i32, offset);
 
-    // Drain against empty filters when the team is absent to avoid wedging.
-    let snapshot = catalog.load();
+    // One snapshot serves both resolutions below; `filters` falls back to empty when the team is
+    // absent, so the drain never wedges on an unknown team.
+    let snapshot = catalog.load_full();
+
+    // The whole drain state machine runs as one sync section on the blocking pool with owned inputs.
+    let section = {
+        let snapshot = snapshot.clone();
+        let event_owned = event.clone();
+        let partition_count = merge.partition_count;
+        handle
+            .run_section("merge_drain", move |store| {
+                let fallback: TeamFilters;
+                let filters: &TeamFilters = match snapshot.team(TeamId(event_owned.team_id)) {
+                    Some(team) => team,
+                    None => {
+                        fallback = empty_team_filters();
+                        &fallback
+                    }
+                };
+                // Timed inside the section so the histogram keeps measuring drain execution only;
+                // permit and pool-queue waits are on `store_offload_*{op="merge_drain"}`.
+                let started = Instant::now();
+                let outcome = handle_merge_event(
+                    partition_id,
+                    store,
+                    filters,
+                    &event_owned,
+                    msg_coords,
+                    partition_count,
+                );
+                histogram!(MERGE_DRAIN_DURATION_SECONDS).record(started.elapsed().as_secs_f64());
+                outcome
+            })
+            .await
+    };
+
     let fallback: TeamFilters;
     let filters: &TeamFilters = match snapshot.team(TeamId(event.team_id)) {
         Some(team) => team,
@@ -164,17 +198,20 @@ pub(crate) async fn handle_merge(
         }
     };
 
-    let started = Instant::now();
-    let outcome = handle_merge_event(
-        partition_id,
-        store,
-        filters,
-        event,
-        msg_coords,
-        queue,
-        merge.partition_count,
-    );
-    histogram!(MERGE_DRAIN_DURATION_SECONDS).record(started.elapsed().as_secs_f64());
+    // The section is only `Err` on teardown cancellation; hold the offset so the next tenure's
+    // redelivery resolves the merge.
+    let outcome = match section {
+        Ok(outcome) => outcome,
+        Err(_cancelled) => {
+            warn!(
+                partition_id,
+                team_id = event.team_id,
+                "merge drain offloaded section cancelled by shutdown; holding the merge offset for redelivery",
+            );
+            hold(&merge.merge_tracker, partition_id, offset);
+            return;
+        }
+    };
 
     let pending_key = PendingTransferKey {
         partition_id,
@@ -182,10 +219,15 @@ pub(crate) async fn handle_merge(
         old_person: event.old_person_uuid,
     };
     match outcome {
-        Ok(DrainOutcome::FastPath { transitions }) => {
+        Ok(DrainOutcome::FastPath {
+            transitions,
+            effects,
+        }) => {
+            // The drain's atomic write has committed; sync the queue before any produce.
+            effects.apply_to(queue);
             produce_merge_transitions(
                 partition_id,
-                store,
+                handle,
                 sink,
                 merge,
                 filters,
@@ -197,52 +239,55 @@ pub(crate) async fn handle_merge(
             .await;
             mark_processed(&merge.merge_tracker, partition_id, offset);
         }
-        Ok(DrainOutcome::Drained { transfer }) => {
+        Ok(DrainOutcome::Drained { transfer, effects }) => {
+            effects.apply_to(queue);
             if transfer.leaves.is_empty() {
                 counter!(MERGE_TRANSFERS_SKIPPED_EMPTY_TOTAL).increment(1);
                 mark_processed(&merge.merge_tracker, partition_id, offset);
                 return;
             }
-            produce_and_settle(partition_id, store, merge, &transfer, &pending_key, offset).await;
+            produce_and_settle(partition_id, handle, merge, &transfer, &pending_key, offset).await;
         }
-        Ok(DrainOutcome::AlreadyDrained) => match store.get_pending_transfer(&pending_key) {
-            Ok(None) => mark_processed(&merge.merge_tracker, partition_id, offset),
-            Ok(Some(bytes)) => match PendingTransfer::decode(&bytes) {
-                Ok(pending) => {
-                    produce_and_settle(
-                        partition_id,
-                        store,
-                        merge,
-                        &pending.transfer,
-                        &pending_key,
-                        offset,
-                    )
-                    .await;
-                }
+        Ok(DrainOutcome::AlreadyDrained) => {
+            match handle.get_pending_transfer(&pending_key).await {
+                Ok(None) => mark_processed(&merge.merge_tracker, partition_id, offset),
+                Ok(Some(bytes)) => match PendingTransfer::decode(&bytes) {
+                    Ok(pending) => {
+                        produce_and_settle(
+                            partition_id,
+                            handle,
+                            merge,
+                            &pending.transfer,
+                            &pending_key,
+                            offset,
+                        )
+                        .await;
+                    }
+                    Err(error) => {
+                        warn!(
+                            partition_id,
+                            team_id = event.team_id,
+                            old_person = %event.old_person_uuid,
+                            error = %error,
+                            "pending transfer failed to decode; committing past it (entry left for the redrive to surface)",
+                        );
+                        mark_processed(&merge.merge_tracker, partition_id, offset);
+                    }
+                },
                 Err(error) => {
+                    // Category A: the outbox read itself failed, so we cannot re-produce the staged
+                    // transfer this pass and have no other handle on it — a sticky hold redelivers the
+                    // merge so a later pass (or the next tenure) can resolve it.
                     warn!(
                         partition_id,
                         team_id = event.team_id,
-                        old_person = %event.old_person_uuid,
                         error = %error,
-                        "pending transfer failed to decode; committing past it (entry left for the redrive to surface)",
+                        "pending transfer read failed; holding the merge offset for redelivery",
                     );
-                    mark_processed(&merge.merge_tracker, partition_id, offset);
+                    hold(&merge.merge_tracker, partition_id, offset);
                 }
-            },
-            Err(error) => {
-                // Category A: the outbox read itself failed, so we cannot re-produce the staged
-                // transfer this pass and have no other handle on it — a sticky hold redelivers the
-                // merge so a later pass (or the next tenure) can resolve it.
-                warn!(
-                    partition_id,
-                    team_id = event.team_id,
-                    error = %error,
-                    "pending transfer read failed; holding the merge offset for redelivery",
-                );
-                hold(&merge.merge_tracker, partition_id, offset);
             }
-        },
+        }
         Ok(DrainOutcome::Skipped(_)) => {
             mark_processed(&merge.merge_tracker, partition_id, offset);
         }
@@ -266,7 +311,7 @@ pub(crate) async fn handle_merge(
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle_apply(
     partition_id: u16,
-    store: &CohortStore,
+    handle: &StoreHandle,
     catalog: &CatalogHandle,
     sink: &Arc<dyn MembershipSink>,
     merge: &MergeWorkerDeps,
@@ -277,7 +322,40 @@ pub(crate) async fn handle_apply(
 ) {
     let transfer_coords = (partition_id as i32, offset);
 
-    let snapshot = catalog.load();
+    let snapshot = catalog.load_full();
+
+    // The whole apply state machine runs as one sync section on the blocking pool with owned inputs.
+    let section = {
+        let snapshot = snapshot.clone();
+        let transfer_owned = transfer.clone();
+        let partition_count = merge.partition_count;
+        handle
+            .run_section("merge_apply", move |store| {
+                let fallback: TeamFilters;
+                let filters: &TeamFilters = match snapshot.team(TeamId(transfer_owned.team_id)) {
+                    Some(team) => team,
+                    None => {
+                        fallback = empty_team_filters();
+                        &fallback
+                    }
+                };
+                // Timed inside the section so the histogram keeps measuring apply execution only;
+                // permit and pool-queue waits are on `store_offload_*{op="merge_apply"}`.
+                let started = Instant::now();
+                let outcome = handle_transfer(
+                    partition_id,
+                    store,
+                    filters,
+                    &transfer_owned,
+                    transfer_coords,
+                    partition_count,
+                );
+                histogram!(MERGE_APPLY_DURATION_SECONDS).record(started.elapsed().as_secs_f64());
+                outcome
+            })
+            .await
+    };
+
     let fallback: TeamFilters;
     let filters: &TeamFilters = match snapshot.team(TeamId(transfer.team_id)) {
         Some(team) => team,
@@ -287,23 +365,29 @@ pub(crate) async fn handle_apply(
         }
     };
 
-    let started = Instant::now();
-    let outcome = handle_transfer(
-        partition_id,
-        store,
-        filters,
-        transfer,
-        transfer_coords,
-        queue,
-        merge.partition_count,
-    );
-    histogram!(MERGE_APPLY_DURATION_SECONDS).record(started.elapsed().as_secs_f64());
+    let outcome = match section {
+        Ok(outcome) => outcome,
+        Err(_cancelled) => {
+            warn!(
+                partition_id,
+                team_id = transfer.team_id,
+                "transfer apply offloaded section cancelled by shutdown; holding the transfer offset for redelivery",
+            );
+            hold(&merge.transfer_tracker, partition_id, offset);
+            return;
+        }
+    };
 
     match outcome {
-        Ok(ApplyOutcome::Applied { transitions }) => {
+        Ok(ApplyOutcome::Applied {
+            transitions,
+            effects,
+        }) => {
+            // The apply's atomic write has committed; sync the queue before any produce.
+            effects.apply_to(queue);
             produce_merge_transitions(
                 partition_id,
-                store,
+                handle,
                 sink,
                 merge,
                 filters,
@@ -385,21 +469,25 @@ const SCAN_PENDING_TRANSFERS_LIMIT: usize = REDRIVE_MAX_ATTEMPTS_PER_TICK * 8;
 
 pub(crate) async fn handle_redrive(
     partition_id: u16,
-    store: &CohortStore,
+    handle: &StoreHandle,
     merge: &MergeWorkerDeps,
 ) {
-    let entries =
-        match store.scan_pending_transfers(partition_id, None, SCAN_PENDING_TRANSFERS_LIMIT) {
-            Ok(entries) => entries,
-            Err(error) => {
-                warn!(
-                    partition_id,
-                    error = %error,
-                    "pending-transfer redrive scan failed; retrying next tick",
-                );
-                return;
-            }
-        };
+    // Per-op through the facade, not one section: each produce interleaves with a store clear, and a
+    // section would serialize the whole tick's Kafka round-trips on one blocking thread.
+    let entries = match handle
+        .scan_pending_transfers(partition_id, None, SCAN_PENDING_TRANSFERS_LIMIT)
+        .await
+    {
+        Ok(entries) => entries,
+        Err(error) => {
+            warn!(
+                partition_id,
+                error = %error,
+                "pending-transfer redrive scan failed; retrying next tick",
+            );
+            return;
+        }
+    };
     // Saturates at the scan limit, so this reflects `min(backlog, SCAN_PENDING_TRANSFERS_LIMIT)` — it
     // still distinguishes an empty outbox from a backed-up one, just not the exact backlog depth.
     gauge!(MERGE_PENDING_TRANSFERS_GAUGE, "partition" => partition_id.to_string())
@@ -440,7 +528,7 @@ pub(crate) async fn handle_redrive(
             );
             continue;
         }
-        if let Err(error) = store.clear_pending_transfer(&key) {
+        if let Err(error) = handle.clear_pending_transfer(&key).await {
             counter!(MERGE_OUTBOX_CLEAR_FAILURE_TOTAL).increment(1);
             warn!(
                 partition_id,
@@ -458,7 +546,7 @@ pub(crate) async fn handle_redrive(
 /// Produce `transfer` with inline retry; on ack clear its outbox slot and mark the merge offset.
 async fn produce_and_settle(
     partition_id: u16,
-    store: &CohortStore,
+    handle: &StoreHandle,
     merge: &MergeWorkerDeps,
     transfer: &MergeStateTransfer,
     pending_key: &PendingTransferKey,
@@ -481,7 +569,7 @@ async fn produce_and_settle(
         );
         return;
     }
-    if let Err(error) = store.clear_pending_transfer(pending_key) {
+    if let Err(error) = handle.clear_pending_transfer(pending_key).await {
         counter!(MERGE_OUTBOX_CLEAR_FAILURE_TOTAL).increment(1);
         warn!(
             partition_id,
@@ -525,7 +613,7 @@ async fn produce_transfer_with_retry(
 #[allow(clippy::too_many_arguments)]
 async fn produce_merge_transitions(
     partition_id: u16,
-    store: &CohortStore,
+    handle: &StoreHandle,
     sink: &Arc<dyn MembershipSink>,
     merge: &MergeWorkerDeps,
     filters: &TeamFilters,
@@ -546,12 +634,14 @@ async fn produce_merge_transitions(
     }
     match compose_stage2(
         partition_id,
-        store,
+        handle,
         filters,
         transitions,
         merged_at_ms,
         last_updated,
-    ) {
+    )
+    .await
+    {
         Ok(stage2_changes) => changes.extend(stage2_changes),
         Err(error) => warn!(
             partition_id,
@@ -613,6 +703,9 @@ fn empty_team_filters() -> TeamFilters {
 }
 
 #[cfg(test)]
+// Tests seed and assert against `CohortStore` directly while driving `handle_redrive` through the
+// `StoreHandle` facade.
+#[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
     use envconfig::Envconfig;
@@ -622,7 +715,19 @@ mod tests {
     use crate::merge::transfer::TransferLeaf;
     use crate::stage1::key::LeafStateKey;
     use crate::stage1::state::{AppliedOffsets, Stage1State, StatefulRecord};
-    use crate::store::StoreConfig;
+    use crate::store::{CohortStore, OffloadConfig, OffloadMode, StoreConfig};
+
+    /// Wrap a test store in the `All` operating point so `handle_redrive` runs on the blocking pool.
+    fn handle(store: &CohortStore) -> StoreHandle {
+        StoreHandle::new(
+            store.clone(),
+            OffloadConfig {
+                mode: OffloadMode::All,
+                event_read_permits: 16,
+                maintenance_permits: 6,
+            },
+        )
+    }
 
     #[test]
     fn default_retry_policy_budget() {
@@ -815,7 +920,7 @@ mod tests {
         deps.merge_tracker
             .mark_dispatched(REDRIVE_PARTITION as i32, 42);
 
-        handle_redrive(REDRIVE_PARTITION, &store, &deps).await;
+        handle_redrive(REDRIVE_PARTITION, &handle(&store), &deps).await;
 
         assert_eq!(sink.transfers(), vec![pending.transfer]);
         assert!(
@@ -842,7 +947,7 @@ mod tests {
         deps.merge_tracker
             .mark_dispatched(REDRIVE_PARTITION as i32, 42);
 
-        handle_redrive(REDRIVE_PARTITION, &store, &deps).await;
+        handle_redrive(REDRIVE_PARTITION, &handle(&store), &deps).await;
         assert!(sink.transfers().is_empty());
         assert!(store.get_pending_transfer(&key).unwrap().is_some());
         assert!(
@@ -850,7 +955,7 @@ mod tests {
             "a failed redrive marks nothing",
         );
 
-        handle_redrive(REDRIVE_PARTITION, &store, &deps).await;
+        handle_redrive(REDRIVE_PARTITION, &handle(&store), &deps).await;
         assert_eq!(sink.transfers(), vec![pending.transfer]);
         assert!(store.get_pending_transfer(&key).unwrap().is_none());
         assert_eq!(
@@ -871,7 +976,7 @@ mod tests {
             .mark_dispatched(REDRIVE_PARTITION as i32, 42);
 
         let before = tokio::time::Instant::now();
-        handle_redrive(REDRIVE_PARTITION, &store, &deps).await;
+        handle_redrive(REDRIVE_PARTITION, &handle(&store), &deps).await;
 
         assert_eq!(
             tokio::time::Instant::now() - before,
@@ -898,7 +1003,7 @@ mod tests {
         deps.merge_tracker
             .mark_dispatched(REDRIVE_PARTITION as i32, 42);
 
-        handle_redrive(REDRIVE_PARTITION, &store, &deps).await;
+        handle_redrive(REDRIVE_PARTITION, &handle(&store), &deps).await;
 
         assert_eq!(
             sink.transfers(),
@@ -929,7 +1034,7 @@ mod tests {
         deps.merge_tracker
             .mark_dispatched(REDRIVE_PARTITION as i32, 41 + backlog as i64);
 
-        handle_redrive(REDRIVE_PARTITION, &store, &deps).await;
+        handle_redrive(REDRIVE_PARTITION, &handle(&store), &deps).await;
         assert_eq!(
             sink.transfers().len(),
             REDRIVE_MAX_ATTEMPTS_PER_TICK,
@@ -945,7 +1050,7 @@ mod tests {
             );
         }
 
-        handle_redrive(REDRIVE_PARTITION, &store, &deps).await;
+        handle_redrive(REDRIVE_PARTITION, &handle(&store), &deps).await;
         assert_eq!(
             sink.transfers().len(),
             backlog,

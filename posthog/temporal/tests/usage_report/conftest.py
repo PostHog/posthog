@@ -45,6 +45,7 @@ def minio_workflow_ctx() -> Iterator[WorkflowContext]:
     """A `WorkflowContext` whose run-prefix gets nuked from MinIO at teardown."""
     ctx = WorkflowContext(
         run_id=f"test-{uuid.uuid4().hex[:12]}",
+        workflow_started_at=datetime(2026, 5, 5, 1, 45, 0, tzinfo=UTC),
         period_start=datetime(2026, 5, 4, 0, 0, 0, tzinfo=UTC),
         period_end=datetime(2026, 5, 4, 23, 59, 59, 999999, tzinfo=UTC),
         date_str=f"test-{uuid.uuid4().hex[:8]}",

@@ -33,12 +33,13 @@ export const TasksListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             "Filter by archived state. Defaults to excluding archived tasks. Use 'true' to list only archived tasks, 'false' for the default, or 'all' to include both.\n\n* `true` - true\n* `false` - false\n* `all` - all"
         ),
+    channel: zod.string().optional().describe("Filter tasks to a channel's feed."),
     created_by: zod.number().optional().describe('Filter by creator user ID'),
     internal: zod
         .enum(['true', 'false', 'all'])
         .optional()
         .describe(
-            "Filter by the internal flag, which controls whether a task is shown by default, not whether it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal and user-facing tasks (available to any team member; access stays governed by task visibility). 'true' lists only internal tasks and is a staff/debug view.\n\n* `true` - true\n* `false` - false\n* `all` - all"
+            "Filter by the internal flag, which controls whether a task is shown by default, not whether it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal and user-facing tasks, or 'true' to list only internal tasks. All values are available to any team member; access stays governed by task visibility.\n\n* `true` - true\n* `false` - false\n* `all` - all"
         ),
     limit: zod
         .number()

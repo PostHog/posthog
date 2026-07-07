@@ -21,9 +21,15 @@ from products.data_modeling.backend.facade.models import (
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
 )
-from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
-from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
-from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSchema,
+    ExternalDataSource,
+    WarehouseColumnAnnotation,
+    WarehouseColumnStatistics,
+)
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 def _field(name: str) -> ast.Field:
@@ -134,9 +140,7 @@ class TestWarehouseMetadata(APIBaseTest):
         # rather than being clobbered by a dead row's stale value (which is what `.objects` returned).
         self._table("orders", 100)
         self._table("orders", 5, deleted=True)
-        _descriptions, row_counts, _view_row_counts, _column_stats, _view_descriptions = _warehouse_metadata(
-            self.team.id
-        )
+        row_counts, _view_row_counts, _column_stats = _warehouse_metadata(self.team.id)
         assert row_counts["orders"] == 100
 
     def test_view_row_count_comes_from_the_backing_table(self):
@@ -144,9 +148,7 @@ class TestWarehouseMetadata(APIBaseTest):
         DataWarehouseSavedQuery.objects.create(
             team=self.team, name="orders_view", query={"query": "SELECT 1"}, columns={}, table=backing
         )
-        _descriptions, _row_counts, view_row_counts, _column_stats, _view_descriptions = _warehouse_metadata(
-            self.team.id
-        )
+        _row_counts, view_row_counts, _column_stats = _warehouse_metadata(self.team.id)
         assert view_row_counts["orders_view"] == 42
 
     def test_metadata_does_not_leak_other_teams_row_counts(self):
@@ -155,57 +157,8 @@ class TestWarehouseMetadata(APIBaseTest):
         other_team = Team.objects.create(organization=self.organization, name="other")
         self._table("shared", 999, team=other_team)
         self._table("shared", 7)
-        _descriptions, row_counts, _view_row_counts, _column_stats, _view_descriptions = _warehouse_metadata(
-            self.team.id
-        )
+        row_counts, _view_row_counts, _column_stats = _warehouse_metadata(self.team.id)
         assert row_counts["shared"] == 7
-
-    def test_metadata_does_not_leak_other_teams_view_descriptions(self):
-        # View annotations are team-scoped via TeamScopedManager; lock that in so a future switch to
-        # `.unscoped()` (or an explicit cross-team fetch) can't leak another team's view descriptions
-        # into this team's catalog, which the AI reads.
-        other_team = Team.objects.create(organization=self.organization, name="other")
-        other_view = DataWarehouseSavedQuery.objects.create(
-            team=other_team, name="orders_view", query={"query": "SELECT 1"}, columns={}
-        )
-        with team_scope(other_team.id, canonical=True):
-            DataWarehouseSavedQueryColumnAnnotation.objects.create(
-                team=other_team,
-                saved_query=other_view,
-                column_name="",
-                description="Other team's private view.",
-                description_source=DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.USER_EDITED,
-            )
-        _descriptions, _row_counts, _view_row_counts, _column_stats, view_descriptions = _warehouse_metadata(
-            self.team.id
-        )
-        assert view_descriptions == {}
-
-    def test_descriptions_are_keyed_by_table_id_not_name(self):
-        # A synced table's catalog name (source-prefixed) differs from its model name, so descriptions
-        # must key by table UUID — keying by name silently dropped every annotation in production.
-        table = self._table("orders", 100)
-        with team_scope(self.team.id, canonical=True):
-            WarehouseColumnAnnotation.objects.create(
-                team=self.team,
-                table=table,
-                column_name="",
-                description="All orders placed by customers.",
-                description_source=WarehouseColumnAnnotation.DescriptionSource.CANONICAL,
-            )
-            WarehouseColumnAnnotation.objects.create(
-                team=self.team,
-                table=table,
-                column_name="id",
-                description="Unique order identifier.",
-                description_source=WarehouseColumnAnnotation.DescriptionSource.USER_EDITED,
-            )
-        descriptions, _row_counts, _view_row_counts, _column_stats, _view_descriptions = _warehouse_metadata(
-            self.team.id
-        )
-        assert descriptions[(str(table.id), "")] == "All orders placed by customers."
-        assert descriptions[(str(table.id), "id")] == "Unique order identifier."
-        assert ("orders", "") not in descriptions
 
 
 class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
@@ -403,6 +356,25 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
             or []
         )
         assert columns[0][0] == "Stripe charge identifier (ch_...)."
+
+    def test_warehouse_source_native_table_description_appears(self):
+        table = self._create_warehouse_table()
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            source=source,
+            name=table.name,
+            table=table,
+            description="Charges imported from Stripe via the Postgres sync.",
+        )
+        tables = (
+            execute_hogql_query(
+                "SELECT description FROM system.information_schema.tables WHERE table_name = 'stripe_charges'",
+                team=self.team,
+            ).results
+            or []
+        )
+        assert tables[0][0] == "Charges imported from Stripe via the Postgres sync."
 
     def test_warehouse_column_statistics_are_merged(self):
         # Per-column profiling stats are surfaced on information_schema.columns for warehouse tables,

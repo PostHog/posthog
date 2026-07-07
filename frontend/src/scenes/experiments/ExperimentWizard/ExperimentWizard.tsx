@@ -103,7 +103,7 @@ export function ExperimentWizard(): JSX.Element {
     )
 
     return (
-        <div className="min-h-screen bg-bg-light">
+        <div className="flex-1 bg-bg-light">
             <div className={cn('mx-auto px-6 py-6 space-y-6', showGuide ? 'max-w-5xl' : 'max-w-3xl')}>
                 {header}
 

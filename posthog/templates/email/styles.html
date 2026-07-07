@@ -1,9 +1,44 @@
+{% load posthog_assets %}
 <style type="text/css">
+    /* Brand font. The @font-face survives CSS inlining via keep_at_rules=True (see posthog/email.py);
+       mail clients that strip @font-face fall back to the stack declared on `body` below. */
+    @font-face {
+        font-family: 'RoundHog';
+        font-style: normal;
+        font-weight: 800;
+        src: url("{% absolute_asset_url 'RoundHog-Bold.woff2' %}") format('woff2');
+        font-display: swap;
+    }
+
+    @font-face {
+        font-family: 'RoundHog';
+        font-style: normal;
+        font-weight: 700;
+        src: url("{% absolute_asset_url 'RoundHog-SemiBold.woff2' %}") format('woff2');
+        font-display: swap;
+    }
+
+    @font-face {
+        font-family: 'RoundHog';
+        font-style: normal;
+        font-weight: 500;
+        src: url("{% absolute_asset_url 'RoundHog-Medium.woff2' %}") format('woff2');
+        font-display: swap;
+    }
+
+    @font-face {
+        font-family: 'RoundHog';
+        font-style: normal;
+        font-weight: 400;
+        src: url("{% absolute_asset_url 'RoundHog.woff2' %}") format('woff2');
+        font-display: swap;
+    }
+
     /* Main containers */
     body,
     .main {
         width: 100%;
-        font-family: 'MatterSQ', 'Helvetica Neue', helvetica, sans-serif;
+        font-family: 'RoundHog', 'Helvetica Neue', helvetica, sans-serif;
         padding: 0;
         margin: 0;
         color: #2d2d2d;

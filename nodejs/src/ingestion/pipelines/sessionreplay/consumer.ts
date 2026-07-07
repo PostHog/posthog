@@ -14,7 +14,7 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { IngestionConsumerConfig } from '~/ingestion/config'
-import { BatchPipelineUnwrapper } from '~/ingestion/framework/batch-pipeline-unwrapper'
+import { BatchPipeline } from '~/ingestion/framework/batch-pipeline.interface'
 import { TopHog } from '~/ingestion/framework/tophog/tophog'
 import {
     SessionReplayPipelineConfig,
@@ -66,9 +66,10 @@ export type SessionRecordingIngesterConfig = SessionRecordingConfig &
 /** Builds the session replay pipeline for a deployment (default or ML mirror). */
 export type SessionReplayPipelineFactory = (
     config: SessionReplayPipelineConfig
-) => BatchPipelineUnwrapper<
+) => BatchPipeline<
     SessionReplayPipelineInput,
     SessionReplayPipelineOutput,
+    { message: Message },
     { message: Message },
     OverflowOutput
 >
@@ -97,13 +98,15 @@ export class SessionRecordingIngester {
     private readonly redisPool: RedisPool
     private readonly restrictionRedisPool: RedisPool
     private readonly teamService: TeamService
+    private readonly retentionService: RetentionService
     private readonly fileStorage: SessionBatchFileStorage
     private readonly eventIngestionRestrictionManagerComponent: EventIngestionRestrictionManagerComponent
     private eventIngestionRestrictionManager!: EventIngestionRestrictionManager
     private stopEventIngestionRestrictionManager?: () => Promise<void>
-    private sessionReplayPipeline!: BatchPipelineUnwrapper<
+    private sessionReplayPipeline!: BatchPipeline<
         SessionReplayPipelineInput,
         SessionReplayPipelineOutput,
+        { message: Message },
         { message: Message },
         OverflowOutput
     >
@@ -171,7 +174,7 @@ export class SessionRecordingIngester {
             { pipeline: 'session_recordings' }
         )
 
-        const retentionService = new RetentionService(this.redisPool, this.teamService)
+        this.retentionService = new RetentionService(this.redisPool, this.teamService)
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
         this.createPipeline = collaborators.createPipeline ?? createSessionReplayPipeline
@@ -191,8 +194,7 @@ export class SessionRecordingIngester {
                       s3Client,
                       this.config.SESSION_RECORDING_V2_S3_BUCKET,
                       this.config.SESSION_RECORDING_V2_S3_PREFIX,
-                      this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS,
-                      retentionService
+                      this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS
                   )
                 : new BlackholeSessionBatchFileStorage())
 
@@ -213,7 +215,7 @@ export class SessionRecordingIngester {
         this.keyStore =
             collaborators.keyStore ??
             new MemoryCachedKeyStore(
-                getKeyStore(retentionService, region, {
+                getKeyStore(region, {
                     kmsEndpoint: config.SESSION_RECORDING_KMS_ENDPOINT,
                     dynamoDBEndpoint: config.SESSION_RECORDING_DYNAMODB_ENDPOINT,
                 })
@@ -276,13 +278,21 @@ export class SessionRecordingIngester {
         SessionRecordingIngesterMetrics.observeKafkaBatchSizeKb(batchSizeKb)
 
         // Run messages through the pipeline (handles restrictions, parsing, team filtering, and recording)
-        await instrumentFn(`recordingingesterv2.handleEachBatch.runPipeline`, async () =>
+        // and track the highest offset reached per partition — the single place Kafka progress is tracked.
+        const offsets = await instrumentFn(`recordingingesterv2.handleEachBatch.runPipeline`, async () =>
             runSessionReplayPipeline(this.sessionReplayPipeline, messages)
         )
+        this.sessionBatchManager.trackProcessedOffsets(offsets)
 
         this.kafkaConsumer.heartbeat()
 
         if (this.sessionBatchManager.shouldFlush()) {
+            // The pipeline schedules its side effects (DLQ and overflow produces) fire-and-forget on
+            // the promise scheduler. Drain them before flushing so we never commit a message's offset
+            // before its produce is durable — otherwise a crash in that window would lose it.
+            await instrumentFn(`recordingingesterv2.handleEachBatch.flush.awaitSideEffects`, async () => {
+                await this.promiseScheduler.waitForAllSettled()
+            })
             await instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () =>
                 this.sessionBatchManager.flush()
             )
@@ -307,6 +317,7 @@ export class SessionRecordingIngester {
             overflowEnabled: this.overflowEnabled(),
             promiseScheduler: this.promiseScheduler,
             teamService: this.teamService,
+            retentionService: this.retentionService,
             topHog: this.topHog,
             sessionBatchManager: this.sessionBatchManager,
             isDebugLoggingEnabled: this.isDebugLoggingEnabled,

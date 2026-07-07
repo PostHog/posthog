@@ -58,8 +58,10 @@ class ExperimentExposuresQueryRunner(QueryRunner):
     query: ExperimentExposureQuery
     cached_response: CachedExperimentExposureQueryResponse
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, error_event_context: str | None = "ui", **kwargs):
         super().__init__(*args, **kwargs)
+        # See ExperimentQueryRunner.__init__ — tags the terminal error event; None = silent.
+        self.error_event_context = error_event_context
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")

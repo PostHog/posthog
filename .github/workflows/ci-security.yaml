@@ -44,7 +44,7 @@ jobs:
                       --config "p/owasp-top-ten" \
                       --config "p/security-audit" \
                       --config "p/trailofbits" \
-                      --config ".semgrep/rules" \
+                      --config ".semgrep/rules/security" \
                       --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport \
                       --exclude-rule "python.django.security.audit.csrf-exempt.no-csrf-exempt" \
                       --exclude-rule "generic.html-templates.security.var-in-href.var-in-href" \
@@ -156,7 +156,7 @@ jobs:
                     -e SEMGREP_ENABLE_VERSION_CHECK=false \
                     ${{ env.SEMGREP_IMAGE }} \
                     semgrep \
-                      --config ".semgrep/rules/" \
+                      --config ".semgrep/rules/security" \
                       --config "p/javascript" \
                       --config "p/owasp-top-ten" \
                       --config "p/security-audit" \
@@ -196,7 +196,7 @@ jobs:
                     -e SEMGREP_ENABLE_VERSION_CHECK=false \
                     ${{ env.SEMGREP_IMAGE }} \
                     semgrep \
-                      --config ".semgrep/rules/prefer-codegen-api.yaml" \
+                      --config ".semgrep/rules/security/prefer-codegen-api.yaml" \
                       --error \
                       --metrics=off \
                       --verbose \
@@ -259,7 +259,7 @@ jobs:
     #   - WARNING-severity rules print findings without failing the job
     #     (used while migrating away from a pattern with a known backlog).
     #   - ERROR-severity rules fail the job on any finding (regression guards).
-    # See `.semgrep/devex-rules/README.md`.
+    # See `.semgrep/rules/devex/README.md`.
     semgrep-devex:
         runs-on: ubuntu-latest
         timeout-minutes: 20
@@ -288,12 +288,12 @@ jobs:
                     -e SEMGREP_ENABLE_VERSION_CHECK=false \
                     ${{ env.SEMGREP_IMAGE }} \
                     semgrep \
-                      --config ".semgrep/devex-rules/" \
+                      --config ".semgrep/rules/devex/" \
                       --severity=WARNING \
                       --metrics=off \
                       --verbose \
                       --timeout 300 \
-                      bin/ common/ ee/ frontend/ posthog/ products/
+                      bin/ common/ ee/ frontend/ packages/ posthog/ products/
 
             # Pass 2: enforce ERROR-severity rules. Any finding fails the
             # job — regression guards live here.
@@ -303,13 +303,13 @@ jobs:
                     -e SEMGREP_ENABLE_VERSION_CHECK=false \
                     ${{ env.SEMGREP_IMAGE }} \
                     semgrep \
-                      --config ".semgrep/devex-rules/" \
+                      --config ".semgrep/rules/devex/" \
                       --severity=ERROR \
                       --error \
                       --metrics=off \
                       --verbose \
                       --timeout 300 \
-                      bin/ common/ ee/ frontend/ posthog/ products/
+                      bin/ common/ ee/ frontend/ packages/ posthog/ products/
 
     semgrep-test-rules:
         runs-on: ubuntu-latest

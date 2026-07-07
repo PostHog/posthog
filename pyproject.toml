@@ -63,11 +63,12 @@ dependencies = [
     "google-cloud-bigquery-storage==2.32.0",
     "google-cloud-iam==2.21",
     "google-genai==1.46.0",
+    "granian[uvloop,reload,pname]==2.7.6",
     "grimp~=3.14",
     "grpcio~=1.71.0",
     "gspread==6.2.1",
-    "hogql-parser==1.3.75",
-    "hogql-parser-rs==1.3.104",  # built from rust/hogql/parser via the build-hogql-parser-rs workflow + published to PyPI; rebuild locally with `uv pip install -e rust/hogql/parser` when iterating
+    "hogql-parser==1.3.77",
+    "hogql-parser-rs==1.3.106",  # built from rust/hogql/parser via the build-hogql-parser-rs workflow + published to PyPI; rebuild locally with `uv pip install -e rust/hogql/parser` when iterating
     "humanize~=4.12.3",
     "infi-clickhouse-orm",
     "jsonref==1.1.0",
@@ -210,7 +211,6 @@ dev = [
     "braintrust==0.2.4",
     "braintrust-langchain==0.0.4",
     "dagster-dg-cli~=1.10.18",
-    "granian[uvloop,reload,pname]==2.7.6",
     "datamodel-code-generator~=0.36.0",
     "debugpy~=1.8.0",
     "import-linter~=2.11",
@@ -509,7 +509,6 @@ ignore_imports = [
     # Allowed: presentation can import facade and itself
     "products.**.backend.presentation.** -> products.**.backend.facade.**",
     "products.**.backend.presentation.** -> products.**.backend.presentation.**",
-    # data_modeling — presentation wave deferred (views routed through the facade in a follow-up)
     # TODO: existing violations — fix by routing through facade
     "products.agent_platform.backend.presentation.serializers -> products.agent_platform.backend.models",
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.db",
@@ -564,19 +563,6 @@ ignore_imports = [
     "products.logs.backend.presentation.views.api -> products.exports.backend.models.exported_asset",
     "products.logs.backend.presentation.views.alerts_api -> products.cdp.backend.api.hog_function",
     "products.logs.backend.presentation.views.alerts_api -> products.cdp.backend.models.hog_functions.hog_function",
-    # TODO: endpoints presentation wave — the structural move landed EndpointViewSet under
-    # presentation/views/ but it still reaches in-product internals (models, logic services,
-    # throttles, openapi generation) directly. Thin it to parse -> facade -> serialize and
-    # delete each entry. backend:contract-check stays off until this list is empty.
-    "products.endpoints.backend.presentation.views.api -> products.endpoints.backend.constants",
-    "products.endpoints.backend.presentation.views.api -> products.endpoints.backend.logs",
-    "products.endpoints.backend.presentation.views.api -> products.endpoints.backend.models",
-    "products.endpoints.backend.presentation.views.api -> products.endpoints.backend.openapi",
-    "products.endpoints.backend.presentation.views.api -> products.endpoints.backend.rate_limit",
-    "products.endpoints.backend.presentation.views.api -> products.endpoints.backend.logic.crud",
-    "products.endpoints.backend.presentation.views.api -> products.endpoints.backend.logic.execution",
-    "products.endpoints.backend.presentation.views.api -> products.endpoints.backend.logic.materialization",
-    "products.endpoints.backend.presentation.views.api -> products.endpoints.backend.logic.validation",
     # TODO: notebooks presentation wave — the moved NotebookViewSet still reaches in-product
     # internals (collab, kernel runtime, query validation, models) and the tasks sandbox
     # directly. Thin it to parse -> facade -> serialize and delete each entry.

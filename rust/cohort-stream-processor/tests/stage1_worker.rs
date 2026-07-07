@@ -7,6 +7,9 @@
 //! Parse-layer behaviors (globals shape, dropped/cohort-ref leaves, key derivation) are covered by
 //! the in-crate classifier / catalog tests, not duplicated here.
 
+// Tests seed and assert through `CohortStore` directly — the sanctioned direct-store test surface.
+#![allow(clippy::disallowed_methods)]
+
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -16,7 +19,7 @@ use cohort_stream_processor::consumers::CohortStreamEvent;
 use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFilters, TeamFiltersBuilder, TeamId,
 };
-use cohort_stream_processor::partitions::{OffsetTracker, ShuffleMessage};
+use cohort_stream_processor::partitions::{MeteredReceiver, OffsetTracker, ShuffleMessage};
 use cohort_stream_processor::producer::{CaptureSink, MembershipStatus};
 use cohort_stream_processor::stage1::bucket_tz::{day_idx_in_tz, start_of_day_ms_in_tz};
 use cohort_stream_processor::stage1::{
@@ -24,7 +27,8 @@ use cohort_stream_processor::stage1::{
     StatefulRecord, TransitionKind,
 };
 use cohort_stream_processor::store::{
-    CohortStore, LeafStateKey, PersonIndexKey, Stage1Key, StoreConfig,
+    CohortStore, LeafStateKey, OffloadConfig, OffloadMode, PersonIndexKey, Stage1Key, StoreConfig,
+    StoreHandle,
 };
 use cohort_stream_processor::workers::{process_event, MergeWorkerDeps, SkipReason, Stage1Worker};
 use serde_json::{json, Value};
@@ -48,6 +52,17 @@ fn temp_store() -> (TempDir, CohortStore) {
     };
     let store = CohortStore::open(&config).expect("open store");
     (dir, store)
+}
+
+fn test_handle(store: &CohortStore) -> StoreHandle {
+    StoreHandle::new(
+        store.clone(),
+        OffloadConfig {
+            mode: OffloadMode::All,
+            event_read_permits: 16,
+            maintenance_permits: 6,
+        },
+    )
 }
 
 /// Raise the dispatch ceiling *before* sending: `mark_processed` clamps a processed offset to what
@@ -403,6 +418,100 @@ fn c1_same_hash_two_windows_get_independent_state_and_deadlines() {
         .collect();
     after_replay.sort_unstable();
     assert_eq!(after_replay, advanced, "replay must not regress state");
+}
+
+/// The batched pre-event read under a mixed read set — stored rows `[present, corrupt, absent]`
+/// across one event's applies. Pins the alignment of `multi_get` slots to applies: a hole or a
+/// decode failure in one slot must not shift a neighbour's prior state or first-write bookkeeping.
+#[test]
+fn mixed_present_corrupt_absent_read_set_stays_aligned() {
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![
+        (CohortId(1), cohort(vec![behavioral_leaf(7)])),
+        (
+            CohortId(2),
+            cohort(vec![behavioral_leaf_multiple(7, "gte", 1)]),
+        ),
+        (CohortId(3), cohort(vec![person_leaf()])),
+    ]);
+    let lsks = &filters.by_condition_to_lsk[&BEHAVIORAL_HASH];
+    let single_lsk = *lsks
+        .iter()
+        .find(|lsk| filters.by_lsk[*lsk].variant == StateVariant::BehavioralSingle)
+        .unwrap();
+    let daily_lsk = *lsks
+        .iter()
+        .find(|lsk| filters.by_lsk[*lsk].variant == StateVariant::BehavioralDailyBuckets)
+        .unwrap();
+    let person_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+    let alice = person(1);
+
+    // Present: a member record whose last-event ts is NEWER than the incoming event — the folded
+    // result (max) can only come from the decoded prior, never from a first write.
+    let newer_ts = "2026-05-27 12:34:56.789000";
+    let newer_ms = clickhouse_timestamp_to_millis(newer_ts).unwrap();
+    let seeded = StatefulRecord::new(
+        Stage1State::BehavioralSingle {
+            has_match: true,
+            last_event_at_ms: newer_ms,
+            earliest_eviction_at_ms: start_of_day_ms_in_tz(
+                day_idx_in_tz(newer_ms, UTC) + 7 + 1,
+                UTC,
+            ),
+        },
+        AppliedOffsets::default(),
+    );
+    store
+        .write_batch(|batch| {
+            batch.put_stage1(&stage1_key(single_lsk, alice), &seeded.encode());
+            // Corrupt: undecodable bytes under the daily leaf's key. The person leaf stays absent.
+            batch.put_stage1(&stage1_key(daily_lsk, alice), b"not a record");
+        })
+        .unwrap();
+
+    let out = process_event(PARTITION_ID, &store, &filters, &event(alice, 1, 10)).unwrap();
+    assert_eq!(out.skipped, None);
+
+    // Only the absent slot first-writes: one Entered, one index append, both for exactly that leaf.
+    assert_eq!(out.transitions.len(), 1);
+    assert_eq!(out.transitions[0].leaf_state_key, person_lsk);
+    assert_eq!(out.transitions[0].kind, TransitionKind::Entered);
+    assert_eq!(
+        store.get_person_index(&person_index_key(alice)).unwrap(),
+        vec![person_lsk],
+    );
+    match state_at(&store, person_lsk, alice).unwrap() {
+        Stage1State::PersonProperty { matches, .. } => assert!(matches),
+        other => panic!("expected PersonProperty, got {other:?}"),
+    }
+
+    // The present slot folded the event into its decoded prior: the newer seeded ts survives the
+    // max, and the event's offset advanced the dedup high-water mark.
+    let record = record_at(&store, single_lsk, alice).unwrap();
+    match record.state {
+        Stage1State::BehavioralSingle {
+            has_match,
+            last_event_at_ms,
+            ..
+        } => {
+            assert!(has_match);
+            assert_eq!(
+                last_event_at_ms, newer_ms,
+                "prior state lost or misattributed",
+            );
+        }
+        other => panic!("expected BehavioralSingle, got {other:?}"),
+    }
+    assert_high_water(&record.applied_offsets, 1, 10);
+
+    // The corrupt slot is skipped, not written: the garbage stays in place.
+    assert_eq!(
+        store
+            .get_stage1(&stage1_key(daily_lsk, alice))
+            .unwrap()
+            .unwrap(),
+        b"not a record",
+    );
 }
 
 #[test]
@@ -951,10 +1060,11 @@ async fn spawned_worker_drains_a_batch_and_commits_state() {
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
+    let rx = MeteredReceiver::unmetered(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
-        store.clone(),
+        test_handle(&store),
         catalog,
         Arc::new(sink.clone()),
         tracker.clone(),
@@ -991,6 +1101,63 @@ async fn spawned_worker_drains_a_batch_and_commits_state() {
     );
 }
 
+/// The offloaded read for a second event must observe the first event's committed write: within one
+/// batch, a replay racing ahead of that commit would re-apply and emit a spurious second transition.
+#[tokio::test]
+async fn sub_batch_read_your_writes_survives_offload() {
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![(CohortId(1), cohort(vec![behavioral_leaf(7)]))]);
+    let behavioral_lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
+    let alice = person(1);
+
+    let catalog = catalog_of(filters);
+    let sink = CaptureSink::new();
+    let tracker = Arc::new(OffsetTracker::new());
+
+    let (tx, rx) = mpsc::channel(16);
+    let rx = MeteredReceiver::unmetered(rx);
+    let worker = Stage1Worker::spawn(
+        PARTITION_ID,
+        rx,
+        test_handle(&store),
+        catalog,
+        Arc::new(sink.clone()),
+        tracker.clone(),
+        MergeWorkerDeps::capture(),
+        false,
+    );
+
+    // Same source coordinates (5, 0) make the second event an exact replay of the first; shipping
+    // both in one batch forces the worker to process them back-to-back.
+    tracker.mark_dispatched(PARTITION_ID as i32, 1);
+    tx.send(vec![
+        ShuffleMessage::Event {
+            event: Box::new(event(alice, 5, 0)),
+            cse_offset: 0,
+        },
+        ShuffleMessage::Event {
+            event: Box::new(event(alice, 5, 0)),
+            cse_offset: 0,
+        },
+    ])
+    .await
+    .unwrap();
+    drop(tx);
+    worker.join().await.unwrap();
+
+    let changes = sink.changes();
+    assert_eq!(
+        changes.len(),
+        1,
+        "the replay in the same sub-batch must fold once, not twice (read-your-writes held)",
+    );
+    assert_eq!(changes[0].status, MembershipStatus::Entered);
+    assert!(
+        state_at(&store, behavioral_lsk, alice).is_some(),
+        "the single fold wrote the leaf state",
+    );
+}
+
 #[tokio::test]
 async fn spawned_worker_composes_two_leaf_cohort_and_emits_single_leaf_independently() {
     let (_dir, store) = temp_store();
@@ -1007,10 +1174,11 @@ async fn spawned_worker_composes_two_leaf_cohort_and_emits_single_leaf_independe
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
+    let rx = MeteredReceiver::unmetered(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
-        store.clone(),
+        test_handle(&store),
         catalog,
         Arc::new(sink.clone()),
         tracker.clone(),
@@ -1074,10 +1242,11 @@ async fn spawned_worker_skips_events_for_unknown_teams() {
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
+    let rx = MeteredReceiver::unmetered(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
-        store.clone(),
+        test_handle(&store),
         catalog,
         Arc::new(sink.clone()),
         tracker.clone(),
@@ -1125,10 +1294,11 @@ async fn worker_produces_changes_and_advances_offset() {
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
+    let rx = MeteredReceiver::unmetered(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
-        store.clone(),
+        test_handle(&store),
         single_leaf_catalog(),
         Arc::new(sink.clone()),
         tracker.clone(),
@@ -1159,10 +1329,11 @@ async fn worker_advances_offset_on_empty_transition_subbatch() {
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
+    let rx = MeteredReceiver::unmetered(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
-        store.clone(),
+        test_handle(&store),
         single_leaf_catalog(),
         Arc::new(sink.clone()),
         tracker.clone(),
@@ -1193,10 +1364,11 @@ async fn worker_holds_offset_when_the_only_flush_fails() {
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
+    let rx = MeteredReceiver::unmetered(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
-        store.clone(),
+        test_handle(&store),
         single_leaf_catalog(),
         Arc::new(sink.clone()),
         tracker.clone(),
@@ -1223,10 +1395,11 @@ async fn worker_keeps_processing_after_a_produce_failure() {
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
+    let rx = MeteredReceiver::unmetered(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
-        store.clone(),
+        test_handle(&store),
         single_leaf_catalog(),
         Arc::new(sink.clone()),
         tracker.clone(),
@@ -1661,10 +1834,11 @@ async fn daily_multiple_single_leaf_cohort_emits_entered_then_left_to_the_sink()
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
+    let rx = MeteredReceiver::unmetered(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
-        store.clone(),
+        test_handle(&store),
         catalog,
         Arc::new(sink.clone()),
         tracker.clone(),
@@ -1992,10 +2166,11 @@ async fn compressed_sweep_deletes_then_a_late_event_recreates_the_state() {
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
+    let rx = MeteredReceiver::unmetered(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
-        store.clone(),
+        test_handle(&store),
         catalog,
         Arc::new(sink.clone()),
         tracker.clone(),

@@ -34,7 +34,7 @@ def _build_scanner_snapshot(scanner: ReplayScanner) -> dict[str, Any]:
 @activity.defn
 @track_activity()
 def create_observation_activity(inputs: CreateObservationInputs) -> CreateObservationOutput:
-    """Snapshot the full scanner state and INSERT the row in `pending`. Returns `was_created=False` on UNIQUE conflict."""
+    """Snapshot the full scanner state and INSERT the row in `pending`; UNIQUE conflicts return `was_created=False` unless the row is this workflow's own lost-result insert, which is reclaimed."""
     scanner = ReplayScanner.objects.filter(pk=inputs.scanner_id, team_id=inputs.team_id).select_related("team").first()
     if scanner is None:
         raise ValueError(f"ReplayScanner {inputs.scanner_id} not found for team {inputs.team_id}")
@@ -86,9 +86,11 @@ def create_observation_activity(inputs: CreateObservationInputs) -> CreateObserv
             )
         # Route through the validator so a malformed legacy snapshot surfaces as a tagged non-retryable error.
         existing_snapshot = ScannerSnapshot.load_for(existing.id, existing.scanner_snapshot)
+        # A still-PENDING row stamped with our own workflow id is our earlier lost-result insert — reclaim it.
+        reclaimed = existing.workflow_id == inputs.workflow_id and existing.status == ObservationStatus.PENDING
         return CreateObservationOutput(
             observation_id=existing.id,
-            was_created=False,
+            was_created=reclaimed,
             scanner_type=existing_snapshot.scanner_type,
         )
 

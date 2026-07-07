@@ -65,6 +65,7 @@ class AggregationAxisFormat(StrEnum):
 
 
 class AlertCalculationInterval(StrEnum):
+    REAL_TIME = "real_time"
     EVERY_15_MINUTES = "every_15_minutes"
     HOURLY = "hourly"
     DAILY = "daily"
@@ -1047,12 +1048,6 @@ class ErrorTrackingOrderBy(StrEnum):
     SESSIONS = "sessions"
 
 
-class SourceType(StrEnum):
-    ISSUE_CREATED = "issue_created"
-    ISSUE_REOPENED = "issue_reopened"
-    ISSUE_SPIKING = "issue_spiking"
-
-
 class EvaluationRuntime(StrEnum):
     HOG = "hog"
     LLM_JUDGE = "llm_judge"
@@ -1823,6 +1818,14 @@ class ExternalDataSourceType(StrEnum):
     APP_LOVIN = "AppLovin"
     BASEROW = "Baserow"
     PLUNK = "Plunk"
+    DUB = "Dub"
+    AIR_OPS = "AirOps"
+    PODIUM = "Podium"
+    LOOPS = "Loops"
+    REDIS = "Redis"
+    MERCURY = "Mercury"
+    GOJIBERRY = "Gojiberry"
+    TEACHABLE = "Teachable"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2006,12 +2009,6 @@ class GoogleAdsTableExclusions(StrEnum):
 
 class GoogleAdsTableKeywords(StrEnum):
     CAMPAIGN = "campaign"
-
-
-class HealthCheckSeverity(StrEnum):
-    CRITICAL = "critical"
-    WARNING = "warning"
-    INFO = "info"
 
 
 class GradientScaleMode(StrEnum):
@@ -2280,16 +2277,6 @@ class LogSeverityLevel(StrEnum):
     WARN = "warn"
     ERROR = "error"
     FATAL = "fatal"
-
-
-class Action1(StrEnum):
-    FIRING = "firing"
-    BROKEN = "broken"
-
-
-class ThresholdOperator(StrEnum):
-    ABOVE = "above"
-    BELOW = "below"
 
 
 class LogsOrderBy(StrEnum):
@@ -3004,14 +2991,6 @@ class SessionAttributionGroupBy(StrEnum):
     INITIAL_URL = "InitialURL"
 
 
-class ProblemType(StrEnum):
-    CONFUSION = "confusion"
-    ABANDONMENT = "abandonment"
-    BLOCKING_EXCEPTION = "blocking_exception"
-    NON_BLOCKING_EXCEPTION = "non_blocking_exception"
-    FAILURE = "failure"
-
-
 class SnapshotSource(StrEnum):
     WEB = "web"
     MOBILE = "mobile"
@@ -3022,56 +3001,6 @@ class Theme(StrEnum):
     LIGHT = "light"
     DARK = "dark"
     SYSTEM = "system"
-
-
-class Priority(StrEnum):
-    P0 = "P0"
-    P1 = "P1"
-    P2 = "P2"
-    P3 = "P3"
-    P4 = "P4"
-
-
-class SignalSourceProduct(StrEnum):
-    SESSION_REPLAY = "session_replay"
-    LLM_ANALYTICS = "llm_analytics"
-    GITHUB = "github"
-    LINEAR = "linear"
-    ZENDESK = "zendesk"
-    CONVERSATIONS = "conversations"
-    ERROR_TRACKING = "error_tracking"
-    ENDPOINTS = "endpoints"
-    PGANALYZE = "pganalyze"
-    SIGNALS_SCOUT = "signals_scout"
-    LOGS = "logs"
-    HEALTH_CHECKS = "health_checks"
-    REPLAY_VISION = "replay_vision"
-
-
-class SignalSourceType(StrEnum):
-    SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster"
-    SESSION_PROBLEM = "session_problem"
-    EVALUATION = "evaluation"
-    EVALUATION_REPORT = "evaluation_report"
-    ISSUE = "issue"
-    TICKET = "ticket"
-    ISSUE_CREATED = "issue_created"
-    ISSUE_REOPENED = "issue_reopened"
-    ISSUE_SPIKING = "issue_spiking"
-    ENDPOINT_EXECUTION_FAILED = "endpoint_execution_failed"
-    ENDPOINT_BREAKDOWN_LIMIT_EXCEEDED = "endpoint_breakdown_limit_exceeded"
-    CROSS_SOURCE_ISSUE = "cross_source_issue"
-    ALERT_STATE_CHANGE = "alert_state_change"
-    HEALTH_ISSUE = "health_issue"
-    SCANNER_FINDING = "scanner_finding"
-
-
-class Severity(StrEnum):
-    P0 = "P0"
-    P1 = "P1"
-    P2 = "P2"
-    P3 = "P3"
-    P4 = "P4"
 
 
 class SimpleIntervalType(StrEnum):
@@ -3099,6 +3028,7 @@ class SlackIntegrationScope(StrEnum):
 class SlackIntegrationScopeInReview(StrEnum):
     ASSISTANT_WRITE = "assistant:write"
     CHANNELS_MANAGE = "channels:manage"
+    COMMANDS = "commands"
     IM_HISTORY = "im:history"
     MPIM_READ = "mpim:read"
 
