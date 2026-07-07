@@ -6,7 +6,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarFetch } from '~/toolbar/toolbarFetch'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
-import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
+import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import type { ElementsEventType, WebExperiment } from '~/toolbar/types'
 import type { ActionType, CombinedFeatureFlagAndValueType, EventDefinition, ProductTour, Survey } from '~/types'
 
@@ -25,9 +25,12 @@ import type { ActionType, CombinedFeatureFlagAndValueType, EventDefinition, Prod
  *   - It always parses the body and returns a discriminated-union `ToolbarApiResult`,
  *     so every call site branches on `result.ok` the same way.
  *   - It centralizes observability: every failure is logged via `toolbarLogger`, and
- *     genuinely-unexpected failures (network errors, 5xx, malformed JSON) are reported
- *     to error tracking. Auth (401/403) and client (4xx) errors are expected outcomes —
- *     they are logged but not reported as exceptions.
+ *     genuinely-unexpected failures (5xx, malformed JSON) are reported to error tracking.
+ *     Auth (401/403), client (4xx), and network-level errors are expected outcomes —
+ *     they are logged (and, for network errors, telemetered) but not reported as
+ *     exceptions. A network `fetch` rejection almost always reflects the visitor's
+ *     environment (offline, CORS, ad blocker, a page that wrapped `window.fetch`), so
+ *     capturing it would flood error tracking with noise rather than surface real bugs.
  *   - Per-request telemetry (`toolbar api request`) is emitted by `toolbarFetch` itself.
  *
  * What stays at the call site is only what is genuinely call-site specific: the
@@ -80,10 +83,11 @@ export interface ToolbarApiOptions {
      */
     reauthenticateOnForbidden?: boolean
     /**
-     * Report unexpected failures (network / 5xx / malformed JSON) to error tracking.
-     * Defaults to `true`. Set to `false` when the caller deliberately re-raises the
-     * failure (e.g. a kea loader that throws to drive its own `*Failure` reducer) so the
-     * exception is only captured once.
+     * Report unexpected failures (5xx / malformed JSON) to error tracking. Defaults to
+     * `true`. Set to `false` when the caller deliberately re-raises the failure (e.g. a
+     * kea loader that throws to drive its own `*Failure` reducer) so the exception is only
+     * captured once. Network-level `fetch` rejections are never reported (they reflect the
+     * visitor's environment, not a bug) regardless of this flag.
      */
     captureOnError?: boolean
     /**
@@ -155,7 +159,7 @@ async function request<T>(
     let response: Response
     try {
         response = await toolbarFetch(url, method, payload, urlConstruction)
-    } catch (e) {
+    } catch {
         const error: ToolbarApiErrorInfo = {
             status: 0,
             detail: 'Network error',
@@ -163,10 +167,13 @@ async function request<T>(
             isAuthError: false,
             isNetworkError: true,
         }
-        toolbarLogger.error('api', `Request failed (network): ${context}`, { context, method, pathname })
-        if (captureOnError) {
-            captureToolbarException(e, context, { reason: 'network' })
-        }
+        // A network-level `fetch` rejection (offline, CORS, an ad blocker, or a customer page
+        // that wrapped `window.fetch`) is the visitor's environment, not a toolbar bug — every
+        // caller already soft-fails gracefully. Log and telemeter it so the failure rate stays
+        // observable, but never report it to error tracking: doing so floods the signal with
+        // false-positive exceptions that are pure noise.
+        toolbarLogger.warn('api', `Request failed (network): ${context}`, { context, method, pathname })
+        toolbarPosthogJS.capture('toolbar api request', { context, method, pathname, status: 0, network_error: true })
         emitToast(toastOnError, error)
         return { ok: false, status: 0, data: null, error }
     }
