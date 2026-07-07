@@ -233,34 +233,45 @@ export const AgentApplicationsRevisionsBundleUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
- * Update one `.md` file on a draft revision's bundle.
+ * Update one `.md` file on a draft revision.
  *
- * `path` must be `agent.md` or `skills/<id>/SKILL.md` for a skill id
- * already present in the bundle. Tool source / schema editing is out
- * of scope here — use the per-tool endpoints. Returns the updated
- * revision so the caller can refresh its cache in one round-trip.
+ * `agent.md` writes go to the draft bundle. `skills/<id>/SKILL.md`
+ * writes are store-backed — skills are materialized from the skill
+ * store at freeze, so the edit publishes a new version of the
+ * referenced store skill and re-pins the draft's `skill_refs` entry
+ * to it. `<id>` must be a ref alias on this revision; add new skills
+ * via `bundle/import/` or `skill_refs`. Tool source / schema editing
+ * is out of scope here — use the per-tool endpoints. Returns the
+ * updated revision so the caller can refresh in one round-trip.
  */
 export const AgentApplicationsRevisionsBundleFileUpdateBody = /* @__PURE__ */ zod
     .object({
         path: zod
             .string()
             .describe(
-                "Canonical bundle path. Must be `agent.md` or `skills\/<id>\/SKILL.md` where `<id>` matches an existing skill in the draft's bundle."
+                'Canonical bundle path. Must be `agent.md` or `skills\/<id>\/SKILL.md` where `<id>` is a skill-reference alias on this revision.'
             ),
-        content: zod.string().describe('The new file contents, written verbatim to the bundle store.'),
+        content: zod
+            .string()
+            .describe(
+                'The new file contents. For `agent.md`, written verbatim to the draft bundle. For a skill, published as a new version of the referenced store skill — shared with every agent that references it. SKILL.md frontmatter (description, license, allowed-tools, metadata) is honoured when present; body-only content carries those fields forward.'
+            ),
     })
     .describe(
-        'Body shape for PUT \/revisions\/<id>\/bundle\/file\/.\n\nEdits one `.md` file on a draft revision. `path` is restricted to the\ncanonical author surface — `agent.md` or `skills\/<id>\/SKILL.md` for a\nskill id that already exists in the bundle. Tool source \/ schema editing\nis out of scope here; use the per-tool endpoint for that.'
+        "Body shape for PUT \/revisions\/<id>\/bundle\/file\/.\n\nEdits one `.md` file on a draft revision. `agent.md` writes go to the\ndraft bundle. `skills\/<id>\/SKILL.md` writes are store-backed: the edit\npublishes a new version of the referenced skill-store skill and re-pins\nthe draft's `skill_refs` entry to it — skills are materialized from the\nstore at freeze, so the store is the single source of truth. Tool\nsource \/ schema editing is out of scope here; use the per-tool endpoint."
     )
 
 /**
  * Bulk-merge a set of `.md` files into a draft revision.
  *
- * Sets `agent_md` if present, and merges `skills[]` by id (overwrites
- * body — and description when supplied — for existing ids; appends a
- * new skill for unknown ids). Skills not mentioned are left alone, so
- * the import is safe to retry. Draft-only; non-draft revisions return
- * 409 untouched.
+ * Sets `agent_md` on the draft bundle if present. `skills[]` are
+ * store-backed and merge by `id`: an id already referenced by the
+ * draft publishes a new version of its store skill; an unreferenced
+ * id attaches the store skill of that name (publishing the payload's
+ * body to it), or creates it when no such skill exists — and each
+ * ref is (re-)pinned to the published version. Skills not mentioned
+ * are left alone, so the import is safe to retry. Draft-only;
+ * non-draft revisions return 409 untouched.
  */
 export const AgentApplicationsRevisionsBundleImportCreateBody = /* @__PURE__ */ zod
     .object({
@@ -281,21 +292,23 @@ export const AgentApplicationsRevisionsBundleImportCreateBody = /* @__PURE__ */ 
                             .string()
                             .optional()
                             .describe(
-                                'One-line summary shown in the skill index. Required when adding a new skill; optional when updating one.'
+                                'One-line summary shown in the skill index. Required when creating a new skill; optional when updating one.'
                             ),
                         body: zod
                             .string()
-                            .describe("The skill's full markdown body, written to `skills\/<id>\/SKILL.md`."),
+                            .describe("The skill's markdown body, published as a new version of the store skill."),
                     })
                     .describe(
-                        'One skill entry in a bulk-import payload.\n\nThe optional `description` is honoured when adding a new skill (or\noverwriting an existing one); when omitted on an existing skill, the\ncurrent description is preserved. Skill `id` must match the canonical\nresource-id regex used by the janitor.'
+                        'One skill entry in a bulk-import payload.\n\nSkills are store-backed: each entry publishes to (or creates) a skill in\nthe skill store and pins a `skill_refs` entry on the draft. The optional\n`description` is honoured when supplied; when omitted on an existing\nskill, the current store description is preserved. Skill `id` must match\nthe canonical resource-id regex used by the janitor.'
                     )
             )
             .optional()
-            .describe('Per-skill payloads to merge into the bundle by id. When omitted, no skills are touched.'),
+            .describe(
+                "Per-skill payloads merged into the skill store by id and pinned onto the draft's skill references. When omitted, no skills are touched."
+            ),
     })
     .describe(
-        'Body shape for POST \/revisions\/<id>\/bundle\/import\/.\n\nBulk-paste hatch for migrating an existing multi-file agent. Either\n`agent_md` or `skills` (or both) may be present. Skills merge by `id`:\nmatching ids overwrite their body (and description if provided), new\nids are appended. Skills NOT mentioned are left alone — the import is\nsafe to retry.'
+        'Body shape for POST \/revisions\/<id>\/bundle\/import\/.\n\nBulk-paste hatch for migrating an existing multi-file agent. Either\n`agent_md` or `skills` (or both) may be present. Skills merge by `id`\ninto the skill store: an id already referenced by the draft publishes a\nnew version of its store skill; a new id attaches (or creates) the store\nskill of that name and appends a pinned `skill_refs` entry. Skills NOT\nmentioned are left alone — the import is safe to retry.'
     )
 
 /**
