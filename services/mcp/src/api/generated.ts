@@ -19245,6 +19245,7 @@ export namespace Schemas {
      * * `postgres` - postgres
      * * `mysql` - mysql
      * * `snowflake` - snowflake
+     * * `redshift` - redshift
      */
     export type EngineEnum = typeof EngineEnum[keyof typeof EngineEnum];
 
@@ -19254,6 +19255,7 @@ export namespace Schemas {
       Postgres: 'postgres',
       Mysql: 'mysql',
       Snowflake: 'snowflake',
+      Redshift: 'redshift',
     } as const;
 
     /**
@@ -22806,7 +22808,8 @@ export namespace Schemas {
        * * `duckdb` - duckdb
        * * `postgres` - postgres
        * * `mysql` - mysql
-       * * `snowflake` - snowflake */
+       * * `snowflake` - snowflake
+       * * `redshift` - redshift */
       readonly engine: EngineEnum | null;
     }
 
@@ -23569,7 +23572,8 @@ export namespace Schemas {
        * * `duckdb` - duckdb
        * * `postgres` - postgres
        * * `mysql` - mysql
-       * * `snowflake` - snowflake */
+       * * `snowflake` - snowflake
+       * * `redshift` - redshift */
       readonly engine: EngineEnum | null;
       /** @nullable */
       readonly last_run_at: string | null;
@@ -38261,7 +38265,8 @@ export namespace Schemas {
        * * `duckdb` - duckdb
        * * `postgres` - postgres
        * * `mysql` - mysql
-       * * `snowflake` - snowflake */
+       * * `snowflake` - snowflake
+       * * `redshift` - redshift */
       readonly engine?: EngineEnum | null;
       /** @nullable */
       readonly last_run_at?: string | null;
