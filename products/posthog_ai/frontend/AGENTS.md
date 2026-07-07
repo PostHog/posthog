@@ -150,7 +150,7 @@ backend's `prune_repeated_entity_refs`, which dedupes across the task's whole re
 are never deduped, repeated text is intentional.
 
 **User-picked context (`logics/contextPickerLogic.ts` + `components/composer/AttachedContextBar.tsx`):** the
-composer's @-affordance. `AttachedContextBar` (Tier 2, drop into `Composer.Footer`; already wired into
+composer's @-affordance. `AttachedContextBar` (Tier 2, drop into `Composer.Header`, the top-of-frame row above the textarea; already wired into
 `TaskComposer` and `TaskRunChat`) renders a `TaxonomicPopover` whose selections are projected to flat refs by
 `taxonomicItemToAttachedContext` — no entity loading, the agent fetches details — and stored in
 `contextPickerLogic`, which is just another provider (`user-picker`) on `attachedContextLogic`. The bar's chips

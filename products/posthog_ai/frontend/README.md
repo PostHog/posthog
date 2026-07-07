@@ -221,14 +221,15 @@ resource changes) is an upsert — see `scenes/max/posthogAiContextBridgeLogic.t
 ### Let the user pick context (the composer @-affordance)
 
 `AttachedContextBar` (`api/primitives`) is the prepackaged picker + chips row — drop it into
-`Composer.Footer` (that's exactly what `TaskComposer` and `TaskRunChat` do, so `/tasks` and the side panel
-already have it):
+`Composer.Header`, the wrapping row at the top of the frame above the textarea (that's exactly what
+`TaskComposer` and `TaskRunChat` do, so `/tasks` and the side panel already have it; the footer stays
+free for the model/effort pickers):
 
 ```tsx
 import { AttachedContextBar, Composer } from 'products/posthog_ai/frontend/api/primitives'
-;<Composer.Footer className="flex flex-wrap items-center justify-between gap-2">
+;<Composer.Header>
   <AttachedContextBar />
-</Composer.Footer>
+</Composer.Header>
 ```
 
 The @-button opens a `TaxonomicPopover` over events/actions/insights/dashboards/notebooks/error-tracking

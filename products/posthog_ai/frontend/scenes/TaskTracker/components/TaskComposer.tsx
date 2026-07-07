@@ -57,6 +57,9 @@ export function TaskComposer(): JSX.Element {
                             textAreaRef={textAreaRef}
                         >
                             <Composer.Frame>
+                                <Composer.Header>
+                                    <AttachedContextBar />
+                                </Composer.Header>
                                 <Composer.Field>
                                     <Composer.Placeholder>Describe the task in detail…</Composer.Placeholder>
                                     <Composer.Textarea
@@ -65,8 +68,7 @@ export function TaskComposer(): JSX.Element {
                                         data-attr="task-composer-input"
                                     />
                                 </Composer.Field>
-                                <Composer.Footer className="flex flex-wrap items-center justify-between gap-2">
-                                    <AttachedContextBar />
+                                <Composer.Footer>
                                     <ComposerModelEffortPickers
                                         selectedModel={newTaskData.model}
                                         selectedEffort={newTaskData.reasoningEffort}
