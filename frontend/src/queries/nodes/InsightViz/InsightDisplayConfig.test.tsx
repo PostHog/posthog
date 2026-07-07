@@ -347,6 +347,11 @@ describe('InsightDisplayConfig', () => {
             expect(screen.getByText('Y-axis scale')).toBeInTheDocument()
         })
 
+        it('shows no Style button without the style menu flag', () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
+            expect(screen.queryByLabelText('Style')).not.toBeInTheDocument()
+        })
+
         it('removes axis label option count after clearing a committed label', async () => {
             setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph, { xAxisLabel: 'Signup date' }))
 
@@ -405,6 +410,41 @@ describe('InsightDisplayConfig', () => {
             // The aggregated bar-value layout has no in-chart legend, so it must not get a position select.
             const items = getDisplaySectionItems()
             expect(items.some((item) => item.includes('Bottom'))).toBe(false)
+        })
+    })
+
+    describe('style menu with the style menu flag', () => {
+        beforeEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHT_STYLE_MENU]: true,
+            })
+        })
+
+        it('hosts the presentation options in their own Style menu', async () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
+            await userEvent.click(screen.getAllByLabelText('Style')[0])
+
+            expect(getSectionTitles()).toEqual([
+                'Labels & legend',
+                'Color customization by',
+                'Y-axis unit',
+                'Axis labels',
+            ])
+            expect(screen.getByText('Show values on series')).toBeInTheDocument()
+            expect(screen.getByText('Show legend')).toBeInTheDocument()
+        })
+
+        it('drops the moved presentation options from the Options menu', async () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
+            await openOptionsMenu()
+
+            expect(getSectionTitles()).toEqual(['Display', 'Y-axis scale', 'Statistical analysis'])
+            const items = getDisplaySectionItems()
+            expect(items).not.toContain('Show values on series')
+            expect(items).not.toContain('Show legend')
+            // Options staying in the menu are unaffected
+            expect(items).toContain('Show multiple Y-axes')
+            expect(items).toContain('Show trend lines')
         })
     })
 

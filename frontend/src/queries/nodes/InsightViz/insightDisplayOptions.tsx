@@ -24,9 +24,14 @@ import {
     SectionHeader,
 } from './DisplayOptions'
 
-// The "Options" menu in the insight editor's display config bar. `count` is the number of non-default
-// active options, badged on the Options button.
-export function useInsightDisplayOptions(): { items: LemonMenuItems; count: number } {
+// The "Options" (and flag-gated "Style") menus in the insight editor's display config bar. `count`
+// and `styleCount` are the number of non-default active options, badged on the respective buttons.
+export function useInsightDisplayOptions(): {
+    items: LemonMenuItems
+    count: number
+    styleItems: LemonMenuItems
+    styleCount: number
+} {
     const { insightProps } = useValues(insightLogic)
     const {
         querySource,
@@ -65,6 +70,9 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     // With the Overlays editor panel section enabled, the overlay toggles (trend lines, alert
     // overlays, annotations, statistical analysis) move there and leave this menu.
     const overlaysSectionEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHT_OVERLAYS_SECTION]
+    // With the Style menu enabled, the presentation options (value labels, legend, number format,
+    // axis labels, pie/metric presentation, color assignment) move to their own toolbar menu.
+    const styleMenuEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHT_STYLE_MENU]
 
     // The slope graph shows the first vs last interval, so it drops the options that need the points
     // between them (smoothing, multiple axes, alert/annotation overlays, statistical analysis).
@@ -107,7 +115,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         const displayItems: LemonMenuItem[] = []
 
         if (isBoxPlot) {
-            if (hasLegend) {
+            if (hasLegend && !styleMenuEnabled) {
                 displayItems.push(DisplayOptions.Legend)
             }
             displayItems.push(DisplayOptions.ExcludeOutliers)
@@ -117,22 +125,25 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         if (isSlopeGraph) {
             // A slope only shows the first vs last interval of each series — the legend (when there
             // are multiple series) is the only display option that applies.
-            if (hasLegend) {
+            if (hasLegend && !styleMenuEnabled) {
                 displayItems.push(DisplayOptions.Legend)
             }
             return displayItems
         }
 
         if (isMetric) {
-            displayItems.push(DisplayOptions.MetricSummary, DisplayOptions.MetricShowChange, DisplayOptions.MetricColor)
+            displayItems.push(DisplayOptions.MetricSummary)
+            if (!styleMenuEnabled) {
+                displayItems.push(DisplayOptions.MetricShowChange, DisplayOptions.MetricColor)
+            }
         }
         if (isLifecycle) {
             displayItems.push(DisplayOptions.LifecycleStacking)
         }
-        if (supportsValueOnSeries) {
+        if (supportsValueOnSeries && !styleMenuEnabled) {
             displayItems.push(DisplayOptions.ValueLabels)
         }
-        if (isLifecycle) {
+        if (isLifecycle && !styleMenuEnabled) {
             displayItems.push(DisplayOptions.LifecyclePercentages)
         }
         if (supportsPercentStackView) {
@@ -141,10 +152,10 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         if (supportsBarValueStacking) {
             displayItems.push(DisplayOptions.StackBreakdown)
         }
-        if ((hasLegend || showFunnelLegendConfig) && !useQuillLegendOptions) {
+        if ((hasLegend || showFunnelLegendConfig) && !useQuillLegendOptions && !styleMenuEnabled) {
             displayItems.push(DisplayOptions.Legend)
         }
-        if (display === ChartDisplayType.ActionsPie) {
+        if (display === ChartDisplayType.ActionsPie && !styleMenuEnabled) {
             displayItems.push(DisplayOptions.PieTotal)
         }
         if (showAlertThresholdLinesConfig && !overlaysSectionEnabled) {
@@ -165,7 +176,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         if (showAnnotationsConfig && !overlaysSectionEnabled) {
             displayItems.push(DisplayOptions.Annotations)
         }
-        if (useQuillLegendOptions) {
+        if (useQuillLegendOptions && !styleMenuEnabled) {
             displayItems.push(DisplayOptions.LegendOptions)
         }
         return displayItems
@@ -184,7 +195,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         })
     }
 
-    if (supportsResultCustomizationBy) {
+    if (supportsResultCustomizationBy && !styleMenuEnabled) {
         items.push({
             title: (
                 <SectionHeader tooltip="You can customize the appearance of individual results in your insights. This can be done based on the result's name (e.g., customize the breakdown value 'pizza' for the first series) or based on the result's rank (e.g., customize the first dataset in the results).">
@@ -195,7 +206,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         })
     }
 
-    if (!showPercentStackView && isTrends && !isCalendarHeatmap) {
+    if (!showPercentStackView && isTrends && !isCalendarHeatmap && !styleMenuEnabled) {
         items.push({
             title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
             items: [DisplayOptions.Unit],
@@ -218,11 +229,11 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         items.push({ title: 'Statistical analysis', items: statisticalItems })
     }
 
-    if (showAxisLabelsConfig) {
+    if (showAxisLabelsConfig && !styleMenuEnabled) {
         items.push({ title: 'Axis labels', items: [DisplayOptions.AxisLabels] })
     }
 
-    if (mightContainFractionalNumbers && isTrends && !isCalendarHeatmap) {
+    if (mightContainFractionalNumbers && isTrends && !isCalendarHeatmap && !styleMenuEnabled) {
         items.push({ title: 'Decimal places', items: [DisplayOptions.DecimalPrecision] })
     }
 
@@ -238,11 +249,68 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         })
     }
 
-    const count: number =
-        (showSmoothing && (trendsFilter?.smoothingIntervals ?? 1) !== 1 ? 1 : 0) +
+    // The Style menu: pure presentation options — none of them change the computed numbers or add
+    // data to the chart. Conditions mirror the ones getDisplayItems/the sections above use, so each
+    // option keeps appearing for exactly the same insights, just in the other menu.
+    const styleItems: LemonMenuItems = []
+    if (styleMenuEnabled) {
+        const labelsAndLegendItems: LemonMenuItem[] = []
+        if (isMetric) {
+            labelsAndLegendItems.push(DisplayOptions.MetricShowChange, DisplayOptions.MetricColor)
+        }
+        if (supportsValueOnSeries && !isBoxPlot && !isSlopeGraph) {
+            labelsAndLegendItems.push(DisplayOptions.ValueLabels)
+        }
+        if (isLifecycle) {
+            labelsAndLegendItems.push(DisplayOptions.LifecyclePercentages)
+        }
+        if (isBoxPlot || isSlopeGraph) {
+            if (hasLegend) {
+                labelsAndLegendItems.push(DisplayOptions.Legend)
+            }
+        } else if (useQuillLegendOptions) {
+            labelsAndLegendItems.push(DisplayOptions.LegendOptions)
+        } else if (hasLegend || showFunnelLegendConfig) {
+            labelsAndLegendItems.push(DisplayOptions.Legend)
+        }
+        if (display === ChartDisplayType.ActionsPie) {
+            labelsAndLegendItems.push(DisplayOptions.PieTotal)
+        }
+        if (labelsAndLegendItems.length > 0) {
+            styleItems.push({
+                title: <SectionHeader dataAttr="style-labels-section">Labels & legend</SectionHeader>,
+                items: labelsAndLegendItems,
+            })
+        }
+        if (supportsResultCustomizationBy) {
+            styleItems.push({
+                title: (
+                    <SectionHeader tooltip="You can customize the appearance of individual results in your insights. This can be done based on the result's name (e.g., customize the breakdown value 'pizza' for the first series) or based on the result's rank (e.g., customize the first dataset in the results).">
+                        Color customization by
+                    </SectionHeader>
+                ),
+                items: [DisplayOptions.ResultCustomizationBy],
+            })
+        }
+        if (!showPercentStackView && isTrends && !isCalendarHeatmap) {
+            styleItems.push({
+                title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
+                items: [DisplayOptions.Unit],
+            })
+        }
+        if (mightContainFractionalNumbers && isTrends && !isCalendarHeatmap) {
+            styleItems.push({ title: 'Decimal places', items: [DisplayOptions.DecimalPrecision] })
+        }
+        if (showAxisLabelsConfig) {
+            styleItems.push({ title: 'Axis labels', items: [DisplayOptions.AxisLabels] })
+        }
+    }
+
+    // Non-default presentation options — badged on the Style button when it's enabled, otherwise
+    // on the Options button along with everything else.
+    const styleCount: number =
         (supportsValueOnSeries && showValuesOnSeries ? 1 : 0) +
         (isLifecycle && showPercentagesOnSeries ? 1 : 0) +
-        (showPercentStackView ? 1 : 0) +
         (!showPercentStackView &&
         isTrends &&
         trendsFilter?.aggregationAxisFormat &&
@@ -250,15 +318,24 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
             ? 1
             : 0) +
         ((hasLegend || showFunnelLegendConfig) && showLegend ? 1 : 0) +
-        (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0) +
         (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.xAxisLabel) ? 1 : 0) +
         (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.yAxisLabel) ? 1 : 0) +
+        (isMetric && trendsFilter?.metricShowChange === false ? 1 : 0) +
+        (isMetric && trendsFilter?.metricColorByDirection ? 1 : 0)
+
+    const optionsCount: number =
+        (showSmoothing && (trendsFilter?.smoothingIntervals ?? 1) !== 1 ? 1 : 0) +
+        (showPercentStackView ? 1 : 0) +
+        (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0) +
         (showMultipleYAxes ? 1 : 0) +
         (trendsFilter?.hideWeekends && hideWeekendsEnabled ? 1 : 0) +
         (showAnnotationsConfig && !overlaysSectionEnabled && showAnnotations === false ? 1 : 0) +
-        (isMetric && trendsFilter?.metricShowChange === false ? 1 : 0) +
-        (isMetric && trendsFilter?.metricColorByDirection ? 1 : 0) +
         (isMetric && !!trendsFilter?.metricSummary && trendsFilter.metricSummary !== 'total' ? 1 : 0)
 
-    return { items, count }
+    return {
+        items,
+        count: optionsCount + (styleMenuEnabled ? 0 : styleCount),
+        styleItems,
+        styleCount: styleMenuEnabled ? styleCount : 0,
+    }
 }

@@ -425,6 +425,7 @@ export const FEATURE_FLAGS = {
     PRODUCT_ANALYTICS_HIDE_WEEKENDS: 'product-analytics-hide-weekends', // owner: @kliment-slice #team-irl-events
     PRODUCT_ANALYTICS_INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: #team-product-analytics
     PRODUCT_ANALYTICS_INSIGHT_OVERLAYS_SECTION: 'product-analytics-insight-overlays-section', // owner: #team-product-analytics, gates the "Overlays" editor panel section (goal lines, trend lines, alert overlays, annotations, statistical overlays), replacing their Options menu entries
+    PRODUCT_ANALYTICS_INSIGHT_STYLE_MENU: 'product-analytics-insight-style-menu', // owner: #team-product-analytics, gates the "Style" toolbar menu (value labels, legend, number format, axis labels, pie/metric presentation), replacing their Options menu entries
     PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS: 'product-analytics-insights-tooltips', // owner: #team-product-analytics, gates the unified quill DefaultTooltip for trends/retention/stickiness insight charts
     PRODUCT_ANALYTICS_PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_ANALYTICS_QUILL_LEGEND: 'product-analytics-quill-legend', // owner: #team-product-analytics, gates the in-chart quill legend replacing the legacy side InsightLegend

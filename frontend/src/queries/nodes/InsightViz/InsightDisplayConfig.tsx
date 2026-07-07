@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { ReactNode } from 'react'
 
-import { IconEllipsis } from '@posthog/icons'
+import { IconEllipsis, IconPalette } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
@@ -72,7 +72,7 @@ export function InsightDisplayConfig(): JSX.Element {
         isLifecycle ||
         ((isTrends || isStickiness) && !(display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display)))
 
-    const { items: advancedOptions, count: advancedOptionsCount } = useInsightDisplayOptions()
+    const { items: advancedOptions, count: advancedOptionsCount, styleItems, styleCount } = useInsightDisplayOptions()
 
     return (
         <div
@@ -120,6 +120,34 @@ export function InsightDisplayConfig(): JSX.Element {
                 )}
             </div>
             <div className="flex items-center gap-x-2">
+                {styleItems.length > 0 && (
+                    <>
+                        <LemonMenu items={styleItems} closeOnClickInside={false} placement="bottom-end">
+                            <LemonButton
+                                size="small"
+                                disabledReason={editingDisabledReason}
+                                aria-label="Style"
+                                className="@max-[780px]:hidden"
+                            >
+                                <span className="font-medium whitespace-nowrap">
+                                    Style
+                                    {styleCount ? (
+                                        <span className="ml-0.5 text-secondary ligatures-none">({styleCount})</span>
+                                    ) : null}
+                                </span>
+                            </LemonButton>
+                        </LemonMenu>
+                        <LemonMenu items={styleItems} closeOnClickInside={false} placement="bottom-end">
+                            <LemonButton
+                                size="small"
+                                disabledReason={editingDisabledReason}
+                                icon={<IconPalette />}
+                                aria-label="Style"
+                                className="hidden @max-[780px]:flex order-[999]"
+                            />
+                        </LemonMenu>
+                    </>
+                )}
                 {advancedOptions.length > 0 && (
                     <>
                         <LemonMenu items={advancedOptions} closeOnClickInside={false} placement="bottom-end">
