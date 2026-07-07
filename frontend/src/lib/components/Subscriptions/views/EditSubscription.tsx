@@ -258,7 +258,7 @@ function AiPromptFields({
             <LemonField
                 name={['ai_prompt_config', 'window', 'mode']}
                 label="Analysis window"
-                help="The exact time range is computed each run in your project's timezone and handed to the AI, so relative dates in the prompt can't drift."
+                help="The exact time range is computed in your project's timezone each time the report runs."
             >
                 <LemonSelect options={AI_WINDOW_MODE_OPTIONS} />
             </LemonField>
