@@ -711,6 +711,21 @@
         },
         "feature_flag": "agent-platform"
     },
+    "agent-applications-revisions-tools-dry-run-create": {
+        "description": "Execute the persisted `compiled.js` for one tool in a single-shot sandbox with caller-supplied args and a stubbed ctx — the authoring loop's \"test this tool\" button. Body `{ args, mock_secrets? }`: `args` is free-form JSON (NOT validated against the tool's `args_schema`); `mock_secrets` is an optional `{name → placeholder}` map the sandbox plumbs into `ctx.secrets.ref(name)` so the tool body can run without \"secret not provisioned\". The real secret value never enters the sandbox. Returns `{ ok, tool_id, result?, error?, duration_ms }`: `ok:true` + `result` when the tool returned cleanly, `ok:false` + `error` when the tool threw or the sandbox rejected. Requires the tool to have been PUT first (it runs the persisted bytes, not a fresh source). Draft-only. Per-call lifecycle — no warm pool today. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the broader branch → validate → freeze → promote workflow.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Dry-run a custom tool",
+        "title": "Dry-run a custom tool",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "agent-platform"
+    },
     "agent-applications-revisions-tools-update": {
         "description": "Body `{ description, args_schema, source }`. `source` is the TypeScript tool source — the janitor runs an AST shape check + esbuild compile synchronously and rejects a bad shape with structured diagnostics in the 422 response. Required shape: `export default { actions: { default: async (args, ctx) => { ... } } }`. Do NOT include `compiled.js` — it's generated. Tool id comes from the URL. Draft-only. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote workflow.",
         "category": "Agent stack",

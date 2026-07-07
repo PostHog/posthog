@@ -8440,6 +8440,25 @@ export namespace Schemas {
       request_id: string;
     }
 
+    export interface AgentRevisionDryRunToolError {
+      /** Stable error code. `sandbox_acquire_failed` — the platform could not start a sandbox (infrastructure issue, not tool code). `sandbox_invoke_failed` — the sandbox started but the invoke threw uncaught (problem in the tool body, or a runtime error). Dispatcher-side codes come through on `ok:false` invoke results: `timeout`, `secret_not_provisioned`, `action_not_found`, `tool_not_found`. */
+      code: string;
+      /** One-line human-readable detail. */
+      message: string;
+    }
+
+    export interface AgentRevisionDryRunToolResponse {
+      /** True when the tool's `actions.default` returned without throwing. False when the tool threw or the sandbox rejected the invocation (the structured `error` describes which). */
+      ok: boolean;
+      /** Echo of the tool id from the URL. */
+      tool_id: string;
+      /** Present on success — the value the tool's `actions.default` returned. */
+      result?: unknown;
+      error?: AgentRevisionDryRunToolError;
+      /** Wall-clock duration in milliseconds, measured from sandbox acquire to after release. Captured consistently across success, tool-throw, and acquire-failure paths so authors can compare timings between calls. Always present. */
+      duration_ms: number;
+    }
+
     export interface AgentRevisionEnvKeyStatus {
       key: string;
       /** True if the key is present in the env block. The value itself is never returned. */
@@ -18157,6 +18176,27 @@ export namespace Schemas {
     export interface DraftStatusResponse {
       updated_at: string;
       has_draft: boolean;
+    }
+
+    /**
+     * Optional `{secret_name → placeholder_string}` map. The string is returned verbatim by `ctx.secrets.ref(name)` inside the tool. The real secret value never enters the sandbox.
+     */
+    export type DryRunToolRequestMockSecrets = {[key: string]: string};
+
+    /**
+     * Body shape for POST /revisions/<id>/tools/<tool_id>/dry_run/.
+     *
+     * Executes the persisted compiled.js once in the janitor's single-shot
+     * sandbox with caller-supplied args + a stubbed ctx. No real secrets
+     * leave Django — `mock_secrets` is a `{name → opaque nonce}` map the
+     * sandbox plumbs into `ctx.secrets.ref(name)` so the tool body returns
+     * something deterministic to the author.
+     */
+    export interface DryRunToolRequest {
+      /** Synthetic args the tool's `actions.default` is called with. Free-form JSON; the sandbox doesn't validate against the tool's `args_schema` — that's the author's responsibility to keep in sync. */
+      args: unknown;
+      /** Optional `{secret_name → placeholder_string}` map. The string is returned verbatim by `ctx.secrets.ref(name)` inside the tool. The real secret value never enters the sandbox. */
+      mock_secrets?: DryRunToolRequestMockSecrets;
     }
 
     /**
