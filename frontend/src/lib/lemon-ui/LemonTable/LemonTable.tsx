@@ -451,6 +451,11 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                     )
                                                     const { isSticky: isPinned, leftPosition } = stickyInfo
 
+                                                    // Mirror TableRow: columns with an explicit width or
+                                                    // `fullWidth` keep author-controlled sizing; the rest cap
+                                                    // their header so a long title can't stretch the column.
+                                                    const truncateHeader = !column.width && !column.fullWidth
+
                                                     return (
                                                         <th
                                                             key={`LemonTable-th-${columnGroupIndex}-${columnKey}`}
@@ -518,16 +523,18 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                             >
                                                                 <div
                                                                     className={clsx(
-                                                                        'flex items-center',
+                                                                        'flex items-center min-w-0',
                                                                         column?.fullWidth && 'w-full',
                                                                         column.sorter && 'cursor-pointer'
                                                                     )}
                                                                     /* eslint-disable-next-line react/forbid-dom-props */
-                                                                    style={
-                                                                        maxHeaderWidth
-                                                                            ? { maxWidth: maxHeaderWidth }
-                                                                            : undefined
-                                                                    }
+                                                                    style={{
+                                                                        maxWidth:
+                                                                            maxHeaderWidth ??
+                                                                            (truncateHeader
+                                                                                ? 'var(--lemon-table-cell-max-width)'
+                                                                                : undefined),
+                                                                    }}
                                                                 >
                                                                     {column.tooltip ? (
                                                                         <Tooltip title={column.tooltip}>
@@ -536,6 +543,14 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                                                 <IconInfo className="ml-1 text-base" />
                                                                             </div>
                                                                         </Tooltip>
+                                                                    ) : truncateHeader &&
+                                                                      typeof column.title === 'string' ? (
+                                                                        <div
+                                                                            className="LemonTable__cell-content"
+                                                                            title={column.title}
+                                                                        >
+                                                                            {column.title}
+                                                                        </div>
                                                                     ) : (
                                                                         column.title
                                                                     )}

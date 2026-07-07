@@ -140,6 +140,18 @@ function TableRowRaw<T extends Record<string, any>>({
 
                             const extraCellProps =
                                 isTableCellRepresentation(contents) && contents.props ? contents.props : {}
+                            const cellChildren = isTableCellRepresentation(contents) ? contents.children : contents
+                            // Columns with an explicit width or `fullWidth` opt out of truncation - their
+                            // author is in control of sizing. Everything else is clipped so long content
+                            // (a long series name, breakdown label, or SQL expression) can't push into
+                            // and overflow neighbouring cells.
+                            const truncateCell = !column.width && !column.fullWidth
+                            const cellTitle =
+                                typeof rawContents === 'string' || typeof rawContents === 'number'
+                                    ? String(rawContents)
+                                    : typeof value === 'string' || typeof value === 'number'
+                                      ? String(value)
+                                      : undefined
                             return (
                                 <td
                                     key={`col-${columnGroupIndex}-${columnKeyOrIndex}`}
@@ -161,7 +173,13 @@ function TableRowRaw<T extends Record<string, any>>({
                                     }}
                                     {...extraCellProps}
                                 >
-                                    {isTableCellRepresentation(contents) ? contents.children : contents}
+                                    {truncateCell ? (
+                                        <div className="LemonTable__cell-content" title={cellTitle}>
+                                            {cellChildren}
+                                        </div>
+                                    ) : (
+                                        cellChildren
+                                    )}
                                 </td>
                             )
                         })
