@@ -1,6 +1,7 @@
 import '../Nodes/NotebookNodeBacklink'
 import '../Nodes/NotebookNodeCohort'
 import '../Nodes/NotebookNodeCustomerJourney/NotebookNodeCustomerJourney'
+import '../Nodes/NotebookNodeSQLV2'
 import '../Nodes/NotebookNodeDuckSQL'
 import '../Nodes/NotebookNodeEarlyAccessFeature'
 import '../Nodes/NotebookNodeEmbed'
@@ -49,6 +50,8 @@ import {
     NotebookPropValue,
 } from 'lib/components/MarkdownNotebook/types'
 import { isNotebookPropValue, toSerializablePropValue } from 'lib/components/MarkdownNotebook/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 import { NODE_ICONS } from '../nodeIcons'
 import { NotebookNodeContext } from '../Nodes/NotebookNodeContext'
@@ -104,6 +107,7 @@ export const MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE: Partial<Record<string, Notebook
     Python: NotebookNodeType.Python,
     DuckSQL: NotebookNodeType.DuckSQL,
     HogQLSQL: NotebookNodeType.HogQLSQL,
+    SQLV2: NotebookNodeType.SQLV2,
     Recording: NotebookNodeType.Recording,
     RecordingPlaylist: NotebookNodeType.RecordingPlaylist,
     FeatureFlag: NotebookNodeType.FeatureFlag,
@@ -145,6 +149,9 @@ export const MARKDOWN_NODE_DEFINITIONS: {
     { tagName: 'Python', category: 'Code' },
     { tagName: 'DuckSQL', category: 'SQL', label: 'SQL (DuckDB)' },
     { tagName: 'HogQLSQL', category: 'SQL', label: 'SQL (HogQL)' },
+    // insertCommand makes it show in the markdown insert menu; the feature-flag gate in
+    // getMarkdownRegistryForFeatureFlags strips it when revamped-py-notebooks is off.
+    { tagName: 'SQLV2', category: 'SQL', label: 'SQL (v2)', insertCommand: { aliases: ['data', 'sql'] } },
     { tagName: 'RecordingPlaylist', category: 'Data', label: 'Session recordings' },
     { tagName: 'Experiment', category: 'Experiment' },
     { tagName: 'Image', category: 'Media', EditComponent: ImageEdit },
@@ -221,6 +228,30 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
                 : (getUnknownStringProp(node.props.text) ?? 'Comment'),
     },
 ])
+
+// Node tags that only appear in the markdown insert menu when their feature flag is on.
+// Only insertion is gated — rendering of already-inserted nodes is never gated.
+export function getMarkdownRegistryForFeatureFlags(featureFlags: FeatureFlagsSet): NotebookComponentRegistry {
+    const hiddenTags: string[] = []
+    if (!featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]) {
+        hiddenTags.push('SQLV2')
+    }
+
+    if (hiddenTags.length === 0) {
+        return NOTEBOOK_MARKDOWN_REGISTRY
+    }
+
+    // Dropping insertCommand hides the node from the insert menu (it filters falsy
+    // insertCommand), while the ViewComponent stays so existing nodes still render.
+    const components = { ...NOTEBOOK_MARKDOWN_REGISTRY.components }
+    for (const tagName of hiddenTags) {
+        const definition = components[tagName]
+        if (definition) {
+            components[tagName] = { ...definition, insertCommand: undefined }
+        }
+    }
+    return { components }
+}
 
 export function getMarkdownNotebookNodeTitle(
     node: NotebookComponentBlockNode,

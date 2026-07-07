@@ -1071,6 +1071,17 @@ export interface _LogsPatternsRequestApi {
     query: _LogsPatternsBodyApi
 }
 
+export interface _LogPatternExampleApi {
+    /** Log body as the miner saw it: whitespace-collapsed and truncated to the mining length cap, not the raw stored line. */
+    body: string
+    /** Severity of the sampled line, e.g. "info", "error". */
+    severity_text: string
+    /** Service that emitted the sampled line. */
+    service_name: string
+    /** ISO 8601 timestamp of the sampled line. */
+    timestamp: string
+}
+
 /**
  * Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample counts, not extrapolated — severity dominance is a proportion, so scaling would not change it.
  */
@@ -1093,8 +1104,8 @@ export interface _LogPatternApi {
     first_seen: string
     /** ISO 8601 timestamp of the latest sampled occurrence. */
     last_seen: string
-    /** Up to 3 distinct raw log bodies (truncated) that produced this pattern. */
-    examples: string[]
+    /** Up to 10 distinct sampled log lines that produced this pattern, with severity, service, and timestamp for display. */
+    examples: _LogPatternExampleApi[]
     /** Up to 4 distinct service names this pattern was observed in. */
     services: string[]
     /** Estimated occurrences per time bucket, aligned index-for-index with the response's `sparkline_buckets`. Extrapolated from the sample like `estimated_count`, so it shows the volume shape over the window, not exact per-bucket tallies. */

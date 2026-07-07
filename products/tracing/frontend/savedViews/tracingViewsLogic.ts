@@ -6,7 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { TracingFilters, tracingFiltersLogic } from '../tracingFiltersLogic'
+import { TRACING_SCENE_VIEWER_ID, TracingFilters, tracingFiltersLogic } from '../tracingFiltersLogic'
 import type { tracingViewsLogicType } from './tracingViewsLogicType'
 
 // Subset of TracingFilters persisted in a saved view. Compare-mode and the dragged overlay windows
@@ -36,9 +36,10 @@ const tracingViewsUrl = (teamId: number | null): string => `api/projects/${teamI
 export const tracingViewsLogic = kea<tracingViewsLogicType>([
     path(['products', 'tracing', 'frontend', 'savedViews', 'tracingViewsLogic']),
 
+    // Saved views are a /tracing scene feature — always bind the scene's viewer instance.
     connect(() => ({
         values: [teamLogic, ['currentTeamId']],
-        actions: [tracingFiltersLogic, ['setFilters']],
+        actions: [tracingFiltersLogic({ id: TRACING_SCENE_VIEWER_ID }), ['setFilters']],
     })),
 
     actions({

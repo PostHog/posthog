@@ -44,7 +44,9 @@ export const createSegments = (
     start: number | null,
     end: number | null,
     trackedWindow: number | null | undefined,
-    snapshotsByWindowId: Record<number, eventWithTime[]>
+    snapshotsByWindowId: Record<number, eventWithTime[]>,
+    // whether every source covering [startTs, endTs] has loaded; null = unknown, keep the default kind
+    isRangeLoaded: (startTimestamp: number, endTimestamp: number) => boolean | null = () => null
 ): RecordingSegment[] => {
     let segments: RecordingSegment[] = []
     let activeSegment!: Partial<RecordingSegment>
@@ -137,8 +139,9 @@ export const createSegments = (
             // Offset the window ID check so we look for a subsequent segment
             const preferredWindowId = trackedWindow ?? previousSegment.windowId
             const windowId = findWindowIdForTimestamp(startTimestamp + 1, preferredWindowId)
+            // A "gap" whose sources haven't loaded yet is pending data, not real inactivity — classify it as buffer so the player waits instead of skipping.
             const gapSegment: Partial<RecordingSegment> = {
-                kind: 'gap',
+                kind: isRangeLoaded(startTimestamp, endTimestamp) === false ? 'buffer' : 'gap',
                 startTimestamp,
                 endTimestamp,
                 windowId,
@@ -159,9 +162,11 @@ export const createSegments = (
         const endTimestamp = end
 
         if (!latestTimestamp || latestTimestamp < endTimestamp) {
+            const startTimestamp = latestTimestamp ? latestTimestamp + 1 : start
+            // The trailing region is pending data by default, but once its sources are all loaded it is just trailing inactivity.
             segments.push({
-                kind: 'buffer',
-                startTimestamp: latestTimestamp ? latestTimestamp + 1 : start,
+                kind: isRangeLoaded(startTimestamp, endTimestamp) === true ? 'gap' : 'buffer',
+                startTimestamp,
                 endTimestamp: endTimestamp,
                 isActive: false,
             } as RecordingSegment)
@@ -171,7 +176,7 @@ export const createSegments = (
         const firstTimestamp = segments[0]?.startTimestamp
         if (firstTimestamp && firstTimestamp > start) {
             segments.unshift({
-                kind: 'gap',
+                kind: isRangeLoaded(start, firstTimestamp) === false ? 'buffer' : 'gap',
                 startTimestamp: start,
                 endTimestamp: firstTimestamp,
                 isActive: false,
