@@ -4,6 +4,7 @@ import { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
 import { useLayoutEffect, useState } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -93,6 +94,8 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
+        // The approved baselines include the home view picker, so keep it rendering
+        featureFlags: [FEATURE_FLAGS.HOME_VIEW_TOGGLE],
         pageUrl: urls.projectHomepage(),
         testOptions: {
             waitForLoadersToDisappear: true,

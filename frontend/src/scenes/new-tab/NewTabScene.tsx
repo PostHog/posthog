@@ -4,6 +4,8 @@ import { useCallback } from 'react'
 
 import { Search } from 'lib/components/Search/Search'
 import { SearchItem } from 'lib/components/Search/searchLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { cn } from 'lib/utils/css-classes'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -15,6 +17,7 @@ export const scene: SceneExport = {
 
 export function NewTabScene(): JSX.Element {
     const { searchParams } = useValues(router)
+    const hasHomeViewToggle = useFeatureFlag('HOME_VIEW_TOGGLE')
     const handleItemSelect = useCallback((item: SearchItem) => {
         if (item.href) {
             router.actions.push(item.href)
@@ -47,7 +50,7 @@ export function NewTabScene(): JSX.Element {
             <HomeViewToggle current="search" />
             <div className="sticky top-0 w-full max-w-[640px] mx-auto">
                 {/* Extra top padding keeps the input clear of the home view picker */}
-                <Search.Input autoFocus className="pt-14" />
+                <Search.Input autoFocus className={cn(hasHomeViewToggle ? 'pt-14' : 'pt-8')} />
                 <Search.Status />
             </div>
             <Search.Separator className="-mx-4" />

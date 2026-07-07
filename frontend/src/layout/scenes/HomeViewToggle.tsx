@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -6,7 +6,11 @@ import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { RenderKeybind } from 'lib/components/Shortcuts/ShortcutMenu'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { cn } from 'lib/utils/css-classes'
 
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { emptySceneParams } from '~/scenes/scenes'
 import { Scene, SceneTab } from '~/scenes/sceneTypes'
@@ -60,12 +64,26 @@ const homeViewTabs: Record<Exclude<HomeView, 'launchpad'>, SceneTab> = {
     },
 }
 
-/** Homepage picker in the top-left of the home views. */
-export function HomeViewToggle({ current }: { current: HomeView }): JSX.Element {
+/** Homepage picker in the top-left of the home views. Renders in-flow with `inline`, overlaid otherwise. */
+export function HomeViewToggle({ current, inline }: { current: HomeView; inline?: boolean }): JSX.Element | null {
     const { setHomepage } = useActions(sceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { mobileLayout } = useValues(navigation3000Logic)
+
+    if (!featureFlags[FEATURE_FLAGS.HOME_VIEW_TOGGLE]) {
+        return null
+    }
 
     return (
-        <div className="absolute top-2 left-2 z-20 flex items-center gap-1">
+        <div
+            className={cn(
+                'flex items-center gap-1',
+                !inline && 'absolute top-2 z-20',
+                // The mobile nav hamburger sits fixed at the top left, so step out of its way
+                !inline && (mobileLayout ? 'left-12' : 'left-2'),
+                inline && mobileLayout && 'ml-10'
+            )}
+        >
             <LemonSegmentedButton
                 size="small"
                 value={current}

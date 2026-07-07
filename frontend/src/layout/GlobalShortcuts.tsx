@@ -10,6 +10,7 @@ import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { openCHQueriesDebugModal } from 'lib/components/Shortcuts/utils/DebugCHQueries'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
@@ -36,6 +37,7 @@ export function GlobalShortcuts(): null {
 
     // Open Info tab if scene has panel content, otherwise default to PostHog AI
     const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max
+    const hasHomeViewToggle = useFeatureFlag('HOME_VIEW_TOGGLE')
 
     useShortcut({
         name: 'Search',
@@ -104,6 +106,7 @@ export function GlobalShortcuts(): null {
                 router.actions.push(urls.projectHomepage())
             }
         },
+        disabled: !hasHomeViewToggle,
     })
 
     useShortcut({
@@ -116,6 +119,7 @@ export function GlobalShortcuts(): null {
                 router.actions.push(urls.apps())
             }
         },
+        disabled: !hasHomeViewToggle,
     })
 
     useShortcut({
@@ -128,6 +132,7 @@ export function GlobalShortcuts(): null {
                 router.actions.push(urls.files())
             }
         },
+        disabled: !hasHomeViewToggle,
     })
 
     useShortcut({

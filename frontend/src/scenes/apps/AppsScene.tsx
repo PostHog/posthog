@@ -80,12 +80,13 @@ export function AppsScene(): JSX.Element {
 
     return (
         <div className="relative h-full overflow-y-auto">
-            <HomeViewToggle current="apps" />
-            <div className="absolute top-2 right-2 z-20">
+            {/* flex-wrap drops the search field onto its own line when the page gets too narrow */}
+            <div className="flex flex-wrap items-center gap-2 p-2">
+                <HomeViewToggle current="apps" inline />
                 <LemonInput
                     type="search"
                     size="small"
-                    className="w-60"
+                    className="w-60 ml-auto"
                     placeholder="Search apps"
                     value={searchTerm}
                     onChange={setSearchTerm}
@@ -94,7 +95,7 @@ export function AppsScene(): JSX.Element {
                     data-attr="apps-scene-search"
                 />
             </div>
-            <div className="max-w-[1280px] mx-auto px-8 pt-14 pb-8 group/colorful-product-icons colorful-product-icons-true">
+            <div className="max-w-[1280px] mx-auto px-8 pt-6 pb-8 group/colorful-product-icons colorful-product-icons-true">
                 <div ref={gridRef} className="grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-2">
                     {filteredAppItems.map((item, index) => (
                         <Link

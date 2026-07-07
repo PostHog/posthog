@@ -25,17 +25,20 @@ export function FilesScene(): JSX.Element {
 
     return (
         <div className="relative flex flex-col h-full overflow-hidden">
-            <HomeViewToggle current="files" />
-            <div className="absolute top-2 right-2 z-20 flex items-center gap-1">
-                <div className="w-80">
-                    <BindLogic logic={projectTreeLogic} props={filesSceneTreeProps}>
-                        <TreeSearchField root="project://" placeholder="Search files" treeRef={treeRef} />
-                    </BindLogic>
+            {/* flex-wrap drops the search toolbar onto its own line when the page gets too narrow */}
+            <div className="flex flex-wrap items-center gap-2 p-2">
+                <HomeViewToggle current="files" inline />
+                <div className="flex items-center gap-1 ml-auto">
+                    <div className="w-80">
+                        <BindLogic logic={projectTreeLogic} props={filesSceneTreeProps}>
+                            <TreeSearchField root="project://" placeholder="Search files" treeRef={treeRef} />
+                        </BindLogic>
+                    </div>
+                    <TreeFiltersDropdownMenu searchTerm={searchTerm} setSearchTerm={setSearchTerm} />
+                    <TreeSortDropdownMenu sortMethod={sortMethod} setSortMethod={setSortMethod} />
                 </div>
-                <TreeFiltersDropdownMenu searchTerm={searchTerm} setSearchTerm={setSearchTerm} />
-                <TreeSortDropdownMenu sortMethod={sortMethod} setSortMethod={setSortMethod} />
             </div>
-            <div className="flex-1 overflow-y-auto pt-14 pb-8">
+            <div className="flex-1 overflow-y-auto pt-2 pb-8">
                 <div className="max-w-[960px] w-full mx-auto px-4">
                     <ProjectTree root="project://" onlyTree logicKey={FILES_SCENE_LOGIC_KEY} treeRef={treeRef} />
                 </div>
