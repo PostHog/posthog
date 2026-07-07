@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -230,6 +230,65 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
 
         # Should use EXCEPT because one property is negated
         self.assertIn("EXCEPT", query_str)
+
+    def test_negative_only_behavioral_cohort_membership_end_to_end(self) -> None:
+        now = dt.datetime(2025, 1, 15, tzinfo=ZoneInfo("UTC"))
+        with freeze_time(now):
+            purchased_person = _create_person(
+                team=self.team,
+                distinct_ids=["purchased"],
+                properties={"email": "purchased@example.com"},
+                immediate=True,
+            )
+            not_purchased_person = _create_person(
+                team=self.team,
+                distinct_ids=["not_purchased"],
+                properties={"email": "not-purchased@example.com"},
+                immediate=True,
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id="purchased",
+                timestamp=now,
+            )
+            flush_persons_and_events()
+
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="Did not purchase",
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "purchase",
+                                        "type": "behavioral",
+                                        "value": "performed_event",
+                                        "negation": True,
+                                        "event_type": "events",
+                                        "time_value": 30,
+                                        "time_interval": "day",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            )
+            cohort.calculate_people_ch(pending_version=0)
+
+        rows = sync_execute(
+            "SELECT person_id FROM cohortpeople WHERE cohort_id = %(cohort_id)s AND team_id = %(team_id)s "
+            "GROUP BY person_id, cohort_id, team_id, version HAVING sum(sign) > 0",
+            {"cohort_id": cohort.pk, "team_id": self.team.pk},
+        )
+        member_ids = {str(row[0]) for row in rows}
+        self.assertIn(str(not_purchased_person.uuid), member_ids)
+        self.assertNotIn(str(purchased_person.uuid), member_ids)
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_multiple_person_properties_or_optimization(self, mock_feature_enabled: MagicMock) -> None:

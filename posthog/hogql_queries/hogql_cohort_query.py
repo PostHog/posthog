@@ -576,6 +576,9 @@ class HogQLCohortQuery:
             ),
         )
 
+    def get_all_persons_condition(self) -> ast.SelectQuery:
+        return cast(ast.SelectQuery, parse_select("SELECT id FROM persons"))
+
     def _get_condition_for_property(self, prop: Property) -> ast.SelectQuery | ast.SelectSetQuery:
         if prop.type == "behavioral":
             if prop.value == "performed_event":
@@ -742,8 +745,8 @@ class HogQLCohortQuery:
                     parent_condition_negated = True
                     children = [Condition(query, not negation) for query, negation in children]
 
-            # Negation criteria must be accompanied by at least one positive matching criteria.
-            # Sort the positive queries first, then subtract the negative queries.
+            # Sort positive queries first so mixed groups start from matches and subtract exclusions.
+            # Fully negated groups are combined here, then wrapped by the parent condition.
             children.sort(key=lambda query: query[1])  # False before True
             return Condition(
                 ast.SelectSetQuery(
@@ -765,7 +768,10 @@ class HogQLCohortQuery:
 
         condition = build_conditions(self.property_groups)
         if condition.negation:
-            raise ValidationError("Top level condition cannot be negated", str(self.property_groups))
+            return ast.SelectSetQuery(
+                initial_select_query=self.get_all_persons_condition(),
+                subsequent_select_queries=[SelectSetNode(select_query=condition.query, set_operator="EXCEPT")],
+            )
         return condition.query
 
 
