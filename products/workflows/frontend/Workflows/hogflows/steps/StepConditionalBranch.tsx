@@ -84,6 +84,10 @@ export function StepConditionalBranchConfiguration({
     return (
         <>
             <StepSchemaErrors />
+            <span className="text-xs text-muted">
+                Conditions match on properties of the person and the event that triggered this workflow, not on whether a
+                new event occurs. To branch on someone performing a new event, add a "Wait until condition" step instead.
+            </span>
             {conditions.map((condition, index) => (
                 <div key={index} className="flex flex-col gap-2 p-2 rounded border">
                     <div className="flex justify-between items-center">
