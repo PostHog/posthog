@@ -1174,6 +1174,7 @@ impl PersonHogReplica for PersonHogReplicaService {
             "name_plural",
             "detail_dashboard_id",
             "default_columns",
+            "created_at",
         ];
         for field in &req.update_mask {
             if !valid_fields.contains(&field.as_str()) {
@@ -1191,6 +1192,13 @@ impl PersonHogReplica for PersonHogReplicaService {
             None
         };
 
+        let created_at = match req.created_at {
+            Some(ts) => Some(chrono::DateTime::from_timestamp_millis(ts).ok_or_else(|| {
+                Status::invalid_argument(format!("Invalid created_at timestamp: {ts}"))
+            })?),
+            None => None,
+        };
+
         let mapping = self
             .storage
             .update_group_type_mapping(
@@ -1201,6 +1209,7 @@ impl PersonHogReplica for PersonHogReplicaService {
                 req.name_plural.as_deref(),
                 req.detail_dashboard_id,
                 default_columns.as_deref(),
+                created_at,
             )
             .await
             .map_err(|e| log_and_convert_error(e, "update_group_type_mapping"))?;

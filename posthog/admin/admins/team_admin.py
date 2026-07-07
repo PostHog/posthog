@@ -5,7 +5,7 @@ import uuid
 import asyncio
 import hashlib
 import dataclasses
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
 from urllib import parse
@@ -21,6 +21,7 @@ from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
 from django.urls import NoReverseMatch, path, reverse
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django.utils.html import escapejs, format_html
 from django.utils.safestring import mark_safe
 
@@ -409,11 +410,13 @@ class TeamAdmin(admin.ModelAdmin):
         if request.method == "GET":
             default_columns = mapping_dict.get("default_columns")
             default_columns_json = json.dumps(default_columns) if default_columns else ""
+            existing_created_at = mapping_dict.get("created_at")
             context = {
                 **self.admin_site.each_context(request),
                 "team": team,
                 "mapping": mapping_dict,
                 "default_columns_json": default_columns_json,
+                "created_at_display": existing_created_at.strftime("%Y-%m-%d %H:%M:%S") if existing_created_at else "",
                 "title": f"Edit group type mapping - {team.name} - index {group_type_index}",
             }
             return render(request, "admin/posthog/team/group_type_mapping_edit.html", context)
@@ -437,6 +440,18 @@ class TeamAdmin(admin.ModelAdmin):
                     reverse("admin:posthog_team_edit_group_type_mapping", args=[object_id, group_type_index])
                 )
 
+        created_at_raw = request.POST.get("created_at", "").strip()
+        parsed_created_at: datetime | None = None
+        if created_at_raw:
+            parsed_created_at = parse_datetime(created_at_raw)
+            if parsed_created_at is None:
+                messages.error(request, "Created at must be a valid datetime, e.g. 2026-01-15 10:30:00.")
+                return redirect(
+                    reverse("admin:posthog_team_edit_group_type_mapping", args=[object_id, group_type_index])
+                )
+            if parsed_created_at.tzinfo is None:
+                parsed_created_at = parsed_created_at.replace(tzinfo=UTC)
+
         update_mask = ["name_singular", "name_plural"]
         update_kwargs: dict[str, Any] = {
             "project_id": team.project_id,
@@ -448,6 +463,9 @@ class TeamAdmin(admin.ModelAdmin):
             update_mask.append("default_columns")
             if parsed_default_columns is not None:
                 update_kwargs["default_columns"] = json.dumps(parsed_default_columns).encode()
+        if parsed_created_at is not None:
+            update_mask.append("created_at")
+            update_kwargs["created_at"] = int(parsed_created_at.timestamp() * 1000)
         update_kwargs["update_mask"] = update_mask
 
         try:
