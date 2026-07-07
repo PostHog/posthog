@@ -67,6 +67,7 @@ describe('ml-mirror-pipeline', () => {
         teamId: 1,
         consoleLogIngestionEnabled: false,
         aiTrainingOptedIn,
+        firstPartyHosts: [],
     })
 
     beforeEach(() => {

@@ -102,6 +102,9 @@ class Channel(TeamScopedRootMixin):
         return f"#{self.name}"
 
 
+SLACK_NOTIFIED_PR_URL_STATE_KEY = "slack_notified_pr_url"
+
+
 class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
     class OriginProduct(models.TextChoices):
         ONBOARDING = "onboarding", "Onboarding"
@@ -211,6 +214,10 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         null=True,
         help_text="Custom prompt for CI fixes. If blank, a default prompt will be used.",
     )
+
+    # Conversation-level state shared across the task's runs (each resume/follow-up
+    # is a fresh TaskRun), e.g. which PRs have been announced to the Slack thread.
+    state = models.JSONField(default=dict, null=True, blank=True)
 
     class Meta:
         db_table = "posthog_task"
@@ -369,6 +376,22 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             },
         )
         return task_run
+
+    @property
+    def slack_notified_pr_url(self) -> str | None:
+        """PR URL last announced to this task's Slack thread, if any."""
+        return (self.state or {}).get(SLACK_NOTIFIED_PR_URL_STATE_KEY)
+
+    def mark_slack_pr_notified(self, pr_url: str) -> None:
+        """Record ``pr_url`` as the PR announced to the task's Slack thread. Row-locked
+        merge so it doesn't clobber other keys in the shared state bag."""
+        with transaction.atomic():
+            task = Task.objects.select_for_update().only("id", "state").get(id=self.id)
+            state = dict(task.state or {})
+            state[SLACK_NOTIFIED_PR_URL_STATE_KEY] = pr_url
+            task.state = state
+            task.save(update_fields=["state", "updated_at"])
+        self.state = state
 
     def soft_delete(self):
         self.deleted = True

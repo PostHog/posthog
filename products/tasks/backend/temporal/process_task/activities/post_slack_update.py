@@ -141,24 +141,18 @@ def _post_pr_opened_notification_once(
 
     handler.post_pr_opened(pr_url, task_url, reply_target_slack_user_id=reply_target_slack_user_id)
 
-    _mark_pr_opened_notified(task_run, pr_url)
+    task_run.task.mark_slack_pr_notified(pr_url)
 
 
 def _is_pr_opened_notified(task_run, pr_url: str) -> bool:
-    state = task_run.state or {}
-    if not state.get("slack_pr_opened_notified"):
-        return False
-    notified_url = state.get("slack_notified_pr_url")
-    return notified_url == pr_url if notified_url else True
-
-
-def _mark_pr_opened_notified(task_run, pr_url: str) -> None:
-    from products.tasks.backend.models import TaskRun
-
-    TaskRun.update_state_atomic(
-        task_run.id,
-        updates={
-            "slack_pr_opened_notified": True,
-            "slack_notified_pr_url": pr_url,
-        },
-    )
+    # Dedupe on the Task (the conversation), not the run: a thread spans many runs
+    # and a later one can re-stamp the same pr_url, so per-run state would re-announce.
+    if task_run.task.slack_notified_pr_url == pr_url:
+        return True
+    # Transition fallback: honor the old per-run flag for runs already in flight at
+    # deploy. Drop once none predate the task-level dedupe.
+    legacy_state = task_run.state or {}
+    if legacy_state.get("slack_pr_opened_notified"):
+        legacy_url = legacy_state.get("slack_notified_pr_url")
+        return not legacy_url or legacy_url == pr_url
+    return False
