@@ -2,13 +2,13 @@ import csv
 import sys
 import time
 import subprocess
-from datetime import datetime
 from io import StringIO
 from typing import TYPE_CHECKING, Any, NotRequired, Optional, TypedDict, cast
 from uuid import UUID
 
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 
 import structlog
 from clickhouse_driver.errors import ServerException as ClickHouseServerException
@@ -223,7 +223,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             join.soft_delete()
 
         self.deleted = True
-        self.deleted_at = datetime.now()
+        self.deleted_at = timezone.now()
         self.save()
 
     def table_name_without_prefix(self) -> str:

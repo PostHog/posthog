@@ -47,6 +47,9 @@ class TestPostSlackUpdate(TestCase):
         mock_run.id = "run-1"
         mock_run.output = {}
         mock_run.state = {}
+        # Default the task-level dedupe to unset so the comparison is real, not a
+        # truthy MagicMock; skip-path tests override it.
+        mock_run.task.slack_notified_pr_url = None
         for k, v in kwargs.items():
             setattr(mock_run, k, v)
         return mock_run
@@ -71,13 +74,7 @@ class TestPostSlackUpdate(TestCase):
 
         mock_update_reaction.assert_called_once_with("hedgehog")
         mock_post_pr_opened.assert_called_once()
-        mock_task_run_class.update_state_atomic.assert_called_once_with(
-            "run-1",
-            updates={
-                "slack_pr_opened_notified": True,
-                "slack_notified_pr_url": "https://github.com/org/repo/pull/1",
-            },
-        )
+        mock_run.task.mark_slack_pr_notified.assert_called_once_with("https://github.com/org/repo/pull/1")
 
     @patch.object(SlackThreadHandler, "post_completion")
     @patch.object(SlackThreadHandler, "update_reaction")
@@ -217,13 +214,7 @@ class TestPostSlackUpdate(TestCase):
         )
         mock_update_reaction.assert_called_once_with("eyes")
         mock_post_progress.assert_not_called()
-        mock_task_run_class.update_state_atomic.assert_called_once_with(
-            "run-1",
-            updates={
-                "slack_pr_opened_notified": True,
-                "slack_notified_pr_url": "https://github.com/org/repo/pull/1",
-            },
-        )
+        mock_run.task.mark_slack_pr_notified.assert_called_once_with("https://github.com/org/repo/pull/1")
         mock_run.save.assert_not_called()
 
     @patch.object(SlackThreadHandler, "post_completion")
@@ -318,6 +309,35 @@ class TestPostSlackUpdate(TestCase):
         mock_post_pr_opened.assert_not_called()
         mock_delete_progress.assert_called_once()
 
+    @patch.object(SlackThreadHandler, "delete_progress")
+    @patch.object(SlackThreadHandler, "post_pr_opened")
+    @patch.object(SlackThreadHandler, "update_reaction")
+    @patch.object(SlackThreadHandler, "__init__", return_value=None)
+    @patch("products.tasks.backend.models.TaskRun")
+    def test_run_does_not_repost_pr_a_sibling_run_already_announced(
+        self,
+        mock_task_run_class,
+        mock_handler_init,
+        mock_update_reaction,
+        mock_post_pr_opened,
+        mock_delete_progress,
+    ):
+        # Regression: a fresh run (empty per-run state) must not re-announce a PR a
+        # sibling run already recorded on the shared Task.
+        mock_run = self._make_mock_run(
+            mock_task_run_class.Status.COMPLETED,
+            output={"pr_url": "https://github.com/org/repo/pull/1"},
+            state={},
+        )
+        mock_run.task.slack_notified_pr_url = "https://github.com/org/repo/pull/1"
+        mock_task_run_class.objects.select_related.return_value.get.return_value = mock_run
+
+        post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
+
+        mock_post_pr_opened.assert_not_called()
+        mock_delete_progress.assert_called_once()
+        mock_run.task.mark_slack_pr_notified.assert_not_called()
+
     @patch.object(SlackThreadHandler, "post_pr_opened")
     @patch.object(SlackThreadHandler, "update_reaction")
     @patch.object(SlackThreadHandler, "__init__", return_value=None)
@@ -348,13 +368,7 @@ class TestPostSlackUpdate(TestCase):
             "http://localhost:8000/project/1/tasks/10?runId=run-1",
             reply_target_slack_user_id=None,
         )
-        mock_task_run_class.update_state_atomic.assert_called_once_with(
-            "run-1",
-            updates={
-                "slack_pr_opened_notified": True,
-                "slack_notified_pr_url": "https://github.com/org/repo/pull/2",
-            },
-        )
+        mock_run.task.mark_slack_pr_notified.assert_called_once_with("https://github.com/org/repo/pull/2")
 
     @patch.object(SlackThreadHandler, "delete_progress")
     @patch.object(SlackThreadHandler, "post_pr_opened")

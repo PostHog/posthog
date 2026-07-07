@@ -1,79 +1,273 @@
 [
   {
     "name": "keeps allow-listed path segments, masks numbers",
-    "allow": { "text": [], "url": ["users", "profile"] },
+    "allow": {
+      "text": [],
+      "url": [
+        "users",
+        "profile"
+      ]
+    },
     "input": "https://example.com/users/42/profile",
-    "scrubAuthority": false,
+    "collapseHost": false,
     "expected": "https://example.com/users/$$/profile"
   },
   {
     "name": "redacts non-allow-listed path segments",
-    "allow": { "text": [], "url": [] },
+    "allow": {
+      "text": [],
+      "url": []
+    },
     "input": "/foo/bar?x=1",
-    "scrubAuthority": false,
+    "collapseHost": false,
     "expected": "/[redacted]/[redacted]"
   },
   {
     "name": "query param survives on allow-listed key, number value masked",
-    "allow": { "text": [], "url": ["page"] },
+    "allow": {
+      "text": [],
+      "url": [
+        "page"
+      ]
+    },
     "input": "https://example.com/?page=2&secret=abc",
-    "scrubAuthority": false,
+    "collapseHost": false,
     "expected": "https://example.com/?page=$"
   },
   {
     "name": "allow-listed fragment kept",
-    "allow": { "text": [], "url": ["section"] },
+    "allow": {
+      "text": [],
+      "url": [
+        "section"
+      ]
+    },
     "input": "https://example.com/#section",
-    "scrubAuthority": false,
+    "collapseHost": false,
     "expected": "https://example.com/#section"
   },
   {
-    "name": "scrubAuthority strips userinfo/port and keeps allow-listed subdomain",
-    "allow": { "text": [], "url": ["us", "path"] },
+    "name": "collapseHost drops the port and keeps an allow-listed subdomain",
+    "allow": {
+      "text": [],
+      "url": [
+        "us",
+        "path"
+      ]
+    },
     "input": "https://user:pw@us.example.org:8080/path",
-    "scrubAuthority": true,
+    "collapseHost": true,
     "expected": "https://us.example.com/path"
   },
   {
-    "name": "scrubAuthority collapses a two-label host to example.com",
-    "allow": { "text": [], "url": [] },
+    "name": "collapseHost collapses a two-label host to example.com",
+    "allow": {
+      "text": [],
+      "url": []
+    },
     "input": "https://example.com/u/42",
-    "scrubAuthority": true,
+    "collapseHost": true,
     "expected": "https://example.com/[redacted]/$$"
   },
   {
     "name": "query param with an allow-listed key and empty value survives",
-    "allow": { "text": [], "url": ["ok"] },
+    "allow": {
+      "text": [],
+      "url": [
+        "ok"
+      ]
+    },
     "input": "https://example.com/?ok=&x=1",
-    "scrubAuthority": false,
+    "collapseHost": false,
     "expected": "https://example.com/?ok="
   },
   {
     "name": "bare (valueless) query flag survives only when allow-listed",
-    "allow": { "text": [], "url": ["ok"] },
+    "allow": {
+      "text": [],
+      "url": [
+        "ok"
+      ]
+    },
     "input": "https://example.com/?ok&drop",
-    "scrubAuthority": false,
+    "collapseHost": false,
     "expected": "https://example.com/?ok"
   },
   {
     "name": "numeric fragment is dropped",
-    "allow": { "text": [], "url": [] },
+    "allow": {
+      "text": [],
+      "url": []
+    },
     "input": "https://example.com/#42",
-    "scrubAuthority": false,
+    "collapseHost": false,
     "expected": "https://example.com/"
   },
   {
     "name": "relative-path safe segments (. and ..) are preserved",
-    "allow": { "text": [], "url": [] },
+    "allow": {
+      "text": [],
+      "url": []
+    },
     "input": "/a/../b",
-    "scrubAuthority": false,
+    "collapseHost": false,
     "expected": "/[redacted]/../[redacted]"
   },
   {
     "name": "multiple surviving query params keep their order",
-    "allow": { "text": [], "url": ["a", "b", "x", "y"] },
+    "allow": {
+      "text": [],
+      "url": [
+        "a",
+        "b",
+        "x",
+        "y"
+      ]
+    },
     "input": "https://example.com/?a=x&b=y",
-    "scrubAuthority": false,
+    "collapseHost": false,
     "expected": "https://example.com/?a=x&b=y"
+  },
+  {
+    "name": "passthrough url literals survive even with authority scrubbing: about:blank",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "input": "about:blank",
+    "collapseHost": true,
+    "expected": "about:blank"
+  },
+  {
+    "name": "passthrough url literals survive even with authority scrubbing: about:srcdoc",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "input": "about:srcdoc",
+    "collapseHost": true,
+    "expected": "about:srcdoc"
+  },
+  {
+    "name": "userinfo is stripped even without authority scrubbing",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "input": "https://user:hunter2@app.example.com/settings",
+    "collapseHost": false,
+    "expected": "https://app.example.com/[redacted]"
+  },
+  {
+    "name": "scheme without slashes keeps the protocol and redacts the rest: tel",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "input": "tel:+15551234567",
+    "collapseHost": false,
+    "expected": "tel:[redacted]"
+  },
+  {
+    "name": "scheme without slashes keeps the protocol and redacts the rest: mailto",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "input": "mailto:john.fakename@example.com?subject=hello%20there",
+    "collapseHost": true,
+    "expected": "mailto:[redacted]"
+  },
+  {
+    "name": "first-party base domain collapses subdomain and port",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "firstPartyHosts": [
+      "customer-site.test"
+    ],
+    "input": "https://app.customer-site.test:5000/settings/billing",
+    "collapseHost": false,
+    "expected": "https://example.com/[redacted]/[redacted]"
+  },
+  {
+    "name": "first-party base domain collapses the apex host itself",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "firstPartyHosts": [
+      "customer-site.test"
+    ],
+    "input": "https://customer-site.test/pricing",
+    "collapseHost": false,
+    "expected": "https://example.com/[redacted]"
+  },
+  {
+    "name": "third-party host keeps its hostname despite first-party patterns",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "firstPartyHosts": [
+      "customer-site.test"
+    ],
+    "input": "https://js.payment-vendor.test/v3",
+    "collapseHost": false,
+    "expected": "https://js.payment-vendor.test/[redacted]"
+  },
+  {
+    "name": "lookalike suffix host is not treated as first-party",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "firstPartyHosts": [
+      "customer-site.test"
+    ],
+    "input": "https://evil-customer-site.test/x",
+    "collapseHost": false,
+    "expected": "https://evil-customer-site.test/[redacted]"
+  },
+  {
+    "name": "unknown token before a colon is not treated as a scheme",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "input": "john.fakename:secret-chat",
+    "collapseHost": false,
+    "expected": "[redacted]"
+  },
+  {
+    "name": "app deep-link scheme survives with its value scrubbed",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "input": "spotify:track:4uLU6hMCjMI75M1A2tKUQC",
+    "collapseHost": false,
+    "expected": "spotify:[redacted]"
+  },
+  {
+    "name": "unencoded ? in userinfo cannot smuggle credentials as a host",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "input": "https://user:pa?ss@acme-corp.test/path",
+    "collapseHost": false,
+    "expected": "https://[redacted]"
+  },
+  {
+    "name": "free text before an embedded :// is not kept as a scheme",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "input": "javascript:mail(\"john.fakename@example.com\",\"https://tracker.test/1\")",
+    "collapseHost": false,
+    "expected": "javascript:[redacted]//[redacted]/[redacted]"
   }
 ]

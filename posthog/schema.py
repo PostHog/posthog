@@ -13303,6 +13303,14 @@ class DashboardFilter(BaseModel):
     date_from: str | None = None
     date_to: str | None = None
     explicitDate: bool | None = None
+    filterTestAccounts: bool | None = Field(
+        default=None,
+        description=("Tri-state test-account override. Null/absent = inherit; true = force on; false = force off."),
+    )
+    interval: IntervalType | None = Field(
+        default=None,
+        description=("Time granularity forced onto every insight that supports one. Absent/null = inherit."),
+    )
     properties: (
         list[
             EventPropertyFilter
@@ -21303,6 +21311,8 @@ class TileFilters(BaseModel):
     date_from: str | None = None
     date_to: str | None = None
     explicitDate: bool | None = None
+    filterTestAccounts: bool | None = None
+    interval: IntervalType | None = None
     properties: (
         list[
             EventPropertyFilter
