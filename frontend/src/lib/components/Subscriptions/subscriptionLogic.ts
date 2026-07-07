@@ -189,6 +189,15 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
 
                 if (updatedSub.id !== props.id) {
                     router.actions.replace(urlForSubscription(updatedSub.id, props))
+                    // props.id === 'new' here, so this is a freshly created subscription — the conversion
+                    // signal for subscribe-placement experiments.
+                    posthog.capture('subscription created', {
+                        resource_type: isAi ? 'ai' : props.dashboardId ? 'dashboard' : 'insight',
+                        dashboard_id: props.dashboardId,
+                        insight_short_id: props.insightShortId,
+                        subscription_id: updatedSub.id,
+                        target_type: updatedSub.target_type,
+                    })
                 }
 
                 // If a subscriptionsLogic for this insight/dashboard is mounted already, refresh both

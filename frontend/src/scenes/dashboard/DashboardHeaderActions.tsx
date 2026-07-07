@@ -19,6 +19,7 @@ import { AccessControlLevel, AccessControlResourceType, DashboardMode } from '~/
 
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
+import { DashboardSubscribeExperiment } from './DashboardSubscribeExperiment'
 
 export function getAddTileMenuItems({
     dashboardId,
@@ -280,7 +281,9 @@ export function ViewModeActions(): JSX.Element {
                     </LemonButton>
                 </Shortcut>
             )}
+            <DashboardSubscribeExperiment placement="button" />
             <DashboardAddTileButton />
+            <DashboardSubscribeExperiment placement="menu" />
         </>
     )
 }
