@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
@@ -52,6 +52,21 @@ export const observationLabelLogic = kea<observationLabelLogicType>([
             },
         ],
     })),
+
+    propsChanged(({ actions, props, values, cache }, oldProps) => {
+        // Adopt a label reloaded from the server (e.g. a teammate's change) so a stale local
+        // value or pending autosave can't overwrite it.
+        const next = props.initialLabel ?? null
+        if (JSON.stringify(next) === JSON.stringify(oldProps.initialLabel ?? null)) {
+            return
+        }
+        if (JSON.stringify(next) === JSON.stringify(values.label)) {
+            return
+        }
+        cache.labelEpoch = (cache.labelEpoch ?? 0) + 1
+        actions.labelUpdated(next)
+        actions.setFeedbackDraft(next?.feedback ?? '')
+    }),
 
     listeners(({ actions, props, cache, values }) => ({
         // Autosave feedback once the user pauses typing, so they don't have to remember to press a button.

@@ -88,6 +88,22 @@ describe('scannerQualityLogic', () => {
         expect(visionScannersObservationsList).toHaveBeenLastCalledWith(TEAM_ID, 'scan-1', expectedParams)
     })
 
+    it('a filter change during an in-flight load drops the stale response', async () => {
+        await mountLogic()
+        let resolveStale: (value: unknown) => void = () => {}
+        ;(visionScannersObservationsList as jest.Mock)
+            .mockImplementationOnce(() => new Promise((resolve) => (resolveStale = resolve)))
+            .mockResolvedValueOnce({ results: [{ id: 'fresh', session_id: 'sess-9', status: 'succeeded' }], count: 1 })
+
+        logic.actions.setRatedFilter('rated')
+        logic.actions.setRatedFilter('all')
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+        resolveStale({ results: [{ id: 'stale', session_id: 'sess-0', status: 'succeeded' }], count: 1 })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.observations.map((obs) => obs.id)).toEqual(['fresh'])
+    })
+
     it('an inline rating updates the row so a remount does not resurrect a stale label', async () => {
         await mountLogic()
         logic.actions.labelChanged('obs-2', { is_correct: false, feedback: 'should be yes' })

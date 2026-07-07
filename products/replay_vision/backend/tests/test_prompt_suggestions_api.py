@@ -129,13 +129,19 @@ class TestPromptSuggestions(_VisionAPITestCase):
         self.assertEqual(body["status"], "applied")
         self.assertIsNotNone(body["applied_at"])
 
-    def test_apply_rejects_superseded_and_version_mismatched_suggestions(self) -> None:
+    def test_apply_rejects_non_pending_and_version_mismatched_suggestions(self) -> None:
         self._create_rated_observation("sess-1", False, "should be yes")
         superseded_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
+        dismissed_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
+        self.client.post(self._suggestions_url(f"{dismissed_id}/dismiss/"))
         pending_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
 
         # A stale tab submitting the superseded suggestion must not roll the prompt back.
         resp = self.client.post(self._suggestions_url(f"{superseded_id}/apply/"))
+        self.assertEqual(resp.status_code, 400)
+
+        # A dismissed suggestion is a rejected prompt; applying it must not revive it.
+        resp = self.client.post(self._suggestions_url(f"{dismissed_id}/apply/"))
         self.assertEqual(resp.status_code, 400)
 
         # The prompt changed (version bump) since the pending suggestion was generated.
@@ -152,6 +158,17 @@ class TestPromptSuggestions(_VisionAPITestCase):
         resp = self.client.post(self._suggestions_url(f"{suggestion_id}/dismiss/"))
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["status"], "dismissed")
+
+    def test_dismiss_rejects_applied_suggestion(self) -> None:
+        self._create_rated_observation("sess-1", False, "should be yes")
+        suggestion_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
+        self.client.post(self._suggestions_url(f"{suggestion_id}/apply/"))
+
+        # Dismissing the applied suggestion would mark the scanner's live prompt as rejected.
+        resp = self.client.post(self._suggestions_url(f"{suggestion_id}/dismiss/"))
+        self.assertEqual(resp.status_code, 400)
+        suggestion = ReplayScannerPromptSuggestion.objects.get(id=suggestion_id)
+        self.assertEqual(suggestion.status, SuggestionStatus.APPLIED)
 
     def test_generate_marks_no_change_when_model_returns_current_prompt(self) -> None:
         self._create_rated_observation("sess-1", True)

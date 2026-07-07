@@ -468,12 +468,14 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
         () =>
             labelStats && chart
                 ? labelStats.version_markers
+                      // Markers are all-time but the chart is windowed, so match full dates:
+                      // last year's "Jul 7" must not land on today's bar.
+                      .filter((marker) => chart.dates.includes(marker.date))
                       .map((marker) => ({
                           version: marker.version,
                           label: dayjs(marker.date).format('MMM D'),
                           prompt: marker.prompt,
                       }))
-                      .filter((marker) => chart.labels.includes(marker.label))
                 : [],
         [labelStats, chart]
     )
