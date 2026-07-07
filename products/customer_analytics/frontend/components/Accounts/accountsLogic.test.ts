@@ -13,6 +13,7 @@ import type { UserBasicType, UserType } from '~/types'
 import { accountsPartialUpdate, accountsRetrieve } from 'products/customer_analytics/frontend/generated/api'
 import type { AccountApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 import {
     ACCOUNTS_HOGQL_DEFAULT_SELECT,
     ACCOUNTS_NAME_COLUMN,
@@ -65,12 +66,16 @@ describe('accountsLogic', () => {
     beforeEach(() => {
         initKeaTests()
         jest.resetAllMocks()
+        // accountsLogic connects to the (localStorage-persisted) shared scene logic;
+        // clear it so a "mine only" write in one test can't leak into the next.
+        localStorage.clear()
         logic = accountsLogic()
         logic.mount()
     })
 
     afterEach(() => {
         logic.unmount()
+        localStorage.clear()
     })
 
     it('starts with empty filters', () => {
@@ -203,6 +208,75 @@ describe('accountsLogic', () => {
 
             expect(logic.values.assignedToFilter).toEqual([CURRENT_USER_ID])
             expect(logic.values.assignedToCurrentUser).toBe(true)
+        })
+
+        // The "mine only" choice is held in the shared scene logic so it survives a
+        // switch to the Notes tab. These guard the two-way link between the accounts
+        // assigned-to filter and that shared toggle.
+        describe('shared "mine only" toggle', () => {
+            it('toggling "My accounts" writes the shared toggle', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setAssignedToCurrentUser(true)
+                }).toFinishAllListeners()
+                expect(customerAnalyticsSceneLogic.values.mineOnly).toBe(true)
+
+                await expectLogic(logic, () => {
+                    logic.actions.setAssignedToCurrentUser(false)
+                }).toFinishAllListeners()
+                expect(customerAnalyticsSceneLogic.values.mineOnly).toBe(false)
+            })
+
+            it('picking explicit assignees clears the shared toggle', async () => {
+                customerAnalyticsSceneLogic.actions.setMineOnly(true)
+                await expectLogic(logic, () => {
+                    logic.actions.setAssignedToFilter([7])
+                }).toFinishAllListeners()
+                expect(customerAnalyticsSceneLogic.values.mineOnly).toBe(false)
+            })
+
+            it('restores "my accounts" from the shared toggle when the URL has no view hash', async () => {
+                customerAnalyticsSceneLogic.actions.setMineOnly(true)
+                router.actions.push(urls.customerAnalyticsAccounts())
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.assignedToFilter).toEqual([CURRENT_USER_ID])
+                expect(logic.values.assignedToCurrentUser).toBe(true)
+            })
+
+            it('an explicit shared link still wins over the shared toggle', async () => {
+                customerAnalyticsSceneLogic.actions.setMineOnly(true)
+                router.actions.push(urls.customerAnalyticsAccounts(), {}, { view: { assignedTo: [7] } })
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.assignedToFilter).toEqual([7])
+                expect(customerAnalyticsSceneLogic.values.mineOnly).toBe(false)
+            })
+
+            // Regression: on a fresh load the logic can run URL restore before userLogic
+            // resolves the user (currentUserId null), so the persisted choice can't be applied
+            // then. The user resolving later must apply it, without clearing the preference.
+            it('applies the persisted "my accounts" choice when the user resolves after restore', async () => {
+                customerAnalyticsSceneLogic.actions.setMineOnly(true)
+                expect(logic.values.assignedToFilter).toEqual([])
+
+                await expectLogic(logic, () => {
+                    userLogic.actions.loadUserSuccess(buildUser({ id: CURRENT_USER_ID }) as unknown as UserType)
+                }).toFinishAllListeners()
+
+                expect(logic.values.assignedToFilter).toEqual([CURRENT_USER_ID])
+                expect(customerAnalyticsSceneLogic.values.mineOnly).toBe(true)
+            })
+
+            it('the user resolving does not override an explicit assigned-to from the URL', async () => {
+                router.actions.push(urls.customerAnalyticsAccounts(), {}, { view: { assignedTo: [7] } })
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    userLogic.actions.loadUserSuccess(buildUser({ id: CURRENT_USER_ID }) as unknown as UserType)
+                }).toFinishAllListeners()
+
+                expect(logic.values.assignedToFilter).toEqual([7])
+            })
         })
     })
 
