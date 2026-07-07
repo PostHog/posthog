@@ -249,6 +249,21 @@ for (const { root, label, budgetBytes, forbidden } of ROOTS) {
     // diverge (a module can ship eagerly via a bundler-injected or re-export edge with no
     // source-level import path), so the chain is a pointer, not the byte source, and may be
     // short when the output edge has no input-graph counterpart.
+
+    // Self-verify: each forbidden pattern should match at least one module present anywhere in
+    // the metafile inputs. If it matches nothing, the path string is stale (dist layout changed,
+    // package renamed) and the guard silently stops enforcing. Warn loudly so the pattern stays
+    // in sync with the actual build output.
+    const allInputKeys = Object.keys(inputs)
+    for (const forbiddenSubstr of forbidden) {
+        if (!allInputKeys.some((f) => f.includes(forbiddenSubstr))) {
+            warnViolation(
+                `Forbidden pattern '${forbiddenSubstr}' does not match any module in the build — ` +
+                    `the path may be stale. Update it in frontend/bin/check-eager-graph.mjs.`
+            )
+        }
+    }
+
     const hitFiles = new Map()
     for (const forbiddenSubstr of forbidden) {
         const hit = [...eagerBytesByFile.keys()].find((f) => f.includes(forbiddenSubstr))
