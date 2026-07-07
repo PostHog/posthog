@@ -1,6 +1,6 @@
 from posthog.test.base import BaseTest
 
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.rbac.user_access_control import UserAccessControl
 
 from products.customer_analytics.backend.facade import (
@@ -135,6 +135,12 @@ class TestSyncFromAccountProperties(BaseTest):
 
     def test_sync_skips_unresolvable_users(self):
         Account.objects.update_account(self.account, properties={"csm": {"id": 99999999, "email": "gone@example.com"}})
+        relationships.sync_from_account_properties(self.account)
+        assert AccountRelationship.objects.for_team(self.team.id).filter(account=self.account).count() == 0
+
+    def test_sync_skips_users_outside_the_organization(self):
+        outsider = User.objects.create_user(email="outsider@example.com", password=None, first_name="Out")
+        Account.objects.update_account(self.account, properties={"csm": {"id": outsider.id, "email": outsider.email}})
         relationships.sync_from_account_properties(self.account)
         assert AccountRelationship.objects.for_team(self.team.id).filter(account=self.account).count() == 0
 

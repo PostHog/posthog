@@ -1,5 +1,12 @@
 import clsx from 'clsx'
-import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import {
+    KeyboardEvent as ReactKeyboardEvent,
+    type CSSProperties,
+    useEffect,
+    useLayoutEffect,
+    useRef,
+    useState,
+} from 'react'
 
 import { IconCode, IconComment, IconCopy, IconQuote, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
@@ -47,6 +54,7 @@ export function FormattingToolbar({
     isAskAIDisabled,
     startInlineCommentAtSelection,
     lockPosition,
+    returnFocusToEditor,
 }: {
     selectedBlockStyle: TextBlockStyle | null
     placement: 'above' | 'below'
@@ -63,6 +71,8 @@ export function FormattingToolbar({
     isAskAIDisabled?: boolean
     startInlineCommentAtSelection?: () => void
     lockPosition: () => void
+    /** Moves focus back into the editor (Escape while the toolbar holds focus). */
+    returnFocusToEditor?: () => void
 }): JSX.Element {
     const [isLinkEditorOpen, setIsLinkEditorOpen] = useState(initialLinkEditorOpen)
     const [linkHref, setLinkHref] = useState(currentLinkHref ?? '')
@@ -148,12 +158,66 @@ export function FormattingToolbar({
         setIsLinkEditorOpen(false)
     }
 
+    // Roving arrow-key navigation between the toolbar's buttons; Escape hands focus back to
+    // the editor. The buttons stay in the tab order, so this only augments focus movement.
+    const handleToolbarKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+        if (event.target instanceof HTMLElement && event.target.closest('.MarkdownNotebook__format-link-editor')) {
+            if (event.key === 'Escape') {
+                event.preventDefault()
+                event.stopPropagation()
+                setIsLinkEditorOpen(false)
+            }
+            return
+        }
+
+        if (event.key === 'Escape') {
+            event.preventDefault()
+            event.stopPropagation()
+            returnFocusToEditor?.()
+            return
+        }
+
+        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+            return
+        }
+
+        const toolbarElement = toolbarRef.current
+        if (!toolbarElement) {
+            return
+        }
+
+        const buttons = Array.from(toolbarElement.querySelectorAll<HTMLButtonElement>('button:not([disabled])'))
+        if (!buttons.length) {
+            return
+        }
+
+        const activeIndex = buttons.findIndex((button) => button === window.document.activeElement)
+        if (activeIndex === -1) {
+            return
+        }
+
+        event.preventDefault()
+        event.stopPropagation()
+        const nextIndex =
+            event.key === 'Home'
+                ? 0
+                : event.key === 'End'
+                  ? buttons.length - 1
+                  : (activeIndex + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length
+        buttons[nextIndex].focus()
+    }
+
     return (
         <div
             className={clsx('MarkdownNotebook__format-toolbar', `MarkdownNotebook__format-toolbar--${placement}`)}
             contentEditable={false}
             ref={toolbarRef}
             style={toolbarStyle}
+            role="toolbar"
+            aria-label="Text formatting"
+            aria-orientation="horizontal"
+            aria-keyshortcuts="Alt+F10"
+            onKeyDown={handleToolbarKeyDown}
             onFocusCapture={lockPosition}
             onPointerDownCapture={lockPosition}
             onTouchStartCapture={lockPosition}
@@ -183,6 +247,7 @@ export function FormattingToolbar({
                         icon={button.icon}
                         tooltip={button.label}
                         aria-label={button.label}
+                        aria-pressed={selectedBlockStyle === button.style}
                         active={selectedBlockStyle === button.style}
                         className="MarkdownNotebook__format-style-button"
                         onClick={() => setBlockStyle(selectedBlockStyle === button.style ? 'paragraph' : button.style)}
@@ -235,6 +300,7 @@ export function FormattingToolbar({
                         icon={<IconLink />}
                         tooltip="Link"
                         aria-label="Link"
+                        aria-pressed={hasExistingLink || isLinkEditorOpen}
                         active={hasExistingLink || isLinkEditorOpen}
                         onClick={openLinkEditor}
                     />
@@ -247,7 +313,7 @@ export function FormattingToolbar({
                     />
                 </>
             ) : null}
-            {showInlineActions && startInlineCommentAtSelection ? (
+            {startInlineCommentAtSelection ? (
                 <LemonButton
                     size="xsmall"
                     icon={<IconComment />}

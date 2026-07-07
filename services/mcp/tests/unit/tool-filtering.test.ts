@@ -758,6 +758,7 @@ describe('Tool Filtering - Feature Flags', () => {
             expect.arrayContaining([
                 'agent-platform',
                 'logs-alerting',
+                'logs-patterns-view',
                 'replay-video-based-summarization',
                 'tracing',
                 'visual-review',
@@ -778,7 +779,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'endpoints-ai-materialization-fix',
             ])
         )
-        expect(flags).toHaveLength(20)
+        expect(flags).toHaveLength(21)
     })
 
     // Exercise the real predicate (toolPassesFlagGate) over hand-rolled entries

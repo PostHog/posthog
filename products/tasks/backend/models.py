@@ -773,6 +773,34 @@ class TaskThreadMessage(TeamScopedRootMixin):
         return f"Thread message {self.id} on task {self.task_id}"
 
 
+class TaskThreadMessageMention(TeamScopedRootMixin):
+    """One @-mention of a user inside a thread message, indexed at write time so the
+    mentions feed is a single indexed query instead of a client-side scan of every
+    channel's threads. ``created_at`` is copied from the message so listing never
+    joins for ordering."""
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # db_constraint=False on the team/user FKs: adding an FK constraint to those hot tables
+    # locks them and stalls deploys; Django still enforces the relation and on_delete at the
+    # app level (see safe-django-migrations.md).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    message = models.ForeignKey(TaskThreadMessage, on_delete=models.CASCADE, related_name="mentions")
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+")
+    mentioned_user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    created_at = models.DateTimeField(default=django_timezone.now)
+
+    class Meta:
+        db_table = "posthog_task_thread_message_mention"
+        constraints = [
+            models.UniqueConstraint(fields=["message", "mentioned_user"], name="task_mention_message_user_unique")
+        ]
+        indexes = [models.Index(fields=["team", "mentioned_user", "created_at"], name="task_mention_team_user_created")]
+
+    def __str__(self):
+        return f"Mention of user {self.mentioned_user_id} in message {self.message_id}"
+
+
 class TaskAutomationManager(models.Manager):
     def get_queryset(self):
         return (
