@@ -58,7 +58,9 @@ are actually in the repository.
 
 ## Step 2 - Commit the wizard's changes to a new branch
 
-1. Create a branch named `posthog/instrumentation-<short-6-digits-sha>`.
+1. Create a branch named `posthog/instrumentation-<random-short-sha>`, where
+   `<random-short-sha>` is a random 6-character hex string you generate (NOT the HEAD
+   commit SHA). Its only purpose is to keep this branch from clashing with an existing branch.
 2. Look at `git log` to learn this repository's commit message convention.
 3. Commit the wizard's changes in that style; the message should resemble the concept of
    "Add PostHog to codebase". For example, in a repo using conventional commits:
@@ -70,11 +72,11 @@ are actually in the repository.
 4. Do NOT commit `posthog-setup-report.md` or `.posthog-events.json` - they are local reference
    only. Leave them untracked or exclude them from staging.
 
-**Checkpoint:** the commit exists on `posthog/instrumentation-<short-6-digits-sha>` and
+**Checkpoint:** the commit exists on `posthog/instrumentation-<random-short-sha>` and
 contains neither reference file:
 
 ```bash
-git rev-parse --abbrev-ref HEAD          # prints: posthog/instrumentation-<short-6-digits-sha>
+git rev-parse --abbrev-ref HEAD          # prints: posthog/instrumentation-<random-short-sha>
 git show --stat HEAD                     # lists the wizard's files
 git show --stat HEAD | grep -E 'posthog-setup-report|posthog-events|wizard-output' # prints NOTHING
 ```
@@ -89,7 +91,7 @@ git show --stat HEAD | grep -E 'posthog-setup-report|posthog-events|wizard-outpu
    down in your notes which variables are needed and what values they must be set to,
    for use in the PR description in Step 4.
 4. You should know the project API token from the PostHog MCP server context. If you don't have
-   it, run the `project-get` MCP tool to fetch it.
+   it, run the `projects-get` MCP tool to fetch it.
 
 **Checkpoint:** exactly one of the following is true:
 
@@ -137,7 +139,7 @@ This PR adds PostHog analytics to the app using the `posthog-js` SDK (installed 
 
 ## How to verify
 
-1. Deploy this branch (or run it locally with the env vars below).
+1. Deploy this branch (or run it locally after setting the env vars from the section below).
 2. Open the app and click around.
 3. In PostHog, open [Activity](https://app.posthog.com/activity/explore) - you should see
    `$pageview` events arriving within a minute.
@@ -222,7 +224,7 @@ deployed, say so explicitly and list the variables with their values anyway.
 **Checkpoint:** the PR exists and you have its URL:
 
 ```bash
-gh pr view --json url
+gh pr view --json url -q .url
 # returns the PR URL - use this exact URL for every later mention of the PR
 ```
 
