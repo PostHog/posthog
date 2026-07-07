@@ -619,7 +619,7 @@
     }
   },
   {
-    "name": "benign rr_src values follow the fail-closed url scrub src already gets",
+    "name": "benign rr_src values: about:blank passes through, other values follow src's fail-closed scrub",
     "allow": { "text": [], "url": [] },
     "event": {
       "type": 2,
@@ -640,7 +640,7 @@
         "node": {
           "type": 0,
           "childNodes": [
-            { "type": 2, "tagName": "iframe", "attributes": { "rr_src": "[redacted]" }, "childNodes": [] },
+            { "type": 2, "tagName": "iframe", "attributes": { "rr_src": "about:blank" }, "childNodes": [] },
             { "type": 2, "tagName": "div", "attributes": { "rr_src": "[redacted]/[redacted]" }, "childNodes": [] }
           ]
         },

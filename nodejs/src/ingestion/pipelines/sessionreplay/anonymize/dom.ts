@@ -224,7 +224,6 @@ function isUrlAttr(name: string): boolean {
     switch (name) {
         case 'href':
         case 'src':
-        // rrweb's snapshot-time rewrite of `src` (cross-origin iframes, lazy-loaded assets).
         case 'rr_src':
         case 'srcset':
         case 'action':

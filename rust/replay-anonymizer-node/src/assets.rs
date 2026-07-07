@@ -16,7 +16,6 @@ pub const INLINE_IMAGE_ATTR: &str = "rr_dataURL";
 
 pub const PLACEHOLDER_SRC: &str = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'><rect width='80' height='80' fill='%23f3f4f6'/><rect x='6' y='6' width='68' height='68' fill='none' stroke='%23d1d5db' stroke-width='2' rx='6'/><circle cx='26' cy='26' r='6' fill='%239ca3af'/><path d='M14 60 L34 40 L48 50 L66 32 L66 66 L14 66 Z' fill='%239ca3af'/></svg>";
 
-// `rr_src` is rrweb's snapshot-time rewrite of `src` and must always mirror its treatment.
 pub const MEDIA_SRC_ATTRS: &[&str] = &["src", "rr_src", "srcset", "href", "xlink:href", "poster"];
 
 pub fn is_media_tag(tag: &str) -> bool {

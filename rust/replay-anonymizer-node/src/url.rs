@@ -15,6 +15,10 @@ pub fn scrub_url(allow: &AllowLists, input: &str) -> Option<String> {
 }
 
 pub fn scrub_url_opts(allow: &AllowLists, input: &str, scrub_authority: bool) -> Option<String> {
+    // rrweb's standard blank-iframe placeholder: entropy-free, so redacting it only costs replay fidelity.
+    if input == "about:blank" {
+        return None;
+    }
     let tail_idx = input.find(['?', '#']);
     let (base, tail) = match tail_idx {
         Some(i) => (&input[..i], &input[i..]),

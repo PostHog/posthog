@@ -35,6 +35,10 @@ function renderToken(ctx: ScrubContext, t: string): string | null {
 }
 
 export function scrubUrl(ctx: ScrubContext, input: string, opts?: UrlScrubOptions): ScrubResult {
+    // rrweb's standard blank-iframe placeholder: entropy-free, so redacting it only costs replay fidelity.
+    if (input === 'about:blank') {
+        return { value: input, changed: false }
+    }
     const tailIdx = input.search(/[?#]/)
     const base = tailIdx === -1 ? input : input.slice(0, tailIdx)
     const tail = tailIdx === -1 ? '' : input.slice(tailIdx) // starts with ? or #

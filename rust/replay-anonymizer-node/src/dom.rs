@@ -283,7 +283,6 @@ pub(crate) fn is_url_attr(name: &str) -> bool {
         name,
         "href"
             | "src"
-            // rrweb's snapshot-time rewrite of `src` (cross-origin iframes, lazy-loaded assets).
             | "rr_src"
             | "srcset"
             | "action"
