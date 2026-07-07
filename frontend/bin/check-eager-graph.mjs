@@ -84,6 +84,9 @@ function assertReport(reportFilePath) {
     }
     const reportToAssert = JSON.parse(fs.readFileSync(reportFilePath, 'utf-8'))
     let violations = 0
+    for (const message of reportToAssert.warnings ?? []) {
+        console.warn(`\n⚠️ ${message}`)
+    }
     const topLevelErrors = reportToAssert.errors ?? []
     for (const message of topLevelErrors) {
         warnViolation(message)
@@ -202,11 +205,25 @@ function eagerChunkClosure(entry) {
 }
 
 const summaryLines = ['## Eager graph check', '', '| Root | Eager size | Budget | Files |', '| --- | --- | --- | --- |']
-const report = { roots: [], errors: [] }
+const report = { roots: [], errors: [], warnings: [] }
 
 // Computed once: the full set of module paths known to this build. Shared across all roots
 // because `inputs` is the global metafile index, not per-root.
 const allInputKeys = Object.keys(inputs)
+
+// Self-verify: each forbidden pattern should match at least one module present anywhere in
+// the metafile inputs. If it matches nothing, the path string is stale (dist layout changed,
+// package renamed) and the guard silently stops enforcing. Warn once per unique pattern so
+// a pattern shared across roots doesn't produce duplicate annotations.
+for (const forbiddenSubstr of new Set(ROOTS.flatMap((r) => r.forbidden))) {
+    if (!allInputKeys.some((f) => f.includes(forbiddenSubstr))) {
+        const msg =
+            `Forbidden pattern '${forbiddenSubstr}' does not match any module in the build — ` +
+            `the path may be stale. Update it in frontend/bin/check-eager-graph.mjs.`
+        warnViolation(msg)
+        report.warnings.push(msg)
+    }
+}
 
 for (const { root, label, budgetBytes, forbidden } of ROOTS) {
     const entry = entryChunk(root)
@@ -253,19 +270,6 @@ for (const { root, label, budgetBytes, forbidden } of ROOTS) {
     // diverge (a module can ship eagerly via a bundler-injected or re-export edge with no
     // source-level import path), so the chain is a pointer, not the byte source, and may be
     // short when the output edge has no input-graph counterpart.
-
-    // Self-verify: each forbidden pattern should match at least one module present anywhere in
-    // the metafile inputs. If it matches nothing, the path string is stale (dist layout changed,
-    // package renamed) and the guard silently stops enforcing. Warn loudly so the pattern stays
-    // in sync with the actual build output.
-    for (const forbiddenSubstr of forbidden) {
-        if (!allInputKeys.some((f) => f.includes(forbiddenSubstr))) {
-            warnViolation(
-                `Forbidden pattern '${forbiddenSubstr}' does not match any module in the build — ` +
-                    `the path may be stale. Update it in frontend/bin/check-eager-graph.mjs.`
-            )
-        }
-    }
 
     const hitFiles = new Map()
     for (const forbiddenSubstr of forbidden) {

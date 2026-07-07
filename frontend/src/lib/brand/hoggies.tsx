@@ -26,7 +26,7 @@ export type HoggieName = keyof Hoggies
 // Memoize one lazy component per name so that calling lazyHoggie inside a render body
 // (which would otherwise mint a fresh lazy component every render and remount Suspense)
 // is safe rather than just a convention.
-const hoggieLazyCache = new Map<HoggieName, ComponentType<AssetSvgProps>>()
+const hoggieComponentCache = new Map<HoggieName, ComponentType<AssetSvgProps>>()
 
 /**
  * A hoggie illustration as a lazily-loaded component: the SVG downloads when it first
@@ -38,14 +38,17 @@ const hoggieLazyCache = new Map<HoggieName, ComponentType<AssetSvgProps>>()
  * Safe to call at module scope or inside a component — memoized per name.
  */
 export function lazyHoggie(name: HoggieName): ComponentType<AssetSvgProps> {
-    const cached = hoggieLazyCache.get(name)
+    const cached = hoggieComponentCache.get(name)
     if (cached) {
         return cached
     }
     const LazyComponent = lazy(() =>
         import('@posthog/brand/hoggies')
             .then((hoggies) => ({ default: hoggies[name] }))
-            .catch(() => ({ default: () => null }))
+            .catch((e) => {
+                console.error('Failed to load hoggies chunk', e)
+                return { default: () => null }
+            })
     )
     const LazyHoggie = function LazyHoggie(props: AssetSvgProps): JSX.Element {
         return (
@@ -54,6 +57,7 @@ export function lazyHoggie(name: HoggieName): ComponentType<AssetSvgProps> {
             </Suspense>
         )
     }
-    hoggieLazyCache.set(name, LazyHoggie)
+    LazyHoggie.displayName = `LazyHoggie(${name})`
+    hoggieComponentCache.set(name, LazyHoggie)
     return LazyHoggie
 }
