@@ -147,6 +147,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             title: 'Status',
             key: 'status',
             render: (_, obs) => <ObservationStatusTag status={obs.status} errorReason={obs.error_reason} />,
+            sorter: true,
         },
         {
             title: 'Result',
@@ -186,6 +187,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                     {obs.triggered_by === 'on_demand' ? 'On demand' : 'Schedule'}
                 </LemonTag>
             ),
+            sorter: true,
         },
         {
             title: 'Created',

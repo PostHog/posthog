@@ -436,6 +436,17 @@ describe('replayScannerLogic', () => {
             expect(params.order_by).toBe('scanner_version')
         })
 
+        it.each<[string]>([['status'], ['triggered_by']])(
+            'maps the %s column to a same-named order key',
+            (columnKey) => {
+                const params = buildObservationListParams({
+                    ...emptyValues,
+                    observationsSort: { columnKey, order: 1 },
+                })
+                expect(params.order_by).toBe(columnKey)
+            }
+        )
+
         it('passes recording_subject trimmed when set', () => {
             const params = buildObservationListParams({ ...emptyValues, observationSubjectFilter: '  acme  ' })
             expect(params.recording_subject).toBe('acme')
@@ -559,6 +570,84 @@ describe('replayScannerLogic', () => {
             }).toFinishAllListeners()
             expect(router.values.searchParams.page).toBeUndefined()
             expect(router.values.searchParams.sort).toBeUndefined()
+        })
+    })
+
+    describe('Result sort defers the fetch until the scanner type is known', () => {
+        // order_by of every observations request that actually reached the endpoint.
+        let orderByValues: (string | null)[]
+        let resolveScanner: () => void
+        let pendingLogic: ReturnType<typeof replayScannerLogic.build>
+        const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+
+        beforeEach(() => {
+            orderByValues = []
+            resolveScanner = () => {}
+            // Hold the scanner in a loading state so the Result sort has no scanner_type to resolve against.
+            const scannerPromise = new Promise<void>((resolve) => {
+                resolveScanner = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team/vision/scanners/:id/': async () => {
+                        await scannerPromise
+                        return [
+                            200,
+                            {
+                                id: 'sid',
+                                name: 'm',
+                                scanner_type: 'monitor',
+                                scanner_config: { prompt: 'p' },
+                                sampling_rate: 1,
+                                enabled: true,
+                            },
+                        ]
+                    },
+                    '/api/projects/:team/vision/scanners/:id/observations/': ({ request }) => {
+                        orderByValues.push(new URL(request.url).searchParams.get('order_by'))
+                        return [200, { results: [], count: 0 }]
+                    },
+                    '/api/projects/:team/vision/scanners/:id/observations/stats/': {
+                        status_counts: {
+                            total: 0,
+                            succeeded: 0,
+                            failed: 0,
+                            ineligible: 0,
+                            in_flight: 0,
+                            success_rate: null,
+                        },
+                        coverage: { recent_sessions: 0, total_sessions: 0, recent_days: 14 },
+                        available_tags: [],
+                        monitor: null,
+                        classifier: null,
+                        scorer: null,
+                    },
+                },
+            })
+            router.actions.push(urls.replayVision('sid'))
+            pendingLogic = replayScannerLogic({ id: 'sid' })
+            pendingLogic.mount()
+        })
+
+        afterEach(() => {
+            resolveScanner()
+            pendingLogic?.unmount()
+        })
+
+        it('defers a Result-sorted fetch while the scanner loads, then resolves it to the monitor key', async () => {
+            // The initial (default created_at) load fires while the scanner is still pending.
+            await expectLogic(pendingLogic).toDispatchActions(['loadObservationsSuccess'])
+            const callsBeforeResultSort = orderByValues.length
+
+            // Sorting by Result before the scanner type is known must NOT fire a request with order_by dropped.
+            pendingLogic.actions.setObservationsSort({ columnKey: 'result', order: 1 })
+            await tick()
+            expect(orderByValues.length).toBe(callsBeforeResultSort)
+
+            // Once the scanner loads, the refire fetches with the resolved monitor key.
+            resolveScanner()
+            await expectLogic(pendingLogic).toDispatchActions(['loadScannerSuccess', 'loadObservationsSuccess'])
+            expect(orderByValues[orderByValues.length - 1]).toBe('result_verdict')
         })
     })
 

@@ -296,7 +296,7 @@ class RetryResponseSerializer(serializers.Serializer):
 
 
 # Single source of truth for orderable fields; the list endpoint's OpenAPI override mirrors these as a string enum.
-OBSERVATION_ORDER_FIELDS = ("created_at", "started_at", "completed_at", "status")
+OBSERVATION_ORDER_FIELDS = ("created_at", "started_at", "completed_at", "status", "triggered_by")
 
 # JSONB-backed sort keys; numeric values (`result_score`, `scanner_version`) need a numeric cast in the filter.
 _JSONB_ORDER_KEYS = ("result_score", "result_verdict", "scanner_version")
@@ -387,10 +387,10 @@ class ReplayObservationFilter(django_filters.FilterSet):
     )
     order_by = _ObservationOrderByFilter(
         help_text=(
-            "Sort observations by created_at, started_at, completed_at, status, recording_subject_email, "
-            "result_score, result_verdict, or scanner_version. Prefix with `-` for descending. Keys that can be "
-            "null (started_at, completed_at, recording_subject_email, result_*, scanner_version) sort nulls "
-            "last regardless of direction."
+            "Sort observations by created_at, started_at, completed_at, status, triggered_by, "
+            "recording_subject_email, result_score, result_verdict, or scanner_version. Prefix with `-` for "
+            "descending. Keys that can be null (started_at, completed_at, recording_subject_email, result_*, "
+            "scanner_version) sort nulls last regardless of direction."
         ),
     )
 
@@ -439,7 +439,7 @@ class ReplayObservationFilter(django_filters.FilterSet):
                 required=False,
                 enum=ordering_enum(_ALL_ORDER_KEYS),
                 description=(
-                    "Sort observations. Plain keys: created_at, started_at, completed_at, status, "
+                    "Sort observations. Plain keys: created_at, started_at, completed_at, status, triggered_by, "
                     "recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), "
                     "scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way."
                 ),

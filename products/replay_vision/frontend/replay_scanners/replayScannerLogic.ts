@@ -109,6 +109,8 @@ export type ObservationsSorting = UrlSorting
 
 const STATIC_ORDER_KEYS: Record<string, string> = {
     created_at: 'created_at',
+    status: 'status',
+    triggered_by: 'triggered_by',
     version: 'scanner_version',
     recording_subject: 'recording_subject_email',
 }
@@ -123,6 +125,19 @@ function resolveOrderByKey(columnKey: string, scannerType: ScannerType | undefin
         return (scannerType && RESULT_ORDER_KEY_BY_TYPE[scannerType]) ?? null
     }
     return STATIC_ORDER_KEYS[columnKey] ?? null
+}
+
+/**
+ * A Result-column sort resolves its order_by key from the scanner type (result_score vs result_verdict).
+ * The kea-forms `scanner` value is never null — it starts as a default monitor — so its type is unreliable
+ * until the real scanner has loaded (`originalScanner`). Firing before then would sort by the default monitor
+ * key (wrong for a scorer, and stale for a deep link), so we defer the fetch to the loadScannerSuccess refire.
+ */
+export function isResultSortAwaitingScanner(
+    sort: ObservationsSorting | null,
+    loadedScanner: ReplayScanner | null
+): boolean {
+    return sort?.columnKey === 'result' && !loadedScanner?.scanner_type
 }
 
 interface ObservationFilterValues {
@@ -895,6 +910,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId) {
                     actions.loadObservationsFailure()
+                    return
+                }
+                // Defer a Result-sorted fetch until the real scanner has loaded so order_by resolves to the
+                // right key; loadScannerSuccess refires this load once the scanner (and its type) is known.
+                if (isResultSortAwaitingScanner(values.observationsSort, values.originalScanner)) {
                     return
                 }
                 try {

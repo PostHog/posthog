@@ -979,6 +979,16 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         ids = [r["id"] for r in resp.json()["results"]]
         self.assertEqual(ids, [str(second.id), str(first.id)])
 
+    def test_order_by_triggered_by(self) -> None:
+        self._create_observation(session_id="scheduled", triggered_by=ObservationTrigger.SCHEDULE)
+        self._create_observation(session_id="manual", triggered_by=ObservationTrigger.ON_DEMAND)
+        # Ascending is alphabetical on the stored value: on_demand < schedule.
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?order_by=triggered_by")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["manual", "scheduled"])
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?order_by=-triggered_by")
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["scheduled", "manual"])
+
     def test_pagination(self) -> None:
         for i in range(3):
             self._create_observation(session_id=f"s{i}")
