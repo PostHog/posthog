@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     CICardSummaryApi,
     CIFailureLogsApi,
+    EngineeringAnalyticsAuthorWorkflowCostsParams,
     EngineeringAnalyticsCiCardsParams,
     EngineeringAnalyticsCiFailureLogsParams,
     EngineeringAnalyticsJobAggregatesParams,
@@ -21,6 +22,7 @@ import type {
     EngineeringAnalyticsPullRequestsParams,
     EngineeringAnalyticsQuarantineParams,
     EngineeringAnalyticsRepoOverviewParams,
+    EngineeringAnalyticsRepoRunActivityParams,
     EngineeringAnalyticsRunFailureLogsParams,
     EngineeringAnalyticsWorkflowHealthParams,
     EngineeringAnalyticsWorkflowJobsParams,
@@ -38,6 +40,7 @@ import type {
     QuarantineRequestResultApi,
     RepoOverviewApi,
     RunFailureLogsApi,
+    WorkflowCostApi,
     WorkflowHealthItemApi,
     WorkflowJobAggregateApi,
     WorkflowJobApi,
@@ -45,6 +48,39 @@ import type {
     WorkflowRunDetailApi,
     WorkflowRunnerCostApi,
 } from './api.schemas'
+
+export const getEngineeringAnalyticsAuthorWorkflowCostsUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsAuthorWorkflowCostsParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/author_workflow_costs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/author_workflow_costs/`
+}
+
+/**
+ * One author's estimated CI cost split by workflow over a window (date_from default -30d), highest spend first. Runs are attributed to the author through their pull requests (attribution is by PR number). Returns an empty list when the job-level source isn't synced.
+ */
+export const engineeringAnalyticsAuthorWorkflowCosts = async (
+    projectId: string,
+    params: EngineeringAnalyticsAuthorWorkflowCostsParams,
+    options?: RequestInit
+): Promise<WorkflowCostApi[]> => {
+    return apiMutator<WorkflowCostApi[]>(getEngineeringAnalyticsAuthorWorkflowCostsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getEngineeringAnalyticsCiCardsUrl = (projectId: string, params?: EngineeringAnalyticsCiCardsParams) => {
     const normalizedParams = new URLSearchParams()
@@ -384,6 +420,39 @@ export const engineeringAnalyticsRepoOverview = async (
     options?: RequestInit
 ): Promise<RepoOverviewApi> => {
     return apiMutator<RepoOverviewApi>(getEngineeringAnalyticsRepoOverviewUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsRepoRunActivityUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsRepoRunActivityParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/repo_run_activity/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/repo_run_activity/`
+}
+
+/**
+ * Default-branch health as compact chart points over a window (default -30d), newest first, for the repo-hub run-activity chart. All of a commit's workflow runs are collapsed into ONE point per commit (head SHA): its earliest workflow start, wall-clock duration until the last workflow settled (null while any is still running), and an overall conclusion that is 'failure' if any workflow decisively failed, else 'success' when at least one passed, else 'neutral'. `branch` overrides the detected default branch. `truncated` is true when more commits matched than the cap, so the chart covers only the most recent commits.
+ */
+export const engineeringAnalyticsRepoRunActivity = async (
+    projectId: string,
+    params?: EngineeringAnalyticsRepoRunActivityParams,
+    options?: RequestInit
+): Promise<WorkflowRunActivityApi> => {
+    return apiMutator<WorkflowRunActivityApi>(getEngineeringAnalyticsRepoRunActivityUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

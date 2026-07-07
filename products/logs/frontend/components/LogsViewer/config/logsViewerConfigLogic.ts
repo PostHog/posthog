@@ -45,6 +45,7 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
         toggleSparklineCollapsed: true,
         setFacetRailCollapsed: (facetRailCollapsed: boolean) => ({ facetRailCollapsed }),
         setViewMode: (viewMode: LogsViewerViewMode) => ({ viewMode }),
+        setGroupBy: (groupBy: string | null) => ({ groupBy }),
     }),
 
     reducers({
@@ -90,6 +91,14 @@ export const logsViewerConfigLogic = kea<logsViewerConfigLogicType>([
             DEFAULT_VIEW_MODE as LogsViewerViewMode,
             {
                 setViewMode: (_, { viewMode }) => viewMode,
+            },
+        ],
+        // The attribute to group results by (behind the logs-group-by flag); null = ungrouped.
+        // Not persisted — grouping is an explicit, per-visit exploration like Patterns.
+        groupBy: [
+            null as string | null,
+            {
+                setGroupBy: (_, { groupBy }) => groupBy,
             },
         ],
     }),

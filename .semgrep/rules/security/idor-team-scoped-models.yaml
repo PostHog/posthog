@@ -56,6 +56,8 @@ rules:
                           (?x)(
                               AccessControl
                               |Account
+                              |AccountRelationship
+                              |AccountRelationshipDefinition
                               |Action
                               |AgentApplication
                               |AgentArtifact
@@ -234,6 +236,7 @@ rules:
                               |SlackThreadTaskMapping
                               |SourceBatch
                               |SourceBatchDuckgresApply
+                              |SourceDuckgresGroupLease
                               |SourceGroupLease
                               |StreamlitApp
                               |Subscription
@@ -246,6 +249,8 @@ rules:
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
+                              |TaskThreadMessage
+                              |Channel
                               |EmailChannel
                               |EvaluationReport
                               |Text
@@ -329,6 +334,8 @@ rules:
                     (?x)(
                         AccessControl
                         |Account
+                        |AccountRelationship
+                        |AccountRelationshipDefinition
                         |Action
                         |AgentApplication
                         |AgentArtifact
@@ -503,6 +510,7 @@ rules:
                         |SlackThreadTaskMapping
                         |SourceBatch
                         |SourceBatchDuckgresApply
+                        |SourceDuckgresGroupLease
                         |SourceGroupLease
                         |StreamlitApp
                         |Subscription
@@ -515,6 +523,8 @@ rules:
                         |TaskAutomation
                         |TaskPresence
                         |TaskRun
+                        |TaskThreadMessage
+                        |Channel
                         |EmailChannel
                         |EvaluationReport
                         |Text

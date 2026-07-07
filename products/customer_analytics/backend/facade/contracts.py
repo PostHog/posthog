@@ -31,6 +31,27 @@ class AccountAssignment:
 
 
 @dataclass(frozen=True)
+class AccountRelationshipDefinition:
+    """A team-defined account relationship type (CSM, Onboarding manager, ...)."""
+
+    id: UUID
+    name: str
+    description: str | None
+    is_single_holder: bool
+
+
+@dataclass(frozen=True)
+class AccountRelationship:
+    """One assignment of a user to an account relationship, with its effective range."""
+
+    id: UUID
+    definition: AccountRelationshipDefinition
+    user: AccountAssignment | None
+    started_at: datetime
+    ended_at: datetime | None
+
+
+@dataclass(frozen=True)
 class AccountProperties:
     """Typed account properties — assignment roles and external-system identifiers.
 
@@ -250,6 +271,16 @@ class CustomPropertyReference:
 
 
 @stdlib_dataclass(frozen=True)
+class CustomPropertyOption:
+    """One allowed value of a select custom property. ``id`` is server-assigned and stable across
+    renames so option edits can be diffed; ``color`` is a preset data-color token."""
+
+    label: str = ""
+    color: str = ""
+    id: str | None = None
+
+
+@stdlib_dataclass(frozen=True)
 class CustomPropertyDefinitionView:
     """A team-scoped custom account-property definition as returned by the
     custom-property-definitions endpoints.
@@ -271,6 +302,7 @@ class CustomPropertyDefinitionView:
     updated_at: datetime | None = None
     references: list[CustomPropertyReference] = field(default_factory=list)
     source: "CustomPropertySourceView | None" = None
+    options: list[CustomPropertyOption] | None = None
 
 
 @stdlib_dataclass(frozen=True)

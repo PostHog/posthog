@@ -67,6 +67,7 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert by_template["User <*> not found"]["estimated_count"] == 3
         assert by_template["User <*> not found"]["error_count"] == 3
         assert by_template["User <*> not found"]["estimated_error_count"] == 3
+        assert by_template["User <*> not found"]["severity_counts"] == {"error": 3}
         assert by_template["User <*> not found"]["services"] == ["auth"]
         # Unsliced windows bucket uniformly; every sampled occurrence lands in some bucket.
         assert len(results["sparkline_buckets"]) == 24

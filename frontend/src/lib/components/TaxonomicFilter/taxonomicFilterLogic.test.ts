@@ -371,6 +371,9 @@ describe('taxonomicFilterLogic', () => {
                 taxonomicGroupTypes: [
                     TaxonomicFilterGroupType.SuggestedFilters,
                     TaxonomicFilterGroupType.InternalEventProperties,
+                    // Second substantive group so "All" is retained (a single substantive group
+                    // drops it); Events has no 'activity' match so top matches stay unchanged
+                    TaxonomicFilterGroupType.Events,
                 ],
             }
             const noGetValueLogic = taxonomicFilterLogic(logicProps)
@@ -766,9 +769,13 @@ describe('taxonomicFilterLogic', () => {
 
         it.each([
             {
-                description: 'control: includes SuggestedFilters when explicitly listed',
+                description: 'control: includes SuggestedFilters when explicitly listed in a multi-group picker',
                 variant: 'control',
-                groupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+                groupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                ],
                 expectPresent: true,
                 expectDefault: true,
             },
@@ -790,6 +797,20 @@ describe('taxonomicFilterLogic', () => {
                 description: 'pill: does not auto-inject SuggestedFilters for a single substantive group',
                 variant: 'pill',
                 groupTypes: [TaxonomicFilterGroupType.Events],
+                expectPresent: false,
+                expectDefault: false,
+            },
+            {
+                description: 'control: strips explicitly-listed SuggestedFilters for a single substantive group',
+                variant: 'control',
+                groupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+                expectPresent: false,
+                expectDefault: false,
+            },
+            {
+                description: 'pill: strips explicitly-listed SuggestedFilters for a single substantive group',
+                variant: 'pill',
+                groupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
                 expectPresent: false,
                 expectDefault: false,
             },
@@ -913,6 +934,24 @@ describe('taxonomicFilterLogic', () => {
                     TaxonomicFilterGroupType.Events,
                     TaxonomicFilterGroupType.Actions,
                     TaxonomicFilterGroupType.EventProperties,
+                ],
+            },
+            {
+                description: 'single substantive group leads, with Recent/Pinned after it (no All)',
+                groupTypes: [TaxonomicFilterGroupType.Events],
+                expected: [
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.RecentFilters,
+                    TaxonomicFilterGroupType.PinnedFilters,
+                ],
+            },
+            {
+                description: 'single substantive group drops an explicitly-prepended All and still leads',
+                groupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+                expected: [
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.RecentFilters,
+                    TaxonomicFilterGroupType.PinnedFilters,
                 ],
             },
         ])('$description', ({ groupTypes, expected }) => {

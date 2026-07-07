@@ -257,3 +257,72 @@ class TestRunEvalReportAgentRouting(SimpleTestCase):
         )
         # the agent is built with the gateway-helper client, not a directly-constructed one
         self.assertIs(mock_create_agent.call_args.kwargs["model"], mock_build_llm.return_value)
+
+
+class TestRunEvalReportAgentCallbackGating(SimpleTestCase):
+    """The SDK CallbackHandler fires only when NOT routing through the gateway.
+
+    In gateway mode the Go gateway captures $ai_generation itself, so attaching the
+    SDK callback too would double-count every eval-report LLM call. The gate is the
+    same resolve_ai_gateway_config() the model routing reads. Reverting the guard
+    (dropping `and resolve_ai_gateway_config() is None`) fails the gateway-on case.
+    """
+
+    def _run_and_get_callbacks(self, mock_create_agent):
+        mock_agent = MagicMock()
+        mock_agent.invoke.return_value = {
+            "report": EvalReportContent(
+                title="A report",
+                sections=[ReportSection(title="Summary", content="A finding.")],
+                metrics=EvalReportMetrics(),
+            )
+        }
+        mock_create_agent.return_value = mock_agent
+        graph.run_eval_report_agent(
+            team_id=1,
+            evaluation_id="eval-1",
+            evaluation_name="Relevance",
+            evaluation_description="",
+            evaluation_prompt="",
+            evaluation_type="llm_judge",
+            period_start="2026-04-08T14:00:00+00:00",
+            period_end="2026-04-08T15:00:00+00:00",
+            previous_period_start="2026-04-08T13:00:00+00:00",
+        )
+        return mock_agent.invoke.call_args.args[1]["callbacks"]
+
+    @patch.object(graph, "resolve_ai_gateway_config")
+    @patch.object(graph, "CallbackHandler")
+    @patch.object(graph, "posthoganalytics")
+    @patch.object(graph, "create_react_agent")
+    @patch.object(graph, "build_langchain_chat_client")
+    @patch.object(graph, "_compute_metrics")
+    def test_gateway_mode_attaches_no_callback(
+        self, mock_metrics, mock_build_llm, mock_create_agent, mock_pha, mock_cb, mock_resolve
+    ):
+        mock_metrics.return_value = EvalReportMetrics()
+        mock_pha.default_client = MagicMock()  # analytics client available...
+        mock_resolve.return_value = ("https://gateway.example/v1", "key")  # ...but gateway is live
+
+        callbacks = self._run_and_get_callbacks(mock_create_agent)
+
+        self.assertEqual(callbacks, [], "gateway mode must attach no SDK callback (the gateway captures the event)")
+        mock_cb.assert_not_called()
+
+    @patch.object(graph, "resolve_ai_gateway_config")
+    @patch.object(graph, "CallbackHandler")
+    @patch.object(graph, "posthoganalytics")
+    @patch.object(graph, "create_react_agent")
+    @patch.object(graph, "build_langchain_chat_client")
+    @patch.object(graph, "_compute_metrics")
+    def test_direct_mode_attaches_tagged_callback(
+        self, mock_metrics, mock_build_llm, mock_create_agent, mock_pha, mock_cb, mock_resolve
+    ):
+        mock_metrics.return_value = EvalReportMetrics()
+        mock_pha.default_client = MagicMock()
+        mock_resolve.return_value = None  # no gateway -> direct OpenAI, SDK must capture the event
+
+        callbacks = self._run_and_get_callbacks(mock_create_agent)
+
+        self.assertEqual(len(callbacks), 1, "direct mode must attach the SDK callback so the run is captured")
+        self.assertEqual(mock_cb.call_args.kwargs["properties"]["ai_product"], "llma_eval_reports")

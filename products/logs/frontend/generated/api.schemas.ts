@@ -317,9 +317,10 @@ export interface LogsAlertFiltersApi {
  * * `above` - Above
  * * `below` - Below
  */
-export type ThresholdOperatorEnumApi = (typeof ThresholdOperatorEnumApi)[keyof typeof ThresholdOperatorEnumApi]
+export type LogsAlertThresholdOperatorEnumApi =
+    (typeof LogsAlertThresholdOperatorEnumApi)[keyof typeof LogsAlertThresholdOperatorEnumApi]
 
-export const ThresholdOperatorEnumApi = {
+export const LogsAlertThresholdOperatorEnumApi = {
     Above: 'above',
     Below: 'below',
 } as const
@@ -452,7 +453,7 @@ export interface LogsAlertConfigurationApi {
      *
      * * `above` - Above
      * * `below` - Below */
-    threshold_operator?: ThresholdOperatorEnumApi
+    threshold_operator?: LogsAlertThresholdOperatorEnumApi
     /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
     window_minutes?: number
     /** How often the alert is evaluated, in minutes. Server-managed. */
@@ -559,7 +560,7 @@ export interface PatchedLogsAlertConfigurationApi {
      *
      * * `above` - Above
      * * `below` - Below */
-    threshold_operator?: ThresholdOperatorEnumApi
+    threshold_operator?: LogsAlertThresholdOperatorEnumApi
     /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
     window_minutes?: number
     /** How often the alert is evaluated, in minutes. Server-managed. */
@@ -724,7 +725,7 @@ export interface LogsAlertSimulateRequestApi {
      *
      * * `above` - Above
      * * `below` - Below */
-    threshold_operator: ThresholdOperatorEnumApi
+    threshold_operator: LogsAlertThresholdOperatorEnumApi
     /** Window size in minutes — determines bucket interval. */
     window_minutes: number
     /**
@@ -1070,6 +1071,11 @@ export interface _LogsPatternsRequestApi {
     query: _LogsPatternsBodyApi
 }
 
+/**
+ * Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample counts, not extrapolated — severity dominance is a proportion, so scaling would not change it.
+ */
+export type _LogPatternApiSeverityCounts = { [key: string]: number }
+
 export interface _LogPatternApi {
     /** Mined log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". Tokens: <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary. */
     pattern: string
@@ -1093,6 +1099,8 @@ export interface _LogPatternApi {
     services: string[]
     /** Estimated occurrences per time bucket, aligned index-for-index with the response's `sparkline_buckets`. Extrapolated from the sample like `estimated_count`, so it shows the volume shape over the window, not exact per-bucket tallies. */
     sparkline: number[]
+    /** Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample counts, not extrapolated — severity dominance is a proportion, so scaling would not change it. */
+    severity_counts: _LogPatternApiSeverityCounts
 }
 
 export interface _LogsPatternsSparklineBucketApi {
