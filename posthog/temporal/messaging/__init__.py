@@ -22,6 +22,7 @@ from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator
     RealtimeCohortCalculationCoordinatorWorkflow,
     get_query_percentile_thresholds_activity,
     get_realtime_cohort_selection_activity,
+    get_runtime_parallelism_activity,
 )
 
 WORKFLOWS = [
@@ -37,6 +38,7 @@ ACTIVITIES = [
     check_day_already_backfilled_activity,
     get_realtime_cohort_selection_activity,
     get_query_percentile_thresholds_activity,
+    get_runtime_parallelism_activity,
     backfill_precalculated_person_properties_activity,
     get_person_id_ranges_page_activity,
     process_realtime_cohort_calculation_activity,

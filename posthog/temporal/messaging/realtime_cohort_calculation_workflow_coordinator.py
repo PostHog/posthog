@@ -12,6 +12,7 @@ from django.utils import timezone
 import temporalio.common
 import temporalio.activity
 import temporalio.workflow
+import temporalio.exceptions
 from temporalio.common import MetricHistogramFloat
 
 from posthog.sync import database_sync_to_async
@@ -165,6 +166,37 @@ class RealtimeCohortSelectionResult:
     """Result from selecting cohorts with filtering applied."""
 
     cohort_ids: list[int]
+
+
+@dataclasses.dataclass
+class RuntimeParallelismInput:
+    """Input for resolving the live parallelism setting for a percentile band."""
+
+    duration_percentile_min: Optional[float] = None
+    duration_percentile_max: Optional[float] = None
+
+
+@temporalio.activity.defn
+async def get_runtime_parallelism_activity(inputs: RuntimeParallelismInput) -> int | None:
+    """Resolve the current parallelism setting for a percentile band from worker settings.
+
+    The parallelism baked into the Temporal schedule payload only refreshes when the
+    schedules are re-upserted (`manage.py schedule_temporal_workflows` in bin/migrate),
+    so env var changes on the worker would otherwise never take effect. Returns None
+    when no band-specific setting applies (e.g. manual runs), leaving the
+    schedule-provided value in charge.
+    """
+    if inputs.duration_percentile_min is None or inputs.duration_percentile_max is None:
+        return None
+
+    setting_name = (
+        f"REALTIME_COHORT_CALCULATION_P{int(inputs.duration_percentile_min)}"
+        f"_P{int(inputs.duration_percentile_max)}_PARALLELISM"
+    )
+    value = getattr(settings, setting_name, None)
+    if isinstance(value, int) and value >= 1:
+        return value
+    return None
 
 
 async def calculate_percentile_thresholds(
@@ -464,9 +496,33 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
             workflow_logger.warning("No realtime cohorts found matching selection criteria")
             return
 
+        # Prefer the live worker setting over the value baked into the schedule payload,
+        # which goes stale when the env var changes without the schedules being re-upserted
+        try:
+            runtime_parallelism = await temporalio.workflow.execute_activity(
+                get_runtime_parallelism_activity,
+                RuntimeParallelismInput(
+                    duration_percentile_min=inputs.duration_percentile_min,
+                    duration_percentile_max=inputs.duration_percentile_max,
+                ),
+                start_to_close_timeout=dt.timedelta(seconds=30),
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+            )
+        except temporalio.exceptions.ActivityError:
+            workflow_logger.warning("Failed to resolve runtime parallelism, using schedule-provided value")
+            runtime_parallelism = None
+
+        parallelism = runtime_parallelism if runtime_parallelism is not None else inputs.parallelism
+        if parallelism != inputs.parallelism:
+            workflow_logger.info(
+                "Overriding schedule-provided parallelism with worker settings",
+                runtime_parallelism=parallelism,
+                schedule_parallelism=inputs.parallelism,
+            )
+
         total_cohorts = len(all_cohort_ids)
         workflow_logger.info(
-            f"Distributing {total_cohorts} selected cohorts across {inputs.parallelism} child workflows "
+            f"Distributing {total_cohorts} selected cohorts across {parallelism} child workflows "
             f"in batches of {inputs.workflows_per_batch} every {inputs.batch_delay_minutes} minutes"
         )
 
@@ -475,16 +531,16 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
         # any single worker from getting all the slow cohorts
 
         # Initialize lists for each worker
-        worker_cohort_lists: list[list[int]] = [[] for _ in range(inputs.parallelism)]
+        worker_cohort_lists: list[list[int]] = [[] for _ in range(parallelism)]
 
         # Distribute cohorts round-robin style
         for idx, cohort_id in enumerate(all_cohort_ids):
-            worker_idx = idx % inputs.parallelism
+            worker_idx = idx % parallelism
             worker_cohort_lists[worker_idx].append(cohort_id)
 
         # Step 3: Prepare all workflow configs with balanced cohort ID lists
         workflow_configs: list[WorkflowConfig] = []
-        for i in range(inputs.parallelism):
+        for i in range(parallelism):
             worker_cohort_ids = worker_cohort_lists[i]
 
             if not worker_cohort_ids:

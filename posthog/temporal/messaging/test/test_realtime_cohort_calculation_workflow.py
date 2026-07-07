@@ -1,7 +1,10 @@
 import os
+import asyncio
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
+
+from django.test import override_settings
 
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow import (
     _batch_update_cohort_metrics,
@@ -12,10 +15,14 @@ from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator
     CohortSelectionActivityInput,
     QueryPercentileThresholds,
     QueryPercentileThresholdsInput,
+    RealtimeCohortCalculationCoordinatorWorkflow,
     RealtimeCohortCalculationCoordinatorWorkflowInputs,
+    RealtimeCohortSelectionResult,
+    RuntimeParallelismInput,
     _apply_duration_filtering,
     get_query_percentile_thresholds_activity,
     get_realtime_cohort_selection_activity,
+    get_runtime_parallelism_activity,
 )
 
 
@@ -1744,3 +1751,82 @@ class TestFinalQueryMembershipStatuses:
 
         # Unchanged member: present in both → WHERE filters it out entirely
         assert passes_where(pid, pid) is False
+
+
+class TestRuntimeParallelism:
+    """Tests for resolving parallelism from live worker settings instead of the schedule payload."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "percentile_min,percentile_max,settings_override,expected",
+        [
+            (0.0, 50.0, {"REALTIME_COHORT_CALCULATION_P0_P50_PARALLELISM": 7}, 7),
+            (50.0, 80.0, {"REALTIME_COHORT_CALCULATION_P50_P80_PARALLELISM": 7}, 7),
+            (80.0, 90.0, {"REALTIME_COHORT_CALCULATION_P80_P90_PARALLELISM": 7}, 7),
+            (90.0, 95.0, {"REALTIME_COHORT_CALCULATION_P90_P95_PARALLELISM": 7}, 7),
+            (95.0, 99.0, {"REALTIME_COHORT_CALCULATION_P95_P99_PARALLELISM": 7}, 7),
+            (99.0, 100.0, {"REALTIME_COHORT_CALCULATION_P99_P100_PARALLELISM": 7}, 7),
+            # Manual runs have no percentile band, so no setting applies
+            (None, None, {}, None),
+            # No setting exists for an unknown band
+            (10.0, 20.0, {}, None),
+            # A non-positive value would spawn zero children, so it must be ignored
+            (95.0, 99.0, {"REALTIME_COHORT_CALCULATION_P95_P99_PARALLELISM": 0}, None),
+        ],
+    )
+    async def test_activity_resolves_band_setting(self, percentile_min, percentile_max, settings_override, expected):
+        with override_settings(**settings_override):
+            result = await get_runtime_parallelism_activity(
+                RuntimeParallelismInput(
+                    duration_percentile_min=percentile_min,
+                    duration_percentile_max=percentile_max,
+                )
+            )
+
+        assert result == expected
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "runtime_parallelism,expected_children",
+        [
+            # Live worker setting wins over the stale value baked into the schedule payload
+            (4, 4),
+            # No live setting: fall back to the schedule-provided parallelism
+            (None, 2),
+        ],
+    )
+    async def test_coordinator_fans_out_with_runtime_parallelism(self, runtime_parallelism, expected_children):
+        workflow = RealtimeCohortCalculationCoordinatorWorkflow()
+        workflow_logger = Mock()
+
+        thresholds = QueryPercentileThresholds(min_threshold_ms=1000, max_threshold_ms=2000)
+        selection_result = RealtimeCohortSelectionResult(cohort_ids=list(range(1, 9)))
+
+        async def start_child(*args, **kwargs):
+            future = asyncio.get_running_loop().create_future()
+            future.set_result(None)
+            return future
+
+        with (
+            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.LOGGER") as mock_logger,
+            patch(
+                "posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.get_coordinator_duration_histogram"
+            ),
+            patch("temporalio.workflow.execute_activity", new_callable=AsyncMock) as mock_execute_activity,
+            patch("temporalio.workflow.start_child_workflow", side_effect=start_child) as mock_start_child,
+            patch("temporalio.workflow.time", return_value=1234567890.0),
+            patch("temporalio.workflow.info") as mock_info,
+        ):
+            mock_logger.bind.return_value = workflow_logger
+            mock_info.return_value.workflow_id = "test-workflow-id"
+            mock_execute_activity.side_effect = [thresholds, selection_result, runtime_parallelism]
+
+            inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
+                parallelism=2,
+                workflows_per_batch=10,
+                duration_percentile_min=95.0,
+                duration_percentile_max=99.0,
+            )
+            await workflow.run(inputs)
+
+        assert mock_start_child.call_count == expected_children
