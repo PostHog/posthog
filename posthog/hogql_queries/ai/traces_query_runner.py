@@ -554,26 +554,25 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             return None
 
         pattern = ast.Constant(value=f"%{_escape_like_pattern(search_term)}%")
-        with self.timings.measure("search_filter"):
-            search_subquery = parse_select(
-                """
-                SELECT trace_id
-                FROM posthog.ai_events
-                WHERE event IN ('$ai_generation', '$ai_embedding')
-                  AND timestamp >= {date_from}
-                  AND timestamp <= {date_to}
-                  AND (input ILIKE {pattern} OR output ILIKE {pattern} OR output_choices ILIKE {pattern})
-                GROUP BY trace_id
-                ORDER BY max(timestamp) DESC
-                LIMIT {candidate_limit}
-                """,
-                placeholders={
-                    "date_from": self._date_range.date_from_as_hogql(),
-                    "date_to": self._date_range.date_to_as_hogql(),
-                    "pattern": pattern,
-                    "candidate_limit": ast.Constant(value=SEARCH_CANDIDATE_TRACE_LIMIT),
-                },
-            )
+        search_subquery = parse_select(
+            """
+            SELECT trace_id
+            FROM posthog.ai_events
+            WHERE event IN ('$ai_generation', '$ai_embedding')
+              AND timestamp >= {date_from}
+              AND timestamp <= {date_to}
+              AND (input ILIKE {pattern} OR output ILIKE {pattern} OR output_choices ILIKE {pattern})
+            GROUP BY trace_id
+            ORDER BY max(timestamp) DESC
+            LIMIT {candidate_limit}
+            """,
+            placeholders={
+                "date_from": self._date_range.date_from_as_hogql(),
+                "date_to": self._date_range.date_to_as_hogql(),
+                "pattern": pattern,
+                "candidate_limit": ast.Constant(value=SEARCH_CANDIDATE_TRACE_LIMIT),
+            },
+        )
 
         return ast.CompareOperation(
             op=ast.CompareOperationOp.GlobalIn,
