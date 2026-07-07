@@ -571,7 +571,7 @@ class Reviewer:
                 return ""
             return (
                 "\nMost familiar with the modified lines (suggested reviewers if you escalate): "
-                + ", ".join(fam.top_prior_authors)
+                + ", ".join(_sanitize_untrusted(name, max_len=80) for name in fam.top_prior_authors)
                 + "."
             )
         parts = [
@@ -593,7 +593,7 @@ class Reviewer:
         if fam.top_prior_authors:
             line += (
                 "\nMost familiar with these lines (suggested reviewers if you escalate): "
-                + ", ".join(fam.top_prior_authors)
+                + ", ".join(_sanitize_untrusted(name, max_len=80) for name in fam.top_prior_authors)
                 + "."
             )
         return "\n" + line
