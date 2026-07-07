@@ -474,10 +474,15 @@ class TestChannelStep(_FlowTestBase):
 
         client.chat_postMessage.side_effect = None
         verify_action = {"action_id": persona_onboarding.CHANNEL_VERIFY_ACTION_ID, "value": PICKED_CHANNEL}
-        persona_onboarding.handle_block_action(self._payload(verify_action), verify_action)
+        with patch.object(persona_onboarding, "capture_slack_event") as capture:
+            persona_onboarding.handle_block_action(self._payload(verify_action), verify_action)
 
         mock_provision.assert_called_once()
         assert mock_provision.call_args.kwargs["channel_id"] == PICKED_CHANNEL
+        # The /invite-then-verify path must carry its own funnel label so it stays distinct from
+        # the dropdown path in the channel-configured conversion.
+        configured = [c for c in capture.call_args_list if c.args[1] == persona_onboarding.EVENT_CHANNEL_CONFIGURED]
+        assert [c.kwargs["method"] for c in configured] == ["verified"]
         row.refresh_from_db()
         assert row.onboarded_at is not None
         assert row.onboarding_state is None
