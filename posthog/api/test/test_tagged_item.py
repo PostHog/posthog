@@ -210,7 +210,9 @@ class TestBulkUpdateTags(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         logs = ActivityLog.objects.filter(scope="Dashboard", activity="updated", item_id=str(dashboard.id))
         assert logs.count() == 1
-        assert logs.first().detail["changes"] == [
+        log = logs.get()
+        assert log.detail is not None
+        assert log.detail["changes"] == [
             {
                 "type": "Dashboard",
                 "action": "changed",

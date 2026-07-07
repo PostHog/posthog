@@ -570,7 +570,9 @@ class TestEventDefinitionAPI(APIBaseTest):
             scope="EventDefinition", activity="changed", item_id__in=[str(ed1.id), str(ed2.id)]
         )
         assert {log.item_id for log in logs} == {str(ed1.id), str(ed2.id)}
-        assert logs.get(item_id=str(ed1.id)).detail["changes"] == [
+        log = logs.get(item_id=str(ed1.id))
+        assert log.detail is not None
+        assert log.detail["changes"] == [
             {"type": "EventDefinition", "action": "changed", "field": "tags", "before": [], "after": ["pii"]}
         ]
 
