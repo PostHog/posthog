@@ -14,10 +14,11 @@ _ModelT = TypeVar("_ModelT", bound=BaseModel)
 
 logger = logging.getLogger(__name__)
 
-# One-shot outputs are small (a chunk plan / duplicate ids); this bounds the response, not the
-# prompt. The chunking prompt itself can embed a multi-thousand-line PR's patches — input size is
-# bounded by the callers' one-shot gates, not here.
-_MAX_OUTPUT_TOKENS = 16_000
+# Bounds the response, not the prompt (prompt size is bounded by the callers' one-shot gates).
+# A ceiling, not a spend — but adaptive thinking bills against it too, and dedup re-emits every
+# surviving issue's full JSON: a 36-finding PR blew a 16K cap (stop_reason=max_tokens, run failed).
+# 64K is sonnet-5's output limit.
+_MAX_OUTPUT_TOKENS = 64_000
 # A large chunking prompt at xhigh effort can legitimately take several minutes end-to-end.
 _TIMEOUT_SECONDS = 600.0
 # HTTP statuses that are client errors yet still worth a Temporal retry.
