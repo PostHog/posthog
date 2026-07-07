@@ -371,6 +371,11 @@ def _resolve_emission_report_links(
     return links
 
 
+def _escape_mrkdwn(text: str) -> str:
+    """Slack mrkdwn control chars in customer-supplied strings; & first so we don't double-escape."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Run history + finding emission for the headless agent."""
 
@@ -1026,7 +1031,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         slack = SlackIntegration(integration)
 
         owner_tagged = False
-        owner_prefix = str(data.get("owner_label") or "")
+        owner_prefix = _escape_mrkdwn(str(data.get("owner_label") or ""))
         if data.get("owner_email"):
             try:
                 lookup = slack.client.users_lookupByEmail(email=data["owner_email"])
@@ -1043,13 +1048,15 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         emoji = {"high": ":rotating_light:", "medium": ":warning:", "low": ":mag:"}.get(
             data.get("severity") or "", ":mag:"
         )
-        body = f"{owner_prefix} {data['text']}".strip()
+        safe_account_name = _escape_mrkdwn(str(data["account_name"]))
+        safe_text = _escape_mrkdwn(str(data["text"]))
+        body = f"{owner_prefix} {safe_text}".strip()
         context_text = f"Sent by `{run.skill_name}`"
         if report_id is not None:
             report_url = f"{settings.SITE_URL}/project/{run.team_id}/inbox/reports/{report_id}"
             context_text += f" · <{report_url}|View report in PostHog>"
         blocks = [
-            {"type": "section", "text": {"type": "mrkdwn", "text": f"{emoji} *{data['account_name']}*"}},
+            {"type": "section", "text": {"type": "mrkdwn", "text": f"{emoji} *{safe_account_name}*"}},
             {"type": "section", "text": {"type": "mrkdwn", "text": body}},
             {"type": "context", "elements": [{"type": "mrkdwn", "text": context_text}]},
         ]
@@ -1057,7 +1064,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         try:
             posted = slack.client.chat_postMessage(
                 channel=delivery["channel_id"],
-                text=f"{data['account_name']}: {data['text'][:150]}",
+                text=f"{safe_account_name}: {safe_text[:150]}",
                 blocks=blocks,
                 unfurl_links=False,
             )

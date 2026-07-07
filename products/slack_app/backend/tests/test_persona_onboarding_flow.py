@@ -592,10 +592,15 @@ class TestChannelStep(_FlowTestBase):
 
         client.chat_postMessage.side_effect = None
         verify_action = {"action_id": persona_onboarding.CHANNEL_VERIFY_ACTION_ID, "value": PICKED_CHANNEL}
-        persona_onboarding.handle_block_action(self._payload(verify_action), verify_action)
+        with patch.object(persona_onboarding, "capture_slack_event") as capture:
+            persona_onboarding.handle_block_action(self._payload(verify_action), verify_action)
 
         mock_provision.assert_called_once()
         assert mock_provision.call_args.kwargs["channel_id"] == PICKED_CHANNEL
+        # The /invite-then-verify path must carry its own funnel label so it stays distinct from
+        # the dropdown path in the channel-configured conversion.
+        configured = [c for c in capture.call_args_list if c.args[1] == persona_onboarding.EVENT_CHANNEL_CONFIGURED]
+        assert [c.kwargs["method"] for c in configured] == ["verified"]
         row.refresh_from_db()
         assert row.onboarded_at is not None
         assert row.onboarding_state is None
@@ -811,6 +816,28 @@ class TestMcpConnectReturn(_FlowTestBase):
         client.chat_update.assert_called_once()
         assert client.chat_update.call_args.kwargs["ts"] == "42.42"
         assert self._row().onboarding_state["readiness"]["revenue_watch"] is True
+
+    @patch(WEBCLIENT)
+    def test_replayed_return_captures_connect_event_once(self, mock_webclient):
+        # The signed state is reusable for 30 days; a back-button/reload must not re-fire the
+        # connect-conversion event, while the fleet refresh (DB-recomputed) still runs each time.
+        client = self._client(mock_webclient)
+        self._seed_channel_step()
+        stripe = ActiveInstallationInfo(id="i1", name="Stripe", proxy_path="/x", template_name="Stripe")
+        state = self._signed_state()
+        with (
+            patch.object(persona_onboarding, "get_active_installations", return_value=[stripe]),
+            patch.object(persona_onboarding, "list_active_templates", return_value=ALL_TEMPLATES),
+            patch.object(persona_onboarding, "capture_slack_event") as capture,
+        ):
+            first = Client().get(self.URL, {"state": state, "status": "success"})
+            second = Client().get(self.URL, {"state": state, "status": "success"})
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+        capture.assert_called_once()
+        assert capture.call_args.args[1] == persona_onboarding.EVENT_MCP_CONNECTED
+        assert client.chat_update.call_count == 2
 
     @patch(WEBCLIENT)
     def test_error_status_skips_message_update(self, mock_webclient):
