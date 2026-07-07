@@ -52,10 +52,11 @@ function parseCitation(citation: string): BriefCitation {
     return { type: citation.slice(0, separatorIndex), ref: citation.slice(separatorIndex + 1) }
 }
 
-/** A hallucinated non-numeric ref must fall back to a plain tag, not a dead `/NaN` link. */
+/** A hallucinated ref must fall back to a plain tag, not a dead link. `Number('')` and `Number('0')`
+ * are finite, so guard on `id > 0` — all resource ids are positive — to reject empty/zero refs too. */
 function numericSceneUrl(ref: string, buildUrl: (id: number) => string): string | undefined {
     const id = Number(ref)
-    return Number.isFinite(id) ? buildUrl(id) : undefined
+    return Number.isFinite(id) && id > 0 ? buildUrl(id) : undefined
 }
 
 /**

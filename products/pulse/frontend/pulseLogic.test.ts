@@ -289,6 +289,9 @@ describe('pulseLogic', () => {
         ['annotation', '77', '/data-management/annotations/77'],
         // A hallucinated non-numeric ref renders unlinked instead of a dead /NaN link.
         ['flag', 'not-a-number', undefined],
+        // Empty-string and "0" are finite numbers but not real ids — must not link to resource 0.
+        ['flag', '', undefined],
+        ['experiment', '0', undefined],
     ])('maps %s:%s citations to a scene URL', (type, ref, expected) => {
         expect(CITATION_TYPES[type].url(ref)).toEqual(expected)
     })

@@ -35,7 +35,10 @@ def annotations_in_period(team: Team, period_start: datetime, now: datetime, lim
 
 
 def annotation_marker_summary(annotation: Annotation) -> str:
-    return f"marked {annotation.effective_date:%Y-%m-%d} ({annotation.get_scope_display()} scope)"
+    # Derive the effective date from real model fields rather than the query's `effective_date`
+    # annotation, so the helper works for any Annotation, not only rows from annotations_in_period.
+    effective_date = annotation.date_marker or annotation.created_at
+    return f"marked {effective_date:%Y-%m-%d} ({annotation.get_scope_display()} scope)"
 
 
 class AnnotationsSource:
