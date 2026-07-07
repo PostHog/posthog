@@ -4073,7 +4073,7 @@ export interface Response25Api {
     warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
-export interface Response26Api {
+export interface Response27Api {
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -4098,7 +4098,7 @@ export interface Response26Api {
     warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
-export interface Response27Api {
+export interface Response28Api {
     columns: unknown[]
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -6994,8 +6994,8 @@ export type DataTableNodeApiResponse =
     | Response23Api
     | Response24Api
     | Response25Api
-    | Response26Api
     | Response27Api
+    | Response28Api
     | null
 
 export interface DataTableNodeApi {
