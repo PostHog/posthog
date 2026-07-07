@@ -2,7 +2,7 @@ import os
 import json
 import uuid
 import datetime
-from typing import cast
+from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -16,7 +16,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
-from social_core.exceptions import AuthFailed
+from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingParameter
 from social_django.models import UserSocialAuth
 
 from posthog.constants import AvailableFeature
@@ -244,6 +244,21 @@ class TestEEAuthenticationAPI(APILicensedTest):
             self.client.post("/login/google-oauth2/", {})
             second_key = self.client.session.session_key
             self.assertNotEqual(first_key, second_key)
+
+    @parameterized.expand(
+        [
+            ("auth_failed", AuthFailed(cast(Any, "google-oauth2"), "bad")),
+            ("missing_parameter", AuthMissingParameter(cast(Any, "google-oauth2"), "code")),
+            ("connection_error", AuthConnectionError(cast(Any, "google-oauth2"), "cert verify failed")),
+        ]
+    )
+    def test_unreachable_or_misconfigured_sso_provider_redirects(self, _name, exception):
+        # An unreachable IdP or one whose TLS cert fails during OIDC discovery raises AuthConnectionError,
+        # a sibling of AuthFailed - it must redirect gracefully rather than surface as an unhandled 500.
+        self.client.logout()
+        with self.settings(**GOOGLE_MOCK_SETTINGS), patch("posthog.api.authentication.auth", side_effect=exception):
+            response = self.client.get("/login/google-oauth2/")
+        self.assertRedirects(response, "/login?error_code=improperly_configured_sso", fetch_redirect_response=False)
 
     def test_existing_session_remains_valid_when_sso_enforced(self):
         """Test that existing password-authenticated sessions remain valid after SSO is enforced"""
