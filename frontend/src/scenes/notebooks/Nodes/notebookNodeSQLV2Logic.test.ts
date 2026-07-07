@@ -92,7 +92,7 @@ describe('notebookNodeSQLV2Logic', () => {
         logic.actions.runQuery('   ')
         await expectLogic(logic)
             .toFinishAllListeners()
-            .toMatchValues({ runError: 'Query is empty — type some HogQL first.', isRunning: false })
+            .toMatchValues({ runError: 'Nothing to run — type some code first.', isRunning: false })
         expect(runSpy).not.toHaveBeenCalled()
     })
 
@@ -115,7 +115,16 @@ describe('notebookNodeSQLV2Logic', () => {
         mount({ runId: 'r1', hasResult: false })
         await expectLogic(logic).toFinishAllListeners()
         expect(updateAttributes).toHaveBeenCalledWith({
-            result: { columns: ['a'], types: [], row_count: 1, first_page: [[1]], has_more: false },
+            result: {
+                columns: ['a'],
+                types: [],
+                row_count: 1,
+                first_page: [[1]],
+                has_more: false,
+                stdout: '',
+                stderr: '',
+                media: [],
+            },
         })
         expect(logic.values.isRunning).toBe(false)
     })
