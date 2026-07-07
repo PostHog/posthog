@@ -6,7 +6,7 @@ import urllib.parse
 from enum import Enum, auto
 from functools import wraps
 from ipaddress import ip_address
-from typing import Any, Optional, Union, cast
+from typing import Any, NoReturn, Optional, Union, cast
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -20,7 +20,7 @@ from prometheus_client import Counter
 from requests.adapters import HTTPAdapter
 from rest_framework import request, serializers, status
 from rest_framework.decorators import action as drf_action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import Throttled, ValidationError
 from rest_framework.fields import Field
 from statshog.defaults.django import statsd
 from urllib3 import HTTPConnectionPool, HTTPSConnectionPool, PoolManager
@@ -28,6 +28,7 @@ from urllib3 import HTTPConnectionPool, HTTPSConnectionPool, PoolManager
 from posthog.schema import QueryTiming
 
 from posthog.api.documentation import extend_schema
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.exceptions import (
     RequestParsingError,
     UnspecifiedCompressionFallbackParsingError,
@@ -44,6 +45,19 @@ from posthog.utils import load_data_from_request
 from posthog.utils_cors import cors_response
 
 logger = structlog.get_logger(__name__)
+
+CONCURRENCY_LIMIT_USER_MESSAGE = "Too many queries are running right now — please try again in a moment."
+
+
+def raise_concurrency_limit_throttled(exc: ConcurrencyLimitExceeded) -> NoReturn:
+    """Translate a concurrency-limit block into a clean 429 for direct ``runner.run()`` callers.
+
+    Any endpoint that runs a query outside the query API (e.g. person property values) should
+    catch ``ConcurrencyLimitExceeded`` and call this so users get graceful throttling instead of
+    an unhandled 500. The volatile detail is logged for Loki but never surfaced to the user.
+    """
+    logger.warning("query_concurrency_limit_exceeded", detail=exc.detail or str(exc))
+    raise Throttled(detail=CONCURRENCY_LIMIT_USER_MESSAGE)
 
 
 class ErrorResponseSerializer(serializers.Serializer):

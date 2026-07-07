@@ -191,7 +191,8 @@ class RateLimit:
             ).inc()
 
             raise ConcurrencyLimitExceeded(
-                f"Exceeded maximum concurrency limit: {max_concurrency} for key: {task_name} and task: {task_id}"
+                f"Exceeded maximum concurrency limit: {max_concurrency} for {self.limit_name or 'query'}",
+                detail=f"key: {task_name} and task: {task_id}",
             )
 
         return running_tasks_key, task_id
@@ -376,7 +377,16 @@ def get_events_list_rate_limiter():
 
 
 class ConcurrencyLimitExceeded(Exception):
-    pass
+    """Raised when a concurrency limiter blocks a task.
+
+    The message is deliberately stable (no volatile IDs like org UUIDs or task ids) so that
+    error tracking groups every occurrence into a single issue instead of one per org. Any
+    volatile context belongs in ``detail``, which callers can log but should not surface.
+    """
+
+    def __init__(self, message: str, *, detail: Optional[str] = None) -> None:
+        super().__init__(message)
+        self.detail = detail
 
 
 def limit_concurrency(
@@ -406,7 +416,8 @@ def limit_concurrency(
                 ).inc()
 
                 raise ConcurrencyLimitExceeded(
-                    f"Exceeded maximum concurrent tasks limit: {max_concurrent_tasks} for key: {dynamic_key}"
+                    f"Exceeded maximum concurrent tasks limit: {max_concurrent_tasks} for {limit_name or task_name}",
+                    detail=f"key: {dynamic_key} and task: {task_id}",
                 )
 
             try:

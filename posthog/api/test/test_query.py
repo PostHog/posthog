@@ -33,8 +33,8 @@ from posthog.schema import (
 
 from posthog.hogql.constants import LimitContext
 
-from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.api.services.query import process_query_dict, process_query_model
+from posthog.api.utils import CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, QueryTags

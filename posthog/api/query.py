@@ -13,7 +13,7 @@ from opentelemetry import trace
 from prometheus_client import Counter
 from pydantic import BaseModel
 from rest_framework import status, viewsets
-from rest_framework.exceptions import APIException, NotAuthenticated, Throttled, ValidationError
+from rest_framework.exceptions import APIException, NotAuthenticated, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -44,7 +44,13 @@ from posthog.api.query_coalescer import QueryCoalescingMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.streaming import sse_streaming_response
-from posthog.api.utils import action, is_async_query, is_insight_actors_options_query, is_insight_actors_query
+from posthog.api.utils import (
+    action,
+    is_async_query,
+    is_insight_actors_options_query,
+    is_insight_actors_query,
+    raise_concurrency_limit_throttled,
+)
 from posthog.clickhouse.client.execute_async import cancel_query, get_query_status
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
@@ -74,11 +80,6 @@ from common.hogvm.python.utils import HogVMException
 logger = structlog.get_logger(__name__)
 
 tracer = trace.get_tracer(__name__)
-
-# Shown to the user when the org's concurrent-query limiter rejects a request. The raw limiter
-# exception embeds an internal Redis key + task id, so we log that for debugging and surface this
-# friendly message instead of leaking implementation details into the UI.
-CONCURRENCY_LIMIT_USER_MESSAGE = "Too many queries are running right now — please try again in a moment."
 
 QUERY_VALIDATION_ERROR_TOTAL = Counter(
     "posthog_query_validation_error_total",
@@ -169,9 +170,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         return False
 
     def _raise_concurrency_throttled(self, exc: ConcurrencyLimitExceeded) -> NoReturn:
-        # Log the raw detail (Redis key + task id) for Loki, but surface a clean message to the user.
-        logger.warning("query_concurrency_limit_exceeded", detail=str(exc))
-        raise Throttled(detail=CONCURRENCY_LIMIT_USER_MESSAGE)
+        raise_concurrency_limit_throttled(exc)
 
     @extend_schema(
         request=QueryRequest,
