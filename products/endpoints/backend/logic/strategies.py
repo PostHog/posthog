@@ -14,7 +14,6 @@ stay kind-agnostic.
 
 import abc
 import dataclasses
-from collections.abc import Iterator
 from functools import cached_property
 from typing import TYPE_CHECKING, ClassVar, Optional
 
@@ -45,7 +44,7 @@ from products.endpoints.backend.materialization_transforms import (
     prepare_insight_query_for_endpoint,
     transform_select_for_materialized_table,
 )
-from products.endpoints.backend.models import Endpoint, EndpointVersion
+from products.endpoints.backend.models import Endpoint, EndpointVersion, iter_breakdowns
 
 if TYPE_CHECKING:
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -107,22 +106,6 @@ class PlaceholderPreservingPrinter(HogQLPrinter):
 # ---------------------------------------------------------------------------
 # Breakdown helpers (insight queries)
 # ---------------------------------------------------------------------------
-
-
-def iter_breakdowns(breakdown_filter: dict) -> Iterator[tuple[str, str]]:
-    """Yield (property_name, property_type) from legacy or new breakdown format.
-
-    Legacy: {"breakdown": "$browser", "breakdown_type": "event"}
-    New:    {"breakdowns": [{"property": "$browser", "type": "event"}]}
-    """
-    breakdown = breakdown_filter.get("breakdown")
-    if breakdown:
-        yield (breakdown, breakdown_filter.get("breakdown_type", "event"))
-        return
-    for b in breakdown_filter.get("breakdowns") or []:
-        prop = b.get("property")
-        if prop:
-            yield (prop, b.get("type", "event"))
 
 
 def get_breakdown_properties(breakdown_filter: dict) -> list[str]:
