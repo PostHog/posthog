@@ -75,6 +75,7 @@ class OpportunityViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
                 continue
             if value not in valid_values:
                 raise ValidationError({field: f"Must be one of: {', '.join(valid_values)}."})
+            # nosemgrep: no-request-param-orm-filter -- field is a hardcoded loop key (status/kind); value is validated against the model's allowlist above
             queryset = queryset.filter(**{field: value})
         return queryset
 
