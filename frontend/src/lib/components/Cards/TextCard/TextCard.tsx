@@ -35,7 +35,7 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
     showEditingControls?: boolean
     /** When set, rendered in place of the card body — used for inline markdown editing. */
     editingContent?: JSX.Element
-    /** Called when the user double-clicks the card body to edit the markdown inline. */
+    /** Called when the user clicks the card body to edit the markdown inline. */
     onStartInlineEdit?: () => void
 }
 
@@ -105,6 +105,16 @@ function TextCardInternal(
 
     const isTransparent = textTile.transparent_background
 
+    const inlineEditEnabled = !!onStartInlineEdit && !shouldHideMoreButton && !editingContent
+
+    const handleBodyClick = (e: React.MouseEvent<HTMLDivElement>): void => {
+        // Don't hijack link clicks or an in-progress text selection
+        if ((e.target as Element | null)?.closest('a') || window.getSelection()?.toString()) {
+            return
+        }
+        onStartInlineEdit?.()
+    }
+
     return (
         <div
             className={clsx(
@@ -124,7 +134,7 @@ function TextCardInternal(
                             size="small"
                             icon={<IconPencil />}
                             onClick={onStartInlineEdit}
-                            tooltip="Double-click to edit"
+                            tooltip="Click to edit"
                             className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
                             data-attr="text-card-inline-edit-pencil"
                             aria-label="Edit text"
@@ -139,9 +149,13 @@ function TextCardInternal(
                 <div className="TextCard__editing flex min-h-0 w-full flex-1 flex-col">{editingContent}</div>
             ) : (
                 <div
-                    className={clsx('TextCard__body w-full', onDragHandleMouseDown && 'cursor-grab')}
-                    onMouseDown={onDragHandleMouseDown}
-                    onDoubleClick={!shouldHideMoreButton ? onStartInlineEdit : undefined}
+                    className={clsx(
+                        'TextCard__body w-full',
+                        inlineEditEnabled ? 'cursor-pointer' : onDragHandleMouseDown && 'cursor-grab'
+                    )}
+                    // Inline edit takes precedence over the drag-to-enter-layout-edit gesture on text cards
+                    onMouseDown={inlineEditEnabled ? undefined : onDragHandleMouseDown}
+                    onClick={inlineEditEnabled ? handleBodyClick : undefined}
                 >
                     <TextContent text={text.body} className={shouldHideMoreButton ? 'p-4' : 'p-4 pr-14'} />
                 </div>
