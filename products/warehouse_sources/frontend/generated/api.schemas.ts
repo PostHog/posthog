@@ -5561,6 +5561,11 @@ export type ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams = {
     search?: string
 }
 
+export type ExternalDataSourcesRepairCdcCreate200 = {
+    success?: boolean
+    schemas_reset?: number
+}
+
 export type ExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
     valid?: boolean
     errors?: string[]

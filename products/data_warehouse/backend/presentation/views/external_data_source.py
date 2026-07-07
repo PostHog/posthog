@@ -122,6 +122,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     PREVIEW_DEFAULT_ROWS,
     PREVIEW_MAX_ROWS,
     AnySource,
+    CDCRepairError,
     CDCSourceAdapter,
     ClickHouseSource,
     Config,
@@ -146,6 +147,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     get_cdc_adapter,
     get_primary_key_columns,
     manifest_request_hosts,
+    repair_cdc_source,
     source_requires_ssl,
     source_type_supports_cdc,
     sql_schema_metadata,
@@ -1555,6 +1557,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "check_cdc_prerequisites_for_source",
         "enable_cdc",
         "disable_cdc",
+        "repair_cdc",
         "update_cdc_settings",
         # Live outbound HTTP to a caller-supplied manifest (including POSTs) — a
         # side-effecting action, so it needs write scope, not read.
@@ -3575,6 +3578,65 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             instance.save(update_fields=["job_inputs", "updated_at"])
 
         return Response(status=status.HTTP_200_OK, data={"success": True})
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response={
+                    "type": "object",
+                    "properties": {
+                        "success": {"type": "boolean"},
+                        "schemas_reset": {"type": "integer"},
+                    },
+                },
+                description="CDC repaired; schemas_reset CDC schemas will fully re-sync.",
+            ),
+            400: OpenApiResponse(description="CDC not enabled, nothing to repair, or engine-side recreation failed."),
+        },
+    )
+    @action(methods=["POST"], detail=True)
+    def repair_cdc(self, request: Request, *arg: Any, **kwargs: Any):
+        """Repair CDC on a source whose replication resources were lost.
+
+        Recreates the engine-side slot/publication against the stored CDC config, resets
+        every active CDC schema to snapshot mode for a full re-sync (changes since the old
+        slot died are unrecoverable), clears the broken markers, and resumes the paused
+        schedules. Idempotent: safe to retry after a partial failure.
+        """
+        instance: ExternalDataSource = self.get_object()
+
+        adapter, err = self._get_cdc_adapter_or_400(instance)
+        if err is not None:
+            return err
+        assert adapter is not None  # narrowed by _get_cdc_adapter_or_400
+
+        cdc_config = adapter.parse_cdc_config(instance)
+        if not cdc_config.enabled:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "CDC is not enabled on this source."},
+            )
+
+        try:
+            schemas_reset = repair_cdc_source(instance)
+        except CDCRepairError as e:
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
+        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+            # Expected user/upstream connection failure — surface as a 400 without capturing,
+            # mirroring the enable_cdc handler.
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Could not connect to source to repair CDC: {e}"},
+            )
+        except Exception as e:
+            capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Could not repair CDC: {e}"},
+            )
+
+        return Response(status=status.HTTP_200_OK, data={"success": True, "schemas_reset": schemas_reset})
 
     @action(methods=["POST"], detail=True)
     def update_cdc_settings(self, request: Request, *arg: Any, **kwargs: Any):

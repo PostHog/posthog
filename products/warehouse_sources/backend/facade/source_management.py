@@ -19,6 +19,8 @@ _LAZY = {
     "CDCSourceAdapter": "cdc.adapters",
     "get_cdc_adapter": "cdc.adapters",
     "source_type_supports_cdc": "cdc.adapters",
+    "CDCRepairError": "cdc.repair",
+    "repair_cdc_source": "cdc.repair",
     "ClickHouseSource": "sources.clickhouse.source",
     "AnySource": "sources.common.base",
     "ExternalWebhookInfo": "sources.common.base",
