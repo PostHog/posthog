@@ -150,8 +150,9 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
 
     def test_native_read_takes_latest_job_per_cell_not_sum(self):
         # The same (campaign, day) cell materialized under two job_ids — a stale value and a matured one.
-        # job_id is in the ReplacingMergeTree sort key, so both rows survive; the read must return the
-        # latest-computed value (argMax), not their sum, even when both job_ids are read together.
+        # job_id is in the raw ReplacingMergeTree sort key, so both rows survive. The read filters by
+        # source (not job_id) and goes through the `marketing_costs` view, which must collapse the cell to
+        # its latest-computed value (argMax), not sum the two rows.
         cell = {
             "source_id": "google_test",
             "source_name": "google",
@@ -204,7 +205,7 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
             team=self.team,
         )
         read = runner._costs_native_read_query(
-            [job_old, job_new],
+            [cell["source_id"]],
             MarketingAnalyticsDrillDownLevel.CAMPAIGN,
             QueryDateRange(date_range=date_range, team=self.team, interval=None, now=datetime(2025, 1, 1)),
         )
@@ -255,5 +256,5 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
 
         assert result is not None, "one unmaterializable source must not force every source back to S3"
         hogql = result.to_hogql()
-        assert "marketing_costs_preaggregated" in hogql, "materialized source should read the native table"
+        assert "marketing_costs_precomputed" in hogql, "materialized source should read the deduplicated view"
         assert "live_s3_marker" in hogql, "unmaterializable source should stay on the live S3 union"
