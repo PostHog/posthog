@@ -1,5 +1,3 @@
-from typing import TYPE_CHECKING, Any
-
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
@@ -7,25 +5,7 @@ import structlog
 
 from posthog.models.utils import UUIDModel
 
-if TYPE_CHECKING:
-    from posthog.models.organization_domain import OrganizationDomain
-
 logger = structlog.get_logger(__name__)
-
-# IdP-specific fields on the legacy `OrganizationDomain` columns that correspond to fields on
-# `IdentityProviderConfig`. Used only by `sync_identity_provider_config_from_domain`, a manual,
-# one-time backfill tool (see `posthog.management.commands.sync_identity_provider_configs`) for
-# migrating any pre-existing domain data into a linked config.
-IDP_CONFIG_SYNCED_FIELDS: tuple[str, ...] = (
-    "saml_entity_id",
-    "saml_acs_url",
-    "saml_x509_cert",
-    "scim_enabled",
-    "scim_bearer_token",
-    "id_jag_issuer_url",
-    "id_jag_jwks_url",
-    "id_jag_allowed_clients",
-)
 
 
 class IdentityProviderConfig(UUIDModel):
@@ -38,9 +18,7 @@ class IdentityProviderConfig(UUIDModel):
     and an organization can have zero, one, or many configs.
 
     This model is the sole read/write interface for IdP settings (SAML/SCIM/ID-JAG). The legacy
-    IdP columns on `OrganizationDomain` are no longer written to — they're frozen, kept only so
-    `sync_identity_provider_config_from_domain` can backfill any pre-existing data into a linked
-    config (a manual, one-time tool; see `posthog.management.commands.sync_identity_provider_configs`).
+    IdP columns on `OrganizationDomain` are no longer written to — they're frozen.
     """
 
     organization = models.ForeignKey(
@@ -116,74 +94,3 @@ class IdentityProviderConfig(UUIDModel):
         Returns whether ID-JAG (XAA) is configured.
         """
         return bool(self.id_jag_issuer_url)
-
-
-def _domain_has_any_idp_config(domain: "OrganizationDomain") -> bool:
-    # Reads the domain's own columns (the underscore-prefixed attributes, not `domain.has_saml`,
-    # which resolves through the linked config): this is the domain→config write path, so it must
-    # inspect the source side.
-    return (
-        (bool(domain._saml_entity_id) and bool(domain._saml_acs_url) and bool(domain._saml_x509_cert))
-        or domain._scim_enabled
-        or bool(domain._scim_bearer_token)
-        or bool(domain._id_jag_issuer_url)
-        or bool(domain._id_jag_jwks_url)
-        or bool(domain._id_jag_allowed_clients)
-    )
-
-
-def sync_identity_provider_config_from_domain(domain: "OrganizationDomain", dry_run: bool = False) -> str:
-    """
-    One-time backfill: copy a domain's legacy IdP fields into its linked `IdentityProviderConfig`,
-    creating and linking one if needed. Used by the `sync_identity_provider_configs` management
-    command to migrate any pre-existing domain data — not called automatically on save.
-
-    Returns the action taken: "created", "updated", "unchanged", or "skipped" (domain has
-    no IdP configuration and no linked config).
-    """
-    # Imported here to avoid a circular import with `organization_domain`.
-    from posthog.models.organization_domain import OrganizationDomain  # noqa: PLC0415
-
-    config = domain.identity_provider_config
-
-    # Fail closed on a cross-org link: never copy one organization's IdP settings into
-    # another organization's config. A linked config must belong to the same organization
-    # as the domain, otherwise the backfill would silently overwrite the other org's
-    # SAML/SCIM/XAA settings — an authentication-bypass vector.
-    if config is not None and config.organization_id != domain.organization_id:
-        raise ValueError(
-            f"OrganizationDomain {domain.pk} (organization {domain.organization_id}) is linked to "
-            f"IdentityProviderConfig {config.pk} owned by a different organization "
-            f"({config.organization_id}); refusing to mirror IdP settings across organizations."
-        )
-
-    if config is None:
-        if not _domain_has_any_idp_config(domain):
-            return "skipped"
-        if dry_run:
-            return "created"
-        config = IdentityProviderConfig.objects.create(
-            organization_id=domain.organization_id,
-            name=domain.domain,
-            # The domain's columns are the underscore-prefixed attributes; the config's are not.
-            **{field: getattr(domain, f"_{field}") for field in IDP_CONFIG_SYNCED_FIELDS},
-        )
-        # Link via a queryset update to avoid recursing into `OrganizationDomain.save()`
-        # (and to avoid emitting a second activity log entry for the same write).
-        OrganizationDomain.objects.filter(pk=domain.pk).update(identity_provider_config=config)
-        domain.identity_provider_config = config
-        return "created"
-
-    changed_fields: dict[str, Any] = {
-        field: getattr(domain, f"_{field}")
-        for field in IDP_CONFIG_SYNCED_FIELDS
-        if getattr(config, field) != getattr(domain, f"_{field}")
-    }
-    if not changed_fields:
-        return "unchanged"
-    if dry_run:
-        return "updated"
-    for field, value in changed_fields.items():
-        setattr(config, field, value)
-    config.save(update_fields=[*changed_fields.keys(), "updated_at"])
-    return "updated"

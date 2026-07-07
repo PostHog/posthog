@@ -2,15 +2,26 @@ import pytest
 from posthog.test.base import BaseTest
 
 from django.core.exceptions import ValidationError
-from django.core.management import call_command
 
 from posthog.models import IdentityProviderConfig, Organization, OrganizationDomain
-from posthog.models.identity_provider_config import IDP_CONFIG_SYNCED_FIELDS
+
+# Legacy `OrganizationDomain` columns that mirror fields on `IdentityProviderConfig`. Test-only:
+# used to build underscore-prefixed kwargs and to guard the two models' field shapes against drift.
+_LEGACY_IDP_FIELDS: tuple[str, ...] = (
+    "saml_entity_id",
+    "saml_acs_url",
+    "saml_x509_cert",
+    "scim_enabled",
+    "scim_bearer_token",
+    "id_jag_issuer_url",
+    "id_jag_jwks_url",
+    "id_jag_allowed_clients",
+)
 
 
 def _prefix_idp_kwargs(kwargs: dict) -> dict:
     # The domain's legacy IdP columns are underscore-prefixed Python attributes; map the public names.
-    return {(f"_{k}" if k in IDP_CONFIG_SYNCED_FIELDS else k): v for k, v in kwargs.items()}
+    return {(f"_{k}" if k in _LEGACY_IDP_FIELDS else k): v for k, v in kwargs.items()}
 
 
 class TestIdentityProviderConfig(BaseTest):
@@ -52,7 +63,7 @@ class TestIdentityProviderConfig(BaseTest):
     def test_synced_fields_match_between_models(self):
         # Guard against the two models drifting apart. The domain stores these as underscore-prefixed
         # columns (with the original db_column), the config stores them under the plain name.
-        for field in IDP_CONFIG_SYNCED_FIELDS:
+        for field in _LEGACY_IDP_FIELDS:
             domain_field = OrganizationDomain._meta.get_field(f"_{field}")
             config_field = IdentityProviderConfig._meta.get_field(field)
             assert domain_field.__class__ == config_field.__class__, field
@@ -115,69 +126,3 @@ class TestIdentityProviderConfig(BaseTest):
         assert not domain.has_saml
         assert not domain.has_scim
         assert not domain.has_id_jag
-
-
-class TestSyncIdentityProviderConfigsCommand(BaseTest):
-    def _create_unsynced_domain(self, domain: str, **kwargs) -> OrganizationDomain:
-        # A domain with legacy IdP columns set but no linked config — the normal state now that
-        # `OrganizationDomain.save()` no longer auto-creates/links one.
-        return OrganizationDomain.objects.create(
-            organization=self.organization, domain=domain, **_prefix_idp_kwargs(kwargs)
-        )
-
-    def test_command_backfills_configs(self):
-        saml_domain = self._create_unsynced_domain(
-            "saml.example.com",
-            saml_entity_id="entity-id",
-            saml_acs_url="https://idp.example.com/acs",
-            saml_x509_cert="cert-contents",
-        )
-        plain_domain = self._create_unsynced_domain("plain.example.com")
-
-        call_command("sync_identity_provider_configs")
-
-        saml_domain.refresh_from_db()
-        plain_domain.refresh_from_db()
-        assert saml_domain.identity_provider_config is not None
-        assert saml_domain.identity_provider_config.saml_entity_id == "entity-id"
-        assert plain_domain.identity_provider_config is None
-        assert IdentityProviderConfig.objects.count() == 1
-
-    def test_command_resyncs_drifted_configs(self):
-        domain = self._create_unsynced_domain("saml.example.com", id_jag_issuer_url="https://issuer.example.com")
-        config = IdentityProviderConfig.objects.create(
-            organization=self.organization, id_jag_issuer_url="https://stale.example.com"
-        )
-        OrganizationDomain.objects.filter(pk=domain.pk).update(identity_provider_config=config)
-
-        call_command("sync_identity_provider_configs")
-
-        config.refresh_from_db()
-        assert config.id_jag_issuer_url == "https://issuer.example.com"
-
-    def test_command_dry_run_makes_no_changes(self):
-        self._create_unsynced_domain(
-            "saml.example.com",
-            saml_entity_id="entity-id",
-            saml_acs_url="https://idp.example.com/acs",
-            saml_x509_cert="cert-contents",
-        )
-
-        call_command("sync_identity_provider_configs", "--dry-run")
-
-        assert IdentityProviderConfig.objects.count() == 0
-
-    def test_command_filters_by_organization(self):
-        other_org = Organization.objects.create(name="Other")
-        other_domain = OrganizationDomain.objects.create(
-            organization=other_org, domain="other.example.com", _id_jag_issuer_url="https://issuer.example.com"
-        )
-        domain = self._create_unsynced_domain("mine.example.com", id_jag_issuer_url="https://issuer.example.com")
-
-        call_command("sync_identity_provider_configs", f"--organization-id={self.organization.id}")
-
-        domain.refresh_from_db()
-        other_domain.refresh_from_db()
-        assert domain.identity_provider_config is not None
-        assert other_domain.identity_provider_config is None
-        assert IdentityProviderConfig.objects.count() == 1
