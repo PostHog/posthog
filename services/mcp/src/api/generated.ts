@@ -11926,6 +11926,20 @@ export namespace Schemas {
       ids: string[];
     }
 
+    /**
+     * * `add` - add
+     * * `remove` - remove
+     * * `set` - set
+     */
+    export type BulkUpdateTagsActionEnum = typeof BulkUpdateTagsActionEnum[keyof typeof BulkUpdateTagsActionEnum];
+
+
+    export const BulkUpdateTagsActionEnum = {
+      Add: 'add',
+      Remove: 'remove',
+      Set: 'set',
+    } as const;
+
     export interface BulkUpdateTagsError {
       id: number;
       reason: string;
@@ -11935,20 +11949,6 @@ export namespace Schemas {
       id: number;
       tags: string[];
     }
-
-    /**
-     * * `add` - add
-     * * `remove` - remove
-     * * `set` - set
-     */
-    export type BulkUpdateTagsRequestActionEnum = typeof BulkUpdateTagsRequestActionEnum[keyof typeof BulkUpdateTagsRequestActionEnum];
-
-
-    export const BulkUpdateTagsRequestActionEnum = {
-      Add: 'add',
-      Remove: 'remove',
-      Set: 'set',
-    } as const;
 
     export interface BulkUpdateTagsRequest {
       /**
@@ -11961,7 +11961,7 @@ export namespace Schemas {
        * * `add` - add
        * * `remove` - remove
        * * `set` - set */
-      action: BulkUpdateTagsRequestActionEnum;
+      action: BulkUpdateTagsActionEnum;
       /** Tag names to add, remove, or set. */
       tags: string[];
     }
@@ -11969,6 +11969,46 @@ export namespace Schemas {
     export interface BulkUpdateTagsResponse {
       updated: BulkUpdateTagsItem[];
       skipped: BulkUpdateTagsError[];
+    }
+
+    export interface BulkUpdateTagsUUIDError {
+      /** UUID of the object that was skipped. */
+      id: string;
+      /** Why the object was skipped, e.g. 'Not found'. */
+      reason: string;
+    }
+
+    export interface BulkUpdateTagsUUIDItem {
+      /** UUID of the object whose tags were updated. */
+      id: string;
+      /** The object's full tag list after the update. */
+      tags: string[];
+    }
+
+    /**
+     * Variant of ``BulkUpdateTagsRequestSerializer`` for resources keyed by UUID (e.g. event definitions).
+     */
+    export interface BulkUpdateTagsUUIDRequest {
+      /**
+         * List of object UUIDs to update tags on.
+         * @maxItems 500
+         */
+      ids: string[];
+      /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+       *
+       * * `add` - add
+       * * `remove` - remove
+       * * `set` - set */
+      action: BulkUpdateTagsActionEnum;
+      /** Tag names to add, remove, or set. */
+      tags: string[];
+    }
+
+    export interface BulkUpdateTagsUUIDResponse {
+      /** Objects whose tags were successfully updated. */
+      updated: BulkUpdateTagsUUIDItem[];
+      /** Objects that were skipped, with a reason each. */
+      skipped: BulkUpdateTagsUUIDError[];
     }
 
     /**
