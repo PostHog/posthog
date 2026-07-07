@@ -3,23 +3,23 @@ import { Card as QuillCard, CardContent, CardHeader, CardTitle } from '@posthog/
 export function Card({
     children,
     className,
-    contentClassName,
+    flush = false,
     title,
 }: {
     children: React.ReactNode
     className?: string
-    /** Extra classes for the content wrapper — e.g. `p-0` to let a table run edge to edge. */
-    contentClassName?: string
+    /** Let a full-bleed child (table, chart) reach the card's edges, with no header-to-content gap. */
+    flush?: boolean
     title?: string
 }): JSX.Element {
     return (
-        <QuillCard size="sm" className={className}>
+        <QuillCard size="sm" flush={flush} className={className}>
             {title ? (
                 <CardHeader>
                     <CardTitle>{title}</CardTitle>
                 </CardHeader>
             ) : null}
-            <CardContent className={`flex flex-1 flex-col ${contentClassName ?? ''}`}>{children}</CardContent>
+            <CardContent className="flex flex-1 flex-col">{children}</CardContent>
         </QuillCard>
     )
 }

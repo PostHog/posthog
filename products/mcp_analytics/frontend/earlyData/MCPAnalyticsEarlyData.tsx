@@ -116,7 +116,7 @@ function LiveActivityCard(): JSX.Element {
     const { recentCalls, recentCallsLoading } = useValues(mcpEarlyDataLogic)
 
     return (
-        <Card title="Live activity" className="h-full" contentClassName="p-0">
+        <Card title="Live activity" className="h-full" flush>
             {/* Roughly the top 10 rows visible; the rest scroll. */}
             <div className="max-h-[36rem] overflow-y-auto">
                 <LemonTable<EarlyRecentCall>
