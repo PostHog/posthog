@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -22,12 +23,12 @@ import { ObservationSearchMaxChat } from './components/ObservationSearchMaxChat'
 import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerOverview } from './components/ScannerOverview'
+import { ScannerQualityTab } from './components/ScannerQualityTab'
 import { ScannerRunTab } from './components/ScannerRunTab'
 import { SummarizerMaxChat } from './components/SummarizerMaxChat'
 import { VisionActionsTab } from './components/VisionActionsTab'
-import { ImproveFromLabelsButton } from './ImproveFromLabelsButton'
 import { replayScannerLogic } from './replayScannerLogic'
-import { replayScannerSceneLogic } from './replayScannerSceneLogic'
+import { ReplayScannerTab, replayScannerSceneLogic } from './replayScannerSceneLogic'
 
 export const scene: SceneExport = {
     component: ReplayScannerSceneComponent,
@@ -40,6 +41,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
     const { setActiveTab } = useActions(replayScannerSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const actionsTabEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_ACTIONS]
+    const qualityTabEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_QUALITY]
 
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, replayScannerSceneLogic)
@@ -62,12 +64,18 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                 resourceType={{ type: 'replay_vision' }}
                 actions={
                     <>
-                        <ImproveFromLabelsButton
-                            scannerId={scannerId}
-                            scannerName={scanner.name || 'Scanner'}
-                            scannerType={scanner.scanner_type}
-                            prompt={scanner.scanner_config.prompt}
-                        />
+                        {qualityTabEnabled && activeTab !== ReplayScannerTab.Quality && (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconSparkles />}
+                                tooltip="Rate scanner results and apply AI prompt recommendations in the Quality tab"
+                                onClick={() => setActiveTab(ReplayScannerTab.Quality)}
+                                data-attr="replay-vision-open-quality-tab"
+                            >
+                                Improve scanner prompt
+                            </LemonButton>
+                        )}
                         <AccessControlAction
                             resourceType={AccessControlResourceType.SessionRecording}
                             minAccessLevel={AccessControlLevel.Editor}
@@ -95,7 +103,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                 data-attr="vision-scanner-tabs"
                 tabs={[
                     {
-                        key: 'observations',
+                        key: ReplayScannerTab.Observations,
                         label: 'Observations',
                         content: (
                             <div className="flex flex-col gap-6">
@@ -108,18 +116,23 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                             </div>
                         ),
                     },
+                    qualityTabEnabled && {
+                        key: ReplayScannerTab.Quality,
+                        label: 'Quality',
+                        content: <ScannerQualityTab scannerId={scannerId} />,
+                    },
                     {
-                        key: 'on-demand',
+                        key: ReplayScannerTab.OnDemand,
                         label: 'On-demand',
                         content: <ScannerRunTab scannerId={scannerId} />,
                     },
                     {
-                        key: 'configuration',
+                        key: ReplayScannerTab.Configuration,
                         label: 'Configuration',
                         content: <ScannerConfigReadonly scanner={scanner} />,
                     },
                     actionsTabEnabled && {
-                        key: 'actions',
+                        key: ReplayScannerTab.Actions,
                         label: 'Actions',
                         content: <VisionActionsTab scannerId={scannerId} />,
                     },

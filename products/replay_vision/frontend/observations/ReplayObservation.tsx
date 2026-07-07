@@ -18,8 +18,10 @@ import { LemonButton, LemonCard, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { humanFriendlyDuration, humanFriendlyMilliseconds } from 'lib/utils/durations'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -108,6 +110,8 @@ function AutoSeekToTime({
 
 export function ReplayObservationSceneComponent(): JSX.Element {
     const { observationId } = useValues(replayObservationSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const qualityEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_QUALITY]
     const [recordingExpanded, setRecordingExpanded] = useState(true)
     const [pendingSeek, setPendingSeek] = useState<{ ms: number; trigger: number } | null>(null)
 
@@ -469,8 +473,13 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                     </Link>
                                 </LabeledRow>
                             )}
-                            <ObservationLabelControl observationId={observation.id} />
-                            {prompt && scannerType && (
+                            {qualityEnabled && (
+                                <ObservationLabelControl
+                                    observationId={observation.id}
+                                    initialLabel={observation.label}
+                                />
+                            )}
+                            {qualityEnabled && prompt && scannerType && (
                                 <div className="flex justify-end pt-1">
                                     <ImproveScannerPromptButton
                                         scannerName={scannerName}

@@ -33,7 +33,7 @@ from products.replay_vision.backend.api.trigger import (
     start_apply_scanner_workflow,
 )
 from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
-from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
+from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission, is_replay_vision_quality_enabled
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -101,7 +101,10 @@ class ReplayObservationLabelSerializer(serializers.Serializer):
         allow_blank=True,
         default="",
         max_length=5000,
-        help_text="Why the scanner got it wrong / what it should have concluded. Empty for correct labels.",
+        help_text=(
+            "Optional written context on the rating, for thumbs-up and thumbs-down alike: what the scanner got "
+            "right or wrong, or what it should have concluded."
+        ),
     )
 
 
@@ -293,9 +296,53 @@ class CoverageStatsSerializer(serializers.Serializer):
     recent_days = serializers.IntegerField(help_text="Window size in days used for `recent_sessions`.")
 
 
+class ObservationLabelDayCountSerializer(serializers.Serializer):
+    date = serializers.DateField(help_text="Day (UTC) the observed sessions were scanned.")
+    up = serializers.IntegerField(help_text="Observations scanned this day labeled correct (thumbs up).")
+    down = serializers.IntegerField(help_text="Observations scanned this day labeled incorrect (thumbs down).")
+
+
+class ObservationVersionMarkerSerializer(serializers.Serializer):
+    date = serializers.DateField(help_text="First day (UTC) this prompt version produced observations.")
+    version = serializers.IntegerField(help_text="The scanner (prompt) version number.")
+    prompt = serializers.CharField(
+        allow_blank=True,
+        help_text="The prompt text this version ran with, taken from the observation run snapshots.",
+    )
+    up = serializers.IntegerField(help_text="Thumbs-up ratings on this version's observations.")
+    down = serializers.IntegerField(help_text="Thumbs-down ratings on this version's observations.")
+
+
+class ObservationLabelStatsSerializer(serializers.Serializer):
+    up_total = serializers.IntegerField(help_text="Observations in the filtered set labeled correct (thumbs up).")
+    down_total = serializers.IntegerField(help_text="Observations in the filtered set labeled incorrect (thumbs down).")
+    by_day = ObservationLabelDayCountSerializer(
+        many=True,
+        help_text=(
+            "Daily label counts over the last `recent_days` days, bucketed by the day the session was scanned "
+            "so the series tracks scanner quality over time. Days without labels are omitted."
+        ),
+    )
+    by_rating_day = ObservationLabelDayCountSerializer(
+        many=True,
+        help_text=(
+            "Daily label counts over the last `recent_days` days, bucketed by the day the rating was last set "
+            "or changed: the team's rating activity. Days without rating changes are omitted."
+        ),
+    )
+    version_markers = ObservationVersionMarkerSerializer(
+        many=True,
+        help_text=(
+            "Each scanner (prompt) version that produced observations (all-time), with its first day, prompt, "
+            "and rating counts, for chart markers and the prompt version history."
+        ),
+    )
+
+
 class ObservationStatsSerializer(serializers.Serializer):
     status_counts = ObservationStatusCountsSerializer(help_text="Counts of observations by terminal status.")
     coverage = CoverageStatsSerializer(help_text="Session-level scanner coverage.")
+    labels = ObservationLabelStatsSerializer(help_text="Team label (thumbs up/down) aggregates over the filtered set.")
     available_tags = serializers.ListField(
         child=serializers.CharField(),
         help_text="All distinct tags (fixed + freeform) emitted by succeeded observations in the filtered set.",
@@ -421,7 +468,10 @@ class ReplayObservationFilter(django_filters.FilterSet):
     )
     labeled = django_filters.BooleanFilter(
         method="_filter_labeled",
-        help_text="When true, return only observations that have a shared label (correct or incorrect).",
+        help_text=(
+            "When true, return only observations that have a shared label (thumbs up or down); "
+            "when false, only unlabeled observations."
+        ),
     )
     order_by = _ObservationOrderByFilter(
         help_text=(
@@ -454,9 +504,7 @@ class ReplayObservationFilter(django_filters.FilterSet):
     def _filter_labeled(
         self, queryset: QuerySet[ReplayObservation], _name: str, value: bool
     ) -> QuerySet[ReplayObservation]:
-        if not value:
-            return queryset
-        return queryset.filter(label__isnull=False)
+        return queryset.filter(label__isnull=not value)
 
     def _filter_tags(
         self, queryset: QuerySet[ReplayObservation], _name: str, value: str
@@ -624,6 +672,10 @@ class ReplayObservationViewSet(
         required_scopes=["replay_scanner:write", "session_recording:read"],
     )
     def label(self, request: Request, **kwargs: Any) -> Response:
+        # Viewset-level permissions cover all observation reads, so the quality sub-flag is checked
+        # here instead of in permission_classes; 404 (not 403) to match the flag permission classes.
+        if not is_replay_vision_quality_enabled(cast(User, request.user), self.team):
+            raise NotFound()
         observation = self.get_object()
         # Editing the shared label needs edit access, not just the viewer access reading needs.
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="editor"):

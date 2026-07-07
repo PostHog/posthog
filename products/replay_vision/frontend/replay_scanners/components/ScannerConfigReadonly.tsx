@@ -1,12 +1,24 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBolt, IconClock, IconGraph, IconInfo, IconPencil, IconPeople } from '@posthog/icons'
+import {
+    IconBolt,
+    IconClock,
+    IconGraph,
+    IconInfo,
+    IconPencil,
+    IconPeople,
+    IconThumbsDownFilled,
+    IconThumbsUpFilled,
+} from '@posthog/icons'
 import { LemonCard, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { UniversalFilterButton } from 'lib/components/UniversalFilters/UniversalFilterButton'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDurationFilter } from 'scenes/session-recordings/filters/DurationFilter'
 import {
     deriveOperand,
@@ -121,8 +133,44 @@ function BehaviorCardContent({ scanner }: { scanner: ReplayScanner }): JSX.Eleme
     )
 }
 
+function PromptVersionHistory({ scannerId }: { scannerId: string }): JSX.Element | null {
+    const { observationStatsApi } = useValues(replayScannerLogic({ id: scannerId }))
+    const markers = observationStatsApi?.labels.version_markers ?? []
+    if (markers.length === 0) {
+        return null
+    }
+    // Newest version first; the top entry is the prompt currently in use (or closest to it).
+    const newestFirst = [...markers].sort((a, b) => b.version - a.version)
+    return (
+        <LemonCard className="p-4" hoverEffect={false}>
+            <CardHeader icon={<IconPencil />} title="Prompt versions" />
+            <div className="flex flex-col gap-3">
+                {newestFirst.map((marker) => (
+                    <div key={marker.version} className="border rounded p-3 space-y-2" id={`prompt-v${marker.version}`}>
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+                            <LemonTag type={marker === newestFirst[0] ? 'warning' : 'muted'} className="font-mono">
+                                v{marker.version}
+                            </LemonTag>
+                            <span>from {dayjs(marker.date).format('MMM D, YYYY')}</span>
+                            <span className="flex items-center gap-1">
+                                <IconThumbsUpFilled className="text-success" /> {marker.up}
+                            </span>
+                            <span className="flex items-center gap-1">
+                                <IconThumbsDownFilled className="text-danger" /> {marker.down}
+                            </span>
+                        </div>
+                        <div className="whitespace-pre-wrap font-mono text-xs">{marker.prompt || '—'}</div>
+                    </div>
+                ))}
+            </div>
+        </LemonCard>
+    )
+}
+
 export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): JSX.Element {
     const { observationStats, togglingEnabled } = useValues(replayScannerLogic({ id: scanner.id }))
+    const { featureFlags } = useValues(featureFlagLogic)
+    const qualityEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_QUALITY]
     const { toggleEnabled } = useActions(replayScannerLogic({ id: scanner.id }))
     const samplingPercent = Math.round((scanner.sampling_rate ?? 0) * 1000) / 10
     // Read every filter dimension (events, actions, properties, console logs, …), not just top-level properties.
@@ -291,6 +339,7 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                     </div>
                 </LemonCard>
             </div>
+            {qualityEnabled && <PromptVersionHistory scannerId={scanner.id} />}
         </div>
     )
 }

@@ -13,6 +13,8 @@ if TYPE_CHECKING:
 REPLAY_VISION_FEATURE_FLAG = "replay-vision"
 # Gates the "and then…" VisionAction sub-feature, separate from product access above.
 REPLAY_VISION_ACTIONS_FEATURE_FLAG = "replay-vision-actions"
+# Gates the quality sub-feature (ratings + prompt suggestions), separate from product access above.
+REPLAY_VISION_QUALITY_FEATURE_FLAG = "replay-vision-quality"
 
 
 def _vision_flag_enabled(flag_key: str, user: "User", team: "Team") -> bool:
@@ -39,8 +41,12 @@ def is_replay_vision_actions_enabled(user: "User", team: "Team") -> bool:
     return _vision_flag_enabled(REPLAY_VISION_ACTIONS_FEATURE_FLAG, user, team)
 
 
+def is_replay_vision_quality_enabled(user: "User", team: "Team") -> bool:
+    return _vision_flag_enabled(REPLAY_VISION_QUALITY_FEATURE_FLAG, user, team)
+
+
 class ReplayVisionEnabledPermission(BasePermission):
-    """Hide Vision endpoints behind the `replay-vision` flag — 404 (not 403) when off."""
+    """Hide Vision endpoints behind the `replay-vision` flag: 404 (not 403) when off."""
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         if not is_replay_vision_enabled(request.user, view.team):  # type: ignore[arg-type, attr-defined]
@@ -49,9 +55,18 @@ class ReplayVisionEnabledPermission(BasePermission):
 
 
 class ReplayVisionActionsEnabledPermission(BasePermission):
-    """Hide Vision *action* endpoints behind the `replay-vision-actions` flag — 404 (not 403) when off."""
+    """Hide Vision *action* endpoints behind the `replay-vision-actions` flag: 404 (not 403) when off."""
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         if not is_replay_vision_actions_enabled(request.user, view.team):  # type: ignore[arg-type, attr-defined]
+            raise NotFound()
+        return True
+
+
+class ReplayVisionQualityEnabledPermission(BasePermission):
+    """Hide Vision *quality* endpoints behind the `replay-vision-quality` flag: 404 (not 403) when off."""
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if not is_replay_vision_quality_enabled(request.user, view.team):  # type: ignore[arg-type, attr-defined]
             raise NotFound()
         return True
