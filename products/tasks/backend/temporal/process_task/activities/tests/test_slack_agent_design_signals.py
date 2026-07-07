@@ -2,11 +2,10 @@ import importlib
 from collections.abc import AsyncGenerator
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
+from unittest.mock import AsyncMock
 
-from ee.hogai.sandbox import TURN_COMPLETE_METHOD
 from products.tasks.backend.temporal.process_task.activities.slack_agent_design_signals import (
     HEARTBEAT_LAST_PROCESSED_STREAM_ID_KEY,
     RelayAgentDesignSignalsInput,
@@ -14,9 +13,12 @@ from products.tasks.backend.temporal.process_task.activities.slack_agent_design_
     relay_agent_design_signals,
 )
 
+from ee.hogai.sandbox import TURN_COMPLETE_METHOD
+
 slack_agent_design_signals_module = importlib.import_module(
     "products.tasks.backend.temporal.process_task.activities.slack_agent_design_signals"
 )
+
 
 class StubWorkflowHandle:
     async def signal(self, _signal_name: str, _arg: Any = None) -> None:
@@ -41,7 +43,7 @@ async def test_relay_agent_design_signals_resumes_from_last_heartbeat(
 
         async def read_stream_entries(
             self, *, start_id: str, keepalive_interval_seconds: int
-        ) -> AsyncGenerator[tuple[str, dict[str, Any]] | None, None]:
+        ) -> AsyncGenerator[tuple[str, dict[str, Any]] | None]:
             captured["start_id"] = start_id
             captured["keepalive_interval_seconds"] = keepalive_interval_seconds
             yield None
