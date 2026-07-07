@@ -151,10 +151,11 @@ def _cache_url_resolution() -> None:
         by_path = cache.get(self)
         if by_path is None:
             by_path = cache.setdefault(self, {})
-        hit = by_path.get(str(path))
+        path_str = str(path)
+        hit = by_path.get(path_str)
         if hit is None:
             hit = orig_resolve(self, path)
-            by_path[str(path)] = hit
+            by_path[path_str] = hit
         # ResolverMatch blocks copy.copy via __reduce_ex__, so clone through __dict__.
         # Copy every mutable attribute so consumers can mutate the match freely without
         # poisoning the cached original for subsequent tests.
