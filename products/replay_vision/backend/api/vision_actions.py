@@ -399,8 +399,9 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 _RUN_REASON_LABELS = {
     "skipped_empty": "No new observations in this window to summarize.",
     "skipped_over_budget": "The team is over its AI-credit budget.",
+    # Legacy: the engine no longer skips actions with no delivery_config (digest runs are in-app only).
+    # Keep both keys so historical run rows still display a readable reason rather than the raw enum.
     "no_delivery": "No delivery destination is configured for this action.",
-    # Alias: runs recorded before #66892 stored the old "no_delivery_flow" enum; map it to the same copy.
     "no_delivery_flow": "No delivery destination is configured for this action.",
     "disabled": "The action was disabled when this run was due.",
     "not_found": "The action no longer exists.",
