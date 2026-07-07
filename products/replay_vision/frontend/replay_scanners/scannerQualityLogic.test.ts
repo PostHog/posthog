@@ -88,6 +88,22 @@ describe('scannerQualityLogic', () => {
         expect(visionScannersObservationsList).toHaveBeenLastCalledWith(TEAM_ID, 'scan-1', expectedParams)
     })
 
+    it('a stale current-suggestion read does not clobber a fresh generate', async () => {
+        await mountLogic()
+        let resolveStale: (value: unknown) => void = () => {}
+        ;(visionScannersPromptSuggestionsCurrentRetrieve as jest.Mock).mockImplementationOnce(
+            () => new Promise((resolve) => (resolveStale = resolve))
+        )
+
+        logic.actions.loadCurrentSuggestion()
+        logic.actions.generateSuggestion()
+        await expectLogic(logic).toDispatchActions(['generateSuggestionSuccess'])
+        resolveStale({ suggestion: PENDING_SUGGESTION, stale: false, rated_count: 3 })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.currentSuggestion?.id).toEqual('sug-2')
+    })
+
     it('a filter change during an in-flight load drops the stale response', async () => {
         await mountLogic()
         let resolveStale: (value: unknown) => void = () => {}

@@ -107,12 +107,17 @@ class TestObservationLabels(_VisionAPITestCase):
         same_day_down = self._create_observation(self.scanner, "sess-down-today")
         earlier = self._create_observation(self.scanner, "sess-down-earlier")
         outside_window = self._create_observation(self.scanner, "sess-up-old")
+        window_edge = self._create_observation(self.scanner, "sess-down-window-edge")
+        just_outside = self._create_observation(self.scanner, "sess-down-just-outside")
         self._create_observation(self.scanner, "sess-unlabeled")
         # created_at is auto_now_add, so pin every row from one captured `now` (midnight-safe) via update.
         now = timezone.now().replace(hour=12)
         ReplayObservation.objects.filter(id__in=[self.observation.id, same_day_down.id]).update(created_at=now)
         ReplayObservation.objects.filter(id=earlier.id).update(created_at=now - timedelta(days=3))
         ReplayObservation.objects.filter(id=outside_window.id).update(created_at=now - timedelta(days=40))
+        # The window is `recent_days` calendar days ending today: day 13 is the first charted bar, day 14 is out.
+        ReplayObservation.objects.filter(id=window_edge.id).update(created_at=now - timedelta(days=13))
+        ReplayObservation.objects.filter(id=just_outside.id).update(created_at=now - timedelta(days=14))
         # Prompt-version snapshots: v1 on the older observation, v2 on today's, so markers show the change.
         ReplayObservation.objects.filter(id=earlier.id).update(
             scanner_snapshot={"scanner_version": 1, "scanner_config": {"prompt": "v1 prompt"}}
@@ -121,7 +126,7 @@ class TestObservationLabels(_VisionAPITestCase):
             scanner_snapshot={"scanner_version": 2, "scanner_config": {"prompt": "v2 prompt"}}
         )
         self.client.post(self._label_url(self.observation), {"is_correct": True}, format="json")
-        for observation in (same_day_down, earlier, outside_window):
+        for observation in (same_day_down, earlier, outside_window, window_edge, just_outside):
             is_correct = observation is outside_window
             self.client.post(self._label_url(observation), {"is_correct": is_correct}, format="json")
         # Ratings all happened "now". Pin updated_at for by_rating_day, since queryset update bypasses auto_now.
@@ -131,16 +136,17 @@ class TestObservationLabels(_VisionAPITestCase):
 
         # Totals span the whole filtered set; by_day only covers the recent window.
         self.assertEqual(labels["up_total"], 2)
-        self.assertEqual(labels["down_total"], 2)
+        self.assertEqual(labels["down_total"], 4)
         self.assertEqual(
             labels["by_day"],
             [
+                {"date": (now - timedelta(days=13)).date().isoformat(), "up": 0, "down": 1},
                 {"date": (now - timedelta(days=3)).date().isoformat(), "up": 0, "down": 1},
                 {"date": now.date().isoformat(), "up": 1, "down": 1},
             ],
         )
-        # All four ratings were given today, including the one on the out-of-window observation.
-        self.assertEqual(labels["by_rating_day"], [{"date": now.date().isoformat(), "up": 2, "down": 2}])
+        # All six ratings were given today, including those on out-of-window observations.
+        self.assertEqual(labels["by_rating_day"], [{"date": now.date().isoformat(), "up": 2, "down": 4}])
         self.assertEqual(
             labels["version_markers"],
             [

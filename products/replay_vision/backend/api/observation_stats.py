@@ -154,7 +154,10 @@ def _label_stats(queryset: QuerySet[ReplayObservation], recent_days: int) -> dic
         up=Count("id", filter=Q(label__is_correct=True)),
         down=Count("id", filter=Q(label__is_correct=False)),
     )
-    cutoff = timezone.now() - timedelta(days=recent_days)
+    # UTC midnight so the window is exactly the `recent_days` calendar days the client charts;
+    # a rolling now-based cutoff would return a boundary day the chart then drops.
+    today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    cutoff = today_start - timedelta(days=recent_days - 1)
     return {
         "up_total": totals["up"] or 0,
         "down_total": totals["down"] or 0,

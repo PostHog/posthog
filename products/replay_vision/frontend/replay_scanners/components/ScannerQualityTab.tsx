@@ -301,7 +301,7 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                                 Dismiss
                             </LemonButton>
                         )}
-                        {(currentSuggestion.status === 'pending' || currentSuggestion.status === 'dismissed') && (
+                        {currentSuggestion.status === 'pending' && (
                             <LemonButton
                                 size="small"
                                 type="primary"
@@ -357,7 +357,8 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                     onClick={() => {
                         const next = !historyOpen
                         setHistoryOpen(next)
-                        if (next && suggestionHistory.length === 0) {
+                        // Refetch on every open: generate/apply/dismiss change history server-side.
+                        if (next) {
                             loadSuggestionHistory()
                         }
                     }}
@@ -449,7 +450,10 @@ const CHART_MODE_OPTIONS: { value: ChartMode; label: string; tooltip: string }[]
 function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element {
     const { labelStats, labelStatsLoading } = useValues(scannerQualityLogic({ scannerId }))
     const { setActiveTab } = useActions(replayScannerSceneLogic)
-    const theme = useMemo(() => buildTheme(), [])
+    const { isDarkModeOn } = useValues(themeLogic)
+    // buildTheme snapshots the current CSS vars, so rebuild when the app theme flips.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
     const [mode, setMode] = useState<ChartMode>('session')
     const [badgePositions, setBadgePositionsRaw] = useState<VersionBadgePosition[]>([])
     // Bail on identical positions so the measure->report->render loop settles instead of cycling.
@@ -546,8 +550,8 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
                                     }
                                 >
                                     <div
-                                        className="absolute top-0 inline-flex cursor-pointer items-center justify-center rounded border bg-surface-secondary px-1.5 py-0.5 text-[10px] font-mono leading-none text-muted hover:text-default"
-                                        style={{ left: badge.x, transform: 'translateX(-50%)' }}
+                                        className="absolute top-0 -translate-x-1/2 inline-flex cursor-pointer items-center justify-center rounded border bg-surface-secondary px-1.5 py-0.5 text-[10px] font-mono leading-none text-muted hover:text-default"
+                                        style={{ left: badge.x }}
                                         onClick={() => setActiveTab(ReplayScannerTab.Configuration)}
                                         data-attr="vision-quality-version-badge"
                                     >

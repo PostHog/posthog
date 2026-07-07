@@ -17,12 +17,13 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import User
 
+from products.replay_vision.backend.api.scanners import _scanner_config_error_message
 from products.replay_vision.backend.feature_flag import (
     ReplayVisionEnabledPermission,
     ReplayVisionQualityEnabledPermission,
 )
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import (
     ReplayScannerPromptSuggestion,
     SuggestionStatus,
@@ -213,6 +214,11 @@ class ReplayScannerPromptSuggestionViewSet(
                 raise ValidationError("The scanner prompt changed since this was generated. Generate a fresh one.")
             config = dict(scanner.scanner_config or {})
             config["prompt"] = suggestion.suggested_prompt
+            # Same validation as the scanner edit endpoint: an oversized or malformed LLM rewrite
+            # must not land in the config that every future observation snapshots.
+            message = _scanner_config_error_message(ScannerType(scanner.scanner_type), config)
+            if message:
+                raise ValidationError(f"This recommendation can't be applied: {message}")
             scanner.scanner_config = config
             scanner.save(update_fields=["scanner_config"])
             suggestion.status = SuggestionStatus.APPLIED
