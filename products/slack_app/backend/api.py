@@ -1634,8 +1634,15 @@ def _route_assistant_event(
     posthog_user = resolution.user
 
     if event_type == "assistant_thread_started":
+        # Land onboarding on the same project the first-DM path resolves to, so the CSM fleet
+        # doesn't depend on which entry point fired first. Fall back to the workspace probe when
+        # the user's target is ambiguous (multi-project, no default) — the picker resolves that on
+        # the first DM.
+        onboarding_target = (
+            resolution.integration or (resolution.candidates[0] if len(resolution.candidates) == 1 else None) or probe
+        )
         if persona_onboarding.maybe_intercept_assistant_surface(
-            probe,
+            onboarding_target,
             posthog_user_id=posthog_user.id,
             workspace_id=slack_team_id,
             slack_user_id=slack_user_id,

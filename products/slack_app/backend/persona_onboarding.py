@@ -1038,7 +1038,7 @@ def _handle_channel_verify(payload: dict, action: dict) -> None:
     if not channel_id:
         return
     channel_name = ctx.state.get("pending_channel_name") or _channel_name_best_effort(ctx.slack, channel_id)
-    _attempt_channel_setup(ctx, channel_id, channel_name, method="selected", invite_required=True)
+    _attempt_channel_setup(ctx, channel_id, channel_name, method="verified", invite_required=True)
 
 
 def _attempt_channel_setup(
