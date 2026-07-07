@@ -6,13 +6,13 @@
 #
 # Two classes live here:
 #   1. Transient objects (atomic-replace temporaries, migration/backfill scratch,
-#      backups) — never part of the managed schema.
+#      backups) -- never part of the managed schema.
 #   2. Cross-cluster proxies present on the node but intentionally NOT authored in
-#      the OPS/LOGS golden — they belong to another role's managed set (e.g. the
+#      the OPS/LOGS golden -- they belong to another role's managed set (e.g. the
 #      events_* distributed proxies the OPS node carries so it can query the main
 #      cluster). These are the same names check.sh lists in its validate SKIP.
 #
-# Grow this list from what the reconciliation pass surfaces — anything the live
+# Grow this list from what the reconciliation pass surfaces -- anything the live
 # node has that the golden intentionally omits goes here, with a one-line reason.
 
 exclude {
@@ -46,7 +46,7 @@ exclude {
     # Orphan: present on prod OPS but no migration or code creates it anywhere.
     "events_team_daily_stats",
 
-    # AUX webhook delivery-status family (migration 0286). Created by the
+    # AUX webhook delivery-status family (migration 0287). Created by the
     # migrate path on AUX but not yet authored in the aux HCL layer, so the
     # live gate would otherwise flag it as drift. Reconcile into
     # roles/aux/shared (regenerate golden/ + sql/ via hclexp) and remove these.
