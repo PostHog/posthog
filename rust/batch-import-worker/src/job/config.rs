@@ -427,7 +427,7 @@ impl S3SourceConfig {
     ) -> Result<aws_config::sts::AssumeRoleProvider, Error> {
         if self.endpoint_url.is_some() {
             return Err(Error::from(UserError::new(
-                "IAM role authentication only works with AWS S3 - S3-compatible stores must use access keys",
+                "IAM role authentication only works with AWS S3. S3-compatible stores must use access keys",
             )));
         }
 
@@ -482,12 +482,12 @@ impl S3SourceConfig {
             (None, Some(_)) => builder.credentials_provider(self.static_key_credentials(secrets)?),
             (Some(_), Some(_)) => {
                 return Err(Error::msg(
-                    "S3 source config sets both role_arn and access keys - exactly one auth method is required",
+                    "S3 source config sets both role_arn and access keys, but exactly one auth method is required",
                 ))
             }
             (None, None) => {
                 return Err(Error::from(UserError::new(
-                    "S3 source has no authentication configured - provide an IAM role or access keys",
+                    "S3 source has no authentication configured. Provide an IAM role or access keys",
                 )))
             }
         };
