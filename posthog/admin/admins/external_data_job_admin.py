@@ -173,8 +173,6 @@ class ExternalDataJobAdmin(admin.ModelAdmin):
 
     @admin.display(description="Source type")
     def source_type(self, job: ExternalDataJob):
-        if job.pipeline is None:
-            return "—"
         return job.pipeline.source_type
 
     @admin.display(description="Temporal workflow")

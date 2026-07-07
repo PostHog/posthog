@@ -1,6 +1,7 @@
 import uuid
 from datetime import timedelta
 
+from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -126,6 +127,7 @@ class TestExternalDataJobAdminMarkFailed(BaseTest):
         self.assertEqual(job.latest_error, original_error)
         self.assertEqual(job.finished_at, original_finished_at)
 
+    @freeze_time("2026-01-15 12:00:00")
     def test_post_preserves_existing_finished_at(self):
         existing_finished_at = timezone.now() - timedelta(hours=1)
         job = self._create_job(status=ExternalDataJob.Status.RUNNING)
