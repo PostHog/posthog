@@ -2419,7 +2419,7 @@ name = "common-posthog"
 version = "0.1.0"
 dependencies = [
  "httpmock",
- "posthog-rs 0.15.1",
+ "posthog-rs 0.17.3",
  "serde_json",
  "tokio",
  "tracing",
@@ -2860,7 +2860,7 @@ dependencies = [
  "mockall",
  "moka",
  "personhog-common",
- "posthog-rs 0.15.1",
+ "posthog-rs 0.17.3",
  "posthog-symbol-data",
  "proguard",
  "rand 0.8.5",
@@ -7864,14 +7864,15 @@ dependencies = [
 
 [[package]]
 name = "posthog-rs"
-version = "0.15.1"
+version = "0.17.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "78a4557dd7d995d8c86c74d9f0b5116db21ac3fd207413fbca820aaa6910b22b"
+checksum = "7f226e5d9495b0b870a88a53bbbd0d80acbcb66321717791a35991fcf4e890f6"
 dependencies = [
  "backtrace",
  "brotli 7.0.0",
  "chrono",
  "derive_builder",
+ "findshlibs",
  "flate2",
  "os_info",
  "regex",
