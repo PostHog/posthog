@@ -74,19 +74,20 @@ def _resolve_warehouse_source_intervals(nodes: list[Node]) -> dict[str, timedelt
 
     schemas_by_table_id: dict[uuid.UUID, ExternalDataSchema] = {}
     for schema in ExternalDataSchema.objects.filter(table_id__in=[table.id for table in tables]).exclude(deleted=True):
-        schemas_by_table_id.setdefault(schema.table_id, schema)
+        if schema.table_id is not None:
+            schemas_by_table_id.setdefault(schema.table_id, schema)
 
     intervals: dict[str, timedelta | None] = {}
     for node in nodes:
         table_id = (node.properties or {}).get(_WAREHOUSE_TABLE_ID_KEY)
-        table = tables_by_id.get((node.team_id, str(table_id))) if table_id else None
-        if table is None:
-            table = tables_by_name.get((node.team_id, node.name))
-        schema = schemas_by_table_id.get(table.id) if table is not None else None
-        if schema is None or not schema.should_sync:
+        node_table = tables_by_id.get((node.team_id, str(table_id))) if table_id else None
+        if node_table is None:
+            node_table = tables_by_name.get((node.team_id, node.name))
+        node_schema = schemas_by_table_id.get(node_table.id) if node_table is not None else None
+        if node_schema is None or not node_schema.should_sync:
             intervals[str(node.id)] = None
         else:
-            intervals[str(node.id)] = schema.sync_frequency_interval
+            intervals[str(node.id)] = node_schema.sync_frequency_interval
     return intervals
 
 
