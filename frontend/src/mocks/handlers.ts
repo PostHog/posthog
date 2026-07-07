@@ -253,7 +253,8 @@ export const defaultMocks: Mocks = {
         '/api/environments/:team_id/insights/my_last_viewed': EMPTY_PAGINATED_RESPONSE,
         'api/projects/:team_id/early_access_feature': EMPTY_PAGINATED_RESPONSE,
         'api/environments/:team_id/early_access_feature': EMPTY_PAGINATED_RESPONSE,
-        '/api/organizations/:organization_id/proxy_records/': [],
+        // projectNoticeLogic reads `.results` off this response
+        '/api/organizations/:organization_id/proxy_records/': { results: [] },
         '/api/projects/:team_id/dashboard_templates/json_schema/': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/:organization_id/domains/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/default_evaluation_contexts/': {

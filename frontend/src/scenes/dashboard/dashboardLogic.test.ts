@@ -4,7 +4,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
 
-import { lemonToast } from '@posthog/lemon-ui'
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import * as dashboardWidgetUtils from '@posthog/products-dashboards/frontend/utils'
 import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboards/frontend/widgets/constants'
 
@@ -759,6 +759,18 @@ describe('dashboardLogic', () => {
         })
 
         describe('cancelEditMode action', () => {
+            // The discard prompt renders a real dialog into its own React root, whose async
+            // updates land outside act(); these tests only assert dispatched actions
+            let dialogOpenSpy: jest.SpyInstance
+
+            beforeEach(() => {
+                dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            })
+
+            afterEach(() => {
+                dialogOpenSpy.mockRestore()
+            })
+
             const moveFirstTile = (): void => {
                 const firstTile = logic.values.dashboard!.tiles[0]
                 const currentLayouts = logic.values.layouts
@@ -1453,6 +1465,14 @@ describe('dashboardLogic', () => {
                       }
                     : undefined,
             }
+
+            // The logic re-fetches the dashboard on mount; without this the unhandled-request
+            // floor returns a shape without tiles
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/dashboards/12/': () => [200, dashboardWithVariableOverride],
+                },
+            })
 
             variableDataLogic.mount()
             logic = dashboardLogic({ id: 12, dashboard: dashboardWithVariableOverride })

@@ -1,11 +1,13 @@
 import '@testing-library/jest-dom'
 
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
+import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 
 import { WebVitalsToolbarMenu } from './WebVitalsToolbarMenu'
+import { webVitalsToolbarLogic } from './webVitalsToolbarLogic'
 
 describe('WebVitalsToolbarMenu', () => {
     beforeEach(() => {
@@ -20,11 +22,17 @@ describe('WebVitalsToolbarMenu', () => {
             .mount()
     })
 
-    it('uses the PostHog ui host for the settings link', () => {
+    it('uses the PostHog ui host for the settings link', async () => {
         render(<WebVitalsToolbarMenu />)
 
         const settingsLink = screen.getByText('settings page').closest('a')
         expect(settingsLink).toHaveAttribute('href', 'https://us.posthog.com/settings/project')
         expect(settingsLink).toHaveAttribute('target', '_blank')
+
+        // Rendering mounts webVitalsToolbarLogic, whose mount-time load updates state
+        // asynchronously — settle it inside act so React doesn't warn
+        await act(async () => {
+            await expectLogic(webVitalsToolbarLogic).toFinishAllListeners()
+        })
     })
 })

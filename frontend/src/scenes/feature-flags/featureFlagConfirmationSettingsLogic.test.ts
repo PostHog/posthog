@@ -5,11 +5,15 @@ import { expectLogic } from 'kea-test-utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
 import { featureFlagConfirmationSettingsLogic } from './featureFlagConfirmationSettingsLogic'
 
 describe('featureFlagConfirmationSettingsLogic', () => {
+    // Safety net for the test that calls silenceKeaLoadersErrors() inline
+    afterEach(resumeKeaLoadersErrors)
+
     let logic: ReturnType<typeof featureFlagConfirmationSettingsLogic.build>
     let lastCapturedPayload: any = null
 
@@ -91,6 +95,8 @@ describe('featureFlagConfirmationSettingsLogic', () => {
         })
 
         it('handles form submission errors correctly', async () => {
+            // Deliberate failure — kea-loaders would log it
+            silenceKeaLoadersErrors()
             // Override mock to return an error response
             useMocks({
                 patch: {

@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
 import type { FeatureFlagTestEvaluationResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
@@ -445,6 +446,10 @@ describe('featureFlagTestingLogic', () => {
     })
 
     describe('groups validation through testFlagEvaluation', () => {
+        // The invalid-groups cases fail the evaluation loader on purpose; kea-loaders would log each
+        beforeEach(silenceKeaLoadersErrors)
+        afterEach(resumeKeaLoadersErrors)
+
         it.each([
             { description: 'valid object succeeds', groups: '{"team": "backend"}', expectedError: null },
             { description: 'empty string succeeds', groups: '', expectedError: null },
