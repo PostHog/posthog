@@ -38,7 +38,10 @@ jobs:
             GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
 
     flags-project-board:
-        if: github.event.action != 'edited' && github.event.pull_request.head.repo.full_name == github.repository
+        # No synchronize: board status only transitions on reviewer/draft
+        # changes, and pushes change neither. Re-asserting the same status on
+        # every push wasted the run and fought manual card moves.
+        if: contains(fromJSON('["opened", "reopened", "ready_for_review", "review_requested", "converted_to_draft"]'), github.event.action) && github.event.pull_request.head.repo.full_name == github.repository
         uses: PostHog/.github/.github/workflows/flags-project-board.yml@69336b569d22687f8982eea6ff7d450a885cda05
         with:
             pr_number: ${{ github.event.pull_request.number }}
