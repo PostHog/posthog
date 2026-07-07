@@ -54,7 +54,7 @@ Exported events (allowlist, everything else is dropped):
 | `_posthog/usage_update` (and the `session/update` variant) | info | `tokens_input/output/cached_read/cached_write`, `cost_usd` |
 | `_posthog/turn_complete` | info | `stop_reason` |
 | `_posthog/task_complete` | info | `stop_reason` |
-| `_posthog/error` | **error** | `error_source`, `stop_reason`, message in body (capped) |
+| `_posthog/error` | **error** | `error_source`, `stop_reason`; body is the generic "run error" — the raw message is free text that can embed prompt/repo content, so it stays in the session log and the run's `error_message` |
 | `_posthog/progress` | info | `progress_group/step/status` |
 | `_posthog/git_checkpoint`, `_posthog/branch_created` | info | `branch` |
 | `_posthog/mode_change`, `_posthog/compact_boundary` | info | |
@@ -67,10 +67,10 @@ Bodies are capped at 2000 chars; free-text attribute values at 200 chars (the `l
 
 ### APM trace (one per run)
 
-- `task_run` root span (kind SERVER): opened at session init, closed at session cleanup. Status is resolved at shutdown from the latest turn outcome (the sandbox never emits `task_complete` for successful runs — the terminal "completed" status is decided by the workflow outside — so the last turn is the in-sandbox success signal): OK when the last turn ended with `end_turn`, ERROR with the error message on `_posthog/error` (an error always wins, later turn completions cannot flip it back) or when the last turn stopped with `error`, unset otherwise (cancelled / refused / timed out / no completed turns). Resolving at shutdown rather than per-turn means an early clean turn cannot leave a stale OK on a run whose final turn was cancelled.
+- `task_run` root span (kind SERVER): opened at session init, closed at session cleanup. Status is resolved at shutdown from the latest turn outcome (the sandbox never emits `task_complete` for successful runs — the terminal "completed" status is decided by the workflow outside — so the last turn is the in-sandbox success signal): OK when the last turn ended with `end_turn`, ERROR on `_posthog/error` (an error always wins, later turn completions cannot flip it back; `error_source` lands as a root-span attribute while the raw message is withheld — see the error row above) or when the last turn stopped with `error`, unset otherwise (cancelled / refused / timed out / no completed turns). Resolving at shutdown rather than per-turn means an early clean turn cannot leave a stale OK on a run whose final turn was cancelled.
 - `turn` child spans: opened on each ACP `session/prompt` (used purely as a boundary marker; its content is never read), closed on `_posthog/turn_complete`; attributes `turn_index`, `stop_reason`, plus the turn's token counts and `cost_usd` lifted from usage updates, so APM can rank slow or expensive turns directly.
 - `tool_call:<kind>` grandchild spans (`execute`, `read`, `edit`, ...): opened on `tool_call`, closed on the terminal `tool_call_update`; status ERROR on `failed`; attributes `tool_call_id`, `tool_kind`, `tool_status`. Per-kind span names stay low-cardinality and make APM latency breakdowns by tool kind useful.
-- Robustness: orphaned spans are closed (status unset) and exported at shutdown; a new prompt while a turn is open closes the stale turn; duplicate `tool_call` events are idempotent; an error cascades ERROR status through open tool and turn spans to the root.
+- Robustness: orphaned spans are closed (status unset) and exported at shutdown; a new prompt while a turn is open closes the stale turn; duplicate `tool_call` events are idempotent; a run error cascades ERROR status to the open turn and the root, and closes still-open tool spans as ERROR with `tool_status=interrupted` so APM never shows a healthy-looking active tool under a failed run.
 - Every log record is emitted under the OTel context of the span it belongs to (tool logs on the tool span, lifecycle logs on the root), so `trace_id`/`span_id` land in the `logs` table columns and the UI links Logs ⇄ trace waterfall.
 
 ### Delivery timing
@@ -78,6 +78,7 @@ Bodies are capped at 2000 chars; free-text attribute values at 200 chars (the `l
 Telemetry is near-realtime, not end-of-turn: records are created the moment each notification flows through the writer and batched for at most 2 s (`BatchLogRecordProcessor` / `BatchSpanProcessor`, `scheduledDelayMillis` 2000).
 Spans export when they end (tools mid-turn, turns at `turn_complete`, root at cleanup).
 Flush safety nets: an explicit flush after a terminal error in `signalTaskComplete`, a full shutdown-flush in `cleanupSession` (which SIGTERM reaches via `stop()`), so sandbox teardown cannot eat the tail of a run's telemetry.
+Flush and shutdown are best-effort and per-signal independent (`Promise.allSettled`), and every export is capped at 5 s (`exportTimeoutMillis`, down from the SDK's 30 s default), so a rejecting or hanging traces endpoint can neither starve log delivery nor hold up session cleanup.
 
 ## Changes in PostHog/code (companion branch)
 
@@ -87,9 +88,9 @@ Flush safety nets: an explicit flush after a terminal error in `signalTaskComple
 - `packages/agent/src/session-log-writer.ts`: optional `sinks: SessionLogSink[]`, teed in `appendRawLine` after the entry is built; a throwing sink warns once and can never break product log persistence; message chunks never reach sinks. `SessionContext` moved here from the otel module.
 - `packages/agent/src/server/agent-server.ts`: builds the telemetry per session from config (`createRunTelemetry`), passes it as the writer sink, stores it on the session, shuts it down in `cleanupSession`, flushes after terminal errors, and mirrors `enqueueTaskTerminalEvent` payloads into it directly (terminal `_posthog/error` events bypass `SessionLogWriter`, and a failed run is exactly what telemetry must record). Fatal crashes (`reportFatalError`, the uncaught-exception/unhandled-rejection path) also mirror an error record (`error_source=agent_server_crash`) and shut telemetry down, so hard process deaths reach the telemetry project instead of vanishing.
 - `packages/agent/src/server/bin.ts` + `server/types.ts`: zod-validated env `POSTHOG_AGENT_OTEL_LOGS_URL`, `POSTHOG_AGENT_OTEL_LOGS_TOKEN`, `POSTHOG_AGENT_OTEL_TRACES_URL` → `AgentServerConfig.otelLogsUrl/otelLogsToken/otelTracesUrl`. Telemetry is off unless the logs pair is set; spans additionally require the traces URL (per-signal kill switch).
-- `packages/agent/src/types.ts`: deleted the dead `OtelTransportConfig`/`AgentConfig.otelTransport` left over from the February attempt.
+- `packages/agent/src/types.ts`: the February `OtelTransportConfig`/`AgentConfig.otelTransport` remain as `@deprecated`, ignored stubs — `@posthog/agent` is a published package, so removing exported types is an API break reserved for a major.
 - Dependencies: `@opentelemetry/api`, `@opentelemetry/sdk-trace-base`, `@opentelemetry/exporter-trace-otlp-http`, version-aligned with the existing logs SDK (0.208.x experimental / 2.x stable line).
-- Tests (71 passing): parameterized log-mapping matrix, a hard privacy test asserting exported payloads never contain tool args/titles/output, per-user resource attributes, session-mismatch guard, never-throws guard, sink isolation in `SessionLogWriter`, and four trace tests (span tree + statuses + attributes, log⇄span id correlation, error cascade, orphan export on shutdown).
+- Tests (74 passing): parameterized log-mapping matrix, hard privacy tests asserting exported payloads never contain tool args/titles/output or raw error messages, per-user resource attributes, session-mismatch guard, never-throws guard, sink isolation in `SessionLogWriter`, and five trace tests (span tree + statuses + attributes, log⇄span id correlation, error cascade incl. interrupted tools, orphan export on shutdown, log shutdown isolated from a failing traces endpoint).
 - `packages/agent/README.md`: documents the env vars and behavior.
 
 ## Changes in PostHog/posthog (this branch)
@@ -117,7 +118,7 @@ Flush safety nets: an explicit flush after a terminal error in `signalTaskComple
 
 ## Verification
 
-- `PostHog/code`: 71 tests pass in the agent package (including the new telemetry suite), `tsc --noEmit` clean via turbo, biome clean on all touched files (one pre-existing warning untouched). The package's pre-existing test failures in this environment (missing Postgres/git fixtures) were confirmed byte-identical with and without these changes by running the failing files against a stashed tree.
+- `PostHog/code`: 74 tests pass in the agent package (including the new telemetry suite), `tsc --noEmit` clean via turbo, biome clean on all touched files (one pre-existing warning untouched). The package's pre-existing test failures in this environment (missing Postgres/git fixtures) were confirmed byte-identical with and without these changes by running the failing files against a stashed tree.
 - `PostHog/posthog`: 21 tests pass across `test_provision_sandbox.py` and the new `TestBuildSandboxEnvironmentVariables`; `ruff check`/`format` clean on all touched files. DB-dependent suites in this sandbox fail identically with and without the change (no Postgres available).
 - Local-dev routing verified: Caddy serves `/i/v1/logs`/`/i/v1/traces` on `localhost:8000` and proxies to `capture-logs`, and the Docker URL rewrite covers the new vars.
 
