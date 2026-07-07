@@ -312,6 +312,46 @@ describe('installationProgressLogic merge', () => {
         })
     })
 
+    describe('cloudProgress agent-gap bridging', () => {
+        const NOW_MS = new Date('2026-01-01T00:00:30Z').getTime()
+        it('synthesizes an in-progress PR step when the run is live but every step is done', () => {
+            // The quiet window between "Started agent" and the PR opening must not read as stalled.
+            const result = cloudProgress(
+                taskState(),
+                [step({ step: 'agent', status: 'completed', label: 'Started agent' })],
+                'open',
+                null
+            )
+            expect(result.steps.map((s) => [s.label, s.status])).toEqual([
+                ['Started agent', 'completed'],
+                ['Opening a pull request', 'in_progress'],
+            ])
+        })
+
+        it.each([
+            ['a step is still in flight', [step({ step: 'agent', status: 'in_progress' })], null],
+            [
+                'a deliver-stage step already exists',
+                [
+                    step({ step: 'agent', status: 'completed' }),
+                    step({ step: 'pr', status: 'completed', group: 'deliver', detail: 'https://x/pull/1' }),
+                ],
+                null,
+            ],
+            ['the run has completed', [step({ step: 'agent', status: 'completed' })], 'completed'],
+        ])('does not synthesize when %s', (_name, progressSteps, status) => {
+            const result = cloudProgress(
+                taskState(status ? { status } : {}),
+                progressSteps as TaskRunProgressStep[],
+                'open',
+                null,
+                false,
+                NOW_MS
+            )
+            expect(result.steps.find((s) => s.id === 'synthetic:pr')).toBeUndefined()
+        })
+    })
+
     describe('cloudProgress session freshness gate', () => {
         const NOW_MS = new Date('2026-01-01T00:00:30Z').getTime()
         it('ignores a stale session for both the timeline and the error fallback', () => {

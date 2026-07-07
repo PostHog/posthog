@@ -181,6 +181,26 @@ export function cloudProgress(
         steps = pipelineSteps
     }
 
+    const prUrl = taskRunPrUrl(taskRunState, progressSteps)
+
+    // The pipeline goes quiet between "Started agent" and the PR opening: every row reads completed
+    // while the agent is still writing code, committing, and drafting the PR — which looks stalled
+    // (or worse, finished without a payoff). Bridge the gap with a synthetic in-progress step until
+    // the real deliver-stage steps arrive and replace the narrative.
+    const anythingInFlight = steps.some((s) => s.status === 'in_progress' || s.status === 'pending')
+    const hasDeliverStep = steps.some((s) => s.id.startsWith('deliver:'))
+    if (phase === 'running' && steps.length > 0 && !anythingInFlight && !hasDeliverStep && !prUrl) {
+        steps = [
+            ...steps,
+            {
+                id: 'synthetic:pr',
+                label: 'Opening a pull request',
+                status: 'in_progress',
+                detail: 'The agent is committing its changes and drafting the PR',
+            },
+        ]
+    }
+
     const error =
         phase === 'error'
             ? (stalledError ?? {
@@ -189,8 +209,6 @@ export function cloudProgress(
                       taskRunState?.error_message ?? (session?.error as { message?: string } | null)?.message ?? null,
               })
             : null
-
-    const prUrl = taskRunPrUrl(taskRunState, progressSteps)
 
     return {
         phase,
