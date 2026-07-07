@@ -94,21 +94,24 @@ export const Sticky: Story = {
     ],
 }
 
-/** With a footer row for context chips / actions inside the frame. */
-export const WithFooter: Story = {
+/** Real-surface composition: context chips in the Header row at the top of the frame, actions in the Footer. */
+export const WithHeaderAndFooter: Story = {
     render: ({ initialValue, placeholder, submitShortcut, ...rootProps }) => {
         const [value, setValue] = useState(initialValue)
         return (
             <div className="max-w-180 mx-auto p-4">
                 <Composer.Root value={value} onChange={setValue} onSubmit={() => setValue('')} {...rootProps}>
                     <Composer.Frame>
+                        <Composer.Header className="flex flex-wrap items-center gap-1">
+                            <LemonTag type="muted">@ Current dashboard</LemonTag>
+                            <LemonTag type="muted">@ Weekly signups</LemonTag>
+                        </Composer.Header>
                         <Composer.Field>
                             <Composer.Placeholder>{placeholder}</Composer.Placeholder>
                             <Composer.Textarea submitShortcut={submitShortcut} />
                         </Composer.Field>
                         <Composer.Footer>
                             <div className="flex items-center gap-1 pl-2">
-                                <LemonTag type="muted">@ Current dashboard</LemonTag>
                                 <LemonButton size="xsmall" type="tertiary" icon={<IconGear />} tooltip="Settings" />
                             </div>
                         </Composer.Footer>

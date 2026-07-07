@@ -206,6 +206,18 @@ const ComposerBanner = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>
     )
 })
 
+/** The in-frame top row for context chips / attachments, above the textarea. */
+const ComposerHeader = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(function ComposerHeader(
+    { className, children, ...rest },
+    ref
+): JSX.Element {
+    return (
+        <div data-slot="composer-header" ref={ref} className={cn('pt-2 px-2', className)} {...rest}>
+            {children}
+        </div>
+    )
+})
+
 export interface ComposerFrameProps extends HTMLAttributes<HTMLLabelElement> {
     /** Toggles the AI focus-ring color (off while the agent is streaming, per QuestionInput). */
     ringActive?: boolean
@@ -314,7 +326,7 @@ function ComposerTextarea({
     )
 }
 
-/** The in-frame bottom row for context chips / actions. */
+/** The in-frame bottom row for pickers / actions. */
 const ComposerFooter = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(function ComposerFooter(
     { className, children, ...rest },
     ref
@@ -378,6 +390,7 @@ export const Composer = Object.assign(ComposerRoot, {
     Root: ComposerRoot,
     Banner: ComposerBanner,
     Frame: ComposerFrame,
+    Header: ComposerHeader,
     Field: ComposerField,
     Placeholder: ComposerPlaceholder,
     Textarea: ComposerTextarea,
