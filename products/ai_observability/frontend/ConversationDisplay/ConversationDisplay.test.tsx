@@ -40,6 +40,7 @@ describe('ConversationDisplay', () => {
 
     it.each([
         [
+            '$ai_generation without $ai_input',
             '$ai_generation',
             {
                 $ai_input_state: { messages: [{ type: 'system', content: 'state input' }] },
@@ -54,6 +55,7 @@ describe('ConversationDisplay', () => {
             },
         ],
         [
+            '$ai_generation with $ai_input',
             '$ai_generation',
             {
                 $ai_input: [{ role: 'user', content: 'generation input' }],
@@ -68,6 +70,7 @@ describe('ConversationDisplay', () => {
         ],
         [
             '$ai_embedding',
+            '$ai_embedding',
             {
                 $ai_input: 'embedding input',
                 $ai_output_state: 'state output',
@@ -80,6 +83,7 @@ describe('ConversationDisplay', () => {
             },
         ],
         [
+            '$ai_span',
             '$ai_span',
             {
                 $ai_input: [{ role: 'user', content: 'generation-like input' }],
@@ -94,7 +98,7 @@ describe('ConversationDisplay', () => {
                 output: { messages: [{ type: 'ai', content: 'state output' }] },
             },
         ],
-    ])('passes trace-view-compatible data for %s', (eventName, eventProperties, expected) => {
+    ])('passes trace-view-compatible data for %s', (_label, eventName, eventProperties, expected) => {
         render(
             <Provider>
                 <ConversationDisplay
