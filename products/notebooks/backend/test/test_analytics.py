@@ -22,13 +22,17 @@ class _FakeKeyAuth:
 
 
 class _FakeRequest:
-    def __init__(self, authenticator, user_agent="agent/1.0"):
+    def __init__(self, authenticator, mcp_consumer=None, mcp_oauth_client=None):
         self.successful_authenticator = authenticator
-        self.META = {"HTTP_USER_AGENT": user_agent}
+        self.META = {}
+        if mcp_consumer is not None:
+            self.META["HTTP_X_POSTHOG_MCP_CONSUMER"] = mcp_consumer
+        if mcp_oauth_client is not None:
+            self.META["HTTP_X_POSTHOG_MCP_OAUTH_CLIENT_NAME"] = mcp_oauth_client
 
 
-def _fake_request(authenticator, user_agent="agent/1.0") -> Request:
-    return cast(Request, _FakeRequest(authenticator, user_agent))
+def _fake_request(authenticator, mcp_consumer=None, mcp_oauth_client=None) -> Request:
+    return cast(Request, _FakeRequest(authenticator, mcp_consumer, mcp_oauth_client))
 
 
 class TestNotebookAnalytics(BaseTest):
@@ -49,10 +53,17 @@ class TestNotebookAnalytics(BaseTest):
         self.assertEqual(source, NotebookCreationSource.UI)
         self.assertEqual(extra, {})
 
-    def test_classify_request_source_api_key_is_mcp_with_metadata(self):
-        source, extra = classify_request_source(_fake_request(_FakeKeyAuth(), user_agent="posthog-code/2"))
+    def test_classify_request_source_api_key_captures_mcp_client_identity(self):
+        # The MCP server forwards mcp_consumer (posthog-code -> PostHog Code) and mcp_oauth_client
+        # (the OAuth app, e.g. Claude), which is how Q4 (PostHog Code) is split from Q5.
+        source, extra = classify_request_source(
+            _fake_request(_FakeKeyAuth(), mcp_consumer="posthog-code", mcp_oauth_client="Claude")
+        )
         self.assertEqual(source, NotebookCreationSource.MCP)
-        self.assertEqual(extra, {"api_key_type": "_FakeKeyAuth", "mcp_client": "posthog-code/2"})
+        self.assertEqual(
+            extra,
+            {"api_key_type": "_FakeKeyAuth", "mcp_consumer": "posthog-code", "mcp_oauth_client": "Claude"},
+        )
 
     def test_classify_request_source_no_authenticator_defaults_to_ui(self):
         source, extra = classify_request_source(_fake_request(None))
@@ -69,7 +80,7 @@ class TestNotebookAnalytics(BaseTest):
             request=_fake_request(SessionAuthentication()),
             visibility="private",
             node_count=3,
-            mcp_client=None,
+            mcp_consumer=None,
             api_key_type=None,
         )
         self.assertEqual(mock_report.call_count, 1)

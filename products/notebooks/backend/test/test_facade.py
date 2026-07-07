@@ -81,7 +81,7 @@ class TestNotebooksFacade(BaseTest):
         self.assertEqual(api.get_group_notebook_short_id(42), data.short_id)
         self.assertFalse(api.group_has_notebook(43))
         mock_capture.assert_called_once()
-        self.assertEqual(mock_capture.call_args.kwargs["creation_source"], NotebookCreationSource.GROUP_AUTO)
+        self.assertEqual(mock_capture.call_args.kwargs["creation_source"], NotebookCreationSource.GROUP)
 
     def test_create_account_notebook_and_list_notes(self):
         account = _create_account(self.team)
