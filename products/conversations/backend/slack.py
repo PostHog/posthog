@@ -35,7 +35,7 @@ from .cache import (
     set_cached_slack_user,
     slack_ticket_create_lock,
 )
-from .formatting import extract_slack_user_ids, slack_to_content_and_rich_content
+from .formatting import extract_slack_user_ids, slack_to_content_and_rich_content, strip_slack_user_mentions
 from .models import Ticket
 from .models.constants import Channel, ChannelDetail, Status
 from .services.attachments import (
@@ -728,6 +728,17 @@ def handle_support_mention(event: dict, team: Team, slack_team_id: str) -> None:
                 if ticket:
                     _backfill_thread_replies(client, team, ticket, channel, thread_ts)
                 return
+
+    # A bare "@supporthog" (mention only, no message or files) must not create an empty
+    # ticket. The parent-seeding branch above already handled thread-escalation mentions.
+    if not strip_slack_user_mentions(text).strip() and not files:
+        logger.info(
+            "slack_support_mention_empty_skipped",
+            team_id=_get_team_id(team),
+            slack_channel_id=channel,
+            thread_ts=thread_ts,
+        )
+        return
 
     create_or_update_slack_ticket(
         team=team,
