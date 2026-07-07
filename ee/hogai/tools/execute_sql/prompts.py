@@ -22,6 +22,14 @@ Use this tool to generate a HogQL query, which is PostHog's variant of SQL that 
 - For performance, every SELECT from the `events` table should have a `WHERE` clause narrowing down the timestamp to the relevant period.
 - HogQL queries should not end in semicolons.
 
+# Query precision
+Match the query to exactly what the user asked for. A query that runs but silently returns more (or different) rows than requested is a quality bug, not just a style nit, because the user cannot tell from the results that the scope was wrong.
+- Bounded date ranges: when the request names a calendar period (a quarter, a month, a year, or "last N days/weeks"), emit BOTH a lower and an upper bound so the window is closed on both ends. A lone `timestamp >= start` is open-ended and leaks every later row up to now.
+  - "Q3 2026" → `timestamp >= '2026-07-01' AND timestamp < '2026-10-01'`
+  - "the past 2 days" → `timestamp >= now() - INTERVAL 2 DAY AND timestamp < now()` (anchor on `toStartOfDay(now())` instead if whole calendar days are meant)
+  - Prefer relative expressions (`now() - INTERVAL ...`) when the request is relative, hardcoded dates when it names a fixed period, and half-open intervals (`>= start AND < end`) so boundary rows are not double-counted.
+- Exact-value predicates: when the request names a specific value — an amount, an ID, an email, an order number — filter on that value directly (e.g. `amount_cents = 7700`, `properties.order_id = '...'`) instead of relying on a time window plus a fuzzy name match (e.g. `event ILIKE '%payment%'`). Fuzzy name matching alone can return multiple unrelated rows; the exact predicate is what pins the result to what the user asked for. Convert units when needed (a "$77 payment" against a cents column is `amount_cents = 7700`).
+
 # Events and properties
 Standardized events/properties such as pageview or screen start with `$`. Custom events/properties start with any other character.
 
