@@ -14,7 +14,7 @@ import {
 } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { combineUrl, router, urlToAction } from 'kea-router'
+import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 
 import api, { ApiError } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
@@ -44,7 +44,7 @@ import {
 import type { llmPromptLogicType } from './llmPromptLogicType'
 import { llmPromptsLogic } from './llmPromptsLogic'
 import { LLM_PROMPTS_FORCE_RELOAD_PARAM } from './llmPromptsLogic'
-import { getApiErrorDetail, validatePromptName } from './utils'
+import { getApiErrorDetail, openDiscardChangesDialog, validatePromptName } from './utils'
 
 export enum PromptMode {
     View = 'view',
@@ -161,6 +161,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         toggleMarkdownRendering: true,
         setCompareVersion: (compareVersion: number | null) => ({ compareVersion }),
         toggleOutlineExpanded: true,
+        cancelEditing: true,
         setPublishConflict: (publishConflict: PublishConflict | null) => ({ publishConflict }),
     }),
 
@@ -368,6 +369,16 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         ],
 
         isHistoricalVersion: [(s) => [s.prompt], (prompt) => (isPrompt(prompt) ? !prompt.is_latest : false)],
+
+        isPromptFormDirty: [
+            (s) => [s.promptForm, s.prompt, s.isNewPrompt],
+            (promptForm, prompt, isNewPrompt): boolean => {
+                if (isNewPrompt) {
+                    return !!promptForm.name.trim() || !!promptForm.prompt.trim()
+                }
+                return isPrompt(prompt) ? promptForm.prompt !== prompt.prompt : false
+            },
+        ],
 
         nextVersion: [
             (s) => [s.prompt],
@@ -661,6 +672,26 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
     }),
 
     listeners(({ actions, props, values }) => ({
+        cancelEditing: () => {
+            const exitEditMode = (): void => {
+                if (values.isNewPrompt) {
+                    const { edit: _edit, ...searchParams } = router.values.searchParams
+                    router.actions.push(combineUrl(urls.aiObservabilityPrompts(), searchParams).url)
+                    return
+                }
+                if (isPrompt(values.prompt)) {
+                    actions.setPromptFormValues(getPromptFormDefaults(values.prompt))
+                }
+                actions.setMode(PromptMode.View)
+            }
+
+            if (values.isPromptFormDirty) {
+                openDiscardChangesDialog(exitEditMode)
+            } else {
+                exitEditMode()
+            }
+        },
+
         deletePrompt: async () => {
             if (props.promptName !== 'new' && values.prompt && isPrompt(values.prompt)) {
                 try {
@@ -762,13 +793,30 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         }
     ),
 
-    afterMount(({ actions, values }) => {
+    afterMount(({ actions, values, cache }) => {
         if (values.isNewPrompt) {
             actions.setPrompt(DEFAULT_PROMPT_FORM_VALUES)
             actions.resetPromptForm(DEFAULT_PROMPT_FORM_VALUES)
         } else {
             actions.loadPrompt()
         }
+
+        // pauseOnPageHidden: false — closing a background tab must still warn about unsaved edits.
+        cache.disposables.add(
+            () => {
+                const handler = (e: BeforeUnloadEvent): void => {
+                    if (values.isEditMode && values.isPromptFormDirty && !values.isPromptFormSubmitting) {
+                        e.preventDefault()
+                        // Some engines only show the native dialog when returnValue is set
+                        e.returnValue = ''
+                    }
+                }
+                window.addEventListener('beforeunload', handler)
+                return () => window.removeEventListener('beforeunload', handler)
+            },
+            'unsavedEditsGuard',
+            { pauseOnPageHidden: false }
+        )
     }),
 
     beforeUnmount(({ actions, props }) => {
@@ -780,6 +828,23 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         const existing = findExistingPrompt(props.promptName)
         actions.setPromptFormValues(existing ? getPromptFormDefaults(existing) : DEFAULT_PROMPT_FORM_VALUES)
     }),
+
+    actionToUrl(({ props }) => ({
+        // replace, not push: a push would re-trigger loadPrompt via urlToAction and
+        // its success handler would reset the form under the user's edits.
+        setMode: ({ mode }) => {
+            if (props.promptName === 'new') {
+                return undefined
+            }
+            const { edit: _edit, ...searchParams } = router.values.searchParams
+            return [
+                router.values.location.pathname,
+                mode === PromptMode.Edit ? { ...searchParams, edit: true } : searchParams,
+                router.values.hashParams,
+                { replace: true },
+            ]
+        },
+    })),
 
     urlToAction(({ actions, values }) => ({
         '/prompt-management/prompts/:name': (_, __, ___, { method }) => {
