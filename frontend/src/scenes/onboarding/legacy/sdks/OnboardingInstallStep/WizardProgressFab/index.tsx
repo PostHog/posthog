@@ -8,7 +8,7 @@ import { IconChevronDown, IconX } from '@posthog/icons'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { wizardActiveSessionDetectorLogic } from '../wizardActiveSessionDetectorLogic'
+import { wizardActiveSessionDetectorLogic } from '../../../../shared/wizard-sync/wizardActiveSessionDetectorLogic'
 import { wizardProgressTrackerLogic } from '../wizardProgressTrackerLogic'
 import { ExpandedDetails } from './ExpandedDetails'
 import { headlineFor, simulatedTaskFraction, subLineFor } from './helpers'

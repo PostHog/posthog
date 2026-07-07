@@ -12,6 +12,7 @@ from opentelemetry import trace
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
 from products.batch_exports.backend.temporal.metrics import (
+    Attributes,
     CumulativeTimer,
     get_bytes_exported_metric,
     get_rows_exported_metric,
@@ -174,8 +175,17 @@ class Consumer:
                 "batch_export.consumer.total_queue_get_wait_seconds": queue_get_wait_seconds,
                 "batch_export.consumer.total_consume_seconds": consume_seconds,
                 "batch_export.consumer.total_transform_seconds": transform_seconds,
+                **self.get_destination_span_attributes(),
             }
         )
+
+    def get_destination_span_attributes(self) -> Attributes:
+        """Destination-specific attributes to report on the consumer span.
+
+        Subclasses can override this to break down where their consume time goes
+        (e.g. time blocked on destination upload capacity).
+        """
+        return {}
 
     def collect_result(self) -> BatchExportResult:
         """Collect the result of the consumer.
