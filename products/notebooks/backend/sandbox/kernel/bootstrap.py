@@ -41,6 +41,19 @@ from . import envelope
 logger = logging.getLogger(__name__)
 
 _DEFAULT_PREVIEW_ROWS = 50
+# The envelope is stored whole in a Postgres row (the full frame stays in a local Arrow
+# file), so every unbounded piece gets a cap here; the callback endpoint enforces a total
+# byte limit as the backstop.
+_STREAM_CAP_CHARS = 32_768
+_CELL_CAP_CHARS = 10_000
+_MEDIA_MAX_FIGURES = 8
+_MEDIA_TOTAL_CAP_CHARS = 4_000_000  # base64 chars across all figures (~3 MB of PNG bytes)
+
+
+def _truncate_stream(text: str, cap: int = _STREAM_CAP_CHARS) -> str:
+    if len(text) <= cap:
+        return text
+    return f"{text[:cap]}\n… [output truncated: exceeded {cap // 1024} KB]"
 
 
 def _load_headless_pyplot() -> Any:
@@ -87,12 +100,16 @@ class KernelSession:
         with capture_output() as captured:
             execution = self.shell.run_cell(node.get("code") or "", store_history=False)
 
-        media = self._collect_media()
+        media, omitted_figures = self._collect_media()
+        stdout = _truncate_stream(captured.stdout)
+        stderr = _truncate_stream(captured.stderr)
+        if omitted_figures:
+            stderr += f"\n[{omitted_figures} figure(s) omitted: over the media size cap]"
         if execution.error_in_exec is not None:
             return envelope.from_python_execution(
                 status="error",
-                stdout=captured.stdout,
-                stderr=captured.stderr,
+                stdout=stdout,
+                stderr=stderr,
                 error=f"{type(execution.error_in_exec).__name__}: {execution.error_in_exec}",
                 media=media,
             )
@@ -103,8 +120,8 @@ class KernelSession:
         result_id = self._write_result_frame(result_df) if result_df is not None else None
         return envelope.from_python_execution(
             status="ok",
-            stdout=captured.stdout,
-            stderr=captured.stderr,
+            stdout=stdout,
+            stderr=stderr,
             columns=columns,
             types=types,
             rows=rows,
@@ -146,23 +163,39 @@ class KernelSession:
 
     def _preview(
         self, df: "pd.DataFrame | None", limit: int
-    ) -> tuple[list[str], list[list[str]], list[tuple[Any, ...]], int, bool]:
+    ) -> tuple[list[str], list[list[str]], list[list[Any]], int, bool]:
         if df is None:
             return [], [], [], 0, False
         columns = [str(column) for column in df.columns]
         types = [[str(column), str(dtype)] for column, dtype in zip(df.columns, df.dtypes)]
         # to_json coerces numpy scalars, NaN and datetimes to JSON-native values in one pass.
         rows = json.loads(df.head(limit).to_json(orient="values", date_format="iso"))
+        # The preview is display-only (paging reads the Arrow frame), so huge cells get clipped.
+        rows = [
+            [
+                f"{cell[:_CELL_CAP_CHARS]}…" if isinstance(cell, str) and len(cell) > _CELL_CAP_CHARS else cell
+                for cell in row
+            ]
+            for row in rows
+        ]
         return columns, types, rows, int(len(df)), len(df) > limit
 
-    def _collect_media(self) -> list[dict[str, str]]:
+    def _collect_media(self) -> tuple[list[dict[str, str]], int]:
+        """Capture open figures as base64 PNGs within the media budget; return (media, omitted count)."""
         media: list[dict[str, str]] = []
+        budget = _MEDIA_TOTAL_CAP_CHARS
+        omitted = 0
         for number in self._plt.get_fignums():
             buffer = io.BytesIO()
             self._plt.figure(number).savefig(buffer, format="png", bbox_inches="tight")
-            media.append({"mime_type": "image/png", "data": base64.b64encode(buffer.getvalue()).decode()})
+            data = base64.b64encode(buffer.getvalue()).decode()
+            if len(media) >= _MEDIA_MAX_FIGURES or len(data) > budget:
+                omitted += 1
+                continue
+            budget -= len(data)
+            media.append({"mime_type": "image/png", "data": data})
         self._plt.close("all")
-        return media
+        return media, omitted
 
     def _write_result_frame(self, df: "pd.DataFrame") -> str | None:
         """Write the frame for later paging; return its result_id, or None if the write failed."""

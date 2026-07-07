@@ -45,6 +45,7 @@ from products.notebooks.backend.sql_v2 import (
     sql_v2_page_lock_key,
     verify_data_plane_token,
 )
+from products.notebooks.backend.sql_v2_callback import MAX_ENVELOPE_BYTES
 from products.notebooks.backend.sql_v2_data_plane import _rows_to_arrow_bytes
 from products.notebooks.backend.temporal.sql_v2 import (
     SQLV2RunInput,
@@ -142,6 +143,12 @@ class TestSQLV2Callback(APIBaseTest):
         token = mint_callback_token("00000000-0000-0000-0000-0000000000ff", self.team.id)
         response = self._post(token)
         self.assertEqual(response.status_code, 403)
+        self.assertEqual(self._reload_run().status, NotebookNodeRun.Status.RUNNING)
+
+    def test_oversized_envelope_is_rejected(self):
+        token = mint_callback_token(str(self.node_run.id), self.team.id)
+        response = self._post(token, envelope={**self.envelope, "stdout": "x" * (MAX_ENVELOPE_BYTES + 1)})
+        self.assertEqual(response.status_code, 400)
         self.assertEqual(self._reload_run().status, NotebookNodeRun.Status.RUNNING)
 
     def test_unknown_run_returns_404(self):

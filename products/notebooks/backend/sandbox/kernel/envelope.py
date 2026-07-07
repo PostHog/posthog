@@ -8,6 +8,7 @@ bounded preview only — never the full result (see sql_v2_result_delivery.md).
 import math
 import uuid
 import datetime
+from collections.abc import Sequence
 from typing import Any
 
 
@@ -28,7 +29,7 @@ def _json_cell(value: Any) -> Any:
     return str(value)
 
 
-def json_safe_rows(rows: list[tuple[Any, ...]]) -> list[list[Any]]:
+def json_safe_rows(rows: Sequence[Sequence[Any]]) -> list[list[Any]]:
     return [[_json_cell(cell) for cell in row] for row in rows]
 
 
@@ -61,7 +62,7 @@ def from_python_execution(
     error: str | None = None,
     columns: list[str] | None = None,
     types: list[list[str]] | None = None,
-    rows: list[tuple[Any, ...]] | None = None,
+    rows: Sequence[Sequence[Any]] | None = None,
     row_count: int = 0,
     has_more: bool = False,
     media: list[dict[str, str]] | None = None,

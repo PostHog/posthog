@@ -19,6 +19,11 @@ from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2CallbackR
 
 logger = structlog.get_logger(__name__)
 
+# The envelope lands whole in a Postgres row. The kernel already caps streams, media, and
+# preview cells well below this; anything bigger is a misbehaving (or hostile) sandbox, so
+# reject rather than store. Sized above the kernel's worst case (~4 MB media + streams).
+MAX_ENVELOPE_BYTES = 8_000_000
+
 
 @extend_schema(
     tags=["notebooks"],
@@ -54,6 +59,10 @@ def notebook_sql_v2_callback(request, run_id: str) -> JsonResponse:
 
     if token_run_id != run_id:
         return JsonResponse({"error": "Token does not match run"}, status=403)
+
+    if len(request.body) > MAX_ENVELOPE_BYTES:
+        logger.warning("sql_v2_callback_envelope_too_large", run_id=run_id, size=len(request.body))
+        return JsonResponse({"error": "Envelope too large"}, status=400)
 
     try:
         body = json.loads(request.body)

@@ -5,7 +5,7 @@ from django.test import SimpleTestCase
 
 import pyarrow as pa
 
-from products.notebooks.backend.sandbox.kernel.bootstrap import KernelSession
+from products.notebooks.backend.sandbox.kernel.bootstrap import _MEDIA_MAX_FIGURES, KernelSession
 
 
 class TestKernelSessionRunNode(SimpleTestCase):
@@ -76,3 +76,26 @@ class TestKernelSessionRunNode(SimpleTestCase):
         envelope = self._run("1 + 1", inputs=[{"name": "never_made", "kind": "local"}])
         self.assertEqual(envelope["status"], "error")
         self.assertIn("never_made", envelope["error"])
+
+    def test_oversized_stdout_is_truncated(self):
+        envelope = self._run("print('x' * 100_000)")
+        self.assertLess(len(envelope["stdout"]), 33_000)
+        self.assertIn("[output truncated", envelope["stdout"])
+
+    def test_oversized_preview_cells_are_clipped(self):
+        envelope = self._run("import pandas as pd\npd.DataFrame({'s': ['y' * 50_000]})")
+        cell = envelope["first_page"][0][0]
+        self.assertLessEqual(len(cell), 10_001)
+        self.assertTrue(cell.endswith("…"))
+        self.assertEqual(envelope["row_count"], 1)
+
+    def test_figures_beyond_the_media_cap_are_omitted(self):
+        envelope = self._run(
+            "import matplotlib.pyplot as plt\n"
+            f"for i in range({_MEDIA_MAX_FIGURES + 1}):\n"
+            "    plt.figure()\n"
+            "    plt.plot([1, i])\n"
+        )
+        self.assertEqual(envelope["status"], "ok")
+        self.assertEqual(len(envelope["media"]), _MEDIA_MAX_FIGURES)
+        self.assertIn("1 figure(s) omitted", envelope["stderr"])
