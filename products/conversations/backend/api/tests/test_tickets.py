@@ -1640,6 +1640,20 @@ class TestComposeTicketAPI(APIBaseTest):
         if expected_detail:
             assert expected_detail in response.json()["detail"]
 
+    def test_composed_ticket_is_not_born_verified(self, mock_on_commit):
+        # The team typed the recipient address; the recipient never proved they control it,
+        # so an outbound ticket must start with unknown identity (None) — never verified.
+        response = self._compose(
+            {
+                "recipient_email": "someone@test.com",
+                "email_config_id": str(self.email_config.id),
+                "message": "Hello!",
+            }
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.identity_verified is None
+
 
 class TestTicketPersonalAPIKeyScopes(APIBaseTest):
     def _auth_with_pak(self, scopes: list[str]) -> None:

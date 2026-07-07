@@ -1,8 +1,8 @@
-from datetime import datetime
 from typing import cast
 from warnings import warn
 
 from django.db import models
+from django.utils import timezone
 
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDTModel
 
@@ -48,5 +48,5 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
 
     def soft_delete(self):
         self.deleted = True
-        self.deleted_at = datetime.now()
+        self.deleted_at = timezone.now()
         self.save()

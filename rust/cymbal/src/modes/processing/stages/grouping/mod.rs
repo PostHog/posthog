@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
+use moka::future::Cache;
 use sqlx::PgPool;
+use uuid::Uuid;
 
 pub mod fingerprint;
 
@@ -10,13 +12,14 @@ use crate::{
     metric_consts::GROUPING_STAGE,
     stages::{grouping::fingerprint::FingerprintGenerator, pipeline::ExceptionEventPipelineItem},
     teams::TeamManager,
-    types::{batch::Batch, stage::Stage},
+    types::{batch::Batch, operator::TeamId, stage::Stage},
 };
 
 #[derive(Clone)]
 pub struct GroupingStage {
     pub connection: PgPool,
     pub team_manager: TeamManager,
+    pub issue_cache: Cache<(TeamId, String), Uuid>,
 }
 
 impl From<&Arc<AppContext>> for GroupingStage {
@@ -24,6 +27,7 @@ impl From<&Arc<AppContext>> for GroupingStage {
         Self {
             connection: ctx.posthog_pool.clone(),
             team_manager: ctx.team_manager.clone(),
+            issue_cache: ctx.issue_cache.clone(),
         }
     }
 }

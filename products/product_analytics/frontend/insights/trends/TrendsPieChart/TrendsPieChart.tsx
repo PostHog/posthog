@@ -238,7 +238,13 @@ export function TrendsPieChart({ context, showPersonsModal = true }: TrendsPieCh
     )
 
     if (!visibleResults.length) {
-        return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+        return (
+            <InsightEmptyState
+                heading={context?.emptyStateHeading}
+                detail={context?.emptyStateDetail}
+                sampleDataVariant="pie"
+            />
+        )
     }
 
     return (

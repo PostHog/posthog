@@ -11,8 +11,8 @@ import {
 } from 'products/posthog_ai/frontend/api/primitives'
 import { resolveEffortForModel } from 'products/posthog_ai/frontend/utils/composerModels'
 
+import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
-import { ComposerModelEffortPickers } from './ComposerModelEffortPickers'
 import { RepositorySelector } from './RepositorySelector'
 
 export function TaskComposer(): JSX.Element {
@@ -58,11 +58,7 @@ export function TaskComposer(): JSX.Element {
                             <Composer.Frame>
                                 <Composer.Field>
                                     <Composer.Placeholder>Describe the task in detail…</Composer.Placeholder>
-                                    <Composer.Textarea
-                                        submitShortcut="cmd-enter"
-                                        autoFocus
-                                        data-attr="task-composer-input"
-                                    />
+                                    <Composer.Textarea autoFocus data-attr="task-composer-input" />
                                 </Composer.Field>
                                 <Composer.Footer>
                                     <ComposerModelEffortPickers

@@ -1,0 +1,88 @@
+[
+  {
+    "name": "multiple windows with mixed event types all scrubbed under one allow list",
+    "allow": { "text": ["hello"], "url": ["api"] },
+    "message": {
+      "window-a": [
+        { "type": 4, "data": { "href": "https://user@app.example.com/u/42", "width": 100, "height": 200 } },
+        { "type": 3, "data": { "source": 5, "id": 1, "text": "hello secret", "isChecked": false } },
+        { "type": 1, "data": {} }
+      ],
+      "window-b": [
+        {
+          "type": 6,
+          "data": {
+            "plugin": "rrweb/network@1",
+            "payload": { "requests": [{ "name": "https://example.com/api/99", "requestBody": "token=secret" }] }
+          }
+        }
+      ]
+    },
+    "expected": {
+      "window-a": [
+        { "type": 4, "data": { "href": "https://example.com/[redacted]/$$", "width": 100, "height": 200 } },
+        { "type": 3, "data": { "source": 5, "id": 1, "text": "hello ******", "isChecked": false } },
+        { "type": 1, "data": {} }
+      ],
+      "window-b": [
+        {
+          "type": 6,
+          "data": {
+            "plugin": "rrweb/network@1",
+            "payload": { "requests": [{ "name": "https://example.com/api/$$", "requestBody": "*****=******" }] }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "a message with nothing to scrub is returned unchanged",
+    "allow": { "text": [], "url": [] },
+    "message": {
+      "w1": [{ "type": 1, "data": {} }, { "type": 0, "data": { "href": "https://example.com/x" } }],
+      "w2": [{ "type": 9, "data": { "foo": "bar" } }]
+    },
+    "expected": {
+      "w1": [{ "type": 1, "data": {} }, { "type": 0, "data": { "href": "https://example.com/x" } }],
+      "w2": [{ "type": 9, "data": { "foo": "bar" } }]
+    }
+  },
+  {
+    "name": "malformed and edge events are skipped while valid ones are still scrubbed, order preserved",
+    "allow": { "text": ["hi"], "url": [] },
+    "message": {
+      "w": [
+        { "type": 3, "data": { "source": 5, "id": 1, "text": "hi secret", "isChecked": false } },
+        { "type": 3, "data": null },
+        { "data": { "source": 5, "text": "no type here" } },
+        { "type": 3, "data": { "source": 999, "text": "unknown source" } },
+        { "type": 3, "data": { "source": 5, "id": 2, "text": "hi again", "isChecked": true } }
+      ]
+    },
+    "expected": {
+      "w": [
+        { "type": 3, "data": { "source": 5, "id": 1, "text": "hi ******", "isChecked": false } },
+        { "type": 3, "data": null },
+        { "data": { "source": 5, "text": "no type here" } },
+        { "type": 3, "data": { "source": 999, "text": "unknown source" } },
+        { "type": 3, "data": { "source": 5, "id": 2, "text": "hi *****", "isChecked": true } }
+      ]
+    }
+  },
+  {
+    "name": "allow list and email redaction apply consistently across events in a window",
+    "allow": { "text": ["call", "me", "at"], "url": [] },
+    "message": {
+      "w1": [
+        { "type": 5, "data": { "tag": "note", "payload": { "msg": "call me at bob@test.com" } } },
+        { "type": 3, "data": { "source": 5, "id": 1, "text": "call me maybe", "isChecked": false } }
+      ]
+    },
+    "expected": {
+      "w1": [
+        { "type": 5, "data": { "tag": "note", "payload": { "msg": "call me at ************" } } },
+        { "type": 3, "data": { "source": 5, "id": 1, "text": "call me *****", "isChecked": false } }
+      ]
+    }
+  }
+]

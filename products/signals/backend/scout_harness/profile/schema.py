@@ -62,6 +62,24 @@ class SignalSourceConfigs(_Section):
     disabled: list[SignalSourceConfigEntry]
 
 
+class EmitEligibility(_Section):
+    """Whether a scout's findings can actually reach the inbox for this team.
+
+    Both the signal channel (`emit_signal`) and the report channel (`emit_report`) pass the
+    same team/org-level preflight gates: the organization must have approved AI data processing
+    and the `signals_scout` signal source must be enabled. When either is off, every emit is
+    silently dropped — so a scout can read this at cold start and quick-close instead of doing
+    throwaway investigation whose output never surfaces. `remediation` is the one-line next step
+    when `can_emit` is False. Per-scout state (the config's dry-run `emit` toggle) is not covered
+    here — this is the team-wide floor, not a single scout's config.
+    """
+
+    ai_processing_approved: bool
+    source_enabled: bool
+    can_emit: bool
+    remediation: str | None
+
+
 class StatusCount(_Section):
     status: str
     count: int
@@ -266,6 +284,7 @@ class Inventory(_Section):
     integrations: list[IntegrationEntry]
     external_data_sources: list[ExternalDataSourceEntry]
     signal_source_configs: SignalSourceConfigs
+    emit_eligibility: EmitEligibility
     existing_inbox_reports: ExistingInboxReports
     recent_activity: RecentActivity
     recent_reviewer_corrections: RecentReviewerCorrections

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import (
     APIBaseTest,
@@ -189,26 +189,32 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         model: str = "claude-opus-4-8",
         tool: str | None = "Bash",
         trace_id: str = "trace-1",
-        cost: float = 1.5,
+        cost: float | None = 1.5,
         input_tokens: int = 100000,
         output_tokens: int = 500,
         event_name: str = "$ai_generation",
+        timestamp: datetime | None = None,
     ) -> None:
         props: dict = {
-            "$ai_total_cost_usd": cost,
             "$ai_input_tokens": input_tokens,
             "$ai_output_tokens": output_tokens,
             "$ai_model": model,
             "$ai_trace_id": trace_id,
             "ai_product": ai_product,
         }
+        if cost is not None:
+            props["$ai_total_cost_usd"] = cost
         if tool is not None:
             props["$ai_tools_called"] = tool
+        kwargs: dict = {}
+        if timestamp is not None:
+            kwargs["timestamp"] = timestamp
         _create_event(
             event=event_name,
             team=self.team,
             distinct_id=self.user.distinct_id or self.user.email,
             properties=props,
+            **kwargs,
         )
 
     @snapshot_clickhouse_queries
@@ -223,6 +229,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         assert body["by_product"] == {"items": [], "truncated": False}
         assert body["by_tool"] == {"items": [], "truncated": False}
         assert body["by_model"] == {"items": [], "truncated": False}
+        assert body["by_day"] == {"items": [], "truncated": False}
         assert body["top_traces"] == {"items": [], "truncated": False}
 
     def test_summary_reports_cross_product_totals_alongside_scoped(self) -> None:
@@ -339,9 +346,9 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=-7d")
 
         assert response.status_code == status.HTTP_200_OK
-        # 4 fetchers run once (summary, by_product, by_tool, by_model). top_traces is
-        # deprecated and returned empty without a query.
-        assert mock_exec.call_count == 4
+        # 5 fetchers run once (summary, by_product, by_tool, by_model, by_day). top_traces
+        # is deprecated and returned empty without a query.
+        assert mock_exec.call_count == 5
 
     def test_second_call_serves_from_cache(self) -> None:
         with patch("products.ai_observability.backend.api.personal_spend.execute_hogql_query") as mock_exec:
@@ -399,6 +406,61 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         # Each tool drove half of the scoped spend.
         assert rows["Bash"]["share_of_scoped"] == 0.5
         assert rows["Read"]["share_of_scoped"] == 0.5
+
+    def test_by_day_groups_spend_per_utc_day_scoped_to_product(self) -> None:
+        earlier = datetime(2026, 6, 13, 9, 0, tzinfo=UTC)
+        later = datetime(2026, 6, 15, 20, 0, tzinfo=UTC)
+        self._create_generation(cost=1.0, trace_id="old-1", timestamp=earlier)
+        self._create_generation(cost=0.5, trace_id="old-2", timestamp=earlier)
+        self._create_generation(cost=2.0, trace_id="new", timestamp=later)
+        # Same day as `earlier` but another product: must not leak into the scoped series.
+        self._create_generation(ai_product="background_agents", cost=99.0, timestamp=earlier)
+        flush_persons_and_events()
+
+        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=2026-06-10&date_to=2026-06-16")
+        by_day = response.json()["by_day"]
+        assert by_day["truncated"] is False
+        # Ordered by day ascending, not by cost.
+        assert by_day["items"] == [
+            {"day": "2026-06-13", "event_count": 2, "cost_usd": 1.5},
+            {"day": "2026-06-15", "event_count": 1, "cost_usd": 2.0},
+        ]
+
+    def test_by_day_ignores_request_limit(self) -> None:
+        self._create_generation(cost=1.0, trace_id="a", timestamp=datetime(2026, 6, 12, 12, 0, tzinfo=UTC))
+        self._create_generation(cost=2.0, trace_id="b", timestamp=datetime(2026, 6, 13, 12, 0, tzinfo=UTC))
+        self._create_generation(cost=3.0, trace_id="c", timestamp=datetime(2026, 6, 14, 12, 0, tzinfo=UTC))
+        flush_persons_and_events()
+
+        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=2026-06-10&date_to=2026-06-16&limit=1")
+        body = response.json()
+        # by_model honors the limit; by_day returns the full series regardless.
+        assert len(body["by_day"]["items"]) == 3
+        assert body["by_day"]["truncated"] is False
+
+    def test_by_day_uses_utc_days_regardless_of_team_timezone(self) -> None:
+        self.team.timezone = "Asia/Tokyo"
+        self.team.save()
+        # 20:00 UTC on Jun 15 is already Jun 16 in Tokyo; the bucket must stay on the UTC day.
+        self._create_generation(cost=1.0, timestamp=datetime(2026, 6, 15, 20, 0, tzinfo=UTC))
+        flush_persons_and_events()
+
+        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=2026-06-10&date_to=2026-06-16")
+        assert [r["day"] for r in response.json()["by_day"]["items"]] == ["2026-06-15"]
+
+    def test_by_day_counts_embeddings_and_costless_events(self) -> None:
+        day_one = datetime(2026, 6, 13, 9, 0, tzinfo=UTC)
+        self._create_generation(cost=1.0, timestamp=day_one)
+        self._create_generation(cost=0.5, event_name="$ai_embedding", timestamp=day_one)
+        # A generation captured without `$ai_total_cost_usd` must count but cost nothing.
+        self._create_generation(cost=None, timestamp=datetime(2026, 6, 15, 12, 0, tzinfo=UTC))
+        flush_persons_and_events()
+
+        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=2026-06-10&date_to=2026-06-16")
+        assert response.json()["by_day"]["items"] == [
+            {"day": "2026-06-13", "event_count": 2, "cost_usd": 1.5},
+            {"day": "2026-06-15", "event_count": 1, "cost_usd": 0.0},
+        ]
 
 
 class TestPersonalSpendNonSessionAuth(APIBaseTest):

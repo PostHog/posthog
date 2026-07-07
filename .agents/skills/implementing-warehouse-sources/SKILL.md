@@ -340,7 +340,7 @@ log line and OTel metric, and participates in opt-in sample capture.
   `⚠️ Vendor SDK` in `SOURCES.md`.
 - gRPC SDKs are **not** exempt — they have their own tracked transport (see below).
 
-CI enforces this via `.semgrep/rules/data-imports-http-transport.yaml`. The rule bans direct `requests.Session()`,
+CI enforces this via `.semgrep/rules/security/data-imports-http-transport.yaml`. The rule bans direct `requests.Session()`,
 `requests.<verb>(...)`, and `httpx.Client/AsyncClient/<verb>` inside `sources/**`. Type-only imports
 (`from requests import Response`, `from requests.exceptions import HTTPError`) remain allowed.
 
@@ -357,7 +357,7 @@ OTel metrics (`data_import_grpc_*`) and feed opt-in sample capture (protobuf →
   channel, wrap it with `make_tracked_channel(channel, host=...)`, then hand it to the transport. Reference:
   `bigquery/bigquery.py:bigquery_storage_read_client`.
 
-CI enforces this via `.semgrep/rules/data-imports-grpc-transport.yaml`, which bans raw `grpc.*_channel(...)`
+CI enforces this via `.semgrep/rules/security/data-imports-grpc-transport.yaml`, which bans raw `grpc.*_channel(...)`
 and direct `BigQueryReadClient(...)` / `GoogleAdsClient(...)` construction inside `sources/**` (outside the
 `common/grpc/` package and the two reference source files). Operators arm sample capture with
 `python manage.py warehouse_sources_capture_grpc_samples enable ...`.

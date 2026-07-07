@@ -14,9 +14,12 @@
 # - permissions: pull-requests:read (no comment/auto-commit side effects)
 # - Stripped side effects: artifact uploads, PR comment posters, snapshot
 #   auto-commit (handle-snapshots), posthog-github-action telemetry,
-#   --store-durations write, test-selection verdict, Trunk flaky-test upload
-#   (trunk-upload — the shadow strips the junit artifact uploads it would aggregate,
-#   and must not post to the external Trunk service from a non-blocking timing trial)
+#   --store-durations write, test-selection verdict, Trunk flaky-test quarantine
+#   gate (canonical runs per-shard analytics-uploader steps that post to the
+#   external Trunk service and gate the job on the quarantine list; the shadow
+#   strips them — no Trunk posting from a non-blocking timing trial — and so also
+#   omits the test steps' continue-on-error and the fork/no-gate failure
+#   fallbacks that exist only to hand the pass/fail verdict to that gate)
 # - OpenAPI types: the check-openapi-types job is folded into check-migrations as a
 #   check-only step (drift still fails the run); only its auto-commit side effect is dropped
 # - actions/cache reads/writes route to Depot Cache, not GitHub Actions Cache,
@@ -184,10 +187,6 @@ jobs:
             schema: ${{ steps.filter.outputs.schema || 'true' }}
             product_yamls: ${{ steps.filter.outputs.product_yamls || 'false' }}
             product_yamls_files: ${{ steps.filter.outputs.product_yamls_files }}
-            # True only when every backend-relevant changed file is a data
-            # warehouse import source — lets build_django_matrix drop the
-            # Core/CorePOE/compat segments. Defaults false (full matrix).
-            data_import_sources_only: ${{ steps.sources.outputs.data_import_sources_only || 'false' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -366,50 +365,6 @@ jobs:
                         - 'services/mcp/src/tools/generated/**/*'
                         - 'services/mcp/schema/generated-tool-definitions.json'
                         - 'services/mcp/schema/tool-definitions-all.json'
-
-            # Detect PRs whose backend changes are confined to data warehouse
-            # import sources that NO Django Core/CorePOE-collected code imports.
-            # Such a PR is exercised only by the Temporal segment (Core/CorePOE
-            # --ignore=posthog/temporal), so those segments add no coverage.
-            # The `coupled` sources are reverse-imported at runtime by Core tests
-            # (e.g. posthog/hogql/test/test_direct_postgres_query.py imports
-            # postgres) — a PR touching them must run the full matrix or it would
-            # silently skip those tests. `coupled` is kept complete by the guard
-            # test products/warehouse_sources/backend/temporal/data_imports/sources/tests/test_ci_core_coupled_sources.py.
-            # Fails OPEN: empty/non-source/coupled file list → false → full matrix.
-            # PR events only; push and merge_group always run everything.
-            # continue-on-error keeps the fail-open promise even when the runner can't
-            # start the step at all: a very large PR (e.g. a big rename) makes
-            # BACKEND_FILES exceed the process env limit ("Argument list too long"),
-            # which would otherwise hard-fail this job and skip every dependent test job.
-            # On that failure the job output below defaults to false → full matrix.
-            - name: Determine if only data warehouse sources changed
-              id: sources
-              continue-on-error: true
-              if: github.event_name == 'pull_request'
-              env:
-                  BACKEND_FILES: ${{ steps.filter.outputs.backend_files }}
-              run: |
-                  prefix="products/warehouse_sources/backend/temporal/data_imports/sources/"
-                  # Space-separated, double-quoted, single line — parsed by the guard test.
-                  coupled="common google_search_console mysql postgres salesforce stripe"
-                  only_sources=false
-                  if [ -n "$BACKEND_FILES" ]; then
-                      only_sources=true
-                      for f in $BACKEND_FILES; do
-                          case "$f" in
-                              "$prefix"*) ;;
-                              *) only_sources=false; break ;;
-                          esac
-                          rest=${f#"$prefix"}    # path within sources/
-                          top=${rest%%/*}        # vendor dir (or top-level filename)
-                          case " $coupled " in
-                              *" $top "*) only_sources=false; break ;;
-                          esac
-                      done
-                  fi
-                  echo "data_import_sources_only=$only_sources" >> "$GITHUB_OUTPUT"
-                  echo "Only data warehouse import sources changed: $only_sources"
 
             # A change that only touches Markdown docs (e.g. a README under
             # posthog/) still matches the broad backend globs above, needlessly
@@ -697,16 +652,16 @@ jobs:
                   #   Core POE on:    posthog/clickhouse, posthog/queries, posthog/api/test/test_insight*,
                   #                   posthog/api/test/dashboards/test_dashboard.py, ee/clickhouse/
                   #   Temporal:       posthog/temporal, products/{batch_exports,tasks}/backend/temporal,
-                  #                   products/warehouse_sources/backend/temporal, products/signals/backend/emission
+                  #                   products/signals/backend/emission
                   # Files outside posthog/ and ee/ (e.g. products/foo/backend/test_*) are not in this
-                  # matrix — turbo-tests handles them.
+                  # matrix — turbo-tests handles them (warehouse_sources runs its own temporal suite there).
                   core=()
                   poe=()
                   temporal=()
                   while IFS= read -r f; do
                       [[ -z "$f" ]] && continue
                       case "$f" in
-                          posthog/temporal/*|products/batch_exports/backend/tests/temporal/*|products/tasks/backend/temporal/*|products/warehouse_sources/backend/temporal/*|products/signals/backend/emission/*)
+                          posthog/temporal/*|products/batch_exports/backend/tests/temporal/*|products/tasks/backend/temporal/*|products/signals/backend/emission/*)
                               temporal+=("$f")
                               ;;
                           posthog/clickhouse/*|posthog/queries/*|ee/clickhouse/*|products/product_analytics/backend/api/test/*|posthog/api/test/test_insight*|posthog/api/test/dashboards/test_dashboard.py)
@@ -1020,6 +975,33 @@ jobs:
             - name: Install python dependencies for master
               run: |
                   UV_PROJECT_ENVIRONMENT=.venv-master uv sync --frozen --dev
+            - name: Compute master schema cache key
+              # Must match the migration-set computation in turbo-discover and the
+              # push-side save below (inputs, hash, and key prefix). Keyed off the
+              # master checkout (HEAD here) so a restored dump is exactly the state
+              # that "Run migrations up to master" would build from scratch; any
+              # difference in the migration set is a cache miss, never a stale hit.
+              if: github.event_name != 'push'
+              id: master-schema-key
+              run: |
+                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' HEAD \
+                      | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
+                      | grep -vE '/(clickhouse|async_migrations)/migrations/' \
+                      | LC_ALL=C sort) || true
+                  PG_IMAGE=$(git show "HEAD:docker-compose.base.yml" 2>/dev/null \
+                      | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
+                  if [ -z "$MIG_FILES" ]; then
+                      echo "key=" >> $GITHUB_OUTPUT
+                  else
+                      MIG_HASH=$(printf '%s\n%s' "$MIG_FILES" "$PG_IMAGE" | sha256sum | cut -c1-40)
+                      echo "key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
+                  fi
+            - name: Restore master schema dump from cache
+              if: github.event_name != 'push' && steps.master-schema-key.outputs.key != ''
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: schema.sql.gz
+                  key: ${{ steps.master-schema-key.outputs.key }}
             - name: Wait for Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
@@ -1027,6 +1009,31 @@ jobs:
               run: |
                   bin/ci-wait-for-docker wait objectstorage \
                     || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
+            - name: Prime posthog DB from cached schema
+              # Turns "Run migrations up to master" below into a no-op instead
+              # of ~10 minutes of full migrations.
+              if: github.event_name != 'push'
+              run: |
+                  if [ ! -f schema.sql.gz ]; then
+                      echo "::notice::Master schema cache miss — the next step runs all migrations from scratch"
+                      exit 0
+                  fi
+                  # The load is atomic: on failure the transaction rolls back and
+                  # the fallback below recreates an empty DB for a full migrate.
+                  # ensure_migration_defaults re-seeds data-migration rows the
+                  # schema-only dump lacks.
+                  if gunzip -c schema.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -v ON_ERROR_STOP=1 --single-transaction -U posthog posthog > /dev/null \
+                      && .venv-master/bin/python manage.py ensure_migration_defaults; then
+                      echo "Primed posthog DB from cached master schema"
+                  else
+                      echo "::warning::Cached schema restore failed — recreating empty DB; the next step runs all migrations from scratch"
+                      # Terminate lingering sessions first or DROP DATABASE fails
+                      # (same guard as _recreate_database in hogli's db_schema.py).
+                      docker compose -f docker-compose.dev.yml exec -T db psql -U posthog postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'posthog' AND pid <> pg_backend_pid();"
+                      docker compose -f docker-compose.dev.yml exec -T db psql -U posthog postgres -c "DROP DATABASE IF EXISTS posthog;"
+                      docker compose -f docker-compose.dev.yml exec -T db psql -U posthog postgres -c "CREATE DATABASE posthog;"
+                  fi
+                  rm -f schema.sql.gz
             - name: Run migrations up to master
               run: |
                   # Run Django migrations first (excluding managed=False models)
@@ -1077,7 +1084,8 @@ jobs:
                   path: schema.sql.gz
                   key: posthog-schema-master-${{ github.sha }}
             - name: Compute migration-set schema key
-              # Must match the merge-base computation in turbo-discover (inputs, hash, and key prefix).
+              # Must match the merge-base computation in turbo-discover and the
+              # master restore key above (inputs, hash, and key prefix).
               if: github.event_name == 'push'
               id: mig-schema-key
               run: |
@@ -1152,7 +1160,6 @@ jobs:
                   RUN_POE: ${{ needs.select-tests.outputs.run_poe }}
                   RUN_TEMPORAL: ${{ needs.select-tests.outputs.run_temporal }}
                   CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
-                  DATA_IMPORT_SOURCES_ONLY: ${{ needs.changes.outputs.data_import_sources_only }}
                   IS_DRAFT: ${{ github.event.pull_request.draft }}
                   FORCE_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') }}
               run: |
@@ -1292,19 +1299,12 @@ jobs:
                       ')
                   fi
 
-                  if [ "$DATA_IMPORT_SOURCES_ONLY" = "true" ]; then
-                    # Only data warehouse import sources changed — the Temporal
-                    # segment already covers posthog/temporal, so skip Core/CorePOE/compat.
-                    echo "Only data warehouse import sources changed — running Temporal segment only"
-                    include="$temporal"
-                  else
-                    include=$(jq -cn \
-                      --argjson core "$core" \
-                      --argjson core_persons_on_events "$core_persons_on_events" \
-                      --argjson temporal "$temporal" \
-                      --argjson compat "$compat" \
-                      '$core + $core_persons_on_events + $temporal + $compat')
-                  fi
+                  include=$(jq -cn \
+                    --argjson core "$core" \
+                    --argjson core_persons_on_events "$core_persons_on_events" \
+                    --argjson temporal "$temporal" \
+                    --argjson compat "$compat" \
+                    '$core + $core_persons_on_events + $temporal + $compat')
 
                   echo "include=$include" >> "$GITHUB_OUTPUT"
                   echo "Django matrix size: $(jq -r 'length' <<< "$include") (mode=$MODE)"
@@ -1579,9 +1579,9 @@ jobs:
                   fi
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: run only the test files chosen by the snob shadow selector.
-                      # No --splits/--group (no sharding), no --reruns (selected runs should fail
-                      # loud so flaky tests get fixed instead of masked; the ready-for-review full
-                      # run has reruns).
+                      # No --splits/--group (no sharding), and no --reruns in selected mode. The full
+                      # run keeps a reduced --reruns 1 cold-start net, mirroring canonical (which runs
+                      # it until Trunk's quarantine list matures; the shadow strips the gate itself).
                       if [[ "${{ matrix.person-on-events }}" == "true" ]]; then
                           targets="$POE_FILES"
                       else
@@ -1601,7 +1601,7 @@ jobs:
                         && './posthog/clickhouse/ ./posthog/queries/ ./products/product_analytics/backend/api/test/ ./posthog/api/test/dashboards/test_dashboard.py'
                         || 'posthog'
                         )
-                    }} ${{ matrix.compat && '' || (matrix.person-on-events && 'ee/clickhouse/' || 'ee/') }} -m "not async_migrations" \
+                    }} ${{ !matrix.compat && (matrix.person-on-events && 'ee/clickhouse/' || 'ee/') || '' }} -m "not async_migrations" \
                         --ignore=posthog/temporal \
                         --ignore=posthog/dags \
                         --ignore=common/hogvm/python/test \
@@ -1612,7 +1612,7 @@ jobs:
                         --pytest-durations=100 \
                         --splitting-algorithm="$SPLITTING_ALGORITHM" \
                         "${SPLIT_GRANULARITY[@]}" \
-                        --reruns 2 --reruns-delay 1 \
+                        --reruns 1 --reruns-delay 1 \
                         -r fEsxX \
                         --junitxml=junit-core.xml \
                         $PYTEST_ARGS
@@ -1680,8 +1680,8 @@ jobs:
                   # two timeout tests fail downstream (hogql_table never reached). Canonical GHA still runs them.
                   # The --deselect guards stay on both branches so a selected run can't re-enable them.
                   if [[ "$MODE" == "selected" ]]; then
-                      # Selected mode: no sharding, no --reruns (fail loud; the ready full
-                      # run still reruns). See the core selected branch for the rationale.
+                      # Selected mode: no sharding, no --reruns — see the core selected branch;
+                      # the full run keeps a reduced --reruns 1 cold-start net mirroring canonical.
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
                           --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_with_minio_bucket" \
@@ -1694,7 +1694,7 @@ jobs:
                       # No per-test pytest --timeout; rely on the job-level timeout-minutes as the single
                       # safety net (matches canonical — the per-test guillotine added nothing over it,
                       # since --timeout-method=thread os._exit()s the whole process anyway).
-                      pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal products/warehouse_sources/backend/temporal products/signals/backend/emission -m "not async_migrations" \
+                      pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal products/signals/backend/emission -m "not async_migrations" \
                           --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_with_minio_bucket" \
                           --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_timeout_does_not_pause_schedule_without_consecutive_failures" \
                           --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_timeout_pauses_schedule_after_5_consecutive_failures" \
@@ -1703,7 +1703,7 @@ jobs:
                           --pytest-durations=100 \
                           --splitting-algorithm="$SPLITTING_ALGORITHM" \
                           "${SPLIT_GRANULARITY[@]}" \
-                          --reruns 2 --reruns-delay 1 \
+                          --reruns 1 --reruns-delay 1 \
                           -r fEsxX \
                           --junitxml=junit-temporal.xml \
                           $PYTEST_ARGS
@@ -1788,7 +1788,18 @@ jobs:
                   fi
     # Job just to collate the status of the matrix jobs for requiring passing status
     django_tests:
-        needs: [sample, django, check-migrations, turbo-discover, turbo-tests, repo-checks]
+        needs:
+            [
+                sample,
+                changes,
+                get_clickhouse_versions,
+                build_django_matrix,
+                django,
+                check-migrations,
+                turbo-discover,
+                turbo-tests,
+                repo-checks,
+            ]
         name: '[optional, does not block merge] Django Tests Pass'
         runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
         timeout-minutes: 5
@@ -1802,6 +1813,9 @@ jobs:
                     echo "### Backend CI dependency results"
                     echo "| Dependency | Result |"
                     echo "| --- | --- |"
+                    echo "| changes | ${{ needs.changes.result }} |"
+                    echo "| get_clickhouse_versions | ${{ needs.get_clickhouse_versions.result }} |"
+                    echo "| build_django_matrix | ${{ needs.build_django_matrix.result }} |"
                     echo "| django | ${{ needs.django.result }} |"
                     echo "| check-migrations | ${{ needs.check-migrations.result }} |"
                     echo "| repo-checks | ${{ needs.repo-checks.result }} |"
@@ -1828,6 +1842,13 @@ jobs:
                     exit 1
                   }
 
+                  # Upstream jobs whose failure would otherwise only cascade into django
+                  # being *skipped*, which this gate reads as success — a green gate with
+                  # zero backend tests run. Naming them makes the failure hit the gate
+                  # directly; legitimate skips (frontend-only PRs) and plain successes still pass.
+                  check_required_result "Change detection" "${{ needs.changes.result }}"
+                  check_required_result "ClickHouse versions" "${{ needs.get_clickhouse_versions.result }}"
+                  check_required_result "Django matrix build" "${{ needs.build_django_matrix.result }}"
                   check_required_result "Django test matrix" "${{ needs.django.result }}"
                   check_required_result "Migration checks" "${{ needs.check-migrations.result }}"
                   check_required_result "Repo checks" "${{ needs.repo-checks.result }}"

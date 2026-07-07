@@ -2316,6 +2316,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if dashboard_filter.breakdown_filter and not should_ignore_dashboard_breakdown:
             if hasattr(self.query, "breakdownFilter"):  # redundant, but required for mypy
                 self.query.breakdownFilter = dashboard_filter.breakdown_filter
+
+        # Interval and test-account overrides apply only to query types that carry the field.
+        # Types without it (retention, paths) are silently skipped rather than mutated.
+        if dashboard_filter.interval is not None and hasattr(self.query, "interval"):
+            self.query.interval = dashboard_filter.interval
+
+        if dashboard_filter.filterTestAccounts is not None and hasattr(self.query, "filterTestAccounts"):
+            self.query.filterTestAccounts = dashboard_filter.filterTestAccounts
+
         self.__post_init__()
 
 

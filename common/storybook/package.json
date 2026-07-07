@@ -34,6 +34,7 @@
         "vite": "^7.3.3"
     },
     "devDependencies": {
+        "@playwright/test": "catalog:",
         "http-server": "^14.1.1",
         "wait-on": "^7.2.0"
     }
