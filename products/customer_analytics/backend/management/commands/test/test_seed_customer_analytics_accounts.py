@@ -11,6 +11,7 @@ from posthog.persons_db import persons_db_connection
 from posthog.persons_seed import insert_seed_group
 
 from products.customer_analytics.backend.models.account import Account
+from products.customer_analytics.backend.models.relationship import AccountRelationship, AccountRelationshipDefinition
 from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 
@@ -65,12 +66,18 @@ class TestSeedCustomerAnalyticsAccounts(BaseTest):
         accounts = self._accounts()
         assert set(accounts) == {"acme-id", "globex-id", "initech-id"}
         assert accounts["acme-id"].name == "Acme"
+        assert accounts["acme-id"]._properties == {"stripe_customer_id": "cus_acme-id"}
 
-        # Users: a pool joined to the org, assigned as account roles.
+        # Relationship definitions created, users from the pool assigned round-robin.
+        definitions = AccountRelationshipDefinition.objects.for_team(self.team.pk)
+        assert {d.name for d in definitions} == {"CSM", "Account executive", "Account owner"}
         assert len(self._pool_emails()) == 4
-        owner = accounts["acme-id"].properties.account_owner
-        assert owner is not None
-        assert owner.email in self._pool_emails()
+        for account in accounts.values():
+            active = AccountRelationship.objects.for_team(self.team.pk).filter(account=account, ended_at__isnull=True)
+            assert active.count() == 3
+            assignee_emails = {rel.user.email for rel in active.select_related("user")}
+            assert len(assignee_emails) == 3  # round-robin: three distinct pool users per account
+            assert assignee_emails <= self._pool_emails()
 
         # Notes: only the first two accounts (by group key) get two notes each.
         notebooks = Notebook.objects.filter(resources__account__team_id=self.team.pk)
@@ -89,6 +96,8 @@ class TestSeedCustomerAnalyticsAccounts(BaseTest):
         self._run(users=3, accounts_with_notes=2, notes_per_account=1)
 
         assert Account.objects.for_team(self.team.pk).count() == 2
+        assert AccountRelationshipDefinition.objects.for_team(self.team.pk).count() == 3
+        assert AccountRelationship.objects.for_team(self.team.pk).count() == 2 * 3
         assert len(self._pool_emails()) == 3
         assert (
             OrganizationMembership.objects.filter(

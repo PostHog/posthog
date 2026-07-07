@@ -18,18 +18,17 @@ if TYPE_CHECKING:
     from posthog.models import Team, User
 
 
-class AccountAssignment(BaseModel):
-    id: int
-    email: str
+# Role assignments lived in properties JSON before the relationship tables existed; rows and
+# stale clients still carry the keys, so they're dropped on validation instead of forbidden.
+_LEGACY_ROLE_KEYS = ("csm", "account_executive", "account_owner")
+
+
+def _without_legacy_role_keys(data: dict) -> dict:
+    return {key: value for key, value in data.items() if key not in _LEGACY_ROLE_KEYS}
 
 
 class AccountProperties(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
-    # Key roles
-    csm: AccountAssignment | None = None
-    account_executive: AccountAssignment | None = None
-    account_owner: AccountAssignment | None = None
 
     # External connections
     stripe_customer_id: str | None = None
@@ -44,7 +43,7 @@ class AccountProperties(BaseModel):
     def from_input(cls, data: "dict | AccountProperties") -> "AccountProperties":
         if isinstance(data, AccountProperties):
             data = data.model_dump(mode="json", exclude_unset=True)
-        return cls.model_validate(data)
+        return cls.model_validate(_without_legacy_role_keys(data))
 
 
 class _Unset(Enum):
@@ -122,11 +121,15 @@ class Account(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFiel
 
     @property
     def properties(self) -> AccountProperties:
-        return AccountProperties.model_validate(self._properties or {})
+        return AccountProperties.model_validate(_without_legacy_role_keys(self._properties or {}))
 
     @properties.setter
     def properties(self, value: "dict | AccountProperties") -> None:
-        validated = value if isinstance(value, AccountProperties) else AccountProperties.model_validate(value)
+        validated = (
+            value
+            if isinstance(value, AccountProperties)
+            else AccountProperties.model_validate(_without_legacy_role_keys(value))
+        )
         self._properties = validated.model_dump(mode="json")
 
 

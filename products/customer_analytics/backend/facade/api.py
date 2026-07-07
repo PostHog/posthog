@@ -35,7 +35,6 @@ from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
-from products.customer_analytics.backend.constants import ACCOUNT_ASSIGNMENT_ROLE_FIELDS
 from products.customer_analytics.backend.logic import (
     custom_property_values as _custom_property_values_logic,
     relationships as _relationships_logic,
@@ -85,17 +84,15 @@ if TYPE_CHECKING:
     from products.customer_analytics.backend.models import CustomPropertyValue
 
 
-def _to_assignment(assignment) -> contracts.AccountAssignment | None:
-    if assignment is None:
-        return None
-    return contracts.AccountAssignment(id=assignment.id, email=assignment.email)
+def _active_relationship_account_ids_queryset(team_id: int, user_id: int | None = None):
+    queryset = AccountRelationship.objects.for_team(team_id).filter(ended_at__isnull=True, user__isnull=False)
+    if user_id is not None:
+        queryset = queryset.filter(user_id=user_id)
+    return queryset.values("account_id")
 
 
 def _to_account_properties(properties: _ModelAccountProperties) -> contracts.AccountProperties:
     return contracts.AccountProperties(
-        csm=_to_assignment(properties.csm),
-        account_executive=_to_assignment(properties.account_executive),
-        account_owner=_to_assignment(properties.account_owner),
         stripe_customer_id=properties.stripe_customer_id,
         hubspot_deal_id=properties.hubspot_deal_id,
         billing_id=properties.billing_id,
@@ -146,6 +143,7 @@ def get_account_context_data(
         properties=_to_account_properties(account.properties),
         tags=_account_tags(account),
         notes=_account_notes(account),
+        relationships=list_account_relationships(team_id=team_id, account_id=account.id),
     )
 
 
@@ -256,12 +254,24 @@ def _to_external_account(account: Account) -> contracts.ExternalAccount:
     pydantic properties and ``tags`` the sorted tag names — byte-identical to
     what the CDP worker consumed before this moved behind the facade.
     """
+    relationships: dict[str, list[dict]] = {}
+    for relationship in (
+        AccountRelationship.objects.for_team(account.team_id)
+        .filter(account=account, ended_at__isnull=True, user__isnull=False)
+        .select_related("definition", "user")
+        .order_by("definition__name", "user__email")
+    ):
+        assert relationship.user is not None
+        relationships.setdefault(relationship.definition.name, []).append(
+            {"user_id": relationship.user.id, "email": relationship.user.email}
+        )
     return contracts.ExternalAccount(
         id=str(account.id),
         external_id=account.external_id,
         name=account.name,
         properties=account.properties.model_dump(mode="json"),
         tags=sorted(account.tagged_items.values_list("tag__name", flat=True)),
+        relationships=relationships,
     )
 
 
@@ -292,51 +302,51 @@ def _apply_external_tags(account: Account, tags: list[str], mode: str) -> None:
             account.tagged_items.get_or_create(tag_id=tag.id)
 
 
-def _apply_external_role_assignments(
-    account: Account, role_assignments: dict[str, int | None]
+def _apply_external_relationship_assignments(
+    account: Account, assignments: dict[str, int | None]
 ) -> contracts.ExternalAccountUpdateResult | None:
-    """Apply provided role assignments to the account's properties.
-
-    ``role_assignments`` holds only the roles present in the request (None
-    clears a role). Each non-None user id is resolved against an
-    ``OrganizationMembership`` in the account's org so the stored ``{id, email}``
-    is always trusted. Returns an error result (membership missing / invalid
-    properties) or None on success.
+    """Apply provided relationship assignments, keyed by definition name (None ends the
+    active assignment). Each non-None user id is resolved against an
+    ``OrganizationMembership`` in the account's org so assignees are always trusted.
+    Everything is validated before the first write — the caller's ``atomic()`` block
+    returns (commits) on an error result rather than rolling back.
     """
-    properties = dict(account._properties or {})
-    changed = False
-
-    for field in ACCOUNT_ASSIGNMENT_ROLE_FIELDS:
-        if field not in role_assignments:
-            continue
-        user_id = role_assignments[field]
-        if user_id is None:
-            properties[field] = None
-        else:
-            membership = (
-                OrganizationMembership.objects.select_related("user")
-                .filter(organization_id=account.team.organization_id, user_id=user_id)
-                .first()
+    definitions = {
+        definition.name: definition
+        for definition in AccountRelationshipDefinition.objects.for_team(account.team_id).filter(
+            name__in=assignments.keys()
+        )
+    }
+    resolved: list[tuple[AccountRelationshipDefinition, User | None]] = []
+    for name, user_id in assignments.items():
+        definition = definitions.get(name)
+        if definition is None:
+            return contracts.ExternalAccountUpdateResult(
+                error=contracts.ExternalAccountUpdateError.RELATIONSHIP_DEFINITION_NOT_FOUND,
+                error_field=name,
             )
-            if membership is None:
-                return contracts.ExternalAccountUpdateResult(
-                    error=contracts.ExternalAccountUpdateError.USER_NOT_IN_ORGANIZATION,
-                    error_field=field,
-                )
-            properties[field] = {"id": membership.user.id, "email": membership.user.email}
-        changed = True
+        if user_id is None:
+            resolved.append((definition, None))
+            continue
+        membership = (
+            OrganizationMembership.objects.select_related("user")
+            .filter(organization_id=account.team.organization_id, user_id=user_id)
+            .first()
+        )
+        if membership is None:
+            return contracts.ExternalAccountUpdateResult(
+                error=contracts.ExternalAccountUpdateError.USER_NOT_IN_ORGANIZATION,
+                error_field=name,
+            )
+        resolved.append((definition, membership.user))
 
-    if not changed:
-        return None
-
-    try:
-        account.properties = _ModelAccountProperties.model_validate(properties)
-    except Exception as e:
-        capture_exception(e, {"account_id": str(account.id)})
-        return contracts.ExternalAccountUpdateResult(error=contracts.ExternalAccountUpdateError.INVALID_PROPERTIES)
-
-    account.save(update_fields=["_properties", "updated_at"])
-    _relationships_logic.sync_from_account_properties(account)
+    for definition, assignee in resolved:
+        if assignee is None:
+            _relationships_logic.end_active(team_id=account.team_id, account=account, definition=definition)
+        else:
+            _relationships_logic.assign(
+                team_id=account.team_id, account=account, definition=definition, user=assignee, created_by=None
+            )
     return None
 
 
@@ -344,16 +354,17 @@ def update_external_account(
     team_id: int,
     external_id: str,
     *,
-    role_assignments: dict[str, int | None],
+    relationship_assignments: dict[str, int | None],
     tags: list[str] | None,
     tags_mode: str,
 ) -> contracts.ExternalAccountUpdateResult:
-    """Apply role assignments and tags to an account, transactionally, for the external API.
+    """Apply relationship assignments and tags to an account, transactionally, for the
+    external API.
 
-    Role assignments and tags are all-or-nothing — a tag failure must not leave the
-    role-contact changes committed. Returns a result the view maps to the exact HTTP
-    status/body: not found, a per-role org-membership failure, invalid properties, a
-    generic write failure, or success carrying the re-serialized account.
+    Assignments and tags are all-or-nothing — a tag failure must not leave the
+    relationship changes committed. Returns a result the view maps to the exact HTTP
+    status/body: not found, a per-assignment failure (unknown definition, non-member
+    user), a generic write failure, or success carrying the re-serialized account.
     """
     account = _get_external_account_by_external_id(team_id, external_id)
     if account is None:
@@ -361,7 +372,7 @@ def update_external_account(
 
     try:
         with transaction.atomic():
-            error_result = _apply_external_role_assignments(account, role_assignments)
+            error_result = _apply_external_relationship_assignments(account, relationship_assignments)
             if error_result is not None:
                 return error_result
             if tags is not None:
@@ -1198,16 +1209,14 @@ def list_accounts_for_view(
     limit: int,
     search: str | None = None,
     tags: list[str] | None = None,
-    csm: str | None = None,
-    account_executive: str | None = None,
-    account_owner: str | None = None,
+    assigned_to: str | None = None,
     all_roles_unassigned: bool = False,
     ordering: str | None = None,
 ) -> tuple[list[contracts.AccountView], int]:
     """The accounts list endpoint, behind the facade: team + object-level access filtering,
-    the search / tags / role / ordering query filters, notebook + tag prefetching, and
-    pagination. Returns ``(page, total_count)``. ``tags``/``ordering`` are pre-validated by
-    the view; an empty ``tags`` list is treated as "no tag filter" (matches old behavior)."""
+    the search / tags / relationship / ordering query filters, notebook + tag prefetching,
+    and pagination. Returns ``(page, total_count)``. ``tags``/``ordering`` are pre-validated
+    by the view; an empty ``tags`` list is treated as "no tag filter" (matches old behavior)."""
     queryset = _accounts_queryset(team_id, user_access_control).prefetch_related(
         Prefetch("notebooks", queryset=ResourceNotebook.objects.select_related("notebook")),
         Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags"),
@@ -1219,39 +1228,16 @@ def list_accounts_for_view(
     if tags:
         queryset = queryset.filter(tagged_items__tag__name__in=tags).distinct()
 
-    # An unset role serializes as JSON null, which ``_properties__role__isnull`` does not
-    # match; probing the nested ``id`` matches every unassigned shape (missing key, null
-    # value, or empty object).
     if all_roles_unassigned:
-        queryset = queryset.filter(
-            _properties__csm__id__isnull=True,
-            _properties__account_executive__id__isnull=True,
-            _properties__account_owner__id__isnull=True,
-        )
+        queryset = queryset.exclude(id__in=_active_relationship_account_ids_queryset(team_id))
 
-    if csm == "unassigned":
-        queryset = queryset.filter(_properties__csm__id__isnull=True)
-    elif csm:
+    if assigned_to:
         try:
-            queryset = queryset.filter(_properties__csm__id=int(csm))
+            queryset = queryset.filter(
+                id__in=_active_relationship_account_ids_queryset(team_id, user_id=int(assigned_to))
+            )
         except ValueError:
             # Malformed user id is a no-op (return all), not "match nothing" — old behavior.
-            pass
-
-    if account_executive == "unassigned":
-        queryset = queryset.filter(_properties__account_executive__id__isnull=True)
-    elif account_executive:
-        try:
-            queryset = queryset.filter(_properties__account_executive__id=int(account_executive))
-        except ValueError:
-            pass
-
-    if account_owner == "unassigned":
-        queryset = queryset.filter(_properties__account_owner__id__isnull=True)
-    elif account_owner:
-        try:
-            queryset = queryset.filter(_properties__account_owner__id=int(account_owner))
-        except ValueError:
             pass
 
     queryset = queryset.order_by(ordering) if ordering else queryset.order_by("-created_at")
@@ -1290,8 +1276,6 @@ def create_account_for_view(
                 properties=input.properties,
             )
             _set_tags(input.tags, account)
-            if any(field in (account._properties or {}) for field in ACCOUNT_ASSIGNMENT_ROLE_FIELDS):
-                _relationships_logic.sync_from_account_properties(account, created_by=user)
     except PydanticValidationError as exc:
         raise AccountPropertiesValidationError(_format_pydantic_errors(exc))
     except IntegrityError:
@@ -1336,8 +1320,6 @@ def update_account_for_view(
         with transaction.atomic():
             account = Account.objects.update_account(account, **update_kwargs)
             _set_tags(input.tags, account)
-            if input.properties_provided:
-                _relationships_logic.sync_from_account_properties(account, created_by=user)
     except PydanticValidationError as exc:
         raise AccountPropertiesValidationError(_format_pydantic_errors(exc))
     except IntegrityError:

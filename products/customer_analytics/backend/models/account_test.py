@@ -14,40 +14,54 @@ from posthog.models import Team, User
 from posthog.models.scoping import team_scope
 
 from products.customer_analytics.backend.models import Account, TeamCustomerAnalyticsConfig
-from products.customer_analytics.backend.models.account import AccountAssignment, AccountProperties
+from products.customer_analytics.backend.models.account import AccountProperties
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
+
+LEGACY_ROLE_PROPERTIES = {
+    "csm": {"id": 1, "email": "csm@example.com"},
+    "account_executive": None,
+    "account_owner": {"id": 2, "email": "owner@example.com"},
+}
 
 
 class AccountPropertiesValidationTest(TeamScopedTestMixin, BaseTest):
-    def setUp(self):
-        super().setUp()
-        self.user = User.objects.create_user(
-            email="apv@example.com", password=None, first_name="APV", is_email_verified=True
-        )
-
     def test_rejects_unknown_keys(self):
         with pytest.raises(PydanticValidationError):
             AccountProperties.model_validate({"unknown_field": "x"})
-
-    def test_typed_property_round_trip_through_setter(self):
-        account = Account.objects.create(team=self.team, name="Round-trip")
-        account.properties = AccountProperties(
-            csm=AccountAssignment(id=self.user.id, email=self.user.email),
-        )
-        account.save()
-        account.refresh_from_db()
-
-        props = account.properties
-        assert isinstance(props, AccountProperties)
-        assert props.csm == AccountAssignment(id=self.user.id, email=self.user.email)
-        assert props.account_executive is None
-        assert props.account_owner is None
 
     def test_setter_validates_dict_input(self):
         account = Account.objects.create(team=self.team, name="Bad input")
 
         with pytest.raises(PydanticValidationError):
             account.properties = {"unknown_field": "x"}
+
+    def test_legacy_role_keys_in_stored_row_stripped_on_read(self):
+        account = Account.objects.create(
+            team=self.team,
+            name="Legacy row",
+            _properties={**LEGACY_ROLE_PROPERTIES, "stripe_customer_id": "cus_1"},
+        )
+
+        props = account.properties
+        assert props.stripe_customer_id == "cus_1"
+        assert not set(LEGACY_ROLE_PROPERTIES) & set(props.model_dump())
+
+    def test_legacy_role_keys_stripped_by_setter(self):
+        account = Account.objects.create(team=self.team, name="Legacy write")
+
+        account.properties = {**LEGACY_ROLE_PROPERTIES, "stripe_customer_id": "cus_1"}
+
+        assert not set(LEGACY_ROLE_PROPERTIES) & set(account._properties)
+        assert account._properties["stripe_customer_id"] == "cus_1"
+
+    def test_legacy_role_keys_stripped_by_manager_create(self):
+        account = Account.objects.create_account(
+            team=self.team,
+            name="Legacy create",
+            properties={**LEGACY_ROLE_PROPERTIES, "stripe_customer_id": "cus_1"},
+        )
+
+        assert account._properties == {"stripe_customer_id": "cus_1"}
 
 
 class AccountExternalIdUniquenessTest(TeamScopedTestMixin, BaseTest):
@@ -120,11 +134,11 @@ class AccountManagerWriteTest(TeamScopedTestMixin, BaseTest):
             team=self.team,
             created_by=self.user,
             name="Acme",
-            properties={"csm": {"id": self.user.id, "email": self.user.email}},
+            properties={"hubspot_deal_id": "deal_1"},
         )
         Account.objects.update_account(account, properties={"stripe_customer_id": "cus_123"})
         account.refresh_from_db()
-        assert account.properties.csm is None
+        assert account.properties.hubspot_deal_id is None
         assert account.properties.stripe_customer_id == "cus_123"
 
     def test_update_account_leaves_properties_untouched_when_not_passed(self):

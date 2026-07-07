@@ -58,25 +58,11 @@ _PROFILE_CONFIG_SCOPE_CHOICES = [
     ("group_4", "Group 4"),
 ]
 
-# JSON schema for the account ``properties`` field. Kept verbatim from the pre-isolation
-# serializer so the generated ``AccountApiProperties`` component is unchanged.
-_ACCOUNT_ASSIGNMENT_SCHEMA = {
-    "type": "object",
-    "nullable": True,
-    "properties": {
-        "id": {"type": "integer"},
-        "email": {"type": "string"},
-    },
-    "required": ["id", "email"],
-}
-
+# JSON schema for the account ``properties`` field.
 _ACCOUNT_PROPERTIES_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
-        "csm": _ACCOUNT_ASSIGNMENT_SCHEMA,
-        "account_executive": _ACCOUNT_ASSIGNMENT_SCHEMA,
-        "account_owner": _ACCOUNT_ASSIGNMENT_SCHEMA,
         "stripe_customer_id": {"type": "string", "nullable": True},
         "hubspot_deal_id": {"type": "string", "nullable": True},
         "billing_id": {"type": "string", "nullable": True},
@@ -168,10 +154,10 @@ class AccountSerializer(DataclassSerializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Typed account properties: assignment fields (csm, account_executive, account_owner) "
-            "and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, "
-            "sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty "
-            "object. Unknown keys are rejected."
+            "Typed account properties: external system identifiers (stripe_customer_id, "
+            "hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, "
+            "usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected; "
+            "relationship assignments are managed via the account relationships endpoints."
         ),
     )
     tags = serializers.ListField(

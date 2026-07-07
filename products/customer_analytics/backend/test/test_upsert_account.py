@@ -6,16 +6,15 @@ from posthog.test.base import BaseTest
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 
-from posthog.models import TaggedItem, Team
+from posthog.models import TaggedItem, Team, User
 
 from products.customer_analytics.backend.max_tools import (
-    AccountAssignment,
     AccountPropertiesInput,
     CreateAccountAction,
     UpdateAccountAction,
     UpsertAccountTool,
 )
-from products.customer_analytics.backend.models import Account
+from products.customer_analytics.backend.models import Account, AccountRelationship, AccountRelationshipDefinition
 
 
 class TestUpsertAccountTool(BaseTest):
@@ -29,6 +28,19 @@ class TestUpsertAccountTool(BaseTest):
     async def _tags_for(self, account: Account) -> list[str]:
         return await sync_to_async(
             lambda: sorted(TaggedItem.objects.filter(account=account).values_list("tag__name", flat=True))
+        )()
+
+    @sync_to_async
+    def _create_definition(self, name: str = "CSM") -> AccountRelationshipDefinition:
+        return AccountRelationshipDefinition.objects.for_team(self.team.id).create(team_id=self.team.id, name=name)
+
+    async def _active_holder_ids(self, account: Account) -> set[int]:
+        return await sync_to_async(
+            lambda: set(
+                AccountRelationship.objects.for_team(self.team.id)
+                .filter(account=account, ended_at__isnull=True)
+                .values_list("user_id", flat=True)
+            )
         )()
 
     @pytest.mark.django_db
@@ -47,18 +59,22 @@ class TestUpsertAccountTool(BaseTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_create_with_properties_and_tags(self):
+    async def test_create_with_properties_tags_and_relationships(self):
+        await self._create_definition("CSM")
+
         _, artifact = await self._tool()._arun_impl(
             action=CreateAccountAction(
                 name="Acme Corp",
-                properties=AccountPropertiesInput(csm=AccountAssignment(id=self.user.id, email=self.user.email)),
+                properties=AccountPropertiesInput(stripe_customer_id="cus_42"),
                 tags=["enterprise", "priority"],
+                relationships={"CSM": self.user.id},
             )
         )
 
         account = await sync_to_async(Account.objects.unscoped().get)(id=artifact["account_id"])
-        assert account._properties["csm"] == {"id": self.user.id, "email": self.user.email}
+        assert account._properties["stripe_customer_id"] == "cus_42"
         assert await self._tags_for(account) == ["enterprise", "priority"]
+        assert await self._active_holder_ids(account) == {self.user.id}
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -71,23 +87,76 @@ class TestUpsertAccountTool(BaseTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_update_assigns_role_and_merges_properties(self):
+    async def test_update_relationships_assigns_hands_off_and_ends(self):
+        await self._create_definition("CSM")
+        successor = await sync_to_async(self._create_user)("successor@posthog.com")
+        account = await sync_to_async(Account.objects.unscoped().create)(team=self.team, name="Acme")
+
+        _, artifact = await self._tool()._arun_impl(
+            action=UpdateAccountAction(account_id=str(account.id), relationships={"CSM": self.user.id})
+        )
+        assert "error" not in artifact
+        assert await self._active_holder_ids(account) == {self.user.id}
+
+        await self._tool()._arun_impl(
+            action=UpdateAccountAction(account_id=str(account.id), relationships={"CSM": successor.id})
+        )
+        assert await self._active_holder_ids(account) == {successor.id}
+
+        await self._tool()._arun_impl(
+            action=UpdateAccountAction(account_id=str(account.id), relationships={"CSM": None})
+        )
+        assert await self._active_holder_ids(account) == set()
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_create_with_unknown_relationship_name_persists_nothing(self):
+        await self._create_definition("CSM")
+
+        content, artifact = await self._tool()._arun_impl(
+            action=CreateAccountAction(name="Acme", relationships={"Account executive": self.user.id})
+        )
+
+        assert artifact["error"] == "invalid_relationship_assignment"
+        assert "Account executive" in content
+        assert "CSM" in content
+        assert not await sync_to_async(Account.objects.unscoped().filter(team=self.team).exists)()
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_update_relationship_with_non_member_user_returns_error(self):
+        await self._create_definition("CSM")
+        outsider = await sync_to_async(User.objects.create_user)("outsider@example.com", None, "")
+        account = await sync_to_async(Account.objects.unscoped().create)(team=self.team, name="Acme")
+
+        content, artifact = await self._tool()._arun_impl(
+            action=UpdateAccountAction(account_id=str(account.id), relationships={"CSM": outsider.id})
+        )
+
+        assert artifact["error"] == "invalid_relationship_assignment"
+        assert content == f"User {outsider.id} is not a member of this organization."
+        assert await self._active_holder_ids(account) == set()
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_update_merges_properties_and_drops_legacy_role_keys(self):
         account = await sync_to_async(Account.objects.unscoped().create)(
-            team=self.team, name="Acme Corp", _properties={"csm": {"id": 1, "email": "csm@acme.com"}}
+            team=self.team,
+            name="Acme Corp",
+            _properties={"csm": {"id": 1, "email": "csm@acme.com"}, "stripe_customer_id": "cus_1"},
         )
 
         _, artifact = await self._tool()._arun_impl(
             action=UpdateAccountAction(
-                account_id=str(account.id),
-                properties=AccountPropertiesInput(
-                    account_owner=AccountAssignment(id=self.user.id, email=self.user.email)
-                ),
+                account_id=str(account.id), properties=AccountPropertiesInput(billing_id="bill-1")
             )
         )
 
+        assert "error" not in artifact
         refreshed = await sync_to_async(Account.objects.unscoped().get)(id=account.id)
-        assert refreshed._properties["csm"] == {"id": 1, "email": "csm@acme.com"}
-        assert refreshed._properties["account_owner"] == {"id": self.user.id, "email": self.user.email}
+        assert refreshed._properties["stripe_customer_id"] == "cus_1"
+        assert refreshed._properties["billing_id"] == "bill-1"
+        assert "csm" not in refreshed._properties
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

@@ -1,12 +1,8 @@
 from posthog.test.base import BaseTest
 
 from posthog.models import Team, User
-from posthog.rbac.user_access_control import UserAccessControl
 
-from products.customer_analytics.backend.facade import (
-    api as facade,
-    contracts,
-)
+from products.customer_analytics.backend.facade import api as facade
 from products.customer_analytics.backend.logic import relationships
 from products.customer_analytics.backend.models import Account, AccountRelationship, AccountRelationshipDefinition
 
@@ -85,81 +81,6 @@ class TestRelationshipLogic(BaseTest):
             team_id=self.team.id, account_id=self.account.id, relationship_id=str(rel.id)
         )
         assert ended.ended_at is not None
-
-
-class TestSyncFromAccountProperties(BaseTest):
-    def setUp(self):
-        super().setUp()
-        AccountRelationshipDefinition.objects.for_team(self.team.id).create(team_id=self.team.id, name="CSM")
-        self.account = Account.objects.create_account(
-            team=self.team,
-            name="Acme",
-            properties={"csm": {"id": self.user.id, "email": self.user.email}, "sfdc_id": "001xx"},
-        )
-
-    def _get_active_rows_for_account(self):
-        return AccountRelationship.objects.for_team(self.team.id).filter(account=self.account, ended_at__isnull=True)
-
-    def test_sync_creates_rows_from_role_properties(self):
-        relationships.sync_from_account_properties(self.account, created_by=self.user)
-        rows = self._get_active_rows_for_account()
-        assert rows.count() == 1
-        row = rows.first()
-        assert row is not None
-        assert row.definition.name == "CSM"
-        assert row.user_id == self.user.id
-
-    def test_sync_is_idempotent(self):
-        relationships.sync_from_account_properties(self.account)
-        relationships.sync_from_account_properties(self.account)
-        assert AccountRelationship.objects.for_team(self.team.id).filter(account=self.account).count() == 1
-
-    def test_sync_ends_relationship_when_key_cleared(self):
-        relationships.sync_from_account_properties(self.account)
-        Account.objects.update_account(self.account, properties={"sfdc_id": "001xx"})
-        relationships.sync_from_account_properties(self.account)
-        assert self._get_active_rows_for_account().count() == 0
-        assert AccountRelationship.objects.for_team(self.team.id).filter(account=self.account).count() == 1
-
-    def test_sync_hands_off_single_holder_on_user_change(self):
-        other_user = self._create_user("other@posthog.com")
-        relationships.sync_from_account_properties(self.account)
-        Account.objects.update_account(
-            self.account, properties={"csm": {"id": other_user.id, "email": other_user.email}}
-        )
-        relationships.sync_from_account_properties(self.account)
-        rows = self._get_active_rows_for_account()
-        assert rows.count() == 1
-        row = rows.first()
-        assert row is not None
-        assert row.user_id == other_user.id
-        assert AccountRelationship.objects.for_team(self.team.id).filter(account=self.account).count() == 2
-
-    def test_sync_skips_unresolvable_users(self):
-        Account.objects.update_account(self.account, properties={"csm": {"id": 99999999, "email": "gone@example.com"}})
-        relationships.sync_from_account_properties(self.account)
-        assert AccountRelationship.objects.for_team(self.team.id).filter(account=self.account).count() == 0
-
-    def test_sync_skips_users_outside_the_organization(self):
-        outsider = User.objects.create_user(email="outsider@example.com", password=None, first_name="Out")
-        Account.objects.update_account(self.account, properties={"csm": {"id": outsider.id, "email": outsider.email}})
-        relationships.sync_from_account_properties(self.account)
-        assert AccountRelationship.objects.for_team(self.team.id).filter(account=self.account).count() == 0
-
-    def test_sync_skips_roles_whose_definition_is_missing(self):
-        Account.objects.update_account(
-            self.account,
-            properties={
-                "csm": {"id": self.user.id, "email": self.user.email},
-                "account_executive": {"id": self.user.id, "email": self.user.email},
-            },
-        )
-        relationships.sync_from_account_properties(self.account)
-        rows = self._get_active_rows_for_account()
-        assert rows.count() == 1
-        row = rows.first()
-        assert row is not None
-        assert row.definition.name == "CSM"
 
 
 class TestRelationshipFacade(BaseTest):
@@ -330,62 +251,3 @@ class TestRelationshipFacade(BaseTest):
         assert facade.list_account_relationship_definitions(other_team.id) == ([], 0)
         assert facade.list_account_relationships(team_id=other_team.id, account_id=self.account.id) == []
         assert not facade.delete_account_relationship_definition(team_id=other_team.id, definition_id=definition.id)
-
-
-class TestWritePathSync(BaseTest):
-    def setUp(self):
-        super().setUp()
-        AccountRelationshipDefinition.objects.for_team(self.team.id).create(team_id=self.team.id, name="CSM")
-
-    def _active_rows(self, account):
-        return AccountRelationship.objects.for_team(self.team.id).filter(account=account, ended_at__isnull=True)
-
-    def _update_properties(self, account_id, properties):
-        return facade.update_account_for_view(
-            team_id=self.team.id,
-            account_id=str(account_id),
-            input=contracts.UpdateAccountInput(properties=properties, properties_provided=True),
-            user_access_control=UserAccessControl(user=self.user, team=self.team),
-            required_level="editor",
-            organization_id=self.organization.id,
-            user=self.user,
-            was_impersonated=False,
-        )
-
-    def test_update_account_for_view_syncs_role_assign_and_clear(self):
-        account = Account.objects.create_account(team=self.team, name="Acme")
-        self._update_properties(account.id, {"csm": {"id": self.user.id, "email": self.user.email}})
-        rows = self._active_rows(account)
-        assert rows.count() == 1
-        row = rows.first()
-        assert row is not None
-        assert row.user_id == self.user.id
-        self._update_properties(account.id, {})
-        assert self._active_rows(account).count() == 0
-
-    def test_create_account_for_view_syncs_roles(self):
-        view = facade.create_account_for_view(
-            team_id=self.team.id,
-            team=self.team,
-            input=contracts.CreateAccountInput(
-                name="Acme", properties={"csm": {"id": self.user.id, "email": self.user.email}}
-            ),
-            organization_id=self.organization.id,
-            user=self.user,
-            was_impersonated=False,
-        )
-        assert view.id is not None
-        account = Account.objects.for_team(self.team.id).get(id=view.id)
-        assert self._active_rows(account).count() == 1
-
-    def test_update_external_account_syncs_roles(self):
-        account = Account.objects.create_account(team=self.team, name="Acme", external_id="acme-1")
-        result = facade.update_external_account(
-            self.team.id, "acme-1", role_assignments={"csm": self.user.id}, tags=None, tags_mode="add"
-        )
-        assert result.error is None
-        rows = self._active_rows(account)
-        assert rows.count() == 1
-        row = rows.first()
-        assert row is not None
-        assert row.user_id == self.user.id

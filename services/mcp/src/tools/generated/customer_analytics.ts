@@ -149,10 +149,8 @@ const accountsList = (): ToolBase<typeof AccountsListSchema, WithPostHogUrl<Sche
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/`,
             query: {
-                account_executive: params.account_executive,
-                account_owner: params.account_owner,
                 all_roles_unassigned: params.all_roles_unassigned,
-                csm: params.csm,
+                assigned_to: params.assigned_to,
                 limit: params.limit,
                 offset: params.offset,
                 ordering: params.ordering,

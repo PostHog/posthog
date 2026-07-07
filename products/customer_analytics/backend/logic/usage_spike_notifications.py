@@ -7,7 +7,7 @@ from posthog.exceptions_capture import capture_exception
 
 from products.customer_analytics.backend.account_urls import build_account_deeplink
 from products.customer_analytics.backend.constants import CUSTOMER_ANALYTICS_CSP_FLAG
-from products.customer_analytics.backend.models import Account
+from products.customer_analytics.backend.models import Account, AccountRelationship
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -126,12 +126,12 @@ def _is_csp_enabled(account: Account) -> bool:
 
 
 def _get_manager_user_ids(account: Account) -> list[int]:
-    properties = account.properties
-    user_ids: list[int] = []
-    for assignment in (properties.csm, properties.account_executive):
-        if assignment is not None and assignment.id not in user_ids:
-            user_ids.append(assignment.id)
-    return user_ids
+    return list(
+        AccountRelationship.objects.for_team(account.team_id)
+        .filter(account=account, ended_at__isnull=True, user__isnull=False)
+        .values_list("user_id", flat=True)
+        .distinct()
+    )
 
 
 def _build_body(spikes: list[dict[str, Any]], detected_at: str | None) -> str:

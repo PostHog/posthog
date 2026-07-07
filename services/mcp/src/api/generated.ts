@@ -89,25 +89,10 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected; relationship assignments are managed via the account relationships endpoints.
      * @nullable
      */
     export type AccountProperties = {
-      /** @nullable */
-      csm?: {
-      id: number;
-      email: string;
-    } | null;
-      /** @nullable */
-      account_executive?: {
-      id: number;
-      email: string;
-    } | null;
-      /** @nullable */
-      account_owner?: {
-      id: number;
-      email: string;
-    } | null;
       /** @nullable */
       stripe_customer_id?: string | null;
       /** @nullable */
@@ -141,7 +126,7 @@ export namespace Schemas {
          */
       external_id?: string | null;
       /**
-         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
+         * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected; relationship assignments are managed via the account relationships endpoints.
          * @nullable
          */
       properties?: AccountProperties;
@@ -622,8 +607,9 @@ export namespace Schemas {
     }
 
     export interface AccountsQuery {
+      /** Match accounts with no active relationship of any definition. */
       allRolesUnassigned?: boolean | null;
-      /** Match accounts where any of these user ids is the CSM or the account executive (OR over both roles). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
+      /** Match accounts where any of these user ids actively holds any relationship (CSM, Account executive, or a custom definition). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
       assignedToUserIds?: number[] | null;
       /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
       filterExpression?: string | null;
@@ -36606,25 +36592,10 @@ export namespace Schemas {
     }
 
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected; relationship assignments are managed via the account relationships endpoints.
      * @nullable
      */
     export type PatchedAccountProperties = {
-      /** @nullable */
-      csm?: {
-      id: number;
-      email: string;
-    } | null;
-      /** @nullable */
-      account_executive?: {
-      id: number;
-      email: string;
-    } | null;
-      /** @nullable */
-      account_owner?: {
-      id: number;
-      email: string;
-    } | null;
       /** @nullable */
       stripe_customer_id?: string | null;
       /** @nullable */
@@ -36658,7 +36629,7 @@ export namespace Schemas {
          */
       external_id?: string | null;
       /**
-         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
+         * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected; relationship assignments are managed via the account relationships endpoints.
          * @nullable
          */
       properties?: PatchedAccountProperties;
@@ -56786,21 +56757,13 @@ export namespace Schemas {
 
     export type EnvironmentsAccountsListParams = {
     /**
-     * Filter by account executive. Use 'unassigned' or an integer user id.
-     */
-    account_executive?: string;
-    /**
-     * Filter by account owner. Use 'unassigned' or an integer user id.
-     */
-    account_owner?: string;
-    /**
-     * When true, returns only accounts where CSM, account executive, and account owner are all unset.
+     * When true, returns only accounts with no active relationship of any definition.
      */
     all_roles_unassigned?: boolean;
     /**
-     * Filter by CSM. Use 'unassigned' for accounts with no CSM, or an integer user id.
+     * Integer user id. Returns accounts where this user actively holds any relationship (CSM, Account executive, or a custom definition).
      */
-    csm?: string;
+    assigned_to?: string;
     /**
      * Number of results to return per page.
      */
@@ -61860,21 +61823,13 @@ export namespace Schemas {
 
     export type AccountsListParams = {
     /**
-     * Filter by account executive. Use 'unassigned' or an integer user id.
-     */
-    account_executive?: string;
-    /**
-     * Filter by account owner. Use 'unassigned' or an integer user id.
-     */
-    account_owner?: string;
-    /**
-     * When true, returns only accounts where CSM, account executive, and account owner are all unset.
+     * When true, returns only accounts with no active relationship of any definition.
      */
     all_roles_unassigned?: boolean;
     /**
-     * Filter by CSM. Use 'unassigned' for accounts with no CSM, or an integer user id.
+     * Integer user id. Returns accounts where this user actively holds any relationship (CSM, Account executive, or a custom definition).
      */
-    csm?: string;
+    assigned_to?: string;
     /**
      * Number of results to return per page.
      */
