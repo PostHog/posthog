@@ -6,8 +6,9 @@ is written onto `VisionActionRun` inside the activity — it never crosses the T
 """
 
 import re
+import uuid
 from datetime import UTC, datetime, timedelta, tzinfo
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 from zoneinfo import ZoneInfo
 
 import structlog
@@ -17,12 +18,13 @@ from temporalio import activity
 
 from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.models.team import Team
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
-from products.replay_vision.backend.models.replay_scanner import ScannerModel
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
-from products.replay_vision.backend.observation_formatting import EVENT_ID_CITATION_RE
+from products.replay_vision.backend.observation_formatting import EVENT_ID_CITATION_RE, describe_output
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.gemini import gemini_api_key
@@ -34,6 +36,9 @@ from products.replay_vision.backend.temporal.vision_actions.types import (
 
 from ee.billing.quota_limiting import is_team_over_ai_credit_budget
 from ee.hogai.utils.untrusted import as_untrusted_data
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -113,7 +118,9 @@ def _synthesize(inputs: SynthesizeGroupSummaryInputs) -> SynthesizeGroupSummaryR
     # spans — so the reader has that context in-app and in Slack. Defang links across the whole report
     # AFTER prepending: the header carries the free-text scanner name, so a name with link/image
     # markdown must be neutralized too, not just the LLM body.
-    markdown = strip_external_links_markdown(_summary_header(action, batch.window_start, len(batch.lines)) + markdown)
+    markdown = strip_external_links_markdown(
+        _summary_header(action, batch.window_start, len(batch.lines), batch.window_total) + markdown
+    )
     slack_text = _markdown_to_slack(markdown)
 
     run.synthesized_markdown = markdown
@@ -164,6 +171,39 @@ class _ObservationBatch(NamedTuple):
     lines: list[str]
     observation_ids: list[str]
     window_start: datetime | None
+    # Total SUCCEEDED observations in the window before the cap. When it exceeds the number summarized,
+    # the report only covers a sample — surfaced in the header so the reader knows it isn't exhaustive.
+    window_total: int
+
+
+def _is_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(str(value))
+    except (ValueError, TypeError):
+        return False
+    return True
+
+
+def _readable_scanner_ids(user: "User", team: Team, scanner_ids: list[str]) -> list[str]:
+    """Restrict an action's bound scanner ids to the ones its creator may actually read.
+
+    A vision action's scanner binding is user-supplied, so without this a creator could point an action
+    at a same-team scanner they lack `replay_scanner` viewer access to and receive its recording-derived
+    reasoning and outcome in the synthesized summary. Filtering through the creator's RBAC keeps synthesis
+    from surfacing a scanner the creator can't see, mirroring the scanner-access gate `max_tools` applies
+    on interactive reads (object-level access control; note the underlying queryset filter is a no-op for
+    orgs without the access-control feature, where no per-scanner restriction exists anyway).
+    """
+    # Drop non-UUID ids before querying: `selection.scanner_ids` is a user-supplied CharField list, and a
+    # malformed value would raise ValidationError inside the Temporal activity on every run (a permanent
+    # retry loop). Mirrors the UUID pre-validation in `max_tools._resolve_scanner_scope`.
+    valid_ids = [scanner_id for scanner_id in scanner_ids if _is_uuid(scanner_id)]
+    if not valid_ids:
+        return []
+    readable = UserAccessControl(user=user, team=team).filter_queryset_by_access_level(
+        ReplayScanner.objects.filter(team_id=team.id, id__in=valid_ids)
+    )
+    return [str(scanner_id) for scanner_id in readable.values_list("id", flat=True)]
 
 
 def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) -> _ObservationBatch:
@@ -172,9 +212,24 @@ def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) 
     Models the summarizer fetch in `max_tools._fetch_and_format`.
     """
     selection: dict[str, Any] = action.selection or {}
-    scanner_ids = selection.get("scanner_ids") or ([str(action.scanner_id)] if action.scanner_id else [])
+    requested_scanner_ids = selection.get("scanner_ids") or ([str(action.scanner_id)] if action.scanner_id else [])
+    # The bound scanner ids (`scanner`/`selection.scanner_ids`) are user-supplied, so filter them through
+    # the action creator's RBAC before reading any observations — otherwise an action could surface a
+    # same-team scanner's recording-derived reasoning/outcome that its creator can't access. Mirrors the
+    # scanner-access gate `max_tools` applies when reading observations. Upstream guarantees a creator.
+    creator = action.created_by
+    scanner_ids = _readable_scanner_ids(creator, team, requested_scanner_ids) if creator is not None else []
+    if len(scanner_ids) < len(requested_scanner_ids):
+        # RBAC (or a malformed id) dropped some bound scanners. Log it so a silently shrinking summary is
+        # diagnosable rather than reading like "no observations this period".
+        logger.info(
+            "vision_action.synthesis.scanners_filtered",
+            vision_action_id=str(action.id),
+            requested=len(requested_scanner_ids),
+            readable=len(scanner_ids),
+        )
     if not scanner_ids:
-        return _ObservationBatch(lines=[], observation_ids=[], window_start=None)
+        return _ObservationBatch(lines=[], observation_ids=[], window_start=None, window_total=0)
 
     window_start = _window_start(team, action, run)
     observations_qs = ReplayObservation.objects.filter(
@@ -184,6 +239,9 @@ def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) 
         created_at__gte=window_start,
         created_at__lt=_window_end(run),
     )
+
+    # Count the whole window so the header can say when the summary is only a sample of it (see cap below).
+    window_total = observations_qs.count()
 
     # Cap how many observations feed the summary (bounds context size + LLM cost). Per-action, tunable
     # via Django admin; falls back to the module default. Fast path: one query fetches the newest `cap`
@@ -214,26 +272,39 @@ def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) 
         output = scanner_result.get("model_output") if isinstance(scanner_result, dict) else None
         if not isinstance(output, dict):
             continue
-        summary = output.get("summary")
-        if not isinstance(summary, str) or not summary.strip():
+        # Summarizers emit `summary`; monitor/classifier/scorer emit only `reasoning`. Fall back to
+        # reasoning (an empty summary counts as absent) so a group summary works on any scanner type —
+        # otherwise a non-summarizer action skips as empty. Each line then leads with the scanner's
+        # outcome (verdict / score / tags, or the summarizer's title) so the model reads what the
+        # observation concluded rather than inferring it from the prose.
+        text = output.get("summary") or output.get("reasoning")
+        if not isinstance(text, str) or not text.strip():
             continue
-        title = output.get("title") if isinstance(output.get("title"), str) else None
-        clean = EVENT_ID_CITATION_RE.sub("", summary).strip()
-        lines.append(f"- ({created_at:%Y-%m-%d}) {f'{title}: ' if title else ''}{clean}")
+        # Collapse to a single line: keeps the feed one-observation-per-line and stops recording-derived
+        # text from forging extra descriptor-bearing lines inside the untrusted fence.
+        clean = re.sub(r"\s+", " ", EVENT_ID_CITATION_RE.sub("", text)).strip()
+        descriptor = describe_output(output)
+        lines.append(f"- ({created_at:%Y-%m-%d}) {f'{descriptor}: ' if descriptor else ''}{clean}")
         # Recorded in lockstep with `lines`: only observations whose summary was actually included.
         observation_ids.append(str(observation_id))
 
-    return _ObservationBatch(lines=lines, observation_ids=observation_ids, window_start=window_start)
+    return _ObservationBatch(
+        lines=lines, observation_ids=observation_ids, window_start=window_start, window_total=window_total
+    )
 
 
-def _summary_header(action: VisionAction, window_start: datetime | None, count: int) -> str:
+def _summary_header(action: VisionAction, window_start: datetime | None, count: int, window_total: int = 0) -> str:
     """A trusted one-line preface stating which scanner this summary is for, how many recordings it
-    covers, and the window's start — the "summary for scans since <prev run>" context the reader needs."""
+    covers, and the window's start — the "summary for scans since <prev run>" context the reader needs.
+    When the window held more observations than the cap, it says so ("sampled N of M") so the reader
+    knows the report covers only a sample of the period, not every observation."""
     # Scanner name is free-text; strip markdown/mrkdwn control chars so it can't garble the bold header
     # (in-app Markdown or the Slack `**`→`*` pass) and collapse any newlines that would break the line.
     raw_name = action.scanner.name if action.scanner_id else ""
     scanner_name = re.sub(r"\s+", " ", re.sub(r"[*_`#]", "", raw_name)).strip() or "your scanner"
     noun = "recording" if count == 1 else "recordings"
+    # When the period held more observations than the cap, only `count` were summarized — say so.
+    coverage = f"sampled {count} of {window_total:,} {noun}" if window_total > count else f"{count} {noun}"
     since = ""
     if window_start is not None:
         tz: tzinfo = UTC
@@ -249,7 +320,7 @@ def _summary_header(action: VisionAction, window_start: datetime | None, count: 
         since = (
             f" since {local.strftime('%b')} {local.day}, {local.year} at {local.strftime('%I:%M %p %Z').lstrip('0')}"
         )
-    return f"**Summary for {scanner_name}** — {count} {noun}{since}\n\n"
+    return f"**Summary for {scanner_name}** — {coverage}{since}\n\n"
 
 
 def _run_synthesis(team: Team, action: VisionAction, lines: list[str]) -> str:

@@ -9,8 +9,8 @@ import { mswDecorator } from '~/mocks/browser'
 import { wizardSessionStreamLogic } from 'products/wizard/frontend/wizardSessionStreamLogic'
 
 import { WizardProgressFab } from '.'
+import { wizardActiveSessionDetectorLogic } from '../../../../shared/wizard-sync/wizardActiveSessionDetectorLogic'
 import { WIZARD_SKILL_IDS } from '../../skillBadge'
-import { wizardActiveSessionDetectorLogic } from '../wizardActiveSessionDetectorLogic'
 import { wizardProgressTrackerLogic } from '../wizardProgressTrackerLogic'
 
 const WORKFLOW_ID = 'posthog-integration'

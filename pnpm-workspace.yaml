@@ -44,9 +44,9 @@ catalog:
     kea-window-values: ^3.0.1
     # PostHog packages
     '@posthog/icons': ^0.37.4
-    '@posthog/brand': 0.3.0
+    '@posthog/brand': 0.6.0
     '@posthog/react': ^1.9.0
-    posthog-js: ^1.396.6
+    posthog-js: ^1.398.1
     # Build tools
     '@parcel/packager-ts': 2.16.4
     '@parcel/transformer-typescript-types': 2.16.4
@@ -54,6 +54,7 @@ catalog:
     oxfmt: ^0.35.0
     # Testing
     jest: ^29.7.0
+    jest-junit: ^16.0.0
     '@types/jest': ^29.5.12
     '@types/node': ^22.13.14
     '@playwright/test': 1.60.0

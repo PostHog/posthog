@@ -16,10 +16,11 @@ jest.mock('~/queries/query', () => ({
     performQuery: jest.fn(),
 }))
 
-jest.mock('lib/api', () => ({
-    __esModule: true,
-    default: { get: jest.fn().mockResolvedValue({ results: [], count: 0 }) },
-}))
+jest.mock('lib/api', () =>
+    require('~/test/mocks/taxonomicFilterApiMock').buildTaxonomicFilterApiMock({
+        get: jest.fn().mockResolvedValue({ results: [], count: 0 }),
+    })
+)
 
 const wrapper = ({ children }: { children: ReactNode }): JSX.Element => <Provider>{children}</Provider>
 

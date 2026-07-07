@@ -45,7 +45,7 @@ describe('LemonFormDialog', () => {
     }
 
     const submitViaButton = async (): Promise<void> => {
-        await userEvent.click(screen.getByRole('button', { name: 'Submit' }))
+        await userEvent.click(screen.getByText('Submit'))
     }
 
     const submitViaEnter = async (): Promise<void> => {
@@ -64,7 +64,7 @@ describe('LemonFormDialog', () => {
 
         await waitFor(() => expect(onSubmit).toHaveBeenCalled())
         // Dialog stays open so the user can correct and retry.
-        expect(screen.getByRole('button', { name: 'Submit' })).toBeInTheDocument()
+        expect(screen.getByText('Submit')).toBeInTheDocument()
     })
 
     it.each([
@@ -78,7 +78,7 @@ describe('LemonFormDialog', () => {
         await submitViaButton()
 
         await waitFor(() => expect(onSubmit).toHaveBeenCalled())
-        expect(screen.getByRole('button', { name: 'Submit' })).toBeInTheDocument()
+        expect(screen.getByText('Submit')).toBeInTheDocument()
         if (shouldCapture) {
             expect(captureException).toHaveBeenCalledWith(error)
         } else {
@@ -92,7 +92,7 @@ describe('LemonFormDialog', () => {
         renderDialog(onSubmit)
         await submitViaButton()
 
-        await waitForElementToBeRemoved(() => screen.queryByRole('button', { name: 'Submit' }))
+        await waitForElementToBeRemoved(() => screen.queryByText('Submit'))
         expect(onSubmit).toHaveBeenCalled()
         expect(captureException).not.toHaveBeenCalled()
     })

@@ -23,7 +23,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, LLMPrompt } from '~/types'
 
 import { PROMPTS_PER_PAGE, llmPromptsLogic } from './llmPromptsLogic'
-import { openArchivePromptDialog } from './utils'
+import { PROMPT_NAME_MAX_LENGTH, openArchivePromptDialog, validatePromptName } from './utils'
 
 export const scene: SceneExport = {
     component: LLMPromptsScene,
@@ -117,17 +117,13 @@ export function LLMPromptsScene(): JSX.Element {
                                                         <LemonInput
                                                             data-attr="llma-prompt-duplicate-name"
                                                             placeholder="my-prompt-copy"
+                                                            maxLength={PROMPT_NAME_MAX_LENGTH}
                                                             autoFocus
                                                         />
                                                     </LemonField>
                                                 ),
                                                 errors: {
-                                                    newName: (name: string) =>
-                                                        !name
-                                                            ? 'You must enter a name'
-                                                            : !/^[a-zA-Z0-9_-]+$/.test(name)
-                                                              ? 'Only letters, numbers, hyphens, and underscores allowed'
-                                                              : undefined,
+                                                    newName: (name: string) => validatePromptName(name),
                                                 },
                                                 onSubmit: async ({ newName }) => {
                                                     duplicatePrompt(prompt.name, newName)

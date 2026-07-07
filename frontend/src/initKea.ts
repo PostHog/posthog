@@ -93,6 +93,11 @@ export function initKea({
         formsPlugin,
         loadersPlugin({
             onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
+                // A request aborted by us (superseded query, unmount, manual cancel) is not a
+                // failure — don't toast, log, or report it.
+                if (error?.name === 'AbortError') {
+                    return
+                }
                 // Read-only mode (`ReadOnlyModeError`) flows through this path unchanged:
                 // it extends `ApiError` with `status=403`, so the `!(isLoadAction && error.status === 403)`
                 // condition already suppresses the toast for load actions, and write actions
