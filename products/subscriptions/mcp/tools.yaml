@@ -117,11 +117,11 @@ tools:
             Fetch a single subscription delivery attempt by id. Returns status, trigger_type, target_type, target_value,
             timestamps, workflow/idempotency metadata, and exported_asset_ids. content_snapshot (the frozen
             dashboard/insight state at send time) is not returned — use the insight/dashboard tools for current state.
-            recipient_results and error are also excluded to avoid leaking recipient identifiers or upstream
-            response bodies that may contain tokens / PII. Unlike the list tool, ai_report (the full report markdown
-            for AI-prompt subscriptions) is returned here, alongside ai_report_prompt (the prompt it was generated
-            from). ai_report_diagnostics (per-query generated HogQL + failure types) is excluded to keep the response
-            focused on the report itself.
+            recipient_results and error are also excluded to avoid leaking recipient identifiers or upstream response
+            bodies that may contain tokens / PII. Unlike the list tool, ai_report (the full report markdown for
+            AI-prompt subscriptions) is returned here, alongside ai_report_prompt (the prompt it was generated from).
+            ai_report_diagnostics (per-query generated HogQL + failure types) is excluded to keep the response focused
+            on the report itself.
         response:
             exclude:
                 - content_snapshot
