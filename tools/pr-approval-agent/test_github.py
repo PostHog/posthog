@@ -116,20 +116,31 @@ def test_normalize_reviews_excludes_stamphogs_own_prior_reviews(login: str, expe
 
 
 @pytest.mark.parametrize(
-    "login,expected_count",
+    "login,user_type,author_association,expected_count",
     [
-        pytest.param("stamphog[bot]", 0, id="own-refuse-comment-excluded"),
-        pytest.param("github-actions[bot]", 0, id="own-approve-identity-excluded"),
-        pytest.param("greptile-apps[bot]", 1, id="other-bot-kept"),
-        pytest.param("alice", 1, id="human-kept"),
+        pytest.param("stamphog[bot]", "Bot", "NONE", 0, id="own-refuse-comment-excluded"),
+        pytest.param("github-actions[bot]", "Bot", "NONE", 0, id="own-approve-identity-excluded"),
+        pytest.param("greptile-apps[bot]", "Bot", "NONE", 1, id="other-bot-kept"),
+        pytest.param("alice", "User", "MEMBER", 1, id="trusted-member-kept"),
+        pytest.param("owner", "User", "OWNER", 1, id="trusted-owner-kept"),
+        # A drive-by external commenter must not reach the prompt: the
+        # maintainer-hold norm makes an untrusted "please hold" both griefable
+        # and forgeable, so discussion gets the same trust gate as reviews.
+        pytest.param("outsider", "User", "NONE", 0, id="untrusted-external-excluded"),
     ],
 )
-def test_normalize_discussion_excludes_stamphogs_own_comments(login: str, expected_count: int) -> None:
-    # Same exclusion as reviews/inline: stamphog's own discussion comments
-    # describe an earlier snapshot; feeding them back makes the next run read
-    # its own verdict as a third-party claim about stale state.
+def test_normalize_discussion_filters_by_trust_and_own_comments(
+    login: str, user_type: str, author_association: str, expected_count: int
+) -> None:
     normalized = _normalize_discussion_for_prompt(
-        [{"user": {"login": login}, "body": "a comment", "created_at": "2026-04-07T20:14:03Z"}]
+        [
+            {
+                "user": {"login": login, "type": user_type},
+                "author_association": author_association,
+                "body": "a comment",
+                "created_at": "2026-04-07T20:14:03Z",
+            }
+        ]
     )
 
     assert len(normalized) == expected_count

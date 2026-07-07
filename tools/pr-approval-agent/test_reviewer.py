@@ -12,7 +12,7 @@ sys.modules.setdefault("claude_agent_sdk", MagicMock())
 sys.modules.setdefault("claude_agent_sdk.types", MagicMock())
 
 from github import PRData  # noqa: E402
-from reviewer import Reviewer, _sanitize_untrusted  # noqa: E402
+from reviewer import Reviewer, _sanitize_untrusted, _truncate_inline_comments  # noqa: E402
 
 
 def _pr(**overrides: object) -> PRData:
@@ -95,18 +95,21 @@ def test_prompt_renders_description_in_untrusted_region(body: str, rendered: str
     "count,omission_line,absent_body",
     [
         pytest.param(30, "", None, id="at-cap-no-omission"),
-        pytest.param(45, "(15 older comments omitted)", "comment000", id="over-cap-omits-oldest"),
+        # Keep-ends, not newest-only: the oldest comments carry maintainer holds,
+        # so over the cap we drop the middle and keep both the first 10 and last 20.
+        pytest.param(45, "(15 middle comments omitted)", "comment015", id="over-cap-drops-middle"),
     ],
 )
-def test_prompt_discussion_keeps_newest_30(count: int, omission_line: str, absent_body: str | None) -> None:
+def test_prompt_discussion_keeps_both_ends(count: int, omission_line: str, absent_body: str | None) -> None:
     discussion = [{"user": f"u{i}", "body": f"comment{i:03d}", "created_at": None} for i in range(count)]
     prompt = _prompt(_pr(discussion=discussion))
 
+    assert "comment000" in prompt  # oldest is always kept
     assert f"comment{count - 1:03d}" in prompt  # newest is always kept
     if omission_line:
         assert omission_line in prompt
     else:
-        assert "older comments omitted" not in prompt
+        assert "middle comments omitted" not in prompt
     if absent_body:
         assert absent_body not in prompt
 
@@ -125,12 +128,17 @@ def test_prompt_truncates_long_review_body() -> None:
     "assurance,expected",
     [
         pytest.param(
-            {"head_approvals": ["bob"], "head_commented": 0, "unresolved_inline": 3, "discussion": 4},
-            "Assurance: 1 current-head approval (@bob); 3 unresolved inline comments; 4 discussion comments",
+            {"head_approvals": ["bob"], "head_commented": 0, "unresolved_threads": 3, "discussion": 4},
+            "Assurance: 1 current-head approval (@bob); 3 unresolved inline threads; 4 discussion comments",
             id="approvals-and-unresolved",
         ),
         pytest.param(
-            {"head_approvals": [], "head_commented": 0, "unresolved_inline": 0, "discussion": 0},
+            {"head_approvals": [], "head_commented": 0, "unresolved_threads": 1, "discussion": 0},
+            "Assurance: 1 unresolved inline thread",
+            id="singular-thread-no-plural-s",
+        ),
+        pytest.param(
+            {"head_approvals": [], "head_commented": 0, "unresolved_threads": 0, "discussion": 0},
             "Assurance: no reviews or comments yet",
             id="nothing-yet",
         ),
@@ -138,3 +146,31 @@ def test_prompt_truncates_long_review_body() -> None:
 )
 def test_format_assurance_line(assurance: dict, expected: str) -> None:
     assert Reviewer(Path("."))._format_assurance({"assurance": assurance}) == expected
+
+
+@pytest.mark.parametrize(
+    "count,kept_ids,dropped_id,omission",
+    [
+        # An unresolved comment older than the dropped resolved ones must survive:
+        # the norms key on unresolved threads, so truncation can't sacrifice one.
+        pytest.param(3, {"keep-unresolved", "b", "c"}, "old-resolved", "(1 older resolved/outdated comments omitted)"),
+    ],
+)
+def test_inline_truncation_keeps_unresolved_drops_resolved(
+    count: int, kept_ids: set[str], dropped_id: str, omission: str
+) -> None:
+    def comment(body: str, *, resolved: bool) -> dict:
+        return {"user": "r", "body": body, "path": "f.py", "is_resolved": resolved, "in_reply_to_id": None}
+
+    # Oldest-first: a resolved comment, then an unresolved one, then fillers.
+    comments = [
+        comment("old-resolved", resolved=True),
+        comment("keep-unresolved", resolved=False),
+        comment("b", resolved=False),
+        comment("c", resolved=False),
+    ]
+    shown, line = _truncate_inline_comments(comments, cap=count)
+
+    assert {c["body"] for c in shown} == kept_ids
+    assert all(c["body"] != dropped_id for c in shown)
+    assert line == omission

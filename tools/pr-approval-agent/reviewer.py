@@ -34,14 +34,75 @@ except ImportError:
 
 MODEL = "claude-sonnet-5"
 
+# Prompt byte budgets. Trace telemetry shows the reviewer uses a small fraction
+# of the model's context window, so these are generous — they exist to cap
+# pathological inputs, not to fit a tight budget.
+PR_BODY_MAX = 6000
+REVIEW_BODY_MAX = 2500
+COMMENT_BODY_MAX = 1500
+
+# Truncation caps. Inline comments show the newest, but never drop an unresolved
+# one first — the review norms key on unresolved threads. Discussion has no
+# resolution state and the oldest comments carry maintainer holds, so it keeps
+# both ends rather than a newest-only window.
+INLINE_COMMENT_CAP = 60
+DISCUSSION_HEAD_KEEP = 10
+DISCUSSION_TAIL_KEEP = 20
+
 
 # _sanitize_untrusted lives in policy.py (shared with the folder-prose
 # sanitizer) and is re-exported here so existing importers keep working.
 
 
+def _plural(n: int, noun: str) -> str:
+    """Render `n noun` with a naive plural 's' when n != 1."""
+    return f"{n} {noun}{'s' if n != 1 else ''}"
+
+
 def _reaction_token(reaction: dict) -> str:
     """Render one reaction as `👍 @user`, with the user login sanitized."""
     return f"{reaction['emoji']} @{_sanitize_untrusted(reaction['user'], max_len=50)}"
+
+
+def _truncate_inline_comments(comments: list[dict], cap: int) -> tuple[list[dict], str]:
+    """Keep the newest inline comments, but drop resolved/outdated ones first.
+
+    The review norms key on unresolved threads, so an unresolved comment must
+    never be what truncation drops. Over the cap, resolved/outdated comments go
+    oldest-first; only if the unresolved comments alone exceed the cap do we
+    keep the newest of them and say so plainly. Chronological order is preserved.
+    """
+    if len(comments) <= cap:
+        return comments, ""
+
+    settled = {i for i, c in enumerate(comments) if c.get("is_resolved") or c.get("is_outdated")}
+    unresolved_count = len(comments) - len(settled)
+
+    if unresolved_count > cap:
+        # Even the unresolved comments overflow the cap — keep the newest and
+        # say plainly that unresolved ones were dropped, since that's the
+        # unusual case the norms care about.
+        unresolved = [c for i, c in enumerate(comments) if i not in settled]
+        omitted = len(comments) - cap
+        return unresolved[-cap:], f"({omitted} older comments omitted, including some unresolved ones)"
+
+    budget = cap - unresolved_count
+    keep_settled = set(sorted(settled)[-budget:]) if budget else set()
+    kept = [c for i, c in enumerate(comments) if i not in settled or i in keep_settled]
+    dropped = len(settled) - len(keep_settled)
+    return kept, f"({dropped} older resolved/outdated comments omitted)"
+
+
+def _keep_ends(items: list[dict], head: int, tail: int) -> tuple[list[dict], list[dict], int]:
+    """Split into the oldest `head` and newest `tail`, reporting the dropped middle.
+
+    Returns (head_items, tail_items, omitted_count); the caller renders the
+    omission line between the two so the earliest comments (where maintainer
+    holds live) survive rather than falling out of a newest-only window.
+    """
+    if len(items) <= head + tail:
+        return items, [], 0
+    return items[:head], items[-tail:], len(items) - head - tail
 
 
 VERDICT_SCHEMA = {
@@ -309,14 +370,14 @@ class Reviewer:
         safe_title = _sanitize_untrusted(pr.title, max_len=200)
         safe_author = _sanitize_untrusted(pr.author, max_len=50)
 
-        safe_body_pr = _sanitize_untrusted(pr.body, max_len=6000) if pr.body else "(none)"
+        safe_body_pr = _sanitize_untrusted(pr.body, max_len=PR_BODY_MAX) if pr.body else "(none)"
 
         reviews_text = ""
         if pr.reviews:
             lines = []
             for r in pr.reviews:
                 safe_user = _sanitize_untrusted(r["user"], max_len=50)
-                safe_body = _sanitize_untrusted(r.get("body", ""), max_len=2500)
+                safe_body = _sanitize_untrusted(r.get("body", ""), max_len=REVIEW_BODY_MAX)
                 if r.get("is_current_head"):
                     review_scope = "current head"
                 elif r.get("commit_id"):
@@ -329,15 +390,11 @@ class Reviewer:
 
         review_comments = ""
         if pr.review_comments:
-            lines = []
-            # Cap inline comments so a pathological thread count can't blow up
-            # the prompt; the newest are the ones most likely still relevant.
-            shown, omitted = self._newest_with_omitted(pr.review_comments, 60)
-            if omitted:
-                lines.append(f"  ({omitted} older comments omitted)")
+            shown, omission = _truncate_inline_comments(pr.review_comments, INLINE_COMMENT_CAP)
+            lines = [f"  {omission}"] if omission else []
             for c in shown:
                 reply = " (reply)" if c.get("in_reply_to_id") else ""
-                safe_body = _sanitize_untrusted(c["body"], max_len=1500)
+                safe_body = _sanitize_untrusted(c["body"], max_len=COMMENT_BODY_MAX)
                 safe_user = _sanitize_untrusted(c["user"], max_len=50)
                 status = ""
                 if c.get("is_resolved"):
@@ -351,14 +408,11 @@ class Reviewer:
 
         discussion_text = ""
         if pr.discussion:
-            lines = []
-            shown, omitted = self._newest_with_omitted(pr.discussion, 30)
+            head_items, tail_items, omitted = _keep_ends(pr.discussion, DISCUSSION_HEAD_KEEP, DISCUSSION_TAIL_KEEP)
+            lines = [self._discussion_line(c) for c in head_items]
             if omitted:
-                lines.append(f"  ({omitted} older comments omitted)")
-            for c in shown:
-                safe_user = _sanitize_untrusted(c["user"], max_len=50)
-                safe_body = _sanitize_untrusted(c.get("body", ""), max_len=1500)
-                lines.append(f"  - @{safe_user}: {safe_body}")
+                lines.append(f"  ({omitted} middle comments omitted)")
+            lines.extend(self._discussion_line(c) for c in tail_items)
             discussion_text = "\n".join(lines)
 
         pr_reactions = "\n".join(f"  - {_reaction_token(r)}" for r in pr.pr_reactions)
@@ -456,15 +510,11 @@ class Reviewer:
             --- END UNTRUSTED CONTENT ---
         """)
 
-    def _newest_with_omitted(self, items: list[dict], keep: int) -> tuple[list[dict], int]:
-        """Keep the newest `keep` items (chronological order preserved), report the rest.
-
-        The source lists arrive oldest-first, so the tail is the newest slice;
-        the count of dropped older items feeds the "(N older comments omitted)"
-        line so a truncated section reads as truncated rather than silently short.
-        """
-        omitted = max(0, len(items) - keep)
-        return (items[-keep:] if omitted else items), omitted
+    def _discussion_line(self, c: dict) -> str:
+        """Render one discussion comment as `  - @user: body` (both sanitized)."""
+        safe_user = _sanitize_untrusted(c["user"], max_len=50)
+        safe_body = _sanitize_untrusted(c.get("body", ""), max_len=COMMENT_BODY_MAX)
+        return f"  - @{safe_user}: {safe_body}"
 
     def _format_assurance(self, cl: dict) -> str:
         """Render the TRUSTED one-line assurance digest of review state.
@@ -475,19 +525,19 @@ class Reviewer:
         a = cl.get("assurance") or {}
         approvers = [_sanitize_untrusted(u, max_len=50) for u in a.get("head_approvals", [])]
         commented = a.get("head_commented", 0)
-        unresolved = a.get("unresolved_inline", 0)
+        unresolved = a.get("unresolved_threads", 0)
         discussion = a.get("discussion", 0)
 
         parts = []
         if approvers:
             names = ", ".join(f"@{u}" for u in approvers)
-            parts.append(f"{len(approvers)} current-head approval{'s' if len(approvers) != 1 else ''} ({names})")
+            parts.append(f"{_plural(len(approvers), 'current-head approval')} ({names})")
         if commented:
-            parts.append(f"{commented} current-head comment-only review{'s' if commented != 1 else ''}")
+            parts.append(_plural(commented, "current-head comment-only review"))
         if unresolved:
-            parts.append(f"{unresolved} unresolved inline comment{'s' if unresolved != 1 else ''}")
+            parts.append(_plural(unresolved, "unresolved inline thread"))
         if discussion:
-            parts.append(f"{discussion} discussion comment{'s' if discussion != 1 else ''}")
+            parts.append(_plural(discussion, "discussion comment"))
 
         if not parts:
             return "Assurance: no reviews or comments yet"

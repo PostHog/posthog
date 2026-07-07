@@ -545,7 +545,10 @@ def _body_pipeline(fam) -> "review_pr.Pipeline":
         check_runs=[],
     )
     pipeline.reviewer_output = {"verdict": "APPROVE", "reasoning": "No showstoppers.", "risk": "low", "issues": []}
-    pipeline.classification = {"familiarity": fam}
+    pipeline.classification = {
+        "familiarity": fam,
+        "assurance": {"head_approvals": [], "head_commented_users": ["greptile-apps[bot]"]},
+    }
     pipeline.effective_policy = EffectivePolicy(
         max_lines=500,
         scopes=(

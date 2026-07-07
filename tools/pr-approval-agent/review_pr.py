@@ -450,14 +450,22 @@ class Pipeline:
         head_approvals = sorted(
             {r["user"] for r in pr.reviews if r.get("is_current_head") and r.get("state") == "APPROVED"}
         )
-        head_commented = len(
+        head_commented_users = sorted(
             {r["user"] for r in pr.reviews if r.get("is_current_head") and r.get("state") == "COMMENTED"}
         )
-        unresolved_inline = sum(1 for c in pr.review_comments if not c.get("is_resolved") and not c.get("is_outdated"))
+        # Count unresolved conversations, not flattened comments: replies inherit
+        # the thread's resolution state, so a single 4-reply thread must read as
+        # one unresolved thread, not five unresolved comments.
+        unresolved_threads = sum(
+            1
+            for c in pr.review_comments
+            if c.get("in_reply_to_id") is None and not c.get("is_resolved") and not c.get("is_outdated")
+        )
         return {
             "head_approvals": head_approvals,
-            "head_commented": head_commented,
-            "unresolved_inline": unresolved_inline,
+            "head_commented_users": head_commented_users,
+            "head_commented": len(head_commented_users),
+            "unresolved_threads": unresolved_threads,
             "discussion": len(pr.discussion),
         }
 
@@ -784,12 +792,13 @@ class Pipeline:
                 f"Author wrote {fam.blame_overlap_pct:.0f}% of the modified lines and has "
                 f"{fam.prior_prs_in_paths} merged PRs in these paths (familiarity {fam.band})."
             )
+        # Reuse the assurance digest's head-reviewer derivation rather than
+        # re-deriving it here. classification is empty {} on early-exit paths
+        # (bot-author REFUSE), so guard with .get and skip the bullet then.
+        assurance = self.classification.get("assurance") or {}
         head_reviewers = sorted(
-            {
-                _sanitize_untrusted(r["user"], max_len=50)
-                for r in self.pr.reviews
-                if r.get("is_current_head") and r.get("state") in ("APPROVED", "COMMENTED")
-            }
+            _sanitize_untrusted(u, max_len=50)
+            for u in {*assurance.get("head_approvals", []), *assurance.get("head_commented_users", [])}
         )
         thumbs = sorted(
             {_sanitize_untrusted(r["user"], max_len=50) for r in self.pr.pr_reactions if r.get("emoji") == "👍"}
