@@ -13,8 +13,6 @@ import io
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 
-from django.conf import settings
-
 import pyarrow as pa
 import structlog
 import pyarrow.parquet as pq
@@ -44,7 +42,11 @@ from posthog.temporal.session_replay.surfacing_score_export_sweep.pseudonymize i
     pseudonymize,
     resolve_pseudonym_key,
 )
-from posthog.temporal.session_replay.surfacing_score_export_sweep.s3 import score_export_object_key, upload_parquet
+from posthog.temporal.session_replay.surfacing_score_export_sweep.s3 import (
+    score_export_destination,
+    score_export_object_key,
+    upload_parquet,
+)
 from posthog.temporal.session_replay.surfacing_score_export_sweep.types import (
     ExportPartitionResult,
     ExportPartitionSpec,
@@ -58,14 +60,8 @@ logger = structlog.get_logger(__name__)
 def _disabled_reason() -> str | None:
     if not is_pseudonym_key_configured():
         return "pseudonym key not configured"
-    if not all(
-        [
-            settings.SESSION_RECORDING_V2_S3_ENDPOINT,
-            settings.SESSION_RECORDING_V2_S3_REGION,
-            settings.SESSION_RECORDING_V2_S3_BUCKET,
-        ]
-    ):
-        return "session recording v2 S3 destination not configured"
+    if score_export_destination() is None:
+        return "score export S3 destination not configured"
     return None
 
 
@@ -157,15 +153,18 @@ def _page_table(rows: list[_ScoredRow], secret: bytes) -> pa.Table:
 
 
 def _upload(key: str, body: bytes) -> None:
+    dest = score_export_destination()
+    if dest is None:
+        raise RuntimeError("score export S3 destination not configured")
     s3 = boto3_client(
         "s3",
-        endpoint_url=settings.SESSION_RECORDING_V2_S3_ENDPOINT,
-        aws_access_key_id=settings.SESSION_RECORDING_V2_S3_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY,
+        endpoint_url=dest.endpoint,
+        aws_access_key_id=dest.access_key_id,
+        aws_secret_access_key=dest.secret_access_key,
         config=Config(signature_version="s3v4"),
-        region_name=settings.SESSION_RECORDING_V2_S3_REGION,
+        region_name=dest.region,
     )
-    upload_parquet(s3, bucket=settings.SESSION_RECORDING_V2_S3_BUCKET, key=key, body=body)
+    upload_parquet(s3, bucket=dest.bucket, key=key, body=body)
 
 
 @activity.defn

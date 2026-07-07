@@ -16,6 +16,12 @@ def fetch_scored_sessions_page_sql(replay_events_table: str = SESSION_REPLAY_EVE
     boundary-straddling rows, and the exact day cut is in HAVING on the
     aggregated min (the score writeback row sits at session start +1µs, so it
     is always in-window).
+
+    Deletion markers are timestamped at deletion time, not session start, so
+    the day-window scan can't see them; the GLOBAL NOT IN subquery matches
+    them from the session's day onward with no upper bound. GLOBAL because
+    markers are written with an empty distinct_id and can shard away from
+    the session's rows.
     """
     return f"""
 SELECT
@@ -29,9 +35,16 @@ WHERE cityHash64(session_id) %% %(of_chunks)s = %(chunk_id)s
   AND (session_id, team_id) > (%(cursor_session_id)s, %(cursor_team_id)s)
   AND min_first_timestamp >= toDateTime(%(day_start)s, 'UTC')
   AND min_first_timestamp < toDateTime(%(day_start)s, 'UTC') + toIntervalDay(2)
+  AND (team_id, session_id) GLOBAL NOT IN (
+    SELECT team_id, session_id
+    FROM {replay_events_table}
+    WHERE cityHash64(session_id) %% %(of_chunks)s = %(chunk_id)s
+      AND team_id IN %(team_ids)s
+      AND min_first_timestamp >= toDateTime(%(day_start)s, 'UTC')
+      AND is_deleted = 1
+  )
 GROUP BY team_id, session_id
 HAVING score IS NOT NULL
-  AND max(is_deleted) = 0
   AND started_at >= toDateTime(%(day_start)s, 'UTC')
   AND started_at < toDateTime(%(day_start)s, 'UTC') + toIntervalDay(1)
 ORDER BY session_id, team_id
