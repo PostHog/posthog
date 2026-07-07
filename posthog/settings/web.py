@@ -522,6 +522,10 @@ SPECTACULAR_SETTINGS = {
         "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
+        # bulk_update_tags exposes an identical add/remove/set `action` ChoiceField on both
+        # BulkUpdateTagsRequest and its UUID subclass, so the shared enum can't be component-prefixed
+        # unambiguously and auto-resolves to a hash name. Pin it to a stable name.
+        "BulkUpdateTagsActionEnum": ["add", "remove", "set"],
         # Full signal taxonomy on the report `signals` endpoint; the source-config serializer's
         # subset enums keep their own auto-resolved names.
         "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",
