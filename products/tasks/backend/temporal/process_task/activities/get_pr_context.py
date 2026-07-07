@@ -33,13 +33,21 @@ def compute_pr_fingerprint(pr: dict[str, Any]) -> str:
     """Fingerprint the actionable state of a PR for the CI follow-up loop.
 
     Keyed on the signals that mean the agent has real work to do — PR state, the
-    CI check rollup, and the review decision — never on ``updated_at``. GitHub
-    bumps ``updated_at`` on any PR activity (comments, labels, reviews, the bot's
-    own pushes), so hashing it re-poked the agent for every one of those long
-    after the PR was opened. Hashing the fields below re-fires the follow-up only
-    when CI or the review decision actually change.
+    CI check rollup, and whether changes are requested — never on ``updated_at``.
+    GitHub bumps ``updated_at`` on any PR activity (comments, labels, reviews, the
+    bot's own pushes), so hashing it re-poked the agent for every one of those long
+    after the PR was opened.
+
+    For the review signal we key on the boolean ``review_decision == "changes_requested"``
+    rather than the raw decision: ``changes_requested`` is the only value that means
+    the agent has code to fix, so an ``approved`` or ``review_required`` transition no
+    longer re-pokes it for nothing. Net effect: the follow-up re-fires only when CI
+    changes or a reviewer requests changes.
     """
-    fingerprint_source = "|".join(str(pr.get(key, "")) for key in ("url", "state", "ci_status", "review_decision"))
+    changes_requested = pr.get("review_decision") == "changes_requested"
+    fingerprint_source = "|".join(
+        [str(pr.get(key, "")) for key in ("url", "state", "ci_status")] + [str(changes_requested)]
+    )
     return hashlib.sha256(fingerprint_source.encode()).hexdigest()
 
 
@@ -96,7 +104,8 @@ def get_pr_context(input: GetPrContextInput) -> GetPrContextOutput | None:
         try:
             # Snapshot (GraphQL) over the plain REST fetch: it carries the CI rollup
             # and review decision the fingerprint keys on, so the follow-up loop can
-            # tell real CI/review changes from noise like comments or thread churn.
+            # tell a real CI change or a changes-requested review from noise like
+            # comments, approvals, or thread churn.
             pull_request = github_integration.get_pull_request_snapshot(pr_url)  # Validate PR URL and permissions
             if not pull_request.get("success"):
                 return None

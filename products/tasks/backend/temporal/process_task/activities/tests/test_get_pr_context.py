@@ -51,6 +51,25 @@ class TestComputePrFingerprint:
         base = {"url": "https://github.com/org/repo/pull/1", "state": "open", "ci_status": "pending"}
         assert compute_pr_fingerprint({**base, field: before}) != compute_pr_fingerprint({**base, field: after})
 
+    @parameterized.expand(
+        [
+            (None, "approved"),
+            (None, "review_required"),
+            ("approved", "review_required"),
+            ("review_required", "approved"),
+        ]
+    )
+    def test_stable_across_non_actionable_review_decisions(self, before, after):
+        # Only changes_requested means the agent has code to fix. Keying on the raw
+        # decision re-poked the agent on approval and the review_required shuffle —
+        # common, non-actionable events. The fingerprint collapses review_decision to
+        # the changes_requested boolean, so transitions among the other values (none of
+        # which touch changes_requested) must not move it.
+        base = {"url": "https://github.com/org/repo/pull/1", "state": "open", "ci_status": "pending"}
+        assert compute_pr_fingerprint({**base, "review_decision": before}) == compute_pr_fingerprint(
+            {**base, "review_decision": after}
+        )
+
     def test_changes_when_url_changes(self):
         base = {"state": "open", "ci_status": "failing"}
         a = compute_pr_fingerprint({**base, "url": "https://github.com/org/repo/pull/1"})
