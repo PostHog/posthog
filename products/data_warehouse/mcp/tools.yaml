@@ -33,6 +33,9 @@ tools:
     data-warehouse-data-ops-dashboard-retrieve:
         operation: data_warehouse_data_ops_dashboard_retrieve
         enabled: false
+    data-warehouse-delete-org-destroy:
+        operation: data_warehouse_delete_org_destroy
+        enabled: false
     data-warehouse-deprovision-create:
         operation: data_warehouse_deprovision_create
         enabled: false

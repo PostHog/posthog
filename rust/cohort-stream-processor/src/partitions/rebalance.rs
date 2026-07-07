@@ -186,6 +186,9 @@ fn partition_numbers(partitions: &TopicPartitionList) -> Vec<i32> {
 }
 
 #[cfg(test)]
+// Tests seed and probe partition slices against `CohortStore` directly while the dispatcher holds
+// the `StoreHandle` facade.
+#[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
     use std::sync::Mutex;
@@ -194,7 +197,9 @@ mod tests {
     use crate::filters::{CatalogHandle, FilterCatalog};
     use crate::partitions::{MarkOutcome, OffsetTracker, PartitionRouter};
     use crate::producer::{CaptureSink, MembershipSink};
-    use crate::store::{CohortStore, LeafStateKey, Stage1Key, StoreConfig};
+    use crate::store::{
+        CohortStore, LeafStateKey, OffloadConfig, OffloadMode, Stage1Key, StoreConfig, StoreHandle,
+    };
     use crate::workers::MergeWorkerDeps;
     use uuid::Uuid;
 
@@ -208,25 +213,40 @@ mod tests {
         list
     }
 
-    fn test_dispatcher() -> (TempDir, Arc<EventDispatcher>, Arc<OffsetTracker>) {
+    /// Returns the raw store alongside the dispatcher (which wraps a clone of it) so tests can
+    /// seed/probe slices directly; the dispatcher itself only exposes the async facade.
+    fn test_dispatcher() -> (
+        TempDir,
+        Arc<EventDispatcher>,
+        Arc<OffsetTracker>,
+        CohortStore,
+    ) {
         let dir = TempDir::new().unwrap();
         let store = CohortStore::open(&StoreConfig {
             path: dir.path().join("db"),
             ..StoreConfig::default()
         })
         .unwrap();
+        let handle = StoreHandle::new(
+            store.clone(),
+            OffloadConfig {
+                mode: OffloadMode::All,
+                event_read_permits: 16,
+                maintenance_permits: 6,
+            },
+        );
         let catalog = Arc::new(CatalogHandle::from_catalog(FilterCatalog::from_teams([])));
         let sink: Arc<dyn MembershipSink> = Arc::new(CaptureSink::new());
         let tracker = Arc::new(OffsetTracker::new());
         let dispatcher = EventDispatcher::new(
             PartitionRouter::new(64),
             tracker.clone(),
-            store,
+            handle,
             catalog,
             sink,
             MergeWorkerDeps::capture(),
         );
-        (dir, Arc::new(dispatcher), tracker)
+        (dir, Arc::new(dispatcher), tracker, store)
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -305,7 +325,7 @@ mod tests {
 
     #[tokio::test]
     async fn on_assign_records_ownership_and_queues_an_assign_event() {
-        let (_dir, dispatcher, _tracker) = test_dispatcher();
+        let (_dir, dispatcher, _tracker, _store) = test_dispatcher();
         let (ctx, mut rx) = CohortConsumerContext::new(dispatcher.clone());
 
         ctx.on_assign(&tpl(&[0, 1, 4]));
@@ -323,7 +343,7 @@ mod tests {
 
     #[tokio::test]
     async fn on_revoke_clears_ownership_and_queues_a_revoke_event() {
-        let (_dir, dispatcher, _tracker) = test_dispatcher();
+        let (_dir, dispatcher, _tracker, _store) = test_dispatcher();
         let (ctx, mut rx) = CohortConsumerContext::new(dispatcher.clone());
 
         ctx.on_assign(&tpl(&[0, 1]));
@@ -343,7 +363,7 @@ mod tests {
 
     #[tokio::test]
     async fn empty_callbacks_are_noops_and_queue_nothing() {
-        let (_dir, dispatcher, _tracker) = test_dispatcher();
+        let (_dir, dispatcher, _tracker, _store) = test_dispatcher();
         let (ctx, mut rx) = CohortConsumerContext::new(dispatcher.clone());
 
         ctx.on_assign(&tpl(&[]));
@@ -358,7 +378,7 @@ mod tests {
 
     #[tokio::test]
     async fn assign_event_mirrors_the_followers() {
-        let (_dir, dispatcher, tracker) = test_dispatcher();
+        let (_dir, dispatcher, tracker, _store) = test_dispatcher();
         let (ctx, rx) = CohortConsumerContext::new(dispatcher.clone());
         let mirror = RecordingMirror::new(tracker);
 
@@ -371,7 +391,7 @@ mod tests {
 
     #[tokio::test]
     async fn revoke_unassigns_the_followers_before_the_drain() {
-        let (_dir, dispatcher, tracker) = test_dispatcher();
+        let (_dir, dispatcher, tracker, _store) = test_dispatcher();
         let (ctx, rx) = CohortConsumerContext::new(dispatcher.clone());
         let mirror = RecordingMirror::new(tracker.clone());
 
@@ -409,28 +429,21 @@ mod tests {
         }
     }
 
-    fn seed_slice(dispatcher: &EventDispatcher, partition: u16) {
-        dispatcher
-            .store()
+    fn seed_slice(store: &CohortStore, partition: u16) {
+        store
             .write_batch(|b| b.put_stage1(&slice_key(partition), b"state"))
             .unwrap();
     }
 
     /// Probe whether `partition`'s slice is present without seeding it, so the caller controls seed
     /// ordering relative to a boot reconcile.
-    fn present_probe(dispatcher: &EventDispatcher, partition: u16) -> impl Fn() -> bool + '_ {
-        move || {
-            dispatcher
-                .store()
-                .get_stage1(&slice_key(partition))
-                .unwrap()
-                .is_some()
-        }
+    fn present_probe(store: &CohortStore, partition: u16) -> impl Fn() -> bool + '_ {
+        move || store.get_stage1(&slice_key(partition)).unwrap().is_some()
     }
 
-    fn seed_and_present(dispatcher: &EventDispatcher, partition: u16) -> impl Fn() -> bool + '_ {
-        seed_slice(dispatcher, partition);
-        present_probe(dispatcher, partition)
+    fn seed_and_present(store: &CohortStore, partition: u16) -> impl Fn() -> bool + '_ {
+        seed_slice(store, partition);
+        present_probe(store, partition)
     }
 
     #[tokio::test]
@@ -440,14 +453,16 @@ mod tests {
         // the eviction-queue rebuild), so the slice survives the assign path until the first event —
         // regardless of the durable-restore gate.
         for durable_on in [false, true] {
-            let (_dir, dispatcher, tracker) = test_dispatcher();
+            let (_dir, dispatcher, tracker, store) = test_dispatcher();
             if durable_on {
                 dispatcher.enable_durable_restore();
             }
             // Snapshot excludes 3; seeding *after* reconcile keeps the boot wipe from deleting it, so
             // only the (now inert) assign path could have wiped it.
-            dispatcher.reconcile_boot_assignment(&[0].into_iter().collect(), 64);
-            let present = seed_and_present(&dispatcher, 3);
+            dispatcher
+                .reconcile_boot_assignment(&[0].into_iter().collect(), 64)
+                .await;
+            let present = seed_and_present(&store, 3);
             let (ctx, rx) = CohortConsumerContext::new(dispatcher.clone());
             let mirror = RecordingMirror::new(tracker);
             ctx.on_assign(&tpl(&[3]));
@@ -465,13 +480,15 @@ mod tests {
         // The pod's own initial assignment routes through the assign path; the restored slices for the
         // assigned partitions must survive it (the assign arm never wipes; spawn-time reclaim keeps
         // boot-snapshot partitions).
-        let (_dir, dispatcher, tracker) = test_dispatcher();
+        let (_dir, dispatcher, tracker, store) = test_dispatcher();
         dispatcher.enable_durable_restore();
-        seed_slice(&dispatcher, 0);
-        seed_slice(&dispatcher, 1);
-        let present_0 = present_probe(&dispatcher, 0);
-        let present_1 = present_probe(&dispatcher, 1);
-        dispatcher.reconcile_boot_assignment(&[0, 1].into_iter().collect(), 64);
+        seed_slice(&store, 0);
+        seed_slice(&store, 1);
+        let present_0 = present_probe(&store, 0);
+        let present_1 = present_probe(&store, 1);
+        dispatcher
+            .reconcile_boot_assignment(&[0, 1].into_iter().collect(), 64)
+            .await;
 
         let (ctx, rx) = CohortConsumerContext::new(dispatcher.clone());
         let mirror = RecordingMirror::new(tracker);
@@ -487,12 +504,12 @@ mod tests {
         // The rebalance worker can process the initial Assign before the consume loop records the
         // snapshot; the assign path never wipes, so the slices survive until they are either reopened
         // live or reclaimed at spawn time.
-        let (_dir, dispatcher, tracker) = test_dispatcher();
+        let (_dir, dispatcher, tracker, store) = test_dispatcher();
         dispatcher.enable_durable_restore();
-        seed_slice(&dispatcher, 0);
-        seed_slice(&dispatcher, 1);
-        let present_0 = present_probe(&dispatcher, 0);
-        let present_1 = present_probe(&dispatcher, 1);
+        seed_slice(&store, 0);
+        seed_slice(&store, 1);
+        let present_0 = present_probe(&store, 0);
+        let present_1 = present_probe(&store, 1);
 
         let (ctx, rx) = CohortConsumerContext::new(dispatcher.clone());
         let mirror = RecordingMirror::new(tracker);
@@ -508,7 +525,7 @@ mod tests {
 
     #[tokio::test]
     async fn rapid_revoke_assign_mirrors_both_calls_unconditionally() {
-        let (_dir, dispatcher, tracker) = test_dispatcher();
+        let (_dir, dispatcher, tracker, _store) = test_dispatcher();
         let (ctx, rx) = CohortConsumerContext::new(dispatcher.clone());
         let mirror = RecordingMirror::new(tracker.clone());
 

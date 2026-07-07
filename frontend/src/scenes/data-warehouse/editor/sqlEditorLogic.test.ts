@@ -770,6 +770,79 @@ describe('sqlEditorLogic', () => {
         })
     })
 
+    describe('open_query URL parameter', () => {
+        const STACKED_BAR_NODE: DataVisualizationNode = {
+            kind: NodeKind.DataVisualizationNode,
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: 'SELECT toStartOfDay(timestamp) AS day, event, count() FROM events GROUP BY day, event',
+            },
+            display: ChartDisplayType.ActionsStackedBar,
+            chartSettings: { seriesBreakdownColumn: 'event' },
+        }
+
+        it('adopts visualization settings without auto-running when opening a serialized DataVisualizationNode', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.insightNew({ query: STACKED_BAR_NODE }))
+
+            // open_query is URL-controlled, so the node is prefilled but never auto-run
+            await expectLogic(logic)
+                .toDispatchActions(['createTab', 'setSourceQuery'])
+                .toNotHaveDispatchedActions(['runQuery'])
+                .toMatchValues({
+                    queryInput: STACKED_BAR_NODE.source.query,
+                    sourceQuery: partial({
+                        display: ChartDisplayType.ActionsStackedBar,
+                        chartSettings: partial({ seriesBreakdownColumn: 'event' }),
+                    }),
+                })
+        })
+
+        it('keeps the default visualization and does not auto-run for a plain SQL string', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor({ query: 'SELECT 1' }))
+
+            await expectLogic(logic)
+                .toDispatchActions(['createTab', 'setQueryInput'])
+                .toNotHaveDispatchedActions(['runQuery'])
+                .toMatchValues({
+                    queryInput: 'SELECT 1',
+                    sourceQuery: partial({ display: ChartDisplayType.Auto }),
+                })
+        })
+
+        it('does not crash and falls back to an empty query for a malformed node with no source', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), { open_query: { kind: NodeKind.DataVisualizationNode } })
+
+            await expectLogic(logic)
+                .toDispatchActions(['createTab'])
+                .toNotHaveDispatchedActions(['setSourceQuery', 'runQuery'])
+                .toMatchValues({
+                    queryInput: null,
+                    sourceQuery: partial({ display: ChartDisplayType.Auto }),
+                })
+        })
+    })
+
     describe('Update view', () => {
         it('advances the saved baseline after updating so reverting to the original query re-enables Update view', async () => {
             logic = sqlEditorLogic({

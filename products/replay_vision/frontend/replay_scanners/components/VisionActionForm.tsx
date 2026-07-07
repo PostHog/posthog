@@ -122,6 +122,10 @@ function ScheduleSection(): JSX.Element {
             </div>
 
             <span className="text-xs text-muted">{humanizeCadence(cadence)}</span>
+            <span className="text-xs text-muted">
+                Each run summarizes up to 100 observations from the period. Busier periods are sampled down to that
+                limit.
+            </span>
         </div>
     )
 }
