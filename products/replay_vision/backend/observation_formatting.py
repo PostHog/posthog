@@ -39,7 +39,7 @@ def format_line(obs: "ReplayObservation", output: dict[str, Any], *, show_scanne
     explanation = output.get("reasoning") or output.get("summary")
     if not isinstance(explanation, str) or not explanation.strip():
         explanation = output.get("intent") or output.get("outcome") or ""
-    clean = EVENT_ID_CITATION_RE.sub("", explanation).strip()[:SEARCH_SNIPPET_LIMIT]
+    clean = re.sub(r"\s+", " ", EVENT_ID_CITATION_RE.sub("", explanation)).strip()[:SEARCH_SNIPPET_LIMIT]
 
     prefix = f"{obs.created_at:%Y-%m-%d}"
     session = str(obs.session_id)

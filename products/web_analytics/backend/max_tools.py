@@ -3,6 +3,7 @@ import asyncio
 import logging
 from datetime import date
 from typing import Any, Literal
+from urllib.parse import urlsplit, urlunsplit
 
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
@@ -560,6 +561,20 @@ class SummarizeWebsiteInteractionsTool(MaxTool):
         return content, artifact
 
 
+def _display_url(page_url: str) -> str:
+    """Canonicalize a caller-supplied page URL for safe display in trusted report text.
+
+    `page_url` can be selected from captured analytics data, where `$current_url` is
+    visitor-controllable. Reconstructing it from a parsed http(s) URL drops newlines,
+    fragments, and control characters, so it can't forge report structure or read as
+    instructions when placed outside the untrusted-data fence."""
+    parts = urlsplit(page_url.strip())
+    if parts.scheme in ("http", "https") and parts.netloc:
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, parts.query, ""))
+    collapsed = " ".join(page_url.split())
+    return "".join(ch for ch in collapsed if ch.isprintable())[:200]
+
+
 def _format_website_interactions_report(
     page_url: str,
     heatmap_block: str,
@@ -572,7 +587,7 @@ def _format_website_interactions_report(
     the heatmap (page-level, quantitative) and Vision (whole-session, qualitative) evidence and lets Max's
     outer model do the fusion, mirroring `assess_heatmap` / the Replay Vision tools."""
     sections = [
-        f"# How users interact with {page_url}",
+        f"# How users interact with {_display_url(page_url)}",
         "",
         "## Aggregate heatmap signal — page-level",
         "",
@@ -904,9 +919,10 @@ def _scroll_reach(buckets: list[dict[str, Any]]) -> dict[str, Any] | None:
 
 
 def _format_heatmap_report(page_url: str, data: dict[str, Any]) -> str:
+    display_url = _display_url(page_url)
     if not data.get("opted_in"):
         return (
-            f"Heatmaps aren't enabled for this project, so there's no data to assess for {page_url}. "
+            f"Heatmaps aren't enabled for this project, so there's no data to assess for {display_url}. "
             "Turn on heatmap capture in the project's web analytics / autocapture settings "
             "(`Team.heatmaps_opt_in`), then check back once interactions have been recorded."
         )
@@ -916,7 +932,7 @@ def _format_heatmap_report(page_url: str, data: dict[str, Any]) -> str:
     fold = data["fold"]
     elements = data["elements"]
 
-    lines = [f"Heatmap assessment for **{page_url}** ({data['date_from']} → {data['date_to']}):", ""]
+    lines = [f"Heatmap assessment for **{display_url}** ({data['date_from']} → {data['date_to']}):", ""]
 
     band = _viewport_band(data.get("viewport_width_min"), data.get("viewport_width_max"))
     if band:
