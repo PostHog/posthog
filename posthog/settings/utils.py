@@ -11,6 +11,7 @@ __all__ = [
     "generate_rsa_private_key_pem",
     "get_from_env",
     "get_list",
+    "load_or_mint_dev_oidc_rsa_key",
     "str_to_bool",
 ]
 
@@ -46,6 +47,30 @@ def generate_rsa_private_key_pem() -> str:
         encryption_algorithm=serialization.NoEncryption(),
     )
     return pem.decode("utf-8")
+
+
+def load_or_mint_dev_oidc_rsa_key() -> str:
+    """Return a persistent RSA private key for local dev OIDC signing.
+
+    First launch mints an ephemeral key and writes it to disk; subsequent Django
+    restarts read the same key back. Keeps client OAuth sessions valid across
+    dev-server reloads. Path defaults to ~/.posthog/dev-oidc-rsa.pem; override
+    with DEV_OIDC_RSA_KEY_PATH.
+    """
+    from pathlib import Path  # noqa: PLC0415
+
+    path = Path(os.getenv("DEV_OIDC_RSA_KEY_PATH", "~/.posthog/dev-oidc-rsa.pem")).expanduser()
+    try:
+        if path.is_file():
+            return path.read_text()
+    except OSError:
+        # Unreadable path (perms, symlink loop) — fall through to mint + write.
+        pass
+    pem = generate_rsa_private_key_pem()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(pem)
+    path.chmod(0o600)
+    return pem
 
 
 def get_from_env(

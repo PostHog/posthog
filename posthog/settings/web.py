@@ -7,7 +7,13 @@ from corsheaders.defaults import default_headers
 
 from posthog.scopes import get_scope_descriptions
 from posthog.settings.base_variables import BASE_DIR, CLOUD_DEPLOYMENT, DEBUG, TEST
-from posthog.settings.utils import generate_rsa_private_key_pem, get_from_env, get_list, str_to_bool
+from posthog.settings.utils import (
+    generate_rsa_private_key_pem,
+    get_from_env,
+    get_list,
+    load_or_mint_dev_oidc_rsa_key,
+    str_to_bool,
+)
 from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 
 logger = structlog.get_logger(__name__)
@@ -924,11 +930,18 @@ OIDC_RSA_PRIVATE_KEY = os.getenv("OIDC_RSA_PRIVATE_KEY", "").replace("\\n", "\n"
 # Saving an RS256 OAuthApplication validates that this key is set, so a test run without one
 # (fork PRs, bare local environments) fails in every test that creates an OAuth app. The same
 # gap bites local dev: any flow that mints an OAuth app (e.g. the agent platform's
-# revision promote) 500s until the key is provisioned. Generate an ephemeral key so tests
-# and local dev never depend on an env-provided key. Cloud deployments still require the
+# revision promote) 500s until the key is provisioned. Self-provision a key so tests and
+# local dev never depend on an env-provided one. Cloud deployments still require the
 # real env-provided key.
-if not OIDC_RSA_PRIVATE_KEY and (TEST or (DEBUG and not CLOUD_DEPLOYMENT)):
-    OIDC_RSA_PRIVATE_KEY = generate_rsa_private_key_pem()
+#   - TEST: ephemeral key per run (tests are isolated; persistence would just be noise).
+#   - Local dev: persist the key to disk so it survives Django restarts. Otherwise every
+#     dev-server auto-reload rotates the OIDC signing key and invalidates any client OAuth
+#     session (e.g. a signed-in Claude Code session hitting the local backend).
+if not OIDC_RSA_PRIVATE_KEY:
+    if TEST:
+        OIDC_RSA_PRIVATE_KEY = generate_rsa_private_key_pem()
+    elif DEBUG and not CLOUD_DEPLOYMENT:
+        OIDC_RSA_PRIVATE_KEY = load_or_mint_dev_oidc_rsa_key()
 
 OIDC_RSA_PRIVATE_KEY_INACTIVE_1 = os.getenv("OIDC_RSA_PRIVATE_KEY_INACTIVE_1", "").replace("\\n", "\n")
 OIDC_RSA_PRIVATE_KEY_INACTIVE_2 = os.getenv("OIDC_RSA_PRIVATE_KEY_INACTIVE_2", "").replace("\\n", "\n")
