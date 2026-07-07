@@ -50,6 +50,9 @@ _LIST_PRICES: dict[str, tuple[float, float, float, float]] = {
     "claude-opus-4-8": (5e-06, 2.5e-05, 5e-07, 6.25e-06),
     "claude-fable-5": (1e-05, 5e-05, 1e-06, 1.25e-05),
     "claude-haiku-4-5": (1e-06, 5e-06, 1e-07, 1.25e-06),
+    # Not a pinned model — appears when a session loses its model pin mid-run (session-restart
+    # class); priced so a switched unit doesn't poison the run total.
+    "claude-sonnet-4-6": (3e-06, 1.5e-05, 3e-07, 3.75e-06),
 }
 
 # Anthropic's long-context boundary for one request. The gateway's LiteLLM map prices these
@@ -81,6 +84,7 @@ def _stage_of(task_title: str, ai_stage: str) -> str:
         ("validation", "validation"),
         ("chunking", "chunking"),
         ("dedup", "dedup"),
+        ("warmup", "warmup"),
     ):
         if step.startswith(prefix):
             return stage
@@ -152,7 +156,7 @@ def _spend_report(start_dt):
     naive_usd = 0.0
     gw_sides = {"input": [0.0, 0], "output": [0.0, 0], "cache_read": [0.0, 0], "cache_write": [0.0, 0]}
     true_sides = {"input": 0.0, "output": 0.0, "cache_read": 0.0, "cache_write": 0.0}
-    turn1: dict[str, tuple] = {}  # task_run_id -> (ts, stage, cache_read, cache_write); rows are time-ordered
+    turn1: dict[str, tuple] = {}  # task_run_id -> (ts, stage, step, cache_read, cache_write); rows are time-ordered
 
     for ts, model, ai_stage, task_title, task_run_id, tin, tout, cread, cwrite, gw, gwi, gwo, gwr, gww in rows:
         stage = _stage_of(task_title, ai_stage)
@@ -186,8 +190,13 @@ def _spend_report(start_dt):
             if value is not None:
                 gw_sides[side][0] += value
                 gw_sides[side][1] += 1
-        if task_run_id and task_run_id not in turn1 and stage in ("review", "blind-spot", "validation"):
-            turn1[task_run_id] = (ts, stage, cread, cwrite)
+        if task_run_id and task_run_id not in turn1 and stage in ("review", "blind-spot", "validation", "warmup"):
+            step_match = re.match(r"\[sandbox_prompt:([a-z0-9_-]+)\]", task_title or "")
+            turn1[task_run_id] = (ts, stage, step_match.group(1) if step_match else "", cread, cwrite, {model})
+        elif task_run_id in turn1:
+            # Track every model the unit's session touched — a set > 1 exposes a silent mid-session
+            # model switch (e.g. the overload rescue), which breaks cache sharing and cost pinning.
+            turn1[task_run_id][5].add(model)
 
     lines: list[str] = []
     w = lines.append
@@ -273,20 +282,47 @@ def _spend_report(start_dt):
     w("")
 
     if turn1:
-        hits = sum(1 for _ts, _stage, cread, _cwrite in turn1.values() if cread > 0)
+        hits = sum(1 for _ts, _stage, _step, cread, _cwrite, _models in turn1.values() if cread > 0)
         w("### Turn-1 cache reads per sandbox unit (cross-sandbox sharing tripwire)\n")
-        w("| unit | stage | first gen | t1 cache read | t1 cache write |")
-        w("| ---- | ----- | --------- | ------------- | -------------- |")
-        for run_id, (ts, stage, cread, cwrite) in sorted(turn1.items(), key=lambda kv: kv[1][0]):
-            w(f"| …{run_id[-8:]} | {stage} | {ts:%H:%M:%S} | {_fmt_tok(cread)} | {_fmt_tok(cwrite)} |")
+        w("| unit | step | first gen | t1 cache read | t1 cache write | models |")
+        w("| ---- | ---- | --------- | ------------- | -------------- | ------ |")
+        for run_id, (ts, stage, step, cread, cwrite, models) in sorted(turn1.items(), key=lambda kv: kv[1][0]):
+            model_cell = ", ".join(sorted(models)) + (" ⚠️SWITCHED" if len(models) > 1 else "")
+            w(
+                f"| …{run_id[-8:]} | {step or stage} | {ts:%H:%M:%S} | {_fmt_tok(cread)} "
+                f"| {_fmt_tok(cwrite)} | {model_cell} |"
+            )
         w("")
         w(f"- units with turn-1 cache_read > 0: **{hits}/{len(turn1)}** (report the distribution, not a median).")
+        switched = [run_id for run_id, v in turn1.items() if len(v[5]) > 1]
+        if switched:
+            w(
+                f"- ⚠️ {len(switched)} unit(s) switched models mid-session (overload rescue?) — "
+                "cache sharing and cost pinning are broken for them: " + ", ".join(f"…{r[-8:]}" for r in switched)
+            )
+        # Fork collision tracker (warm-up+fork arm): per chunk, forked units landing inside the
+        # seconds-wide cache-write window each rewrite the shared replay prefix. 1 writer + N readers
+        # is the ideal; more writers = harmless double-writes (~$0.10 each) worth a stagger if common.
+        by_chunk: dict[str, list[tuple]] = defaultdict(list)
+        for _run_id, (_ts, stage, step, cread, cwrite, _models) in turn1.items():
+            m = re.search(r"-c(\d+)$", step)
+            if m and stage in ("review", "blind-spot"):
+                by_chunk[m.group(1)].append((cread, cwrite))
+        if any(step.startswith("warmup") for _ts, _stage, step, _cr, _cw, _m in turn1.values()):
+            for chunk_id in sorted(by_chunk):
+                units = by_chunk[chunk_id]
+                writers = sum(1 for _cread, cwrite in units if cwrite > 20_000)
+                w(
+                    f"- chunk {chunk_id} forked units: **{writers} prefix writer(s) / "
+                    f"{len(units) - writers} reader(s)** at turn 1 (1 writer is the ideal fork)."
+                )
         w("")
 
     headline = (
         f"SPEND gens={int(totals[0])} true_usd={_fmt_usd(true_total)} gw_usd={_fmt_usd(gw_total)} "
         f"naive_usd={_fmt_usd(naive_usd) if naive_usd else '—'} "
-        f"turn1_hits={sum(1 for v in turn1.values() if v[2] > 0)}/{len(turn1)}"
+        f"turn1_hits={sum(1 for v in turn1.values() if v[3] > 0)}/{len(turn1)} "
+        f"model_switches={sum(1 for v in turn1.values() if len(v[5]) > 1)}"
     )
     return lines, headline
 
