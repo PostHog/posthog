@@ -13,10 +13,6 @@
     --row-horizontal-padding: 0.5rem;
     --lemon-table-background-color: var(--color-bg-surface-primary);
 
-    // Cap how wide a single auto-sized cell may grow before its content is clipped.
-    // Overridable per-table to allow wider (or uncapped, via `none`) columns.
-    --lemon-table-cell-max-width: 20rem;
-
     position: relative;
     flex: 1;
     width: 100%;
@@ -260,11 +256,8 @@
     }
 }
 
-// Clips a cell's contents to a single line with an ellipsis, keeping the full value in the DOM.
-// Applied to a wrapper *inside* the cell so it works even for sticky/pinned cells, which must keep
-// `overflow: visible` for their scroll shadow and therefore can't clip via the cell box itself.
+// A wrapper inside the cell (not the cell itself) so it also clips sticky cells, which keep `overflow: visible`.
 .LemonTable__cell-content {
-    max-width: var(--lemon-table-cell-max-width);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

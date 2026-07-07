@@ -451,10 +451,9 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                     )
                                                     const { isSticky: isPinned, leftPosition } = stickyInfo
 
-                                                    // Mirror TableRow: columns with an explicit width or
-                                                    // `fullWidth` keep author-controlled sizing; the rest cap
-                                                    // their header so a long title can't stretch the column.
-                                                    const truncateHeader = !column.width && !column.fullWidth
+                                                    // Truncate only when a max width is set and the column isn't sized by its author.
+                                                    const truncateHeader =
+                                                        !!maxHeaderWidth && !column.width && !column.fullWidth
 
                                                     return (
                                                         <th
@@ -523,18 +522,17 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                             >
                                                                 <div
                                                                     className={clsx(
-                                                                        'flex items-center min-w-0',
+                                                                        'flex items-center',
+                                                                        truncateHeader && 'min-w-0',
                                                                         column?.fullWidth && 'w-full',
                                                                         column.sorter && 'cursor-pointer'
                                                                     )}
                                                                     /* eslint-disable-next-line react/forbid-dom-props */
-                                                                    style={{
-                                                                        maxWidth:
-                                                                            maxHeaderWidth ??
-                                                                            (truncateHeader
-                                                                                ? 'var(--lemon-table-cell-max-width)'
-                                                                                : undefined),
-                                                                    }}
+                                                                    style={
+                                                                        maxHeaderWidth
+                                                                            ? { maxWidth: maxHeaderWidth }
+                                                                            : undefined
+                                                                    }
                                                                 >
                                                                     {column.tooltip ? (
                                                                         <Tooltip title={column.tooltip}>
@@ -546,7 +544,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                                     ) : truncateHeader &&
                                                                       typeof column.title === 'string' ? (
                                                                         <div
-                                                                            className="LemonTable__cell-content"
+                                                                            className="LemonTable__cell-content min-w-0"
                                                                             title={column.title}
                                                                         >
                                                                             {column.title}
@@ -684,6 +682,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                 pinnedColumnWidths={pinnedColumnWidths}
                                                 columns={columns}
                                                 rowActions={rowActions}
+                                                maxCellWidth={maxHeaderWidth}
                                             />
                                         )
                                     })

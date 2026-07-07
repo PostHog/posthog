@@ -25,6 +25,8 @@ export interface TableRowProps<T extends Record<string, any>> {
     pinnedColumnWidths?: number[]
     columns?: LemonTableColumn<T, any>[]
     rowActions?: (record: T, recordIndex: number) => React.ReactNode | null
+    /** When set, cell contents are clipped to this max width with an ellipsis. */
+    maxCellWidth?: string
 }
 
 function TableRowRaw<T extends Record<string, any>>({
@@ -43,6 +45,7 @@ function TableRowRaw<T extends Record<string, any>>({
     pinnedColumnWidths,
     columns,
     rowActions,
+    maxCellWidth,
 }: TableRowProps<T>): JSX.Element {
     const [isRowExpandedLocal, setIsRowExpanded] = useState(false)
     const rowExpandable: number = Number(
@@ -141,11 +144,8 @@ function TableRowRaw<T extends Record<string, any>>({
                             const extraCellProps =
                                 isTableCellRepresentation(contents) && contents.props ? contents.props : {}
                             const cellChildren = isTableCellRepresentation(contents) ? contents.children : contents
-                            // Columns with an explicit width or `fullWidth` opt out of truncation - their
-                            // author is in control of sizing. Everything else is clipped so long content
-                            // (a long series name, breakdown label, or SQL expression) can't push into
-                            // and overflow neighbouring cells.
-                            const truncateCell = !column.width && !column.fullWidth
+                            // Clip only when a max width is set and the column isn't sized by its author.
+                            const truncateCell = !!maxCellWidth && !column.width && !column.fullWidth
                             const cellTitle =
                                 typeof rawContents === 'string' || typeof rawContents === 'number'
                                     ? String(rawContents)
@@ -174,7 +174,12 @@ function TableRowRaw<T extends Record<string, any>>({
                                     {...extraCellProps}
                                 >
                                     {truncateCell ? (
-                                        <div className="LemonTable__cell-content" title={cellTitle}>
+                                        <div
+                                            className="LemonTable__cell-content"
+                                            title={cellTitle}
+                                            // eslint-disable-next-line react/forbid-dom-props
+                                            style={{ maxWidth: maxCellWidth }}
+                                        >
                                             {cellChildren}
                                         </div>
                                     ) : (
