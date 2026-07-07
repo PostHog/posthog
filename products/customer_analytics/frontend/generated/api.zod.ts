@@ -9,6 +9,82 @@
  */
 import * as zod from 'zod'
 
+export const accountRelationshipDefinitionsCreateBodyNameMax = 400
+
+export const accountRelationshipDefinitionsCreateBodyIsSingleHolderDefault = true
+
+export const AccountRelationshipDefinitionsCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(accountRelationshipDefinitionsCreateBodyNameMax)
+            .describe('Human-readable name of the relationship. Unique within the team.'),
+        description: zod
+            .string()
+            .nullish()
+            .describe(
+                "What this relationship means, e.g. 'The customer success manager responsible for this account'."
+            ),
+        is_single_holder: zod
+            .boolean()
+            .default(accountRelationshipDefinitionsCreateBodyIsSingleHolderDefault)
+            .describe(
+                'Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.'
+            ),
+    })
+    .describe('A team-defined account relationship type (CSM, Onboarding manager, ...).')
+
+export const accountRelationshipDefinitionsUpdateBodyNameMax = 400
+
+export const accountRelationshipDefinitionsUpdateBodyIsSingleHolderDefault = true
+
+export const AccountRelationshipDefinitionsUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(accountRelationshipDefinitionsUpdateBodyNameMax)
+            .describe('Human-readable name of the relationship. Unique within the team.'),
+        description: zod
+            .string()
+            .nullish()
+            .describe(
+                "What this relationship means, e.g. 'The customer success manager responsible for this account'."
+            ),
+        is_single_holder: zod
+            .boolean()
+            .default(accountRelationshipDefinitionsUpdateBodyIsSingleHolderDefault)
+            .describe(
+                'Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.'
+            ),
+    })
+    .describe('A team-defined account relationship type (CSM, Onboarding manager, ...).')
+
+export const accountRelationshipDefinitionsPartialUpdateBodyNameMax = 400
+
+export const accountRelationshipDefinitionsPartialUpdateBodyIsSingleHolderDefault = true
+
+export const AccountRelationshipDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(accountRelationshipDefinitionsPartialUpdateBodyNameMax)
+            .optional()
+            .describe('Human-readable name of the relationship. Unique within the team.'),
+        description: zod
+            .string()
+            .nullish()
+            .describe(
+                "What this relationship means, e.g. 'The customer success manager responsible for this account'."
+            ),
+        is_single_holder: zod
+            .boolean()
+            .default(accountRelationshipDefinitionsPartialUpdateBodyIsSingleHolderDefault)
+            .describe(
+                'Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.'
+            ),
+    })
+    .describe('A team-defined account relationship type (CSM, Onboarding manager, ...).')
+
 export const accountsCreateBodyNameMax = 400
 
 export const accountsCreateBodyExternalIdMax = 400
