@@ -193,7 +193,6 @@ jobs:
                       EXTRA_RUSTFLAGS=${{ matrix.extra_rustflags || '' }}
                       EXTRA_CFLAGS=${{ matrix.extra_cflags || '' }}
                       SCCACHE_WEBDAV_KEY_PREFIX=${{ steps.sccache.outputs.cache-key-prefix }}
-                      COMMIT_HASH=${{ github.sha }}
                   secrets: |
                       SCCACHE_WEBDAV_ENDPOINT=${{ steps.sccache.outputs.endpoint }}
                       SCCACHE_WEBDAV_TOKEN=${{ steps.sccache.outputs.token }}
