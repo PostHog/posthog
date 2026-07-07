@@ -1617,6 +1617,8 @@ describe('toExperimentWritePayload', () => {
                         ],
                     },
                     groups: [{ properties: [], rollout_percentage: 80 }],
+                    aggregation_group_type_index: 1,
+                    payloads: { test: '"v1"' },
                 },
                 ensure_experience_continuity: false,
             },

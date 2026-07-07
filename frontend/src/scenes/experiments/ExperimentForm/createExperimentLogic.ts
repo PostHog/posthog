@@ -337,6 +337,27 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             // Set loading state after all validation passes
             actions.saveExperimentStarted()
 
+            // Whether the key is available decides whether flag config is sent (an available key
+            // means the backend creates the flag and applies the config; an existing key means the
+            // experiment links to that flag as-is and explicit config is rejected). A missing or
+            // stale availability check must not decide this silently: re-run it, and fail loud if
+            // it still can't complete.
+            const flagKey = values.experiment.feature_flag_key
+            const panelLogic = variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false })
+            if (values.featureFlagKeyValidation?.key !== flagKey) {
+                try {
+                    await panelLogic.asyncActions.validateFeatureFlagKey(flagKey)
+                } catch {
+                    // Handled below: featureFlagKeyValidation stays stale or null.
+                }
+            }
+            const keyValidation = panelLogic.values.featureFlagKeyValidation
+            if (keyValidation?.key !== flagKey) {
+                lemonToast.error("Couldn't verify the feature flag key. Please try again.")
+                actions.saveExperimentFailure()
+                return
+            }
+
             try {
                 const savedMetrics = [
                     ...values.sharedMetrics.primary.map((metric) => ({
@@ -353,13 +374,12 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     })),
                 ]
 
-                // Only a key confirmed available means the backend will create the flag and can
-                // apply config to it. In link flows (validation cleared or failed with an
-                // existing flag) the experiment links to the pre-existing flag as-is, and the
-                // API rejects explicit flag config.
+                // A key confirmed available means the backend will create the flag and can apply
+                // config to it; a taken key means the experiment links to the pre-existing flag
+                // as-is, and the API rejects explicit flag config.
                 const experimentPayload = {
                     ...toExperimentWritePayload(values.experiment, {
-                        omitFlagConfig: values.featureFlagKeyValidation?.valid !== true,
+                        omitFlagConfig: keyValidation.valid !== true,
                     }),
                     saved_metrics_ids: savedMetrics,
                 }

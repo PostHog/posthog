@@ -207,6 +207,7 @@ describe('experimentWizardLogic', () => {
             vpLogic.actions.validateFeatureFlagKeySuccess({
                 valid: false,
                 error: 'A feature flag with this key already exists.',
+                key: 'existing-flag',
                 existingFlag: mockEligibleFlags[0] as FeatureFlagType,
             })
 
@@ -238,6 +239,7 @@ describe('experimentWizardLogic', () => {
             vpLogic.actions.validateFeatureFlagKeySuccess({
                 valid: false,
                 error: 'A feature flag with this key already exists.',
+                key: 'existing-flag',
                 existingFlag: flag,
             })
 
@@ -571,10 +573,15 @@ describe('experimentWizardLogic', () => {
             vpLogic.actions.validateFeatureFlagKeySuccess({
                 valid: false,
                 error: 'A feature flag with this key already exists.',
+                key: 'existing-flag',
             })
 
             await expectLogic(logic).toMatchValues({
-                featureFlagKeyValidation: { valid: false, error: 'A feature flag with this key already exists.' },
+                featureFlagKeyValidation: {
+                    valid: false,
+                    error: 'A feature flag with this key already exists.',
+                    key: 'existing-flag',
+                },
                 stepValidationErrors: partial({
                     about: ['A feature flag with this key already exists.'],
                 }),
@@ -588,6 +595,7 @@ describe('experimentWizardLogic', () => {
             vpLogic.actions.validateFeatureFlagKeySuccess({
                 valid: false,
                 error: 'A feature flag with this key already exists.',
+                key: 'existing-flag',
             })
 
             await expectLogic(logic).toMatchValues({

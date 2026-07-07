@@ -193,7 +193,7 @@ def _slugify_feature_flag_key(name: str, *, team_id: int) -> str:
         description="Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time. Feature-flag config (variants, rollout, payloads) is sent via the feature_flag object.",
         request=ExperimentWriteSerializer,
     ),
-    # PUT /experiments/{id}/ — same request shape as PATCH
+    # PUT /experiments/{id}/, same request shape as PATCH
     update=extend_schema(request=ExperimentWriteSerializer),
     # POST /experiments/ — DRF mixin calls ExperimentSerializer.create
     create=extend_schema(

@@ -1296,8 +1296,10 @@ export const experimentLogic = kea<experimentLogicType>([
                     response = await api.create(`api/projects/${values.currentProjectId}/experiments`, {
                         // A pre-existing flag is linked as-is: the API rejects explicit flag
                         // config for it, so only send config when the flag will be created.
+                        // Key-aware so a stale match for a previously typed key can't suppress
+                        // config for a fresh key.
                         ...toExperimentWritePayload(values.experiment, {
-                            omitFlagConfig: !!values.validExistingFeatureFlag,
+                            omitFlagConfig: values.validExistingFeatureFlag?.key === values.experiment.feature_flag_key,
                         }),
                         running_time_calculation:
                             /**

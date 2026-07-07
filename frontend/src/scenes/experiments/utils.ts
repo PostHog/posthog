@@ -1009,8 +1009,8 @@ export function toFlagVariantsInput(
     }))
 }
 
-/** The GET projection mirrors the linked flag's config into `parameters`; these two keys are
- * echo-only (no frontend flow sets them), so writes drop them and the flag keeps its values. */
+/** The flag-config keys the GET projection mirrors into `parameters`. `ensure_experience_continuity`
+ * is also user-set (the wizard's continuity toggle writes it); the others only echo the flag. */
 type ProjectedFlagConfigParameters = Experiment['parameters'] & {
     ensure_experience_continuity?: boolean | null
     feature_flag_payloads?: Record<string, string>
@@ -1031,8 +1031,8 @@ export function toExperimentWritePayload<T extends Pick<Experiment, 'parameters'
     const {
         feature_flag_variants,
         rollout_percentage,
-        aggregation_group_type_index: _aggregation,
-        feature_flag_payloads: _payloads,
+        aggregation_group_type_index,
+        feature_flag_payloads,
         ensure_experience_continuity,
         ...parameters
     } = (experiment.parameters ?? {}) as ProjectedFlagConfigParameters
@@ -1049,6 +1049,15 @@ export function toExperimentWritePayload<T extends Pick<Experiment, 'parameters'
     }
     if (rollout_percentage != null) {
         filters.groups = [{ properties: [], rollout_percentage }]
+    }
+    // Forwarded rather than dropped: on update the backend would backfill these from the linked
+    // flag anyway, but on create (e.g. the duplicate prefill) there is no flag to backfill from,
+    // so dropping them would silently lose group aggregation and variant payloads.
+    if (aggregation_group_type_index != null) {
+        filters.aggregation_group_type_index = aggregation_group_type_index
+    }
+    if (feature_flag_payloads && Object.keys(feature_flag_payloads).length > 0) {
+        filters.payloads = feature_flag_payloads
     }
 
     const featureFlag: ExperimentFeatureFlagInputApi = {

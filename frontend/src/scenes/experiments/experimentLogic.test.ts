@@ -1669,7 +1669,8 @@ describe('experimentLogic', () => {
                     update_feature_flag_params: true,
                 })
             )
-            // Should not send a rollout group — rollout is not editable in the distribution modal
+            // No rollout group when the caller omits rolloutPercentage (the modal itself always
+            // passes one; this covers the omit branch)
             const sentFlagFilters = (api.update.mock.calls[0][1] as Record<string, any>).feature_flag.filters
             expect(sentFlagFilters).not.toHaveProperty('groups')
         })

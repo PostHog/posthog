@@ -357,10 +357,11 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         default=False,
         write_only=True,
         help_text=(
-            "When true, sync feature flag configuration from parameters "
-            "to the linked feature flag. Draft experiments always sync "
-            "regardless of update_feature_flag_params, so only required "
-            "for non-drafts."
+            "When true, sync the flag config sent in this request (via the "
+            "`feature_flag` object, or the deprecated `parameters` keys) to "
+            "the linked feature flag. Draft experiments always sync "
+            "regardless. On a running experiment, `feature_flag` config "
+            "without this flag is rejected."
         ),
     )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
@@ -692,6 +693,28 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         )
 
 
+class ExperimentFlagRolloutGroupSerializer(serializers.Serializer):
+    """A single release-condition group carrying only the overall rollout percentage, the one
+    groups entry the experiment input applies."""
+
+    rollout_percentage = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=100,
+        help_text="Percentage of users who enter the experiment (0-100).",
+    )
+    properties = serializers.ListField(
+        child=serializers.JSONField(),
+        required=False,
+        max_length=0,
+        help_text=(
+            "Must be empty or omitted: release-condition properties are not supported via the "
+            "experiment input. Edit the feature flag directly for targeting."
+        ),
+    )
+
+
 # Subclassing the flag's canonical filters schema (rather than redeclaring the shape) keeps the
 # experiment write surface from drifting when the flag filters schema changes. Constraints the
 # schema can't express are enforced at runtime by
@@ -702,6 +725,16 @@ class ExperimentFeatureFlagFiltersSerializer(FeatureFlagFiltersSchemaSerializer)
 
     feature_enrollment = None
     early_exit = None
+    # The runtime applies only groups[0].rollout_percentage and rejects release conditions, so
+    # advertise exactly that instead of the flag's full condition-group schema. The full schema
+    # would invite payloads (property filters, variant overrides, multiple groups) that always
+    # fail validation, and it adds ~10KB to each generated MCP tool schema.
+    groups = ExperimentFlagRolloutGroupSerializer(
+        many=True,
+        required=False,
+        max_length=1,
+        help_text='Overall rollout as a single group: [{"properties": [], "rollout_percentage": N}].',
+    )
 
 
 # Schema-only: runtime consumes the raw feature_flag object from initial_data (see
@@ -714,7 +747,7 @@ class ExperimentFeatureFlagInputSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Flag config to apply: `multivariate.variants` (exactly one variant key must be the literal "
-            "string 'control'), `groups` (a single group with `rollout_percentage` only — release "
+            "string 'control'), `groups` (a single group with `rollout_percentage` only; release "
             "conditions are not supported here, edit the feature flag directly), "
             "`aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). "
             "On update, config this object omits is preserved from the linked flag's current state."
@@ -739,7 +772,7 @@ class ExperimentWriteSerializer(ExperimentSerializer):
         help_text=(
             "Feature-flag config for the experiment, in the flag's own filters shape. The linked flag "
             "is the source of truth for variants, rollout, aggregation, payloads, and experience "
-            "continuity — send config here instead of the deprecated `parameters` keys. On a running "
+            "continuity: send config here instead of the deprecated `parameters` keys. On a running "
             "experiment, also send `update_feature_flag_params=true`. Cannot be combined with the key "
             "of a pre-existing feature flag on create (the experiment links to it as-is)."
         ),

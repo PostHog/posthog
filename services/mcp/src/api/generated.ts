@@ -22004,7 +22004,7 @@ export namespace Schemas {
       primary_metrics_ordered_uuids?: unknown;
       secondary_metrics_ordered_uuids?: unknown;
       only_count_matured_users?: boolean;
-      /** When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts. */
+      /** When true, sync the flag config sent in this request (via the `feature_flag` object, or the deprecated `parameters` keys) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
       update_feature_flag_params?: boolean;
       /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
       readonly status: ExperimentStatusEnum;
@@ -22180,6 +22180,25 @@ export namespace Schemas {
      */
     export type ExperimentFeatureFlagFiltersPayloads = {[key: string]: string};
 
+    /**
+     * A single release-condition group carrying only the overall rollout percentage, the one
+     * groups entry the experiment input applies.
+     */
+    export interface ExperimentFlagRolloutGroup {
+      /**
+         * Percentage of users who enter the experiment (0-100).
+         * @minimum 0
+         * @maximum 100
+         * @nullable
+         */
+      rollout_percentage?: number | null;
+      /**
+         * Must be empty or omitted: release-condition properties are not supported via the experiment input. Edit the feature flag directly for targeting.
+         * @maxItems 0
+         */
+      properties?: unknown[];
+    }
+
     export interface FeatureFlagMultivariateVariantSchema {
       /** Unique key for this variant. */
       key: string;
@@ -22199,8 +22218,8 @@ export namespace Schemas {
      * minus the keys experiments don't apply.
      */
     export interface ExperimentFeatureFlagFilters {
-      /** Release condition groups for the feature flag. */
-      groups?: FeatureFlagConditionGroupSchema[];
+      /** Overall rollout as a single group: [{"properties": [], "rollout_percentage": N}]. */
+      groups?: ExperimentFlagRolloutGroup[];
       /** Multivariate configuration for variant-based rollouts. */
       multivariate?: FeatureFlagMultivariateSchema | null;
       /**
@@ -22216,7 +22235,7 @@ export namespace Schemas {
      * Flag config for experiment create/update, sent through the linked feature flag's own shape.
      */
     export interface ExperimentFeatureFlagInput {
-      /** Flag config to apply: `multivariate.variants` (exactly one variant key must be the literal string 'control'), `groups` (a single group with `rollout_percentage` only — release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state. */
+      /** Flag config to apply: `multivariate.variants` (exactly one variant key must be the literal string 'control'), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state. */
       filters?: ExperimentFeatureFlagFilters;
       /**
          * Whether the flag persists variant assignment across authentication steps.
@@ -22491,7 +22510,7 @@ export namespace Schemas {
       end_date?: string | null;
       /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible. */
       feature_flag_key: string;
-      /** Feature-flag config for the experiment, in the flag's own filters shape. The linked flag is the source of truth for variants, rollout, aggregation, payloads, and experience continuity — send config here instead of the deprecated `parameters` keys. On a running experiment, also send `update_feature_flag_params=true`. Cannot be combined with the key of a pre-existing feature flag on create (the experiment links to it as-is). */
+      /** Feature-flag config for the experiment, in the flag's own filters shape. The linked flag is the source of truth for variants, rollout, aggregation, payloads, and experience continuity: send config here instead of the deprecated `parameters` keys. On a running experiment, also send `update_feature_flag_params=true`. Cannot be combined with the key of a pre-existing feature flag on create (the experiment links to it as-is). */
       feature_flag?: ExperimentFeatureFlagInput;
       readonly holdout: ExperimentHoldout;
       /**
@@ -22558,7 +22577,7 @@ export namespace Schemas {
       primary_metrics_ordered_uuids?: unknown;
       secondary_metrics_ordered_uuids?: unknown;
       only_count_matured_users?: boolean;
-      /** When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts. */
+      /** When true, sync the flag config sent in this request (via the `feature_flag` object, or the deprecated `parameters` keys) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
       update_feature_flag_params?: boolean;
       /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
       readonly status: ExperimentStatusEnum;
@@ -38134,7 +38153,7 @@ export namespace Schemas {
       end_date?: string | null;
       /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible. */
       feature_flag_key?: string;
-      /** Feature-flag config for the experiment, in the flag's own filters shape. The linked flag is the source of truth for variants, rollout, aggregation, payloads, and experience continuity — send config here instead of the deprecated `parameters` keys. On a running experiment, also send `update_feature_flag_params=true`. Cannot be combined with the key of a pre-existing feature flag on create (the experiment links to it as-is). */
+      /** Feature-flag config for the experiment, in the flag's own filters shape. The linked flag is the source of truth for variants, rollout, aggregation, payloads, and experience continuity: send config here instead of the deprecated `parameters` keys. On a running experiment, also send `update_feature_flag_params=true`. Cannot be combined with the key of a pre-existing feature flag on create (the experiment links to it as-is). */
       feature_flag?: ExperimentFeatureFlagInput;
       readonly holdout?: ExperimentHoldout;
       /**
@@ -38201,7 +38220,7 @@ export namespace Schemas {
       primary_metrics_ordered_uuids?: unknown;
       secondary_metrics_ordered_uuids?: unknown;
       only_count_matured_users?: boolean;
-      /** When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts. */
+      /** When true, sync the flag config sent in this request (via the `feature_flag` object, or the deprecated `parameters` keys) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
       update_feature_flag_params?: boolean;
       /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
       readonly status?: ExperimentStatusEnum;
