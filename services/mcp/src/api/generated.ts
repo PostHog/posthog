@@ -61914,6 +61914,10 @@ export namespace Schemas {
     };
 
     export type ActionsListParams = {
+    /**
+     * Comma-separated list of creator user ids. Returns only actions created by these users.
+     */
+    created_by?: string;
     format?: ActionsListFormat;
     /**
      * Maximum number of actions to return. Omit to return all.
@@ -61924,9 +61928,17 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * Field to order by (name, created_at, pinned_at, created_by). Prefix with '-' for descending.
+     */
+    ordering?: string;
+    /**
      * Case-insensitive substring match on the action name.
      */
     search?: string;
+    /**
+     * JSON-encoded array of tag names, e.g. ["billing","beta"]. Returns actions having any of these tags.
+     */
+    tags?: string;
     };
 
     export type ActionsListFormat = typeof ActionsListFormat[keyof typeof ActionsListFormat];

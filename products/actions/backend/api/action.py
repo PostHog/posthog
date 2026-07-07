@@ -569,6 +569,23 @@ class ActionViewSet(
             return None
         return value if value >= 0 else None
 
+    _ORDERING_WHITELIST = {"name", "created_at", "pinned_at", "created_by"}
+
+    def _ordering_from_request(self, request: request.Request) -> list[str] | None:
+        raw = request.query_params.get("ordering")
+        if not raw:
+            return None
+        field = raw.lstrip("-")
+        if field not in self._ORDERING_WHITELIST:
+            return None
+        prefix = "-" if raw.startswith("-") else ""
+        # created_by is a FK, so sort by the creator's name rather than the raw id.
+        column = "created_by__first_name" if field == "created_by" else field
+        ordering = [f"{prefix}{column}"]
+        if column != "name":
+            ordering.append("name")  # stable tiebreak within equal values
+        return ordering
+
     @extend_schema(
         parameters=[
             OpenApiParameter(
@@ -580,25 +597,65 @@ class ActionViewSet(
             OpenApiParameter(
                 "search", OpenApiTypes.STR, description="Case-insensitive substring match on the action name."
             ),
+            OpenApiParameter(
+                "created_by",
+                OpenApiTypes.STR,
+                description="Comma-separated list of creator user ids. Returns only actions created by these users.",
+            ),
+            OpenApiParameter(
+                "tags",
+                OpenApiTypes.STR,
+                description='JSON-encoded array of tag names, e.g. ["billing","beta"]. Returns actions having any of these tags.',
+            ),
+            OpenApiParameter(
+                "ordering",
+                OpenApiTypes.STR,
+                description="Field to order by (name, created_at, pinned_at, created_by). Prefix with '-' for descending.",
+            ),
         ]
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         # :HACKY: we need to override this viewset method until actions support
         # better pagination in the taxonomic filter and on the actions page.
         #
-        # `limit`/`offset`/`search` are opt-in: with no params we still return the
-        # full, ordered list so the actions page and taxonomic filter keep working
-        # unchanged. API/MCP consumers can pass them to avoid pulling every action
-        # at once (a project can have thousands), which otherwise overflows the
-        # context window of LLM clients calling the `actions-get-all` MCP tool.
+        # `limit`/`offset`/`search`/`created_by`/`tags`/`ordering` are opt-in: with
+        # no params we still return the full, ordered list so the taxonomic filter
+        # and other in-memory consumers of the shared actions list keep working
+        # unchanged. The actions page and API/MCP consumers pass them to avoid
+        # pulling every action at once (a project can have thousands), which
+        # otherwise overflows the context window of LLM clients calling the
+        # `actions-get-all` MCP tool.
         actions = self.filter_queryset(self.get_queryset())
 
         search = request.query_params.get("search")
         if search:
             actions = actions.filter(name__icontains=search)
 
+        created_by = request.query_params.get("created_by")
+        if created_by:
+            creator_ids = [int(v) for v in created_by.split(",") if v.strip().isdigit()]
+            if creator_ids:
+                actions = actions.filter(created_by_id__in=creator_ids)
+
+        tags = request.query_params.get("tags")
+        if tags:
+            try:
+                tags_list = json.loads(tags)
+            except (json.JSONDecodeError, TypeError):
+                tags_list = None
+            if tags_list:
+                actions = actions.filter(tagged_items__tag__name__in=tags_list).distinct()
+
+        ordering = self._ordering_from_request(request)
+        if ordering:
+            actions = actions.order_by(*ordering)
+
         offset = self._parse_non_negative_int(request.query_params.get("offset")) or 0
         limit = self._parse_non_negative_int(request.query_params.get("limit"))
+        # Only pay for a COUNT query when actually paginating. The full-list default
+        # (no `limit`) is a hot path shared with the taxonomic filter, so we derive the
+        # count from the serialized results there instead of hitting the DB again.
+        count = actions.count() if limit is not None else None
         if limit is not None:
             actions = actions[offset : offset + limit]
         elif offset:
@@ -614,4 +671,7 @@ class ActionViewSet(
             for a in actions_list:
                 a["reference_count"] = ref_counts.get(a["id"], 0)
 
-        return Response({"results": actions_list})
+        if count is None:
+            count = offset + len(actions_list)
+
+        return Response({"count": count, "results": actions_list})
