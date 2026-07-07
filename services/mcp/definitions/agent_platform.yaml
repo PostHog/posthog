@@ -223,6 +223,12 @@ tools:
             app has no deployable version until another revision is promoted). Idempotent. Playbook: read the
             `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote
             workflow.
+    agent-applications-revisions-bundle-file-update:
+        operation: agent_applications_revisions_bundle_file_update
+        enabled: false
+    agent-applications-revisions-bundle-import-create:
+        operation: agent_applications_revisions_bundle_import_create
+        enabled: false
     agent-applications-revisions-bundle-retrieve:
         operation: agent_applications_revisions_bundle_retrieve
         enabled: true
