@@ -200,8 +200,17 @@ export const userHasAccess = (
     return !getAccessControlDisabledReason(resourceType, minAccessLevel, userAccessLevel)
 }
 
-export const PRODUCT_ACCESS_DISABLED_REASON = "You don't have access to this product"
-export const ENTRY_ACCESS_DISABLED_REASON = "You don't have access to this item"
+/** Entry/search-result types mapped to the resource type gating them - identity for types that
+ * are access control resources themselves, plus the backend's RESOURCE_INHERITANCE_MAP entries
+ * for types that appear in trees and search. */
+const ENTRY_TYPE_TO_RESOURCE_TYPE: Record<string, AccessControlResourceType> = {
+    ...Object.fromEntries(Object.values(AccessControlResourceType).map((value) => [value, value])),
+    session_recording_playlist: AccessControlResourceType.SessionRecording,
+}
+
+const productHasEffectiveNoneAccess = (resourceType: AccessControlResourceType): boolean => {
+    return getAppContext()?.effective_resource_access_control?.[resourceType] === AccessControlLevel.None
+}
 
 /**
  * Disabled reason for a product navigation item (sidebar product list, search product results)
@@ -215,29 +224,45 @@ export const ENTRY_ACCESS_DISABLED_REASON = "You don't have access to this item"
  * @param item - Navigation item with the scene key it points at (e.g. a FileSystemImport)
  * @returns Reason to show on the disabled item, or undefined when the user has access
  */
-export const getProductAccessDisabledReason = (item: { sceneKey?: string }): string | undefined => {
+export const getProductAccessDisabledReason = (item: {
+    sceneKey?: string
+    path?: string
+    displayLabel?: string
+}): string | undefined => {
     if (!item.sceneKey) {
         return undefined
     }
     const resourceType = sceneToAccessControlResourceType[item.sceneKey as Scene]
-    if (!resourceType) {
+    if (!resourceType || !productHasEffectiveNoneAccess(resourceType)) {
         return undefined
     }
-    const effectiveLevel = getAppContext()?.effective_resource_access_control?.[resourceType]
-    return effectiveLevel === AccessControlLevel.None ? PRODUCT_ACCESS_DISABLED_REASON : undefined
+    return `You don't have access to ${item.displayLabel || item.path || 'this product'}`
 }
 
 /**
- * Disabled reason for an individual item (search result, Files/Starred entry) based on the
- * backend-resolved access level for the underlying object. The backend resolution accounts
- * for object-level overrides, so an item the user was individually granted access to stays
- * enabled even when they have "none" access to the product.
+ * Disabled reason for an individual item (search result, Files/Starred entry).
  *
- * @param entry - Entry carrying the `user_access_level` the backend resolved for it
+ * Uses the backend-resolved access level for the underlying object, which accounts for
+ * object-level overrides - an item the user was individually granted access to stays enabled
+ * even when they have "none" access to the product. Additionally checks the product's
+ * effective access: when it is "none" the scene gate denies every item of that type,
+ * including ones the user created (object creators keep object-level access but aren't
+ * reflected in the effective map), so those must be disabled too or clicking them would
+ * still land on "Access denied".
+ *
+ * @param entry - Entry carrying the backend-resolved `user_access_level` and its type
  * @returns Reason to show on the disabled item, or undefined when the user has access
  */
-export const getEntryAccessDisabledReason = (entry: { user_access_level?: string | null }): string | undefined => {
-    return entry.user_access_level === AccessControlLevel.None ? ENTRY_ACCESS_DISABLED_REASON : undefined
+export const getEntryAccessDisabledReason = (entry: {
+    user_access_level?: string | null
+    type?: string | null
+}): string | undefined => {
+    const resourceType = entry.type ? ENTRY_TYPE_TO_RESOURCE_TYPE[entry.type] : undefined
+    const blockedByProduct = resourceType !== undefined && productHasEffectiveNoneAccess(resourceType)
+    if (!blockedByProduct && entry.user_access_level !== AccessControlLevel.None) {
+        return undefined
+    }
+    return `You don't have access to ${entry.type ? `this ${entry.type.replace(/_/g, ' ')}` : 'this item'}`
 }
 
 /**

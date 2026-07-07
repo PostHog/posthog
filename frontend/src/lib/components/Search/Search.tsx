@@ -887,10 +887,18 @@ function SearchResults({
                                                                 return (
                                                                     <div className="px-2">
                                                                         <Link
-                                                                            to={item.href}
+                                                                            // No `to` when disabled: Link only applies its
+                                                                            // disabled state and reason tooltip without one
+                                                                            to={
+                                                                                item.disabledReason
+                                                                                    ? undefined
+                                                                                    : item.href
+                                                                            }
                                                                             disabledReason={item.disabledReason}
                                                                             buttonProps={{
                                                                                 fullWidth: true,
+                                                                                disabled: !!item.disabledReason,
+                                                                                inert: !!item.disabledReason,
                                                                                 className: item.disabledReason
                                                                                     ? 'opacity-50'
                                                                                     : undefined,
