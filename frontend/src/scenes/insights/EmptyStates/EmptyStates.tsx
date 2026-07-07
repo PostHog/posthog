@@ -31,7 +31,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE } from '~/queries/nodes/InsightViz/utils'
@@ -525,6 +524,22 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
 const MEMORY_LIMIT_AI_PROMPT =
     "!This insight ran out of memory before it could finish. Help me work out why it's scanning so much data and how to fix it — e.g. a shorter date range, narrower filters, or materializing the data."
 
+// Render a plain error string with any embedded URLs (e.g. a docs link the backend includes)
+// as clickable links rather than bare text.
+const DETAIL_URL_REGEX = /(https?:\/\/[^\s]+)/g
+
+function renderDetailWithLinks(detail: string): (string | JSX.Element)[] {
+    return detail.split(DETAIL_URL_REGEX).map((part, index) =>
+        /^https?:\/\//.test(part) ? (
+            <Link key={index} to={part} target="_blank">
+                {part}
+            </Link>
+        ) : (
+            part
+        )
+    )
+}
+
 export function InsightValidationError({
     detail,
     validationErrorCode,
@@ -564,7 +579,7 @@ export function InsightValidationError({
                 {/* but rather that it's something with the definition of the query itself */}
             </h2>
 
-            <p className="text-sm text-muted max-w-120 mb-2">{detail}</p>
+            <p className="text-sm text-muted max-w-120 mb-2">{renderDetailWithLinks(detail)}</p>
 
             {isMemoryLimitError ? (
                 <AIConsentPopoverWrapper onApprove={() => openSidePanel(SidePanelTab.Max, MEMORY_LIMIT_AI_PROMPT)}>
@@ -577,8 +592,8 @@ export function InsightValidationError({
                     </LemonButton>
                 </AIConsentPopoverWrapper>
             ) : (
-                cta ??
-                (onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />)
+                (cta ??
+                (onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />))
             )}
 
             {detail.includes('Exclusion') && (
