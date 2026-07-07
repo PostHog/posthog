@@ -85,6 +85,7 @@ def _cache_reverse_rel_identity() -> None:
     # _eq_cache is per-instance and per-session (unbounded), holding strong refs to every
     # object each rel is ever compared with. Bounded by schema size, not test count, so
     # harmless in practice — but don't mistake it for a per-test cache.
+    cached_eq.__wrapped__ = orig_eq  # exposes the original for the canary tests
     ForeignObjectRel.__eq__ = cached_eq  # type: ignore[method-assign, assignment]  # ty: ignore[invalid-assignment]
 
 
@@ -112,6 +113,7 @@ def _cache_select_masks() -> None:
             mask = masks[key] = orig_get_select_mask(self)
         return mask
 
+    get_select_mask.__wrapped__ = orig_get_select_mask  # exposes the original for the canary tests
     Query.get_select_mask = get_select_mask  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
 
@@ -131,6 +133,7 @@ def _cache_drf_field_info() -> None:
             info = infos[key] = orig_get_field_info(model)
         return info
 
+    get_field_info.__wrapped__ = orig_get_field_info  # exposes the original for the canary tests
     model_meta.get_field_info = get_field_info  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
 
@@ -166,6 +169,7 @@ def _cache_url_resolution() -> None:
         match.extra_kwargs = dict(getattr(hit, "extra_kwargs", None) or {})
         return match
 
+    resolve.__wrapped__ = orig_resolve  # exposes the original for the canary tests
     resolvers.URLResolver.resolve = resolve  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
 
