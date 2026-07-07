@@ -9,7 +9,7 @@ import { AllowLists } from './allow-lists'
 import { anonymizeEvent } from './anonymize-event'
 import { ScrubContext } from './config'
 import { scrubText } from './text'
-import { scrubUrl } from './url'
+import { URL_SCHEME_ALLOWLIST, scrubUrl } from './url'
 
 // shared fixtures to guarantee identical behaviour between implementations
 const FIXTURE_DIR = path.resolve(__dirname, '../../../../../../rust/replay-anonymizer-node/tests/fixtures')
@@ -95,6 +95,11 @@ describe('anonymize shared fixtures', () => {
 
         test.each(messageCases.map((c) => [c.name, c] as const))('message: %s', (_name, c) => {
             expect(anonymizeMessageTs(c.allow, c.message)).toEqual(c.expected)
+        })
+
+        // The rust constant is checked against the same fixture, so the two lists cannot drift.
+        test('URL_SCHEME_ALLOWLIST matches the shared fixture', () => {
+            expect([...URL_SCHEME_ALLOWLIST].sort()).toEqual(load<string>('url-scheme-allowlist.json'))
         })
     })
 

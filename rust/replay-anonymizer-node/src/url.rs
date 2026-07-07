@@ -67,7 +67,12 @@ pub fn scrub_url_opts(ctx: &Ctx<'_>, input: &str, collapse_host: bool) -> Option
             }
             None => authority,
         };
-        if collapse_host || is_first_party_host(ctx, host_port) {
+        if !is_valid_host_port(host_port) {
+            // A structurally invalid "host" (e.g. an unencoded `?` in userinfo makes `user:pa`
+            // parse as the authority) must not pass through as if it were a hostname.
+            out.push_str("[redacted]");
+            changed = true;
+        } else if collapse_host || is_first_party_host(ctx, host_port) {
             let collapsed = collapsed_host(allow, host_port);
             if collapsed != host_port {
                 changed = true;
@@ -280,14 +285,31 @@ fn scheme_without_slashes(s: &str) -> Option<usize> {
     }
 }
 
+fn is_valid_scheme(prefix: &str) -> bool {
+    let bytes = prefix.as_bytes();
+    match bytes.split_first() {
+        Some((&first, rest)) => {
+            first.is_ascii_alphabetic()
+                && rest
+                    .iter()
+                    .all(|&b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.'))
+        }
+        None => false,
+    }
+}
+
 // Split into scheme prefix (incl. `://` or `//`), authority (`[userinfo@]host[:port]`), and path.
 fn split_url(s: &str) -> (&str, &str, &str) {
-    let (scheme, rest) = if let Some(scheme_end) = s.find("://") {
+    let (scheme, rest) = if let Some(scheme_end) = s
+        .find("://")
+        .filter(|&scheme_end| is_valid_scheme(&s[..scheme_end]))
+    {
         (&s[..scheme_end + 3], &s[scheme_end + 3..])
     } else if let Some(rest) = s.strip_prefix("//") {
         (&s[..2], rest)
     } else if let Some(end) = scheme_without_slashes(s) {
-        // No slashes, no authority: everything after the scheme scrubs as a path.
+        // Free text before a colon (or before an embedded `://`) must not pass through as a
+        // "scheme"; only allowlisted schemes survive, and only in the slashless form.
         return (&s[..end], "", &s[end..]);
     } else {
         return ("", "", s); // relative URL: all path
@@ -296,6 +318,36 @@ fn split_url(s: &str) -> (&str, &str, &str) {
         None => (scheme, rest, ""),
         Some(path_off) => (scheme, &rest[..path_off], &rest[path_off..]),
     }
+}
+
+// Host or `[ipv6]`, with an optional `:digits` port. Mirrors `HOST_PORT` in `anonymize/url.ts`.
+fn is_valid_host_port(host_port: &str) -> bool {
+    let host = match host_port.split_once(':') {
+        None => host_port,
+        Some(_) if host_port.starts_with('[') => match host_port.rfind(']') {
+            Some(close) => {
+                let bracketed = &host_port[1..close];
+                let port = &host_port[close + 1..];
+                let port_ok = port.is_empty()
+                    || (port.starts_with(':')
+                        && port.len() > 1
+                        && port[1..].bytes().all(|b| b.is_ascii_digit()));
+                return port_ok
+                    && bracketed
+                        .bytes()
+                        .all(|b| b.is_ascii_hexdigit() || b == b':' || b == b'.');
+            }
+            None => return false,
+        },
+        Some((host, port)) => {
+            if port.is_empty() || !port.bytes().all(|b| b.is_ascii_digit()) {
+                return false;
+            }
+            host
+        }
+    };
+    host.bytes()
+        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
 }
 
 fn is_safe_segment(seg: &str) -> bool {

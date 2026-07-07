@@ -365,40 +365,50 @@ impl Rng {
 
 fn assert_stream_matches_tree(allow: &AllowLists, inner_json: &str, label: &str) {
     let payload = serde_json::to_string(&json!({"distinct_id": "d", "data": inner_json})).unwrap();
-    let ctx = Ctx::new(allow);
-    let tree = anonymize_via_tree(&ctx, "d", inner_json.as_bytes());
+    // Hosts that appear across the fixture corpus, so first-party collapsing is differentially
+    // pinned alongside the no-hosts configuration.
+    let host_configs: &[&[&str]] = &[&[], &["example.com", "example-vendor.co"]];
+    for hosts in host_configs {
+        let hosts: Vec<String> = hosts.iter().map(|h| h.to_string()).collect();
+        let ctx = Ctx::with_first_party_hosts(allow, hosts.clone());
+        let tree = anonymize_via_tree(&ctx, "d", inner_json.as_bytes());
 
-    // Both scrub engines are pinned: the parse-free byte walk (with its per-event fallbacks) and
-    // the simd path.
-    for byte_walk in [true, false] {
-        let mut bytes = payload.as_bytes().to_vec();
-        let stream = anonymize_kafka_payload_opts(
-            allow,
-            &mut bytes,
-            AnonymizeOpts { byte_walk },
-            Vec::new(),
-        );
-        match (&stream, &tree) {
-            (Ok(s), Ok(t)) => {
-                let s_lines = parse_lines(&s.lines);
-                let t_lines = parse_lines(&t.lines);
-                assert_eq!(
-                    s_lines, t_lines,
-                    "lines diverged (walk={byte_walk}): {label}"
-                );
-                assert_eq!(s.meta, t.meta, "meta diverged (walk={byte_walk}): {label}");
+        // Both scrub engines are pinned: the parse-free byte walk (with its per-event fallbacks)
+        // and the simd path.
+        for byte_walk in [true, false] {
+            let fp = !hosts.is_empty();
+            let mut bytes = payload.as_bytes().to_vec();
+            let stream = anonymize_kafka_payload_opts(
+                allow,
+                &mut bytes,
+                AnonymizeOpts { byte_walk },
+                hosts.clone(),
+            );
+            match (&stream, &tree) {
+                (Ok(s), Ok(t)) => {
+                    let s_lines = parse_lines(&s.lines);
+                    let t_lines = parse_lines(&t.lines);
+                    assert_eq!(
+                        s_lines, t_lines,
+                        "lines diverged (walk={byte_walk} fp={fp}): {label}"
+                    );
+                    assert_eq!(
+                        s.meta, t.meta,
+                        "meta diverged (walk={byte_walk} fp={fp}): {label}"
+                    );
+                }
+                (Err(s), Err(t)) => {
+                    assert_eq!(
+                        s.kind, t.kind,
+                        "failure kind diverged (walk={byte_walk} fp={fp}): {label}"
+                    );
+                }
+                (s, t) => panic!(
+                    "outcome diverged (walk={byte_walk} fp={fp}) for {label}: stream={:?} tree={:?}",
+                    s.as_ref().map(|m| parse_lines(&m.lines)),
+                    t.as_ref().map(|m| parse_lines(&m.lines)),
+                ),
             }
-            (Err(s), Err(t)) => {
-                assert_eq!(
-                    s.kind, t.kind,
-                    "failure kind diverged (walk={byte_walk}): {label}"
-                );
-            }
-            (s, t) => panic!(
-                "outcome diverged (walk={byte_walk}) for {label}: stream={:?} tree={:?}",
-                s.as_ref().map(|m| parse_lines(&m.lines)),
-                t.as_ref().map(|m| parse_lines(&m.lines)),
-            ),
         }
     }
 }

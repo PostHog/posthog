@@ -249,5 +249,25 @@
     "input": "spotify:track:4uLU6hMCjMI75M1A2tKUQC",
     "collapseHost": false,
     "expected": "spotify:[redacted]"
+  },
+  {
+    "name": "unencoded ? in userinfo cannot smuggle credentials as a host",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "input": "https://user:pa?ss@acme-corp.test/path",
+    "collapseHost": false,
+    "expected": "https://[redacted]"
+  },
+  {
+    "name": "free text before an embedded :// is not kept as a scheme",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "input": "javascript:mail(\"john.fakename@example.com\",\"https://tracker.test/1\")",
+    "collapseHost": false,
+    "expected": "javascript:[redacted]//[redacted]/[redacted]"
   }
 ]

@@ -14,7 +14,7 @@
  *   patterns (the team's recording domains), it additionally drops the port and collapses the
  *   host to `example.com` (keeping a leading allow-listed subdomain label).
  */
-import { getDomain } from 'tldts'
+import { parse as parseHostname } from 'tldts'
 
 import { ScrubContext } from './config'
 import { ScrubResult } from './text'
@@ -27,6 +27,7 @@ export const URL_ALLOWLIST = ['about:blank', 'about:srcdoc']
 
 const SIMPLE = /^[A-Za-z0-9]*$/ // 100% alphanumeric (empty allowed)
 const NUMERIC = /^[0-9]+$/ // a bare number
+const HOST_PORT = /^(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9._-]*)(:\d+)?$/ // host or [ipv6], optional port
 
 const maskNumber = (n: string): string => '$'.repeat(n.length) // `$`, not `#` (the fragment separator)
 
@@ -58,7 +59,12 @@ export function scrubUrl(ctx: ScrubContext, input: string, opts?: UrlScrubOption
             changed = true
         }
         const hostPort = authority.slice(at + 1)
-        if (opts?.collapseHost || isFirstPartyHost(ctx, hostPort)) {
+        if (!HOST_PORT.test(hostPort)) {
+            // A structurally invalid "host" (e.g. an unencoded `?` in userinfo makes `user:pa`
+            // parse as the authority) must not pass through as if it were a hostname.
+            out += '[redacted]'
+            changed = true
+        } else if (opts?.collapseHost || isFirstPartyHost(ctx, hostPort)) {
             const collapsed = collapsedHost(ctx, hostPort)
             if (collapsed !== hostPort) {
                 changed = true
@@ -149,6 +155,10 @@ function scrubTail(ctx: ScrubContext, tail: string): string {
 export function firstPartyHostPatterns(recordingDomains: string[] | null | undefined): string[] {
     const patterns: string[] = []
     for (const domain of recordingDomains ?? []) {
+        // The DB column allows NULL elements; one bad entry must not poison the team refresh.
+        if (typeof domain !== 'string') {
+            continue
+        }
         const trimmed = domain.trim()
         if (trimmed === '') {
             continue
@@ -165,7 +175,17 @@ export function firstPartyHostPatterns(recordingDomains: string[] | null | undef
         if (hostname === '' || hostname === '*') {
             continue
         }
-        patterns.push(getDomain(hostname) ?? hostname)
+        const parsed = parseHostname(hostname, { allowPrivateDomains: true })
+        if (parsed.domain !== null) {
+            patterns.push(parsed.domain.toLowerCase())
+            continue
+        }
+        // No registrable domain: keep bare machine names (`localhost`, `intranet`) and IPs, but
+        // drop listed public suffixes (`com`, `co.uk`, a bare `github.io`) — a suffix pattern
+        // would match every host under it.
+        if (parsed.isIp || !(parsed.isIcann || parsed.isPrivate)) {
+            patterns.push(hostname.toLowerCase())
+        }
     }
     return patterns
 }
@@ -270,21 +290,24 @@ export const URL_SCHEME_ALLOWLIST = new Set([
     'zoomus',
 ])
 
+const VALID_SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*$/ // RFC 3986 scheme body
+
 // Split into scheme prefix (incl. `://` or `//`), authority (`[userinfo@]host[:port]`), and path.
 function splitUrl(s: string): { scheme: string; authority: string; path: string } {
     let scheme = ''
     let rest = s
     const schemeEnd = s.indexOf('://')
-    if (schemeEnd !== -1) {
+    if (schemeEnd !== -1 && VALID_SCHEME.test(s.slice(0, schemeEnd))) {
         scheme = s.slice(0, schemeEnd + 3)
         rest = s.slice(schemeEnd + 3)
     } else if (s.startsWith('//')) {
         scheme = '//'
         rest = s.slice(2)
     } else {
+        // Free text before a colon (or before an embedded `://`) must not pass through as a
+        // "scheme"; only allowlisted schemes survive, and only in the slashless form.
         const m = SCHEME_NO_SLASHES.exec(s)
         if (m && URL_SCHEME_ALLOWLIST.has(m[0].slice(0, -1).toLowerCase())) {
-            // No slashes, no authority: everything after the scheme scrubs as a path.
             return { scheme: m[0], authority: '', path: s.slice(m[0].length) }
         }
         return { scheme: '', authority: '', path: s } // relative URL: all path

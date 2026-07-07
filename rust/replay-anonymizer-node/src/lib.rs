@@ -119,10 +119,13 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
         .argument_opt(1)
         .and_then(|v| v.downcast::<JsString, _>(&mut cx).ok())
         .map(|s| s.value(&mut cx));
-    let first_party_hosts_json: Option<String> = cx
-        .argument_opt(2)
-        .and_then(|v| v.downcast::<JsString, _>(&mut cx).ok())
-        .map(|s| s.value(&mut cx));
+    // A present-but-non-string argument must fail loudly (the caller drops the message), not
+    // silently disable first-party collapsing; only absent/undefined/null mean "no hosts".
+    let first_party_hosts_json: Option<String> = match cx.argument_opt(2) {
+        Some(v) if v.is_a::<JsUndefined, _>(&mut cx) || v.is_a::<JsNull, _>(&mut cx) => None,
+        Some(v) => Some(v.downcast_or_throw::<JsString, _>(&mut cx)?.value(&mut cx)),
+        None => None,
+    };
     let promise = cx
         .task(move || -> TaskOutcome {
             // Contain any panic on untrusted input so it fails closed (the caller drops the message)

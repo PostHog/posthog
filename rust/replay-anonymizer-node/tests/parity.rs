@@ -7,6 +7,7 @@ use std::time::Instant;
 use replay_anonymizer_node::allow_lists::AllowLists;
 use replay_anonymizer_node::{
     anonymize_event_str, anonymize_message, context::Ctx, text::scrub_text, url::scrub_url_opts,
+    url::URL_SCHEME_ALLOWLIST,
 };
 use serde_json::Value;
 
@@ -64,6 +65,18 @@ fn url_fixtures() {
             scrub_url_opts(&ctx, input, collapse_host).unwrap_or_else(|| input.to_string());
         assert_eq!(actual, expected, "url case: {}", case["name"]);
     }
+}
+
+#[test]
+fn url_scheme_allowlist_matches_fixture() {
+    // The TS constant is checked against the same fixture, so the two lists cannot drift.
+    let expected: Vec<String> = fixtures("url-scheme-allowlist.json")
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    let mut actual: Vec<String> = URL_SCHEME_ALLOWLIST.iter().map(|s| s.to_string()).collect();
+    actual.sort();
+    assert_eq!(actual, expected);
 }
 
 #[test]
