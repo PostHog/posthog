@@ -27,7 +27,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-from .ast_helpers import has_any_function_defs
+from .ast_helpers import ast_parse_safe, get_imported_module_names, has_any_function_defs
 from .paths import REPO_ROOT, TACH_TOML, get_tach_block
 
 # ---------------------------------------------------------------------------
@@ -323,46 +323,42 @@ def uncovered_permanent_modules(product_dir: Path, permanent_modules: frozenset[
 # ---------------------------------------------------------------------------
 
 
+# Products whose permanent-interface marker is justified by a coupling channel other than
+# ClickHouse DDL, so the DDL-qualification rule below doesn't apply. warehouse_sources: core's
+# HogQL direct-SQL adapters and system tables reach source internals through the facade's lazy
+# (PEP 562) re-exports; the exposed set is pinned by the product's own guard test
+# (test_ci_core_coupled_sources.py) and stays watched via the turbo-input rule above. Extending
+# this set requires a devex-reviewed change here — which is the point.
+_QUALIFICATION_EXEMPT_PRODUCTS: frozenset[str] = frozenset({"products.warehouse_sources"})
+
+
 @functools.cache
-def _clickhouse_ddl_corpus(repo_root: Path) -> str:
-    """Concatenated source of everything that consumes a permanent DDL interface outside the
+def _clickhouse_ddl_imports(repo_root: Path) -> frozenset[str]:
+    """Dotted module paths imported by the consumers of a permanent DDL interface outside the
     import-reroute path: the frozen ClickHouse migrations and the schema registry.
 
-    Cached per repo_root — product:lint runs the qualification check once per product, and re-reading
-    ~250 migration files each time would dominate the lint. The corpus is stable within one process.
+    Extracted from real import statements via AST (get_imported_module_names), so a module path
+    that only appears in a comment, docstring, or string literal can't qualify a marker.
+
+    Cached per repo_root — product:lint runs the qualification check once per product, and
+    re-parsing ~250 migration files each time would dominate the lint.
     """
     migrations_dir = repo_root / "posthog" / "clickhouse" / "migrations"
     schema_file = repo_root / "posthog" / "clickhouse" / "schema.py"
-    parts: list[str] = []
-    if migrations_dir.is_dir():
-        for path in sorted(migrations_dir.glob("*.py")):
-            parts.append(path.read_text())
+    files = sorted(migrations_dir.glob("*.py")) if migrations_dir.is_dir() else []
     if schema_file.exists():
-        parts.append(schema_file.read_text())
-    return "\n".join(parts)
+        files.append(schema_file)
+    imported: set[str] = set()
+    for path in files:
+        tree = ast_parse_safe(path)
+        if tree is not None:
+            imported.update(get_imported_module_names(tree))
+    return frozenset(imported)
 
 
-def _module_is_referenced(corpus: str, full_dotted_path: str) -> bool:
-    """True if the corpus imports full_dotted_path (e.g. 'products.error_tracking.backend.sql').
-
-    Matches both import spellings: the full dotted path appearing verbatim
-    ('from products.x.backend.sql import Y', 'import products.x.backend.sql', or a submodule
-    'products.x.backend.sql.foo') and the leaf form ('from products.x.backend import sql').
-
-    The trailing '(?![A-Za-z0-9_])' is a word boundary that also permits a following '.' submodule,
-    so 'backend.sql' matches 'backend.sql.foo' but not a distinct 'backend.sql_extra'.
-
-    The leaf alternatives are bounded (no newline outside parens, closing paren inside them) so an
-    unrelated occurrence of the leaf name on a later corpus line can't qualify the module.
-    """
-    parent, _, leaf = full_dotted_path.rpartition(".")
-    leaf_word = r"\b" + re.escape(leaf) + r"\b"
-    from_parent = r"from\s+" + re.escape(parent) + r"\s+import"
-    pattern = (
-        re.escape(full_dotted_path) + r"(?![A-Za-z0-9_])"
-        r"|" + from_parent + r"[^\n(]*" + leaf_word + r"|" + from_parent + r"\s*\([^)]*" + leaf_word
-    )
-    return re.search(pattern, corpus) is not None
+def _module_is_imported(imported: frozenset[str], full_dotted_path: str) -> bool:
+    """True if the module itself or any of its submodules is imported."""
+    return any(imp == full_dotted_path or imp.startswith(full_dotted_path + ".") for imp in imported)
 
 
 def unqualified_permanent_modules(
@@ -373,15 +369,15 @@ def unqualified_permanent_modules(
     The permanent-interface marker is only legitimate for modules core depends on outside the
     import graph — ClickHouse DDL imported by a frozen migration or the schema registry. This is
     the mechanical guard against abusing it: a module (e.g. 'backend.sql') qualifies only if its
-    full dotted path (e.g. 'products.error_tracking.backend.sql') is referenced by one of those
-    consumers. Any marked module with no such reference is returned, and IsolationChainCheck turns
+    full dotted path (e.g. 'products.error_tracking.backend.sql') is imported by one of those
+    consumers. Any marked module with no such import is returned, and IsolationChainCheck turns
     a non-empty result into a blocking issue — the marker can't be used to smuggle 'backend.models'
     or 'backend.logic' past the isolation seal.
     """
-    if not permanent_modules:
+    if not permanent_modules or module_path in _QUALIFICATION_EXEMPT_PRODUCTS:
         return set()
-    corpus = _clickhouse_ddl_corpus(repo_root)
-    return {root for root in permanent_modules if not _module_is_referenced(corpus, f"{module_path}.{root}")}
+    imported = _clickhouse_ddl_imports(repo_root)
+    return {root for root in permanent_modules if not _module_is_imported(imported, f"{module_path}.{root}")}
 
 
 def routes_in_turbo_inputs(product_dir: Path) -> bool:

@@ -812,6 +812,10 @@ class TestPermanentInterfaceQualification:
             ("from products.foo.backend import sql", "", {"backend.sql"}, set()),
             # An unrelated leaf-name token on a later line must not qualify the module.
             ("from products.foo.backend import models\nsql = 1", "", {"backend.sql"}, {"backend.sql"}),
+            # A path mentioned only in a comment must not qualify — imports come from the AST.
+            ("# depends on products.foo.backend.models\nimport datetime", "", {"backend.models"}, {"backend.models"}),
+            # Same for a string literal (e.g. DDL text or a log message naming the module).
+            ('TABLE_SQL = "see products.foo.backend.models"', "", {"backend.models"}, {"backend.models"}),
         ],
     )
     def test_qualification(
@@ -820,6 +824,17 @@ class TestPermanentInterfaceQualification:
         repo_root = _make_ddl_repo(tmp_path, migration_body=migration_body, schema_body=schema_body)
         assert unqualified_permanent_modules("products.foo", frozenset(marked), repo_root=repo_root) == expected
 
+    def test_exempt_product_skips_qualification(self, tmp_path: Path) -> None:
+        # warehouse_sources' marker is justified by a non-DDL channel; dropping the exemption
+        # would turn product:lint --all red for it.
+        repo_root = _make_ddl_repo(tmp_path)
+        assert (
+            unqualified_permanent_modules(
+                "products.warehouse_sources", frozenset({"backend.models"}), repo_root=repo_root
+            )
+            == set()
+        )
+
     def test_unqualified_exposure_blocks_isolation_chain(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         # A marked module that no migration/schema-registry imports must hard-block, and the issue
         # must point at tach.toml where the bogus marker lives.
@@ -827,6 +842,8 @@ class TestPermanentInterfaceQualification:
         import hogli_commands.product.isolation as isolation_module
 
         monkeypatch.setattr(isolation_module, "permanent_interface_modules", lambda *_a, **_k: {"backend.models"})
+        # Controlled corpus — don't let the assertion depend on the real repo's migrations.
+        monkeypatch.setattr(isolation_module, "_clickhouse_ddl_imports", lambda _root: frozenset())
         ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
         result = chain_check.run(ctx)
         assert any("don't qualify as a permanent interface" in i for i in result.issues)
