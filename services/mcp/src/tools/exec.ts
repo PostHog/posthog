@@ -8,6 +8,7 @@ import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
+import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
 import type { ScopeGatedTool } from './toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
@@ -20,6 +21,10 @@ import {
 /** Upper bound on a `search` regex pattern — keeps a pathological pattern from
  *  forcing catastrophic backtracking against tool metadata. */
 const MAX_SEARCH_PATTERN_LENGTH = 200
+
+/** Ranked (plain-word) search can match loosely on a common token like
+ *  "create"; cap the returned names so a vague query can't dump the catalog. */
+const MAX_RANKED_SEARCH_RESULTS = 25
 
 type ExecSchema = ReturnType<typeof makeExecSchema>
 
@@ -36,6 +41,7 @@ export interface ExecInnerCallProperties {
      */
     input_tokens?: number
     output_tokens?: number
+    input?: Record<string, unknown>
 }
 
 export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallProperties) => void
@@ -205,7 +211,7 @@ export function createExecTool(
 
     return {
         name: 'exec',
-        title: 'Execute PostHog command',
+        title: 'PostHog analytics, dashboards, insights, feature flags & more',
         description: toolDescription,
         schema: ExecSchema,
         scopes: [],
@@ -225,7 +231,7 @@ export function createExecTool(
 
                 case 'search': {
                     if (!rest) {
-                        throw new Error('Usage: search <regex_pattern>')
+                        throw new Error('Usage: search <words or regex_pattern>')
                     }
                     // Bound the user-supplied pattern length to limit the blast
                     // radius of a pathological (catastrophic-backtracking) regex.
@@ -234,18 +240,33 @@ export function createExecTool(
                             `Search pattern too long (${rest.length} chars, max ${MAX_SEARCH_PATTERN_LENGTH}). Use a shorter, more targeted pattern.`
                         )
                     }
-                    let regex: RegExp
-                    try {
-                        regex = new RegExp(rest, 'i')
-                    } catch {
-                        throw new Error(`Invalid regex pattern: "${rest}"`)
+
+                    // Route by pattern shape: a pattern with regex metacharacters
+                    // (e.g. `query-`, `feature-flag`) keeps the original regex
+                    // predicate; plain words — including multi-word, natural-
+                    // language queries — use forgiving token ranking.
+                    let matches: string[]
+                    let gatedMatches: ScopeGatedTool[]
+                    let truncatedFrom = 0
+                    if (isRegexPattern(rest)) {
+                        try {
+                            matches = searchToolsRegex(allTools, rest).map((t) => t.name)
+                            gatedMatches = searchToolsRegex(scopeGatedTools, rest)
+                        } catch {
+                            throw new Error(`Invalid regex pattern: "${rest}"`)
+                        }
+                    } else {
+                        const ranked = searchToolsRanked(allTools, rest)
+                        truncatedFrom = ranked.length > MAX_RANKED_SEARCH_RESULTS ? ranked.length : 0
+                        matches = ranked.slice(0, MAX_RANKED_SEARCH_RESULTS).map((r) => r.name)
+                        // Preserve ranked order for gated matches too, then map
+                        // each name back to its ScopeGatedTool (for missingScopes).
+                        const gatedByName = new Map(scopeGatedTools.map((t) => [t.name, t]))
+                        gatedMatches = searchToolsRanked(scopeGatedTools, rest)
+                            .map((r) => gatedByName.get(r.name))
+                            .filter((t): t is ScopeGatedTool => t !== undefined)
                     }
-                    const matches = allTools
-                        .filter((t) => regex.test(t.name) || regex.test(t.title) || regex.test(t.description))
-                        .map((t) => t.name)
-                    const gatedMatches = scopeGatedTools.filter(
-                        (t) => regex.test(t.name) || regex.test(t.title) || regex.test(t.description)
-                    )
+
                     if (gatedMatches.length > 0) {
                         const requiredScopes = [...new Set(gatedMatches.flatMap((t) => t.missingScopes))].sort()
                         return JSON.stringify({
@@ -263,6 +284,13 @@ export function createExecTool(
                         return JSON.stringify({
                             matches: [],
                             hint: `No tools matched "${rest}". Run "tools" to see all available tool names.`,
+                        })
+                    }
+                    if (truncatedFrom > 0) {
+                        return JSON.stringify({
+                            matches,
+                            truncated: true,
+                            hint: `Showing the top ${MAX_RANKED_SEARCH_RESULTS} of ${truncatedFrom} matches, ranked by relevance. Use a more specific query to narrow the results.`,
                         })
                     }
                     return JSON.stringify(matches)
@@ -410,6 +438,7 @@ export function createExecTool(
                             success: false,
                             output_format: useJson ? 'json' : 'text',
                             error_message: err instanceof Error ? err.message : String(err),
+                            input,
                         })
                         throw err
                     }
@@ -420,8 +449,8 @@ export function createExecTool(
                     // carrying `structuredContent` + `_meta.ui.resourceUri`. Clients only see
                     // the `exec` tool registered in single-exec mode, so the UI metadata has to
                     // ride on the per-call response. Gated on the consumer because other
-                    // single-exec callers (direct Claude Code, cline, Slack-launched runs, etc.)
-                    // don't render UI apps — they should see plain text.
+                    // single-exec callers (direct Claude Code, cline, Slack- and posthog_ai-launched
+                    // runs, etc.) don't render UI apps — they should see plain text.
                     if (tool._meta?.ui?.resourceUri && isPostHogCodeConsumer(mcpConsumer)) {
                         const isStringResult = typeof result === 'string'
                         const distinctId = isStringResult ? undefined : await context.getDistinctId()
@@ -445,6 +474,7 @@ export function createExecTool(
                             output_format: 'structured',
                             input_tokens: estimateTokens(input),
                             output_tokens: estimateResponseTokens(payload),
+                            input,
                         })
                         return payload
                     }
@@ -472,6 +502,7 @@ export function createExecTool(
                         output_format: useJson ? 'json' : 'text',
                         input_tokens: estimateTokens(input),
                         output_tokens: estimateTokens(outputText),
+                        input,
                     })
                     return outputText
                 }

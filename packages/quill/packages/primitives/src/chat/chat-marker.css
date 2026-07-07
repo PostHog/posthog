@@ -1,0 +1,152 @@
+@layer components {
+    /*
+     * Inline status / system-note / separator row, plus the quill collapsible extension.
+     *
+     * `quill-chat-marker` is the block. A flat marker is that block, rendered as a horizontal row.
+     * A collapsible marker is the block + `--collapsible`, which flips it to a column wrapper that
+     * stacks `__trigger` (a row sharing the block's appearance) above `__panel` — mirroring how
+     * `quill-accordion` nests `__trigger` + `__panel` under its block.
+     */
+    .quill-chat-marker,
+    .quill-chat-marker__trigger {
+        position: relative;
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        width: 100%;
+        min-height: 1rem;
+        font-size: var(--text-xs, 0.75rem);
+        line-height: 1.625;
+        color: var(--muted-foreground);
+        text-align: left;
+    }
+
+    /* Collapsible form: the block becomes the column wrapper; the trigger is the row. */
+    .quill-chat-marker--collapsible {
+        flex-direction: column;
+        gap: 0;
+        align-items: stretch;
+    }
+
+    .quill-chat-marker svg:not([class*='size-']) {
+        width: 0.875rem;
+        height: 0.875rem;
+    }
+
+    .quill-chat-marker a {
+        text-decoration: underline;
+        text-underline-offset: 3px;
+    }
+
+    .quill-chat-marker a:hover {
+        color: var(--foreground);
+    }
+
+    /* variant: border */
+    .quill-chat-marker--border {
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--border);
+    }
+
+    /* variant: separator — centered label between two rules */
+    .quill-chat-marker--separator::before,
+    .quill-chat-marker--separator::after {
+        flex: 1;
+        min-width: 0;
+        height: 1px;
+        content: '';
+        background-color: var(--border);
+    }
+
+    .quill-chat-marker--separator::before {
+        margin-right: 0.25rem;
+    }
+
+    .quill-chat-marker--separator::after {
+        margin-left: 0.25rem;
+    }
+
+    .quill-chat-marker__icon {
+        flex-shrink: 0;
+        width: 0.875rem;
+        height: 0.875rem;
+    }
+
+    .quill-chat-marker__content {
+        min-width: 0;
+        overflow-wrap: break-word;
+    }
+
+    .quill-chat-marker--separator .quill-chat-marker__content {
+        flex: none;
+        text-align: center;
+    }
+
+    /* Collapsible extension */
+    .quill-chat-marker__trigger {
+        padding-inline: 0.25rem;
+        margin-inline: -0.25rem;
+        cursor: pointer;
+        border-radius: 0.375rem;
+    }
+
+    .quill-chat-marker__trigger:hover {
+        background-color: var(--fill-hover);
+    }
+
+    /* Keyboard focus needs a real ring, not just the hover fill (WCAG 2.4.7). */
+    .quill-chat-marker__trigger:focus-visible {
+        background-color: var(--fill-hover);
+        outline: none;
+        box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 50%, transparent);
+    }
+
+    .quill-chat-marker__chevron {
+        flex-shrink: 0;
+        width: 0.875rem;
+        height: 0.875rem;
+        margin-inline-start: auto;
+        color: var(--muted-foreground);
+        opacity: 0;
+        transition:
+            opacity 150ms ease,
+            rotate 150ms ease;
+    }
+
+    .quill-chat-marker__trigger:hover .quill-chat-marker__chevron,
+    .quill-chat-marker__trigger[data-panel-open] .quill-chat-marker__chevron {
+        opacity: 1;
+    }
+
+    .quill-chat-marker__trigger[data-panel-open] .quill-chat-marker__chevron {
+        rotate: 90deg;
+    }
+
+    /* Collapsible panel: indent children + animate height. */
+    .quill-chat-marker__panel {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        padding-inline-start: 0.875rem;
+        margin-inline-start: 0.375rem;
+        overflow: hidden;
+        border-inline-start: 1px solid var(--border);
+        transition: height 150ms ease;
+    }
+
+    .quill-chat-marker__panel[data-starting-style],
+    .quill-chat-marker__panel[data-ending-style] {
+        height: 0;
+    }
+
+    .quill-chat-marker__panel[data-open] {
+        height: var(--collapsible-panel-height);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .quill-chat-marker__chevron,
+        .quill-chat-marker__panel {
+            transition: none;
+        }
+    }
+}

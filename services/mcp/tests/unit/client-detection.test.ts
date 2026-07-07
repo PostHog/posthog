@@ -34,6 +34,10 @@ describe('isCliModeEnabledClient', () => {
             ['librechat'],
             ['notion'],
             ['opencode'],
+            ['amp-mcp-client'],
+            ['poke'],
+            ['grok'],
+            ['ando-mcp-gateway'],
         ])('returns true for %s', (clientName) => {
             expect(isCliModeEnabledClient(clientName)).toBe(true)
         })
@@ -59,6 +63,11 @@ describe('isCliModeEnabledClient', () => {
             ['Devin'],
             ['OpenCode'],
             ['opencode/1.2.3'],
+            ['Amp MCP Client'],
+            ['Poke'],
+            ['Grok'],
+            ['grok-build'],
+            ['Grok/1.2.3'],
         ])('returns true for variant %s (case-insensitive substring match)', (clientName) => {
             expect(isCliModeEnabledClient(clientName)).toBe(true)
         })
@@ -159,8 +168,8 @@ describe('isPostHogCodeConsumer', () => {
         expect(isPostHogCodeConsumer('posthog-code')).toBe(true)
     })
 
-    it.each([['posthog_code'], ['PostHog-Code'], ['posthog-code-v2'], ['posthog'], ['slack'], ['']])(
-        'returns false for %s (must be exact match)',
+    it.each([['posthog_code'], ['PostHog-Code'], ['posthog-code-v2'], ['posthog'], ['slack'], ['posthog_ai'], ['']])(
+        'returns false for %s (must be exact match — posthog_ai is not a UI-apps host)',
         (consumer) => {
             expect(isPostHogCodeConsumer(consumer)).toBe(false)
         }
@@ -347,9 +356,12 @@ describe('MCPClientProfile', () => {
             expect(new MCPClientProfile({ consumer: POSTHOG_CODE_CONSUMER }).isPostHogCodeConsumer()).toBe(true)
         })
 
-        it.each([['slack'], ['posthog'], ['PostHog-Code'], ['']])('returns false for %s', (consumer) => {
-            expect(new MCPClientProfile({ consumer }).isPostHogCodeConsumer()).toBe(false)
-        })
+        it.each([['slack'], ['posthog'], ['PostHog-Code'], ['posthog_ai'], ['']])(
+            'returns false for %s',
+            (consumer) => {
+                expect(new MCPClientProfile({ consumer }).isPostHogCodeConsumer()).toBe(false)
+            }
+        )
 
         it('returns false when consumer is undefined', () => {
             expect(new MCPClientProfile({}).isPostHogCodeConsumer()).toBe(false)

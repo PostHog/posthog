@@ -71,6 +71,17 @@
                         },
                         {
                             "properties": {
+                                "check_ongoing_interval": {
+                                    "anyOf": [
+                                        {
+                                            "type": "boolean"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "When true, evaluate the current (still in-progress) period; by default only completed periods are used."
+                                },
                                 "funnel_step": {
                                     "anyOf": [
                                         {

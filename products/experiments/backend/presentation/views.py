@@ -33,7 +33,6 @@ from posthog.models.filters.filter import Filter
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.ph_client import feature_enabled_or_false
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
@@ -144,23 +143,6 @@ def list_is_legacy_annotation() -> Case:
         When(inline_legacy | saved_legacy, then=Value(True)),
         default=Value(False),
         output_field=BooleanField(),
-    )
-
-
-PROMPT_EXPERIMENTS_FEATURE_FLAG = "experiments-llm-prompts"
-
-
-def _is_prompt_experiments_feature_enabled(user: User, team: Team) -> bool:
-    distinct_id = user.distinct_id or str(user.uuid)
-    organization_id = str(team.organization_id)
-    project_id = str(team.id)
-    return feature_enabled_or_false(
-        PROMPT_EXPERIMENTS_FEATURE_FLAG,
-        distinct_id,
-        groups={"organization": organization_id, "project": project_id},
-        group_properties={"organization": {"id": organization_id}, "project": {"id": project_id}},
-        only_evaluate_locally=False,
-        send_feature_flag_events=False,
     )
 
 
@@ -377,6 +359,14 @@ class EnterpriseExperimentsViewSet(
             if request.data.get("disable_feature_flag", False) in serializers.BooleanField.TRUE_VALUES:
                 scopes.append("feature_flag:write")
             return scopes
+        # Ending or shipping with open_cleanup_pr=true starts a Code task that opens a pull
+        # request. Starting a task is a task write, so require task:write on the token, not
+        # just experiment:write.
+        if self.action in ("end", "ship_variant"):
+            scopes = ["experiment:write"]
+            if request.data.get("open_cleanup_pr", False) in serializers.BooleanField.TRUE_VALUES:
+                scopes.append("task:write")
+            return scopes
         return None
 
     def _token_can_write_feature_flag(self, request: Request) -> bool:
@@ -486,7 +476,9 @@ class EnterpriseExperimentsViewSet(
         request=EndExperimentSerializer,
         responses=ExperimentSerializer,
     )
-    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    # required_scopes is computed by dangerously_get_required_scopes; opening a cleanup PR
+    # additionally requires task:write.
+    @action(methods=["POST"], detail=True)
     def end(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         End a running experiment without shipping a variant.
@@ -520,6 +512,7 @@ class EnterpriseExperimentsViewSet(
             experiment,
             conclusion=request_serializer.validated_data.get("conclusion"),
             conclusion_comment=request_serializer.validated_data.get("conclusion_comment"),
+            open_cleanup_pr=request_serializer.validated_data["open_cleanup_pr"],
             request=request,
         )
         return Response(ExperimentSerializer(ended_experiment, context=self.get_serializer_context()).data)
@@ -528,7 +521,9 @@ class EnterpriseExperimentsViewSet(
         request=ShipVariantSerializer,
         responses=ExperimentSerializer,
     )
-    @action(methods=["POST"], detail=True, url_path="ship_variant", required_scopes=["experiment:write"])
+    # required_scopes is computed by dangerously_get_required_scopes; opening a cleanup PR
+    # additionally requires task:write.
+    @action(methods=["POST"], detail=True, url_path="ship_variant")
     def ship_variant(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Ship a variant and (optionally) end the experiment.
@@ -562,6 +557,7 @@ class EnterpriseExperimentsViewSet(
             release_to_everyone=request_serializer.validated_data["release_to_everyone"],
             conclusion=request_serializer.validated_data.get("conclusion"),
             conclusion_comment=request_serializer.validated_data.get("conclusion_comment"),
+            open_cleanup_pr=request_serializer.validated_data["open_cleanup_pr"],
             request=request,
         )
         return Response(ExperimentSerializer(shipped_experiment, context=self.get_serializer_context()).data)
@@ -676,9 +672,6 @@ class EnterpriseExperimentsViewSet(
         metric per selected template, each scoped to the prompt's $ai_prompt_name.
         Resulting experiment is in draft state.
         """
-        if not _is_prompt_experiments_feature_enabled(cast(User, request.user), self.team):
-            return Response({"detail": "Not found."}, status=404)
-
         serializer = CreateFromPromptInputSerializer(data=request.data, context={"team": self.team})
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -755,9 +748,6 @@ class EnterpriseExperimentsViewSet(
     )
     def prompt_templates(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """List the LLM metric templates that can be passed to `create_from_prompt`."""
-        if not _is_prompt_experiments_feature_enabled(cast(User, request.user), self.team):
-            return Response({"detail": "Not found."}, status=404)
-
         return Response(list_templates())
 
     @extend_schema(
@@ -1007,7 +997,7 @@ class EnterpriseExperimentsViewSet(
                         "experiment-metrics-recalculation-workflow",
                         MetricsRecalcInputs(recalculation_id=recalculation_id),
                         id=f"experiment-metrics-recalculation-{recalculation_id}",
-                        task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+                        task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
                     )
                 )
             except Exception:
@@ -1135,6 +1125,6 @@ def _serialize_recalculation(recalc: ExperimentMetricsRecalculation) -> dict:
     `results` field — recomputing per-metric fingerprints once per request is enough.
     """
     results = get_run_results(recalc)
-    payload = build_job_payload(recalc, results=results)
+    payload = build_job_payload(recalc, results=results, include_live_progress=True)
     payload["results"] = results
     return ExperimentMetricsRecalculationSerializer(payload).data

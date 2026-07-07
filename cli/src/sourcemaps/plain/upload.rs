@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::{path::PathBuf, time::Instant};
 
 use anyhow::{Context, Result};
 use serde_json::json;
@@ -19,6 +19,7 @@ use crate::{
     invocation_context::context,
     sourcemaps::{
         args::{FileSelectionArgs, ReleaseArgs, UploadConflictArgs},
+        content::MinifiedSourceFile,
         inject::get_release_for_maps,
         plain::inject::is_javascript_file,
         source_pairs::read_pairs,
@@ -37,7 +38,8 @@ pub struct Args {
     #[arg(short, long)]
     pub public_path_prefix: Option<String>,
 
-    /// Whether to delete the source map files after uploading them [default: false]
+    /// Whether to delete the source map files and strip sourceMappingURL comments after uploading them
+    /// [default: false]
     #[arg(long, default_value = "false")]
     pub delete_after: bool,
 
@@ -73,6 +75,10 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
     let sourcemap_paths = pairs
         .iter()
         .map(|pair| pair.sourcemap.inner.path.clone())
+        .collect::<Vec<_>>();
+    let source_paths = pairs
+        .iter()
+        .map(|pair| pair.source.inner.path.clone())
         .collect::<Vec<_>>();
     info!("Found {} chunks to upload", pairs.len());
 
@@ -165,8 +171,23 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
     upload_result?;
 
     if args.delete_after {
+        remove_sourcemap_references(source_paths)
+            .context("While stripping sourcemap references")?;
         delete_files(sourcemap_paths).context("While deleting sourcemaps")?;
     }
 
+    Ok(())
+}
+
+fn remove_sourcemap_references(paths: Vec<PathBuf>) -> Result<()> {
+    for path in paths {
+        let mut source = MinifiedSourceFile::load(&path)
+            .with_context(|| format!("Failed to read source file: {}", path.display()))?;
+        if source.remove_sourcemap_reference() {
+            source
+                .save()
+                .with_context(|| format!("Failed to save source file: {}", path.display()))?;
+        }
+    }
     Ok(())
 }

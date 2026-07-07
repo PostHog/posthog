@@ -48,7 +48,7 @@ from products.batch_exports.backend.models.batch_export import BatchExport, Batc
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cdp.backend.models.plugin import PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.error_tracking.backend.facade import api as error_tracking_api
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.signals.backend.billing import get_signals_billing_credits_by_team

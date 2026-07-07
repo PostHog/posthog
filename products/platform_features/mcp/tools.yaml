@@ -247,6 +247,26 @@ tools:
     members-update:
         operation: members_update
         enabled: false
+    org-member-get-github-login:
+        operation: members_github_login_retrieve
+        enabled: true
+        scopes:
+            - organization_member:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get an organization member's GitHub username.
+        description: >
+            Resolve the GitHub username (login) for a single organization member, given their PostHog user UUID
+            (obtainable from org-members-list, or "@me" for the current user). Returns null if the member has no GitHub
+            identity linked. Use this when you know which member you want and need their GitHub handle — for example to
+            set suggested reviewers.
+        param_overrides:
+            user__uuid:
+                description: |
+                    The PostHog user UUID of the organization member, as returned by org-members-list. Pass "@me"
+                    for the current user.
     org-members-list:
         operation: members_list
         enabled: true

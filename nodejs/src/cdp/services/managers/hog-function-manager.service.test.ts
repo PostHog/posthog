@@ -257,6 +257,23 @@ describe('HogFunctionManager', () => {
 
         expect(items).toEqual([])
     })
+
+    it('does not return deleted functions when fetched by id', async () => {
+        expect(await manager.getHogFunction(hogFunctions[0].id)).toMatchObject({ id: hogFunctions[0].id })
+
+        // Soft-delete without disabling, as deletion via the django API leaves `enabled` untouched
+        await hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE posthog_hogfunction SET deleted=true, updated_at = NOW() WHERE id = $1`,
+            [hogFunctions[0].id],
+            'testKey'
+        )
+
+        // This is normally dispatched by django
+        manager['onHogFunctionsReloaded'](teamId1, [hogFunctions[0].id])
+
+        expect(await manager.getHogFunction(hogFunctions[0].id)).toEqual(null)
+    })
 })
 
 describe('Hogfunction Manager - Execution Order', () => {

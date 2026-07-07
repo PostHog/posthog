@@ -5,7 +5,7 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 
-from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
+from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 
 
 class DataWarehouseModelPathSerializer(serializers.ModelSerializer):

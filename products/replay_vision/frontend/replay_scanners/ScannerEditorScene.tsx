@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 
+import { HedgehogConstruction2, HedgehogMagnifyingGlass, HedgehogXRay } from '@posthog/brand/hoggies'
 import {
     LemonButton,
     LemonCollapse,
@@ -13,7 +14,6 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 
-import { BuilderHog2, DetectiveHog, XRayHog } from 'lib/components/hedgehogs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -110,7 +110,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                         <>
                             <div className="text-center space-y-3">
                                 <div className="flex justify-center mb-2">
-                                    <XRayHog className="w-32 h-32" />
+                                    <HedgehogXRay className="w-32 h-32" />
                                 </div>
                                 <h1 className="text-2xl font-bold m-0">Choose a scanner template</h1>
                                 <p className="text-base text-secondary max-w-2xl mx-auto m-0">
@@ -131,18 +131,18 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                             <div className="bg-bg-light border rounded-lg shadow-sm p-6 flex flex-col gap-6 [&_.Field--error_.input-like]:!border-danger">
                                 <div className="flex items-center gap-3">
                                     {step === 'configure' ? (
-                                        <DetectiveHog className="h-24 w-auto shrink-0" />
+                                        <HedgehogMagnifyingGlass className="h-24 w-auto shrink-0" />
                                     ) : (
-                                        <BuilderHog2 className="h-24 w-auto shrink-0" />
+                                        <HedgehogConstruction2 className="h-24 w-auto shrink-0" />
                                     )}
                                     <div>
                                         <div className="text-base font-semibold">
-                                            {step === 'configure' ? 'Configure your scanner' : 'Set up triggers'}
+                                            {step === 'configure' ? 'Configure your scanner' : 'Set up scan conditions'}
                                         </div>
                                         <div className="text-sm text-muted">
                                             {step === 'configure'
                                                 ? 'What it looks for and how it analyzes recordings.'
-                                                : 'Which recordings it runs against and how often.'}
+                                                : 'Pick which recordings to scan, and how often.'}
                                         </div>
                                     </div>
                                 </div>
@@ -314,7 +314,7 @@ function EditorFooter({
                         className="ml-auto"
                         data-attr="vision-editor-next"
                     >
-                        Next: triggers
+                        Next: scan conditions
                     </LemonButton>
                 </>
             ) : (

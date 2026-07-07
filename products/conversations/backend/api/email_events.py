@@ -354,7 +354,8 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
 
     # 7b. Detect team member sender — only trust From when DKIM passes
     # AND the envelope-sender domain aligns with the From domain.
-    posthog_user = _resolve_team_member(sender_email, team) if _sender_authenticated(request, sender_email) else None
+    sender_authenticated = _sender_authenticated(request, sender_email)
+    posthog_user = _resolve_team_member(sender_email, team) if sender_authenticated else None
     is_team_member = posthog_user is not None
 
     # 8. Create ticket/comment/mapping in a transaction
@@ -387,7 +388,19 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
                     email_from=sender_email,
                     cc_participants=cc_list,
                     unread_team_count=0 if is_team_member else 1,
+                    identity_verified=sender_authenticated,
                 )
+            elif (
+                sender_authenticated
+                and not ticket.identity_verified
+                and sender_email.lower() == (ticket.email_from or ticket.distinct_id or "").lower()
+            ):
+                # A later authenticated message promotes the thread to verified — but only when the
+                # authenticated sender matches the identity already on the ticket. Otherwise a different
+                # SPF-aligned sender could thread onto a ticket claiming someone else's identity and
+                # falsely mark it verified.
+                ticket.identity_verified = True
+                ticket.save(update_fields=["identity_verified", "updated_at"])
 
             assert ticket is not None
 

@@ -144,6 +144,9 @@ fi
 ./bin/download-mmdb
 
 PROCESS_MANAGER="phrocs"
+# PROCESS_MANAGER is the bare name (kept for telemetry); PROCESS_MANAGER_BIN is
+# the executable to run, resolved per-manager below. For phrocs that's the
+# in-repo source build when present, so it wins over anything on PATH.
 
 # Detect detached mode early (`-d` is the shorthand, `--detach` the long
 # form). Incompatible with --mprocs since mprocs has no detached mode; only
@@ -170,19 +173,35 @@ if [[ " $* " == *" --mprocs "* ]]; then
         fi
     fi
     PROCESS_MANAGER="mprocs"
+    PROCESS_MANAGER_BIN="mprocs"
 fi
 
 if [[ "$PROCESS_MANAGER" == "phrocs" ]]; then
-    if ! command -v phrocs &>/dev/null; then
-        if command -v brew &>/dev/null; then
-            echo "🔁 Installing phrocs via Homebrew..."
-            brew tap posthog/tap && brew install phrocs
-        else
-            echo "👉 To run bin/start, install phrocs: brew tap posthog/tap && brew install phrocs"
-            exit 1
-        fi
+    # Resolve phrocs deterministically. The in-repo source build (produced by
+    # flox activation via `make -C tools/phrocs build`) is canonical: it always
+    # matches this checkout, so prefer it over anything on PATH. This stops a
+    # stray brew/curl install from silently shadowing the version your branch
+    # built. Non-flox setups have no dist binary and fall back to PATH.
+    DIST_PHROCS="$REPOSITORY_ROOT/tools/phrocs/dist/phrocs"
+    if [[ -x "$DIST_PHROCS" ]]; then
+        PROCESS_MANAGER_BIN="$DIST_PHROCS"
+    elif [[ -n "${FLOX_ENV_PROJECT:-}" ]]; then
+        # Inside flox the source build is the only accepted binary — do NOT fall
+        # back to PATH, or a stray brew/curl phrocs would shadow the checkout
+        # build in exactly the failure mode this resolution is meant to prevent.
+        echo "👉 phrocs isn't built yet. Re-activate your flox environment to build it"
+        echo "   (leave and re-enter the repo directory, or run: flox activate),"
+        echo "   or build it directly: hogli phrocs:build"
+        exit 1
+    elif PATH_PHROCS="$(command -v phrocs)"; then
+        PROCESS_MANAGER_BIN="$PATH_PHROCS"
+    else
+        echo "👉 To run bin/start, install phrocs:"
+        echo "     brew tap posthog/tap && brew install phrocs"
+        echo "   or, without Homebrew:"
+        echo "     curl -fsSL https://raw.githubusercontent.com/PostHog/posthog/master/tools/phrocs/install.sh | bash"
+        exit 1
     fi
-    PROCESS_MANAGER="phrocs"
 fi
 
 # Use custom config, if provided (e.g. bin/start --custom bin/mprocs-custom.yaml)
@@ -206,9 +225,9 @@ if [[ "$*" == *"--custom"* ]]; then
     fi
     if [[ "$DETACHED" == "1" ]]; then
         exec 9<&-
-        "$PROCESS_MANAGER" --detach --config "$config_path"
+        "$PROCESS_MANAGER_BIN" --detach --config "$config_path"
     else
-        "$PROCESS_MANAGER" --config "$config_path"
+        "$PROCESS_MANAGER_BIN" --config "$config_path"
     fi
 else
     GENERATED_CONFIG="$REPOSITORY_ROOT/.posthog/.generated/mprocs.yaml"
@@ -233,8 +252,8 @@ else
         # for the child's whole lifetime even after bin/start exits —
         # blocking the next bin/start invocation.
         exec 9<&-
-        "$PROCESS_MANAGER" --detach --config "$CONFIG_TO_USE"
+        "$PROCESS_MANAGER_BIN" --detach --config "$CONFIG_TO_USE"
     else
-        "$PROCESS_MANAGER" --config "$CONFIG_TO_USE"
+        "$PROCESS_MANAGER_BIN" --config "$CONFIG_TO_USE"
     fi
 fi

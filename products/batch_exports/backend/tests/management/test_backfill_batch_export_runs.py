@@ -395,9 +395,12 @@ def hour_window(hours_back: int) -> tuple[datetime, datetime]:
     return REFERENCE_TIME - timedelta(hours=hours_back), REFERENCE_TIME
 
 
-def run_backfill_command(*args, stderr=None):
-    """Run the backfill_batch_export_runs management command with --no-delay and --no-confirm."""
-    call_command("backfill_batch_export_runs", *args, "--no-delay", "--no-confirm", stderr=stderr)
+def run_backfill_command(*args, stderr=None, no_delay=True):
+    """Run the backfill_batch_export_runs management command with --no-confirm."""
+    command_args = [*args, "--no-confirm"]
+    if no_delay:
+        command_args.append("--no-delay")
+    call_command("backfill_batch_export_runs", *command_args, stderr=stderr)
 
 
 @pytest.mark.django_db
@@ -437,16 +440,16 @@ class TestBackfillCommand:
                 logging.warning("Schedule %s already deleted", export.id)
 
     @pytest.mark.parametrize(
-        "window_hours, covered_hour_offsets, expected_interval_end_offsets",
+        "window_hours, covered_hour_offsets, expected_interval_end_offsets, no_delay",
         [
-            pytest.param(2, [(0, 1)], [2], id="single_missing_interval"),
-            pytest.param(6, [(0, 1), (5, 6)], [2, 3, 4, 5], id="merged_missing_intervals"),
-            pytest.param(4, [(1, 2), (3, 4)], [1, 3], id="non_continuous_gaps"),
-            pytest.param(3, [(0, 1), (1, 2), (2, 3)], [], id="fully_covered"),
+            pytest.param(2, [(0, 1)], [2], True, id="single_missing_interval"),
+            pytest.param(6, [(0, 1), (5, 6)], [2, 3, 4, 5], True, id="merged_missing_intervals"),
+            pytest.param(4, [(1, 2), (3, 4)], [1, 3], False, id="non_continuous_gaps"),
+            pytest.param(3, [(0, 1), (1, 2), (2, 3)], [], True, id="fully_covered"),
         ],
     )
     def test_backfill_triggers_expected_workflows(
-        self, team, temporal, window_hours, covered_hour_offsets, expected_interval_end_offsets
+        self, team, temporal, window_hours, covered_hour_offsets, expected_interval_end_offsets, no_delay
     ):
         export = create_noop_export_with_schedule(team, interval="hour")
         start, end = hour_window(window_hours)
@@ -455,7 +458,10 @@ class TestBackfillCommand:
             create_run(export, start + timedelta(hours=offset_start), start + timedelta(hours=offset_end))
 
         run_backfill_command(
-            f"--batch-export-id={export.id}", f"--start={start.isoformat()}", f"--end={end.isoformat()}"
+            f"--batch-export-id={export.id}",
+            f"--start={start.isoformat()}",
+            f"--end={end.isoformat()}",
+            no_delay=no_delay,
         )
 
         if expected_interval_end_offsets:

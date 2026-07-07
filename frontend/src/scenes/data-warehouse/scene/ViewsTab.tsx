@@ -456,7 +456,7 @@ export function ViewsTab({ getViewUrl }: ViewsTabProps = {}): JSX.Element {
                         resourceType={AccessControlResourceType.WarehouseObjects}
                         minAccessLevel={AccessControlLevel.Editor}
                     >
-                        <LemonButton type="primary" to={urls.sqlEditor()} className="inline-block">
+                        <LemonButton type="primary" to={urls.sqlEditor({ source: 'view' })} className="inline-block">
                             Create view
                         </LemonButton>
                     </AccessControlAction>

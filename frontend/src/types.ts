@@ -209,6 +209,7 @@ export enum AvailableFeature {
     MANAGED_REVERSE_PROXY = 'managed_reverse_proxy',
     ALERTS = 'alerts',
     HIGH_FREQUENCY_ALERTS = 'high_frequency_alerts',
+    REAL_TIME_ALERTS = 'real_time_alerts',
     DATA_COLOR_THEMES = 'data_color_themes',
     ORGANIZATION_INVITE_SETTINGS = 'organization_invite_settings',
     ORGANIZATION_SECURITY_SETTINGS = 'organization_security_settings',
@@ -286,6 +287,7 @@ export enum AccessControlResourceType {
     Survey = 'survey',
     Logs = 'logs',
     Endpoint = 'endpoint',
+    EarlyAccessFeature = 'early_access_feature',
     ProductTour = 'product_tour',
     Experiment = 'experiment',
     ExperimentHoldout = 'experiment_holdout',
@@ -478,6 +480,21 @@ export interface InAppNotification {
     created_at: string
 }
 
+/**
+ * Transient realtime event signalling that a resource was edited through some channel
+ * (UI, MCP, or API). Rides the same notifications SSE transport as InAppNotification but is
+ * never persisted or shown in the inbox — an open editor uses it to refresh instead of
+ * clobbering edits made elsewhere. Discriminated by `notification_type === 'resource_edited'`.
+ */
+export interface ResourceEditedEvent {
+    notification_type: 'resource_edited'
+    team_id: number
+    resource_type: string
+    resource_id: string
+    updated_at: string
+    actor_user_id: number | null
+}
+
 export interface PluginAccess {
     view: boolean
     install: boolean
@@ -567,6 +584,8 @@ export interface OrganizationDomainType {
     id_jag_issuer_url?: string | null
     id_jag_jwks_url?: string | null
     id_jag_allowed_clients?: string[]
+    /** Linked IdP config (SAML/SCIM/XAA), the source of truth for those settings. */
+    identity_provider_config?: string | null
 }
 
 export interface SCIMRequestLogType {
@@ -1091,6 +1110,8 @@ export enum PropertyFilterType {
     EventMetadata = 'event_metadata',
     /** Person properties */
     Person = 'person',
+    /** Top-level columns on the persons table (e.g. created_at), not properties JSON */
+    PersonMetadata = 'person_metadata',
     Element = 'element',
     /** Event property with "$feature/" prepended */
     Feature = 'feature',
@@ -1144,6 +1165,11 @@ export interface RevenueAnalyticsPropertyFilter extends BasePropertyFilter {
 /** Sync with nodejs/src/types.ts */
 export interface PersonPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Person
+    operator: PropertyOperator
+}
+
+export interface PersonMetadataPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.PersonMetadata
     operator: PropertyOperator
 }
 
@@ -1247,6 +1273,7 @@ export interface EmptyPropertyFilter {
 export type AnyPropertyFilter =
     | EventPropertyFilter
     | PersonPropertyFilter
+    | PersonMetadataPropertyFilter
     | ElementPropertyFilter
     | EventMetadataPropertyFilter
     | SessionPropertyFilter
@@ -1269,6 +1296,7 @@ export type AnyPropertyFilter =
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
 export type AnyPersonScopeFilter =
     | PersonPropertyFilter
+    | PersonMetadataPropertyFilter
     | CohortPropertyFilter
     | HogQLPropertyFilter
     | EmptyPropertyFilter
@@ -1409,7 +1437,14 @@ export type ActionStepProperties =
 
 export interface RecordingPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Recording
-    key: DurationType | 'snapshot_source' | 'visited_page' | 'comment_text'
+    key:
+        | DurationType
+        | 'snapshot_source'
+        | 'visited_page'
+        | 'comment_text'
+        | 'click_count'
+        | 'keypress_count'
+        | 'mouse_activity_count'
     operator: PropertyOperator
 }
 
@@ -1787,6 +1822,7 @@ export enum PersonsTabType {
     RELATED = 'related',
     HISTORY = 'history',
     FEATURE_FLAGS = 'featureFlags',
+    EMAILS = 'emails',
 }
 
 export enum GroupsTabType {
@@ -3455,6 +3491,10 @@ export interface FlattenedFunnelStepByBreakdown {
     // :KLUDGE: Data transforms done in `getBreakdownStepValues`
     breakdown_value?: Array<string | number>
     breakdownIndex?: number
+    /** Compare period this row represents; both rows of a pair share breakdown_value and color. */
+    compare_label?: 'current' | 'previous'
+    /** Color position shared by both rows of a compare pair; falls back to breakdownIndex. */
+    colorIndex?: number
     conversionRates?: {
         total: number
     }
@@ -4358,6 +4398,8 @@ export interface EarlyAccessFeatureType {
     payload?: Record<string, any>
     created_at: string
     _create_in_folder?: string | null
+    /** The effective access level the user has for this early access feature. */
+    user_access_level?: AccessControlLevel
 }
 
 export interface NewEarlyAccessFeatureType extends Omit<EarlyAccessFeatureType, 'id' | 'created_at' | 'feature_flag'> {
@@ -4496,6 +4538,7 @@ export interface PreflightStatus {
     /** Public base URL of the LLM gateway, for per-gateway endpoint examples. Null until configured. */
     ai_gateway_url?: string | null
     object_storage: boolean
+    wizard_cloud_run_available: boolean
     public_egress_ip_addresses?: string[]
     dev_disable_navigation_hooks?: boolean
 }
@@ -4631,6 +4674,7 @@ export enum PropertyDefinitionType {
     EventMetadata = 'event_metadata',
     RevenueAnalytics = 'revenue_analytics',
     Person = 'person',
+    PersonMetadata = 'person_metadata',
     Group = 'group',
     Session = 'session',
     LogEntry = 'log_entry',
@@ -4782,7 +4826,6 @@ export interface Experiment {
         variant_screenshot_media_ids?: Record<string, string[]>
         variant_notes?: Record<string, string>
         rollout_percentage?: number
-        excluded_variants?: string[]
         /** Present when the experiment was created from an LLM prompt via /create_from_prompt/. */
         prompt_metadata?: {
             name: string
@@ -4929,6 +4972,7 @@ export interface AppContext {
     default_event_name: string | null
     has_pageview: boolean
     has_screen: boolean
+    has_person_email: boolean
     /**
      * Flags the server bootstraps as enabled (a list of keys). Storybook may instead pass a
      * record to pin specific multivariate variants (e.g. an experiment arm) for a story.
@@ -5344,6 +5388,8 @@ export const INTEGRATION_KINDS = [
     'customerio-webhook',
     'customerio-track',
     'postgresql',
+    'aws-s3',
+    's3-compatible',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -5384,6 +5430,7 @@ export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 export enum SlackIntegrationScopeInReview {
     ASSISTANT_WRITE = 'assistant:write',
     CHANNELS_MANAGE = 'channels:manage',
+    COMMANDS = 'commands',
     IM_HISTORY = 'im:history',
     MPIM_READ = 'mpim:read',
 }
@@ -5579,6 +5626,7 @@ export type APIScopeObject =
     | 'clickhouse_test_cluster_perf'
     | 'cohort'
     | 'comment'
+    | 'conversation'
     | 'customer_analytics'
     | 'customer_journey'
     | 'customer_profile_config'
@@ -5625,6 +5673,7 @@ export type APIScopeObject =
     | 'organization_member'
     | 'person'
     | 'plugin'
+    | 'product_enablement'
     | 'product_tour'
     | 'project'
     | 'property_definition'
@@ -6050,7 +6099,7 @@ export interface ExternalDataSourceConnectionMetadata {
 export interface ExternalDataSourceConnectionOption {
     id: string
     prefix: string | null
-    engine?: 'duckdb' | 'postgres' | 'mysql' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | null
 }
 
 export interface ExternalDataSource {
@@ -6254,6 +6303,7 @@ export interface ExternalDataSchemaSourceSummary {
     id: string
     source_type: ExternalDataSourceType
     supports_column_selection?: boolean
+    supports_row_filters?: boolean
     user_access_level: AccessControlLevel | null
 }
 
@@ -6872,6 +6922,7 @@ export type CyclotronJobInputSchemaType = {
         | 'posthog_ticket_tags'
         | 'posthog_business_hours'
         | 'non_failure_status_codes'
+        | 'customer_analytics_account_properties'
     key: string
     label: string
     choices?: { value: string; label: string }[]

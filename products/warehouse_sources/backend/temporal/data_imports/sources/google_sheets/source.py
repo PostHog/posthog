@@ -40,12 +40,13 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         return {
             "the header row in the worksheet contains duplicates": "Import failed: There exists duplicate column headers. Please make sure all column headers have values and aren't duplicated.",
             "can't be found": None,
-            "SpreadsheetNotFound": None,
             "must be real number, not str": "Import failed: a numeric column contains a non-numeric value. Ensure every cell in numeric columns is stored as a plain number.",
             "Spreadsheet access denied": "Import failed: PostHog does not have access to this spreadsheet. Please share it with our service account as described at https://posthog.com/docs/cdp/sources/google-sheets",
-            # gspread raises APIError "[404]: Requested entity was not found." when the
-            # spreadsheet has been deleted or is otherwise unreachable. Retrying cannot recover.
-            "Requested entity was not found": "Import failed: the Google Sheet could not be found. It may have been deleted or moved. Please check the spreadsheet URL and that it is shared with our service account.",
+            # gspread surfaces the Sheets API 404 (deleted/moved sheet, or access removed) as a
+            # `SpreadsheetNotFound`, which `google_sheets.py` re-raises with this stable message —
+            # `str(SpreadsheetNotFound)` is otherwise just `<Response [404]>`, with nothing to match.
+            # Retrying cannot recover.
+            "Spreadsheet not found": "Import failed: the Google Sheet could not be found. It may have been deleted or moved. Please check the spreadsheet URL and that it is shared with our service account.",
         }
 
     def get_schemas(
@@ -100,6 +101,22 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
             return (
                 False,
                 "Permissions missing from spreadsheet. View documentation at https://posthog.com/docs/cdp/sources/google-sheets",
+            )
+        except gspread.exceptions.APIError as e:
+            # gspread stringifies these as "APIError: [<code>]: <message>", which isn't actionable.
+            # The common case is an uploaded Office file (.xlsx) the Sheets API can't read.
+            api_message = str(e.error.get("message", "")) if isinstance(e.error, dict) else ""
+            if "Office file" in api_message:
+                return (
+                    False,
+                    "This spreadsheet is an uploaded Office file (e.g. .xlsx), which the Google Sheets API "
+                    "can't read. Open it in Google Sheets, use File → Save as Google Sheets, and connect the "
+                    "converted sheet instead.",
+                )
+            return (
+                False,
+                "Google Sheets could not open this spreadsheet. Please check the URL and that it is shared "
+                "with our service account as described at https://posthog.com/docs/cdp/sources/google-sheets",
             )
         except Exception as e:
             return False, str(e)

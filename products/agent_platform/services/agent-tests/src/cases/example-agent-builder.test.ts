@@ -4,10 +4,10 @@
  * The Agent Builder authors + operates other agents through the PostHog MCP
  * (one `spec.mcps[]` entry authed by the `posthog` identity provider), acting
  * as the asking user — the same pattern as `posthog-ai`, applied to the
- * authoring surface. It keeps only its own runtime natives (`@posthog/memory-*`)
- * and the PostHog Code client/UI tools. Destructive authoring ops
+ * authoring surface. It keeps only its own runtime natives (`@posthog/memory-*`
+ * plus `@posthog/web-search`) and the PostHog Code client/UI tools. Destructive authoring ops
  * (`promote` / `archive` / `destroy`) are approval-gated on the MCP `tools[]`
- * allow-list (`requires_approval` + `approval_policy`), so the platform — not
+ * via `level: 'approve'` + `approval_policy`, so the platform — not
  * just the prompt — holds them. This case pins that wiring net; drift here
  * means the bundle is broken regardless of platform readiness.
  *
@@ -65,13 +65,13 @@ describe('example: agent-builder bundle', () => {
         expect(parsed.mcps[0].tools?.length ?? 0).toBeGreaterThan(20)
     })
 
-    it('keeps only its own runtime natives (memory) — no native agent-applications tools', async () => {
+    it('keeps only its own runtime natives (memory + web-search) — no native agent-applications tools', async () => {
         const { spec } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)
         const nativeIds = parsed.tools.filter((t) => t.kind === 'native').map((t) => t.id)
         // The authoring surface moved to the MCP; the only natives left are the
-        // agent's own S3 memory tools.
-        expect(nativeIds.every((id) => id.startsWith('@posthog/memory-'))).toBe(true)
+        // agent's own runtime tools — S3 memory plus web search.
+        expect(nativeIds.every((id) => id.startsWith('@posthog/memory-') || id === '@posthog/web-search')).toBe(true)
         expect(nativeIds.some((id) => id.startsWith('@posthog/agent-applications-'))).toBe(false)
         // Whatever natives remain must still resolve in the catalog.
         const catalog = new Set(listNativeTools().map((t) => t.id))
@@ -110,6 +110,7 @@ describe('example: agent-builder bundle', () => {
             .map((t) => t.id)
             .sort()
         expect(ids).toEqual([
+            'connect_mcp',
             'focus_file',
             'focus_revision',
             'focus_session',
@@ -143,13 +144,9 @@ describe('example: agent-builder bundle', () => {
         const { spec } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)
         const entries = parsed.mcps[0].tools ?? []
-        // Object-form entries on the allow-list carry the approval policy — that's
-        // how the platform (not just the prompt) holds a destructive authoring op.
-        const gated = new Map(
-            entries
-                .filter((e): e is Exclude<typeof e, string> => typeof e !== 'string' && e.requires_approval === true)
-                .map((e) => [e.name, e])
-        )
+        // `level: 'approve'` entries carry the approval policy — that's how the
+        // platform (not just the prompt) holds a destructive authoring op.
+        const gated = new Map(entries.filter((e) => e.level === 'approve').map((e) => [e.name, e]))
         for (const name of [
             'agent-applications-revisions-promote-create',
             'agent-applications-revisions-archive-create',

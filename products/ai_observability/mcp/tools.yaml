@@ -255,9 +255,9 @@ tools:
         title: List supported llm_judge models
         description: >
             List provider+model combinations supported for llm_judge. Pass `provider` (openai, anthropic, gemini,
-            openrouter, fireworks, azure_openai); optional `key_id` scopes to a key's reachable deployments (mainly
-            azure_openai). Call before creating an llm_judge eval to pick a valid combo — prefer a provider the team
-            already has a key for (see llma-provider-key-list).
+            openrouter, fireworks, azure_openai, together_ai, minimax); optional `key_id` scopes to a key's reachable
+            deployments (mainly azure_openai). Call before creating an llm_judge eval to pick a valid combo — prefer a
+            provider the team already has a key for (see llma-provider-key-list).
     llma-evaluation-list:
         operation: evaluations_list
         enabled: true
@@ -480,10 +480,10 @@ tools:
         title: Get my LLM spend analysis
         description: >
             Retrieve the current user's personal LLM spend analysis across PostHog products over the last N days
-            (default 30, max 90). Returns a summary plus breakdowns by product, tool, model, and top traces. The
-            `product` query param is required and scopes the tool / model / trace breakdowns to a single product;
-            currently only `posthog_code` is supported. `by_product` always returns the cross-product view. Pass
-            `refresh=true` to bypass the 5-minute cache.
+            (default 30, max 90). Returns a summary plus breakdowns by product, tool, model and UTC day. The `product`
+            query param is required and scopes the tool / model / day breakdowns to a single product; currently only
+            `posthog_code` is supported. `by_product` always returns the cross-product view, and `by_day` is a
+            day-ascending series for spend-over-time questions. Pass `refresh=true` to bypass the 5-minute cache.
     llma-prompt-archive:
         operation: llm_prompts_name_archive_create
         enabled: false

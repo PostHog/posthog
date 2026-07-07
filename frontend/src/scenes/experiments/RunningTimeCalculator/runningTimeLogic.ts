@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { objectsEqual } from 'lib/utils/objects'
 
 import { experimentsConfigLogic } from '~/scenes/settings/environment/experimentsConfigLogic'
 import { ConversionRateInputType, Experiment } from '~/types'
@@ -307,13 +308,22 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
     }),
 
     subscriptions(({ actions }) => ({
-        automaticCalculationInput: (input: RunningTimeCalculationInputApi | null) => {
-            if (input) {
+        // kea-subscriptions fires on reference change. The recalc poll replaces the metric-results array every
+        // tick, so these inputs get a fresh object reference even when their values are identical, which would
+        // re-fire the calculation POST on every poll. Skip the dispatch unless the value actually changed.
+        automaticCalculationInput: (
+            input: RunningTimeCalculationInputApi | null,
+            oldInput: RunningTimeCalculationInputApi | null
+        ) => {
+            if (input && !objectsEqual(input, oldInput)) {
                 actions.loadAutomaticCalculation(input)
             }
         },
-        manualPreviewInput: (input: RunningTimeCalculationInputApi | null) => {
-            if (input) {
+        manualPreviewInput: (
+            input: RunningTimeCalculationInputApi | null,
+            oldInput: RunningTimeCalculationInputApi | null
+        ) => {
+            if (input && !objectsEqual(input, oldInput)) {
                 actions.loadManualPreview(input)
             }
         },

@@ -2,9 +2,10 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, propsCh
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
-import api, { ApiError } from 'lib/api'
+import api from 'lib/api'
 import { isUUIDLike } from 'lib/utils/guards'
 
+import { isApiNotFound, loadErrorMessage } from '../../lib/load-error'
 import { phDebugQueryParams } from '../../lib/ph-debug'
 import { TaskLogicProps, taskLogic } from '../../logics/taskLogic'
 import { tasksLogic } from '../../logics/tasksLogic'
@@ -12,23 +13,6 @@ import { TaskRun } from '../../types/taskTypes'
 import type { taskDetailSceneLogicType } from './taskDetailSceneLogicType'
 
 export type TaskDetailSceneLogicProps = TaskLogicProps
-
-function isApiNotFound(errorObject: unknown): boolean {
-    return errorObject instanceof ApiError && errorObject.status === 404
-}
-
-function loadErrorMessage(error: string, errorObject: unknown): string {
-    if (error) {
-        return error
-    }
-    if (errorObject instanceof ApiError && (errorObject.detail || errorObject.statusText)) {
-        return errorObject.detail || errorObject.statusText || 'Something went wrong.'
-    }
-    if (errorObject instanceof Error && errorObject.message) {
-        return errorObject.message
-    }
-    return 'Something went wrong.'
-}
 
 export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
     path(['products', 'posthog_ai', 'frontend', 'scenes', 'TaskTracker', 'taskDetailSceneLogic']),
@@ -143,6 +127,18 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             (runs): boolean => {
                 return runs.length === 0
             },
+        ],
+        isTaskPending: [(s) => [s.taskLoading, s.task], (taskLoading, task): boolean => taskLoading && !task],
+        isRunPending: [
+            (s) => [s.runsLoading, s.runs, s.selectedRunDataLoading, s.selectedRun],
+            (runsLoading, runs, selectedRunDataLoading, selectedRun): boolean =>
+                (runsLoading && runs.length === 0) || (selectedRunDataLoading && !selectedRun),
+        ],
+        // The header (task panel + title + run metadata) and the run log share the runs-loading phase, so
+        // both resolve together: one skeleton-only loading state, no piecemeal pop-in.
+        isHeaderLoading: [
+            (s) => [s.isTaskPending, s.isRunPending],
+            (isTaskPending, isRunPending): boolean => isTaskPending || isRunPending,
         ],
         title: [
             (s) => [s.task],

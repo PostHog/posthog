@@ -1,7 +1,8 @@
 import { BackgroundRefresher } from '~/common/utils/background-refresher'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { logger } from '~/common/utils/logger'
-import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
+import { firstPartyHostPatterns } from '~/ingestion/pipelines/sessionreplay/anonymize/url'
+import { RetentionPeriod, isValidRetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { Team, TeamId } from '~/types'
 
 import { TeamServiceMetrics } from './metrics'
@@ -9,7 +10,8 @@ import { TeamForReplay } from './types'
 
 interface TeamServiceData {
     tokenMap: Record<string, TeamForReplay>
-    retentionMap: Record<TeamId, RetentionPeriod>
+    // The raw DB value; validated to a RetentionPeriod on read in getRetentionPeriodByTeamId.
+    retentionMap: Record<TeamId, string>
 }
 
 export class TeamService {
@@ -45,6 +47,12 @@ export class TeamService {
         if (retentionPeriod === undefined) {
             return null
         }
+        if (!isValidRetentionPeriod(retentionPeriod)) {
+            // A retention value the DB should never hold — crash rather than record with a wrong
+            // (or silently dropped) retention. Thrown without isRetriable so it is not retried into
+            // a DLQ but propagates and takes the consumer down.
+            throw new Error(`Invalid session_recording_retention_period '${retentionPeriod}' for team ${teamId}`)
+        }
 
         return retentionPeriod
     }
@@ -58,14 +66,23 @@ export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Pro
     const selectResult = await client.query<
         {
             capture_console_log_opt_in: boolean
-            session_recording_retention_period: RetentionPeriod
+            session_recording_retention_period: string
+            is_ai_training_opted_in: boolean
+            recording_domains: string[] | null
         } & Pick<Team, 'id' | 'api_token'>
     >(
         PostgresUse.COMMON_READ,
         `
-            SELECT id, api_token, capture_console_log_opt_in, session_recording_retention_period
-            FROM posthog_team
-            WHERE session_recording_opt_in = true
+            SELECT
+                t.id,
+                t.api_token,
+                t.capture_console_log_opt_in,
+                t.session_recording_retention_period,
+                t.recording_domains,
+                COALESCE(o.is_ai_training_opted_in, false) AS is_ai_training_opted_in
+            FROM posthog_team t
+            LEFT JOIN posthog_organization o ON o.id = t.organization_id
+            WHERE t.session_recording_opt_in = true
         `,
         [],
         'fetchTeamTokensWithRecordings'
@@ -76,6 +93,8 @@ export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Pro
             acc[row.api_token] = {
                 teamId: row.id,
                 consoleLogIngestionEnabled: row.capture_console_log_opt_in,
+                aiTrainingOptedIn: row.is_ai_training_opted_in,
+                firstPartyHosts: firstPartyHostPatterns(row.recording_domains),
             }
             return acc
         },
@@ -87,7 +106,7 @@ export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Pro
             acc[row.id] = row.session_recording_retention_period
             return acc
         },
-        {} as Record<TeamId, RetentionPeriod>
+        {} as Record<TeamId, string>
     )
 
     TeamServiceMetrics.incrementRefreshCount()

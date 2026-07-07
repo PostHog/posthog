@@ -374,6 +374,78 @@ export interface _MetricQueryResponseApi {
     results: _MetricSeriesApi[]
 }
 
+export interface _MetricSamplesBodyApi {
+    /**
+     * Exact metric name to list raw emissions for (e.g. 'http.server.duration').
+     * @maxLength 255
+     */
+    metricName: string
+    /** Lower bound (inclusive) for the sample window. ISO 8601. */
+    dateFrom: string
+    /** Upper bound (exclusive) for the sample window. Defaults to now if omitted. */
+    dateTo?: string
+    /**
+     * Restrict to emissions on this trace — the reverse metric->trace pivot. Omit for all traces.
+     * @maxLength 255
+     */
+    traceId?: string
+    /**
+     * Max emissions to return, newest first. Defaults to 100, capped at 1000.
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number
+}
+
+export interface _MetricSamplesRequestApi {
+    /** The raw-emissions query to execute. */
+    query: _MetricSamplesBodyApi
+}
+
+/**
+ * Per-emission attributes (high-cardinality labels on the data point).
+ */
+export type _MetricEventSampleApiAttributes = { [key: string]: string }
+
+/**
+ * Attributes of the resource (host, pod, service version) that emitted the metric.
+ */
+export type _MetricEventSampleApiResourceAttributes = { [key: string]: string }
+
+export interface _MetricEventSampleApi {
+    /** When the metric was emitted, ISO 8601. */
+    timestamp: string
+    /** Metric this emission belongs to. */
+    metric_name: string
+    /** OTel metric type: gauge, sum, histogram, summary, or exponential_histogram. */
+    metric_type: string
+    /** The emitted value. For histogram/summary points this is the distribution sum; pair with count. */
+    value: number
+    /** Observations behind this point: 1 for gauges/counters, the distribution count for histograms/summaries. */
+    count: number
+    /** Unit of the value, if any. */
+    unit: string
+    /** For counters: 'delta' or 'cumulative' (decides whether rate() must diff). Empty for gauges. */
+    aggregation_temporality: string
+    /** True for monotonically increasing counters. */
+    is_monotonic: boolean
+    /** Service that emitted the metric. */
+    service_name: string
+    /** Trace this emission belongs to; empty if none. Use it to pivot to the trace. */
+    trace_id: string
+    /** Span this emission belongs to; empty if none. */
+    span_id: string
+    /** Per-emission attributes (high-cardinality labels on the data point). */
+    attributes: _MetricEventSampleApiAttributes
+    /** Attributes of the resource (host, pod, service version) that emitted the metric. */
+    resource_attributes: _MetricEventSampleApiResourceAttributes
+}
+
+export interface _MetricSamplesResponseApi {
+    /** Raw emissions ordered by timestamp descending. */
+    results: _MetricEventSampleApi[]
+}
+
 export interface _MetricNameApi {
     /** Metric name as it appears in the team's data. */
     name: string

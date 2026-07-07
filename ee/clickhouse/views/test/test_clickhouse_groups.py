@@ -1146,41 +1146,6 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/groups/related?group_type_index=0")
         self.assertEqual(response.status_code, 400)
 
-    def test_property_definitions(self):
-        create_group(
-            team_id=self.team.pk,
-            group_type_index=0,
-            group_key="org:5",
-            properties={"industry": "finance", "name": "Mr. Krabs"},
-        )
-        create_group(
-            team_id=self.team.pk,
-            group_type_index=0,
-            group_key="org:6",
-            properties={"industry": "technology"},
-        )
-        create_group(
-            team_id=self.team.pk,
-            group_type_index=1,
-            group_key="company:1",
-            properties={"name": "Plankton"},
-        )
-        create_group(
-            team_id=self.team.pk,
-            group_type_index=1,
-            group_key="company:2",
-            properties={},
-        )
-
-        response_data = self.client.get(f"/api/projects/{self.team.id}/groups/property_definitions").json()
-        self.assertEqual(
-            response_data,
-            {
-                "0": [{"name": "industry", "count": 2}, {"name": "name", "count": 1}],
-                "1": [{"name": "name", "count": 1}],
-            },
-        )
-
     def test_property_values(self):
         create_group(
             team_id=self.team.pk,

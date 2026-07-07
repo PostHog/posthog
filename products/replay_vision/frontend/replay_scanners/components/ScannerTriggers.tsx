@@ -1,25 +1,37 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonDivider, LemonInput } from '@posthog/lemon-ui'
+import { LemonCard, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { resolveCategoryDropdownVariant, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { DurationFilter } from 'scenes/session-recordings/filters/DurationFilter'
 import {
     convertUniversalFiltersToRecordingsQuery,
+    deriveOperand,
     recordingsQueryToUniversalFilters,
 } from 'scenes/session-recordings/filters/recordingsQueryConversions'
+import { RecordingsUniversalFilterAddFilterPopover } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
+import { defaultRecordingDurationFilter } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
+import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { RecordingsQuery } from '~/queries/schema/schema-general'
+import { DurationType, RecordingDurationFilter, RecordingUniversalFilters, UniversalFiltersGroup } from '~/types'
 
 import { replayScannerLogic } from '../replayScannerLogic'
+import { SAMPLING_MODE_OPTIONS, SamplingMode } from '../types'
 import { ScannerQuotaForecast } from './ScannerQuotaForecast'
 
-// Mirrors the recordings list, minus its playlist-only groups (saved/suggested filters).
+// Mirrors the recordings list taxonomy, including suggested filters so the search bar surfaces them.
 const SCANNER_FILTER_TYPES: TaxonomicFilterGroupType[] = [
+    TaxonomicFilterGroupType.SuggestedFilters,
     TaxonomicFilterGroupType.Replay,
     TaxonomicFilterGroupType.Events,
     TaxonomicFilterGroupType.EventProperties,
@@ -30,15 +42,34 @@ const SCANNER_FILTER_TYPES: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.SessionProperties,
 ]
 
-// Recursively renders the bound universal-filter group's values. The add-filter button only renders on the
-// leaf group (the one holding actual filters); the outer wrapper group just nests, so it shows no button.
+// Vision only analyzes recordings within these server-enforced duration bounds (see backend constants.py).
+const DURATION_BOUNDS: Partial<Record<DurationType, { min?: number; max?: number }>> = {
+    duration: { min: 15 },
+    active_seconds: { min: 10, max: 3600 },
+}
+
+function clampDurationFilter(filter: RecordingDurationFilter): RecordingDurationFilter {
+    const bounds = DURATION_BOUNDS[filter.key]
+    if (!bounds) {
+        return filter
+    }
+    let value = Number(filter.value) || 0
+    if (bounds.min != null) {
+        value = Math.max(value, bounds.min)
+    }
+    if (bounds.max != null) {
+        value = Math.min(value, bounds.max)
+    }
+    return value === filter.value ? filter : { ...filter, value }
+}
+
+// Renders the bound universal-filter group's values; adding is handled by the search bar above, not an inline button.
 function ScannerFilterGroup(): JSX.Element {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
-    const hasNestedGroup = filterGroup.values.some(isUniversalGroupFilterLike)
 
     return (
-        <div className="inline-flex flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-2">
             {filterGroup.values.map((filterOrGroup, index) =>
                 isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
@@ -54,31 +85,57 @@ function ScannerFilterGroup(): JSX.Element {
                     />
                 )
             )}
-            {!hasNestedGroup && (
-                <div>
-                    <UniversalFilters.AddFilterButton title="Add filter" type="secondary" size="xsmall" />
-                </div>
-            )}
         </div>
     )
 }
 
 export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Element {
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
+    const { featureFlags } = useValues(featureFlagLogic)
+    const categoryDropdownVariant = resolveCategoryDropdownVariant(
+        featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
+    )
 
     if (!scanner) {
         return <div className="text-muted">Loading…</div>
     }
 
     return (
-        <div className="space-y-6 max-w-3xl">
-            <LemonField name="sampling_rate" label="Sampling">
+        <div className="space-y-6">
+            <LemonField
+                name="sampling_mode"
+                label="Session coverage"
+                info="How many of your matching sessions this scanner watches. Every recording gets a score for how much is happening in it (activity, errors, navigation). Focused and Balanced skip the quiet ones, so your observation budget goes to sessions worth watching."
+            >
+                {({ value, onChange }) => {
+                    const mode = (value ?? 'comprehensive') as SamplingMode
+                    const option = SAMPLING_MODE_OPTIONS.find((o) => o.value === mode)
+                    return (
+                        <div className="space-y-1">
+                            <LemonSegmentedButton
+                                value={mode}
+                                onChange={onChange}
+                                options={SAMPLING_MODE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+                            />
+                            <div className="text-xs text-muted">{option?.description}</div>
+                        </div>
+                    )
+                }}
+            </LemonField>
+
+            <LemonField name="sampling_rate">
                 {({ value, onChange }) => {
                     const ratio = typeof value === 'number' ? value : 0
                     const samplingPercent = Math.round(ratio * 1000) / 10
                     return (
-                        <div className="space-y-1">
-                            <div className="flex items-center gap-4 max-w-md">
+                        <LemonCard hoverEffect={false} className="p-3 space-y-3">
+                            <div className="space-y-1">
+                                <LemonLabel>Sampling</LemonLabel>
+                                <div className="text-xs text-muted">
+                                    Each observation counts against your monthly Vision quota.
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-4">
                                 <div className="flex-1">
                                     <LemonSlider
                                         value={samplingPercent}
@@ -92,66 +149,138 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                     <LemonInput
                                         type="number"
                                         value={samplingPercent}
-                                        onChange={(v) => onChange((Number(v) || 0) / 100)}
+                                        onChange={(v) => onChange(Math.min(100, Number(v) || 0) / 100)}
                                         min={0.1}
                                         max={100}
                                         step={0.1}
                                         suffix={<span>%</span>}
-                                        status={samplingPercent === 0 ? 'danger' : undefined}
+                                        status={samplingPercent < 0.1 ? 'danger' : undefined}
                                     />
                                 </div>
                             </div>
-                            <div className="text-xs text-muted">
-                                Each observation counts against your monthly Vision quota.
-                            </div>
-                        </div>
+                        </LemonCard>
                     )
                 }}
             </LemonField>
 
-            <LemonField name="query" label="Recording filters">
+            <LemonField name="query">
                 {({ value, onChange }) => {
                     const query = value as RecordingsQuery | null
                     const universal = recordingsQueryToUniversalFilters(query)
+                    const applyUniversal = (next: RecordingUniversalFilters): void => {
+                        const converted = convertUniversalFiltersToRecordingsQuery(next)
+                        // Overlay only the dimensions this editor renders so other query fields survive an edit.
+                        onChange({
+                            ...query,
+                            kind: converted.kind,
+                            events: converted.events,
+                            actions: converted.actions,
+                            properties: converted.properties,
+                            console_log_filters: converted.console_log_filters,
+                            having_predicates: converted.having_predicates,
+                            comment_text: converted.comment_text,
+                            filter_test_accounts: converted.filter_test_accounts,
+                            operand: converted.operand,
+                        })
+                    }
+                    const durationFilter = clampDurationFilter(universal.duration[0] ?? defaultRecordingDurationFilter)
                     return (
-                        <div className="space-y-2">
-                            <div className="text-sm text-muted">
-                                Filter by event, action, person, session, or cohort. Leave empty to scan all completed
-                                recordings.
+                        <LemonCard hoverEffect={false} className="p-3 space-y-3">
+                            <div className="flex items-start justify-between gap-2">
+                                <div className="space-y-1">
+                                    <LemonLabel>Recording filters</LemonLabel>
+                                    <div className="text-xs text-muted">
+                                        Filter by event, action, person, session, or cohort. Leave empty to scan all
+                                        completed recordings.
+                                    </div>
+                                </div>
+                                <TestAccountFilterSwitch
+                                    size="xsmall"
+                                    checked={universal.filter_test_accounts ?? false}
+                                    onChange={(checked) =>
+                                        applyUniversal({ ...universal, filter_test_accounts: checked })
+                                    }
+                                />
+                            </div>
+                            {/* -ml-2 cancels AndOrFilterSelect's built-in prefix indent so "Match" left-aligns with the rest. */}
+                            <div className="-ml-2">
+                                <AndOrFilterSelect
+                                    value={deriveOperand(universal.filter_group)}
+                                    onChange={(type) => {
+                                        if (type === deriveOperand(universal.filter_group)) {
+                                            return
+                                        }
+                                        let values = universal.filter_group.values
+                                        // With a single nested group, the effective operand lives on that child.
+                                        if (values.length === 1) {
+                                            const group = values[0] as UniversalFiltersGroup
+                                            values = [{ ...group, type }]
+                                        }
+                                        applyUniversal({ ...universal, filter_group: { type, values } })
+                                    }}
+                                    topLevelFilter
+                                    suffix={['filter', 'filters']}
+                                    size="small"
+                                />
                             </div>
                             <UniversalFilters
                                 rootKey={`replay-scanner-${scanner.id}`}
                                 group={universal.filter_group}
                                 taxonomicGroupTypes={SCANNER_FILTER_TYPES}
-                                onChange={(filterGroup) => {
-                                    const next = convertUniversalFiltersToRecordingsQuery({
-                                        ...universal,
-                                        filter_group: filterGroup,
-                                    })
-                                    // Overlay only the dimensions this editor controls, so query fields it doesn't
-                                    // render (e.g. session_ids, person_uuid set via API/MCP) survive an edit.
-                                    onChange({
-                                        ...query,
-                                        kind: next.kind,
-                                        events: next.events,
-                                        actions: next.actions,
-                                        properties: next.properties,
-                                        console_log_filters: next.console_log_filters,
-                                        having_predicates: next.having_predicates,
-                                        comment_text: next.comment_text,
-                                        filter_test_accounts: next.filter_test_accounts,
-                                        operand: next.operand,
-                                    })
-                                }}
+                                onChange={(filterGroup) => applyUniversal({ ...universal, filter_group: filterGroup })}
                             >
+                                {universal.filter_group.values.length > 0 &&
+                                    isUniversalGroupFilterLike(universal.filter_group.values[0]) && (
+                                        <UniversalFilters
+                                            rootKey={`replay-scanner-${scanner.id}.nested`}
+                                            group={universal.filter_group.values[0]}
+                                            taxonomicGroupTypes={SCANNER_FILTER_TYPES}
+                                            onChange={(nestedGroup) =>
+                                                applyUniversal({
+                                                    ...universal,
+                                                    filter_group: {
+                                                        ...universal.filter_group,
+                                                        values: [
+                                                            nestedGroup,
+                                                            ...universal.filter_group.values.slice(1),
+                                                        ],
+                                                    },
+                                                })
+                                            }
+                                        >
+                                            <RecordingsUniversalFilterAddFilterPopover
+                                                categoryDropdownVariant={categoryDropdownVariant}
+                                                taxonomicGroupTypes={SCANNER_FILTER_TYPES}
+                                            />
+                                        </UniversalFilters>
+                                    )}
                                 <ScannerFilterGroup />
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <span className="font-medium">Duration</span>
+                                    <DurationFilter
+                                        recordingDurationFilter={durationFilter}
+                                        durationTypeFilter={durationFilter.key}
+                                        pageKey={`replay-scanner-${scanner.id}`}
+                                        size="small"
+                                        onChange={(recordingDurationFilter, durationType) =>
+                                            applyUniversal({
+                                                ...universal,
+                                                duration: [
+                                                    clampDurationFilter({
+                                                        ...recordingDurationFilter,
+                                                        key: durationType,
+                                                    }),
+                                                ],
+                                            })
+                                        }
+                                    />
+                                </div>
                             </UniversalFilters>
-                        </div>
+                        </LemonCard>
                     )
                 }}
             </LemonField>
 
-            <LemonDivider className="my-0" />
             <ScannerQuotaForecast scannerId={scannerId} />
         </div>
     )

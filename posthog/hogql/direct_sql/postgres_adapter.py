@@ -197,9 +197,8 @@ class PostgresAdapter:
     def validate_source_config(
         self, source: "ExternalDataSource", team: "Team"
     ) -> tuple["PostgresSource", "PostgresSourceConfig"]:
+        from products.warehouse_sources.backend.facade.source_management import PostgresSource, SourceRegistry
         from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-        from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
-        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 
         if not source.is_direct_postgres:
             raise ExposedHogQLError("Invalid direct Postgres connection.")
@@ -223,10 +222,7 @@ class PostgresAdapter:
         return ensure_single_direct_statement(sql)
 
     def execute(self, request: DirectQueryRequest) -> DirectQueryResult:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
-            _get_sslmode,
-            source_requires_ssl,
-        )
+        from products.warehouse_sources.backend.facade.source_management import _get_sslmode, source_requires_ssl
 
         source = request.source
         postgres_source, source_config = self.validate_source_config(source, request.team)

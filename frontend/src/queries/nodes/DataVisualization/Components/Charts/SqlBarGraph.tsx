@@ -1,17 +1,26 @@
 import clsx from 'clsx'
+import { useCallback } from 'react'
 
-import { TimeSeriesBarChart } from '@posthog/quill-charts'
+import { TimeSeriesBarChart, type PointClickData } from '@posthog/quill-charts'
 
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { LineGraphProps } from './LineGraph'
-import { buildBarChartConfig } from './sqlLineGraphAdapter'
+import { type SqlLineSeriesMeta, buildBarChartConfig } from './sqlLineGraphAdapter'
 import { useSqlChartModel } from './useSqlChartModel'
 
 const handleChartError = makeChartErrorHandler('sql-bar-chart')
 
 export const SqlBarGraph = (props: LineGraphProps): JSX.Element => {
+    const { onPointClick: onPointClickProp } = props
     const model = useSqlChartModel(props, buildBarChartConfig)
+
+    const onPointClick = useCallback(
+        (data: PointClickData<SqlLineSeriesMeta>) => {
+            onPointClickProp?.(data.series.key, data.dataIndex, data.label)
+        },
+        [onPointClickProp]
+    )
 
     return (
         <div
@@ -27,6 +36,7 @@ export const SqlBarGraph = (props: LineGraphProps): JSX.Element => {
                     labels={model.labels}
                     theme={model.theme}
                     config={model.config}
+                    onPointClick={onPointClickProp ? onPointClick : undefined}
                     onError={handleChartError}
                 />
             )}

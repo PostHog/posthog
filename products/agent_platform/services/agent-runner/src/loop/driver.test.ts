@@ -405,15 +405,16 @@ describe('driver runSession', () => {
             model: FAUX_MODEL_ID,
             mcps: [
                 {
-                    kind: 'external',
+                    kind: 'agent',
+                    default_tool_approval: 'deny',
                     id: 'posthog',
                     url: 'https://app.posthog.com/api/mcp',
                     secrets: [],
                     tools: [
-                        'agent-applications-list',
+                        { name: 'agent-applications-list', level: 'allow' },
                         {
                             name: 'agent-applications-revisions-promote-create',
-                            requires_approval: true,
+                            level: 'approve',
                             approval_policy: { type: 'principal', ttl_ms: 900_000 },
                         },
                     ],
@@ -429,7 +430,7 @@ describe('driver runSession', () => {
 
         it('queues an approval row when the model calls a gated MCP tool', async () => {
             // Concierge-shape: the model invokes promote-create; the
-            // dispatcher's MCP lookup finds `requires_approval: true` on the
+            // dispatcher's MCP lookup finds `level: 'approve'` on the
             // matching tools[] entry; the wrap queues instead of running.
             const mcp = makeFakeMcp('posthog', POSTHOG_REF, {
                 'agent-applications-revisions-promote-create': { description: 'd', result: { promoted: true } },
@@ -463,11 +464,11 @@ describe('driver runSession', () => {
             expect(rows[0].state).toBe('queued')
         })
 
-        it('does NOT queue when the matching tools[] entry is bare-string (inclusion only)', async () => {
-            // `agent-applications-list` is in tools[] as a bare string —
-            // included but no gating. The dispatcher's MCP lookup returns
-            // null, the native lookup doesn't match either, so the tool
-            // dispatches directly. Sibling case below pins iteration order
+        it('does NOT queue when the matching tools[] entry is allow-level (inclusion only)', async () => {
+            // `agent-applications-list` is in tools[] with `level: 'allow'` —
+            // exposed but not gated. The dispatcher's MCP lookup returns a
+            // non-gating level, the native lookup doesn't match either, so the
+            // tool dispatches directly. Sibling case below pins iteration order
             // so this isn't a false-positive on accidental short-circuit.
             const mcp = makeFakeMcp('posthog', POSTHOG_REF, {
                 'agent-applications-list': { description: 'd', result: { results: [] } },
@@ -485,11 +486,11 @@ describe('driver runSession', () => {
             expect(await approvals.listBySession(TEST_SESSION_ID)).toHaveLength(0)
         })
 
-        it('iterates past earlier bare-string entries to find a later gated object (no false-positive short-circuit)', async () => {
-            // Belt-and-braces for the bare-string case above: the lookup
+        it('iterates past earlier allow-level entries to find a later gated object (no false-positive short-circuit)', async () => {
+            // Belt-and-braces for the allow-level case above: the lookup
             // must walk the whole tools[] array, not bail on the first
-            // non-name-match. Here `agent-applications-list` is a bare
-            // string and `promote-create` is the gated object — the model
+            // non-name-match. Here `agent-applications-list` is `level: 'allow'`
+            // and `promote-create` is the gated (`approve`) entry — the model
             // calls `promote-create`, which sits SECOND in the array.
             const mcp = makeFakeMcp('posthog', POSTHOG_REF, {
                 'agent-applications-revisions-promote-create': {
@@ -535,14 +536,15 @@ describe('driver runSession', () => {
                 model: FAUX_MODEL_ID,
                 mcps: [
                     {
-                        kind: 'external',
+                        kind: 'agent',
+                        default_tool_approval: 'deny',
                         id: 'posthog',
                         url: 'https://example.com/posthog',
                         secrets: [],
                         tools: [
                             {
                                 name: 'pingback',
-                                requires_approval: true,
+                                level: 'approve',
                                 approval_policy: { type: 'agent' },
                             },
                         ],
@@ -629,6 +631,158 @@ describe('driver runSession', () => {
             expect(rows).toHaveLength(1)
             expect(rows[0].tool_name).toBe('posthog__agent-applications-revisions-promote-create')
             expect(rows[0].state).toBe('queued')
+        })
+
+        // ── Proxy-mode gating (large connection: >40 tools → helper tools) ──
+        // A connection past the inline budget exposes only `<prefix>__call_tool`
+        // / `explore_tools` / `get_tool_schema`; the underlying tool is named in
+        // the `call_tool` args. Build a 42-tool fake MCP so `decideMcpExposure`
+        // picks proxy mode, with one tool (`promote`) the author gated `approve`.
+        const manyTools = (gated: string): Record<string, { description: string; result: unknown }> => {
+            const tools: Record<string, { description: string; result: unknown }> = {
+                [gated]: { description: 'gated tool', result: { promoted: true } },
+            }
+            for (let i = 0; i < 42; i++) {
+                tools[`tool_${i}`] = { description: `tool ${i}`, result: { ok: true } }
+            }
+            return tools
+        }
+        const PROXY_REF: McpRef = AgentSpecSchema.parse({
+            model: FAUX_MODEL_ID,
+            mcps: [
+                {
+                    kind: 'agent',
+                    default_tool_approval: 'allow',
+                    id: 'big',
+                    url: 'https://example.com/big',
+                    secrets: [],
+                    tools: [
+                        { name: 'promote', level: 'approve', approval_policy: { type: 'principal', ttl_ms: 900_000 } },
+                    ],
+                },
+            ],
+        }).mcps[0]
+
+        it('proxy call_tool with a PREFIXED tool_name still hits the per-tool approval gate (no doubled-prefix bypass)', async () => {
+            // veria-ai (High): the model often passes the prefixed name it sees
+            // (`big__promote`) as `call_tool`'s `tool_name`. The proxy strips the
+            // prefix before dispatch, so the driver's approval gate must strip it
+            // too — otherwise it keys the lookup on `big__big__promote`, misses
+            // the `approve` override, and the gated tool runs without approval.
+            const mcp = makeFakeMcp('big', PROXY_REF, manyTools('promote'))
+            const approvals = new PgApprovalStore(pool)
+            const session = makeSession({
+                principal: principalAlice,
+                conversation: [{ role: 'user', content: 'promote it', timestamp: Date.now() }],
+            })
+            const out = await run(makeRev({ mcps: [PROXY_REF as never] }), session, {
+                script: [
+                    toolUse([
+                        call('big__call_tool', { tool_name: 'big__promote', arguments: { application_id: 'a' } }),
+                    ]),
+                    stop('queued'),
+                ],
+                approvals,
+                mcpClients: [mcp],
+            })
+            expect(out.state).toBe('completed')
+            // Gate held: the underlying remote tool was never invoked.
+            expect(mcp.calls).toEqual([])
+            const rows = await approvals.listBySession(TEST_SESSION_ID)
+            expect(rows).toHaveLength(1)
+            // The row is keyed on the normalized underlying tool, not the doubled prefix.
+            expect(rows[0].tool_name).toBe('big__promote')
+            expect(rows[0].state).toBe('queued')
+        })
+
+        it('proxy call_tool gates a remote tool whose RAW name shadows a `<prefix>__` form (no unconditional-strip bypass)', async () => {
+            // hex / veria (Medium): the proxy's `resolveRemoteName` prefers the
+            // RAW arg when it exists in the catalog (only strips `<prefix>__`
+            // when the stripped name resolves). The driver's gate used to strip
+            // unconditionally, so a remote tool literally named `big__delete`
+            // dispatched as `big__delete` but gated as `delete` — a missing
+            // tools[] entry, `default_tool_approval: allow` falls through, and
+            // the `approve` override on the real tool was bypassed. With both
+            // paths sharing the same resolver, the gate keys on the actual
+            // remote name and the queue holds. (Prompt-injection bypass guard.)
+            const shadowRef: McpRef = AgentSpecSchema.parse({
+                model: FAUX_MODEL_ID,
+                mcps: [
+                    {
+                        kind: 'agent',
+                        // `allow` default + an `approve` per-tool override is the
+                        // exact configuration that the old bypass made unsafe.
+                        default_tool_approval: 'allow',
+                        id: 'big',
+                        url: 'https://example.com/big',
+                        secrets: [],
+                        tools: [
+                            {
+                                name: 'big__delete',
+                                level: 'approve',
+                                approval_policy: { type: 'principal', ttl_ms: 900_000 },
+                            },
+                        ],
+                    },
+                ],
+            }).mcps[0]
+            const mcp = makeFakeMcp('big', shadowRef, manyTools('big__delete'))
+            const approvals = new PgApprovalStore(pool)
+            const session = makeSession({
+                principal: principalAlice,
+                conversation: [{ role: 'user', content: 'delete it', timestamp: Date.now() }],
+            })
+            const out = await run(makeRev({ mcps: [shadowRef as never] }), session, {
+                script: [
+                    // Model passes the RAW remote name (which itself starts with
+                    // `big__`). The proxy resolver prefers this raw form because
+                    // it exists in the exposed catalog; the gate must agree.
+                    toolUse([call('big__call_tool', { tool_name: 'big__delete', arguments: {} })]),
+                    stop('queued'),
+                ],
+                approvals,
+                mcpClients: [mcp],
+            })
+            expect(out.state).toBe('completed')
+            // Gate held: the remote was NOT dispatched. (The bypass would show
+            // up here as `mcp.calls` containing the `big__delete` invocation.)
+            expect(mcp.calls).toEqual([])
+            const rows = await approvals.listBySession(TEST_SESSION_ID)
+            expect(rows).toHaveLength(1)
+            // The approval row is keyed on `<prefix>__<resolvedRawName>` — the
+            // doubled-prefix form a strip-less resolver produces here.
+            expect(rows[0].tool_name).toBe('big__big__delete')
+            expect(rows[0].state).toBe('queued')
+        })
+
+        it('proxy explore_tools stays ungated even under an approve default (synthetic helper, proxy-aware skip)', async () => {
+            // Regression guard for the proxy-aware exemption: with the blanket
+            // name-based exemption removed from lookupMcpToolApproval, the driver
+            // must still skip the synthetic read-only helpers for a PROXIED
+            // connection — otherwise catalog browsing would block on a human.
+            const approveRef: McpRef = AgentSpecSchema.parse({
+                model: FAUX_MODEL_ID,
+                mcps: [
+                    {
+                        kind: 'agent',
+                        default_tool_approval: 'approve',
+                        id: 'big',
+                        url: 'https://example.com/big',
+                        secrets: [],
+                    },
+                ],
+            }).mcps[0]
+            const mcp = makeFakeMcp('big', approveRef, manyTools('promote'))
+            const approvals = new PgApprovalStore(pool)
+            const session = makeSession({ principal: principalAlice })
+            const out = await run(makeRev({ mcps: [approveRef as never] }), session, {
+                script: [toolUse([call('big__explore_tools', { query: 'promote' })]), stop('listed')],
+                approvals,
+                mcpClients: [mcp],
+            })
+            expect(out.state).toBe('completed')
+            // explore_tools ran (no approval queued) — read-only catalog browsing.
+            expect(await approvals.listBySession(TEST_SESSION_ID)).toHaveLength(0)
         })
     })
 
