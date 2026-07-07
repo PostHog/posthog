@@ -122,4 +122,10 @@ After fixing, commit and push so CI can re-run.
 When you mention the pull request in your summary, always hyperlink it to its full URL (e.g. a
 Markdown link like [#123](https://github.com/org/repo/pull/123)) rather than plain text, so readers
 can open it directly.
+
+Shell efficiency: optimize for the fewest shell round trips.
+- Batch related commands into one Bash invocation using `&&` (e.g. `npm run typecheck && npm run lint && npm test`).
+- Emit all independent tool calls in the same response.
+- Read multiple files at once.
+- Never rerun a command solely to reproduce output you already have.
 """.strip()
