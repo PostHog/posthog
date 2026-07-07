@@ -392,34 +392,37 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual({a["name"] for a in both.json()["results"]}, {"mine", "theirs"})
 
     def test_listing_actions_filters_by_tags(self) -> None:
-        billing = Action.objects.create(team=self.team, name="billing action")
+        # One action carries both filtered tags; the tag join yields a row per matching tag, so
+        # without .distinct() it would appear (and count) twice. The untagged action guards that
+        # the filter actually excludes non-matches.
+        tagged = Action.objects.create(team=self.team, name="tagged action")
         Action.objects.create(team=self.team, name="untagged action")
-        tag = Tag.objects.create(name="billing", team_id=self.team.id)
-        billing.tagged_items.create(tag_id=tag.id)
-
-        response = self.client.get(f'/api/projects/{self.team.id}/actions/?tags=["billing"]')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual({a["name"] for a in response.json()["results"]}, {"billing action"})
-
-    def test_tag_filter_does_not_double_count_actions_matching_multiple_tags(self) -> None:
-        # The tag join produces one row per matching tag, so without .distinct() an action
-        # carrying two of the filtered tags would appear (and count) twice.
-        action = Action.objects.create(team=self.team, name="multi-tag action")
         for name in ["billing", "beta"]:
             tag = Tag.objects.create(name=name, team_id=self.team.id)
-            action.tagged_items.create(tag_id=tag.id)
+            tagged.tagged_items.create(tag_id=tag.id)
 
-        response = self.client.get(f'/api/projects/{self.team.id}/actions/?tags=["billing","beta"]&limit=50')
+        response = self.client.get(f'/api/projects/{self.team.id}/actions/?tags=["billing","beta"]')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual([a["name"] for a in response.json()["results"]], ["multi-tag action"])
+        self.assertEqual([a["name"] for a in response.json()["results"]], ["tagged action"])
         self.assertEqual(response.json()["count"], 1)
 
-    def test_listing_actions_orders_by_whitelisted_field(self) -> None:
-        for name in ["gamma", "alpha", "beta"]:
-            Action.objects.create(team=self.team, name=name)
+    @parameterized.expand(
+        [
+            ("valid_field", "name", ["alpha", "beta", "gamma"]),
+            # Non-whitelisted input is ignored rather than passed to order_by (no 500, no injection).
+            ("rejected_field", "created_by__password", ["gamma", "alpha", "beta"]),
+        ]
+    )
+    def test_listing_actions_ordering_is_whitelisted(
+        self, _name: str, ordering: str, expected_names: list[str]
+    ) -> None:
+        base = datetime(2021, 1, 1, tzinfo=UTC)
+        for index, name in enumerate(["gamma", "alpha", "beta"]):
+            Action.objects.create(team=self.team, name=name, last_calculated_at=base - timedelta(minutes=index))
 
-        response = self.client.get(f"/api/projects/{self.team.id}/actions/?ordering=name")
-        self.assertEqual([a["name"] for a in response.json()["results"]], ["alpha", "beta", "gamma"])
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/?ordering={ordering}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([a["name"] for a in response.json()["results"]], expected_names)
 
     def test_get_tags_returns_list(self):
         action = Action.objects.create(team=self.team, name="bla")
