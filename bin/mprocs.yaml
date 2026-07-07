@@ -281,6 +281,19 @@ procs:
         env:
             AGENT_LOG_FILE: '/tmp/posthog-agent-logs/agent-janitor.log'
 
+    agent-seed:
+        # One-shot idempotent seeder: waits for Django + agent-ingress +
+        # agent-janitor healthchecks then deploys the curated example bundles
+        # (default: agent-builder + agent-approval-demo) so the Agent Builder
+        # panel works out of the box. Set AGENT_SEED_SLUGS to override or "all".
+        shell: 'bin/wait-for-docker && bin/seed-agent-examples'
+        capability: agent_runtime
+        ready_pattern: 'seeding complete'
+        autorestart: false
+        groups:
+            layer: Tools
+            tech: Python
+
     ai-gateway:
         shell: 'bin/wait-for-docker && bin/start-ai-gateway'
         capability: ai_gateway

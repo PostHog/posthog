@@ -922,9 +922,12 @@ WORKFLOWS_WEBHOOK_SECRET = get_from_env("WORKFLOWS_WEBHOOK_SECRET", "")
 OIDC_RSA_PRIVATE_KEY = os.getenv("OIDC_RSA_PRIVATE_KEY", "").replace("\\n", "\n")
 
 # Saving an RS256 OAuthApplication validates that this key is set, so a test run without one
-# (fork PRs, bare local environments) fails in every test that creates an OAuth app. Generate
-# an ephemeral key so tests never depend on an env-provided key.
-if TEST and not OIDC_RSA_PRIVATE_KEY:
+# (fork PRs, bare local environments) fails in every test that creates an OAuth app. The same
+# gap bites local dev: any flow that mints an OAuth app (e.g. the agent platform's
+# revision promote) 500s until the key is provisioned. Generate an ephemeral key so tests
+# and local dev never depend on an env-provided key. Cloud deployments still require the
+# real env-provided key.
+if not OIDC_RSA_PRIVATE_KEY and (TEST or (DEBUG and not CLOUD_DEPLOYMENT)):
     OIDC_RSA_PRIVATE_KEY = generate_rsa_private_key_pem()
 
 OIDC_RSA_PRIVATE_KEY_INACTIVE_1 = os.getenv("OIDC_RSA_PRIVATE_KEY_INACTIVE_1", "").replace("\\n", "\n")

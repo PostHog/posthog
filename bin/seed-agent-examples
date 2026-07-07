@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# One-shot seeder wired into the `agent_runtime` capability. Waits for Django +
+# agent-ingress + agent-janitor healthchecks, then runs the Python seeder in
+# products/agent_platform/services/agent-tests/src/examples/seed.py.
+#
+# Idempotent: bundles whose live revision already matches (per-file sha AND
+# spec) are a no-op; drifted bundles branch a new draft and re-promote.
+#
+# Env vars:
+#   AGENT_SEED_SLUGS  Comma-separated slugs to seed. Default:
+#                     "agent-builder,agent-approval-demo" — the two most useful
+#                     examples for platform dev. "all" seeds every discovered
+#                     bundle (see the examples dir). Empty string skips seeding.
+#   POSTHOG_API       Django base URL. Default http://localhost:8010.
+#   AGENT_INGRESS_URL Ingress URL for readiness. Default http://localhost:3030.
+#   AGENT_JANITOR_URL Janitor URL for readiness. Default http://localhost:3031.
+#   AGENT_SEED_TIMEOUT_SECONDS
+#                     Per-service readiness timeout. Default 180.
+#
+# Seed uses SEED_DUMMY_SECRETS=1 so secret-gated bundles (slack) can promote
+# with obviously-fake placeholders. Never overwrites a real value.
+#
+# `PAT` for the seeder: unset here — seed.py self-mints the deterministic dev
+# key via `manage.py setup_local_api_key` in flox environments. If you're
+# outside flox, export `PAT=phx_...` before invoking.
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+DJANGO_URL="${POSTHOG_API:-http://localhost:8010}"
+INGRESS_URL="${AGENT_INGRESS_URL:-http://localhost:3030}"
+JANITOR_URL="${AGENT_JANITOR_URL:-http://localhost:3031}"
+SLUG_SPEC="${AGENT_SEED_SLUGS-agent-builder,agent-approval-demo}"
+TIMEOUT_S="${AGENT_SEED_TIMEOUT_SECONDS:-180}"
+
+log() { printf '[seed-agent-examples] %s\n' "$*"; }
+
+if [ -z "$SLUG_SPEC" ]; then
+    log "AGENT_SEED_SLUGS is empty — skipping"
+    log "seeding complete"
+    exit 0
+fi
+
+wait_for() {
+    local label="$1" url="$2"
+    log "waiting for $label at $url"
+    for _ in $(seq 1 "$TIMEOUT_S"); do
+        if curl -sf "$url" >/dev/null 2>&1; then
+            log "  $label ready"
+            return 0
+        fi
+        sleep 1
+    done
+    log "  WARNING: $label never became ready after ${TIMEOUT_S}s — attempting seed anyway"
+    return 0
+}
+
+wait_for "Django"        "$DJANGO_URL/_health/"
+wait_for "agent-ingress" "$INGRESS_URL/healthz"
+wait_for "agent-janitor" "$JANITOR_URL/healthz"
+
+SEED_SCRIPT="$REPO_ROOT/products/agent_platform/services/agent-tests/src/examples/seed.py"
+
+# Slug selection: "all" -> no positional args (seed.py's default is every
+# discovered bundle). Otherwise comma-split into positional selectors.
+args=()
+if [ "$SLUG_SPEC" != "all" ]; then
+    IFS=',' read -r -a args <<<"$SLUG_SPEC"
+fi
+
+log "seeding: ${args[*]:-<all discovered bundles>}"
+
+SEED_DUMMY_SECRETS=1 POSTHOG_API="$DJANGO_URL" \
+    python "$SEED_SCRIPT" "${args[@]}"
+
+log "seeding complete"

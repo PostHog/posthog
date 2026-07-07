@@ -1141,3 +1141,7 @@ environment:
         bin_script: ensure-local-setup
         description: Idempotent local-dev bootstrap (e.g. the wizard OAuth app); runs automatically on hogli start
         hidden: true
+    seed:agent:examples:
+        bin_script: seed-agent-examples
+        description: Idempotent seeder for the example agent bundles; runs automatically on hogli start when the agent_runtime capability is enabled
+        hidden: true
