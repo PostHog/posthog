@@ -50,6 +50,7 @@ import { LifecycleToggles } from './LifecycleToggles'
 import {
     AlertOverlaysSwitches,
     ConfidenceIntervalFilter,
+    GoalLinesOverlay,
     MovingAverageFilter,
     OverlaysDivider,
     ShowAnnotationsSwitch,
@@ -382,18 +383,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             defaultExpanded: false,
             show: overlaysSectionEnabled,
             editorFilters: visibleFilters([
-                {
-                    key: 'goal-lines',
-                    label: 'Goal lines',
-                    tooltip: (
-                        <>
-                            Goal lines can be used to highlight specific goals (Revenue, Signups, etc.) or limits (Web
-                            Vitals, etc.)
-                        </>
-                    ),
-                    component: GoalLines,
-                    show: displayGoalLines,
-                },
+                { key: 'goal-lines', component: GoalLinesOverlay, show: displayGoalLines },
                 { key: 'overlays-divider', component: OverlaysDivider, show: displayGoalLines },
                 { key: 'trend-lines', component: ShowTrendLinesSwitch, show: displayTrendLines },
                 { key: 'alert-overlays', component: AlertOverlaysSwitches, show: displayAlertOverlays },
