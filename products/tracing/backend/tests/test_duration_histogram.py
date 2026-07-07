@@ -95,3 +95,44 @@ class TestTraceSpansDurationHistogram(_TraceSpansTestBase):
             )
         }
         self.assertEqual(rows, {(5_000 * MS, "web"): 1})
+
+
+class TestTraceSpansDurationHistogramNullBucket(_TraceSpansTestBase):
+    # A clock-skewed span (end_time before timestamp) wraps to a garbage UInt64 duration whose
+    # bucket math overflows Int64, so ClickHouse's null-safe toInt returns NULL for that bucket.
+    # The histogram must drop it, not 500 on int(None).
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls._recreate_trace_spans_tables()
+
+        base = dt.datetime(2026, 6, 2, 8, 0, 0)
+        ts_str = base.strftime("%Y-%m-%d %H:%M:%S.%f")
+        skewed_end = (base - dt.timedelta(seconds=1)).strftime("%Y-%m-%d %H:%M:%S.%f")
+        good_end = (base + dt.timedelta(milliseconds=1.5)).strftime("%Y-%m-%d %H:%M:%S.%f")
+
+        rows = [
+            # Clock-skewed root: end_time before timestamp -> overflowing NULL bucket.
+            f"('019e8756-0000-0000-0000-000000000000', {cls.team.id}, '{_b64((0).to_bytes(16, 'big'))}', "
+            f"'{_b64((1000).to_bytes(8, 'big'))}', '', 'GET /api', 2, '{ts_str}', '{skewed_end}', '{ts_str}', 0, 'web')",
+            # Healthy root alongside it: must still land in its 1ms bucket.
+            f"('019e8756-0000-0000-0000-000000000001', {cls.team.id}, '{_b64((1).to_bytes(16, 'big'))}', "
+            f"'{_b64((1002).to_bytes(8, 'big'))}', '', 'GET /api', 2, '{ts_str}', '{good_end}', '{ts_str}', 0, 'web')",
+        ]
+        sync_execute(
+            "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
+            "timestamp, end_time, observed_timestamp, status_code, service_name) VALUES " + ",".join(rows)
+        )
+
+    def _histogram(self) -> list[dict]:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/tracing/spans/duration-histogram/",
+            {"query": {"dateRange": {"date_from": DATE_FROM, "date_to": DATE_TO}}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        return response.json()["results"]
+
+    def test_null_bucket_from_clock_skewed_span_is_dropped(self):
+        rows = {(row["bucket_ns"], row["service"]): row["count"] for row in self._histogram()}
+        self.assertEqual(rows, {(1 * MS, "web"): 1})

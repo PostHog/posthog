@@ -51,6 +51,12 @@ class TraceSpansDurationHistogramQueryRunner(TraceSpansQueryRunner):
 
         results = []
         for row in response.results:
+            # A NULL bucket means the 1-2-5 math overflowed Int64 (HogQL's toInt is a
+            # null-safe cast). That only happens for garbage durations - e.g. a clock-skewed
+            # span whose negative dateDiff wraps to a huge UInt64 - which have no meaningful
+            # place on the log-scale axis, so drop them rather than crash on int(None).
+            if row[0] is None:
+                continue
             results.append(
                 {
                     "bucket_ns": int(row[0]),
