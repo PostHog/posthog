@@ -533,6 +533,59 @@ fn differential_stream_vs_tree() {
 }
 
 #[test]
+fn stylesheet_data_images_are_neutralized_and_engines_agree() {
+    // CSS reaches the anonymizer as an inlined `<link>` `_cssText` attribute and as the incremental
+    // stylesheet events (StyleSheetRule/StyleDeclaration/AdoptedStyleSheet); a data-image in any of
+    // them must be blurred like a `style` attribute, and the byte walk must match the tree on these
+    // arms (the shared fixture corpus carries no CSS cases, so the differential alone never hits them).
+    const ONE_PX: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAJUlEQVQokWN4plEBRyInbOAIlzjDINRAjCJk8cGoYRAG60iMBwA8H08Qor0ygQAAAABJRU5ErkJggg==";
+    let css = format!(".a{{background:url({ONE_PX})}}");
+    let inner = snapshot_message(json!([
+        {
+            "type": 2,
+            "timestamp": TS0,
+            "data": {
+                "node": {"type": 0, "childNodes": [{
+                    "type": 2,
+                    "tagName": "link",
+                    "attributes": {"rel": "stylesheet", "_cssText": css},
+                    "childNodes": []
+                }]},
+                "initialOffset": {"top": 0, "left": 0}
+            }
+        },
+        {
+            "type": 3,
+            "timestamp": TS0 + 1.0,
+            "data": {"source": 8, "id": 1, "adds": [{"rule": css}], "replace": css, "replaceSync": css}
+        },
+        {
+            "type": 3,
+            "timestamp": TS0 + 2.0,
+            "data": {"source": 13, "id": 1, "index": [0], "set": {"property": "background", "value": format!("url({ONE_PX})")}}
+        },
+        {
+            "type": 3,
+            "timestamp": TS0 + 3.0,
+            "data": {"source": 15, "id": 1, "styleIds": [1], "styles": [{"styleId": 1, "rules": [{"rule": css}]}]}
+        },
+    ]));
+    let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+    assert_stream_matches_tree(
+        &allow,
+        &serde_json::to_string(&inner).unwrap(),
+        "css data images",
+    );
+    let out = run(&allow, &payload_of(&inner)).expect("anonymizes");
+    let lines = String::from_utf8(out.lines.clone()).unwrap();
+    assert_eq!(parse_lines(&out.lines).len(), 4, "all four events survive");
+    assert!(
+        !lines.contains(ONE_PX),
+        "raw css data image must not pass through any stylesheet route"
+    );
+}
+
+#[test]
 fn differential_cv_stream_vs_tree() {
     // Compressed with flate2 (an independent codec from the libdeflate legs under test); latin-1
     // encoding matches the SDK (each gzip byte as its U+00XX codepoint). serde's serialization of
