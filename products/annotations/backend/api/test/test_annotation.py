@@ -210,6 +210,27 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert sorted(response.json()["tags"]) == ["new-1", "new-2"]
 
+    @parameterized.expand(
+        [
+            ("non_tag_scope", "project", ["release"]),
+            ("tag_too_long", "tag", ["x" * 256]),
+            ("too_many_tags", "tag", [f"tag-{i}" for i in range(101)]),
+        ]
+    )
+    def test_invalid_tags_payloads_are_rejected(self, _name: str, scope: str, tags: list[str]) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/annotations/",
+            {
+                "content": "Bad tags payload",
+                "scope": scope,
+                "date_marker": "2020-01-01T00:00:00.000000Z",
+                "tags": tags,
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"].startswith("tags")
+
     @patch("products.annotations.backend.activity_logging.report_user_action")
     def test_downgrading_scope_from_org_to_project_uses_team_id_from_api(self, mock_capture: MagicMock) -> None:
         second_team = Team.objects.create(organization=self.organization, name="Second team")

@@ -97,7 +97,7 @@ export function AnnotationModal({
         {
             value: AnnotationScope.Tag,
             label: annotationScopeToName[AnnotationScope.Tag],
-            tooltip: 'Show on every dashboard and insight that shares one of the selected tags.',
+            tooltip: 'Show on every dashboard and insight carrying one of the selected tags.',
         },
         {
             value: AnnotationScope.Project,

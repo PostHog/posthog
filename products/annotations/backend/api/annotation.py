@@ -22,11 +22,13 @@ class AnnotationSerializer(TaggedItemSerializerMixin, serializers.ModelSerialize
     dashboard_id = serializers.IntegerField(required=False, allow_null=True)
     dashboard_item = TeamScopedPrimaryKeyRelatedField(queryset=Insight.objects.all(), required=False, allow_null=True)
     tags = serializers.ListField(
-        child=serializers.CharField(),
+        child=serializers.CharField(max_length=255),
         required=False,
+        max_length=100,
         help_text=(
             "Tag names this annotation is scoped to. When `scope` is `tag`, the annotation is shown on every "
-            "dashboard and insight carrying one of these tags. Required (non-empty) when `scope` is `tag`."
+            "dashboard and insight carrying one of these tags. Required (non-empty) when `scope` is `tag`, "
+            "and only allowed with that scope."
         ),
     )
 
@@ -128,6 +130,7 @@ class AnnotationSerializer(TaggedItemSerializerMixin, serializers.ModelSerialize
             raise serializers.ValidationError("Recording scope is deprecated")
 
         # A tag-scoped annotation with no tags would match no surface, so require at least one.
+        # Conversely, tags define where a tag-scoped annotation shows, so they're meaningless on other scopes.
         effective_scope = attrs.get("scope") if "scope" in attrs else (self.instance.scope if self.instance else None)
         if effective_scope == Annotation.Scope.TAG.value:
             if "tags" in attrs:
@@ -138,6 +141,8 @@ class AnnotationSerializer(TaggedItemSerializerMixin, serializers.ModelSerialize
                 tags = None
             if not tags:
                 raise serializers.ValidationError({"tags": "At least one tag is required when scope is 'tag'."})
+        elif attrs.get("tags"):
+            raise serializers.ValidationError({"tags": "Tags can only be set when scope is 'tag'."})
 
         return attrs
 

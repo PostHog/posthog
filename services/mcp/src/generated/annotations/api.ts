@@ -40,6 +40,10 @@ export const annotationsCreateBodyContentMax = 8192
 
 export const annotationsCreateBodyEmojiMax = 16
 
+export const annotationsCreateBodyTagsItemMax = 255
+
+export const annotationsCreateBodyTagsMax = 100
+
 export const AnnotationsCreateBody = /* @__PURE__ */ zod
     .object({
         content: zod
@@ -87,10 +91,11 @@ export const AnnotationsCreateBody = /* @__PURE__ */ zod
                 'When true, the annotation is hidden from the PostHog UI (charts and the annotations list) but still readable over the API and MCP. Use for high-frequency markers like deployments that would otherwise crowd the UI. Null (the default) means the annotation is shown.'
             ),
         tags: zod
-            .array(zod.string())
+            .array(zod.string().max(annotationsCreateBodyTagsItemMax))
+            .max(annotationsCreateBodyTagsMax)
             .optional()
             .describe(
-                'Tag names this annotation is scoped to. When `scope` is `tag`, the annotation is shown on every dashboard and insight carrying one of these tags. Required (non-empty) when `scope` is `tag`.'
+                'Tag names this annotation is scoped to. When `scope` is `tag`, the annotation is shown on every dashboard and insight carrying one of these tags. Required (non-empty) when `scope` is `tag`, and only allowed with that scope.'
             ),
     })
     .describe('Serializer mixin that handles tags for objects.')
@@ -122,6 +127,10 @@ export const AnnotationsPartialUpdateParams = /* @__PURE__ */ zod.object({
 export const annotationsPartialUpdateBodyContentMax = 8192
 
 export const annotationsPartialUpdateBodyEmojiMax = 16
+
+export const annotationsPartialUpdateBodyTagsItemMax = 255
+
+export const annotationsPartialUpdateBodyTagsMax = 100
 
 export const AnnotationsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -170,10 +179,11 @@ export const AnnotationsPartialUpdateBody = /* @__PURE__ */ zod
                 'When true, the annotation is hidden from the PostHog UI (charts and the annotations list) but still readable over the API and MCP. Use for high-frequency markers like deployments that would otherwise crowd the UI. Null (the default) means the annotation is shown.'
             ),
         tags: zod
-            .array(zod.string())
+            .array(zod.string().max(annotationsPartialUpdateBodyTagsItemMax))
+            .max(annotationsPartialUpdateBodyTagsMax)
             .optional()
             .describe(
-                'Tag names this annotation is scoped to. When `scope` is `tag`, the annotation is shown on every dashboard and insight carrying one of these tags. Required (non-empty) when `scope` is `tag`.'
+                'Tag names this annotation is scoped to. When `scope` is `tag`, the annotation is shown on every dashboard and insight carrying one of these tags. Required (non-empty) when `scope` is `tag`, and only allowed with that scope.'
             ),
     })
     .describe('Serializer mixin that handles tags for objects.')

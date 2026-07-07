@@ -164,13 +164,18 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             } as AnnotationModalForm,
             errors: ({ content, scope, tags }) => ({
                 content: !content?.trim() ? 'An annotation must have text content.' : null,
+                // kea-forms types array fields' errors as per-element maps, so a single message needs `as any`
+                // (established pattern, see personalAPIKeysLogic's `scopes`)
                 tags:
                     scope === AnnotationScope.Tag && !tags?.length
-                        ? 'Select at least one tag for a tag-scoped annotation.'
-                        : null,
+                        ? ('Select at least one tag for a tag-scoped annotation.' as any)
+                        : undefined,
             }),
             submit: async (data) => {
                 const { dateMarker, content, emoji, scope, dashboardItemId, dashboardId, tags } = data
+                // Tags define where a tag-scoped annotation shows; on other scopes send [] so that
+                // switching scope away from Tag clears any previously set tags.
+                const scopedTags = scope === AnnotationScope.Tag ? tags : []
 
                 if (values.existingModalAnnotation) {
                     // annotationsModel's updateAnnotation inlined so that isAnnotationModalSubmitting works
@@ -183,7 +188,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                         dashboard_item: dashboardItemId,
                         // preserve existing dashboard id
                         dashboard_id: values.existingModalAnnotation.dashboard_id,
-                        tags,
+                        tags: scopedTags,
                     })
                     actions.replaceAnnotation(updatedAnnotation)
                 } else {
@@ -195,7 +200,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                         scope,
                         dashboard_item: dashboardItemId,
                         dashboard_id: dashboardId,
-                        tags,
+                        tags: scopedTags,
                     })
                     actions.appendAnnotations([createdAnnotation])
                     const trimmedContent = content?.trim() ?? ''

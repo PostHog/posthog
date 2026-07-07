@@ -167,6 +167,12 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 s.savedInsight,
                 s.properties,
                 s.breakdownFilter,
+                // Read as a selector input (not in the compute body) so tag matching recomputes
+                // when the dashboard - which loads asynchronously - arrives or its tags change.
+                (_, props: AnnotationsOverlayLogicProps) =>
+                    props.dashboardId
+                        ? (dashboardLogic.findMounted({ id: props.dashboardId })?.values.dashboard?.tags ?? null)
+                        : null,
             ],
             (
                 annotations,
@@ -177,7 +183,8 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 dashboardId,
                 savedInsight,
                 properties,
-                breakdownFilter
+                breakdownFilter,
+                dashboardTags
             ) => {
                 // This assumes that there are no more annotations in the project than AnnotationsViewSet
                 // pagination class's default_limit of 100. As of June 2023, this is not true on Cloud US,
@@ -186,12 +193,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
 
                 // A tag-scoped annotation shows on any surface sharing one of its tags: insight tags come from
                 // the saved insight, dashboard tags from the dashboard being viewed (if on a dashboard).
-                const surfaceTags = new Set<string>([
-                    ...(savedInsight?.tags ?? []),
-                    ...(dashboardId
-                        ? (dashboardLogic.findMounted({ id: dashboardId })?.values.dashboard?.tags ?? [])
-                        : []),
-                ])
+                const surfaceTags = new Set<string>([...(savedInsight?.tags ?? []), ...(dashboardTags ?? [])])
 
                 const filteredAnnotations = dateRange
                     ? annotations.filter(

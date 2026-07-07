@@ -44,9 +44,17 @@ def get_annotations_for_ai_context(
     # tags intersect the target dashboard's / insights' tags.
     target_tags: set[str] = set()
     if dashboard_id is not None:
-        target_tags.update(TaggedItem.objects.filter(dashboard_id=dashboard_id).values_list("tag__name", flat=True))
+        target_tags.update(
+            TaggedItem.objects.filter(dashboard_id=dashboard_id, tag__team_id=team.id).values_list(
+                "tag__name", flat=True
+            )
+        )
     if insight_ids:
-        target_tags.update(TaggedItem.objects.filter(insight_id__in=insight_ids).values_list("tag__name", flat=True))
+        target_tags.update(
+            TaggedItem.objects.filter(insight_id__in=insight_ids, tag__team_id=team.id).values_list(
+                "tag__name", flat=True
+            )
+        )
     if target_tags:
         scopes |= Q(scope=Annotation.Scope.TAG, tagged_items__tag__name__in=target_tags)
 
@@ -61,6 +69,7 @@ def get_annotations_for_ai_context(
         )
         .order_by("-date_marker")
         .values("date_marker", "content", "scope")
+        # The tagged_items join fans one annotation out to one row per matching tag; distinct collapses that.
         .distinct()[:MAX_ANNOTATIONS_FOR_AI_CONTEXT]
     ]
     most_recent.reverse()

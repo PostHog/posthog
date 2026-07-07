@@ -53,6 +53,15 @@
             "description": "Annotation visibility scope: `project`, `organization`, `dashboard`, `dashboard_item`, or `tag`. With `tag`, the annotation shows on every dashboard and insight carrying one of the annotation's `tags`. `recording` is deprecated and rejected.\n\n* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `tag` - tag\n* `recording` - recording",
             "enum": ["dashboard_item", "dashboard", "project", "organization", "tag", "recording"],
             "type": "string"
+        },
+        "tags": {
+            "description": "Tag names this annotation is scoped to. When `scope` is `tag`, the annotation is shown on every dashboard and insight carrying one of these tags. Required (non-empty) when `scope` is `tag`, and only allowed with that scope.",
+            "items": {
+                "maxLength": 255,
+                "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
         }
     },
     "type": "object"

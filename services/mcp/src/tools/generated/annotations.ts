@@ -19,7 +19,6 @@ const AnnotationCreateSchema = AnnotationsCreateBody.omit({
     dashboard_item: true,
     dashboard_id: true,
     deleted: true,
-    tags: true,
 })
 
 const annotationCreate = (): ToolBase<typeof AnnotationCreateSchema, Schemas.Annotation> => ({
@@ -42,6 +41,9 @@ const annotationCreate = (): ToolBase<typeof AnnotationCreateSchema, Schemas.Ann
         }
         if (params.hidden_in_user_interface !== undefined) {
             body['hidden_in_user_interface'] = params.hidden_in_user_interface
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
         }
         const result = await context.api.request<Schemas.Annotation>({
             method: 'POST',
@@ -128,13 +130,8 @@ const annotationsList = (): ToolBase<
 })
 
 const AnnotationsPartialUpdateSchema = AnnotationsPartialUpdateParams.omit({ project_id: true }).extend(
-    AnnotationsPartialUpdateBody.omit({
-        creation_type: true,
-        dashboard_item: true,
-        dashboard_id: true,
-        deleted: true,
-        tags: true,
-    }).shape
+    AnnotationsPartialUpdateBody.omit({ creation_type: true, dashboard_item: true, dashboard_id: true, deleted: true })
+        .shape
 )
 
 const annotationsPartialUpdate = (): ToolBase<typeof AnnotationsPartialUpdateSchema, Schemas.Annotation> => ({
@@ -157,6 +154,9 @@ const annotationsPartialUpdate = (): ToolBase<typeof AnnotationsPartialUpdateSch
         }
         if (params.hidden_in_user_interface !== undefined) {
             body['hidden_in_user_interface'] = params.hidden_in_user_interface
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
         }
         const result = await context.api.request<Schemas.Annotation>({
             method: 'PATCH',

@@ -2,6 +2,8 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { dashboardResult } from 'scenes/dashboard/dashboardLogic.testHelpers'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -450,6 +452,58 @@ describe('annotationsOverlayLogic', () => {
                     deserializeAnnotation(annotation, 'UTC')
                 ),
             })
+        })
+
+        it('picks up a tag-scoped annotation when the dashboard carrying the tag loads after the overlay', async () => {
+            const dashboardTagAnnotation: RawAnnotationType = {
+                id: 52,
+                content: 'TAG_SCOPED_DASHBOARD_MATCHING',
+                date_marker: '2022-08-10T04:00:00.000Z',
+                dashboard_item: null,
+                insight_short_id: null,
+                insight_name: null,
+                insight_derived_name: null,
+                scope: AnnotationScope.Tag,
+                tags: ['product-dash'],
+                ...BASE_MOCK_ANNOTATION,
+            }
+            useInsightMocks() // the insight itself carries no tags
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/annotations/': { results: [dashboardTagAnnotation] },
+                    [`/api/environments/:team_id/dashboards/${MOCK_DASHBOARD_ID}/`]: {
+                        ...dashboardResult(MOCK_DASHBOARD_ID, []),
+                        tags: ['product-dash'],
+                    },
+                    '/api/users/@me/': [200, {}],
+                },
+            })
+
+            logic = annotationsOverlayLogic({
+                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+                dates: ['2022-01-01', '2023-01-01'],
+                ticks: [{ value: 0 }, { value: 1 }],
+                dashboardId: MOCK_DASHBOARD_ID,
+            })
+            logic.mount()
+            await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            await expectLogic(
+                insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID, dashboardId: MOCK_DASHBOARD_ID })
+            ).toDispatchActions(['loadInsightSuccess'])
+            // Dashboard not loaded yet, so the annotation matches no surface tags
+            await expectLogic(logic).toMatchValues({ relevantAnnotations: [] })
+
+            // Once the dashboard (and its tags) loads, the annotation must appear without any other input changing
+            const dashLogic = dashboardLogic({ id: MOCK_DASHBOARD_ID })
+            dashLogic.mount()
+            await expectLogic(dashLogic).toDispatchActions(['loadDashboardSuccess'])
+            await expectLogic(logic).toMatchValues({
+                relevantAnnotations: [dashboardTagAnnotation].map((annotation) =>
+                    deserializeAnnotation(annotation, 'UTC')
+                ),
+            })
+            dashLogic.unmount()
         })
     })
 

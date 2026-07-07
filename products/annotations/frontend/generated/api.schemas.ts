@@ -151,7 +151,11 @@ export interface AnnotationApi {
      * @nullable
      */
     hidden_in_user_interface?: boolean | null
-    /** Tag names this annotation is scoped to. When `scope` is `tag`, the annotation is shown on every dashboard and insight carrying one of these tags. Required (non-empty) when `scope` is `tag`. */
+    /**
+     * Tag names this annotation is scoped to. When `scope` is `tag`, the annotation is shown on every dashboard and insight carrying one of these tags. Required (non-empty) when `scope` is `tag`, and only allowed with that scope.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
     tags?: string[]
 }
 
@@ -223,7 +227,11 @@ export interface PatchedAnnotationApi {
      * @nullable
      */
     hidden_in_user_interface?: boolean | null
-    /** Tag names this annotation is scoped to. When `scope` is `tag`, the annotation is shown on every dashboard and insight carrying one of these tags. Required (non-empty) when `scope` is `tag`. */
+    /**
+     * Tag names this annotation is scoped to. When `scope` is `tag`, the annotation is shown on every dashboard and insight carrying one of these tags. Required (non-empty) when `scope` is `tag`, and only allowed with that scope.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
     tags?: string[]
 }
 
