@@ -231,7 +231,9 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     end_date = models.DateTimeField(null=True)
     updated_at = models.DateTimeField(auto_now=True)
     archived = models.BooleanField(default=False)
-    # It's not a strict limit as it's enforced in a periodic task
+    # Cumulative lifetime response target, not a per-iteration/monthly quota. Counted since the
+    # survey started, across all iterations. It's not a strict limit as it's enforced by an hourly
+    # task (stop_surveys_reached_target) that stops the survey and nulls this field once reached.
     responses_limit = models.PositiveIntegerField(null=True)
 
     response_sampling_start_date = models.DateTimeField(null=True, blank=True)

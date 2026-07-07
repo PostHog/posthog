@@ -42275,7 +42275,7 @@ export namespace Schemas {
       /** Archive state for the survey. */
       archived?: boolean;
       /**
-         * The maximum number of responses before automatically stopping the survey.
+         * Cumulative lifetime response target. When total unique responses (counted since the survey started, across all iterations) reach this number, an hourly task stops the survey and clears this field. This is a running total, not a per-iteration or monthly quota: raising it on a survey that already has responses reopens the survey only until the new total is reached, and setting a value below the existing total stops it on the next hourly tick.
          * @nullable
          */
       responses_limit?: number | null;
@@ -52958,7 +52958,7 @@ export namespace Schemas {
       /** Archive state for the survey. */
       archived?: boolean;
       /**
-         * The maximum number of responses before automatically stopping the survey.
+         * Cumulative lifetime response target. When total unique responses (counted since the survey started, across all iterations) reach this number, an hourly task stops the survey and clears this field. This is a running total, not a per-iteration or monthly quota: raising it on a survey that already has responses reopens the survey only until the new total is reached, and setting a value below the existing total stops it on the next hourly tick.
          * @nullable
          */
       responses_limit?: number | null;

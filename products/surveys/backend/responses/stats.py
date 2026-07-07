@@ -14,6 +14,7 @@ from typing import Any, TypedDict
 from posthog.schema import ProductKey
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 
 from products.surveys.backend.models import Survey
@@ -370,3 +371,84 @@ def get_survey_stats(
         "stats": stats,
         "rates": rates,
     }
+
+
+def _build_per_survey_window_sql(surveys: list[Survey], params: dict[str, Any]) -> str:
+    """Build an OR of per-survey `survey_id = X AND timestamp in [start, end]` clauses.
+
+    Each survey is clamped to its own window (start_date, falling back to created_at, up to
+    end_date) so a single query counts every survey against the exact same window the detail
+    page uses. Mutates ``params`` with the bound values.
+    """
+    survey_id_expr = get_survey_property_string_expr(SurveyEventProperties.SURVEY_ID)
+    clauses = []
+    for i, survey in enumerate(surveys):
+        survey_start = survey.start_date or survey.created_at
+        survey_end = survey.end_date
+
+        parts = [f"{survey_id_expr} = %(survey_id_{i})s"]
+        params[f"survey_id_{i}"] = str(survey.id)
+        if survey_start:
+            parts.append(f"timestamp >= %(survey_start_{i})s")
+            params[f"survey_start_{i}"] = survey_start
+        if survey_end:
+            parts.append(f"timestamp <= %(survey_end_{i})s")
+            params[f"survey_end_{i}"] = survey_end
+
+        clauses.append("(" + " AND ".join(parts) + ")")
+
+    return "(" + " OR ".join(clauses) + ")"
+
+
+def get_survey_response_counts(
+    *,
+    team_id: int,
+    surveys: list[Survey],
+    exclude_archived: bool = False,
+    workload: Workload = Workload.DEFAULT,
+) -> dict[str, int]:
+    """Canonical count of unique `survey sent` responses per survey.
+
+    Single source of truth for "how many responses does this survey have" in bulk contexts: the
+    surveys-list overview endpoint and the hourly auto-stop task both go through this so their
+    numbers always agree with each other and with the per-survey detail stats (``get_survey_stats``).
+    Responses are clamped per-survey to ``start_date`` (or ``created_at``) .. ``end_date`` and
+    deduplicated on ``$survey_submission_id`` (falling back to the event UUID for older
+    responses) — the exact same window and dedup the detail stats use.
+
+    Returns a mapping of ``survey_id`` (string) to its response count. Surveys with no responses
+    in their window are omitted from the mapping.
+    """
+    if not surveys:
+        return {}
+
+    params: dict[str, Any] = {"team_id": team_id, "sent_event": SurveyEventName.SENT.value}
+    survey_id_expr = get_survey_property_string_expr(SurveyEventProperties.SURVEY_ID)
+    window_sql = _build_per_survey_window_sql(surveys, params)
+
+    dedup_subquery = get_unique_survey_event_uuids_sql_subquery(
+        base_conditions_sql=["team_id = %(team_id)s", window_sql],
+    )
+
+    archive_filter = ""
+    if exclude_archived:
+        archive_filter_sql, archive_params = archived_responses_filter(None, team_id)
+        if archive_filter_sql:
+            archive_filter = f"AND {archive_filter_sql}"
+            params.update(archive_params)
+
+    query = f"""
+        SELECT {survey_id_expr} as survey_id, count()
+        FROM events
+        WHERE team_id = %(team_id)s
+          AND event = %(sent_event)s
+          AND {window_sql}
+          AND uuid IN {dedup_subquery}
+          {archive_filter}
+        GROUP BY survey_id
+    """
+
+    tag_queries(product=ProductKey.SURVEYS, feature=Feature.QUERY)
+    data = sync_execute(query, params, workload=workload)
+
+    return dict(data)

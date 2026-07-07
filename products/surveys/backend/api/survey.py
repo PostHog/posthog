@@ -9,7 +9,7 @@ from uuid import UUID
 from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
-from django.db.models import Min, QuerySet
+from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
 from django.utils.text import slugify
@@ -43,7 +43,6 @@ from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action
-from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature
@@ -77,6 +76,7 @@ from products.surveys.backend.responses import (
     calculate_rates,
     fetch_per_question_stats,
     fetch_response_rows,
+    get_survey_response_counts,
     get_survey_stats,
     partial_responses_filter,
     process_survey_results,
@@ -84,12 +84,7 @@ from products.surveys.backend.responses import (
 )
 from products.surveys.backend.summarization import fetch_responses, format_as_markdown, summarize_responses
 from products.surveys.backend.translation import generate_survey_translation
-from products.surveys.backend.util import (
-    SurveyEventName,
-    SurveyEventProperties,
-    get_archived_response_uuids,
-    get_survey_property_string_expr,
-)
+from products.surveys.backend.util import SurveyEventProperties, get_archived_response_uuids
 
 from ee.surveys.summaries.headline_summary import generate_survey_headline
 
@@ -1987,7 +1982,14 @@ class SurveySerializerCreateUpdateOnlySchema(SurveySerializerCreateUpdateOnly):
     responses_limit = serializers.IntegerField(
         required=False,
         allow_null=True,
-        help_text="The maximum number of responses before automatically stopping the survey.",
+        help_text=(
+            "Cumulative lifetime response target. When total unique responses (counted since the "
+            "survey started, across all iterations) reach this number, an hourly task stops the "
+            "survey and clears this field. This is a running total, not a per-iteration or monthly "
+            "quota: raising it on a survey that already has responses reopens the survey only "
+            "until the new total is reached, and setting a value below the existing total stops it "
+            "on the next hourly tick."
+        ),
     )
     iteration_count = serializers.IntegerField(
         required=False,
@@ -2255,59 +2257,19 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         exclude_archived = request.query_params.get("exclude_archived", "false").lower() == "true"
         survey_ids_param = request.query_params.get("survey_ids")
 
-        earliest_survey_start_date = Survey.objects.filter(team__project_id=self.project_id).aggregate(
-            Min("start_date")
-        )["start_date__min"]
-
-        if not earliest_survey_start_date:
-            # If there are no surveys or none have a start date, there can be no responses.
-            return Response({})
-
-        params = {"team_id": self.team_id, "timestamp": earliest_survey_start_date}
-        survey_id_expr = get_survey_property_string_expr(SurveyEventProperties.SURVEY_ID)
-
-        partial_responses_filter = self._get_partial_responses_filter(
-            base_conditions_sql=[
-                "team_id = %(team_id)s",
-                "timestamp >= %(timestamp)s",
-            ],
+        surveys_qs = Survey.objects.filter(team__project_id=self.project_id).only(
+            "id", "start_date", "created_at", "end_date"
         )
-
-        archived_filter = ""
-        if exclude_archived:
-            archived_filter_sql, archived_params = self._get_archived_responses_filter()
-            if archived_filter_sql:
-                archived_filter = f"AND {archived_filter_sql}"
-                params.update(archived_params)
-
-        survey_ids_filter = ""
         if survey_ids_param:
             survey_ids = [sid.strip() for sid in survey_ids_param.split(",") if sid.strip()]
             if survey_ids:
-                survey_ids_filter = f"AND {survey_id_expr} IN %(survey_ids)s"
-                params["survey_ids"] = survey_ids
+                surveys_qs = surveys_qs.filter(id__in=survey_ids)
 
-        query = f"""
-            SELECT
-                {survey_id_expr} as survey_id,
-                count()
-            FROM events
-            WHERE
-                team_id = %(team_id)s
-                AND event = '{SurveyEventName.SENT}'
-                AND timestamp >= %(timestamp)s
-                AND {partial_responses_filter}
-                {archived_filter}
-                {survey_ids_filter}
-            GROUP BY survey_id
-        """
-
-        tag_queries(product=ProductKey.SURVEYS, feature=Feature.QUERY)
-        data = sync_execute(query, params)
-
-        counts = {}
-        for survey_id, count in data:
-            counts[survey_id] = count
+        counts = get_survey_response_counts(
+            team_id=self.team_id,
+            surveys=list(surveys_qs),
+            exclude_archived=exclude_archived,
+        )
 
         return Response(counts)
 

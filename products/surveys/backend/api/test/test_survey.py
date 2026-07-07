@@ -6,13 +6,7 @@ from typing import Any, Optional, cast
 
 import pytest
 from freezegun.api import freeze_time
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    flush_persons_and_events,
-    snapshot_clickhouse_queries,
-)
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import ANY, MagicMock, patch
 
 from django.test import override_settings
@@ -5019,11 +5013,13 @@ class TestSurveyAPITokens(PersonalAPIKeysBaseTest, APIBaseTest):
             "daed7689-d498-49fe-936f-e85554351b6c": 100,
         }
 
-        earliest_survey = Survey.objects.create(team_id=self.team.id)
-        earliest_survey.start_date = datetime.now() - timedelta(days=101)
-        earliest_survey.save()
-
         for survey_id, count in survey_counts.items():
+            Survey.objects.create(
+                team_id=self.team.id,
+                id=survey_id,
+                name=f"survey-{survey_id}",
+                start_date=datetime.now() - timedelta(days=200),
+            )
             for _ in range(count):
                 _create_event(
                     event="survey sent",
@@ -5041,7 +5037,6 @@ class TestSurveyAPITokens(PersonalAPIKeysBaseTest, APIBaseTest):
 
 
 class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
-    @snapshot_clickhouse_queries
     @freeze_time("2024-05-01 14:40:09")
     def test_responses_count(self):
         survey_counts = {
@@ -5050,11 +5045,13 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
             "daed7689-d498-49fe-936f-e85554351b6c": 100,
         }
 
-        earliest_survey = Survey.objects.create(team_id=self.team.id)
-        earliest_survey.start_date = datetime.now() - timedelta(days=101)
-        earliest_survey.save()
-
         for survey_id, count in survey_counts.items():
+            Survey.objects.create(
+                team_id=self.team.id,
+                id=survey_id,
+                name=f"survey-{survey_id}",
+                start_date=datetime.now() - timedelta(days=200),
+            )
             for _ in range(count):
                 _create_event(
                     event="survey sent",
@@ -5070,25 +5067,32 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
         data = response.json()
         self.assertEqual(data, survey_counts)
 
-    @snapshot_clickhouse_queries
     @freeze_time("2024-05-01 14:40:09")
-    def test_responses_count_only_after_first_survey_started(self):
+    def test_responses_count_excludes_events_before_each_survey_start(self):
+        # Each survey is clamped to its own start_date, so responses fired before a survey
+        # started are never counted for it.
         survey_counts = {
             "d63bb580-01af-4819-aae5-edcf7ef2044f": 3,
             "fe7c4b62-8fc9-401e-b483-e4ff98fd13d5": 6,
             "daed7689-d498-49fe-936f-e85554351b6c": 100,
         }
 
+        # This survey only started 6 days ago, so its 100 responses (fired 100 days ago) predate it.
+        recently_started_survey_id = "daed7689-d498-49fe-936f-e85554351b6c"
+
         expected_survey_counts = {
             "d63bb580-01af-4819-aae5-edcf7ef2044f": 3,
             "fe7c4b62-8fc9-401e-b483-e4ff98fd13d5": 6,
         }
 
-        earliest_survey = Survey.objects.create(team_id=self.team.id)
-        earliest_survey.start_date = datetime.now() - timedelta(days=6)
-        earliest_survey.save()
-
         for survey_id, count in survey_counts.items():
+            start_offset = 6 if survey_id == recently_started_survey_id else 200
+            Survey.objects.create(
+                team_id=self.team.id,
+                id=survey_id,
+                name=f"survey-{survey_id}",
+                start_date=datetime.now() - timedelta(days=start_offset),
+            )
             for _ in range(count):
                 _create_event(
                     event="survey sent",
@@ -5104,6 +5108,46 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
         data = response.json()
         self.assertEqual(data, expected_survey_counts)
 
+    @freeze_time("2024-05-01 14:40:09")
+    def test_responses_count_excludes_events_after_survey_end(self):
+        # Regression: the overview count must stop at end_date, matching the detail page. A
+        # stopped survey should not keep counting `survey sent` events fired after it ended.
+        survey_id = str(uuid.uuid4())
+        Survey.objects.create(
+            team_id=self.team.id,
+            id=survey_id,
+            start_date=datetime.now() - timedelta(days=10),
+            end_date=datetime.now() - timedelta(days=5),
+        )
+
+        # 4 responses inside the window
+        for _ in range(4):
+            _create_event(
+                event="survey sent",
+                team=self.team,
+                distinct_id=self.user.id,
+                properties={"$survey_id": survey_id},
+                timestamp=datetime.now() - timedelta(days=7),
+            )
+        # 3 responses after the survey was stopped - must not be counted
+        for _ in range(3):
+            _create_event(
+                event="survey sent",
+                team=self.team,
+                distinct_id=self.user.id,
+                properties={"$survey_id": survey_id},
+                timestamp=datetime.now() - timedelta(days=2),
+            )
+
+        overview_response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
+        self.assertEqual(overview_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(overview_response.json(), {survey_id: 4})
+
+        # The overview count must agree with the per-survey detail stats.
+        stats_response = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey_id}/stats/")
+        self.assertEqual(stats_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(stats_response.json()["stats"]["survey sent"]["total_count"], 4)
+
     def test_responses_count_zero_responses(self):
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -5111,7 +5155,6 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
         data = response.json()
         self.assertEqual(data, {})
 
-    @snapshot_clickhouse_queries
     @freeze_time("2024-06-11 11:00:00")
     def test_responses_count_with_partial_responses(self):
         survey1_id = str(uuid.uuid4())
@@ -5124,8 +5167,13 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
         user_1_did = str(uuid.uuid4())
         user_2_did = str(uuid.uuid4())
 
-        # Need at least one survey with a start date for the query to work
-        Survey.objects.create(team_id=self.team.id, id=survey1_id, start_date=datetime.now() - timedelta(days=1))
+        # Both surveys need a row with a start date so each response is clamped to its own window
+        Survey.objects.create(
+            team_id=self.team.id, id=survey1_id, name="survey-1", start_date=datetime.now() - timedelta(days=1)
+        )
+        Survey.objects.create(
+            team_id=self.team.id, id=survey2_id, name="survey-2", start_date=datetime.now() - timedelta(days=1)
+        )
 
         events_data = [
             # Survey 1, User 1: Legacy + 2 partials (latest should count)
@@ -5254,7 +5302,13 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
         survey_id_2 = str(uuid.uuid4())
         survey_id_3 = str(uuid.uuid4())
 
-        Survey.objects.create(team_id=self.team.id, id=survey_id_1, start_date=datetime.now() - timedelta(days=10))
+        for survey_id in [survey_id_1, survey_id_2, survey_id_3]:
+            Survey.objects.create(
+                team_id=self.team.id,
+                id=survey_id,
+                name=f"survey-{survey_id}",
+                start_date=datetime.now() - timedelta(days=10),
+            )
 
         for survey_id, count in [(survey_id_1, 5), (survey_id_2, 3), (survey_id_3, 7)]:
             for _ in range(count):

@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from freezegun import freeze_time
-from posthog.test.base import ClickhouseTestMixin, _create_event, flush_persons_and_events, snapshot_clickhouse_queries
+from posthog.test.base import ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from django.test import TestCase
 from django.utils.timezone import now
@@ -53,7 +53,6 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
         )
 
     @freeze_time("2022-01-01")
-    @snapshot_clickhouse_queries
     def test_stop_surveys_with_enough_responses(self) -> None:
         surveys = [
             Survey.objects.create(
