@@ -121,7 +121,9 @@ export function App(): JSX.Element | null {
     useEffect(() => {
         let unmount: (() => void) | undefined
         void import('lib/components/Support/supportRouterLogic').then(({ supportRouterLogic }) => {
-            unmount = supportRouterLogic.mount()
+            // Guard against a partially-initialized module namespace: under a circular-import race the
+            // chunk can resolve with `supportRouterLogic` still undefined, and calling .mount() on it throws.
+            unmount = supportRouterLogic?.mount()
         })
         return () => unmount?.()
     }, [])
