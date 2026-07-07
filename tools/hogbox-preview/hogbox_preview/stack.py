@@ -34,7 +34,7 @@ Recipe (mount-over-image — the default, ~minutes per PR):
 from __future__ import annotations
 
 import sys
-import hashlib
+import secrets
 
 from .backend import PreviewBackend
 
@@ -47,12 +47,16 @@ from .backend import PreviewBackend
 # — a join, not a tuple, so there's no ambiguity about what reaches the env.
 _CSRF_TRUSTED_ORIGINS = ",".join(f"https://*.boxes.hogland.{env}.posthog.dev" for env in ("dev", "prod-us", "prod-eu"))
 # PostHog's prod settings refuse to boot on the default SECRET_KEY, so the
-# override must supply one (the migrate `run --rm web` one-off needs it too). A
-# *random* per-restore key (the old approach) drifted web's config every
-# preview; derive a fixed value instead — stable across previews, obviously not
-# a real secret (boxes are ephemeral + tailnet-only), and computed rather than a
-# literal so it doesn't trip secret scanners.
-_PREVIEW_SECRET_KEY = hashlib.sha256(b"hogbox-preview-ephemeral-tailnet-only").hexdigest()
+# override must supply one (the migrate `run --rm web` one-off needs it too).
+#
+# It MUST be random per preview, NOT a shared constant. Previews are served on
+# PUBLIC URLs (pen-<id>.boxes.hogland.<env>.posthog.dev) — the old
+# "tailnet-only" assumption was stale — so a globally derivable SECRET_KEY lets
+# anyone forge session cookies against every preview. We mint one random key per
+# provision (see __init__) and pin it in the compose override so ALL of a
+# single preview's processes share it, while different previews never do. A
+# re-provision of the same PR rotates the key; that's fine — preview logins are
+# throwaway demo sessions, so dropping them on re-provision is acceptable.
 
 
 class PostHogPreviewStack:
@@ -84,6 +88,10 @@ class PostHogPreviewStack:
         frontend_dist_tar: str | None = None,
     ):
         self.backend = backend
+        # One random Django SECRET_KEY per stack (i.e. per provisioned box). Pinned
+        # into the compose override so every process of THIS preview shares it, and
+        # never shared across previews — see the module-level note above.
+        self.secret_key = secrets.token_hex(32)
         self.branch = branch
         # Default (None) -> the ready-made image; "" -> build-from-checkout escape
         # hatch; any tag -> run that published image.
@@ -203,10 +211,11 @@ class PostHogPreviewStack:
             f"      - EXTRA_CSRF_TRUSTED_ORIGINS={_CSRF_TRUSTED_ORIGINS}",
             "      - DISABLE_SECURE_SSL_REDIRECT=1",
             "      - DEBUG=0",
-            # Stable, non-default key (see _PREVIEW_SECRET_KEY) — PostHog's prod
+            # Random per-preview key (see self.secret_key) — PostHog's prod
             # settings refuse to boot on the default, and the migrate one-off
-            # (compose run --rm web) needs it too.
-            f"      - SECRET_KEY={_PREVIEW_SECRET_KEY}",
+            # (compose run --rm web) needs it too. Not shared across previews, so
+            # a public preview URL can't be used to forge sessions on another.
+            f"      - SECRET_KEY={self.secret_key}",
             # A preview serves one user, so one Unit worker is plenty — and the
             # image's entrypoint otherwise double-loads Django on every boot
             # (start→apply config→stop→restart), once per worker. Measured on a
