@@ -61,6 +61,7 @@ jobs:
               id: filter
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  # Keep in sync with the trigger-level pull_request paths above.
                   filters: |
                       rasterizer_files:
                         - 'nodejs/**'

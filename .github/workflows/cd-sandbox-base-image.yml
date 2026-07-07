@@ -37,6 +37,7 @@ jobs:
               id: filter
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  # Keep in sync with the trigger-level pull_request paths above.
                   filters: |
                       sandbox_image:
                         - '.github/workflows/cd-sandbox-base-image.yml'
@@ -255,6 +256,10 @@ jobs:
 
     # Single required status check for branch protection. Add future sandbox
     # image jobs to `needs` here rather than reconfiguring GitHub.
+    # NOT registered as required yet: the trigger-level pull_request paths
+    # filter means this check never reports on PRs that don't touch sandbox
+    # paths, and a required check that never reports blocks merging forever.
+    # Before registering it in the ruleset, remove that paths filter.
     sandbox_base_image_check:
         needs: [changes, build_skills, sandbox_base_build]
         name: Sandbox Base Image Pass
