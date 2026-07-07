@@ -71,16 +71,23 @@ RUN --mount=type=secret,id=SCCACHE_WEBDAV_ENDPOINT,required=false \
 # amd64/arm64 builds run concurrently — the CLI's lookup-then-create release
 # flow would race and drop one platform's upload.
 #
+# SYMBOL_UPLOAD_TRIGGER exists because secret mounts are not part of the layer
+# cache key: without it, a PR build's skipped-upload layer could be reused by a
+# master build and silently skip the upload. CI sets it to the unique run id
+# when the token is provided, so token-bearing builds always re-execute this
+# layer; token-less builds keep a constant empty value and stay cached.
+#
 # The CLI installer is pinned to an immutable release tag and checksum-verified
 # before execution. To upgrade, change POSTHOG_CLI_VERSION and recompute:
 #   curl -LsSf "https://github.com/PostHog/posthog/releases/download/posthog-cli%2Fv<X.Y.Z>/posthog-cli-installer.sh" | sha256sum
 ARG POSTHOG_CLI_VERSION=0.8.1
 ARG POSTHOG_CLI_INSTALLER_SHA256=b1f1781a78a37930884db3ad412d9508a9ac015b01339455a7357cd0b23d9c92
+ARG SYMBOL_UPLOAD_TRIGGER=""
 RUN --mount=type=secret,id=posthog_upload_symbols_cli_api_key \
     --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
-    if [ ! -s /run/secrets/posthog_upload_symbols_cli_api_key ]; then \
-        echo "No symbol upload token mounted; skipping native symbol upload"; \
+    if [ -z "$SYMBOL_UPLOAD_TRIGGER" ] || [ ! -s /run/secrets/posthog_upload_symbols_cli_api_key ]; then \
+        echo "No symbol upload trigger/token; skipping native symbol upload"; \
     elif ( \
         curl --proto '=https' --tlsv1.2 -LsSf -o /tmp/posthog-cli-installer.sh \
             "https://github.com/PostHog/posthog/releases/download/posthog-cli%2Fv${POSTHOG_CLI_VERSION}/posthog-cli-installer.sh" && \

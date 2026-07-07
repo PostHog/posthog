@@ -169,6 +169,10 @@ jobs:
                   if [ "$ENABLED" = "true" ] && [ -n "$TOKEN" ]; then
                       echo "::add-mask::$TOKEN"
                       echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+                      # Unique per run: secret mounts don't participate in the layer
+                      # cache key, so this busts the cache to guarantee the upload
+                      # actually runs on token-bearing builds (see rust/Dockerfile).
+                      echo "trigger=${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
                   else
                       echo "Native symbol upload disabled for this build"
                   fi
@@ -193,6 +197,7 @@ jobs:
                       EXTRA_RUSTFLAGS=${{ matrix.extra_rustflags || '' }}
                       EXTRA_CFLAGS=${{ matrix.extra_cflags || '' }}
                       SCCACHE_WEBDAV_KEY_PREFIX=${{ steps.sccache.outputs.cache-key-prefix }}
+                      SYMBOL_UPLOAD_TRIGGER=${{ steps.symbols.outputs.trigger }}
                   secrets: |
                       SCCACHE_WEBDAV_ENDPOINT=${{ steps.sccache.outputs.endpoint }}
                       SCCACHE_WEBDAV_TOKEN=${{ steps.sccache.outputs.token }}
