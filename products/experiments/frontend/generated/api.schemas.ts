@@ -1515,6 +1515,8 @@ export interface EndExperimentApi {
      * @nullable
      */
     conclusion_comment?: string | null
+    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Only acts for allowlisted teams; ignored otherwise. */
+    open_cleanup_pr?: boolean
 }
 
 /**
@@ -1696,6 +1698,8 @@ export interface ShipVariantApi {
      * @nullable
      */
     conclusion_comment?: string | null
+    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Only acts for allowlisted teams; ignored otherwise. */
+    open_cleanup_pr?: boolean
     /** The key of the variant to ship. */
     variant_key: string
     /** If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them. */

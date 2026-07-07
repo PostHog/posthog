@@ -74,13 +74,13 @@ describe('TaxonomicPopoverMenu input trigger (lazy placeholder)', () => {
         renderInputTriggerPopoverMenu()
 
         expect(screen.getByTestId('taxonomic-filter-menu-input')).toBeInTheDocument()
-        expect(screen.getByRole('button', { name: 'Open filter menu' })).toBeInTheDocument()
+        expect(screen.getByLabelText('Open filter menu')).toBeInTheDocument()
     })
 
     it('arms to the dropdown menu (not the combobox) when the filter icon is clicked from the resting trigger', async () => {
         renderInputTriggerPopoverMenu()
 
-        await userEvent.click(screen.getByRole('button', { name: 'Open filter menu' }))
+        await userEvent.click(screen.getByLabelText('Open filter menu'))
 
         // The icon arms straight to the menu — its "HogQL expression" entry confirms it.
         await waitFor(() => {

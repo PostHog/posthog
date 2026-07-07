@@ -64,6 +64,28 @@ def _as_untrusted_data(label: str, lines: list[str]) -> str:
     )
 
 
+def describe_scanner_outcome(output: dict[str, Any]) -> str | None:
+    """Short type-specific descriptor (verdict / score / tags / title) for a persisted model_output.
+
+    This is the observation's *outcome* — what the scanner concluded — as distinct from the `reasoning`
+    prose. Each call site leads its formatted line with this (Max brackets it, the group summary prefixes
+    it) so a reader sees the result directly instead of inferring it from the reasoning text.
+    """
+    scanner_type = output.get("scanner_type")
+    if scanner_type == ScannerType.MONITOR and output.get("verdict") is not None:
+        return f"verdict={output['verdict']}"
+    if scanner_type == ScannerType.SCORER and output.get("score") is not None:
+        label = output.get("label")
+        return f"score={output['score']}{f' ({label})' if label else ''}"
+    if scanner_type == ScannerType.CLASSIFIER:
+        tags = [*(output.get("tags") or []), *(output.get("tags_freeform") or [])]
+        return f"tags={', '.join(str(t) for t in tags)}" if tags else None
+    if scanner_type == ScannerType.SUMMARIZER:
+        title = output.get("title")
+        return str(title) if isinstance(title, str) and title.strip() else None
+    return None
+
+
 DRAFT_PROMPT_TOOL_DESCRIPTION = dedent("""
     Use this tool to write or improve the instruction prompt for the Replay Vision scanner the user is
     currently configuring, then fill it into their configuration form.
@@ -610,14 +632,15 @@ class SearchReplayVisionObservationsTool(MaxTool):
         return output if isinstance(output, dict) else None
 
     def _format_line(self, obs: ReplayObservation, output: dict[str, Any], *, show_scanner: bool) -> str:
-        descriptor = self._describe_output(output)
+        descriptor = describe_scanner_outcome(output)
         explanation = output.get("reasoning") or output.get("summary")
         if not isinstance(explanation, str) or not explanation.strip():
             # Summarizer rows have no `reasoning`; fall back to the facets we did embed.
             explanation = output.get("intent") or output.get("outcome") or ""
         # All of reasoning, descriptor (freeform tags), session_id (client-settable) and scanner name are
-        # untrusted, but they don't need per-field defanging here — `_as_untrusted_data` defangs the whole block.
-        clean = _EVENT_ID_CITATION_RE.sub("", explanation).strip()[:_SEARCH_SNIPPET_LIMIT]
+        # untrusted, but they don't need per-field defanging here — `_as_untrusted_data` defangs the whole
+        # block. Collapse whitespace so a match stays one line and can't forge extra result lines.
+        clean = re.sub(r"\s+", " ", _EVENT_ID_CITATION_RE.sub("", explanation)).strip()[:_SEARCH_SNIPPET_LIMIT]
 
         prefix = f"{obs.created_at:%Y-%m-%d}"
         session = str(obs.session_id)
@@ -625,19 +648,3 @@ class SearchReplayVisionObservationsTool(MaxTool):
         scanner_part = f" {obs.scanner.name}" if show_scanner and obs.scanner else ""
         descriptor_part = f" [{descriptor}]" if descriptor else ""
         return f"- (session {session}, {prefix}){scanner_part}{descriptor_part} {clean}".rstrip()
-
-    def _describe_output(self, output: dict[str, Any]) -> str | None:
-        """Short type-specific descriptor (verdict / score / tags / title) prepended to each result line."""
-        scanner_type = output.get("scanner_type")
-        if scanner_type == ScannerType.MONITOR and output.get("verdict") is not None:
-            return f"verdict={output['verdict']}"
-        if scanner_type == ScannerType.SCORER and output.get("score") is not None:
-            label = output.get("label")
-            return f"score={output['score']}{f' ({label})' if label else ''}"
-        if scanner_type == ScannerType.CLASSIFIER:
-            tags = [*(output.get("tags") or []), *(output.get("tags_freeform") or [])]
-            return f"tags={', '.join(str(t) for t in tags)}" if tags else None
-        if scanner_type == ScannerType.SUMMARIZER:
-            title = output.get("title")
-            return str(title) if isinstance(title, str) and title.strip() else None
-        return None

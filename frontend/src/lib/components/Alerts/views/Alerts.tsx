@@ -13,6 +13,8 @@ import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { alertIntervalDisplayLabel } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+
 import { AlertState } from '../../../../queries/schema/schema-general'
 import { alertLogic } from '../alertLogic'
 import { AlertsFiltersBar } from '../AlertsFiltersBar'
@@ -63,6 +65,14 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
             dataIndex: 'state',
             render: function renderStateIndicator(_, alert: AlertType) {
                 return alert.enabled ? <AlertStateIndicator alert={alert} /> : null
+            },
+        },
+        {
+            title: 'Interval',
+            dataIndex: 'calculation_interval',
+            key: 'calculation_interval',
+            render: function renderInterval(_, alert: AlertType) {
+                return <div className="whitespace-nowrap">{alertIntervalDisplayLabel(alert.calculation_interval)}</div>
             },
         },
         {

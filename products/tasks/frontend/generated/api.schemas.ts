@@ -407,6 +407,7 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `support_queue` - Support Queue
  * * `session_summaries` - Session Summaries
  * * `posthog_ai` - PostHog AI
+ * * `experiments` - Experiments
  * * `signal_report` - Signal Report
  * * `signals_scout` - Signals Scout
  * * `support_reply` - Support Reply
@@ -424,6 +425,7 @@ export const OriginProductEnumApi = {
     SupportQueue: 'support_queue',
     SessionSummaries: 'session_summaries',
     PosthogAi: 'posthog_ai',
+    Experiments: 'experiments',
     SignalReport: 'signal_report',
     SignalsScout: 'signals_scout',
     SupportReply: 'support_reply',
@@ -496,6 +498,7 @@ export interface TaskWriteApi {
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
+     * * `experiments` - Experiments
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply
@@ -558,6 +561,16 @@ export interface TaskWriteApi {
      * * `xhigh` - xhigh
      * * `max` - max */
     reasoning_effort?: ReasoningEffortEnumApi | null
+    /**
+     * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
+     * @nullable
+     */
+    pending_user_message?: string | null
+    /**
+     * Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched.
+     * @items.maxLength 128
+     */
+    pending_user_artifact_ids?: string[]
     /**
      * Channel this task is owned by (the channel it was kicked off in).
      * @nullable
@@ -593,6 +606,7 @@ export interface PatchedTaskWriteApi {
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
+     * * `experiments` - Experiments
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply
@@ -655,6 +669,16 @@ export interface PatchedTaskWriteApi {
      * * `xhigh` - xhigh
      * * `max` - max */
     reasoning_effort?: ReasoningEffortEnumApi | null
+    /**
+     * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
+     * @nullable
+     */
+    pending_user_message?: string | null
+    /**
+     * Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched.
+     * @items.maxLength 128
+     */
+    pending_user_artifact_ids?: string[]
     /**
      * Channel this task is owned by (the channel it was kicked off in).
      * @nullable

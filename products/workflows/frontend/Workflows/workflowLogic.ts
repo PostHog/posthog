@@ -865,11 +865,16 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             }
 
-            action.config = { ...config } as HogFlowAction['config']
+            // Replace the action rather than mutating it: subscribers diff the workflow against
+            // their previous snapshot, and an in-place write updates that snapshot too, making
+            // every config edit look like a no-op.
+            const updatedAction = { ...action, config: { ...config } as HogFlowAction['config'] }
 
-            const changes = { actions: [...values.workflow.actions] } as Partial<HogFlow>
-            if (action.type === 'trigger') {
-                changes.trigger = action.config as TriggerAction['config']
+            const changes = {
+                actions: values.workflow.actions.map((a) => (a.id === actionId ? updatedAction : a)),
+            } as Partial<HogFlow>
+            if (updatedAction.type === 'trigger') {
+                changes.trigger = updatedAction.config as TriggerAction['config']
             }
 
             actions.setWorkflowValues(changes)
