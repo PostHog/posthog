@@ -17,10 +17,14 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from rest_framework.test import APIClient
 
+from posthog.constants import AvailableFeature
+from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.skills.backend.models.skills import LLMSkill
+
+from ee.models.rbac.access_control import AccessControl
 
 from ..logic.kernel_skills import all_kernel_skill_ids
 from ..models import AgentApplication, AgentRevision
@@ -386,15 +390,24 @@ class TestBundleEditing(APIBaseTest):
         mock_janitor.return_value.put_agent_md.assert_not_called()
         self.assertEqual(LLMSkill.objects.count(), 1)
 
+    @parameterized.expand(
+        [
+            ("spaces", "Has Spaces"),
+            # `$` matches before a trailing newline, so `.match()` would accept
+            # this and mint a store skill the janitor rejects at freeze —
+            # `.fullmatch()` must reject it here.
+            ("trailing_newline", "abc\n"),
+        ]
+    )
     @patch("products.agent_platform.backend.presentation.views._janitor")
-    def test_import_rejects_bad_skill_id_format(self, mock_janitor: MagicMock) -> None:
+    def test_import_rejects_bad_skill_id_format(self, _name: str, bad_id: str, mock_janitor: MagicMock) -> None:
         revision = self._revision("draft")
 
         res = self.client.post(
             self._import_url(revision),
             {
                 "agent_md": "# Never written",
-                "skills": [{"id": "Has Spaces", "description": "Bad", "body": "b"}],
+                "skills": [{"id": bad_id, "description": "Bad", "body": "b"}],
             },
             format="json",
         )
@@ -502,3 +515,27 @@ class TestBundleEditing(APIBaseTest):
 
         self.assertEqual(res.status_code, 403, res.content)
         self.assertEqual(self._latest().version, 1)
+
+    def test_import_of_new_skill_denied_without_resource_level_editor_access(self) -> None:
+        # A brand-new id means the import CREATES a shared store skill, so it
+        # must honour the same resource-level gate as LLMSkillViewSet's create —
+        # not slip past because there's no object to check yet.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        # llm_skill inherits its access-control resource from llm_analytics.
+        AccessControl.objects.create(team=self.team, resource="llm_analytics", resource_id=None, access_level="viewer")
+        revision = self._revision("draft")
+
+        res = self.client.post(
+            self._import_url(revision),
+            {"skills": [{"id": "brand-new-skill", "description": "New", "body": "b"}]},
+            format="json",
+        )
+
+        self.assertEqual(res.status_code, 403, res.content)
+        self.assertFalse(LLMSkill.objects.filter(team=self.team, name="brand-new-skill").exists())

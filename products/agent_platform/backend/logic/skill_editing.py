@@ -57,8 +57,7 @@ def assert_skills_writable(
     access for everyone. Without this an ``agents:write`` token could rewrite a
     shared skill through the agent authoring surface. ``scopes`` is ``None`` for
     session auth, which carries no API scopes and is governed solely by
-    object-level access control. A missing skill is left to the publish/create
-    path to reject or create.
+    object-level access control.
     """
     unique_names: list[str] = []
     for name in names:
@@ -72,7 +71,17 @@ def assert_skills_writable(
         )
     for name in unique_names:
         skill = get_skill_by_name_from_db(team, name)
-        if skill is not None and not user_access_control.check_access_level_for_object(skill, "editor"):
+        if skill is None:
+            # A missing name means the import will CREATE a shared store skill.
+            # Mirror LLMSkillViewSet's create gate (resource-level editor access)
+            # so an agent editor without llm_skill create rights can't mint
+            # team-wide skills through the agent surface.
+            if not user_access_control.check_access_level_for_resource("llm_skill", "editor"):
+                raise PermissionDenied(
+                    f"You do not have access to create the skill '{name}' in the skill store. Ask a skill "
+                    "admin for editor access to skills, or import only skills that already exist."
+                )
+        elif not user_access_control.check_access_level_for_object(skill, "editor"):
             raise PermissionDenied(
                 f"You do not have edit access to the skill '{name}' in the skill store. Ask a skill admin to "
                 "grant you editor access, or remove it from the agent's skill references."
