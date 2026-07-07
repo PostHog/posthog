@@ -25,13 +25,48 @@ export const ResourceTypeEnumApi = {
  * * `last_n_days` - Last N days
  * * `days_ago_range` - Between X and Y days ago
  */
-export type AiWindowModeEnumApi = (typeof AiWindowModeEnumApi)[keyof typeof AiWindowModeEnumApi]
+export type AIWindowConfigModeEnumApi = (typeof AIWindowConfigModeEnumApi)[keyof typeof AIWindowConfigModeEnumApi]
 
-export const AiWindowModeEnumApi = {
+export const AIWindowConfigModeEnumApi = {
     SinceLastSent: 'since_last_sent',
     LastNDays: 'last_n_days',
     DaysAgoRange: 'days_ago_range',
 } as const
+
+/**
+ * Analysis window for an AI report run. The write-side schema for ai_prompt_config["window"].
+ */
+export interface AIWindowConfigApi {
+    /** 'since_last_sent' (default) analyses everything since the previous successful delivery (gap-free); 'last_n_days' analyses a fixed trailing window of start_days_ago days; 'days_ago_range' analyses the explicit range from start_days_ago to end_days_ago days ago.
+     *
+     * * `since_last_sent` - Since last report
+     * * `last_n_days` - Last N days
+     * * `days_ago_range` - Between X and Y days ago */
+    mode?: AIWindowConfigModeEnumApi
+    /**
+     * Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365.
+     * @minimum 1
+     * @maximum 365
+     * @nullable
+     */
+    start_days_ago?: number | null
+    /**
+     * Upper bound of the analysis window, in days before the run (0 = now). Required for 'days_ago_range' and must be less than start_days_ago; ignored for other modes. 0-365.
+     * @minimum 0
+     * @maximum 365
+     * @nullable
+     */
+    end_days_ago?: number | null
+}
+
+/**
+ * Schema for Subscription.ai_prompt_config — a config bag for AI report subscriptions, so new
+ * knobs become keys here instead of model columns. Replaced wholesale on writes (no deep merge).
+ */
+export interface AIPromptConfigApi {
+    /** Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous delivery). */
+    window?: AIWindowConfigApi
+}
 
 /**
  * * `email` - Email
@@ -168,26 +203,8 @@ export interface SubscriptionApi {
      * @nullable
      */
     prompt?: string | null
-    /** Analysis window for AI report subscriptions. 'since_last_sent' (default) analyses everything since the previous successful delivery (gap-free); 'last_n_days' analyses a fixed trailing window of ai_window_start_days_ago days; 'days_ago_range' analyses the explicit range from ai_window_start_days_ago to ai_window_end_days_ago days ago.
-     *
-     * * `since_last_sent` - Since last report
-     * * `last_n_days` - Last N days
-     * * `days_ago_range` - Between X and Y days ago */
-    ai_window_mode?: AiWindowModeEnumApi
-    /**
-     * Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; must be empty for 'since_last_sent'. 1-365.
-     * @minimum 1
-     * @maximum 365
-     * @nullable
-     */
-    ai_window_start_days_ago?: number | null
-    /**
-     * Upper bound of the analysis window, in days before the run (0 = now). Required for 'days_ago_range' and must be less than ai_window_start_days_ago; must be empty for other modes. 0-365.
-     * @minimum 0
-     * @maximum 365
-     * @nullable
-     */
-    ai_window_end_days_ago?: number | null
+    /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
+    ai_prompt_config?: AIPromptConfigApi
     /** Delivery channel: email or slack.
      *
      * * `email` - Email
@@ -332,26 +349,8 @@ export interface PatchedSubscriptionApi {
      * @nullable
      */
     prompt?: string | null
-    /** Analysis window for AI report subscriptions. 'since_last_sent' (default) analyses everything since the previous successful delivery (gap-free); 'last_n_days' analyses a fixed trailing window of ai_window_start_days_ago days; 'days_ago_range' analyses the explicit range from ai_window_start_days_ago to ai_window_end_days_ago days ago.
-     *
-     * * `since_last_sent` - Since last report
-     * * `last_n_days` - Last N days
-     * * `days_ago_range` - Between X and Y days ago */
-    ai_window_mode?: AiWindowModeEnumApi
-    /**
-     * Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; must be empty for 'since_last_sent'. 1-365.
-     * @minimum 1
-     * @maximum 365
-     * @nullable
-     */
-    ai_window_start_days_ago?: number | null
-    /**
-     * Upper bound of the analysis window, in days before the run (0 = now). Required for 'days_ago_range' and must be less than ai_window_start_days_ago; must be empty for other modes. 0-365.
-     * @minimum 0
-     * @maximum 365
-     * @nullable
-     */
-    ai_window_end_days_ago?: number | null
+    /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
+    ai_prompt_config?: AIPromptConfigApi
     /** Delivery channel: email or slack.
      *
      * * `email` - Email

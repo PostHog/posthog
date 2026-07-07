@@ -13,6 +13,8 @@ import { getInsightId } from 'scenes/insights/utils'
 
 import { ExportedAssetType, ExporterFormat, SubscriptionResourceTypes, SubscriptionType } from '~/types'
 
+import type { AIWindowConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
+
 import type { subscriptionLogicType } from './subscriptionLogicType'
 import { subscriptionsLogic } from './subscriptionsLogic'
 import { AI_PROMPT_MAX_LENGTH, SubscriptionBaseProps, urlForSubscription } from './utils'
@@ -36,38 +38,39 @@ function validatePrompt(
 
 const AI_WINDOW_MAX_DAYS = 365
 
-// Values are typed `any` for the same reason as the `as any` on dashboard_export_insights below:
+// Errors mirror the form value's nesting (ai_prompt_config.window.*) so LemonField picks them up
+// by path. Typed loosely for the same reason as the `as any` on dashboard_export_insights below:
 // kea-forms' DeepPartialMap collapses nullable scalar fields to `{}`, rejecting string errors.
 function validateAiWindow(subscription: Partial<SubscriptionType>): {
-    ai_window_start_days_ago?: any
-    ai_window_end_days_ago?: any
+    ai_prompt_config?: { window: { start_days_ago?: any; end_days_ago?: any } }
 } {
     if (subscription.resource_type !== SubscriptionResourceTypes.AiPrompt) {
         return {}
     }
-    const mode = subscription.ai_window_mode ?? 'since_last_sent'
+    const window = subscription.ai_prompt_config?.window
+    const mode = window?.mode ?? 'since_last_sent'
     if (mode === 'since_last_sent') {
         return {}
     }
-    const start = subscription.ai_window_start_days_ago
+    const start = window?.start_days_ago
     if (!start) {
-        return { ai_window_start_days_ago: 'Set how many days back the report should look' }
+        return { ai_prompt_config: { window: { start_days_ago: 'Set how many days back the report should look' } } }
     }
     if (start < 1 || start > AI_WINDOW_MAX_DAYS) {
-        return { ai_window_start_days_ago: `Must be between 1 and ${AI_WINDOW_MAX_DAYS} days` }
+        return { ai_prompt_config: { window: { start_days_ago: `Must be between 1 and ${AI_WINDOW_MAX_DAYS} days` } } }
     }
     if (mode === 'last_n_days') {
         return {}
     }
-    const end = subscription.ai_window_end_days_ago
+    const end = window?.end_days_ago
     if (end === null || end === undefined) {
-        return { ai_window_end_days_ago: 'Set where the analyzed range should end' }
+        return { ai_prompt_config: { window: { end_days_ago: 'Set where the analyzed range should end' } } }
     }
     if (end < 0 || end > AI_WINDOW_MAX_DAYS) {
-        return { ai_window_end_days_ago: `Must be between 0 and ${AI_WINDOW_MAX_DAYS} days` }
+        return { ai_prompt_config: { window: { end_days_ago: `Must be between 0 and ${AI_WINDOW_MAX_DAYS} days` } } }
     }
     if (end >= start) {
-        return { ai_window_end_days_ago: 'Must be closer to now than the start of the range' }
+        return { ai_prompt_config: { window: { end_days_ago: 'Must be closer to now than the start of the range' } } }
     }
     return {}
 }
@@ -96,9 +99,7 @@ const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     enabled: true,
     summary_enabled: false,
     summary_prompt_guide: '',
-    ai_window_mode: 'since_last_sent',
-    ai_window_start_days_ago: null,
-    ai_window_end_days_ago: null,
+    ai_prompt_config: { window: { mode: 'since_last_sent' } },
 }
 
 export interface SubscriptionLogicProps extends SubscriptionBaseProps {
@@ -115,7 +116,11 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         setPreviewLoading: (loading: boolean) => ({ loading }),
         setPreviewError: (error: string | null) => ({ error }),
         setPreviewImageUrl: (url: string | null) => ({ url }),
-        selectAiExamplePrompt: (prompt: string, label: string) => ({ prompt, label }),
+        selectAiExamplePrompt: (prompt: string, label: string, window?: AIWindowConfigApi) => ({
+            prompt,
+            label,
+            window,
+        }),
     }),
 
     reducers({
@@ -150,7 +155,19 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             __default: undefined as unknown as SubscriptionType,
             loadSubscription: async () => {
                 if (props.id && props.id !== 'new') {
-                    return await api.subscriptions.get(props.id)
+                    const subscription = await api.subscriptions.get(props.id)
+                    // Rows created before a window was chosen carry ai_prompt_config: {} — normalise
+                    // so the analysis window select renders the effective default instead of empty.
+                    return {
+                        ...subscription,
+                        ai_prompt_config: {
+                            ...subscription.ai_prompt_config,
+                            window: {
+                                ...subscription.ai_prompt_config?.window,
+                                mode: subscription.ai_prompt_config?.window?.mode ?? 'since_last_sent',
+                            },
+                        },
+                    }
                 }
                 return { ...NEW_SUBSCRIPTION }
             },
@@ -210,10 +227,8 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     // Only AI subscriptions carry a prompt; a stale one on a non-AI sub (e.g. after
                     // toggling resource_type back) would be rejected by the backend, so drop it.
                     prompt: isAi ? subscription.prompt?.trim() : undefined,
-                    // Same for the analysis window config — the backend rejects it on non-AI subs.
-                    ai_window_mode: isAi ? subscription.ai_window_mode : undefined,
-                    ai_window_start_days_ago: isAi ? subscription.ai_window_start_days_ago : undefined,
-                    ai_window_end_days_ago: isAi ? subscription.ai_window_end_days_ago : undefined,
+                    // Same for the AI config — the backend rejects it on non-AI subs.
+                    ai_prompt_config: isAi ? subscription.ai_prompt_config : undefined,
                 }
 
                 breakpoint()
@@ -249,9 +264,14 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 recordRecentSlackChannel(subscription.integration_id, slackChannelId(subscription.target_value))
             }
         },
-        selectAiExamplePrompt: ({ prompt, label }) => {
+        selectAiExamplePrompt: ({ prompt, label, window }) => {
             posthog.capture('subscription_ai_example_prompt_selected', { label })
             actions.setSubscriptionValue('prompt', prompt)
+            if (window) {
+                // Presets that imply a timeframe prefill the analysis window to match; the chips only
+                // render on an empty prompt, so this never clobbers a deliberately-chosen window.
+                actions.setSubscriptionValues({ ai_prompt_config: { window } })
+            }
         },
         submitSubscriptionFailure: ({ error }) => {
             // Kea-forms emits this when client validation fails; fields already show errors.
@@ -288,11 +308,12 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 })
             }
 
-            if (key === 'ai_window_mode') {
-                // Stale day bounds from the previous mode would confuse validation and the backend.
+            const path = Array.isArray(name) ? name.join('.') : name
+            if (path === 'ai_prompt_config.window.mode') {
+                // Replace the whole window on mode switch — stale day bounds from the previous mode
+                // would confuse validation and the backend.
                 actions.setSubscriptionValues({
-                    ai_window_start_days_ago: null,
-                    ai_window_end_days_ago: null,
+                    ai_prompt_config: { window: { mode: value } },
                 })
             }
         },

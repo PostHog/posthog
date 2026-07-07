@@ -1,1 +1,1 @@
-0004_subscription_ai_window_end_days_ago_and_more
+0004_subscription_ai_prompt_config

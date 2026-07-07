@@ -36,6 +36,8 @@ import { userLogic } from 'scenes/userLogic'
 import { SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
 import { AvailableFeature, DashboardType, InsightShortId, SubscriptionResourceTypes, SubscriptionType } from '~/types'
 
+import type { AIWindowConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
+
 import { InsightSelector } from '../InsightSelector'
 import { subscriptionCountLogic } from '../subscriptionCountLogic'
 import { subscriptionLogic } from '../subscriptionLogic'
@@ -72,22 +74,28 @@ function AiConsentGateMessage(): JSX.Element {
 // Concrete starter prompts — each one maps cleanly to a flat HogQL pattern the
 // planner already knows (see PLAN_GENERATION_PROMPT reference patterns). Click
 // populates the textarea verbatim so users can tweak rather than start cold.
-const AI_PROMPT_EXAMPLES: { label: string; prompt: string }[] = [
+// Presets that imply a timeframe also prefill the analysis window (the window
+// setting owns the time range now, so the prompt copy stays range-agnostic).
+const AI_PROMPT_EXAMPLES: { label: string; prompt: string; window?: AIWindowConfigApi }[] = [
     {
         label: 'Top events this week',
-        prompt: 'Top 5 events by volume in the last 7 days, with counts and unique users for each.',
+        prompt: 'Top 5 events by volume, with counts and unique users for each.',
+        window: { mode: 'last_n_days', start_days_ago: 7 },
     },
     {
         label: 'Week-over-week growth',
-        prompt: 'For the top 10 events by volume, compare this week vs last week and rank by growth rate. Flag any event that more than doubled or halved.',
+        prompt: 'For the top 10 events by volume, compare the current period vs the previous one and rank by growth rate. Flag any event that more than doubled or halved.',
+        window: { mode: 'last_n_days', start_days_ago: 7 },
     },
     {
         label: 'Weekly health check',
-        prompt: 'Weekly health check: total event volume and unique active users in the last 7 days, and how each compares to the previous 7 days.',
+        prompt: 'Health check: total event volume and unique active users, and how each compares to the previous period.',
+        window: { mode: 'last_n_days', start_days_ago: 7 },
     },
     {
         label: 'Tracking gaps',
-        prompt: 'Which events we normally track received no data in the last 7 days? List them so I can catch broken instrumentation.',
+        prompt: 'Which events we normally track received no data? List them so I can catch broken instrumentation.',
+        window: { mode: 'last_n_days', start_days_ago: 7 },
     },
 ]
 
@@ -202,9 +210,9 @@ function AiPromptFields({
     onSelectExample,
 }: {
     prompt?: string | null
-    windowMode?: SubscriptionType['ai_window_mode']
+    windowMode?: AIWindowConfigApi['mode']
     showConsentBanner: boolean
-    onSelectExample: (prompt: string, label: string) => void
+    onSelectExample: (prompt: string, label: string, window?: AIWindowConfigApi) => void
 }): JSX.Element {
     return (
         <>
@@ -239,7 +247,7 @@ function AiPromptFields({
                                 key={example.label}
                                 size="xsmall"
                                 type="secondary"
-                                onClick={() => onSelectExample(example.prompt, example.label)}
+                                onClick={() => onSelectExample(example.prompt, example.label, example.window)}
                             >
                                 {example.label}
                             </LemonButton>
@@ -248,14 +256,14 @@ function AiPromptFields({
                 </div>
             )}
             <LemonField
-                name="ai_window_mode"
+                name={['ai_prompt_config', 'window', 'mode']}
                 label="Analysis window"
                 help="The exact time range is computed each run in your project's timezone and handed to the AI, so relative dates in the prompt can't drift."
             >
                 <LemonSelect options={AI_WINDOW_MODE_OPTIONS} />
             </LemonField>
             {windowMode === 'last_n_days' && (
-                <LemonField name="ai_window_start_days_ago" label="Number of days to analyze">
+                <LemonField name={['ai_prompt_config', 'window', 'start_days_ago']} label="Number of days to analyze">
                     {({ value, onChange }) => (
                         <div className="flex items-center gap-2">
                             <LemonInput
@@ -273,7 +281,7 @@ function AiPromptFields({
             )}
             {windowMode === 'days_ago_range' && (
                 <div className="flex items-start gap-2">
-                    <LemonField name="ai_window_start_days_ago" label="From (days ago)">
+                    <LemonField name={['ai_prompt_config', 'window', 'start_days_ago']} label="From (days ago)">
                         {({ value, onChange }) => (
                             <LemonInput
                                 type="number"
@@ -285,7 +293,7 @@ function AiPromptFields({
                             />
                         )}
                     </LemonField>
-                    <LemonField name="ai_window_end_days_ago" label="To (days ago)">
+                    <LemonField name={['ai_prompt_config', 'window', 'end_days_ago']} label="To (days ago)">
                         {({ value, onChange }) => (
                             <LemonInput
                                 type="number"
@@ -526,7 +534,7 @@ function EditSubscriptionForm({
                         {isAiPrompt ? (
                             <AiPromptFields
                                 prompt={subscription.prompt}
-                                windowMode={subscription.ai_window_mode}
+                                windowMode={subscription.ai_prompt_config?.window?.mode}
                                 showConsentBanner={aiGate.showAiFormConsentBanner}
                                 onSelectExample={logic.actions.selectAiExamplePrompt}
                             />

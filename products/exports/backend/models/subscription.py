@@ -169,13 +169,11 @@ class Subscription(ModelActivityMixin, models.Model):
 
     prompt = models.TextField(null=True, blank=True)
 
-    # Analysis window for AI reports. The default keeps the gap-free "since last report" behavior;
-    # the day-based modes pin an explicit range so the window no longer depends on send timing.
-    # `start_days_ago` is the lower bound for both day-based modes; `end_days_ago` only applies to
-    # DAYS_AGO_RANGE (LAST_N_DAYS always ends at "now").
-    ai_window_mode = models.CharField(max_length=20, choices=AIWindowMode, default=AIWindowMode.SINCE_LAST_SENT)
-    ai_window_start_days_ago = models.PositiveSmallIntegerField(null=True, blank=True)
-    ai_window_end_days_ago = models.PositiveSmallIntegerField(null=True, blank=True)
+    # Config bag for AI prompt subscriptions, so future knobs don't each need a migration. The
+    # serializer (AIPromptConfigSerializer) is the write-side schema; readers go through the
+    # fail-soft properties below, never raw key access. Current shape:
+    #   {"window": {"mode": <AIWindowMode>, "start_days_ago": int|None, "end_days_ago": int|None}}
+    ai_prompt_config = models.JSONField(default=dict, blank=True)
 
     # Subscription type (email, slack etc.)
     title = models.CharField(max_length=100, null=True, blank=True)
@@ -331,6 +329,30 @@ class Subscription(ModelActivityMixin, models.Model):
     def ai_report_window_days(self) -> int:
         """Days of history an AI report for this subscription should analyse, derived from its cadence."""
         return self._AI_REPORT_WINDOW_DAYS.get(self.frequency, self.DEFAULT_AI_REPORT_WINDOW_DAYS)
+
+    # ai_prompt_config readers. Fail-soft on any shape the serializer wouldn't have written (a row
+    # edited out-of-band must degrade to the default window, not crash a delivery run).
+
+    @property
+    def _ai_window_config(self) -> dict:
+        config = self.ai_prompt_config if isinstance(self.ai_prompt_config, dict) else {}
+        window = config.get("window")
+        return window if isinstance(window, dict) else {}
+
+    @property
+    def ai_window_mode(self) -> str:
+        mode = self._ai_window_config.get("mode")
+        return mode if mode in self.AIWindowMode.values else self.AIWindowMode.SINCE_LAST_SENT
+
+    @property
+    def ai_window_start_days_ago(self) -> Optional[int]:
+        value = self._ai_window_config.get("start_days_ago")
+        return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+    @property
+    def ai_window_end_days_ago(self) -> Optional[int]:
+        value = self._ai_window_config.get("end_days_ago")
+        return value if isinstance(value, int) and not isinstance(value, bool) else None
 
     @property
     def url(self) -> str | None:

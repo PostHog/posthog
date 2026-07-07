@@ -2804,32 +2804,25 @@ class TestAISubscriptionAPI(APILicensedTest):
 
     @parameterized.expand(
         [
-            ("last_n_days_missing_start", {"ai_window_mode": "last_n_days"}, "ai_window_start_days_ago"),
-            (
-                "range_missing_end",
-                {"ai_window_mode": "days_ago_range", "ai_window_start_days_ago": 10},
-                "ai_window_end_days_ago",
-            ),
+            ("last_n_days_missing_start", {"mode": "last_n_days"}, "start_days_ago"),
+            ("range_missing_end", {"mode": "days_ago_range", "start_days_ago": 10}, "end_days_ago"),
             (
                 "range_end_not_before_start",
-                {"ai_window_mode": "days_ago_range", "ai_window_start_days_ago": 3, "ai_window_end_days_ago": 5},
-                "ai_window_end_days_ago",
+                {"mode": "days_ago_range", "start_days_ago": 3, "end_days_ago": 5},
+                "end_days_ago",
             ),
-            (
-                "start_out_of_bounds",
-                {"ai_window_mode": "last_n_days", "ai_window_start_days_ago": 400},
-                "ai_window_start_days_ago",
-            ),
+            ("start_out_of_bounds", {"mode": "last_n_days", "start_days_ago": 400}, "start_days_ago"),
+            ("unknown_mode", {"mode": "calendar_week"}, "mode"),
         ]
     )
     def test_invalid_ai_window_config_is_rejected(
-        self, mock_is_cloud, mock_flag, mock_sync, _name, window_fields, expected_error_field
+        self, mock_is_cloud, mock_flag, mock_sync, _name, window, expected_error_field
     ):
         self._enable_ai()
         self._mock_temporal(mock_sync)
         response = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
-            self._make_ai_payload(**window_fields),
+            self._make_ai_payload(ai_prompt_config={"window": window}),
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert expected_error_field in str(response.json()), response.json()
@@ -2841,26 +2834,26 @@ class TestAISubscriptionAPI(APILicensedTest):
         self._mock_temporal(mock_sync)
         create_resp = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
-            self._make_ai_payload(ai_window_mode="last_n_days", ai_window_start_days_ago=14),
+            self._make_ai_payload(ai_prompt_config={"window": {"mode": "last_n_days", "start_days_ago": 14}}),
         )
         assert create_resp.status_code == status.HTTP_201_CREATED, create_resp.json()
         created = create_resp.json()
-        assert created["ai_window_mode"] == "last_n_days"
-        assert created["ai_window_start_days_ago"] == 14
+        assert created["ai_prompt_config"]["window"]["mode"] == "last_n_days"
+        assert created["ai_prompt_config"]["window"]["start_days_ago"] == 14
 
         patch_resp = self.client.patch(
             f"/api/projects/{self.team.id}/subscriptions/{created['id']}",
-            {"ai_window_mode": "since_last_sent"},
+            {"ai_prompt_config": {"window": {"mode": "since_last_sent"}}},
         )
         assert patch_resp.status_code == status.HTTP_200_OK, patch_resp.json()
-        assert patch_resp.json()["ai_window_mode"] == "since_last_sent"
-        assert patch_resp.json()["ai_window_start_days_ago"] is None
+        window = patch_resp.json()["ai_prompt_config"]["window"]
+        assert window["mode"] == "since_last_sent"
+        assert window["start_days_ago"] is None
 
-    def test_ai_window_fields_rejected_on_insight_subscription(self, mock_is_cloud, mock_flag, mock_sync):
+    def test_ai_prompt_config_rejected_on_insight_subscription(self, mock_is_cloud, mock_flag, mock_sync):
         self._mock_temporal(mock_sync)
         payload = self._insight_payload()
-        payload["ai_window_mode"] = "last_n_days"
-        payload["ai_window_start_days_ago"] = 7
+        payload["ai_prompt_config"] = {"window": {"mode": "last_n_days", "start_days_ago": 7}}
         response = self.client.post(f"/api/projects/{self.team.id}/subscriptions", payload)
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert "ai_window_mode" in str(response.json()), response.json()
+        assert "ai_prompt_config" in str(response.json()), response.json()

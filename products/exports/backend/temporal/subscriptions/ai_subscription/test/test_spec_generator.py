@@ -201,6 +201,44 @@ class TestEventPropertyNames(APIBaseTest):
         assert _event_property_names(self.team, ["export created"], per_event_limit=15) == {"export created": ["mine"]}
 
 
+class TestAIWindowConfigProperties:
+    """The ai_prompt_config readers feed compute_report_window on every delivery run, and the column
+    is a JSONField a row can carry in any shape — a non-defensive reader would crash the run."""
+
+    @staticmethod
+    def _sub(config: object) -> Subscription:
+        # In-memory only — the properties are pure reads, but __init__ caches the rrule, so the
+        # schedule fields must be valid.
+        return Subscription(
+            frequency="daily",
+            interval=1,
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+            ai_prompt_config=config,
+        )
+
+    @parameterized.expand(
+        [
+            ("empty", {}),
+            ("window_not_a_dict", {"window": "hi"}),
+            ("garbage_values", {"window": {"mode": "bogus", "start_days_ago": "seven", "end_days_ago": True}}),
+            ("none_config", None),
+        ]
+    )
+    def test_garbage_config_degrades_to_defaults(self, _name: str, config: object) -> None:
+        sub = self._sub(config)
+
+        assert sub.ai_window_mode == Subscription.AIWindowMode.SINCE_LAST_SENT
+        assert sub.ai_window_start_days_ago is None
+        assert sub.ai_window_end_days_ago is None
+
+    def test_valid_config_is_read_through(self) -> None:
+        sub = self._sub({"window": {"mode": "days_ago_range", "start_days_ago": 10, "end_days_ago": 3}})
+
+        assert sub.ai_window_mode == Subscription.AIWindowMode.DAYS_AGO_RANGE
+        assert sub.ai_window_start_days_ago == 10
+        assert sub.ai_window_end_days_ago == 3
+
+
 class TestComputeReportWindow:
     """`compute_report_window` is the pure core of the timezone-aware window. It's the fix for the
     UTC-anchored, send-time→midnight gap, so its three behaviours are pinned: since-last-delivery

@@ -9,10 +9,11 @@
  */
 import * as zod from 'zod'
 
-export const subscriptionsCreateBodyAiWindowStartDaysAgoMax = 365
+export const subscriptionsCreateBodyAiPromptConfigOneWindowOneModeDefault = `since_last_sent`
+export const subscriptionsCreateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 365
 
-export const subscriptionsCreateBodyAiWindowEndDaysAgoMin = 0
-export const subscriptionsCreateBodyAiWindowEndDaysAgoMax = 365
+export const subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
+export const subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
 
 export const subscriptionsCreateBodyIntervalMax = 2147483647
 
@@ -48,30 +49,50 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .describe(
                 "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
             ),
-        ai_window_mode: zod
-            .enum(['since_last_sent', 'last_n_days', 'days_ago_range'])
+        ai_prompt_config: zod
+            .object({
+                window: zod
+                    .object({
+                        mode: zod
+                            .enum(['since_last_sent', 'last_n_days', 'days_ago_range'])
+                            .describe(
+                                '\* `since_last_sent` - Since last report\n\* `last_n_days` - Last N days\n\* `days_ago_range` - Between X and Y days ago'
+                            )
+                            .default(subscriptionsCreateBodyAiPromptConfigOneWindowOneModeDefault)
+                            .describe(
+                                "'since_last_sent' (default) analyses everything since the previous successful delivery (gap-free); 'last_n_days' analyses a fixed trailing window of start_days_ago days; 'days_ago_range' analyses the explicit range from start_days_ago to end_days_ago days ago.\n\n\* `since_last_sent` - Since last report\n\* `last_n_days` - Last N days\n\* `days_ago_range` - Between X and Y days ago"
+                            ),
+                        start_days_ago: zod
+                            .number()
+                            .min(1)
+                            .max(subscriptionsCreateBodyAiPromptConfigOneWindowOneStartDaysAgoMax)
+                            .nullish()
+                            .describe(
+                                "Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365."
+                            ),
+                        end_days_ago: zod
+                            .number()
+                            .min(subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMin)
+                            .max(subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMax)
+                            .nullish()
+                            .describe(
+                                "Upper bound of the analysis window, in days before the run (0 = now). Required for 'days_ago_range' and must be less than start_days_ago; ignored for other modes. 0-365."
+                            ),
+                    })
+                    .describe(
+                        'Analysis window for an AI report run. The write-side schema for ai_prompt_config[\"window\"].'
+                    )
+                    .optional()
+                    .describe(
+                        "Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous delivery)."
+                    ),
+            })
             .describe(
-                '\* `since_last_sent` - Since last report\n\* `last_n_days` - Last N days\n\* `days_ago_range` - Between X and Y days ago'
+                'Schema for Subscription.ai_prompt_config — a config bag for AI report subscriptions, so new\nknobs become keys here instead of model columns. Replaced wholesale on writes (no deep merge).'
             )
             .optional()
             .describe(
-                "Analysis window for AI report subscriptions. 'since_last_sent' (default) analyses everything since the previous successful delivery (gap-free); 'last_n_days' analyses a fixed trailing window of ai_window_start_days_ago days; 'days_ago_range' analyses the explicit range from ai_window_start_days_ago to ai_window_end_days_ago days ago.\n\n\* `since_last_sent` - Since last report\n\* `last_n_days` - Last N days\n\* `days_ago_range` - Between X and Y days ago"
-            ),
-        ai_window_start_days_ago: zod
-            .number()
-            .min(1)
-            .max(subscriptionsCreateBodyAiWindowStartDaysAgoMax)
-            .nullish()
-            .describe(
-                "Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; must be empty for 'since_last_sent'. 1-365."
-            ),
-        ai_window_end_days_ago: zod
-            .number()
-            .min(subscriptionsCreateBodyAiWindowEndDaysAgoMin)
-            .max(subscriptionsCreateBodyAiWindowEndDaysAgoMax)
-            .nullish()
-            .describe(
-                "Upper bound of the analysis window, in days before the run (0 = now). Required for 'days_ago_range' and must be less than ai_window_start_days_ago; must be empty for other modes. 0-365."
+                "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
             ),
         target_type: zod
             .enum(['email', 'slack'])
@@ -158,10 +179,11 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Standard Subscription serializer.')
 
-export const subscriptionsUpdateBodyAiWindowStartDaysAgoMax = 365
+export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneModeDefault = `since_last_sent`
+export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 365
 
-export const subscriptionsUpdateBodyAiWindowEndDaysAgoMin = 0
-export const subscriptionsUpdateBodyAiWindowEndDaysAgoMax = 365
+export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
+export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
 
 export const subscriptionsUpdateBodyIntervalMax = 2147483647
 
@@ -197,30 +219,50 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
             ),
-        ai_window_mode: zod
-            .enum(['since_last_sent', 'last_n_days', 'days_ago_range'])
+        ai_prompt_config: zod
+            .object({
+                window: zod
+                    .object({
+                        mode: zod
+                            .enum(['since_last_sent', 'last_n_days', 'days_ago_range'])
+                            .describe(
+                                '\* `since_last_sent` - Since last report\n\* `last_n_days` - Last N days\n\* `days_ago_range` - Between X and Y days ago'
+                            )
+                            .default(subscriptionsUpdateBodyAiPromptConfigOneWindowOneModeDefault)
+                            .describe(
+                                "'since_last_sent' (default) analyses everything since the previous successful delivery (gap-free); 'last_n_days' analyses a fixed trailing window of start_days_ago days; 'days_ago_range' analyses the explicit range from start_days_ago to end_days_ago days ago.\n\n\* `since_last_sent` - Since last report\n\* `last_n_days` - Last N days\n\* `days_ago_range` - Between X and Y days ago"
+                            ),
+                        start_days_ago: zod
+                            .number()
+                            .min(1)
+                            .max(subscriptionsUpdateBodyAiPromptConfigOneWindowOneStartDaysAgoMax)
+                            .nullish()
+                            .describe(
+                                "Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365."
+                            ),
+                        end_days_ago: zod
+                            .number()
+                            .min(subscriptionsUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMin)
+                            .max(subscriptionsUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMax)
+                            .nullish()
+                            .describe(
+                                "Upper bound of the analysis window, in days before the run (0 = now). Required for 'days_ago_range' and must be less than start_days_ago; ignored for other modes. 0-365."
+                            ),
+                    })
+                    .describe(
+                        'Analysis window for an AI report run. The write-side schema for ai_prompt_config[\"window\"].'
+                    )
+                    .optional()
+                    .describe(
+                        "Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous delivery)."
+                    ),
+            })
             .describe(
-                '\* `since_last_sent` - Since last report\n\* `last_n_days` - Last N days\n\* `days_ago_range` - Between X and Y days ago'
+                'Schema for Subscription.ai_prompt_config — a config bag for AI report subscriptions, so new\nknobs become keys here instead of model columns. Replaced wholesale on writes (no deep merge).'
             )
             .optional()
             .describe(
-                "Analysis window for AI report subscriptions. 'since_last_sent' (default) analyses everything since the previous successful delivery (gap-free); 'last_n_days' analyses a fixed trailing window of ai_window_start_days_ago days; 'days_ago_range' analyses the explicit range from ai_window_start_days_ago to ai_window_end_days_ago days ago.\n\n\* `since_last_sent` - Since last report\n\* `last_n_days` - Last N days\n\* `days_ago_range` - Between X and Y days ago"
-            ),
-        ai_window_start_days_ago: zod
-            .number()
-            .min(1)
-            .max(subscriptionsUpdateBodyAiWindowStartDaysAgoMax)
-            .nullish()
-            .describe(
-                "Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; must be empty for 'since_last_sent'. 1-365."
-            ),
-        ai_window_end_days_ago: zod
-            .number()
-            .min(subscriptionsUpdateBodyAiWindowEndDaysAgoMin)
-            .max(subscriptionsUpdateBodyAiWindowEndDaysAgoMax)
-            .nullish()
-            .describe(
-                "Upper bound of the analysis window, in days before the run (0 = now). Required for 'days_ago_range' and must be less than ai_window_start_days_ago; must be empty for other modes. 0-365."
+                "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
             ),
         target_type: zod
             .enum(['email', 'slack'])
@@ -307,10 +349,11 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
     })
     .describe('Standard Subscription serializer.')
 
-export const subscriptionsPartialUpdateBodyAiWindowStartDaysAgoMax = 365
+export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneModeDefault = `since_last_sent`
+export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 365
 
-export const subscriptionsPartialUpdateBodyAiWindowEndDaysAgoMin = 0
-export const subscriptionsPartialUpdateBodyAiWindowEndDaysAgoMax = 365
+export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
+export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
 
 export const subscriptionsPartialUpdateBodyIntervalMax = 2147483647
 
@@ -346,30 +389,50 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
             ),
-        ai_window_mode: zod
-            .enum(['since_last_sent', 'last_n_days', 'days_ago_range'])
+        ai_prompt_config: zod
+            .object({
+                window: zod
+                    .object({
+                        mode: zod
+                            .enum(['since_last_sent', 'last_n_days', 'days_ago_range'])
+                            .describe(
+                                '\* `since_last_sent` - Since last report\n\* `last_n_days` - Last N days\n\* `days_ago_range` - Between X and Y days ago'
+                            )
+                            .default(subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneModeDefault)
+                            .describe(
+                                "'since_last_sent' (default) analyses everything since the previous successful delivery (gap-free); 'last_n_days' analyses a fixed trailing window of start_days_ago days; 'days_ago_range' analyses the explicit range from start_days_ago to end_days_ago days ago.\n\n\* `since_last_sent` - Since last report\n\* `last_n_days` - Last N days\n\* `days_ago_range` - Between X and Y days ago"
+                            ),
+                        start_days_ago: zod
+                            .number()
+                            .min(1)
+                            .max(subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneStartDaysAgoMax)
+                            .nullish()
+                            .describe(
+                                "Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365."
+                            ),
+                        end_days_ago: zod
+                            .number()
+                            .min(subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMin)
+                            .max(subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMax)
+                            .nullish()
+                            .describe(
+                                "Upper bound of the analysis window, in days before the run (0 = now). Required for 'days_ago_range' and must be less than start_days_ago; ignored for other modes. 0-365."
+                            ),
+                    })
+                    .describe(
+                        'Analysis window for an AI report run. The write-side schema for ai_prompt_config[\"window\"].'
+                    )
+                    .optional()
+                    .describe(
+                        "Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous delivery)."
+                    ),
+            })
             .describe(
-                '\* `since_last_sent` - Since last report\n\* `last_n_days` - Last N days\n\* `days_ago_range` - Between X and Y days ago'
+                'Schema for Subscription.ai_prompt_config — a config bag for AI report subscriptions, so new\nknobs become keys here instead of model columns. Replaced wholesale on writes (no deep merge).'
             )
             .optional()
             .describe(
-                "Analysis window for AI report subscriptions. 'since_last_sent' (default) analyses everything since the previous successful delivery (gap-free); 'last_n_days' analyses a fixed trailing window of ai_window_start_days_ago days; 'days_ago_range' analyses the explicit range from ai_window_start_days_ago to ai_window_end_days_ago days ago.\n\n\* `since_last_sent` - Since last report\n\* `last_n_days` - Last N days\n\* `days_ago_range` - Between X and Y days ago"
-            ),
-        ai_window_start_days_ago: zod
-            .number()
-            .min(1)
-            .max(subscriptionsPartialUpdateBodyAiWindowStartDaysAgoMax)
-            .nullish()
-            .describe(
-                "Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; must be empty for 'since_last_sent'. 1-365."
-            ),
-        ai_window_end_days_ago: zod
-            .number()
-            .min(subscriptionsPartialUpdateBodyAiWindowEndDaysAgoMin)
-            .max(subscriptionsPartialUpdateBodyAiWindowEndDaysAgoMax)
-            .nullish()
-            .describe(
-                "Upper bound of the analysis window, in days before the run (0 = now). Required for 'days_ago_range' and must be less than ai_window_start_days_ago; must be empty for other modes. 0-365."
+                "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
             ),
         target_type: zod
             .enum(['email', 'slack'])

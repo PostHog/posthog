@@ -128,6 +128,74 @@ class DashboardExportInsightsField(serializers.Field):
         return data
 
 
+class AIWindowConfigSerializer(serializers.Serializer):
+    """Analysis window for an AI report run. The write-side schema for ai_prompt_config["window"]."""
+
+    mode = serializers.ChoiceField(
+        choices=Subscription.AIWindowMode.choices,
+        default=Subscription.AIWindowMode.SINCE_LAST_SENT,
+        help_text=(
+            "'since_last_sent' (default) analyses everything since the previous successful delivery "
+            "(gap-free); 'last_n_days' analyses a fixed trailing window of start_days_ago days; "
+            "'days_ago_range' analyses the explicit range from start_days_ago to end_days_ago days ago."
+        ),
+    )
+    start_days_ago = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=365,
+        help_text=(
+            "Lower bound of the analysis window, in days before the run. Required for 'last_n_days' "
+            "(the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365."
+        ),
+    )
+    end_days_ago = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=365,
+        help_text=(
+            "Upper bound of the analysis window, in days before the run (0 = now). Required for "
+            "'days_ago_range' and must be less than start_days_ago; ignored for other modes. 0-365."
+        ),
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        mode = attrs.get("mode") or Subscription.AIWindowMode.SINCE_LAST_SENT
+        start = attrs.get("start_days_ago")
+        end = attrs.get("end_days_ago")
+
+        if mode == Subscription.AIWindowMode.SINCE_LAST_SENT:
+            # Day bounds are meaningless here; normalise them away so a later mode switch starts clean.
+            attrs["start_days_ago"] = None
+            attrs["end_days_ago"] = None
+            return attrs
+        if not start:
+            raise ValidationError({"start_days_ago": [f"Required when mode is '{mode}'."]})
+        if mode == Subscription.AIWindowMode.LAST_N_DAYS:
+            attrs["end_days_ago"] = None
+            return attrs
+        # DAYS_AGO_RANGE
+        if end is None:
+            raise ValidationError({"end_days_ago": [f"Required when mode is '{mode}'."]})
+        if end >= start:
+            raise ValidationError(
+                {"end_days_ago": ["Must be less than start_days_ago (the window must end after it starts)."]}
+            )
+        return attrs
+
+
+class AIPromptConfigSerializer(serializers.Serializer):
+    """Schema for Subscription.ai_prompt_config — a config bag for AI report subscriptions, so new
+    knobs become keys here instead of model columns. Replaced wholesale on writes (no deep merge)."""
+
+    window = AIWindowConfigSerializer(
+        required=False,
+        help_text="Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous delivery).",
+    )
+
+
 class SubscriptionSerializer(serializers.ModelSerializer):
     """Standard Subscription serializer."""
 
@@ -157,6 +225,13 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         required=False,
         help_text="List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.",
     )
+    ai_prompt_config = AIPromptConfigSerializer(
+        required=False,
+        help_text=(
+            "Configuration for AI report subscriptions (analysis window, future knobs). Only valid "
+            "when resource_type is 'ai_prompt'. Replaced wholesale on writes."
+        ),
+    )
     insight_short_id = serializers.SerializerMethodField()
     resource_name = serializers.SerializerMethodField()
     resource_type = serializers.ChoiceField(
@@ -181,9 +256,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "resource_name",
             "dashboard_export_insights",
             "prompt",
-            "ai_window_mode",
-            "ai_window_start_days_ago",
-            "ai_window_end_days_ago",
+            "ai_prompt_config",
             "target_type",
             "target_value",
             "frequency",
@@ -219,31 +292,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 "help_text": (
                     "Free-text prompt that drives the AI-generated report. Required when "
                     "resource_type is 'ai_prompt'. Max 4000 characters."
-                ),
-            },
-            "ai_window_mode": {
-                "help_text": (
-                    "Analysis window for AI report subscriptions. 'since_last_sent' (default) analyses "
-                    "everything since the previous successful delivery (gap-free); 'last_n_days' analyses "
-                    "a fixed trailing window of ai_window_start_days_ago days; 'days_ago_range' analyses "
-                    "the explicit range from ai_window_start_days_ago to ai_window_end_days_ago days ago."
-                ),
-            },
-            "ai_window_start_days_ago": {
-                "min_value": 1,
-                "max_value": 365,
-                "help_text": (
-                    "Lower bound of the analysis window, in days before the run. Required for "
-                    "'last_n_days' (the N) and 'days_ago_range'; must be empty for 'since_last_sent'. 1-365."
-                ),
-            },
-            "ai_window_end_days_ago": {
-                "min_value": 0,
-                "max_value": 365,
-                "help_text": (
-                    "Upper bound of the analysis window, in days before the run (0 = now). Required for "
-                    "'days_ago_range' and must be less than ai_window_start_days_ago; must be empty for "
-                    "other modes. 0-365."
                 ),
             },
             "dashboard": {"help_text": "Dashboard ID to subscribe to (mutually exclusive with insight on create)."},
@@ -313,51 +361,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if attrs.get("insight") or attrs.get("prompt"):
             raise ValidationError({"dashboard": ["Dashboard subscriptions cannot also set insight or prompt."]})
 
-    def _validate_ai_window(self, attrs: dict, existing: Optional[Subscription]) -> None:
-        # Explicit-key checks so a PATCH can clear a value with null without falling through to the
-        # stale instance value.
-        mode = (
-            attrs.get("ai_window_mode")
-            or (existing.ai_window_mode if existing else None)
-            or Subscription.AIWindowMode.SINCE_LAST_SENT
-        )
-        start = (
-            attrs["ai_window_start_days_ago"]
-            if "ai_window_start_days_ago" in attrs
-            else (existing.ai_window_start_days_ago if existing else None)
-        )
-        end = (
-            attrs["ai_window_end_days_ago"]
-            if "ai_window_end_days_ago" in attrs
-            else (existing.ai_window_end_days_ago if existing else None)
-        )
-
-        if mode == Subscription.AIWindowMode.SINCE_LAST_SENT:
-            # Day bounds are meaningless here; clear them so a later mode switch starts clean.
-            attrs["ai_window_start_days_ago"] = None
-            attrs["ai_window_end_days_ago"] = None
-            return
-        if not start:
-            raise ValidationError({"ai_window_start_days_ago": [f"Required when ai_window_mode is '{mode}'."]})
-        if mode == Subscription.AIWindowMode.LAST_N_DAYS:
-            attrs["ai_window_end_days_ago"] = None
-            return
-        # DAYS_AGO_RANGE
-        if end is None:
-            raise ValidationError({"ai_window_end_days_ago": [f"Required when ai_window_mode is '{mode}'."]})
-        if end >= start:
-            raise ValidationError(
-                {
-                    "ai_window_end_days_ago": [
-                        "Must be less than ai_window_start_days_ago (the window must end after it starts)."
-                    ]
-                }
-            )
-
     def _validate_ai_content(self, attrs: dict, existing: Optional[Subscription]) -> None:
         if attrs.get("insight") or attrs.get("dashboard"):
             raise ValidationError({"prompt": ["AI subscriptions cannot also set insight or dashboard."]})
-        self._validate_ai_window(attrs, existing)
         # Explicit-key check so a PATCH sending prompt="" doesn't fall through to the stale value.
         prompt = (attrs["prompt"] if "prompt" in attrs else (existing.prompt if existing else None)) or ""
         prompt = prompt.strip()
@@ -427,12 +433,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # diagnosable, an unhandled KeyError surfaces as a 500.
         if validate_for_resource_type is None:
             raise ValidationError({"resource_type": [f"Unsupported resource_type: {resource_type}."]})
-        if resource_type != Subscription.ResourceType.AI_PROMPT and (
-            attrs.get("ai_window_mode") not in (None, Subscription.AIWindowMode.SINCE_LAST_SENT)
-            or attrs.get("ai_window_start_days_ago") is not None
-            or attrs.get("ai_window_end_days_ago") is not None
-        ):
-            raise ValidationError({"ai_window_mode": ["Analysis window settings only apply to AI subscriptions."]})
+        if resource_type != Subscription.ResourceType.AI_PROMPT and attrs.get("ai_prompt_config"):
+            raise ValidationError({"ai_prompt_config": ["AI report settings only apply to AI subscriptions."]})
         validate_for_resource_type(attrs, existing)
 
         self._validate_dashboard_export_subscription(attrs)
