@@ -223,6 +223,15 @@ class TestMessagePreferencesViews(BaseTest):
             },
         )
 
+        # A replay (scanner prefetch, reused token) is not a transition and must not emit again
+        mock_capture_internal.reset_mock()
+        response = self.client.get(
+            reverse("message_preferences", kwargs={"token": self.token}),
+            {"one_click_unsubscribe": "1"},
+        )
+        self.assertEqual(response.status_code, 200)
+        mock_capture_internal.assert_not_called()
+
     @patch("posthog.views.capture_internal")
     @patch("posthog.views.validate_messaging_preferences_token")
     def test_update_preferences_emits_only_for_newly_opted_out(

@@ -579,6 +579,8 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
         request.GET.get("one_click_unsubscribe") == "1" or request.POST.get("one_click_unsubscribe") == "1"
     )
     if is_one_click_unsubscribe:
+        was_fully_opted_out = recipient.get_preference(ALL_MESSAGE_PREFERENCE_CATEGORY_ID) == PreferenceStatus.OPTED_OUT
+
         # If one-click unsubscribe, set all preferences to opted out
         preferences_dict = {str(cat.id): PreferenceStatus.OPTED_OUT.value for cat in categories}
 
@@ -590,7 +592,9 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
 
         sync_preferences_to_customerio(team_id, identifier, preferences_dict)
 
-        report_workflows_email_unsubscribed(team_id, identifier, [ALL_MESSAGE_PREFERENCE_CATEGORY_ID], "one_click")
+        # Only a genuine transition emits, so token replays and scanner prefetches don't inflate events
+        if not was_fully_opted_out:
+            report_workflows_email_unsubscribed(team_id, identifier, [ALL_MESSAGE_PREFERENCE_CATEGORY_ID], "one_click")
 
         if request.method == "POST":
             return HttpResponse(status=200)
