@@ -666,8 +666,8 @@ export function getHeatMapHue(count: number, maxCount: number): number {
  */
 export function unescapeCssSelector(foundSelector: string): string {
     return foundSelector.replace(/\\([0-9a-fA-F]{1,6} ?|.)/g, (_, escaped: string) => {
-        if (escaped.length > 1 || /[0-9a-fA-F]/.test(escaped)) {
-            // a single escaped hex digit is still a hex code-point escape, not a literal char
+        if (/^[0-9a-fA-F]/.test(escaped)) {
+            // hex code-point escape: \31 23-foo → "123-foo", \: would not reach here
             const codePoint = parseInt(escaped, 16)
             // guard invalid code points (> U+10FFFF or 0) per CSS spec — fall back to U+FFFD
             return codePoint === 0 || codePoint > 0x10ffff ? '�' : String.fromCodePoint(codePoint)
