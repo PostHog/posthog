@@ -22584,6 +22584,31 @@ export namespace Schemas {
       readonly result_source: ResultSourceEnum;
       /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
       readonly results: readonly MetricRecalculationResult[];
+      /**
+         * Count of metric queries currently running in ClickHouse (bounded by worker-pool concurrency)
+         * @nullable
+         */
+      running_metrics?: number | null;
+      /**
+         * Rows read so far by the currently-running metric queries (monotonic; the live progress signal)
+         * @nullable
+         */
+      rows_read?: number | null;
+      /**
+         * ClickHouse's total_rows_approx across running queries. A soft ceiling ClickHouse revises upward mid-scan, so it can exceed or trail rows_read; treat rows_read as the reliable signal
+         * @nullable
+         */
+      estimated_rows_total?: number | null;
+      /**
+         * Bytes read so far by the currently-running metric queries
+         * @nullable
+         */
+      bytes_read?: number | null;
+      /**
+         * Active CPU time (microseconds) consumed by the currently-running metric queries
+         * @nullable
+         */
+      active_cpu_time?: number | null;
     }
 
     export type ExperimentResultsWidgetCatalogEntryOpenApiWidgetType = typeof ExperimentResultsWidgetCatalogEntryOpenApiWidgetType[keyof typeof ExperimentResultsWidgetCatalogEntryOpenApiWidgetType];

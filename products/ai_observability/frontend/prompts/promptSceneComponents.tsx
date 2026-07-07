@@ -3,7 +3,7 @@ import { combineUrl } from 'kea-router'
 import { lazy, Suspense, useRef } from 'react'
 
 import { IconColumns, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { dayjs } from 'lib/dayjs'
@@ -167,6 +167,77 @@ export function PromptViewDetails(): JSX.Element {
                 </div>
             )}
         </div>
+    )
+}
+
+export function PublishReviewModal(): JSX.Element | null {
+    const { isPublishReviewOpen, prompt, promptForm, nextVersion, isPromptFormSubmitting } = useValues(llmPromptLogic)
+    const { closePublishReview, submitPromptForm } = useActions(llmPromptLogic)
+
+    if (!isPrompt(prompt)) {
+        return null
+    }
+
+    const publishLabel = nextVersion ? `Publish v${nextVersion}` : 'Publish version'
+
+    return (
+        <LemonModal
+            isOpen={isPublishReviewOpen}
+            onClose={closePublishReview}
+            title="Review changes"
+            description={`Comparing v${prompt.version} with your edits. Publishing creates ${
+                nextVersion ? `v${nextVersion}` : 'a new version'
+            } — previous versions stay unchanged.`}
+            width={880}
+            footer={
+                <>
+                    <LemonButton
+                        type="secondary"
+                        onClick={closePublishReview}
+                        disabledReason={isPromptFormSubmitting ? 'Publishing…' : undefined}
+                        data-attr="llma-prompt-review-back-button"
+                    >
+                        Back to editing
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        onClick={submitPromptForm}
+                        loading={isPromptFormSubmitting}
+                        data-attr="llma-prompt-review-publish-button"
+                    >
+                        {publishLabel}
+                    </LemonButton>
+                </>
+            }
+        >
+            <div className="overflow-hidden rounded border" data-attr="llma-prompt-publish-review-diff">
+                <Suspense
+                    fallback={
+                        <div className="space-y-2 p-4">
+                            <LemonSkeleton active className="h-4 w-full" />
+                            <LemonSkeleton active className="h-4 w-3/4" />
+                        </div>
+                    }
+                >
+                    <MonacoDiffEditor
+                        original={prompt.prompt}
+                        value={promptForm.prompt}
+                        modified={promptForm.prompt}
+                        language="markdown"
+                        options={{
+                            readOnly: true,
+                            renderSideBySide: true,
+                            minimap: { enabled: false },
+                            scrollBeyondLastLine: false,
+                            wordWrap: 'on',
+                            lineNumbers: 'off',
+                            folding: false,
+                            hideUnchangedRegions: { enabled: true },
+                        }}
+                    />
+                </Suspense>
+            </div>
+        </LemonModal>
     )
 }
 
