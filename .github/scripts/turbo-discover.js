@@ -496,20 +496,6 @@ if (legacyChanged) {
     }
 }
 
-// Data-warehouse import sources are facade-isolated and covered solely by the Temporal
-// Django segment (build_django_matrix trims Django to it when data_import_sources_only).
-// No other product's tests exercise those source connectors, so when the `changes` job
-// confirmed the change is confined to non-coupled sources, run only warehouse_sources'
-// own product tests instead of the full all-products fan-out. runLegacy stays true so
-// Django (trimmed to Temporal) still provides the source coverage. Gated to NOT apply when
-// legacy or schema changed (those affect everyone); fail-open (flag defaults to false).
-const dataImportSourcesOnly = process.env.DATA_IMPORT_SOURCES_ONLY === 'true'
-if (dataImportSourcesOnly && !legacyChanged && !schemaChanged && allProducts.includes('warehouse-sources')) {
-    console.error('Only data-warehouse import sources changed — narrowing product matrix to warehouse-sources, keeping Django (Temporal)')
-    products = ['warehouse-sources']
-    runLegacy = true
-}
-
 // Kill switch: products named in the SKIP_PRODUCT_TESTS repo variable (comma-
 // separated) are dropped from the matrix without a code change — use it to stop
 // running, and blocking on, a product whose tests are temporarily too flaky.

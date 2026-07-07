@@ -146,11 +146,38 @@ function convertNotebookContentForRender(
     content: JSONContent | null | undefined,
     markdownNotebooksEnabled: boolean
 ): JSONContent | null | undefined {
-    if (!markdownNotebooksEnabled || !content || isMarkdownNotebookContent(content)) {
+    if (!markdownNotebooksEnabled || isMarkdownNotebookContent(content)) {
         return content
     }
 
+    // Content-less notebooks (a fresh scratchpad or canvas) start as empty markdown
+    // notebooks instead of falling back to the legacy TipTap editor.
+    if (!content) {
+        return buildMarkdownNotebookContent('')
+    }
+
     return buildMarkdownNotebookContent(convertNotebookContentToMarkdown(content))
+}
+
+/**
+ * Markdown notebooks never mount the TipTap editor, so the generic insertion actions append
+ * serialized markdown blocks to the markdown source instead. Returns null when the notebook
+ * isn't a markdown notebook, so callers fall through to the TipTap editor path.
+ */
+function appendContentToMarkdownNotebook(
+    notebookContent: JSONContent,
+    insertedContent: JSONContent | JSONContent[] | string
+): JSONContent | null {
+    if (!isMarkdownNotebookContent(notebookContent)) {
+        return null
+    }
+    // The converter serializes the children of a doc, so a single leaf node (e.g. a dropped
+    // resource) must be wrapped in an array to be serialized itself.
+    const normalizedContent =
+        typeof insertedContent === 'string' || Array.isArray(insertedContent) || insertedContent.type === 'doc'
+            ? insertedContent
+            : [insertedContent]
+    return appendMarkdownNotebookBlock(notebookContent, convertNotebookContentToMarkdown(normalizedContent))
 }
 
 export type NotebookLogicMode = 'notebook' | 'canvas'
@@ -1574,8 +1601,16 @@ export const notebookLogic = kea<notebookLogicType>([
         },
         insertAfterLastNode: async ({ content }) => {
             await runWhenEditorIsReady(
-                () => !!values.editor && (values.isLocalOnly || !!values.notebook),
+                () =>
+                    (values.isLocalOnly || !!values.notebook) &&
+                    (!!values.editor || isMarkdownNotebookContent(values.content)),
                 () => {
+                    const markdownContent = appendContentToMarkdownNotebook(values.content, content)
+                    if (markdownContent) {
+                        actions.setLocalContent(markdownContent)
+                        return
+                    }
+
                     let insertionPosition = 0
                     let nextNode = values.editor?.nextNode(insertionPosition)
                     while (nextNode) {
@@ -1589,8 +1624,16 @@ export const notebookLogic = kea<notebookLogicType>([
         },
         pasteAfterLastNode: async ({ content }) => {
             await runWhenEditorIsReady(
-                () => !!values.editor && (values.isLocalOnly || !!values.notebook),
+                () =>
+                    (values.isLocalOnly || !!values.notebook) &&
+                    (!!values.editor || isMarkdownNotebookContent(values.content)),
                 () => {
+                    const markdownContent = appendContentToMarkdownNotebook(values.content, content)
+                    if (markdownContent) {
+                        actions.setLocalContent(markdownContent)
+                        return
+                    }
+
                     const endPosition = values.editor?.getEndPosition() || 0
                     values.editor?.pasteContent(endPosition, content)
                 }
@@ -1598,8 +1641,17 @@ export const notebookLogic = kea<notebookLogicType>([
         },
         insertAfterLastNodeOfType: async ({ content, nodeType, knownStartingPosition }) => {
             await runWhenEditorIsReady(
-                () => !!values.editor && (values.isLocalOnly || !!values.notebook),
+                () =>
+                    (values.isLocalOnly || !!values.notebook) &&
+                    (!!values.editor || isMarkdownNotebookContent(values.content)),
                 () => {
+                    // Markdown notebooks have no node positions — append at the end instead.
+                    const markdownContent = appendContentToMarkdownNotebook(values.content, content)
+                    if (markdownContent) {
+                        actions.setLocalContent(markdownContent)
+                        return
+                    }
+
                     let insertionPosition = knownStartingPosition
                     let nextNode = values.editor?.nextNode(insertionPosition)
                     while (nextNode && values.editor?.hasChildOfType(nextNode.node, nodeType)) {
@@ -1940,7 +1992,7 @@ export const notebookLogic = kea<notebookLogicType>([
 
         exportJSON: () => {
             const file = new File(
-                [JSON.stringify(values.editor?.getJSON(), null, 2)],
+                [JSON.stringify(values.editor?.getJSON() ?? values.content, null, 2)],
                 `${slugify(values.title ?? 'untitled')}.ph-notebook.json`,
                 { type: 'application/json' }
             )

@@ -33,7 +33,7 @@ import posthoganalytics
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
-from prometheus_client import Histogram
+from prometheus_client import Counter, Histogram
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
 from statshog.defaults.django import statsd
 
@@ -591,6 +591,16 @@ class ShortCircuitMiddleware:
         return response
 
 
+ENVIRONMENTS_PREFIX_REQUESTS = Counter(
+    "posthog_environments_prefix_requests",
+    "Requests to the legacy /api/environments/* prefix, by how the middleware served them: "
+    "`rewritten` to /api/projects, `passthrough` (a projects route exists but the flag is off "
+    "for the team), or `env_only` (no projects counterpart). Any outcome other than `rewritten` "
+    "was NOT routed to /api/projects.",
+    ["outcome"],
+)
+
+
 class EnvironmentsRewriteMiddleware:
     """Serves /api/environments/* through the canonical /api/projects/* viewsets.
 
@@ -633,6 +643,8 @@ class EnvironmentsRewriteMiddleware:
 
         target_path = self.PROJECTS_PREFIX + path[len(self.ENVIRONMENTS_PREFIX) :]
         if not self._projects_route_exists(target_path):
+            # No /api/projects counterpart — served on the legacy route, never routed to projects.
+            ENVIRONMENTS_PREFIX_REQUESTS.labels(outcome="env_only").inc()
             return self.get_response(request)
 
         query_string = request.META.get("QUERY_STRING", "")
@@ -644,6 +656,11 @@ class EnvironmentsRewriteMiddleware:
             request.path = target_path
             request.path_info = target_path
             request.META["PATH_INFO"] = target_path
+            ENVIRONMENTS_PREFIX_REQUESTS.labels(outcome="rewritten").inc()
+        else:
+            # Rewritable, but the flag is off for this team — still served on the legacy
+            # route rather than routed to projects.
+            ENVIRONMENTS_PREFIX_REQUESTS.labels(outcome="passthrough").inc()
 
         response = self.get_response(request)
 

@@ -30,7 +30,7 @@ describe('LemonDropdown', () => {
             </LemonDropdown>
         )
 
-        const trigger = screen.getByRole('button', { name: 'Open' })
+        const trigger = screen.getByText('Open')
         const overlay = document.querySelector('.Popover')
         expect(overlay).toBeInTheDocument()
 

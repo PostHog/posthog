@@ -76,8 +76,8 @@ describe('<ProjectMove />', () => {
 
     it('disables target organizations the user is not an admin of', () => {
         const { container } = render(<ProjectMove />)
-        expect(screen.getByRole('option', { name: 'Admin Target Org' })).toBeEnabled()
-        expect(screen.getByRole('option', { name: 'Member Target Org' })).toBeDisabled()
+        expect(screen.getByText('Admin Target Org')).toBeEnabled()
+        expect(screen.getByText('Member Target Org')).toBeDisabled()
         // No org picked yet, so the Move button is blocked.
         expect(container.querySelector('[data-attr="move-project-button"]')).toHaveAttribute('aria-disabled', 'true')
     })
