@@ -3,3 +3,127 @@ owners: []
 rules:
     - match: '/FeatureFlagPermissions.tsx'
       owners: [team-feature-flags]
+    - match: '/actions/'
+      owners: [team-product-analytics]
+    - match: '/activity/'
+      owners: [team-platform-features]
+    - match: '/agentic/'
+      owners: [team-growth]
+    - match: '/alerts/'
+      owners: [team-analytics-platform]
+    - match: '/annotations/'
+      owners: [team-product-analytics]
+    - match: '/approvals/'
+      owners: [team-platform-features]
+    - match: '/audit-logs/'
+      owners: [team-platform-features]
+    - match: '/authentication/'
+      owners: [team-platform-features]
+    - match: '/billing/'
+      owners: [team-billing]
+    - match: '/cohorts/'
+      owners: [team-feature-flags]
+    - match: '/comments/'
+      owners: [team-platform-features]
+    - match: '/coupons/'
+      owners: [team-billing]
+    - match: '/dashboard/'
+      owners: [team-analytics-platform]
+    - match: '/data-management/'
+      owners: [team-warehouse-sources]
+    - match: '/data-management/schema/'
+      owners: [team-analytics-platform]
+    - match: '/data-model/'
+      owners: [team-data-modeling]
+    - match: '/data-pipelines/'
+      owners: [team-workflows]
+    - match: '/data-warehouse/'
+      owners: [team-data-stack]
+    - match: '/experiments/'
+      owners: [team-experiments]
+    - match: '/exports/'
+      owners: [team-analytics-platform]
+    - match: '/feature-flags/'
+      owners: [team-feature-flags]
+    - match: '/funnels/'
+      owners: [team-product-analytics]
+    - match: '/groups/'
+      owners: [team-product-analytics]
+    - match: '/health-alerts/'
+      owners: [team-analytics-platform]
+    - match: '/health/'
+      owners: [team-growth]
+    - match: '/heatmaps/'
+      owners: [team-web-analytics]
+    - match: '/hog-functions/'
+      owners: [team-workflows]
+    - match: '/inbox/'
+      owners: [team-self-driving]
+    - match: '/insights/'
+      owners: [team-product-analytics]
+    - match: '/instance/AsyncMigrations/'
+      owners: [team-growth]
+    - match: '/instance/DeadLetterQueue/'
+      owners: [team-growth]
+    - match: '/instance/QueryPerformance/'
+      owners: [team-experiments]
+    - match: '/instance/SystemStatus/'
+      owners: [team-growth]
+    - match: '/marketing-analytics/'
+      owners: [team-web-analytics]
+    - match: '/max/'
+      owners: [team-self-driving]
+    - match: '/models/'
+      owners: [team-data-modeling]
+    - match: '/notebooks/'
+      owners: [team-data-tools]
+    - match: '/oauth/'
+      owners: [team-growth]
+    - match: '/onboarding/'
+      owners: [team-growth]
+    - match: '/onboarding/sdks/ai-observability/'
+      owners: [team-ai-observability]
+    - match: '/onboarding/sdks/surveys/'
+      owners: [team-surveys]
+    - match: '/organization/'
+      owners: [team-growth]
+    - match: '/paths-v2/'
+      owners: [team-product-analytics]
+    - match: '/paths/'
+      owners: [team-product-analytics]
+    - match: '/persons-management/'
+      owners: [team-product-analytics]
+    - match: '/persons/'
+      owners: [team-product-analytics]
+    - match: '/project-homepage/'
+      owners: [team-growth]
+    - match: '/project/'
+      owners: [team-growth]
+    - match: '/resource-transfer/'
+      owners: [team-platform-features]
+    - match: '/retention/'
+      owners: [team-product-analytics]
+    - match: '/saved-insights/'
+      owners: [team-product-analytics]
+    - match: '/session-recordings/'
+      owners: [team-replay]
+    - match: '/sessions/'
+      owners: [team-analytics-platform]
+    - match: '/settings/'
+      owners: [team-growth]
+    - match: '/startups/'
+      owners: [team-growth]
+    - match: '/subscriptions/'
+      owners: [team-analytics-platform]
+    - match: '/surveys/'
+      owners: [team-surveys]
+    - match: '/themes/'
+      owners: [team-product-analytics]
+    - match: '/trends/'
+      owners: [team-product-analytics]
+    - match: '/web-analytics/'
+      owners: [team-web-analytics]
+    - match: '/welcome/'
+      owners: [team-growth]
+    - match: '/wizard/'
+      owners: [team-growth]

@@ -1,0 +1,51 @@
+version: 1
+owners: []
+rules:
+    - match: '/behavioral_cohorts_migrations/'
+      owners: [team-ingestion]
+    - match: '/capture/'
+      owners: [team-ingestion]
+    - match: '/common/cookieless/'
+      owners: [team-web-analytics]
+    - match: '/common/symbol_data/'
+      owners: [team-error-tracking]
+    - match: '/cymbal-proto/'
+      owners: [team-error-tracking]
+    - match: '/cymbal-resolution/'
+      owners: [team-error-tracking]
+    - match: '/cymbal/'
+      owners: [team-error-tracking]
+    - match: '/feature-flags/'
+      owners: [team-feature-flags]
+    - match: '/flags-consumer/'
+      owners: [team-feature-flags]
+    - match: '/flags_read_store_migrations/'
+      owners: [team-feature-flags]
+    - match: '/hogql/'
+      owners: [team-data-tools]
+    - match: '/ingestion-consumer/'
+      owners: [team-ingestion]
+    - match: '/kafka-assigner-proto/'
+      owners: [team-ingestion]
+    - match: '/kafka-assigner/'
+      owners: [team-ingestion]
+    - match: '/kafka-deduplicator/'
+      owners: [team-ingestion]
+    - match: '/personhog-common/'
+      owners: [team-ingestion]
+    - match: '/personhog-coordination/'
+      owners: [team-ingestion]
+    - match: '/personhog-leader/'
+      owners: [team-ingestion]
+    - match: '/personhog-proto/'
+      owners: [team-ingestion]
+    - match: '/personhog-replica/'
+      owners: [team-ingestion]
+    - match: '/personhog-router/'
+      owners: [team-ingestion]
+    - match: '/personhog-writer/'
+      owners: [team-ingestion]
+    - match: '/property-defs-rs/'
+      owners: [team-ingestion]
+    - match: '/property-vals-rs/'
+      owners: [team-ingestion]

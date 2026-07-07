@@ -1,0 +1,37 @@
+version: 1
+owners: []
+rules:
+    - match: '/ai_observability/'
+      owners: [team-ai-observability]
+    - match: '/alerts/'
+      owners: [team-analytics-platform]
+    - match: '/data_modeling/'
+      owners: [team-data-modeling]
+    - match: '/delete_persons/'
+      owners: [team-ingestion]
+    - match: '/experiments/'
+      owners: [team-experiments]
+    - match: '/exports/'
+      owners: [team-analytics-platform]
+    - match: '/logs_alerting/'
+      owners: [logs]
+    - match: '/mcp_analytics/'
+      owners: [team-mcp-analytics]
+    - match: '/messaging/'
+      owners: [team-workflows]
+    - match: '/product_analytics/'
+      owners: [team-product-analytics]
+    - match: '/proxy_service/'
+      owners: [team-platform-features]
+    - match: '/quota_limiting/'
+      owners: [team-billing]
+    - match: '/session_replay/'
+      owners: [team-replay]
+    - match: '/sync_person_distinct_ids/'
+      owners: [team-ingestion]
+    - match: '/tests/weekly_digest/'
+      owners: [team-growth]
+    - match: '/usage_report/'
+      owners: [team-billing]
+    - match: '/weekly_digest/'
+      owners: [team-growth]

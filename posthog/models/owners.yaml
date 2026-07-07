@@ -5,3 +5,27 @@ rules:
       owners: [team-workflows]
     - match: '/proxy_record.py'
       owners: [team-platform-features]
+    - match: '/action/'
+      owners: [team-product-analytics]
+    - match: '/activity_logging/'
+      owners: [team-platform-features]
+    - match: '/ai/'
+      owners: [team-self-driving]
+    - match: '/ai_events/'
+      owners: [team-ai-observability]
+    - match: '/channel_type/'
+      owners: [team-web-analytics]
+    - match: '/cohortmembership/'
+      owners: [team-feature-flags]
+    - match: '/comment/'
+      owners: [team-platform-features]
+    - match: '/person/'
+      owners: [team-ingestion]
+    - match: '/raw_sessions/'
+      owners: [team-analytics-platform]
+    - match: '/resource_transfer/'
+      owners: [team-platform-features]
+    - match: '/sessions/'
+      owners: [team-analytics-platform]
+    - match: '/web_preaggregated/'
+      owners: [team-web-analytics]

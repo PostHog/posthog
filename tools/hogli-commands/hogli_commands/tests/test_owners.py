@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from hogli_commands.owners.cli import _reserved_location_error
+from hogli_commands.owners.cli import _consolidation_suggestions, _reserved_location_error
 from hogli_commands.owners.conversion import Converter, parse_soft_file, render_owners_yaml
 from hogli_commands.owners.legacy_diff import DiffClass, LegacyOwners, classify
 from hogli_commands.owners.matcher import path_matches_pattern
@@ -199,6 +199,42 @@ def test_diff_classify(old: set[str], new: set[str], expected: DiffClass) -> Non
 )
 def test_reserved_location_error(rel: str, reserved: bool) -> None:
     assert (_reserved_location_error(rel) is not None) is reserved
+
+
+@pytest.mark.parametrize(
+    "owners_dirs,expected",
+    [
+        # Branch point with enough simple files spread across children fires.
+        ({"a/b": True, "a/c": True, "a/d": True, "a/e": True, "a/f": True}, [("a", 5)]),
+        # Below threshold stays quiet.
+        ({"a/b": True, "a/c": True, "a/d": True, "a/e": True}, []),
+        # A passthrough ancestor (all files under one child) yields the deeper branch point only.
+        (
+            {"a/b/1": True, "a/b/2": True, "a/b/3": True, "a/b/4": True, "a/b/5": True},
+            [("a/b", 5)],
+        ),
+        # A non-simple file between parent and files keeps that subtree out of the count.
+        (
+            {
+                "a/b": True,
+                "a/c": True,
+                "a/d": True,
+                "a/e": True,
+                "a/mid": False,
+                "a/mid/f": True,
+                "a/mid/g": True,
+            },
+            [],
+        ),
+        # Nested branch points report only the deepest.
+        (
+            {"a/b/1": True, "a/b/2": True, "a/b/3": True, "a/b/4": True, "a/b/5": True, "a/c": True, "a/d": True},
+            [("a/b", 5)],
+        ),
+    ],
+)
+def test_consolidation_suggestions(owners_dirs: dict[str, bool], expected: list[tuple[str, int]]) -> None:
+    assert _consolidation_suggestions(owners_dirs) == expected
 
 
 def test_legacy_owners_unions_matching_rules(tmp_path: Path) -> None:

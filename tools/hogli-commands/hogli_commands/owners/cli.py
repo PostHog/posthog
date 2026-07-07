@@ -13,7 +13,7 @@ from .conversion import Converter, parse_soft_file, write_generated_files
 from .legacy_diff import diff_all, render_markdown
 from .matcher import compile_pattern, normalize_path
 from .resolver import OWNERS_FILENAME, PRODUCT_FILENAME, OwnersResolver
-from .schema import normalize_product_owners, parse_owners_file, parse_product_yaml_as_owners
+from .schema import UNSET, OwnersFile, normalize_product_owners, parse_owners_file, parse_product_yaml_as_owners
 
 
 def _read_paths(paths: tuple[str, ...]) -> list[str]:
@@ -116,6 +116,68 @@ def _reserved_location_error(rel: str) -> str | None:
     return None
 
 
+def _is_simple_owners(parsed: OwnersFile | None) -> bool:
+    """A file whose only content is a non-empty top-level ``owners:`` list (keys
+    ⊆ {version, owners}) — the kind a parent can absorb into a single anchored rule."""
+    if parsed is None or not parsed.owners:
+        return False
+    return (
+        not parsed.rules
+        and parsed.slack is UNSET
+        and parsed.oncall is UNSET
+        and parsed.status is UNSET
+        and parsed.inherit is True
+    )
+
+
+def _consolidation_suggestions(owners_dirs: dict[str, bool], threshold: int = 5) -> list[tuple[str, int]]:
+    """Advisory: directories that could fold a cluster of single-purpose owners.yaml
+    files into one anchored ``rules:`` block.
+
+    ``owners_dirs`` maps each owners.yaml's directory ("" = repo root) to whether it
+    is simple (see ``_is_simple_owners``). A directory D is suggested when at least
+    ``threshold`` simple files sit strictly below it with no non-simple file on the
+    path between (a non-simple file keeps nearest-wins correct, so its subtree stays
+    put), and those files span ≥2 of D's immediate children — so D is their genuine
+    branch point, not a passthrough ancestor. Only the deepest branch point per
+    cluster is reported, so nested/ancestor dirs don't double-report."""
+
+    def is_ancestor(ancestor: str, descendant: str) -> bool:
+        if ancestor == descendant:
+            return False
+        return descendant.startswith(ancestor + "/") if ancestor else True
+
+    non_simple = [d for d, simple in owners_dirs.items() if not simple]
+    simple = [d for d, is_simple in owners_dirs.items() if is_simple]
+
+    candidate_dirs: set[str] = {""}
+    for f in simple:
+        parts = f.split("/")
+        for i in range(1, len(parts)):
+            candidate_dirs.add("/".join(parts[:i]))
+
+    counts: dict[str, int] = {}
+    for directory in candidate_dirs:
+        counted = [
+            f
+            for f in simple
+            if is_ancestor(directory, f)
+            and not any(is_ancestor(directory, ns) and is_ancestor(ns, f) for ns in non_simple)
+        ]
+        if len(counted) < threshold:
+            continue
+        children = {(f[len(directory) + 1 :] if directory else f).split("/", 1)[0] for f in counted}
+        if len(children) < 2:
+            continue
+        counts[directory] = len(counted)
+
+    return sorted(
+        (directory, count)
+        for directory, count in counts.items()
+        if not any(is_ancestor(directory, other) for other in counts if other != directory)
+    )
+
+
 @click.command(name="owners:lint", help="Validate owners.yaml files, conflicts, dead globs, and coverage")
 @click.option("--live", is_flag=True, help="Also validate team slugs and @handles against the GitHub org")
 def cmd_lint(live: bool) -> None:
@@ -124,6 +186,7 @@ def cmd_lint(live: bool) -> None:
     errors: list[str] = []
     warnings: list[str] = []
     all_owners: set[str] = set()
+    owners_dirs: dict[str, bool] = {}
 
     tracked = resolver.tracked_files()
     tracked_by_dir: dict[str, list[str]] = {}
@@ -152,6 +215,7 @@ def cmd_lint(live: bool) -> None:
         parsed, file_errors = parse_owners_file(owners_file.read_text(), path=owners_file, directory=directory)
         for err in file_errors:
             errors.append(f"{rel}: {err}")
+        owners_dirs[directory] = _is_simple_owners(parsed)
         if parsed is None:
             continue
         if parsed.owners:
@@ -178,6 +242,17 @@ def cmd_lint(live: bool) -> None:
 
     for warning in warnings:
         click.echo(f"⚠ {warning}")
+
+    # Advisory only — never affects the exit code. Points out dirs where a cluster
+    # of single-purpose owners.yaml files could fold into one anchored rules block.
+    for directory, count in _consolidation_suggestions(owners_dirs):
+        target = f"{directory}/{OWNERS_FILENAME}" if directory else OWNERS_FILENAME
+        where = directory or "<repo root>"
+        click.echo(
+            f"suggestion: {where} has {count} single-purpose owners.yaml files below it"
+            f" — consider folding them into {target} rules"
+        )
+
     for err in errors:
         click.echo(f"✗ {err}", err=True)
 
