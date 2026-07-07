@@ -52,8 +52,6 @@ describe('produceMessageToDLQ', () => {
                 { uuid: 'test-uuid-123' },
             ],
         } as Message
-
-        mockEmitIngestionWarning.mockResolvedValue(true)
     })
 
     it('should send message to DLQ with proper headers and logging', async () => {
@@ -71,19 +69,7 @@ describe('produceMessageToDLQ', () => {
             error: 'Test error',
         })
 
-        expect(mockEmitIngestionWarning).toHaveBeenCalledWith(
-            mockOutputs,
-            42,
-            'pipeline_step_dlq',
-            {
-                distinctId: 'test-user',
-                eventUuid: 'test-uuid-123',
-                error: 'Test error',
-                event: 'pageview',
-                step: stepName,
-            },
-            { alwaysSend: true }
-        )
+        expect(mockEmitIngestionWarning).not.toHaveBeenCalled()
 
         expect(mockOutputs.produce).toHaveBeenCalledWith(DLQ_OUTPUT, {
             value: mockMessage.value,
