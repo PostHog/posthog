@@ -406,6 +406,45 @@ polish from the same session: single-active accent border removed (cards identic
   validator priority overrides applied + branch-URL fallback. 327 backend tests + 31 inbox jest green;
   migration verified lock-free via sqlmigrate (no `REFERENCES`, plain nullable ADD COLUMN).
 
+#### ✅ BUILT 2026-07-07 — rich review rows + findings drawer + live pipeline trace (demo polish)
+
+Supersedes "PR title deliberately omitted" above: the list now extracts PR facts **DB-side via jsonb**
+(`Cast(content, JSONField)` + `KeyTransform`/`jsonb_array_length` — never pulls the ~100KB `pr_files`
+payload into Python) from the turn's working-state artefacts, preferring the snapshot matching
+`report.head_sha` so a fetch for a never-reviewed head can't displace the reviewed one.
+
+- **List enrichment** (`ReviewRecentReviewSerializer`): `id`, `pr_title`, `pr_author`,
+  `additions`/`deletions`/`changed_files` (pr_snapshot meta), `files_reviewed` (len pr_files),
+  `chunk_count` (chunk_set), `perspective_count`/`perspective_issue_count`/`blind_spot_issue_count`
+  (perspective_result rows, latest-wins per (pass, chunk), pass 1000 = blind spots), and the funnel
+  `candidate_count`/`dismissed_count` from the new `load_turn_findings` (all judged+unjudged pairs;
+  `load_valid_findings` is now a filter over it). `pr_number` became nullable in the schema (branch
+  targets). Enum pin: `ReviewIssuePriorityEnum` in `ENUM_NAME_OVERRIDES` (two fields share the set).
+- **`GET review_hog/reviews/<id>/`** (`retrieve`, same viewset, same acting-user scoping → 404
+  otherwise): full `ReviewDetailSerializer` = list row + `report_markdown` + `findings` (valid, most
+  urgent first, `effective_priority` + `reviewer_priority` + `validator_note`) + `dismissed_findings`
+  (with the validator's argumentation). Unjudged findings appear in neither list.
+- **UI (CodeReviewTab), after two user-feedback iterations (fonts too small / published-vs-not
+  unclear / messy row; then: don't conflate below-threshold with dismissed, revert live pipeline
+  numbers, nest finding text):** rows are **collapsible** — collapsed shows title + repo#number +
+  counts + time with an explicit chevron button next to "View PR"; expanding reveals
+  author/±diff/files/reviewed/chunks/turns, the raised→kept→dismissed funnel, and a "View findings"
+  button that opens `ReviewDetailDrawer` (kea: `openReviewDetail` stores the row for an instant
+  header, `expandedReviewIds` + `toggleReviewRowExpanded` drive rows). Drawer (640px, text-sm/base
+  body copy) has a persistent funnel line and **four tabs**: **Published (N)** (findings at/above the
+  CURRENT threshold — the run's own snapshot isn't stored, split via the `reviewFindingsSplit`
+  selector), **Below threshold (K)** (validated but under the user's bar), **Dismissed (M)** (failed
+  validation), and **Review body** (`LemonMarkdown`). Finding cards mirror the published PR comment:
+  tags + title + file:lines visible, with **Description / Suggested fix / Why we think it's a valid
+  issue** (or **Why it was dismissed**) as collapsed `LemonCollapse` sections — the validator's
+  argumentation now shows for valid findings too, not just dismissed ones. The "How we review your
+  PRs" section is **static** — the per-step live numbers were built and then reverted on user
+  feedback ("looks meh"); `perspective_issue_count`/`blind_spot_issue_count` remain in the API,
+  currently unconsumed.
+- Tests (`test_reviews_api.py`): jsonb enrichment + head-matching, retrieve findings split +
+  scoping/garbage-id 404s. Verified live: #67451 = 19 files → 15 kept → 4 chunks → 3 perspectives ×
+  30 issues + 6 blind-spot → 33 candidates → 10 valid / 20 dismissed, md 3.5KB. 392 backend green.
+
 #### ✅ BUILT 2026-07-02 — authoring guide moved to a canonical skill (`review-hog-authoring`)
 
 The "Create your own …" frontend prompts were fat, self-describing instruction sets — an

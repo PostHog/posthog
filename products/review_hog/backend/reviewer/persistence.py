@@ -380,13 +380,13 @@ def persist_verdict(*, team_id: int, report_id: str, issue: Issue, validation: I
     return True
 
 
-def load_valid_findings(
+def load_turn_findings(
     *, team_id: int, report_id: str, run_index: int
-) -> list[tuple[ReviewIssueFinding, ValidationVerdict]]:
-    """This turn's valid findings paired with their verdicts, latest-wins per `issue_key`.
+) -> list[tuple[ReviewIssueFinding, ValidationVerdict | None]]:
+    """This turn's findings paired with their verdicts (None while unjudged), latest-wins per `issue_key`.
 
-    Scoped to `run_index`: publishing posts only this turn's findings, never replaying a prior turn's
-    (which would re-post a comment the PR already has). Returns only pairs the validator passed.
+    Scoped to `run_index` like `load_valid_findings`; the full judged/unjudged set backs the review
+    detail API (valid + dismissed with the validator's argumentation) and the funnel counts.
     """
     findings: dict[str, ReviewIssueFinding] = {}
     verdicts: dict[str, ValidationVerdict] = {}
@@ -413,12 +413,22 @@ def load_valid_findings(
             findings[content.issue_key] = content
         elif isinstance(content, ValidationVerdict):
             verdicts[content.issue_key] = content
-    pairs: list[tuple[ReviewIssueFinding, ValidationVerdict]] = []
-    for issue_key, finding in findings.items():
-        verdict = verdicts.get(issue_key)
-        if verdict is not None and verdict.is_valid:
-            pairs.append((finding, verdict))
-    return pairs
+    return [(finding, verdicts.get(issue_key)) for issue_key, finding in findings.items()]
+
+
+def load_valid_findings(
+    *, team_id: int, report_id: str, run_index: int
+) -> list[tuple[ReviewIssueFinding, ValidationVerdict]]:
+    """This turn's valid findings paired with their verdicts, latest-wins per `issue_key`.
+
+    Scoped to `run_index`: publishing posts only this turn's findings, never replaying a prior turn's
+    (which would re-post a comment the PR already has). Returns only pairs the validator passed.
+    """
+    return [
+        (finding, verdict)
+        for finding, verdict in load_turn_findings(team_id=team_id, report_id=report_id, run_index=run_index)
+        if verdict is not None and verdict.is_valid
+    ]
 
 
 def load_run_validations(

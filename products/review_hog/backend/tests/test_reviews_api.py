@@ -6,8 +6,51 @@ from posthog.models import User
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
-from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
+from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
+from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview, LineRange
+from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
+from products.review_hog.backend.reviewer.persistence import (
+    persist_chunk_set,
+    persist_perspective_results,
+    persist_pr_snapshot,
+)
 from products.signals.backend.artefact_attribution import ArtefactAttribution
+
+
+def _pr_metadata(head_sha: str, title: str) -> PRMetadata:
+    return PRMetadata(
+        number=5,
+        title=title,
+        state="open",
+        draft=False,
+        created_at="2026-07-01T00:00:00Z",
+        updated_at="2026-07-01T00:00:00Z",
+        author="skoob13",
+        base_branch="main",
+        head_branch="feat-branch",
+        head_sha=head_sha,
+        commits=3,
+        additions=120,
+        deletions=8,
+        changed_files=7,
+    )
+
+
+def _issues_review(count: int) -> IssuesReview:
+    return IssuesReview(
+        issues=[
+            Issue(
+                id=f"1-1-{i}",
+                title="t",
+                file="f.py",
+                lines=[LineRange(start=1)],
+                issue="i",
+                suggestion="s",
+                priority=IssuePriority.CONSIDER,
+            )
+            for i in range(count)
+        ]
+    )
 
 
 class TestRecentReviewsAPI(APIBaseTest):
@@ -38,15 +81,25 @@ class TestRecentReviewsAPI(APIBaseTest):
         run_index: int = 1,
         is_valid: bool = True,
         adjusted: IssuePriority | None = None,
+        judged: bool = True,
     ) -> None:
         ReviewReportArtefact.append_finding(
             team_id=self.team.id,
             report_id=str(report.id),
             content=ReviewIssueFinding(
-                issue_key=key, run_index=run_index, title="t", file="f.py", body="b", suggestion="s", priority=priority
+                issue_key=key,
+                run_index=run_index,
+                title=f"title {key}",
+                file="f.py",
+                lines=[LineRange(start=10, end=20)],
+                body="b",
+                suggestion="s",
+                priority=priority,
             ),
             attribution=ArtefactAttribution.system(),
         )
+        if not judged:
+            return
         ReviewReportArtefact.append_verdict(
             team_id=self.team.id,
             report_id=str(report.id),
@@ -85,3 +138,105 @@ class TestRecentReviewsAPI(APIBaseTest):
         row = res.json()[0]
         assert row["github_url"] == "https://github.com/PostHog/posthog/tree/feat-branch"
         assert (row["must_fix_count"], row["should_fix_count"], row["consider_count"]) == (1, 1, 0)
+
+    def test_list_enriches_rows_from_the_turns_working_state(self) -> None:
+        # The PR facts and pipeline stats are extracted DB-side from jsonb; a broken extraction (or
+        # broken head-matching) silently nulls every row's title/author/stats or shows a stale turn's.
+        report = self._report(pr_number=5, acting_user=self.user, head_sha="new-sha")
+        report_id = str(report.id)
+        persist_pr_snapshot(
+            team_id=self.team.id,
+            report_id=report_id,
+            head_sha="old-sha",
+            pr_metadata=_pr_metadata("old-sha", "old title"),
+            pr_comments=[],
+            pr_files=[],
+        )
+        persist_pr_snapshot(
+            team_id=self.team.id,
+            report_id=report_id,
+            head_sha="new-sha",
+            pr_metadata=_pr_metadata("new-sha", "feat: current title"),
+            pr_comments=[],
+            pr_files=[
+                PRFile(filename="a.py", status="modified", additions=1, deletions=0),
+                PRFile(filename="b.py", status="modified", additions=1, deletions=0),
+            ],
+        )
+        # A newer snapshot for a head that was never reviewed must not displace the reviewed one.
+        persist_pr_snapshot(
+            team_id=self.team.id,
+            report_id=report_id,
+            head_sha="orphan-sha",
+            pr_metadata=_pr_metadata("orphan-sha", "orphan title"),
+            pr_comments=[],
+            pr_files=[],
+        )
+        persist_chunk_set(
+            team_id=self.team.id,
+            report_id=report_id,
+            head_sha="old-sha",
+            chunks=ChunksList(chunks=[Chunk(chunk_id=i, files=[FileInfo(filename="a.py")]) for i in range(5)]),
+        )
+        persist_chunk_set(
+            team_id=self.team.id,
+            report_id=report_id,
+            head_sha="new-sha",
+            chunks=ChunksList(chunks=[Chunk(chunk_id=i, files=[FileInfo(filename="a.py")]) for i in range(2)]),
+        )
+        persist_perspective_results(
+            team_id=self.team.id,
+            report_id=report_id,
+            head_sha="old-sha",
+            results={(1, 1): _issues_review(9)},
+        )
+        persist_perspective_results(
+            team_id=self.team.id,
+            report_id=report_id,
+            head_sha="new-sha",
+            results={(1, 1): _issues_review(2), (2, 1): _issues_review(1), (1000, 1): _issues_review(1)},
+        )
+        self._finding(report, "1-a", priority=IssuePriority.MUST_FIX)
+        self._finding(report, "1-b", priority=IssuePriority.SHOULD_FIX, is_valid=False)
+        self._finding(report, "1-c", priority=IssuePriority.CONSIDER, judged=False)
+
+        res = self.client.get(self.url)
+
+        assert res.status_code == 200
+        row = res.json()[0]
+        assert row["pr_title"] == "feat: current title"
+        assert row["pr_author"] == "skoob13"
+        assert (row["additions"], row["deletions"], row["changed_files"]) == (120, 8, 7)
+        assert row["files_reviewed"] == 2
+        assert row["chunk_count"] == 2
+        assert (row["perspective_count"], row["perspective_issue_count"], row["blind_spot_issue_count"]) == (2, 3, 1)
+        assert (row["candidate_count"], row["dismissed_count"]) == (3, 1)
+
+    def test_retrieve_splits_findings_and_returns_the_published_body(self) -> None:
+        # The drawer's contract: valid findings (most urgent first, validator override applied),
+        # dismissed ones separately, unjudged ones in neither, and the published body verbatim.
+        report = self._report(pr_number=7, acting_user=self.user, report_markdown="## Review body")
+        self._finding(report, "1-low", priority=IssuePriority.CONSIDER)
+        self._finding(report, "1-high", priority=IssuePriority.MUST_FIX, adjusted=IssuePriority.SHOULD_FIX)
+        self._finding(report, "1-noise", priority=IssuePriority.SHOULD_FIX, is_valid=False)
+        self._finding(report, "1-unjudged", priority=IssuePriority.MUST_FIX, judged=False)
+
+        res = self.client.get(f"{self.url}{report.id}/")
+
+        assert res.status_code == 200
+        detail = res.json()
+        assert detail["report_markdown"] == "## Review body"
+        assert [f["title"] for f in detail["findings"]] == ["title 1-high", "title 1-low"]
+        high = detail["findings"][0]
+        assert (high["effective_priority"], high["reviewer_priority"]) == ("should_fix", "must_fix")
+        assert high["lines"] == [{"start": 10, "end": 20}]
+        assert high["validator_note"] == "a"
+        assert [f["title"] for f in detail["dismissed_findings"]] == ["title 1-noise"]
+
+    def test_retrieve_scopes_to_the_acting_user(self) -> None:
+        # A teammate's report id must 404, not leak their PR's findings; garbage ids must not 500.
+        other = User.objects.create_and_join(self.organization, "other-reviews-detail@posthog.com", None)
+        theirs = self._report(pr_number=9, acting_user=other)
+
+        assert self.client.get(f"{self.url}{theirs.id}/").status_code == 404
+        assert self.client.get(f"{self.url}not-a-uuid/").status_code == 404

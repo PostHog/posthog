@@ -1,18 +1,34 @@
 import { useActions, useValues } from 'kea'
 
-import { IconExternal, IconGithub, IconPlus } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSkeleton, LemonSlider, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconChevronDown, IconExternal, IconGithub, IconPlus } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonSkeleton,
+    LemonSlider,
+    LemonSwitch,
+    LemonTabs,
+    LemonTag,
+    Link,
+} from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand/Logomark'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
+import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonDrawer } from 'lib/lemon-ui/LemonDrawer'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { urls } from 'scenes/urls'
 
-import type { ReviewRecentReviewApi, UrgencyThresholdEnumApi } from 'products/review_hog/frontend/generated/api.schemas'
+import type {
+    ReviewFindingApi,
+    ReviewIssuePriorityEnumApi,
+    ReviewRecentReviewApi,
+    UrgencyThresholdEnumApi,
+} from 'products/review_hog/frontend/generated/api.schemas'
 
-import { ReviewSkillKind, reviewHogSettingsLogic } from '../../logics/reviewHogSettingsLogic'
+import { ReviewDrawerTab, ReviewSkillKind, reviewHogSettingsLogic } from '../../logics/reviewHogSettingsLogic'
 
 /** "review-hog-perspective-logic-correctness" → "Logic correctness" */
 function prettifySkillName(skillName: string): string {
@@ -128,6 +144,18 @@ function PipelineSection(): JSX.Element {
     )
 }
 
+const PRIORITY_TAG: Record<ReviewIssuePriorityEnumApi, { type: 'danger' | 'warning' | 'muted'; label: string }> = {
+    must_fix: { type: 'danger', label: 'Must fix' },
+    should_fix: { type: 'warning', label: 'Should fix' },
+    consider: { type: 'muted', label: 'Consider' },
+}
+
+/** "best_practice" → "Best practice" */
+function prettifyCategory(category: string): string {
+    const cleaned = category.replace(/_/g, ' ')
+    return cleaned.charAt(0).toUpperCase() + cleaned.slice(1)
+}
+
 function FindingCounts({ review }: { review: ReviewRecentReviewApi }): JSX.Element {
     const total = review.must_fix_count + review.should_fix_count + review.consider_count
     if (total === 0) {
@@ -146,6 +174,120 @@ function FindingCounts({ review }: { review: ReviewRecentReviewApi }): JSX.Eleme
     )
 }
 
+function reviewTitle(review: ReviewRecentReviewApi): string {
+    return review.pr_title ?? `${review.repository}#${review.pr_number ?? review.head_branch}`
+}
+
+/** One expandable review row: essentials collapsed; PR facts + funnel + findings entry when open. */
+function RecentReviewRow({ review }: { review: ReviewRecentReviewApi }): JSX.Element {
+    const { expandedReviewIds } = useValues(reviewHogSettingsLogic)
+    const { toggleReviewRowExpanded, openReviewDetail } = useActions(reviewHogSettingsLogic)
+    const expanded = expandedReviewIds.includes(review.id)
+    const validated = review.must_fix_count + review.should_fix_count + review.consider_count
+
+    return (
+        <div className="flex flex-col">
+            <div
+                role="button"
+                tabIndex={0}
+                aria-expanded={expanded}
+                onClick={() => toggleReviewRowExpanded(review.id)}
+                onKeyDown={(e) => e.key === 'Enter' && toggleReviewRowExpanded(review.id)}
+                className="flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:bg-fill-highlight-50"
+            >
+                <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                        <span className="truncate text-sm font-semibold">{reviewTitle(review)}</span>
+                        {!review.published && (
+                            <LemonTag type="muted" size="small">
+                                Not published
+                            </LemonTag>
+                        )}
+                    </div>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-secondary">
+                        <span className="whitespace-nowrap">
+                            {review.repository}#{review.pr_number ?? review.head_branch}
+                        </span>
+                        <span className="text-tertiary">·</span>
+                        <FindingCounts review={review} />
+                        <span className="text-tertiary">·</span>
+                        <TZLabel time={review.last_run_at} />
+                    </div>
+                </div>
+                {/* stopPropagation so the buttons don't also toggle the row */}
+                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        to={review.github_url}
+                        targetBlank
+                        sideIcon={<IconExternal />}
+                    >
+                        {review.github_url.includes('/pull/') ? 'View PR' : 'View branch'}
+                    </LemonButton>
+                    <LemonButton
+                        size="small"
+                        type="tertiary"
+                        aria-label={expanded ? 'Hide review details' : 'Show review details'}
+                        icon={<IconChevronDown className={expanded ? 'rotate-180' : ''} />}
+                        onClick={() => toggleReviewRowExpanded(review.id)}
+                    />
+                </div>
+            </div>
+            {expanded && (
+                <div className="flex flex-col gap-2 border-t border-primary bg-fill-highlight-50 px-4 py-3">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-secondary">
+                        {review.pr_author && <span className="whitespace-nowrap">by {review.pr_author}</span>}
+                        {review.additions !== null && review.deletions !== null && (
+                            <>
+                                <span className="text-tertiary">·</span>
+                                <span className="whitespace-nowrap font-mono">
+                                    <span className="text-success">+{review.additions}</span>{' '}
+                                    <span className="text-danger">−{review.deletions}</span>
+                                </span>
+                            </>
+                        )}
+                        {review.changed_files !== null && (
+                            <>
+                                <span className="text-tertiary">·</span>
+                                <span className="whitespace-nowrap">{review.changed_files} files changed</span>
+                            </>
+                        )}
+                        {review.files_reviewed !== null && (
+                            <>
+                                <span className="text-tertiary">·</span>
+                                <span className="whitespace-nowrap">{review.files_reviewed} reviewed</span>
+                            </>
+                        )}
+                        {review.chunk_count !== null && (
+                            <>
+                                <span className="text-tertiary">·</span>
+                                <span className="whitespace-nowrap">
+                                    {review.chunk_count} chunk{review.chunk_count === 1 ? '' : 's'}
+                                </span>
+                            </>
+                        )}
+                        <span className="text-tertiary">·</span>
+                        <span className="whitespace-nowrap">
+                            {review.run_count} review turn{review.run_count === 1 ? '' : 's'}
+                        </span>
+                    </div>
+                    <div className="text-xs text-secondary">
+                        <span className="font-semibold text-default">{review.candidate_count}</span> findings raised →{' '}
+                        <span className="font-semibold text-default">{validated}</span> kept after validation →{' '}
+                        <span className="font-semibold text-default">{review.dismissed_count}</span> dismissed
+                    </div>
+                    <div>
+                        <LemonButton size="small" type="secondary" onClick={() => openReviewDetail(review)}>
+                            View findings
+                        </LemonButton>
+                    </div>
+                </div>
+            )}
+        </div>
+    )
+}
+
 /** Compact proof-of-life block under the hero — hidden entirely until the user has reviews. */
 function RecentReviewsSection(): JSX.Element | null {
     const { recentReviews } = useValues(reviewHogSettingsLogic)
@@ -157,41 +299,238 @@ function RecentReviewsSection(): JSX.Element | null {
     return (
         <section className="flex flex-col gap-4">
             <SectionHeader title="Your recent reviews">
-                The latest ReviewHog runs on pull requests you authored.
+                The latest ReviewHog runs on pull requests you authored. Expand a review for its details and findings.
             </SectionHeader>
             <LemonCard hoverEffect={false} className="divide-y divide-primary p-0">
                 {recentReviews.map((review) => (
-                    <div key={`${review.repository}#${review.pr_number}`} className="flex items-center gap-4 px-4 py-3">
-                        <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                                <span className="truncate text-sm font-semibold">
-                                    {review.repository}#{review.pr_number}
-                                </span>
-                                {!review.published && (
-                                    <LemonTag type="muted" size="small">
-                                        Not published
-                                    </LemonTag>
-                                )}
-                            </div>
-                            <div className="flex items-center gap-2 text-xs text-secondary">
-                                <FindingCounts review={review} />
-                                <span className="text-tertiary">·</span>
-                                <TZLabel time={review.last_run_at} />
-                            </div>
-                        </div>
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            to={review.github_url}
-                            targetBlank
-                            sideIcon={<IconExternal />}
-                        >
-                            {review.github_url.includes('/pull/') ? 'View PR' : 'View branch'}
-                        </LemonButton>
-                    </div>
+                    <RecentReviewRow key={review.id} review={review} />
                 ))}
             </LemonCard>
         </section>
+    )
+}
+
+type FindingSection = 'description' | 'suggestion' | 'validator'
+
+function FindingCard({ finding, dismissed }: { finding: ReviewFindingApi; dismissed?: boolean }): JSX.Element {
+    const priority = PRIORITY_TAG[finding.effective_priority]
+    const location = finding.lines.length
+        ? `${finding.file}:${finding.lines.map((r) => (r.end && r.end !== r.start ? `${r.start}–${r.end}` : `${r.start}`)).join(', ')}`
+        : finding.file
+    return (
+        <div className="flex flex-col gap-2 py-4">
+            <div className="flex flex-wrap items-center gap-2">
+                <LemonTag type={dismissed ? 'muted' : priority.type} size="small">
+                    {priority.label}
+                </LemonTag>
+                {finding.effective_priority !== finding.reviewer_priority && (
+                    <LemonTag type="muted" size="small">
+                        was {PRIORITY_TAG[finding.reviewer_priority].label.toLowerCase()}
+                    </LemonTag>
+                )}
+                {finding.validator_category && (
+                    <LemonTag type="muted" size="small">
+                        {prettifyCategory(finding.validator_category)}
+                    </LemonTag>
+                )}
+                {finding.source_perspective && (
+                    <span className="text-xs text-tertiary">{prettifySkillName(finding.source_perspective)}</span>
+                )}
+            </div>
+            <span className={`text-base font-semibold ${dismissed ? 'text-secondary' : ''}`}>{finding.title}</span>
+            <span className="font-mono text-xs text-tertiary">{location}</span>
+            {/* Collapsed by default, like the published PR comment — title + location scan, text on demand. */}
+            <LemonCollapse<FindingSection>
+                multiple
+                size="small"
+                panels={[
+                    {
+                        key: 'description',
+                        header: 'Description',
+                        content: <p className="m-0 text-sm text-secondary">{finding.body}</p>,
+                    },
+                    {
+                        key: 'suggestion',
+                        header: 'Suggested fix',
+                        content: <p className="m-0 text-sm text-secondary">{finding.suggestion}</p>,
+                    },
+                    {
+                        key: 'validator',
+                        header: dismissed ? 'Why it was dismissed' : "Why we think it's a valid issue",
+                        content: <p className="m-0 text-sm text-secondary">{finding.validator_note}</p>,
+                    },
+                ]}
+            />
+        </div>
+    )
+}
+
+function DrawerFindingsSkeleton(): JSX.Element {
+    return (
+        <div className="flex flex-col gap-2.5">
+            <LemonSkeleton className="h-24 w-full" />
+            <LemonSkeleton className="h-24 w-full" />
+            <LemonSkeleton className="h-24 w-full" />
+        </div>
+    )
+}
+
+/** The "Published" tab: only the findings that crossed the urgency threshold onto the PR. */
+function DrawerPublishedTab(): JSX.Element {
+    const { reviewFindingsSplit } = useValues(reviewHogSettingsLogic)
+
+    if (!reviewFindingsSplit) {
+        return <DrawerFindingsSkeleton />
+    }
+    if (!reviewFindingsSplit.published.length) {
+        return (
+            <div className="text-sm text-secondary">
+                Nothing crossed your urgency threshold — no comments were posted to the pull request.
+            </div>
+        )
+    }
+    return (
+        <div className="flex flex-col divide-y divide-primary">
+            {reviewFindingsSplit.published.map((finding, i) => (
+                <FindingCard key={i} finding={finding} />
+            ))}
+        </div>
+    )
+}
+
+/** The "Below threshold" tab: findings the validator kept, but the user's urgency bar held back. */
+function DrawerBelowThresholdTab(): JSX.Element {
+    const { reviewFindingsSplit } = useValues(reviewHogSettingsLogic)
+
+    if (!reviewFindingsSplit) {
+        return <DrawerFindingsSkeleton />
+    }
+    if (!reviewFindingsSplit.belowThreshold.length) {
+        return (
+            <div className="text-sm text-secondary">
+                Nothing was held back — every validated finding crossed your urgency threshold.
+            </div>
+        )
+    }
+    return (
+        <div className="flex flex-col gap-2">
+            <p className="m-0 text-xs text-secondary">
+                Validated as real, but under the bar you set — kept here instead of the pull request.
+            </p>
+            <div className="flex flex-col divide-y divide-primary">
+                {reviewFindingsSplit.belowThreshold.map((finding, i) => (
+                    <FindingCard key={i} finding={finding} />
+                ))}
+            </div>
+        </div>
+    )
+}
+
+/** The "Dismissed" tab: findings that failed validation, each with the validator's reasoning. */
+function DrawerDismissedTab(): JSX.Element {
+    const { reviewDetail } = useValues(reviewHogSettingsLogic)
+
+    if (!reviewDetail) {
+        return <DrawerFindingsSkeleton />
+    }
+    if (!reviewDetail.dismissed_findings.length) {
+        return <div className="text-sm text-secondary">The validator dismissed nothing on this review.</div>
+    }
+    return (
+        <div className="flex flex-col gap-2">
+            <p className="m-0 text-xs text-secondary">
+                Raised during review, judged not worth your time — each with the validator's reasoning.
+            </p>
+            <div className="flex flex-col divide-y divide-primary">
+                {reviewDetail.dismissed_findings.map((finding, i) => (
+                    <FindingCard key={i} finding={finding} dismissed />
+                ))}
+            </div>
+        </div>
+    )
+}
+
+function ReviewDetailDrawer(): JSX.Element {
+    const { reviewDrawerOpen, openedReview, reviewDetail, reviewDrawerTab, reviewFindingsSplit } =
+        useValues(reviewHogSettingsLogic)
+    const { closeReviewDrawer, setReviewDrawerTab } = useActions(reviewHogSettingsLogic)
+
+    // The list row carries the header facts, so the drawer opens instantly while findings load.
+    const review = reviewDetail ?? openedReview
+
+    return (
+        <LemonDrawer
+            isOpen={reviewDrawerOpen}
+            onClose={closeReviewDrawer}
+            title={review ? reviewTitle(review) : ''}
+            description={
+                review
+                    ? `${review.repository}#${review.pr_number ?? review.head_branch}${
+                          review.pr_author ? ` · by ${review.pr_author}` : ''
+                      }`
+                    : undefined
+            }
+            width={640}
+            footer={
+                review ? (
+                    <LemonButton type="secondary" to={review.github_url} targetBlank icon={<IconExternal />}>
+                        {review.github_url.includes('/pull/') ? 'View PR on GitHub' : 'View branch on GitHub'}
+                    </LemonButton>
+                ) : undefined
+            }
+        >
+            <div className="flex flex-col gap-2">
+                {reviewDetail ? (
+                    <div className="text-sm text-secondary">
+                        <span className="font-semibold text-default">{reviewDetail.candidate_count}</span> findings
+                        raised · <span className="font-semibold text-default">{reviewDetail.findings.length}</span> kept
+                        after validation ·{' '}
+                        <span className="font-semibold text-default">{reviewDetail.dismissed_count}</span> dismissed by
+                        your quality bar
+                    </div>
+                ) : (
+                    <LemonSkeleton className="h-5 w-80" />
+                )}
+                <LemonTabs<ReviewDrawerTab>
+                    activeKey={reviewDrawerTab}
+                    onChange={setReviewDrawerTab}
+                    tabs={[
+                        {
+                            key: 'published',
+                            label: `Published${reviewFindingsSplit ? ` (${reviewFindingsSplit.published.length})` : ''}`,
+                            content: <DrawerPublishedTab />,
+                        },
+                        {
+                            key: 'below_threshold',
+                            label: `Below threshold${
+                                reviewFindingsSplit ? ` (${reviewFindingsSplit.belowThreshold.length})` : ''
+                            }`,
+                            content: <DrawerBelowThresholdTab />,
+                        },
+                        {
+                            key: 'dismissed',
+                            label: `Dismissed${reviewDetail ? ` (${reviewDetail.dismissed_findings.length})` : ''}`,
+                            content: <DrawerDismissedTab />,
+                        },
+                        {
+                            key: 'review',
+                            label: 'Review body',
+                            content: reviewDetail ? (
+                                reviewDetail.report_markdown ? (
+                                    <LemonMarkdown className="text-sm">{reviewDetail.report_markdown}</LemonMarkdown>
+                                ) : (
+                                    <div className="text-sm text-secondary">
+                                        No review body was rendered for this pull request.
+                                    </div>
+                                )
+                            ) : (
+                                <LemonSkeleton className="h-40 w-full" />
+                            ),
+                        },
+                    ]}
+                />
+            </div>
+        </LemonDrawer>
     )
 }
 
@@ -578,6 +917,7 @@ export function CodeReviewTab(): JSX.Element {
             />
 
             <SkillDrawer />
+            <ReviewDetailDrawer />
         </div>
     )
 }

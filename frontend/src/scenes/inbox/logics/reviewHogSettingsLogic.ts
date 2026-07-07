@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -15,6 +15,7 @@ import {
     reviewHogPerspectivesList,
     reviewHogPerspectivesPartialUpdate,
     reviewHogReviewsList,
+    reviewHogReviewsRetrieve,
     reviewHogSettingsPartialUpdate,
     reviewHogSettingsRetrieve,
     reviewHogValidatorsList,
@@ -23,6 +24,9 @@ import {
 import type {
     PatchedReviewUserSettingsApi,
     ReviewBlindSpotsConfigApi,
+    ReviewDetailApi,
+    ReviewFindingApi,
+    ReviewIssuePriorityEnumApi,
     ReviewPerspectiveConfigApi,
     ReviewRecentReviewApi,
     ReviewUserSettingsApi,
@@ -32,6 +36,20 @@ import type {
 import type { reviewHogSettingsLogicType } from './reviewHogSettingsLogicType'
 
 export type ReviewSkillKind = 'perspective' | 'blind_spots' | 'validator'
+
+export type ReviewDrawerTab = 'published' | 'below_threshold' | 'dismissed' | 'review'
+
+export const REVIEW_PRIORITY_RANK: Record<ReviewIssuePriorityEnumApi, number> = {
+    consider: 0,
+    should_fix: 1,
+    must_fix: 2,
+}
+
+/** The detail's valid findings split by the user's urgency threshold: on the PR vs. kept back. */
+export interface ReviewFindingsSplit {
+    published: ReviewFindingApi[]
+    belowThreshold: ReviewFindingApi[]
+}
 
 /** The skill a "View skill" click opens in the read-only drawer. */
 export interface ViewedSkill {
@@ -105,6 +123,10 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         setSkillSaving: (skillName: string, saving: boolean) => ({ skillName, saving }),
         viewSkill: (skill: ViewedSkill) => ({ skill }),
         closeSkillDrawer: true,
+        openReviewDetail: (review: ReviewRecentReviewApi) => ({ review }),
+        closeReviewDrawer: true,
+        setReviewDrawerTab: (tab: ReviewDrawerTab) => ({ tab }),
+        toggleReviewRowExpanded: (reviewId: string) => ({ reviewId }),
         startSkillAuthorTask: (kind: ReviewSkillKind) => ({ kind }),
         startSkillAuthorTaskFinished: true,
     }),
@@ -144,6 +166,13 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             null as ReviewRecentReviewApi[] | null,
             {
                 loadRecentReviews: async () => await reviewHogReviewsList(currentProjectId()),
+            },
+        ],
+        reviewDetail: [
+            null as ReviewDetailApi | null,
+            {
+                loadReviewDetail: async (reviewId: string) =>
+                    await reviewHogReviewsRetrieve(currentProjectId(), reviewId),
             },
         ],
     })),
@@ -188,6 +217,38 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 closeSkillDrawer: () => false,
             },
         ],
+        // The clicked list row: the drawer header renders from it instantly while the detail loads.
+        openedReview: [
+            null as ReviewRecentReviewApi | null,
+            {
+                openReviewDetail: (_, { review }) => review,
+            },
+        ],
+        reviewDetail: {
+            // Clear the previous review's detail so opening another row never flashes stale findings.
+            openReviewDetail: () => null,
+        },
+        reviewDrawerOpen: [
+            false,
+            {
+                openReviewDetail: () => true,
+                closeReviewDrawer: () => false,
+            },
+        ],
+        reviewDrawerTab: [
+            'published' as ReviewDrawerTab,
+            {
+                setReviewDrawerTab: (_, { tab }) => tab,
+                openReviewDetail: () => 'published' as ReviewDrawerTab,
+            },
+        ],
+        expandedReviewIds: [
+            [] as string[],
+            {
+                toggleReviewRowExpanded: (state, { reviewId }) =>
+                    state.includes(reviewId) ? state.filter((id) => id !== reviewId) : [...state, reviewId],
+            },
+        ],
         initialLoadFailed: [
             false,
             {
@@ -204,6 +265,28 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             {
                 startSkillAuthorTask: (_, { kind }) => kind,
                 startSkillAuthorTaskFinished: () => null,
+            },
+        ],
+    }),
+
+    selectors({
+        // Splits the detail's valid findings by the CURRENT threshold — a close-enough proxy for
+        // what the run published (the run's own threshold snapshot isn't stored).
+        reviewFindingsSplit: [
+            (s) => [s.reviewDetail, s.settings],
+            (reviewDetail, settings): ReviewFindingsSplit | null => {
+                if (!reviewDetail) {
+                    return null
+                }
+                const thresholdRank = REVIEW_PRIORITY_RANK[settings?.urgency_threshold ?? 'should_fix']
+                return {
+                    published: reviewDetail.findings.filter(
+                        (f) => REVIEW_PRIORITY_RANK[f.effective_priority] >= thresholdRank
+                    ),
+                    belowThreshold: reviewDetail.findings.filter(
+                        (f) => REVIEW_PRIORITY_RANK[f.effective_priority] < thresholdRank
+                    ),
+                }
             },
         ],
     }),
@@ -269,6 +352,9 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         },
         blockSingleActiveDeactivation: ({ kindLabel }) => {
             lemonToast.info(`One ${kindLabel} always runs — switch by selecting another one`)
+        },
+        openReviewDetail: ({ review }) => {
+            actions.loadReviewDetail(review.id)
         },
         startSkillAuthorTask: async ({ kind }) => {
             // Task-kickoff mirroring the Inbox "Make a scout" flow: create an agent task from a

@@ -14,6 +14,7 @@ import type {
     PatchedReviewUserSettingsApi,
     PatchedReviewValidatorConfigSelectApi,
     ReviewBlindSpotsConfigApi,
+    ReviewDetailApi,
     ReviewPerspectiveConfigApi,
     ReviewRecentReviewApi,
     ReviewUserSettingsApi,
@@ -113,6 +114,25 @@ export const reviewHogReviewsList = async (
     options?: RequestInit
 ): Promise<ReviewRecentReviewApi[]> => {
     return apiMutator<ReviewRecentReviewApi[]>(getReviewHogReviewsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getReviewHogReviewsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/review_hog/reviews/${id}/`
+}
+
+/**
+ * One completed ReviewHog review of the requesting user's pull requests, with the latest turn's validated findings, the findings the validator dismissed (and why), and the review body published to GitHub.
+ * @summary Retrieve one review's detail
+ */
+export const reviewHogReviewsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReviewDetailApi> => {
+    return apiMutator<ReviewDetailApi>(getReviewHogReviewsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

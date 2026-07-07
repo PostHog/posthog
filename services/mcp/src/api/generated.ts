@@ -47862,6 +47862,188 @@ export namespace Schemas {
       body: string;
     }
 
+    export interface ReviewFindingLineRange {
+      /** First affected line. */
+      start: number;
+      /**
+         * Last affected line; null for a single line.
+         * @nullable
+         */
+      end: number | null;
+    }
+
+    /**
+     * * `must_fix` - must_fix
+     * * `should_fix` - should_fix
+     * * `consider` - consider
+     */
+    export type ReviewIssuePriorityEnum = typeof ReviewIssuePriorityEnum[keyof typeof ReviewIssuePriorityEnum];
+
+
+    export const ReviewIssuePriorityEnum = {
+      MustFix: 'must_fix',
+      ShouldFix: 'should_fix',
+      Consider: 'consider',
+    } as const;
+
+    /**
+     * * `bug` - bug
+     * * `security` - security
+     * * `performance` - performance
+     * * `code_quality` - code_quality
+     * * `best_practice` - best_practice
+     * * `documentation` - documentation
+     * * `testing` - testing
+     * * `accessibility` - accessibility
+     * * `compatibility` - compatibility
+     */
+    export type ValidatorCategoryEnum = typeof ValidatorCategoryEnum[keyof typeof ValidatorCategoryEnum];
+
+
+    export const ValidatorCategoryEnum = {
+      Bug: 'bug',
+      Security: 'security',
+      Performance: 'performance',
+      CodeQuality: 'code_quality',
+      BestPractice: 'best_practice',
+      Documentation: 'documentation',
+      Testing: 'testing',
+      Accessibility: 'accessibility',
+      Compatibility: 'compatibility',
+    } as const;
+
+    export interface ReviewFinding {
+      /** One-line summary of the finding. */
+      title: string;
+      /** Repository-relative path of the affected file. */
+      file: string;
+      /** Affected line ranges within the file. */
+      lines: ReviewFindingLineRange[];
+      /** Description of the problem. */
+      body: string;
+      /** The specific fix or improvement the reviewer proposes. */
+      suggestion: string;
+      /** The priority that gates publishing: the validator's override when set, else the reviewer's.
+       *
+       * * `must_fix` - must_fix
+       * * `should_fix` - should_fix
+       * * `consider` - consider */
+      effective_priority: ReviewIssuePriorityEnum;
+      /** The reviewer's original priority, before any validator override.
+       *
+       * * `must_fix` - must_fix
+       * * `should_fix` - should_fix
+       * * `consider` - consider */
+      reviewer_priority: ReviewIssuePriorityEnum;
+      /**
+         * The review skill that produced the finding (perspective or blind-spot sweep).
+         * @nullable
+         */
+      source_perspective: string | null;
+      /** The validator's category for the finding; null when it didn't set one.
+       *
+       * * `bug` - bug
+       * * `security` - security
+       * * `performance` - performance
+       * * `code_quality` - code_quality
+       * * `best_practice` - best_practice
+       * * `documentation` - documentation
+       * * `testing` - testing
+       * * `accessibility` - accessibility
+       * * `compatibility` - compatibility */
+      validator_category: ValidatorCategoryEnum | null;
+      /** The validator's argumentation for keeping or dismissing the finding. */
+      validator_note: string;
+    }
+
+    export interface ReviewDetail {
+      /** The review report's id, for fetching the review's detail. */
+      id: string;
+      /** The reviewed repository, as `owner/repo`. */
+      repository: string;
+      /**
+         * The reviewed pull request's number; null for a branch target with no PR yet.
+         * @nullable
+         */
+      pr_number: number | null;
+      /**
+         * The pull request's title, from the latest reviewed snapshot; null if unknown.
+         * @nullable
+         */
+      pr_title: string | null;
+      /**
+         * The pull request author's GitHub login; null if unknown.
+         * @nullable
+         */
+      pr_author: string | null;
+      /**
+         * Lines added by the PR; null if unknown.
+         * @nullable
+         */
+      additions: number | null;
+      /**
+         * Lines deleted by the PR; null if unknown.
+         * @nullable
+         */
+      deletions: number | null;
+      /**
+         * Files the PR changes; null if unknown.
+         * @nullable
+         */
+      changed_files: number | null;
+      /** The pull request's head branch. */
+      head_branch: string;
+      /** Where to see the review on GitHub: the pull request when its URL is known, otherwise the head branch. */
+      github_url: string;
+      /** How many review turns have completed on this report. */
+      run_count: number;
+      /** When the latest review turn completed. */
+      last_run_at: string;
+      /** Whether a review has been published back to GitHub. */
+      published: boolean;
+      /** The latest turn's valid findings at must_fix effective priority. */
+      must_fix_count: number;
+      /** The latest turn's valid findings at should_fix effective priority. */
+      should_fix_count: number;
+      /** The latest turn's valid findings at consider effective priority. */
+      consider_count: number;
+      /** All findings the latest turn raised after dedupe, before validation. */
+      candidate_count: number;
+      /** The latest turn's findings the validator dismissed as not worth publishing. */
+      dismissed_count: number;
+      /**
+         * Meaningful files the latest turn actually read, after skipping generated/lock/snapshot files; null if unknown.
+         * @nullable
+         */
+      files_reviewed: number | null;
+      /**
+         * Reviewable chunks the latest turn split the PR into; null if unknown.
+         * @nullable
+         */
+      chunk_count: number | null;
+      /**
+         * Review perspectives that read each chunk in the latest turn; null if unknown.
+         * @nullable
+         */
+      perspective_count: number | null;
+      /**
+         * Raw issues the perspectives raised in the latest turn, before dedupe; null if unknown.
+         * @nullable
+         */
+      perspective_issue_count: number | null;
+      /**
+         * Raw issues the blind-spot sweep added in the latest turn, before dedupe; null if unknown.
+         * @nullable
+         */
+      blind_spot_issue_count: number | null;
+      /** The rendered review body published to GitHub, as markdown. */
+      report_markdown: string;
+      /** The latest turn's validated findings, most urgent first. */
+      findings: ReviewFinding[];
+      /** The latest turn's findings the validator dismissed, with its reasoning. */
+      dismissed_findings: ReviewFinding[];
+    }
+
     export interface ReviewPerspectiveConfig {
       /** Name of the `review-hog-perspective-*` skill this row toggles (the perspective's identity). */
       skill_name: string;
@@ -47892,10 +48074,40 @@ export namespace Schemas {
     }
 
     export interface ReviewRecentReview {
+      /** The review report's id, for fetching the review's detail. */
+      id: string;
       /** The reviewed repository, as `owner/repo`. */
       repository: string;
-      /** The reviewed pull request's number. */
-      pr_number: number;
+      /**
+         * The reviewed pull request's number; null for a branch target with no PR yet.
+         * @nullable
+         */
+      pr_number: number | null;
+      /**
+         * The pull request's title, from the latest reviewed snapshot; null if unknown.
+         * @nullable
+         */
+      pr_title: string | null;
+      /**
+         * The pull request author's GitHub login; null if unknown.
+         * @nullable
+         */
+      pr_author: string | null;
+      /**
+         * Lines added by the PR; null if unknown.
+         * @nullable
+         */
+      additions: number | null;
+      /**
+         * Lines deleted by the PR; null if unknown.
+         * @nullable
+         */
+      deletions: number | null;
+      /**
+         * Files the PR changes; null if unknown.
+         * @nullable
+         */
+      changed_files: number | null;
       /** The pull request's head branch. */
       head_branch: string;
       /** Where to see the review on GitHub: the pull request when its URL is known, otherwise the head branch. */
@@ -47912,6 +48124,35 @@ export namespace Schemas {
       should_fix_count: number;
       /** The latest turn's valid findings at consider effective priority. */
       consider_count: number;
+      /** All findings the latest turn raised after dedupe, before validation. */
+      candidate_count: number;
+      /** The latest turn's findings the validator dismissed as not worth publishing. */
+      dismissed_count: number;
+      /**
+         * Meaningful files the latest turn actually read, after skipping generated/lock/snapshot files; null if unknown.
+         * @nullable
+         */
+      files_reviewed: number | null;
+      /**
+         * Reviewable chunks the latest turn split the PR into; null if unknown.
+         * @nullable
+         */
+      chunk_count: number | null;
+      /**
+         * Review perspectives that read each chunk in the latest turn; null if unknown.
+         * @nullable
+         */
+      perspective_count: number | null;
+      /**
+         * Raw issues the perspectives raised in the latest turn, before dedupe; null if unknown.
+         * @nullable
+         */
+      perspective_issue_count: number | null;
+      /**
+         * Raw issues the blind-spot sweep added in the latest turn, before dedupe; null if unknown.
+         * @nullable
+         */
+      blind_spot_issue_count: number | null;
     }
 
     export interface ReviewStateCounts {
