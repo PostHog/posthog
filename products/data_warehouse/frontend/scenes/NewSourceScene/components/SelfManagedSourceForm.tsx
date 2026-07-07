@@ -81,7 +81,10 @@ export function SelfManagedSourceForm({ onUpdate }: Props): JSX.Element {
                         />
                     )}
                 </LemonField>
-                <div className="mb-4 text-xs text-secondary">This will be the table name used when writing queries</div>
+                <div className="mb-4 text-xs text-secondary">
+                    This will be the table name used when writing queries. Use only letters, numbers, and underscores,
+                    and start with a letter or underscore.
+                </div>
                 <LemonField name="url_pattern" label="Files URL pattern">
                     {({ value = '', onChange }) => (
                         <LemonInput

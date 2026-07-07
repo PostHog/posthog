@@ -99,6 +99,7 @@ function posthogCORSResponse(info: MockResolverInfo): Response {
 export const defaultMocks: Mocks = {
     get: {
         '/api/projects/:team_id/my_notifications/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/tasks/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/actions/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/annotations/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/event_definitions/': EMPTY_PAGINATED_RESPONSE,
@@ -296,11 +297,11 @@ export const defaultMocks: Mocks = {
         '/decide/': posthogCORSResponse,
         '/flags/': posthogCORSResponse,
         'https://us.i.posthog.com/engage/': posthogCORSResponse,
-        '/api/environments/:team_id/query/': [200, { results: [] }],
-        '/api/environments/:team_id/query/:query_kind/': [200, { results: [] }],
+        '/api/environments/:team_id/query/': { results: [] },
+        '/api/environments/:team_id/query/:query_kind/': { results: [] },
         '/api/environments/:team_id/insights/viewed/': () => [201, null],
-        'api/environments/:team_id/query': [200, { results: [] }],
-        'api/environments/:team_id/query/:query_kind/': [200, { results: [] }],
+        'api/environments/:team_id/query': { results: [] },
+        'api/environments/:team_id/query/:query_kind/': { results: [] },
         '/api/environments/:team_id/file_system/log_view/': {},
     },
     patch: {

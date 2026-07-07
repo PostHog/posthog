@@ -3,9 +3,14 @@ import { LemonTagType } from '@posthog/lemon-ui'
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 
 import { ScannerModelEnumApi } from '../generated/api.schemas'
-import type { PatchedReplayScannerApi, ReplayScannerApi } from '../generated/api.schemas'
+import type {
+    PatchedReplayScannerApi,
+    ReplayScannerApi,
+    ScannerTypeEnumApi,
+    UserBasicApi,
+} from '../generated/api.schemas'
 
-export type ScannerType = 'monitor' | 'classifier' | 'scorer' | 'summarizer'
+export type ScannerType = ScannerTypeEnumApi
 
 export const SCANNER_TYPE_TAG_TYPE: Record<ScannerType, LemonTagType> = {
     monitor: 'primary',
@@ -32,6 +37,7 @@ export type FailureKind =
     | 'rasterization_failed'
     | 'validation_failed'
     | 'internal_error'
+    | 'orphaned'
 
 const FAILURE_KINDS: Record<FailureKind, { label: string; description: string }> = {
     provider_transient: {
@@ -56,6 +62,11 @@ const FAILURE_KINDS: Record<FailureKind, { label: string; description: string }>
     internal_error: {
         label: 'Internal error',
         description: 'An unexpected PostHog error occurred. Please contact support.',
+    },
+    orphaned: {
+        label: 'Interrupted',
+        description:
+            'The analysis was interrupted before finishing and has been cleaned up. Run the scanner on this recording again if needed.',
     },
 }
 
@@ -124,9 +135,7 @@ export function scannerTypeLabel(scannerType: ScannerType | null | undefined): s
     return SCANNER_TYPE_OPTIONS.find((opt) => opt.value === scannerType)?.label ?? scannerType
 }
 
-export function createdByLabel(
-    user: { id: number; first_name?: string; last_name?: string; email?: string } | null
-): string {
+export function createdByLabel(user: ScannerCreatedBy | null): string {
     if (!user) {
         return ''
     }
@@ -185,24 +194,36 @@ export type ScannerConfig =
     | ClassifierScannerConfig
     | ScorerScannerConfig
 
-export interface BaseReplayScanner {
-    id: string
-    name: string
-    description?: string
-    enabled: boolean
-    sampling_rate: number
-    query: RecordingsQuery | null
-    provider: string
-    model: string
-    emits_signals: boolean
-    scanner_version: number
-    estimated_monthly_observations?: number | null
-    last_swept_at: string
-    created_at: string
-    updated_at: string
-    created_by: { id: number; first_name: string; last_name?: string; email?: string } | null
-    deleted?: boolean
-}
+export type SamplingMode = 'focused' | 'balanced' | 'comprehensive'
+
+export const SAMPLING_MODE_OPTIONS: { value: SamplingMode; label: string; description: string }[] = [
+    {
+        value: 'focused',
+        label: 'Focused',
+        description: 'Only the most eventful sessions. Skips routine ones.',
+    },
+    {
+        value: 'balanced',
+        label: 'Balanced',
+        description: 'Skips the quietest sessions, keeps a broad mix.',
+    },
+    {
+        value: 'comprehensive',
+        label: 'Comprehensive',
+        description: 'Every session that matches your filters.',
+    },
+]
+
+// hedgehog_config's nullable index-signature type trips DeepPartial and ProfilePicture; the UI never reads it.
+export type ScannerCreatedBy = Omit<UserBasicApi, 'hedgehog_config'>
+
+// Derived from the generated schema so serializer changes fail typecheck; write-optional fields carry defaults.
+export type BaseReplayScanner = Omit<ReplayScannerApi, 'scanner_type' | 'scanner_config' | 'query' | 'created_by'> &
+    Required<Pick<ReplayScannerApi, 'sampling_rate' | 'enabled' | 'emits_signals' | 'provider'>> & {
+        query: RecordingsQuery | null
+        created_by: ScannerCreatedBy | null
+        sampling_mode: SamplingMode
+    }
 
 export interface MonitorScanner extends BaseReplayScanner {
     scanner_type: 'monitor'
@@ -226,8 +247,13 @@ export interface ScorerScanner extends BaseReplayScanner {
 
 export type ReplayScanner = MonitorScanner | SummarizerScanner | ClassifierScanner | ScorerScanner
 
-// The API exposes scanner_config and query as `unknown`. The client narrows them via
-// the scanner_type discriminator, so conversion is contained to this single boundary.
+/** Narrow a snapshot's untyped scanner_config at one boundary; pair with the snapshot's scanner_type to pick the variant. */
+export function configFromSnapshot(snapshot: { scanner_config?: unknown } | null | undefined): ScannerConfig | null {
+    const config = snapshot?.scanner_config
+    return config && typeof config === 'object' ? (config as ScannerConfig) : null
+}
+
+// The API types scanner_config and query as `unknown`; the scanner_type discriminator narrows them here only.
 export function scannerFromApi(api: ReplayScannerApi): ReplayScanner {
     return api as unknown as ReplayScanner
 }

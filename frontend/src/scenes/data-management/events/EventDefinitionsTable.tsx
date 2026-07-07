@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { IconApps, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions, Link } from '@posthog/lemon-ui'
 
+import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TagSelect } from 'lib/components/TagSelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -43,7 +44,7 @@ const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
 export function EventDefinitionsTable(): JSX.Element {
     const { eventDefinitions, eventDefinitionsLoading, filters, showVerifiedFilter } =
         useValues(eventDefinitionsTableLogic)
-    const { loadEventDefinitions, setFilters } = useActions(eventDefinitionsTableLogic)
+    const { loadEventDefinitions, setFilters, applyBulkTagUpdates } = useActions(eventDefinitionsTableLogic)
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
 
     const columns: LemonTableColumns<EventDefinition> = [
@@ -253,6 +254,22 @@ export function EventDefinitionsTable(): JSX.Element {
                     },
                     rowExpandable: () => true,
                     noIndent: true,
+                }}
+                bulkSelection={{
+                    getKey: (definition: EventDefinition): string => definition.id,
+                    rowAriaLabel: (definition: EventDefinition) => `Select event ${definition.name}`,
+                    headerAriaLabel: 'Select all events on this page',
+                    noun: ['event', 'events'],
+                    renderActions: (ctx) => (
+                        <BulkUpdateTagsButton
+                            resource="event_definitions"
+                            selectedIds={ctx.selectedKeys}
+                            onSuccess={(result) => {
+                                applyBulkTagUpdates(result.updated)
+                                ctx.clearSelection()
+                            }}
+                        />
+                    ),
                 }}
                 dataSource={eventDefinitions.results}
                 useURLForSorting={false}

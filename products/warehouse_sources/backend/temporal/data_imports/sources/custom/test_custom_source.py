@@ -1388,18 +1388,32 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
 
         assert mock_session.call_args.kwargs["redact_values"] == ("sk_live_leaky",)
 
+    @parameterized.expand(
+        [
+            # A connection-level failure surfaces a clean "could not reach" message.
+            ("connection", requests.exceptions.ConnectionError("boom at 10.0.0.1"), "could not reach", "boom"),
+            # A read timeout surfaces the configured timeouts, not the raw urllib3 dump.
+            (
+                "timeout",
+                requests.Timeout("HTTPSConnectionPool(host='x'): Read timed out. (read timeout=10)"),
+                "timed out",
+                "HTTPSConnectionPool",
+            ),
+        ]
+    )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
-    def test_returns_false_on_network_error(self, mock_session):
-        # A connection-level failure (DNS, TLS, timeout) must surface as a
-        # credential validation error pointing at the offending resource.
-        mock_session.return_value.request.side_effect = ConnectionError("boom")
+    def test_returns_false_on_network_error(self, _name, side_effect, expected_fragment, leaked_text, mock_session):
+        # A connection-level failure (DNS, TLS, timeout) must surface as a credential validation
+        # error pointing at the offending resource, without leaking the raw requests exception.
+        mock_session.return_value.request.side_effect = side_effect
 
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
         ok, err = source.validate_credentials(config, team_id=999)
         assert not ok
-        assert "could not reach" in (err or "")
+        assert expected_fragment in (err or "")
         assert "users" in (err or "")
+        assert leaked_text not in (err or "")
 
     def test_returns_false_on_invalid_manifest(self):
         source = CustomSource()
@@ -2408,6 +2422,44 @@ class TestCustomSourceIncrementalDatetimeFormat(SimpleTestCase):
 
         child_params = next((p for p in captured if "since" in p), {})
         assert child_params.get("since") == "2026-06-08T12:53:34Z"
+
+
+class TestCustomSourceIncrementalStartParam(SimpleTestCase):
+    _OMIT = object()
+
+    def _manifest(self, start_param) -> dict:
+        manifest = _minimal_manifest()
+        incremental: dict = {"cursor_path": "updated_at"}
+        if start_param is not self._OMIT:
+            incremental["start_param"] = start_param
+        manifest["resources"][0]["endpoint"]["incremental"] = incremental
+        return manifest
+
+    @parameterized.expand([("missing", _OMIT), ("empty", ""), ("non_string", 123)])
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_missing_start_param_raises_non_retryable(self, _name, start_param, mock_resources):
+        mock_resources.return_value = [_fake_resource("users")]
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(self._manifest(start_param)))
+        inputs = MagicMock(
+            team_id=1,
+            schema_name="users",
+            job_id="job-1",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=None,
+        )
+        with self.assertRaises(NonRetryableException) as ctx:
+            source.source_for_pipeline(config, inputs)
+        assert "start_param" in str(ctx.exception)
+        mock_resources.assert_not_called()
+
+    @parameterized.expand([("missing", _OMIT), ("empty", "")])
+    def test_missing_start_param_rejected_at_validation(self, _name, start_param):
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(self._manifest(start_param)), auth_token="abc")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok is False
+        assert err is not None and "start_param" in err and "'users'" in err
 
 
 def _apikey_manifest() -> dict:

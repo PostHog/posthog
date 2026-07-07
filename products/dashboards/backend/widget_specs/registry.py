@@ -14,12 +14,14 @@ from products.dashboards.backend.widget_specs.configs import (
     EXPERIMENTS_LIST_WIDGET_TYPE,
     LOGS_LIST_WIDGET_TYPE,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
+    SURVEY_RESULTS_WIDGET_TYPE,
     ActivityEventsListWidgetConfig,
     ErrorTrackingListWidgetConfig,
     ExperimentResultsWidgetConfig,
     ExperimentsListWidgetConfig,
     LogsListWidgetConfig,
     SessionReplayListWidgetConfig,
+    SurveyResultsWidgetConfig,
 )
 
 DashboardWidgetType = Literal[
@@ -28,6 +30,7 @@ DashboardWidgetType = Literal[
     "session_replay_list",
     "experiments_list",
     "experiment_results",
+    "survey_results",
     "logs_list",
 ]
 
@@ -92,6 +95,7 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
     from products.dashboards.backend.widgets.experiments_list import run_experiments_list_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.logs_list import run_logs_list_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.session_replay_list import run_session_replay_list_widget  # noqa: PLC0415
+    from products.dashboards.backend.widgets.survey_results import run_survey_results_widget  # noqa: PLC0415
 
     return {
         ACTIVITY_EVENTS_LIST_WIDGET_TYPE: WidgetSpec(
@@ -168,6 +172,23 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             availability_requirements=(),
             form_fields=("experimentId",),
             filter_fields=("experimentId",),
+        ),
+        SURVEY_RESULTS_WIDGET_TYPE: WidgetSpec(
+            widget_type=SURVEY_RESULTS_WIDGET_TYPE,
+            config_model=SurveyResultsWidgetConfig,
+            query_fn=run_survey_results_widget,
+            required_scopes=("survey:read", "query:read", "person:read"),
+            group_id="surveys",
+            group_label="Surveys",
+            label="Survey results",
+            description="Performance stats and recent responses for a selected survey.",
+            required_product_access="survey",
+            product_access_denied_message="You do not have access to surveys.",
+            availability_requirements=(),
+            form_fields=("surveyId", "limit", "dateRange"),
+            # surveyId is chosen on the tile filter bar (like experiment_results' experimentId), so it
+            # counts as a filter change — include it so "dashboard widget filters updated" fires on re-pick.
+            filter_fields=("surveyId", "dateRange"),
         ),
         LOGS_LIST_WIDGET_TYPE: WidgetSpec(
             widget_type=LOGS_LIST_WIDGET_TYPE,

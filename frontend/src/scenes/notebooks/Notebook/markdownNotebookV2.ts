@@ -2,14 +2,22 @@ import {
     escapeCodeSpanText,
     escapeInlineMarkdownText,
     escapeMarkdownBlockLines,
+    makeEmptyParagraph,
     parseMarkdownNotebook,
     sanitizeNotebookLinkHref,
     serializeMarkdownNotebook,
     serializeNode,
 } from 'lib/components/MarkdownNotebook/markdown'
-import { NotebookBlockNode, NotebookComponentProps, NotebookPropValue } from 'lib/components/MarkdownNotebook/types'
+import {
+    NotebookBlockNode,
+    NotebookComponentBlockNode,
+    NotebookComponentProps,
+    NotebookPropValue,
+} from 'lib/components/MarkdownNotebook/types'
 import { getInlineText, isNotebookPropValue, toSerializablePropValue } from 'lib/components/MarkdownNotebook/utils'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { urlToResource } from 'scenes/urls'
 
 import { DocumentBlock, VisualizationBlock } from '~/queries/schema/schema-assistant-artifacts'
 import {
@@ -40,6 +48,7 @@ export const NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG: Partial<Record<NotebookNodeType
     [NotebookNodeType.Python]: 'Python',
     [NotebookNodeType.DuckSQL]: 'DuckSQL',
     [NotebookNodeType.HogQLSQL]: 'HogQLSQL',
+    [NotebookNodeType.SQLV2]: 'SQLV2',
     [NotebookNodeType.Recording]: 'Recording',
     [NotebookNodeType.RecordingPlaylist]: 'RecordingPlaylist',
     [NotebookNodeType.FeatureFlag]: 'FeatureFlag',
@@ -115,6 +124,115 @@ export function appendMarkdownNotebookBlock(
         [markdown, blockMarkdown].filter((block) => block.trim()).join('\n\n'),
         getMarkdownNotebookNodeId(content)
     )
+}
+
+/** Converts a dragged legacy notebook resource (`node` + `properties` dataTransfer payload, as set
+ * by `useNotebookDrag`) into a markdown component block, or null when the node type has no
+ * markdown counterpart. */
+export function convertDroppedRichContentNodeToMarkdownNode(
+    nodeType: string,
+    attrs: Record<string, unknown>
+): NotebookBlockNode | null {
+    const tagName = NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG[nodeType as NotebookNodeType]
+    if (!tagName) {
+        return null
+    }
+
+    const props = getSerializableAttrs(attrs)
+    return makeDroppedComponentNode(tagName, tagName === 'Query' ? withDefaultHiddenFilters(props) : props)
+}
+
+function makeDroppedComponentNode(tagName: string, props: NotebookComponentProps): NotebookComponentBlockNode {
+    return {
+        id: makeEmptyParagraph('dropped').id,
+        type: 'component',
+        tagName,
+        props,
+    }
+}
+
+function toNumericResourceId(ref: string): number | null {
+    const id = Number(ref)
+    return Number.isInteger(id) && id > 0 ? id : null
+}
+
+const REPLAY_SINGLE_PATH_REGEX = /^\/replay\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/
+const PERSON_BY_UUID_PATH_REGEX = /^\/persons\/([^/]+)$/
+const PERSON_BY_DISTINCT_ID_PATH_REGEX = /^\/person\/([^/]+)$/
+
+/** Maps a dropped PostHog resource URL to its markdown component block, or null when the URL isn't
+ * a recognized resource. Entity links (`Link`) drag with only their href, so this is what turns a
+ * dragged feature flag, experiment, insight, etc. into its special node rather than a plain link. */
+export function convertDroppedPostHogUrlToMarkdownNode(url: string): NotebookBlockNode | null {
+    let parsed: URL
+    try {
+        parsed = new URL(url, window.location.origin)
+    } catch {
+        return null
+    }
+    if (parsed.origin !== window.location.origin) {
+        return null
+    }
+
+    const path = removeProjectIdIfPresent(parsed.pathname)
+
+    const replayMatch = path.match(REPLAY_SINGLE_PATH_REGEX)
+    if (replayMatch) {
+        return makeDroppedComponentNode('Recording', { id: replayMatch[1] })
+    }
+    const personByUuidMatch = path.match(PERSON_BY_UUID_PATH_REGEX)
+    if (personByUuidMatch) {
+        return makeDroppedComponentNode('Person', { id: decodeURIComponent(personByUuidMatch[1]) })
+    }
+    const personByDistinctIdMatch = path.match(PERSON_BY_DISTINCT_ID_PATH_REGEX)
+    if (personByDistinctIdMatch) {
+        return makeDroppedComponentNode('Person', { distinctId: decodeURIComponent(personByDistinctIdMatch[1]) })
+    }
+
+    const resource = urlToResource(path)
+    if (!resource) {
+        return null
+    }
+
+    switch (resource.type) {
+        case 'feature_flag': {
+            const id = toNumericResourceId(resource.ref)
+            return id === null ? null : makeDroppedComponentNode('FeatureFlag', { id })
+        }
+        case 'experiment': {
+            const id = toNumericResourceId(resource.ref)
+            return id === null ? null : makeDroppedComponentNode('Experiment', { id })
+        }
+        case 'cohort': {
+            const id = toNumericResourceId(resource.ref)
+            return id === null ? null : makeDroppedComponentNode('Cohort', { id })
+        }
+        case 'insight':
+            // `/insights/new` matches the same `:id` slot as a real short id
+            return resource.ref === 'new'
+                ? null
+                : makeDroppedComponentNode('Query', {
+                      query: { kind: NodeKind.SavedInsightNode, shortId: resource.ref },
+                      hideFilters: true,
+                  })
+        case 'survey':
+            return makeDroppedComponentNode('Survey', { id: resource.ref })
+        case 'early_access_feature':
+            return makeDroppedComponentNode('EarlyAccessFeature', { id: resource.ref })
+        default:
+            return null
+    }
+}
+
+/** A paragraph holding the dropped URL as a link — the fallback when a dragged URL isn't a
+ * recognized PostHog resource. */
+export function buildDroppedLinkParagraphNode(url: string): NotebookBlockNode {
+    const href = sanitizeNotebookLinkHref(url)
+    return {
+        id: makeEmptyParagraph('dropped-link').id,
+        type: 'paragraph',
+        children: [{ type: 'text', text: url, ...(href ? { marks: [{ type: 'link', href }] } : {}) }],
+    }
 }
 
 export function serializeMarkdownNotebookComponent(tagName: string, props: NotebookComponentProps): string {

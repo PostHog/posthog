@@ -8,6 +8,8 @@ import {
     McpAnalyticsSessionsGenerateIntentParams,
     McpAnalyticsSessionsGenerateIntentQueryParams,
     McpAnalyticsSessionsListQueryParams,
+    McpAnalyticsSessionsToolCallsParams,
+    McpAnalyticsSessionsToolCallsQueryParams,
 } from '@/generated/mcp_analytics/api'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
@@ -94,6 +96,31 @@ const mcpAnalyticsSessionsList = (): ToolBase<
                 offset: params.offset,
                 order_by: params.order_by,
                 search: params.search,
+            },
+        })
+        return await withPostHogUrl(context, result, '/mcp-analytics')
+    },
+})
+
+const McpAnalyticsSessionsToolCallsSchema = McpAnalyticsSessionsToolCallsParams.omit({ project_id: true }).extend(
+    McpAnalyticsSessionsToolCallsQueryParams.shape
+)
+
+const mcpAnalyticsSessionsToolCalls = (): ToolBase<
+    typeof McpAnalyticsSessionsToolCallsSchema,
+    WithPostHogUrl<Schemas.PaginatedMCPToolCallList>
+> => ({
+    name: 'mcp-analytics-sessions-tool-calls',
+    schema: McpAnalyticsSessionsToolCallsSchema,
+    handler: async (context: Context, params: z.infer<typeof McpAnalyticsSessionsToolCallsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedMCPToolCallList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_analytics/sessions/${encodeURIComponent(String(params.id))}/tool_calls/`,
+            query: {
+                date_from: params.date_from,
+                limit: params.limit,
+                offset: params.offset,
             },
         })
         return await withPostHogUrl(context, result, '/mcp-analytics')
@@ -524,6 +551,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'mcp-analytics-intent-clusters-retrieve': mcpAnalyticsIntentClustersRetrieve,
     'mcp-analytics-sessions-generate-intent': mcpAnalyticsSessionsGenerateIntent,
     'mcp-analytics-sessions-list': mcpAnalyticsSessionsList,
+    'mcp-analytics-sessions-tool-calls': mcpAnalyticsSessionsToolCalls,
     'mcp-feedback-submit': mcpFeedbackSubmit,
     'mcp-missing-capability-report': mcpMissingCapabilityReport,
     'query-mcp-harness-breakdown': createQueryWrapper({

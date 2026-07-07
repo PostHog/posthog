@@ -3,6 +3,7 @@ import sharp from 'sharp'
 
 import { BlurCache, BlurJob } from './config'
 
+// The ml-mirror scrub sidecar duplicates these (it's outside the workspace); keep the two in sync.
 const DOWNSAMPLE_RATIO = 0.12
 const BLUR_SIGMA = 2.34
 const MAX_LONG_SIDE = 96
