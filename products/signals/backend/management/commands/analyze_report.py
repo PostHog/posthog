@@ -8,12 +8,14 @@ the multi-turn research path while the eval infrastructure is built.
 import json
 import asyncio
 import logging
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
+from products.signals.backend.agent_runtime import CODEX_RUNTIME
 from products.signals.backend.report_generation.research import ReportResearchOutput, run_multi_turn_research
 from products.signals.backend.temporal.types import SignalData
 from products.tasks.backend.facade.agents import resolve_sandbox_context_for_local_dev
@@ -182,6 +184,12 @@ class Command(BaseCommand):
             action="store_true",
             help="Stream full raw S3 log lines instead of only agent messages",
         )
+        parser.add_argument(
+            "--codex",
+            action="store_true",
+            help="Run the research agent on the Codex runtime + gpt-5.5 (local trial of the "
+            "`signals-pipeline-models` payload's effect on the `research` step)",
+        )
 
     def handle(self, *args, **options):
         if not settings.DEBUG:
@@ -212,6 +220,15 @@ class Command(BaseCommand):
         except RuntimeError as e:
             self.stdout.write(self.style.ERROR(str(e)))
             return
+
+        if options["codex"]:
+            context = replace(
+                context,
+                runtime_adapter=CODEX_RUNTIME.runtime_adapter,
+                model=CODEX_RUNTIME.model,
+                reasoning_effort=CODEX_RUNTIME.reasoning_effort,
+            )
+            self.stdout.write(f"Runtime override: {CODEX_RUNTIME.runtime_adapter} / {CODEX_RUNTIME.model}")
 
         self.stdout.write(f"Mode: {mode}")
         self.stdout.write(f"Signals: {len(signals)}")

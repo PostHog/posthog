@@ -90,6 +90,7 @@ export function SettingsTab(): JSX.Element {
         isProvisioning,
         isDeprovisioning,
         isInProgress,
+        deprovisionTakingLong,
         databaseName,
         databaseNameAvailable,
         databaseNameChecking,
@@ -266,15 +267,22 @@ export function SettingsTab(): JSX.Element {
             ) : (
                 <div className="space-y-4">
                     {isInProgress && (
-                        <LemonBanner type="info">
+                        <LemonBanner type={deprovisionTakingLong ? 'warning' : 'info'}>
                             <div className="flex items-center gap-2">
                                 <Spinner />
                                 <span>
-                                    {warehouseStatus?.state === 'deleting'
-                                        ? 'Deprovisioning in progress...'
-                                        : 'Provisioning in progress...'}
+                                    {warehouseStatus?.status_message ||
+                                        (warehouseStatus?.state === 'deleting'
+                                            ? 'Deprovisioning in progress...'
+                                            : 'Provisioning in progress...')}
                                 </span>
                             </div>
+                            {deprovisionTakingLong && (
+                                <p className="text-muted text-xs mt-2 mb-0">
+                                    Teardown is taking longer than usual. It keeps retrying until the warehouse is fully
+                                    removed, so this will finish on its own. You can safely leave this page.
+                                </p>
+                            )}
                         </LemonBanner>
                     )}
 

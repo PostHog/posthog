@@ -1,4 +1,4 @@
-use posthog_cli::cmd;
+use posthog_cli::{cmd, invocation_context::init_posthog_telemetry};
 use rayon::ThreadPoolBuilder;
 
 fn main() {
@@ -18,8 +18,12 @@ fn main() {
         .expect("We successfully install a global thread pool");
 
     tracing::subscriber::set_global_default(subscriber).expect("Failed to set tracing subscriber");
+    init_posthog_telemetry();
 
-    match cmd::Cli::run() {
+    let result = cmd::Cli::run();
+    posthog_rs::flush();
+
+    match result {
         Ok(_) => {}
         Err(e) => {
             match e.exception_id {

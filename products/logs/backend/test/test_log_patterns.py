@@ -102,12 +102,15 @@ class TestMinePatterns(TestCase):
 
         # all five cluster together (the number is masked), but only two examples are kept
         assert patterns[0].count == 5
-        assert patterns[0].examples == ["error code 0", "error code 1"]
+        assert [e.body for e in patterns[0].examples] == ["error code 0", "error code 1"]
+        # examples carry the sampled row's metadata for display, not just the body
+        assert patterns[0].examples[0].service_name == "api"
+        assert patterns[0].examples[0].severity_text == "info"
 
     def test_long_bodies_are_truncated_before_mining(self) -> None:
         patterns = mine_patterns([_sample("x" * 1000)])
 
-        assert len(patterns[0].examples[0]) == 512
+        assert len(patterns[0].examples[0].body) == 512
 
     def test_first_and_last_seen_span_the_cluster(self) -> None:
         earliest = dt.datetime(2026, 6, 23, 12, 0, 0, tzinfo=dt.UTC)

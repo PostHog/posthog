@@ -124,7 +124,7 @@ describe('ProjectsGrid', () => {
     it('links each flag row to that flag in its own project', async () => {
         render(<ProjectsGrid />)
 
-        const link = await screen.findByRole('link', { name: /Cross Project Flag/i })
+        const link = (await screen.findByText(/Cross Project Flag/i)).closest('a')
         expect(link).toHaveAttribute('href', `/project/${FLAG_TEAM_ID}/feature_flags/42`)
     })
 })

@@ -25,4 +25,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 
 async def process_batch(batch: PendingBatch) -> None:
     """Load a single batch into Delta Lake, reusing the existing processor."""
-    await sync_to_async(process_message)(batch.to_export_signal())
+    # thread_sensitive=False: the default single-thread executor would cap the pod's
+    # real parallelism at 1; process_message is self-contained, so cross-thread is safe.
+    await sync_to_async(process_message, thread_sensitive=False)(batch.to_export_signal())

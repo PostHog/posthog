@@ -158,6 +158,7 @@ posthog/management/commands/clear_demo_data.py
 .claude/settings.local.json
 .claude/worktrees/
 .claude/scheduled_tasks.lock
+.claude/plans/
 
 # Ignore local mprocs configs
 bin/mprocs*.local.yaml

@@ -102,10 +102,21 @@ NON_RETRYABLE_ERROR_TYPES = (
     "ServiceAccountOwnershipError",
     # Raised when the BigQuery integration is not found.
     "BigQueryIntegrationNotFoundError",
+    # Raised when the destination table schema is incompatible with the schema of the file we are trying to load.
+    "BigQueryIncompatibleSchemaError",
 )
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
+
+
+class BigQueryIncompatibleSchemaError(Exception):
+    """Raised when the destination table schema is incompatible with the schema of the file we are trying to load."""
+
+    def __init__(self, err_msg: str):
+        super().__init__(
+            f"The data being loaded into the destination table is incompatible with the schema of the destination table: {err_msg}"
+        )
 
 
 FileFormat = typing.Literal["Parquet", "JSONLines"]
@@ -1046,6 +1057,23 @@ class BigQueryClient:
                 )
                 await asyncio.sleep(backoff)
                 attempt += 1
+            except BadRequest as err:
+                if err.reason != "invalidQuery" or "Required field" not in str(err):
+                    raise
+                try:
+                    field_name = str(err).split(" ")[2]
+                except IndexError:
+                    field_name = "unknown"
+
+                self.external_logger.warning(
+                    "BigQuery load job failed as a nullable field ('%s') is REQUIRED in the destination table."
+                    " Consider updating your table's schema so that the field is not REQUIRED."
+                    " Tables created automatically by the batch export always use non-REQUIRED fields.",
+                    field_name,
+                    error_code=err.code,
+                    exc_info=True,
+                )
+                raise BigQueryIncompatibleSchemaError(repr(field_name))
 
             else:
                 return result
@@ -1482,34 +1510,44 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
             merge_semaphore = asyncio.Semaphore(1)
 
             tasks = []
-            async with asyncio.TaskGroup() as tg:
-                for index, consumer_table in enumerate(consumer_tables):
-                    if can_perform_merge:
-                        transformer = _make_parquet_pipeline_transformer(
-                            consumer_table, max_file_size_bytes_per_consumer
-                        )
-                    else:
-                        transformer = _make_jsonl_pipeline_transformer(consumer_table, max_file_size_bytes_per_consumer)
+            try:
+                async with asyncio.TaskGroup() as tg:
+                    for index, consumer_table in enumerate(consumer_tables):
+                        if can_perform_merge:
+                            transformer = _make_parquet_pipeline_transformer(
+                                consumer_table, max_file_size_bytes_per_consumer
+                            )
+                        else:
+                            transformer = _make_jsonl_pipeline_transformer(
+                                consumer_table, max_file_size_bytes_per_consumer
+                            )
 
-                    tasks.append(
-                        tg.create_task(
-                            run_consumer(
-                                client=bq_client,
-                                consumer_table=consumer_table,
-                                target_table=bigquery_target_table,
-                                model=model.name if isinstance(model, BatchExportModel) else "events",
-                                file_format=file_format,
-                                queue=queue,
-                                transformer=transformer,
-                                all_consumers_done=all_consumers_done,
-                                producer_task=producer_task,
-                                merge=can_perform_merge,
-                                merge_semaphore=merge_semaphore,
-                                records_total=inputs.records_total if max_consumers == 1 else None,
-                            ),
-                            name=f"consumer-{index}",
+                        tasks.append(
+                            tg.create_task(
+                                run_consumer(
+                                    client=bq_client,
+                                    consumer_table=consumer_table,
+                                    target_table=bigquery_target_table,
+                                    model=model.name if isinstance(model, BatchExportModel) else "events",
+                                    file_format=file_format,
+                                    queue=queue,
+                                    transformer=transformer,
+                                    all_consumers_done=all_consumers_done,
+                                    producer_task=producer_task,
+                                    merge=can_perform_merge,
+                                    merge_semaphore=merge_semaphore,
+                                    records_total=inputs.records_total if max_consumers == 1 else None,
+                                ),
+                                name=f"consumer-{index}",
+                            )
                         )
-                    )
+            except ExceptionGroup as eg:
+                has_only_one_type = len({type(exc) for exc in eg.exceptions}) == 1
+                if has_only_one_type:
+                    # If all consumers failed with the same exception, assume we can
+                    # raise one of them as a representative example.
+                    raise eg.exceptions[0] from None
+                raise
 
             await raise_on_task_failure(producer_task)
 

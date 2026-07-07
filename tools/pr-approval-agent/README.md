@@ -98,6 +98,12 @@ LLM Review
   - Claude Agent SDK with Read/Grep/Glob tools
   - Explores the repo via git diff, reads source files if needed
   - Looks for showstoppers: production breakage, security, missed deps
+  - Receives the PR description (untrusted) and verifies the diff matches the
+    author's stated intent — undisclosed sensitive behavior gets extra scrutiny
+  - Reads the discussion-comment timeline (untrusted, newest first, capped)
+    alongside inline comments; an un-withdrawn maintainer hold blocks approval
+  - Gets a trusted one-line `Assurance:` digest (current-head approvals,
+    unresolved inline comments, discussion count) so review state is at a glance
   - Reads other reviewers' signals as context (not a gate): top-level review
     states (annotated current-head vs older-commit), inline comments (tagged
     resolved/outdated), and reactions (👍/👎/👀) on the PR and comments —
@@ -120,10 +126,12 @@ LLM Review
   - Gates are authoritative — LLM can tighten but never loosen
   │
   ▼
-Final verdict → GitHub review (approve or comment)
+Final verdict → GitHub review (approve) or sticky comment (everything else)
 ```
 
-The bot never posts request-changes — only approves or comments.
+The bot never posts request-changes.
+Approvals are posted as real PR reviews (they must count toward branch protection).
+Every other verdict (REFUSED, ESCALATE, WAIT, ERROR) goes into a single sticky comment that is updated in place on each run, with a counter of how many verdicts the comment has carried (failure notes append without bumping it) — repeated refusals don't stack up as separate review comments on the PR.
 
 ## Tiers
 
@@ -188,16 +196,31 @@ If the check hasn't completed yet when stamphog runs, stamphog refuses with a me
 
 ### Ownership
 
-Uses `.github/CODEOWNERS-soft` as context for the LLM (not a hard gate).
-Cross-team typo/test/comment fixes are fine, as are small well-tested behavioral
-fixes (T1a/T1b) with no outstanding reviewer concerns; API contract, data model,
-and larger behavioral changes get escalated.
+Ownership context for the LLM (not a hard gate). The sources are declared in
+`.stamphog/policy.yml` under `ownership:` and read from the master checkout: a
+`gh-codeowners` source (`.github/CODEOWNERS-soft`, last-match-wins) plus a
+`ph-product` source (`products/*/product.yaml` owners). A file's owning teams
+are the union across all sources, so stamphog sees the same merged view the
+reviewer auto-assigner builds. Cross-team typo/test/comment fixes are fine, as
+are small well-tested behavioral fixes (T1a/T1b) with no outstanding reviewer
+concerns; API contract, data model, and larger behavioral changes get escalated.
+
+## Versioning
+
+`version.py` holds `STAMPHOG_VERSION` (semver, pre-releases like `2.0.0b1`).
+It is stamped onto the `stamphog_review_completed` event (alongside the
+checkout commit sha), the LLM trace properties, the evidence bundle, and the
+verdict comment's mechanics table — so verdict quality and reviewer behavior
+can be segmented by version in LLM analytics. Bump it in the same PR as any
+behavior-affecting change to the engine, the prompt scaffold, or the review
+guidance. Policy data edits don't need a bump; they're tracked by the policy
+sha shown next to the version.
 
 ## Evidence bundle
 
 Every run produces a JSON evidence bundle (`--output-json` locally, uploaded as artifact in CI) containing:
 
-- PR metadata (number, author, title)
+- Stamphog version and PR metadata (number, author, title)
 - Classification (tier, sub-tier, breadth, commit type, deny categories, ownership)
 - Gate results (each gate's pass/fail status and message)
 - Reviewer output (verdict, reasoning, risk, issues)
