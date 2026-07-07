@@ -528,20 +528,23 @@ class TestFetchAverageRowSize:
         # The unquotable column is neither quoted nor spliced in raw.
         assert "Ach:CompanyId" not in sql
 
-    @pytest.mark.parametrize(
-        "exc",
-        [
-            RuntimeError("boom"),
-            # pymysql raises InterfaceError(0, "") when the connection socket was already closed:
-            # a transient drop. Row-size sampling is best-effort, so it's swallowed and the caller
-            # falls back to the default chunk size rather than surfacing error-tracking noise.
-            pymysql.err.InterfaceError(0, ""),
-        ],
-    )
-    def test_returns_none_on_exception(self, exc, impl, cursor, logger):
-        cursor.execute.side_effect = exc
+    def test_returns_none_on_exception(self, impl, cursor, logger):
+        cursor.execute.side_effect = RuntimeError("boom")
         result = impl.fetch_average_row_size(cursor, "db", "t", "SELECT 1", {}, logger)
         assert result is None
+
+    def test_does_not_capture_handled_probe_failures(self, impl, cursor, logger, mocker):
+        # Row-size sampling is best-effort: on failure the caller falls back to the default chunk
+        # size, so handled failures must not flood error tracking. pymysql raises InterfaceError(0, "")
+        # when the connection socket was already closed (a transient drop). Mirrors the get_rows_to_sync
+        # and explain_query probe guards.
+        cursor.execute.side_effect = pymysql.err.InterfaceError(0, "")
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.capture_exception"
+        )
+
+        assert impl.fetch_average_row_size(cursor, "db", "t", "SELECT 1", {}, logger) is None
+        capture.assert_not_called()
 
 
 def _show_index_rows(*triples: tuple[str, str, int]) -> list[tuple]:

@@ -33,6 +33,11 @@ from pymysql.constants import FIELD_TYPE
 from pymysql.cursors import Cursor, SSCursor
 from structlog.types import FilteringBoundLogger
 
+# Module-level error-capture seam. This module's best-effort probes (get_rows_to_sync,
+# explain_query, fetch_average_row_size) deliberately do NOT report handled failures here;
+# their guard tests patch `mysql.capture_exception` to enforce that.
+from posthog.exceptions_capture import capture_exception  # noqa: F401
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     SourceInputs,
     SourceResponse,
