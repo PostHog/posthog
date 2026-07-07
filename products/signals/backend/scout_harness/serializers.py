@@ -12,8 +12,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from posthog.schema import Severity
-
+from products.signals.backend.artefact_schemas import ActionabilityChoice, Priority
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.tools.emit import (
@@ -21,6 +20,8 @@ from products.signals.backend.scout_harness.tools.emit import (
     MAX_TAG_LENGTH,
     MAX_TAGS_PER_FINDING,
 )
+from products.signals.backend.scout_harness.tools.report import MAX_REPORT_TITLE_LENGTH, MAX_SUGGESTED_REVIEWERS
+from products.signals.backend.scout_harness.tools.runs import DEFAULT_FINDINGS_WINDOW_HOURS, MAX_FINDINGS_WINDOW_HOURS
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
 
 # --- Run history -----------------------------------------------------------
@@ -39,6 +40,14 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
     skill_version = serializers.IntegerField(help_text="Skill version snapshotted at run start.")
     status = serializers.CharField(
         help_text="Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled.",
+    )
+    created_at = serializers.CharField(
+        help_text=(
+            "ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` "
+            "filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking "
+            "past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and "
+            "its bridge row aren't skipped."
+        ),
     )
     started_at = serializers.CharField(help_text="ISO-8601 timestamp the TaskRun was created.")
     completed_at = serializers.CharField(
@@ -99,6 +108,23 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
             "non-emitting runs."
         ),
     )
+    emitted_report_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "The `SignalReport` ids this run authored directly via the `emit_report` channel, in emit "
+            "order. Separate from `emitted_finding_ids` (weak `emit_signal` findings) — a report-authoring "
+            "scout writes a full report here instead. Empty for runs that authored no report."
+        ),
+    )
+    edited_report_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary "
+            "and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any "
+            "inbox report, so these are generally not reports the run authored. Empty for runs that "
+            "edited no report."
+        ),
+    )
 
 
 class SignalScoutRunDetailSerializer(SignalScoutRunSummarySerializer):
@@ -134,7 +160,7 @@ class SignalScoutEmissionSerializer(serializers.ModelSerializer):
         help_text="Agent's confidence the finding is real in [0, 1].",
     )
     severity = serializers.ChoiceField(
-        choices=[(s.value, s.value) for s in Severity],
+        choices=[(p.value, p.value) for p in Priority],
         allow_null=True,
         help_text="Optional severity tag — one of P0, P1, P2, P3, P4 — or null if the run didn't set one.",
     )
@@ -164,6 +190,129 @@ class SignalScoutEmissionSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class LinkedSignalReportSerializer(serializers.Serializer):
+    """Minimal inbox `SignalReport` projection for the scout reverse lookup — just enough
+    for the scout UI to render a clickable chip and deep-link into the inbox, which loads
+    the full report itself."""
+
+    id = serializers.UUIDField(help_text="UUID of the linked `SignalReport`.")
+    title = serializers.CharField(
+        allow_null=True,
+        help_text="LLM-generated report title, or null if the report hasn't been summarised yet.",
+    )
+    status = serializers.CharField(help_text="Current report status (e.g. `potential`, `ready`, `resolved`).")
+
+
+class ScoutEmissionReportLinkSerializer(serializers.Serializer):
+    """One finding the run emitted, paired with the inbox report (if any) its signal grouped into.
+
+    Best-effort reverse of the report -> signals link: `report` is null when the finding hasn't
+    grouped into a report yet, was de-duplicated away, or its signal was deleted."""
+
+    finding_id = serializers.CharField(help_text="Stable id the finding was emitted under.")
+    source_id = serializers.CharField(
+        help_text="Deterministic `run:<run_id>:finding:<finding_id>` join key into the signal store.",
+    )
+    report = LinkedSignalReportSerializer(
+        allow_null=True,
+        help_text="The inbox report this finding linked to, or null if none could be resolved.",
+    )
+
+
+# Upper bound on run ids accepted by the batched emissions / emission-reports endpoints. The findings
+# UI caps its window at 120 emitted runs (`MAX_FLEET_EMITTED_RUNS`); this sits above that with headroom
+# and bounds a pathological request rather than coupling tightly to the client cap.
+SCOUT_RUNS_BATCH_LIMIT = 200
+
+
+class ScoutRunIdsBatchRequestSerializer(serializers.Serializer):
+    """Request body for the batched emissions / emission-reports lookups: the set of run UUIDs to
+    resolve in one call. Collapses the findings UI's old per-run fan-out (one request — and for the
+    reports lookup, one ClickHouse round-trip — per emitted run) into a single request."""
+
+    run_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=SCOUT_RUNS_BATCH_LIMIT,
+        help_text=(
+            "UUIDs of the `SignalScoutRun` rows to resolve in one batch. Run ids belonging to another "
+            "team are silently ignored (they contribute no rows) rather than failing the whole request. "
+            f"Capped at {SCOUT_RUNS_BATCH_LIMIT} ids per call."
+        ),
+    )
+
+
+class RecentEmissionsQuerySerializer(serializers.Serializer):
+    """Query parameters for `recent-emissions` — recent findings across every run on the team.
+
+    The cross-run counterpart to the per-run `emissions` action: instead of resolving a list of
+    run ids first, ask for the team's recent emitted findings directly, newest-first, optionally
+    scoped to one scout or a time window. Pure Postgres — no ClickHouse round-trip.
+    """
+
+    date_from = serializers.DateTimeField(
+        required=False,
+        help_text="ISO-8601 inclusive lower bound on `emitted_at`. Omit to skip the lower bound.",
+    )
+    date_to = serializers.DateTimeField(
+        required=False,
+        help_text=(
+            "ISO-8601 exclusive upper bound on `emitted_at`. Pass to walk back past the result "
+            "cap on subsequent calls (cursor-style: set to the `emitted_at` of the oldest emission "
+            "from the prior page)."
+        ),
+    )
+    skill_name = serializers.CharField(
+        required=False,
+        help_text=(
+            "Exact-match filter on the emitting scout's skill (e.g. `signals-scout-errors`). Narrows "
+            "to findings one specialist surfaced; omit to span every scout on the team."
+        ),
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=200,
+        help_text="Max rows to return (default 50, hard cap 200).",
+    )
+
+
+class FleetFindingsSummarySerializer(serializers.Serializer):
+    """Fleet-wide tally of recently emitted findings — backs the "Scout findings" callout so it
+    renders from one cheap query instead of the client walking the whole paginated runs window."""
+
+    count = serializers.IntegerField(
+        help_text=(
+            "Total findings the fleet emitted in the window — the sum of each emitted run's "
+            "`emitted_count`, over the most recent 120 emitted runs."
+        )
+    )
+    scout_count = serializers.IntegerField(
+        help_text="Number of distinct scouts (skills) that emitted at least one finding in the window."
+    )
+    latest_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text=(
+            "ISO-8601 timestamp of the most recently emitted finding's run (TaskRun completion, "
+            "falling back to run creation), or null when nothing was emitted in the window."
+        ),
+    )
+
+
+class FleetFindingsSummaryQuerySerializer(serializers.Serializer):
+    """Query parameters for the `findings/summary` action."""
+
+    window_hours = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=MAX_FINDINGS_WINDOW_HOURS,
+        help_text=(
+            f"Lookback window in hours over runs' `created_at` "
+            f"(default {DEFAULT_FINDINGS_WINDOW_HOURS}, hard cap {MAX_FINDINGS_WINDOW_HOURS})."
+        ),
+    )
+
+
 class SearchRecentRunsQuerySerializer(serializers.Serializer):
     """Query parameters for `search-recent-runs`."""
 
@@ -175,7 +324,7 @@ class SearchRecentRunsQuerySerializer(serializers.Serializer):
         required=False,
         help_text=(
             "ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result "
-            "cap on subsequent calls (cursor-style: set to the `started_at` of the oldest run "
+            "cap on subsequent calls (cursor-style: set to the `created_at` of the oldest run "
             "from the prior page)."
         ),
     )
@@ -232,6 +381,16 @@ class ScratchpadEntrySerializer(serializers.Serializer):
         allow_null=True,
         help_text="Run that wrote this entry, or null if human-authored.",
     )
+    created_by_skill = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Canonical skill name of the scout that created this entry (e.g. `signals-scout-apm`), or null if human-authored.",
+    )
+    created_by_run_url = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Relative Tasks UI deep-link to the run that created this entry, or null if the run linkage isn't captured.",
+    )
 
 
 class SearchMemoryQuerySerializer(serializers.Serializer):
@@ -241,6 +400,18 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         help_text="ILIKE substring match against `content`. Omit to return the most recent entries.",
+    )
+    date_from = serializers.DateTimeField(
+        required=False,
+        help_text="ISO-8601 inclusive lower bound on `updated_at`. Omit to skip the lower bound.",
+    )
+    date_to = serializers.DateTimeField(
+        required=False,
+        help_text=(
+            "ISO-8601 exclusive upper bound on `updated_at`. Pass to walk back past the result "
+            "cap on subsequent calls (cursor-style: set to the `updated_at` of the oldest entry "
+            "from the prior page)."
+        ),
     )
     keys_only = serializers.BooleanField(
         required=False,
@@ -261,8 +432,8 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(
         required=False,
         min_value=1,
-        max_value=100,
-        help_text="Max rows to return (default 20, hard cap 100).",
+        max_value=500,
+        help_text="Max rows to return (default 20, hard cap 500).",
     )
 
 
@@ -271,7 +442,12 @@ class RememberRequestSerializer(serializers.Serializer):
 
     key = serializers.CharField(
         max_length=300,
-        help_text="Agent-chosen semantic key. Re-using a key updates the existing entry in place.",
+        help_text=(
+            "Agent-chosen semantic key, unique per team; re-using a key overwrites the entry in place. "
+            "Key off the *stable identity* of what you're tracking — never embed a date, timestamp, or run "
+            "id (that mints a new row every run and breaks dedupe). For run state/cursors, use one fixed key "
+            "and keep the timestamp in `content`."
+        ),
     )
     content = serializers.CharField(
         max_length=MAX_SCRATCHPAD_CONTENT_LENGTH,
@@ -282,7 +458,8 @@ class RememberRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Run that authored this memory; persisted as `created_by_run_id` for lineage. "
-            "Must reference a run on this same project — cross-project run UUIDs are rejected."
+            "Best-effort — a `run_id` that isn't a run on this project is dropped (lineage left "
+            "null), not rejected, so the memory write is never lost."
         ),
     )
 
@@ -346,7 +523,7 @@ class EmitFindingRequestSerializer(serializers.Serializer):
         help_text="Optional one-line hypothesis the finding tests.",
     )
     severity = serializers.ChoiceField(
-        choices=[(s.value, s.value) for s in Severity],
+        choices=[(p.value, p.value) for p in Priority],
         required=False,
         allow_null=True,
         help_text="Optional severity tag — one of P0, P1, P2, P3, P4. Informational only.",
@@ -393,6 +570,220 @@ class EmitFindingResponseSerializer(serializers.Serializer):
         allow_null=True,
         help_text="`ai_processing_not_approved` | `source_disabled` | null when emitted normally.",
     )
+    remediation = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "One-line, actionable next step when `skipped_reason` is set and the block is fixable "
+            "(e.g. an org admin must approve AI data processing). Null when emitted normally or the "
+            "skip isn't something the scout can act on."
+        ),
+    )
+
+
+# --- Report authoring (emit_report / edit_report) --------------------------
+
+
+class ReportEvidenceSerializer(serializers.Serializer):
+    """One observation backing an authored report — becomes a bound signal row on the report."""
+
+    description = serializers.CharField(
+        help_text="Prose for this observation. Embedded and rendered to the safety/research surfaces.",
+    )
+    source_id = serializers.CharField(
+        help_text="Stable id for this observation within the report (lets a later edit address it).",
+    )
+    weight = serializers.FloatField(
+        required=False,
+        min_value=0.0,
+        help_text="Optional per-signal weight (defaults to 1.0). Scouts rarely need to set this.",
+    )
+
+
+class SuggestedReviewerSerializer(serializers.Serializer):
+    """One suggested reviewer — identified by `github_login`, `user_uuid`, or both.
+
+    The server canonicalizes each entry to a lowercased GitHub login: a `user_uuid` is resolved to the
+    org member's linked GitHub login (and wins over a supplied `github_login` when both are given). A
+    `user_uuid` that isn't an org member of this team with a linked GitHub identity is rejected — so a
+    reviewer is never silently dropped."""
+
+    github_login = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        max_length=200,
+        help_text=(
+            "GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display "
+            "name. Resolve one via `signals-scout-members-list` (each member row carries a resolved "
+            "`github_login`) or git history when you only have a name."
+        ),
+    )
+    user_uuid = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "PostHog user UUID (e.g. from `signals-scout-members-list`, or an entity's `created_by`). "
+            "Resolved server-side to the member's linked GitHub login — use this when you know the PostHog "
+            "user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
+        ),
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if not attrs.get("github_login") and not attrs.get("user_uuid"):
+            raise serializers.ValidationError("Each reviewer must include `github_login` or `user_uuid` (or both).")
+        return attrs
+
+
+class EmitReportRequestSerializer(serializers.Serializer):
+    """Request body for `emit-report`. Run attribution is taken from the URL path."""
+
+    title = serializers.CharField(
+        max_length=MAX_REPORT_TITLE_LENGTH,
+        help_text=(
+            "One-line report title the inbox shows. Conventional-commit style "
+            "(`type(scope): description`, e.g. `fix(insights): missing series color`) renders with "
+            "type/scope styling."
+        ),
+    )
+    summary = serializers.CharField(
+        help_text=(
+            "The report body the inbox shows. Markdown is supported (headings, lists, code, links; "
+            "images are not rendered). Lead with one plain declarative sentence — the inbox card uses "
+            "your first line verbatim as the headline (~140 chars, emphasis stripped), then renders the "
+            "full markdown in the detail view."
+        ),
+    )
+    evidence = serializers.ListField(
+        child=ReportEvidenceSerializer(),
+        min_length=1,
+        help_text="The observations backing the report — each becomes a bound signal. At least one.",
+    )
+    actionability_explanation = serializers.CharField(
+        help_text="2-3 sentence evidence-grounded justification for the actionability call below.",
+    )
+    actionability = serializers.ChoiceField(
+        choices=[(c.value, c.value) for c in ActionabilityChoice],
+        help_text=(
+            "The scout's actionability call: `immediately_actionable` -> the report surfaces READY; "
+            "`requires_human_input` -> PENDING_INPUT; `not_actionable` -> suppressed. A safety-judge "
+            "failure suppresses the report regardless."
+        ),
+    )
+    already_addressed = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether the issue already appears fixed in recent changes (tracked separately).",
+    )
+    repository = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional repo for autostart (opening a draft PR): `owner/repo` targets that repo, the "
+            "`NO_REPO` sentinel opts out (report lands without a PR), and omitting it triggers free-form "
+            "selection across the team's repos — the slow path on a many-repo team, so pass `owner/repo` "
+            "when you know it."
+        ),
+    )
+    priority = serializers.ChoiceField(
+        required=False,
+        allow_null=True,
+        choices=[(p.value, p.value) for p in Priority],
+        help_text="Optional priority (`P0`-`P4`). Required for autostart; pair with `priority_explanation`.",
+    )
+    priority_explanation = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="2-3 sentence justification for `priority`. Required when `priority` is set.",
+    )
+    suggested_reviewers = serializers.ListField(
+        required=False,
+        child=SuggestedReviewerSerializer(),
+        max_length=MAX_SUGGESTED_REVIEWERS,
+        help_text=(
+            "Optional reviewers to route the report to (each a `github_login` and/or `user_uuid`). This is "
+            "the primary way a report reaches a human — the inbox floats a reviewer's own reports to the top "
+            "of their inbox even when no PR is involved — so set it whenever you can name a plausible owner. "
+            "It also gates autostart: a PR opens only if at least one reviewer clears their autonomy threshold."
+        ),
+    )
+
+
+class EmitReportResponseSerializer(serializers.Serializer):
+    report_id = serializers.CharField(
+        allow_null=True,
+        help_text="The authored report's id (null only when a preflight gate skipped the call). Returned even when suppressed, so you can edit/dedup against it.",
+    )
+    report_status = serializers.CharField(
+        allow_null=True,
+        help_text="Birth status: `ready` | `pending_input` | `suppressed`, or null when gate-skipped.",
+    )
+    emitted = serializers.BooleanField(
+        help_text="True when the report actually surfaced in the inbox (READY or PENDING_INPUT).",
+    )
+    skipped_reason = serializers.CharField(
+        allow_null=True,
+        help_text="`scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` | null when not gate-skipped.",
+    )
+    safety_explanation = serializers.CharField(
+        allow_null=True,
+        help_text="When the safety judge suppressed the report, why; null when safe.",
+    )
+    remediation = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "One-line, actionable next step when `skipped_reason` is set and the block is fixable "
+            "(e.g. an org admin must approve AI data processing). Null when the report was authored "
+            "or the skip isn't something the scout can act on."
+        ),
+    )
+
+
+class EditReportRequestSerializer(serializers.Serializer):
+    """Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones."""
+
+    report_id = serializers.CharField(help_text="Id of the report to edit (must belong to this project).")
+    title = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=MAX_REPORT_TITLE_LENGTH,
+        help_text=(
+            "Optional new title. Conventional-commit style (`type(scope): description`) renders with "
+            "type/scope styling. The pipeline may later re-research and overwrite it."
+        ),
+    )
+    summary = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional new summary. Markdown is supported (headings, lists, code, links; images are not "
+            "rendered); lead with one plain declarative sentence — it becomes the inbox card headline. "
+            "The pipeline may later re-research and overwrite it."
+        ),
+    )
+    append_note = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Optional free-form note to append to the report's work log (attributed to this scout).",
+    )
+    suggested_reviewers = serializers.ListField(
+        required=False,
+        child=SuggestedReviewerSerializer(),
+        max_length=MAX_SUGGESTED_REVIEWERS,
+        help_text=(
+            "Optional reviewers to set on the report (each a `github_login` and/or `user_uuid`), replacing "
+            "any existing list. Use this to route a report that surfaced with no reviewer — it re-runs "
+            "autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An "
+            "empty list is a no-op (existing reviewers are left untouched, never cleared)."
+        ),
+    )
+
+
+class EditReportResponseSerializer(serializers.Serializer):
+    report_id = serializers.CharField(help_text="Id of the edited report.")
+    updated_fields = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Which presentation fields changed (e.g. `title`, `summary`); empty if only a note was appended.",
+    )
+    note_appended = serializers.BooleanField(help_text="Whether a note artefact was appended.")
+    reviewers_set = serializers.BooleanField(help_text="Whether the report's suggested reviewers were replaced.")
 
 
 # --- Project profile ------------------------------------------------------
@@ -451,6 +842,29 @@ class SignalSourceConfigsBucketsSerializer(serializers.Serializer):
     disabled = serializers.ListField(
         child=SignalSourceConfigEntrySerializer(),
         help_text="Source configs the team has explicitly disabled (different from never wired up).",
+    )
+
+
+class EmitEligibilitySerializer(serializers.Serializer):
+    """`inventory.emit_eligibility` — whether scout findings can reach the inbox for this team."""
+
+    ai_processing_approved = serializers.BooleanField(
+        help_text="Whether the organization has approved AI data processing (an org-level gate on all scout emits).",
+    )
+    source_enabled = serializers.BooleanField(
+        help_text="Whether the `signals_scout` signal source is enabled for this team.",
+    )
+    can_emit = serializers.BooleanField(
+        help_text=(
+            "True only when both team/org-level gates pass, so scout findings (signal and report "
+            "channels alike) actually reach the inbox. When False, every emit is silently dropped — "
+            "quick-close instead of doing throwaway investigation. Does not account for a scout's "
+            "own dry-run `emit` toggle, which is per-config, not team-wide."
+        ),
+    )
+    remediation = serializers.CharField(
+        allow_null=True,
+        help_text="One-line next step to unblock emits when `can_emit` is False; null when emits can flow.",
     )
 
 
@@ -582,6 +996,33 @@ class RecentActivitySerializer(serializers.Serializer):
     by_scope = serializers.ListField(
         child=ScopeActivityEntrySerializer(),
         help_text="Per-scope activity rows, busiest scope first. Triage which entity type the team has worked in lately.",
+    )
+
+
+class ReviewerCorrectionEntrySerializer(serializers.Serializer):
+    """One row in `inventory.recent_reviewer_corrections.corrections`."""
+
+    report_id = serializers.CharField(help_text="UUID of the report whose reviewers a human edited.")
+    report_title = serializers.CharField(allow_null=True, help_text="Report title at the time of the edit.")
+    before = serializers.ListField(
+        child=serializers.CharField(), help_text="GitHub logins on the report before the human edit (lowercased)."
+    )
+    after = serializers.ListField(
+        child=serializers.CharField(), help_text="GitHub logins on the report after the human edit (lowercased)."
+    )
+    at = serializers.CharField(allow_null=True, help_text="ISO-8601 timestamp of the edit.")
+
+
+class RecentReviewerCorrectionsSerializer(serializers.Serializer):
+    """`inventory.recent_reviewer_corrections` — human edits to report reviewer lists."""
+
+    window_days = serializers.IntegerField(help_text="Lookback window in days the corrections cover.")
+    corrections = serializers.ListField(
+        child=ReviewerCorrectionEntrySerializer(),
+        help_text=(
+            "Human reviewer edits, newest first. A human swapping a report's suggested "
+            "reviewers is authoritative ownership precedent — route to who they chose."
+        ),
     )
 
 
@@ -821,6 +1262,13 @@ class ProjectProfileInventorySerializer(serializers.Serializer):
     signal_source_configs = SignalSourceConfigsBucketsSerializer(
         help_text="Signal source configs split into enabled / disabled buckets.",
     )
+    emit_eligibility = EmitEligibilitySerializer(
+        help_text=(
+            "Whether scout findings can actually reach the inbox for this team — the org-level AI "
+            "data-processing consent gate and the `signals_scout` source toggle, plus a one-line "
+            "remediation pointer. Read at cold start to quick-close before doing throwaway work."
+        ),
+    )
     existing_inbox_reports = ExistingInboxReportsSerializer(
         help_text="Counts of reports already in the inbox, grouped by status.",
     )
@@ -832,6 +1280,13 @@ class ProjectProfileInventorySerializer(serializers.Serializer):
             "scope reports `edits` (total log entries), `users` (distinct user count), "
             "and `last_edit` (ISO-8601). Use to triage which scope a team has been working "
             "in lately before drilling down via the per-entity readers or `activity-log-list`."
+        ),
+    )
+    recent_reviewer_corrections = RecentReviewerCorrectionsSerializer(
+        help_text=(
+            "Recent human edits to report reviewer lists (before/after GitHub logins). "
+            "The strongest ownership precedent available — check it before setting "
+            "`suggested_reviewers` and fold what it shows into `reviewer:` memory keys."
         ),
     )
     recent_dashboards = serializers.ListField(
@@ -976,6 +1431,14 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "on the team or carries no description."
         ),
     )
+    scout_origin = serializers.SerializerMethodField(
+        help_text=(
+            "Where this scout came from: `canonical` for a scout PostHog ships and maintains "
+            "(seeded from `products/signals/skills/`), or `custom` for one a team hand-authored "
+            "on this project. Use it to badge built-in vs custom scouts instead of a hardcoded "
+            "name list. Defaults to `custom` if the skill is not currently present on the team."
+        ),
+    )
     enabled = serializers.BooleanField(
         required=False,
         help_text="Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator.",
@@ -986,9 +1449,9 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
     )
     run_interval_minutes = serializers.IntegerField(
         required=False,
-        min_value=10,
+        min_value=30,
         max_value=43200,
-        help_text="Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.",
+        help_text="Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.",
     )
     last_run_at = serializers.DateTimeField(
         read_only=True,
@@ -998,10 +1461,17 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_description(self, obj: SignalScoutConfig) -> str:
-        # Resolved by the view into `skill_descriptions` (skill_name -> description) so the
+        # Resolved by the view into `skill_info` (skill_name -> _ScoutSkillInfo) so the
         # list endpoint stays a single LLMSkill query rather than one lookup per config row.
-        descriptions = self.context.get("skill_descriptions") or {}
-        return descriptions.get(obj.skill_name, "")
+        info = (self.context.get("skill_info") or {}).get(obj.skill_name)
+        return info.description if info else ""
+
+    @extend_schema_field(serializers.ChoiceField(choices=["canonical", "custom"]))
+    def get_scout_origin(self, obj: SignalScoutConfig) -> str:
+        # Same single-query `skill_info` map as `get_description`. Falls back to `custom` when
+        # the skill row is absent — a config with no skill row isn't a canonical scout.
+        info = (self.context.get("skill_info") or {}).get(obj.skill_name)
+        return info.origin if info else "custom"
 
     class Meta:
         model = SignalScoutConfig
@@ -1009,6 +1479,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "id",
             "skill_name",
             "description",
+            "scout_origin",
             "enabled",
             "emit",
             "run_interval_minutes",
@@ -1045,9 +1516,9 @@ class SignalScoutConfigCreateSerializer(serializers.Serializer):
     )
     run_interval_minutes = serializers.IntegerField(
         required=False,
-        min_value=10,
+        min_value=30,
         max_value=43200,
-        help_text="Minutes between runs (10–43200). Defaults to 60 (hourly).",
+        help_text="Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).",
     )
 
     def validate_skill_name(self, value: str) -> str:
@@ -1056,3 +1527,108 @@ class SignalScoutConfigCreateSerializer(serializers.Serializer):
         if not value.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
             raise serializers.ValidationError(f"Scout skill names must start with '{SIGNALS_SCOUT_SKILL_PREFIX}'.")
         return value
+
+
+class SignalScoutManualRunSerializer(serializers.Serializer):
+    """Response for an on-demand (`run now`) scout dispatch.
+
+    The run executes asynchronously on the Temporal worker, so there is no `SignalScoutRun`
+    row yet at response time — the bridge row is created once the run's first turn starts.
+    Poll the scout's runs (`signals-scout-runs-list`) to see the resulting run and its findings.
+    """
+
+    skill_name = serializers.CharField(help_text="The `signals-scout-*` skill that was dispatched.")
+    workflow_id = serializers.CharField(
+        help_text=(
+            "Temporal workflow id for the dispatched run. The run executes asynchronously; poll the "
+            "scout's runs to see the resulting run row, its status, and any emitted findings."
+        )
+    )
+    started = serializers.BooleanField(
+        help_text="True when a new run was dispatched. The endpoint returns 409 instead when a run for this scout is already in progress."
+    )
+
+
+# --- Team metadata ---------------------------------------------------------
+
+
+class ScoutLimitsSerializer(serializers.Serializer):
+    """A team's enforced scout run caps and current usage.
+
+    These are the values the coordinator actually applies at dispatch (resolved per-team override →
+    fleet-wide default → code constant), so the UI can show the real throttle rather than what a
+    user thinks they configured.
+    """
+
+    max_runs_per_tick = serializers.IntegerField(
+        help_text="Most scout runs the team can start in a single 30-minute coordinator tick."
+    )
+    max_runs_per_day = serializers.IntegerField(
+        allow_null=True,
+        help_text="Most scout runs the team can start per rolling 24 hours, or null when uncapped.",
+    )
+    runs_today = serializers.IntegerField(
+        help_text="Scout runs the team has started in the trailing 24 hours.",
+    )
+    runs_remaining_today = serializers.IntegerField(
+        allow_null=True,
+        help_text="Runs still allowed in the trailing 24h window (max_runs_per_day − runs_today), or null when uncapped.",
+    )
+
+
+class ScoutMetadataSerializer(serializers.Serializer):
+    """Team-scoped scout metadata for the inbox / Code-app UIs: enrollment, the alpha banner, and
+    the enforced limits. Sourced from the `signals-scout` flag payload so the banner and caps can
+    change without a deploy to either app."""
+
+    enrolled = serializers.BooleanField(
+        help_text=(
+            "Whether this project runs scouts. True when the project is in the signals-scout flag's "
+            'enrollment set — either listed explicitly in guaranteed_team_ids or covered by the "*" '
+            "wildcard (every project that turns scouts on) — and not in skip_team_ids."
+        )
+    )
+    banner_message = serializers.CharField(
+        allow_null=True,
+        help_text="Free-form announcement banner to show above the scout UI (e.g. alpha run-limit notice), or null when unset.",
+    )
+    limits = ScoutLimitsSerializer(help_text="The team's enforced scout run caps and current usage.")
+
+
+# --- Members (reviewer routing) --------------------------------------------
+
+
+class ScoutMembersQuerySerializer(serializers.Serializer):
+    """Query params for `signals-scout-members-list`."""
+
+    search = serializers.CharField(
+        required=False,
+        help_text=(
+            "Case-insensitive substring filter over member email and first/last name. Use it to narrow a "
+            "large project's roster to the owner you're trying to match instead of pulling every member."
+        ),
+    )
+
+
+class ScoutMemberSerializer(serializers.Serializer):
+    """One project member's routing identity, for picking a `suggested_reviewers` entry on a report."""
+
+    user_uuid = serializers.CharField(
+        help_text=(
+            "The member's stable PostHog user UUID — the same id that appears as `created_by.uuid` on "
+            "entities they own. A durable handle for this person across runs."
+        )
+    )
+    email = serializers.EmailField(help_text="The member's email — use to match a finding's owner by name/email.")
+    first_name = serializers.CharField(help_text="The member's first name (may be empty).")
+    last_name = serializers.CharField(help_text="The member's last name (may be empty).")
+    github_login = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The member's resolved GitHub login (lowercased), already resolved server-side — put this value "
+            "in a report's `suggested_reviewers` once you've matched the finding's owner to this row. Null "
+            "when the member has no linked GitHub identity: a null-login member can't be routed to at all "
+            "(neither a login nor a uuid resolves), so pick a different owner or leave `suggested_reviewers` "
+            "empty."
+        ),
+    )

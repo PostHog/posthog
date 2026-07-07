@@ -130,7 +130,8 @@ class RetentionQueryBuilder:
             start_events AS (
                 SELECT
                     exposures.entity_id AS entity_id,
-                    {start_timestamp_expr} AS start_timestamp
+                    {start_timestamp_expr} AS start_timestamp,
+                    {start_uuid_expr} AS start_uuid
                 FROM events
                 INNER JOIN exposures ON {entity_key} = exposures.entity_id
                 WHERE {start_event_predicate}
@@ -141,6 +142,7 @@ class RetentionQueryBuilder:
             completion_events AS (
                 SELECT
                     {entity_key} AS entity_id,
+                    uuid AS completion_uuid,
                     timestamp AS completion_timestamp
                 FROM events
                 WHERE {completion_event_predicate}
@@ -163,6 +165,12 @@ class RetentionQueryBuilder:
                 LEFT JOIN completion_events
                     ON exposures.entity_id = completion_events.entity_id
                     AND {completion_retention_window_predicate}
+                    -- A completion must be a distinct event from the start occurrence.
+                    -- Without this, a metric whose start and completion events are the
+                    -- same would have every start trivially count as its own completion
+                    -- (100% retention); event uuids are unique, so this is a no-op when
+                    -- the two events differ.
+                    AND completion_events.completion_uuid != start_events.start_uuid
                 GROUP BY exposures.entity_id, exposures.variant
             )
         """
@@ -171,6 +179,7 @@ class RetentionQueryBuilder:
             "exposure_select_query": self._b._get_exposure_query(),
             "entity_key": parse_expr(self._b.entity_key),
             "start_timestamp_expr": self.build_start_event_timestamp_expr(),
+            "start_uuid_expr": self.build_start_event_uuid_expr(),
             "start_event_predicate": self.build_start_event_predicate(),
             "completion_event_predicate": self.build_completion_event_predicate(),
             "retention_window_start_interval": self.build_retention_window_interval(
@@ -238,6 +247,19 @@ class RetentionQueryBuilder:
             return parse_expr("min(timestamp)")
         else:  # LAST_SEEN
             return parse_expr("max(timestamp)")
+
+    def build_start_event_uuid_expr(self) -> ast.Expr:
+        """
+        Returns the uuid of the start occurrence chosen by start_handling, so it can
+        be excluded from its own completion window. Mirrors build_start_event_timestamp_expr:
+        FIRST_SEEN picks the earliest occurrence, LAST_SEEN the latest.
+        """
+        assert isinstance(self._b.metric, ExperimentRetentionMetric)
+
+        if self._b.metric.start_handling == StartHandling.FIRST_SEEN:
+            return parse_expr("argMin(uuid, timestamp)")
+        else:  # LAST_SEEN
+            return parse_expr("argMax(uuid, timestamp)")
 
     def get_retention_window_truncation_expr(self, timestamp_expr: ast.Expr) -> ast.Expr:
         """

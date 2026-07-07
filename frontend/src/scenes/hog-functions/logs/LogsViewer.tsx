@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useMemo, useState } from 'react'
 
 import { IconCalendar, IconEye, IconList, IconRefresh, IconSearch, IconTableOfContents } from '@posthog/icons'
 import {
@@ -16,8 +17,8 @@ import {
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconWithCount } from 'lib/lemon-ui/icons'
-import { pluralize } from 'lib/utils'
+import { IconArrowDown, IconArrowUp, IconWithCount } from 'lib/lemon-ui/icons'
+import { pluralize } from 'lib/utils/strings'
 
 import { LogEntryLevel } from '~/types'
 
@@ -65,6 +66,8 @@ export type LogsViewerProps = LogsViewerLogicProps & {
     hideDateFilter?: boolean
     hideLevelsFilter?: boolean
     hideInstanceIdColumn?: boolean
+    /** Initial display order. Defaults to newest-first; pass true for oldest-first. */
+    defaultAscending?: boolean
 }
 
 /**
@@ -78,6 +81,7 @@ export function LogsViewer({
     hideDateFilter,
     hideLevelsFilter,
     hideInstanceIdColumn,
+    defaultAscending = false,
     ...props
 }: LogsViewerProps): JSX.Element {
     const logic = logsViewerLogic(props)
@@ -94,6 +98,21 @@ export function LogsViewer({
         isGrouped,
     } = useValues(logic)
     const { revealHiddenLogs, loadOlderLogs, setFilters, setRowExpanded, setIsGrouped } = useActions(logic)
+
+    // Display order is a UI-only toggle — the fetch still pulls newest-first
+    // (that's what powers "load older" pagination). Ascending puts oldest at
+    // the top for following execution order; surfaces opt in via
+    // `defaultAscending`. We just reverse the array before handing it to
+    // LemonTable.
+    const [ascending, setAscending] = useState(defaultAscending)
+    const orderedUngroupedLogs = useMemo(
+        () => (ascending ? [...unGroupedLogs].reverse() : unGroupedLogs),
+        [ascending, unGroupedLogs]
+    )
+    const orderedGroupedLogs = useMemo(
+        () => (ascending ? [...groupedLogs].reverse() : groupedLogs),
+        [ascending, groupedLogs]
+    )
 
     const groupedLogColumns: LemonTableColumn<GroupedLogEntry, keyof GroupedLogEntry | undefined>[] = renderColumns([
         {
@@ -266,13 +285,20 @@ export function LogsViewer({
                         }
                         tooltip={`Show ${pluralize(hiddenLogs.length, 'newer entry', 'newer entries')}`}
                     />
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        icon={ascending ? <IconArrowDown /> : <IconArrowUp />}
+                        onClick={() => setAscending(!ascending)}
+                        tooltip={ascending ? 'Oldest first (click to reverse)' : 'Newest first (click to reverse)'}
+                    />
                 </div>
             </div>
 
             {isGrouped ? (
                 <LemonTable
                     key="grouped"
-                    dataSource={groupedLogs}
+                    dataSource={orderedGroupedLogs}
                     loading={logsLoading}
                     className="ph-no-capture overflow-y-auto"
                     rowKey={(record) => record.instanceId}
@@ -308,7 +334,7 @@ export function LogsViewer({
                     instanceLabel={instanceLabel}
                     renderMessage={renderMessage}
                     key="ungrouped"
-                    dataSource={unGroupedLogs}
+                    dataSource={orderedUngroupedLogs}
                     loading={logsLoading}
                     className="ph-no-capture overflow-y-auto"
                     rowKey={(record, index) => `${record.timestamp.toISOString()}-${index}`}

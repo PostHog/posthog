@@ -44,6 +44,7 @@ export function SurveyFormAppearance({
                         nextStep === SurveyQuestionBranchingType.End ? survey.questions.length : nextStep
                     )
                 }}
+                onPreviewBack={() => handleSetSelectedPageIndex(Math.max(0, previewPageIndex - 1))}
             />
             <LemonField.Pure label="Current question" className="max-w-xs gap-1" htmlFor="current-question-select">
                 <LemonSelect

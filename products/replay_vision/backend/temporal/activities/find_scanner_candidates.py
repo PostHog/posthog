@@ -2,8 +2,6 @@ from pydantic import ValidationError
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from posthog.schema import RecordingsQuery
-
 from posthog.rbac.user_access_control import UserAccessControl
 
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
@@ -38,7 +36,7 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         return FindScannerCandidatesOutput(candidates=[], saturated=False)
 
     try:
-        query = RecordingsQuery.model_validate(scanner.query or {"kind": "RecordingsQuery"})
+        query = scanner.recordings_query()
     except ValidationError as exc:
         raise ApplicationError(
             f"ReplayScanner {inputs.scanner_id} has malformed query: {exc}", non_retryable=True
@@ -50,6 +48,8 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         query=query,
         last_swept_at=scanner.last_swept_at,
         sampling_rate=scanner.sampling_rate,
+        sampling_salt=str(scanner.id),
+        sampling_mode=scanner.sampling_mode,
         last_seen_session_id=scanner.last_seen_session_id or None,
         candidate_limit=limit,
     )

@@ -156,4 +156,5 @@ module.exports = {
     diffDefinitions,
     buildImportMap,
     affectedProductsFor,
+    readBaseSchema,
 }

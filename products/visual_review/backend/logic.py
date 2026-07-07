@@ -7,13 +7,17 @@ Called by api/api.py facade. Do not call from outside this module.
 
 from __future__ import annotations
 
+import re
+import html
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 from uuid import UUID
 
+from django.conf import settings
 from django.db import (
     connections,
     models as db_models,
@@ -25,9 +29,13 @@ from django.utils import timezone
 import structlog
 
 if TYPE_CHECKING:
+    import requests
+
     from posthog.models.integration import GitHubIntegration
 
-from posthog.models.integration import GitHubRateLimitError
+from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.helpers.trigram_search import TrigramSearchField, apply_trigram_search, normalize_search_term
+from posthog.models.github_integration_base import GitHubIntegrationError
 
 from .classifier import SnapshotClassifier
 from .db import READER_DB, WRITER_DB
@@ -163,7 +171,7 @@ def get_or_create_artifact(
 ) -> tuple[Artifact, bool]:
     # Resolve team_id from the repo when not provided by the caller.
     if team_id is None:
-        # nosemgrep: rules.idor-lookup-without-team — resolving team_id from repo
+        # nosemgrep: idor-lookup-without-team — resolving team_id from repo
         team_id = Repo.objects.values_list("team_id", flat=True).get(id=repo_id)
 
     return Artifact.objects.get_or_create(
@@ -220,7 +228,7 @@ def write_artifact_bytes(
 
     # Resolve team_id from the repo when not provided by the caller.
     if team_id is None:
-        # nosemgrep: rules.idor-lookup-without-team — resolving team_id from repo
+        # nosemgrep: idor-lookup-without-team — resolving team_id from repo
         team_id = Repo.objects.values_list("team_id", flat=True).get(id=repo_id)
 
     artifact, _ = Artifact.objects.get_or_create(
@@ -263,6 +271,13 @@ REVIEW_STATE_FILTERS: dict[str, Q] = {
 }
 
 
+# Free-text search over the runs list uses the shared trigram helper for the
+# prose-like fields (branch, run type), where fuzzy/typo matching helps. Commit
+# SHA and PR number are matched exactly (prefix / numeric id) via extra_exact_q —
+# fuzzy matching a hex SHA or an integer is meaningless.
+RUN_SEARCH_FIELDS = (TrigramSearchField("branch"), TrigramSearchField("run_type"))
+
+
 def list_runs_for_team(
     team_id: int,
     review_state: str | None = None,
@@ -270,8 +285,9 @@ def list_runs_for_team(
     pr_number: int | None = None,
     commit_sha: str | None = None,
     branch: str | None = None,
+    search: str | None = None,
 ) -> db_models.QuerySet[Run]:
-    qs = Run.objects.filter(team_id=team_id).select_related("repo").order_by("-created_at")
+    qs = Run.objects.filter(team_id=team_id).select_related("repo")
     if repo_id is not None:
         qs = qs.filter(repo_id=repo_id)
     if review_state and review_state in REVIEW_STATE_FILTERS:
@@ -282,7 +298,20 @@ def list_runs_for_team(
         qs = qs.filter(commit_sha=commit_sha)
     if branch:
         qs = qs.filter(branch=branch)
-    return qs
+    if search and (term := normalize_search_term(search)):
+        # Commit SHA matches by prefix (reviewers paste the short SHA); PR number by exact id.
+        extra_exact_q = Q(commit_sha__istartswith=term)
+        if term.isdigit():
+            extra_exact_q |= Q(pr_number=int(term))
+        return apply_trigram_search(
+            qs,
+            term,
+            span_prefix="visual_review.runs.search",
+            fields=RUN_SEARCH_FIELDS,
+            extra_exact_q=extra_exact_q,
+            tiebreakers=("-created_at",),
+        )
+    return qs.order_by("-created_at")
 
 
 def get_review_state_counts(team_id: int, repo_id: UUID | None = None) -> dict[str, int]:
@@ -397,21 +426,12 @@ def _resolve_baselines_at_ref(repo: Repo, github: GitHubIntegration, run_type: s
 
 def _get_merge_base_sha(github: GitHubIntegration, repo_full_name: str, base: str, head: str) -> str | None:
     """Get the merge-base SHA between two refs via the GitHub Compare API."""
-    from urllib.parse import quote
-
-    import requests
-
-    from .github import github_request
-
-    access_token = github.get_access_token()
     try:
-        response = github_request(
+        response = github.api_request(
             "GET",
-            f"https://api.github.com/repos/{repo_full_name}/compare/{quote(base, safe='')}...{quote(head, safe='')}",
-            access_token=access_token,
-            timeout=10,
+            f"/repos/{repo_full_name}/compare/{quote(base, safe='')}...{quote(head, safe='')}",
         )
-    except requests.RequestException:
+    except GitHubIntegrationError:
         logger.warning("visual_review.merge_base_fetch_failed", repo=repo_full_name, base=base, head=head)
         return None
 
@@ -437,31 +457,32 @@ def _get_merge_base_sha(github: GitHubIntegration, repo_full_name: str, base: st
 
 
 def _get_default_branch(github: GitHubIntegration, repo_full_name: str) -> str:
-    """Get the repo's default branch name via the GitHub API. Falls back to 'master'."""
-    import requests
-
-    from .github import github_request
-
-    access_token = github.get_access_token()
+    """The repo's default branch via the integration's cached verb. Falls back to 'master'."""
     try:
-        response = github_request(
-            "GET",
-            f"https://api.github.com/repos/{repo_full_name}",
-            access_token=access_token,
-            timeout=10,
-        )
-    except requests.RequestException:
+        return github.get_default_branch(repo_full_name)
+    except GitHubRateLimitError:
+        raise
+    except Exception:
         logger.warning("visual_review.default_branch_fetch_failed", repo=repo_full_name)
         return "master"
 
-    if response.status_code == 200:
-        return response.json().get("default_branch", "master")
-    logger.warning(
-        "visual_review.default_branch_fetch_failed",
-        repo=repo_full_name,
-        status=response.status_code,
-    )
-    return "master"
+
+def _run_is_on_default_branch(repo: Repo, branch: str) -> bool:
+    """Whether this run targets the repo's GitHub default branch.
+
+    Fences the client-supplied ``is_partial`` flag: the default branch holds
+    the authoritative full baseline, so a partial run there must not skip
+    removed-baseline detection. Resolves the default branch server-side from
+    GitHub. Returns ``False`` when it can't be determined (no integration) —
+    harmless, since the baseline fetch then returns empty and removal
+    detection short-circuits regardless.
+    """
+    try:
+        github = get_github_integration_for_repo(repo)
+    except Exception:
+        logger.info("visual_review.no_github_integration", repo_id=str(repo.id))
+        return False
+    return branch == _get_default_branch(github, repo.repo_full_name)
 
 
 def _resolve_baselines(repo, run_type: str, branch: str) -> dict[str, str]:
@@ -473,8 +494,6 @@ def _resolve_baselines(repo, run_type: str, branch: str) -> dict[str, str]:
     """
     try:
         github = get_github_integration_for_repo(repo)
-        if github.access_token_expired():
-            github.refresh_access_token()
     except Exception:
         logger.info("visual_review.no_github_integration", repo_id=str(repo.id))
         return {}
@@ -505,8 +524,6 @@ def _resolve_baselines_with_merge_base(
     """
     try:
         github = get_github_integration_for_repo(repo)
-        if github.access_token_expired():
-            github.refresh_access_token()
     except Exception:
         logger.info("visual_review.no_github_integration", repo_id=str(repo.id))
         return {}, 0
@@ -617,6 +634,7 @@ def create_run(
     removed_identifiers: list[str] | None = None,
     purpose: str = RunPurpose.REVIEW,
     metadata: dict | None = None,
+    is_partial: bool = False,
 ) -> tuple[Run, list[dict]]:
     """
     Create a new run with its snapshots.
@@ -627,6 +645,9 @@ def create_run(
     baseline_hashes, unchanged_count, removed_identifiers are deprecated —
     the backend fetches baselines from GitHub and computes everything.
     Params kept for backward compat with older CLI versions.
+
+    is_partial tags the run as a subset; the classifier then leaves baseline
+    identifiers we didn't touch alone instead of marking them as removed.
     """
     repo = get_repo(repo_id, team_id)
 
@@ -640,6 +661,7 @@ def create_run(
         snapshots,
         purpose,
         metadata,
+        is_partial,
     )
 
 
@@ -654,6 +676,7 @@ def _create_run_inner(
     snapshots,
     purpose,
     metadata,
+    is_partial: bool = False,
 ) -> tuple[Run, list[dict]]:
     # Supersede ALL old runs before inserting the new one. The unique
     # partial index on (repo, branch, run_type) WHERE superseded_by IS NULL
@@ -683,6 +706,7 @@ def _create_run_inner(
         purpose=purpose,
         total_snapshots=len(snapshots),
         metadata=metadata or {},
+        is_partial=is_partial,
     )
 
     # Fix up the sentinel pointers to reference the actual new run
@@ -863,7 +887,28 @@ def complete_run(run_id: UUID) -> Run:
         ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now)):
             tolerated_lookup[(t.identifier, t.baseline_hash, t.alternate_hash)] = t
 
-    classifier = SnapshotClassifier(run, baseline, tolerated_lookup)
+    # is_partial is client-supplied and only suppresses removed-baseline
+    # detection. Never honor it on the default branch (authoritative full
+    # baseline), so a token can't hide deleted snapshots from the gate. Persist
+    # the correction so every downstream reader (status posting, UI) sees the
+    # effective value rather than the raw client claim.
+    #
+    # On PR branches honoring the client is deliberate, but a partial run must
+    # never satisfy the gating status context: _post_commit_status routes it to
+    # a separate non-gating "(partial)" context (see there). Branch protection
+    # keys off context + state, not the human-facing description, so a separate
+    # context is what actually keeps a one-flag subset run from turning the gate
+    # green — the description annotation alone does not.
+    if run.is_partial and _run_is_on_default_branch(repo, run.branch):
+        logger.warning(
+            "visual_review.is_partial_ignored_on_default_branch",
+            run_id=str(run.id),
+            branch=run.branch,
+        )
+        run.is_partial = False
+        run.save(using=WRITER_DB, update_fields=["is_partial"])
+
+    classifier = SnapshotClassifier(run, baseline, tolerated_lookup, is_partial=run.is_partial)
     classifier.classify()
 
     # Update total and counts from actual RunSnapshot rows
@@ -1068,6 +1113,23 @@ def _approved_baseline_updates(snapshots: Iterable[RunSnapshot]) -> list[dict]:
     ]
 
 
+def _format_change_counts(changed: int, new: int, removed: int) -> str:
+    """'N changed, M new, K removed', omitting zero counts; '' when all are zero."""
+    parts = []
+    if changed:
+        parts.append(f"{changed} changed")
+    if new:
+        parts.append(f"{new} new")
+    if removed:
+        parts.append(f"{removed} removed")
+    return ", ".join(parts)
+
+
+def _changes_summary(run: Run) -> str:
+    """Change summary from the run's denormalized (quarantine-excluded) counts."""
+    return _format_change_counts(run.changed_count, run.new_count, run.removed_count)
+
+
 def _update_counts_and_post_status(run: Run) -> int:
     """Re-stamp quarantine, recount snapshots, compute unresolved, and post commit status.
 
@@ -1109,15 +1171,15 @@ def _update_counts_and_post_status(run: Run) -> int:
     repo = run.repo
     if run.error_message:
         _post_commit_status(run, repo, "error", f"Visual review failed: {run.error_message[:100]}")
+    elif run.purpose == RunPurpose.OBSERVE:
+        # Default-branch (tracking-only) runs never gate — there's no PR to approve.
+        # Report any changes as a green, informational status instead of a blocking
+        # failure; the per-snapshot detail lives in the VR UI (linked via target_url).
+        summary = _changes_summary(run)
+        description = f"Tracking only: {summary} recorded" if summary else "Tracking only: no visual changes"
+        _post_commit_status(run, repo, "success", description)
     elif unresolved > 0:
-        parts = []
-        if run.changed_count:
-            parts.append(f"{run.changed_count} changed")
-        if run.new_count:
-            parts.append(f"{run.new_count} new")
-        if run.removed_count:
-            parts.append(f"{run.removed_count} removed")
-        _post_commit_status(run, repo, "failure", f"Visual changes detected: {', '.join(parts)}")
+        _post_commit_status(run, repo, "failure", f"Visual changes detected: {_changes_summary(run)}")
         _post_review_prompt_comment(run, repo)
     elif pending_commit > 0:
         _post_commit_status(
@@ -1209,12 +1271,7 @@ def _rerun_github_job(run: Run, check_run_id: str) -> tuple[bool, str | None]:
     # `${{ job.check_run_id }}` doubles as the Actions job ID, so the jobs API
     # gives us head_sha and the owning workflow run (run_id) in one call.
     try:
-        job_response = _github_api_request(
-            "GET",
-            repo,
-            f"actions/jobs/{check_run_id}",
-            timeout=10,
-        )
+        job_response = _github_api_request("GET", repo, f"actions/jobs/{check_run_id}")
     except Exception:
         return False, "Failed to verify CI job ownership"
 
@@ -1247,12 +1304,7 @@ def _rerun_github_job(run: Run, check_run_id: str) -> tuple[bool, str | None]:
         return False, "CI job does not belong to this run's workflow"
 
     try:
-        response = _github_api_request(
-            "POST",
-            repo,
-            f"actions/jobs/{check_run_id}/rerun",
-            timeout=10,
-        )
+        response = _github_api_request("POST", repo, f"actions/jobs/{check_run_id}/rerun")
     except Exception:
         return False, "Failed to trigger job rerun"
 
@@ -1276,7 +1328,7 @@ def get_github_integration_for_repo(repo: Repo):
     if not integration:
         raise GitHubIntegrationNotFoundError(f"No GitHub integration found for team {repo.team_id}")
 
-    return GitHubIntegration(integration)
+    return GitHubIntegration(integration, source="visual_review")
 
 
 def _resolve_repo_by_id(github, repo_external_id: int) -> str | None:
@@ -1287,15 +1339,7 @@ def _resolve_repo_by_id(github, repo_external_id: int) -> str | None:
     latest full_name even if the repo was renamed or transferred.
     Returns None if the repo is inaccessible.
     """
-    from .github import github_request
-
-    access_token = github.get_access_token()
-    response = github_request(
-        "GET",
-        f"https://api.github.com/repositories/{repo_external_id}",
-        access_token=access_token,
-        timeout=10,
-    )
+    response = github.api_request("GET", f"/repositories/{repo_external_id}")
     if response.status_code == 200:
         return response.json().get("full_name")
     return None
@@ -1305,8 +1349,10 @@ def _github_api_request(
     method: str,
     repo: Repo,
     path: str,
-    **kwargs,
-):
+    *,
+    json: Mapping[str, object] | None = None,
+    timeout: int = 10,
+) -> requests.Response:
     """
     Make a GitHub API request, auto-resolving renamed repos on 404.
 
@@ -1314,18 +1360,12 @@ def _github_api_request(
     the current full_name via /repositories/{id}. If it changed, updates
     the stored repo_full_name and retries once.
     """
-    from urllib.parse import quote
-
-    from .github import github_request
-
     # Prevent path traversal — each segment must be safe
     safe_path = "/".join(quote(segment, safe="") for segment in path.split("/"))
 
     github = get_github_integration_for_repo(repo)
-    access_token = github.get_access_token()
 
-    url = f"https://api.github.com/repos/{repo.repo_full_name}/{safe_path}"
-    response = github_request(method, url, access_token=access_token, **kwargs)
+    response = github.api_request(method, f"/repos/{repo.repo_full_name}/{safe_path}", json_body=json, timeout=timeout)
 
     if response.status_code == 404 and repo.repo_external_id:
         new_full_name = _resolve_repo_by_id(github, repo.repo_external_id)
@@ -1339,8 +1379,9 @@ def _github_api_request(
             repo.repo_full_name = new_full_name
             repo.save(update_fields=["repo_full_name"])
 
-            url = f"https://api.github.com/repos/{new_full_name}/{safe_path}"
-            response = github_request(method, url, access_token=access_token, **kwargs)
+            response = github.api_request(
+                method, f"/repos/{new_full_name}/{safe_path}", json_body=json, timeout=timeout
+            )
 
     return response
 
@@ -1351,16 +1392,7 @@ def _get_pr_info(github, repo_full_name: str, pr_number: int) -> dict:
 
     Returns dict with head_ref (branch) and head_sha.
     """
-    from .github import github_request
-
-    access_token = github.get_access_token()
-
-    response = github_request(
-        "GET",
-        f"https://api.github.com/repos/{repo_full_name}/pulls/{pr_number}",
-        access_token=access_token,
-        timeout=10,
-    )
+    response = github.api_request("GET", f"/repos/{repo_full_name}/pulls/{pr_number}")
 
     if response.status_code != 200:
         raise GitHubCommitError(f"Failed to fetch PR info: {response.status_code} {response.text}")
@@ -1382,33 +1414,21 @@ def _fetch_baseline_file(
     identifier to ``{hash: "v1.kid.hash.tag"}`` (the signed format).
     If the file doesn't exist, returns ``({}, None)``.
     """
-    import base64
-
     import yaml
 
-    from .github import github_request
+    try:
+        result = github.get_file_contents(repo_full_name, file_path, ref=branch)
+    except GitHubRateLimitError:
+        raise
+    except GitHubIntegrationError as e:
+        raise GitHubCommitError(f"Failed to fetch baseline file: {e}") from e
 
-    access_token = github.get_access_token()
-
-    response = github_request(
-        "GET",
-        f"https://api.github.com/repos/{repo_full_name}/contents/{file_path}",
-        access_token=access_token,
-        params={"ref": branch},
-        timeout=10,
-    )
-
-    if response.status_code == 404:
+    if result is None:
         return {}, None
 
-    if response.status_code != 200:
-        raise GitHubCommitError(f"Failed to fetch baseline file: {response.status_code} {response.text}")
+    file_sha = result["sha"]
 
-    data = response.json()
-    content = base64.b64decode(data["content"]).decode("utf-8")
-    file_sha = data["sha"]
-
-    parsed = yaml.safe_load(content)
+    parsed = yaml.safe_load(result["content"])
     if not parsed or parsed.get("version") != 1:
         return {}, file_sha
 
@@ -1435,8 +1455,6 @@ def _build_snapshots_yaml(
     *updates* is a list of ``{identifier, new_hash}`` where ``new_hash``
     is a plain content hash — it gets signed here.
     """
-    from django.conf import settings
-
     import yaml
 
     kid, secret_hex = repo.get_active_signing_key()
@@ -1477,37 +1495,49 @@ def _post_commit_status(
     POST /repos/{owner}/{repo}/statuses/{sha}
 
     state: "pending", "success", "failure", "error"
+
+    Partial runs (is_partial, client-supplied) suppress removed-baseline
+    detection on PR branches, so they must not be able to satisfy the gating
+    status context that branch protection evaluates. Branch protection keys off
+    the (context, state) pair, not the human-facing description, so a partial
+    run is posted to a separate "PostHog Visual Review / {run_type} (partial)"
+    context rather than the gating "PostHog Visual Review / {run_type}" one.
+    A subset run therefore can never turn the gated context green; a reviewer
+    must require the partial context explicitly to gate on partial runs. The
+    description is also annotated so the disclosure is visible to humans.
     """
     if not repo.repo_full_name:
         return
 
-    from django.conf import settings
-
-    from .github import github_request
+    context = f"PostHog Visual Review / {run.run_type}"
+    # Tracking-only (observe) and partial runs must never satisfy the gating context that
+    # branch protection evaluates. Both purpose and is_partial are client-supplied, so an
+    # observe run posted to the gating context could green a PR head SHA's required check
+    # without review. Route them to a distinct, non-gating context instead.
+    if run.purpose == RunPurpose.OBSERVE:
+        context = f"{context} (tracking)"
+    elif run.is_partial:
+        context = f"{context} (partial)"
+        description = f"{description} (partial run)"
 
     try:
         github = get_github_integration_for_repo(repo)
-        if github.access_token_expired():
-            github.refresh_access_token()
     except Exception:
         logger.debug("visual_review.status_check_skipped", run_id=str(run.id), reason="no_github_integration")
         return
 
-    access_token = github.get_access_token()
-    target_url = f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/runs/{run.id}"
+    target_url = _run_url(run, repo)
 
     try:
-        response = github_request(
+        response = github.api_request(
             "POST",
-            f"https://api.github.com/repos/{repo.repo_full_name}/statuses/{run.commit_sha}",
-            access_token=access_token,
-            json={
+            f"/repos/{repo.repo_full_name}/statuses/{run.commit_sha}",
+            json_body={
                 "state": state,
                 "description": description[:140],
-                "context": f"PostHog Visual Review / {run.run_type}",
+                "context": context,
                 "target_url": target_url,
             },
-            timeout=10,
         )
 
         if response.status_code != 201:
@@ -1556,9 +1586,6 @@ def _commit_baseline_to_github(
         raise BaselineFilePathNotConfiguredError(f"No baseline file path configured for run type {run.run_type}")
 
     github = get_github_integration_for_repo(repo)
-
-    if github.access_token_expired():
-        github.refresh_access_token()
 
     if run.pr_number is None:
         raise GitHubCommitError("Cannot commit to GitHub: run has no associated PR number")
@@ -1654,9 +1681,7 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
     if run.metadata.get("github_comment_id"):
         return
 
-    from django.conf import settings
-
-    run_url = f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/runs/{run.id}"
+    run_url = _run_url(run, repo)
     comment_body = (
         f"👋 **Visual changes detected** for this PR.\n\n"
         f"[Review and approve in PostHog Visual Review]({run_url})\n\n"
@@ -1672,7 +1697,6 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
                 repo=repo,
                 path=f"issues/comments/{existing_comment_id}",
                 json={"body": comment_body},
-                timeout=10,
             )
             if response.status_code == 200:
                 run.metadata["github_comment_id"] = existing_comment_id
@@ -1691,7 +1715,6 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
             repo=repo,
             path=f"issues/{run.pr_number}/comments",
             json={"body": comment_body},
-            timeout=10,
         )
         if response.status_code == 201:
             comment_id = response.json().get("id")
@@ -1723,21 +1746,168 @@ class _Approver:
     is_github_login: bool
 
 
-def _build_approval_comment_body(run: Run, repo: Repo, approver: _Approver | None) -> str:
+# A reviewer should be able to eyeball the approved snapshots straight from the PR.
+# GitHub can't render base64 data URIs (its markdown sanitizer strips them) and the
+# user-attachments upload path needs a browser session we don't have, so we embed
+# presigned object-storage URLs and let GitHub's image proxy (camo) fetch + cache
+# them. That proxy fetch can happen well after the comment is posted, so the URL
+# must outlive the default hour — use the S3 SigV4 maximum.
+_COMMENT_IMAGE_URL_EXPIRATION = 60 * 60 * 24 * 7  # 7 days
+_COMMENT_IMAGE_WIDTH = 320
+# Keep the comment readable: show the first N snapshots and link out for the rest.
+_MAX_COMMENT_IMAGES = 8
+
+
+def _comment_image_url(repo: Repo, artifact: Artifact | None) -> str | None:
+    """Presigned URL for the full-resolution snapshot image in a PR comment.
+
+    Serves the original artifact (not the thumbnail) so the embedded image opens at full
+    resolution when clicked — GitHub constrains the rendered size via the ``<img width>``
+    attribute but links the original. Returns None when the artifact is missing or object
+    storage is disabled — the caller renders an empty cell in that case.
+    """
+    if artifact is None:
+        return None
+    storage = ArtifactStorage(str(repo.id))
+    return storage.get_presigned_download_url(artifact.content_hash, expiration=_COMMENT_IMAGE_URL_EXPIRATION)
+
+
+_TABLE_BREAKING_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _run_url(run: Run, repo: Repo) -> str:
+    """Link to the run page in PostHog."""
+    return f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/runs/{run.id}"
+
+
+def _snapshot_url(run: Run, repo: Repo, snapshot: RunSnapshot) -> str:
+    """Deep link straight to a single snapshot on the run page."""
+    return f"{_run_url(run, repo)}?snapshot={snapshot.id}"
+
+
+def _snapshot_name_cell(identifier: str, suffix: str = "") -> str:
+    """Render a snapshot identifier as a single-line table cell (code span, pipe-safe).
+
+    Identifiers come from the run manifest without newline validation, so collapse
+    control characters (newlines, tabs, etc.) to spaces first — otherwise a
+    malformed or user-controlled story name could break out of the table row and
+    inject markdown/HTML into the comment. Then strip backticks and escape pipes so
+    it stays inside the code span and the cell.
+    """
+    safe = _TABLE_BREAKING_CHARS_RE.sub(" ", identifier).replace("`", "").replace("|", "\\|")
+    return f"`{safe}`{suffix}"
+
+
+def _snapshot_link_cell(run: Run, repo: Repo, snapshot: RunSnapshot, suffix: str = "") -> str:
+    """Snapshot identifier linked to its deep link on the run page, so a reviewer can jump
+    straight to that snapshot rather than the run as a whole."""
+    return f"[{_snapshot_name_cell(snapshot.identifier)}]({_snapshot_url(run, repo, snapshot)}){suffix}"
+
+
+def _image_cell(url: str | None, alt: str) -> str:
+    """Render an image (or an empty placeholder) for a before/after table cell.
+
+    The image is constrained to ``_COMMENT_IMAGE_WIDTH`` so the table stays compact, but
+    ``src`` points at the full-resolution original — GitHub opens that original when the
+    image is clicked.
+    """
+    if not url:
+        return "_(none)_"
+    # Escape both attributes — a URL containing a quote would otherwise break out of src.
+    src = html.escape(url, quote=True)
+    return f'<img src="{src}" width="{_COMMENT_IMAGE_WIDTH}" alt="{html.escape(alt, quote=True)}">'
+
+
+_IMAGE_TABLE_HEADER = "| Snapshot | Before | After |\n| --- | --- | --- |"
+
+
+_REVIEWABLE_RESULTS = (SnapshotResult.CHANGED, SnapshotResult.NEW, SnapshotResult.REMOVED)
+
+
+def _reviewable_snapshot_qs(run: Run) -> db_models.QuerySet[RunSnapshot]:
+    return run.snapshots.using(READER_DB).filter(result__in=_REVIEWABLE_RESULTS)
+
+
+def _postable_snapshot_qs(run: Run) -> db_models.QuerySet[RunSnapshot]:
+    """Reviewable snapshots minus the ones an approval comment should not surface.
+
+    Quarantined snapshots are suppressed by policy and tolerated ones are
+    intentional known drift, so neither belongs in the comment.
+    """
+    return _reviewable_snapshot_qs(run).exclude(is_quarantined=True).exclude(review_state=ReviewState.TOLERATED)
+
+
+def _build_snapshot_image_tables(run: Run, repo: Repo) -> str:
+    """Before/after image tables for the approved snapshots.
+
+    Changed and removed snapshots share one table (removed ones leave the *after*
+    cell empty); new snapshots get their own table (empty *before* cell). Capped
+    at ``_MAX_COMMENT_IMAGES`` rows total, prioritizing changed/removed diffs;
+    anything beyond links back to PostHog. Returns "" when no image could be
+    resolved (e.g. object storage disabled) so the comment stays text-only.
+    """
+    snapshots = list(
+        _postable_snapshot_qs(run)
+        .select_related(
+            "current_artifact",
+            "baseline_artifact",
+        )
+        .order_by("identifier")
+    )
+    if not snapshots:
+        return ""
+
+    # Changed/removed first — they carry a baseline diff a reviewer most needs to
+    # see — then new snapshots fill whatever's left of the image budget.
+    changed = [s for s in snapshots if s.result in (SnapshotResult.CHANGED, SnapshotResult.REMOVED)]
+    new = [s for s in snapshots if s.result == SnapshotResult.NEW]
+
+    total = len(changed) + len(new)
+    shown_changed = changed[:_MAX_COMMENT_IMAGES]
+    shown_new = new[: max(0, _MAX_COMMENT_IMAGES - len(shown_changed))]
+    shown = len(shown_changed) + len(shown_new)
+
+    any_image = False
+
+    def cell(artifact: Artifact | None, alt: str) -> str:
+        nonlocal any_image
+        url = _comment_image_url(repo, artifact)
+        if url:
+            any_image = True
+        return _image_cell(url, alt)
+
+    def row(s: RunSnapshot, before: Artifact | None) -> str:
+        suffix = " _(removed)_" if s.result == SnapshotResult.REMOVED else ""
+        name = _snapshot_link_cell(run, repo, s, suffix)
+        return f"| {name} | {cell(before, 'before')} | {cell(s.current_artifact, 'after')} |"
+
+    changed_rows = [row(s, s.baseline_artifact) for s in shown_changed]
+    new_rows = [row(s, None) for s in shown_new]
+
+    if not any_image:
+        return ""
+
+    def table(heading: str, rows: list[str]) -> str:
+        return "\n".join((f"**{heading}**", "", _IMAGE_TABLE_HEADER, *rows))
+
+    sections = [table(heading, rows) for heading, rows in (("Changed", changed_rows), ("New", new_rows)) if rows]
+    if shown < total:
+        sections.append(f"…and {total - shown} more — [view all in PostHog]({_run_url(run, repo)}).")
+
+    return "\n\n".join(sections)
+
+
+def _build_approval_comment_body(run: Run, repo: Repo, approver: _Approver | None, add_images: bool = False) -> str:
     """Build the markdown body of the post-approval PR comment.
 
-    A short textual summary of what changed — reviewers go to PostHog to see
-    the actual snapshots.
+    Always a textual summary of what changed. When ``add_images`` is set, a
+    before/after table of the approved snapshot images is appended so another
+    reviewer can eyeball them without leaving the PR (omitted when no image can
+    be resolved).
     """
-    from django.conf import settings
+    counts = Counter(_postable_snapshot_qs(run).values_list("result", flat=True))
+    suppressed_only = not counts and _reviewable_snapshot_qs(run).exists()
 
-    counts = Counter(
-        run.snapshots.filter(
-            result__in=(SnapshotResult.CHANGED, SnapshotResult.NEW, SnapshotResult.REMOVED)
-        ).values_list("result", flat=True)
-    )
-
-    run_url = f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/runs/{run.id}"
     if approver is None:
         approver_text = "a reviewer"
     elif approver.is_github_login:
@@ -1747,21 +1917,24 @@ def _build_approval_comment_body(run: Run, repo: Repo, approver: _Approver | Non
     baseline_sha = run.metadata.get("baseline_commit_sha")
     sha_text = f" — baseline updated in `{baseline_sha[:7]}`" if isinstance(baseline_sha, str) and baseline_sha else ""
 
-    header = f"✅ **Visual changes approved** by {approver_text}{sha_text}.\n\n[View this run in PostHog]({run_url})\n"
+    summary = _format_change_counts(
+        counts[SnapshotResult.CHANGED], counts[SnapshotResult.NEW], counts[SnapshotResult.REMOVED]
+    )
 
-    parts = []
-    for result, label in (
-        (SnapshotResult.CHANGED, "changed"),
-        (SnapshotResult.NEW, "new"),
-        (SnapshotResult.REMOVED, "removed"),
-    ):
-        if counts.get(result):
-            parts.append(f"{counts[result]} {label}")
+    sections = [
+        f"✅ **Visual changes approved** by {approver_text}{sha_text}.",
+        f"[View this run in PostHog]({_run_url(run, repo)})",
+    ]
+    if summary:
+        sections.append(f"{summary}.")
+    elif suppressed_only:
+        sections.append("All visual changes in this run were quarantined or tolerated.")
+    if add_images:
+        tables = _build_snapshot_image_tables(run, repo)
+        if tables:
+            sections.append(tables)
 
-    if not parts:
-        return header
-
-    return header + f"\n{', '.join(parts)}.\n"
+    return "\n\n".join(sections) + "\n"
 
 
 def _resolve_approver(user_id: int | None) -> _Approver | None:
@@ -1797,12 +1970,13 @@ def _resolve_approver(user_id: int | None) -> _Approver | None:
     return None
 
 
-def _post_approval_comment(run: Run, repo: Repo) -> None:
+def _post_approval_comment(run: Run, repo: Repo, add_images: bool = False) -> None:
     """Update the existing PR comment in place with the approved-changes summary.
 
     Best-effort and never raises. Skips silently when the original review-prompt
     comment was never posted (no `github_comment_id` in run.metadata) — i.e.,
-    when the review wasn't initiated by a human.
+    when the review wasn't initiated by a human. ``add_images`` embeds the
+    before/after snapshot images in the comment when the reviewer opted in.
     """
     if not repo.enable_pr_comments:
         return
@@ -1822,7 +1996,7 @@ def _post_approval_comment(run: Run, repo: Repo) -> None:
         return
 
     approver = _resolve_approver(run.approved_by_id)
-    body = _build_approval_comment_body(run, repo, approver)
+    body = _build_approval_comment_body(run, repo, approver, add_images=add_images)
 
     try:
         response = _github_api_request(
@@ -1878,7 +2052,7 @@ def _post_approval_comment(run: Run, repo: Repo) -> None:
         )
 
 
-def post_approval_comment_for_run(run_id: UUID, team_id: int | None = None) -> None:
+def post_approval_comment_for_run(run_id: UUID, team_id: int | None = None, add_images: bool = False) -> None:
     """Public entrypoint for the Celery task to update a PR comment after approval."""
     run = (
         Run.objects.select_related("repo")
@@ -1888,7 +2062,7 @@ def post_approval_comment_for_run(run_id: UUID, team_id: int | None = None) -> N
     )
     if run is None:
         return
-    _post_approval_comment(run, run.repo)
+    _post_approval_comment(run, run.repo, add_images=add_images)
 
 
 @transaction.atomic(using=WRITER_DB)
@@ -1899,6 +2073,7 @@ def finalize_run(
     approve_all: bool = False,
     review_decision: ReviewDecision = ReviewDecision.HUMAN_APPROVED,
     commit_to_github: bool = True,
+    add_images_to_comment_on_pr: bool = False,
 ) -> Run:
     """Finalize a fully-reviewed run: commit the approved baseline and green the gate.
 
@@ -1915,6 +2090,11 @@ def finalize_run(
 
     Set ``commit_to_github=False`` for CLI auto-approve, which writes the baseline locally
     instead of pushing it to the PR branch.
+
+    The post-approval PR comment is always posted (subject to the existing conditions: repo
+    PR comments enabled, run initiated from a GitHub review prompt). ``add_images_to_comment_on_pr``
+    only controls whether the before/after snapshot images are embedded in that comment;
+    defaults false so the comment stays a text summary unless the reviewer opts in.
     """
     run = _get_run_for_update(run_id, team_id=team_id)
     repo = run.repo
@@ -1994,8 +2174,9 @@ def finalize_run(
 
         run_id_str = str(run.id)
         run_team_id = run.team_id
+        add_images = add_images_to_comment_on_pr
         transaction.on_commit(
-            lambda: post_approval_comment.delay(run_team_id, run_id_str),
+            lambda: post_approval_comment.delay(run_team_id, run_id_str, add_images),
             using=WRITER_DB,
         )
 
@@ -2016,8 +2197,6 @@ def build_signed_baseline(run_id: UUID, team_id: int | None = None) -> str:
     baseline_path = baseline_paths.get(run.run_type) or baseline_paths.get("default", ".snapshots.yml")
 
     github = get_github_integration_for_repo(repo)
-    if github.access_token_expired():
-        github.refresh_access_token()
     current_baselines, _file_sha = _fetch_baseline_file(github, repo.repo_full_name, baseline_path, run.branch)
 
     snapshots = list(run.snapshots.all())

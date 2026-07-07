@@ -30,6 +30,7 @@ from posthog.exceptions import Conflict, EnterpriseFeatureException, PaidFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl, ordered_access_levels
 from posthog.scopes import INTERNAL_API_SCOPE_OBJECTS, APIScopeObject, APIScopeObjectOrNotSupported
+from posthog.session.reauth import sensitive_action_reference, step_up_required
 from posthog.utils import get_can_create_org
 
 CREATE_ACTIONS = ["create", "update"]
@@ -421,10 +422,17 @@ class TimeSensitiveActionPermission(BasePermission):
         if getattr(view, "action", None) in exclude_actions:
             return True
 
-        allow_safe_methods = getattr(view, "time_sensitive_allow_safe_methods", True)
+        # Reads never require re-auth.
+        if getattr(view, "time_sensitive_allow_safe_methods", True) and request.method in SAFE_METHODS:
+            return True
+
+        # A risk-driven step-up blocks every non-safe action until the user re-authenticates,
+        # including the field/action allow-lists below — those only relax the time-based freshness
+        # window for a normally-aged session, not an anomalous one.
+        if step_up_required(request.session):
+            return False
 
         allow_if_only_fields = getattr(view, "time_sensitive_allow_if_only_fields", None)
-        allow_actions = getattr(view, "time_sensitive_allow_actions", None)
         if allow_if_only_fields and request.method not in SAFE_METHODS:
             data = getattr(request, "data", None)
             data_keys: set[str] = set()
@@ -434,21 +442,16 @@ class TimeSensitiveActionPermission(BasePermission):
             if data_keys and data_keys.issubset(set(allow_if_only_fields)):
                 return True
 
+        allow_actions = getattr(view, "time_sensitive_allow_actions", None)
         if allow_actions and view.action in allow_actions:
             return True
 
-        if allow_safe_methods and request.method in SAFE_METHODS:
-            return True
-
-        session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
-
-        if not session_created_at:
+        reference = sensitive_action_reference(request.session)
+        if reference is None:
             # This should always be covered by the middleware but just in case
             return False
 
-        session_age_seconds = time.time() - session_created_at
-
-        if session_age_seconds > settings.SESSION_SENSITIVE_ACTIONS_AGE:
+        if time.time() - reference > settings.SESSION_SENSITIVE_ACTIONS_AGE:
             return False
 
         return True
@@ -508,6 +511,23 @@ class ScopeBasePermission(BasePermission):
         return None
 
 
+def get_authenticator_scopes(authenticator) -> list[str] | None:
+    """The API scopes carried by a scoped-token authenticator, or None for session and
+    other non-token auth. Single source of truth for the token->scopes mapping, shared by
+    APIScopePermission and cross-resource scope checks so the two cannot drift — if they
+    did, one path could grant access while the other skipped its check."""
+    if isinstance(authenticator, PersonalAPIKeyAuthentication):
+        return list(authenticator.personal_api_key.scopes or [])
+    if isinstance(authenticator, OAuthAccessTokenAuthentication):
+        # OAuth tokens store scopes as a space-separated string.
+        return str(authenticator.access_token.scope or "").split()
+    if isinstance(authenticator, IDJagAccessTokenAuthentication):
+        return list(authenticator.scopes or [])
+    if isinstance(authenticator, ProjectSecretAPIKeyAuthentication):
+        return list(authenticator.project_secret_api_key.scopes or [])
+    return None
+
+
 class APIScopePermission(ScopeBasePermission):
     """
     The request is via an API key or OAuth token and the user has the appropriate scopes.
@@ -529,28 +549,9 @@ class APIScopePermission(ScopeBasePermission):
         authenticator = request.successful_authenticator
         is_psak = isinstance(authenticator, ProjectSecretAPIKeyAuthentication)
 
-        if isinstance(authenticator, PersonalAPIKeyAuthentication):
-            key_scopes = authenticator.personal_api_key.scopes
-        elif isinstance(authenticator, OAuthAccessTokenAuthentication):
-            # OAuth tokens store scopes as space-separated string
-            token_scope_string = authenticator.access_token.scope
-            key_scopes = token_scope_string.split() if token_scope_string else []
-            # OAuth tokens with no scopes should not have access
-            if not key_scopes:
-                self.message = "OAuth token has no scopes and cannot access this resource"
-                return False
-        elif isinstance(request.successful_authenticator, IDJagAccessTokenAuthentication):
-            key_scopes = list(request.successful_authenticator.scopes)
-            if not key_scopes:
-                self.message = "ID-JAG access token has no scopes and cannot access this resource"
-                return False
-        elif is_psak:
-            psak_allowed_actions = getattr(view, "psak_allowed_actions", self.psak_allowed_actions)
-            if self._get_action(request, view) not in psak_allowed_actions:
-                self.message = "This action does not support project secret API key access"
-                return False
-            key_scopes = authenticator.project_secret_api_key.scopes or []
-        else:
+        key_scopes = get_authenticator_scopes(authenticator)
+
+        if key_scopes is None:
             # Session (and other non-token) auth normally bypasses API-scope checks — scopes
             # are a PAK/OAuth concept; logged-in users are gated by team membership + access
             # control instead. But INTERNAL scope objects are a programmatic-only security
@@ -565,6 +566,19 @@ class APIScopePermission(ScopeBasePermission):
                 self.message = "This action requires a programmatic token carrying an internal scope"
                 return False
             return True
+
+        # Token auth: per-type preconditions the shared scope extractor doesn't cover.
+        if isinstance(authenticator, OAuthAccessTokenAuthentication) and not key_scopes:
+            self.message = "OAuth token has no scopes and cannot access this resource"
+            return False
+        if isinstance(authenticator, IDJagAccessTokenAuthentication) and not key_scopes:
+            self.message = "ID-JAG access token has no scopes and cannot access this resource"
+            return False
+        if is_psak:
+            psak_allowed_actions = getattr(view, "psak_allowed_actions", self.psak_allowed_actions)
+            if self._get_action(request, view) not in psak_allowed_actions:
+                self.message = "This action does not support project secret API key access"
+                return False
 
         required_scopes = self._get_required_scopes(request, view)
 

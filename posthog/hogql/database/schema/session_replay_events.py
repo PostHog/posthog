@@ -191,30 +191,89 @@ def join_with_console_logs_log_entries_table(
 RAW_ONLY_FIELDS = ["min_first_timestamp", "max_last_timestamp"]
 
 SESSION_REPLAY_EVENTS_COMMON_FIELDS: dict[str, FieldOrTable] = {
-    "session_id": StringDatabaseField(name="session_id", nullable=False),
+    "session_id": StringDatabaseField(
+        name="session_id",
+        nullable=False,
+        description="Recording session identifier; matches `events.$session_id` and `sessions.session_id`.",
+    ),
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
-    "distinct_id": StringDatabaseField(name="distinct_id", nullable=False),
-    "min_first_timestamp": DateTimeDatabaseField(name="min_first_timestamp", nullable=False),
-    "max_last_timestamp": DateTimeDatabaseField(name="max_last_timestamp", nullable=False),
-    "first_url": DatabaseField(name="first_url", nullable=True),
-    "all_urls": DatabaseField(name="all_urls", nullable=True),
-    "click_count": IntegerDatabaseField(name="click_count", nullable=False),
-    "keypress_count": IntegerDatabaseField(name="keypress_count", nullable=False),
-    "mouse_activity_count": IntegerDatabaseField(name="mouse_activity_count", nullable=False),
-    "active_milliseconds": IntegerDatabaseField(name="active_milliseconds", nullable=False),
-    "console_log_count": IntegerDatabaseField(name="console_log_count", nullable=False),
-    "console_warn_count": IntegerDatabaseField(name="console_warn_count", nullable=False),
-    "console_error_count": IntegerDatabaseField(name="console_error_count", nullable=False),
-    "size": IntegerDatabaseField(name="size", nullable=False),
-    "event_count": IntegerDatabaseField(name="event_count", nullable=False),
-    "message_count": IntegerDatabaseField(name="message_count", nullable=False),
-    "snapshot_source": StringDatabaseField(name="snapshot_source", nullable=True),
-    "snapshot_library": StringDatabaseField(name="snapshot_library", nullable=True),
-    "retention_period_days": IntegerDatabaseField(name="retention_period_days", nullable=True),
-    "is_deleted": IntegerDatabaseField(name="is_deleted", nullable=False),
-    "ai_tags_fixed": DatabaseField(name="ai_tags_fixed", nullable=True),
-    "ai_tags_freeform": DatabaseField(name="ai_tags_freeform", nullable=True),
-    "ai_highlighted": IntegerDatabaseField(name="ai_highlighted", nullable=False),
+    "distinct_id": StringDatabaseField(
+        name="distinct_id", nullable=False, description="Identifier of the user/device for the recording."
+    ),
+    "min_first_timestamp": DateTimeDatabaseField(
+        name="min_first_timestamp",
+        nullable=False,
+        description="Earliest snapshot timestamp in this raw segment (in UTC); aggregated into `start_time`.",
+    ),
+    "max_last_timestamp": DateTimeDatabaseField(
+        name="max_last_timestamp",
+        nullable=False,
+        description="Latest snapshot timestamp in this raw segment (in UTC); aggregated into `end_time`.",
+    ),
+    "first_url": DatabaseField(
+        name="first_url", nullable=True, description="URL of the first page viewed in the session."
+    ),
+    "all_urls": DatabaseField(
+        name="all_urls", nullable=True, description="Distinct set of URLs visited during the session."
+    ),
+    "click_count": IntegerDatabaseField(
+        name="click_count", nullable=False, description="Total number of clicks in the session."
+    ),
+    "keypress_count": IntegerDatabaseField(
+        name="keypress_count", nullable=False, description="Total number of keypresses in the session."
+    ),
+    "mouse_activity_count": IntegerDatabaseField(
+        name="mouse_activity_count", nullable=False, description="Number of mouse activity events in the session."
+    ),
+    "active_milliseconds": IntegerDatabaseField(
+        name="active_milliseconds",
+        nullable=False,
+        description="Time the user was actively interacting, in milliseconds (subset of total duration).",
+    ),
+    "console_log_count": IntegerDatabaseField(
+        name="console_log_count", nullable=False, description="Number of console.log messages captured."
+    ),
+    "console_warn_count": IntegerDatabaseField(
+        name="console_warn_count", nullable=False, description="Number of console.warn messages captured."
+    ),
+    "console_error_count": IntegerDatabaseField(
+        name="console_error_count", nullable=False, description="Number of console.error messages captured."
+    ),
+    "size": IntegerDatabaseField(
+        name="size", nullable=False, description="Size of the recording snapshot data in bytes."
+    ),
+    "event_count": IntegerDatabaseField(
+        name="event_count", nullable=False, description="Number of rrweb snapshot events in the recording."
+    ),
+    "message_count": IntegerDatabaseField(
+        name="message_count", nullable=False, description="Number of ingestion messages that made up this recording."
+    ),
+    "snapshot_source": StringDatabaseField(
+        name="snapshot_source", nullable=True, description="Capture source of the recording, e.g. 'web' or 'mobile'."
+    ),
+    "snapshot_library": StringDatabaseField(
+        name="snapshot_library", nullable=True, description="SDK/library that produced the recording snapshots."
+    ),
+    "retention_period_days": IntegerDatabaseField(
+        name="retention_period_days", nullable=True, description="Number of days the recording is retained."
+    ),
+    "is_deleted": IntegerDatabaseField(
+        name="is_deleted", nullable=False, description="Whether the recording has been deleted (1) or not (0)."
+    ),
+    "ai_tags_fixed": DatabaseField(
+        name="ai_tags_fixed", nullable=True, description="AI-assigned tags from a fixed taxonomy."
+    ),
+    "ai_tags_freeform": DatabaseField(name="ai_tags_freeform", nullable=True, description="AI-assigned freeform tags."),
+    "ai_highlighted": IntegerDatabaseField(
+        name="ai_highlighted",
+        nullable=False,
+        description="Whether AI flagged this recording as noteworthy (1) or not (0).",
+    ),
+    "surfacing_score": DatabaseField(
+        name="surfacing_score",
+        nullable=True,
+        description="AI-computed score ranking how worth surfacing the recording is.",
+    ),
     "events": LazyJoin(
         from_field=["session_id"],
         join_table=EventsTable(),
@@ -243,6 +302,10 @@ SESSION_REPLAY_EVENTS_COMMON_FIELDS: dict[str, FieldOrTable] = {
 
 
 class RawSessionReplayEventsTable(Table):
+    description: str = (
+        "Raw per-segment aggregate state for session recordings; multiple rows per session. "
+        "Query the deduplicated `session_replay_events` table to get one aggregated row per session."
+    )
     fields: dict[str, FieldOrTable] = {
         **SESSION_REPLAY_EVENTS_COMMON_FIELDS,
         "min_first_timestamp": DateTimeDatabaseField(name="min_first_timestamp", nullable=False),
@@ -289,6 +352,7 @@ def select_from_session_replay_events_table(requested_fields: dict[str, list[str
             name="groupUniqArrayArray", args=[ast.Field(chain=[table_name, "ai_tags_freeform"])]
         ),
         "ai_highlighted": ast.Call(name="max", args=[ast.Field(chain=[table_name, "ai_highlighted"])]),
+        "surfacing_score": ast.Call(name="max", args=[ast.Field(chain=[table_name, "surfacing_score"])]),
     }
 
     select_fields: list[ast.Expr] = []
@@ -313,12 +377,24 @@ def select_from_session_replay_events_table(requested_fields: dict[str, list[str
 
 
 class SessionReplayEventsTable(LazyTable):
+    description: str = (
+        "Aggregated metadata for session recordings (counts, URLs, console/activity stats); one row per session. "
+        "Holds metadata only, not the recording snapshots. Join to events/persons via `session_id`/`distinct_id`."
+    )
     fields: dict[str, FieldOrTable] = {
         **{k: v for k, v in SESSION_REPLAY_EVENTS_COMMON_FIELDS.items() if k not in RAW_ONLY_FIELDS},
-        "start_time": DateTimeDatabaseField(name="start_time", nullable=False),
-        "end_time": DateTimeDatabaseField(name="end_time", nullable=False),
-        "first_url": StringDatabaseField(name="first_url", nullable=True),
-        "is_deleted": IntegerDatabaseField(name="is_deleted", nullable=False),
+        "start_time": DateTimeDatabaseField(
+            name="start_time", nullable=False, description="Earliest snapshot timestamp across the session (in UTC)."
+        ),
+        "end_time": DateTimeDatabaseField(
+            name="end_time", nullable=False, description="Latest snapshot timestamp across the session (in UTC)."
+        ),
+        "first_url": StringDatabaseField(
+            name="first_url", nullable=True, description="URL of the first page viewed in the session."
+        ),
+        "is_deleted": IntegerDatabaseField(
+            name="is_deleted", nullable=False, description="Whether the recording has been deleted (1) or not (0)."
+        ),
     }
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):

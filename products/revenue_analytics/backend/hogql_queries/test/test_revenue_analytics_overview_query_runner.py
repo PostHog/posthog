@@ -24,16 +24,8 @@ from posthog.schema import (
 )
 
 from posthog.models.utils import uuid7
-from posthog.temporal.data_imports.sources.stripe.constants import (
-    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
-    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
-    INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
-    PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
-)
 
-from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
-from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
-from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
+from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_overview_query_runner import (
     RevenueAnalyticsOverviewQueryRunner,
 )
@@ -44,7 +36,15 @@ from products.revenue_analytics.backend.hogql_queries.test.data.structure import
     STRIPE_INVOICE_COLUMNS,
     STRIPE_PRODUCT_COLUMNS,
 )
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+from products.warehouse_sources.backend.facade.sources import (
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
+    PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
+)
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 INVOICE_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.overview_query_runner.stripe_invoices"
 PRODUCT_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.overview_query_runner.stripe_products"
@@ -214,6 +214,7 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             runner = RevenueAnalyticsOverviewQueryRunner(
                 team=self.team,
                 query=query,
+                user=self.user,
             )
 
             response = runner.calculate()

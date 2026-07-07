@@ -1,11 +1,11 @@
 import { Counter, Histogram } from 'prom-client'
 
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { GeoIPService, GeoIp } from '~/common/utils/geoip'
+import { parseJSON } from '~/common/utils/json-parse'
+import { FetchOptions, FetchResponse } from '~/common/utils/request'
 import { PluginEvent, ProcessedPluginEvent, RetryError, StorageExtension } from '~/plugin-scaffold'
 
-import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
-import { GeoIPService, GeoIp } from '../../utils/geoip'
-import { parseJSON } from '../../utils/json-parse'
-import { FetchOptions, FetchResponse } from '../../utils/request'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { firstTimeEventTrackerPluginProcessEventAsync } from '../legacy-plugins/_transformations/first-time-event-tracker'
 import { firstTimeEventTrackerPlugin } from '../legacy-plugins/_transformations/first-time-event-tracker/template'

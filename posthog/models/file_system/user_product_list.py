@@ -8,10 +8,9 @@ from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 
-from posthog.schema import ProductIntentContext, ProductItemCategory, ProductKey
-
 from posthog.models.utils import UpdatedMetaFields, UUIDModel, uuid7
 from posthog.products import Products
+from posthog.schema_enums import ProductIntentContext, ProductItemCategory, ProductKey
 
 from products.growth.backend.cross_sell_candidate_selector import DEFAULT_IGNORED_CATEGORIES, CrossSellCandidateSelector
 

@@ -106,7 +106,7 @@ export const sharingLogic = kea<sharingLogicType>([
     listeners(({ props, values, actions }) => ({
         setIsEnabled: (enabled) => {
             if (props.dashboardId) {
-                eventUsageLogic.actions.reportDashboardShareToggled(enabled)
+                eventUsageLogic.actions.reportDashboardShareToggled(props.dashboardId, enabled)
             }
         },
         setIsEnabledSuccess: () => {
@@ -116,7 +116,7 @@ export const sharingLogic = kea<sharingLogicType>([
         },
         setSharingSettingsValue: ({ name, value }) => {
             if (name === 'whitelabel' && props.dashboardId) {
-                eventUsageLogic.actions.reportDashboardWhitelabelToggled(value)
+                eventUsageLogic.actions.reportDashboardWhitelabelToggled(props.dashboardId, value)
             }
             if (name === 'whitelabel' && props.insightShortId) {
                 eventUsageLogic.actions.reportInsightWhitelabelToggled(value)

@@ -13,7 +13,7 @@ The fix is always the same: make the import lazy so it loads only when its code 
 The biggest single lever was the **lazy API router** (below).
 Everything else is deferring individual heavy imports off the startup path.
 
-## The four mechanisms
+## The five mechanisms
 
 ### 1. Lazy API router
 
@@ -48,11 +48,21 @@ There is deliberately no `gc.collect()` before the freeze: a full pass over the 
 The window must always close — GC left disabled in a long-lived process means unbounded cycle growth — hence the `try`/`finally` and the guard test asserting `gc.isenabled()` and a nonzero freeze count after a `manage.py` boot.
 Celery's `django.setup()` happens inside its Django fixup, not in an entrypoint we own, so celery workers do not get the window yet.
 
+### 5. Generated schema and query layer evicted from setup
+
+`posthog.schema` (the generated pydantic data model, ~2s to import) and the HogQL/query-runner layer used to load during `django.setup()` because dozens of model files and `ready()` chains imported them at module scope.
+They now load only in processes that actually run queries: web pods still pay at boot (the wsgi/asgi URLconf prewarm builds the router pre-fork, behind readiness), while celery, temporal, migrate, shell, and CI start without them.
+Two pieces make this hold:
+the enums (~270 classes) live in `posthog.schema_enums`, a separate generated module that imports in ~20ms — `bin/split-schema-enums.py` extracts them as a post-generation step of `hogli build:schema`, and `posthog.schema` re-exports every name so existing imports keep working;
+everything else got one of the standard treatments — enum-only imports repointed to `posthog.schema_enums`, annotation-only model uses moved under `TYPE_CHECKING` with quoted annotations, method-body uses imported at call time.
+The default when writing a model file or any other setup-path module: take enums from `posthog.schema_enums`; if you need an actual pydantic model, import it inside the method that uses it.
+The same applies to the celery task graph: `posthog/tasks/__init__.py` eagerly imports every task module so autodiscovery registers them, so any module-level `from posthog.tasks...` import on a setup path drags all of them in — import tasks at the call site, and take `CeleryQueue` from `posthog.celery_queues` (import-light, made for decorator-eval consumers).
+
 ## The regression guard
 
 `posthog/test/test_startup_import_budget.py` boots a bare `django.setup()` in a clean subprocess and asserts three things, one per mechanism:
 
-1. No `FORBIDDEN_AT_SETUP` heavy module (the lazy router aggregator, the AI core, `chdb`, `scipy`, …) is in `sys.modules`.
+1. No `FORBIDDEN_AT_SETUP` heavy module (the lazy router aggregator, the generated `posthog.schema`, the query-runner layer, the AI core, `chdb`, `scipy`, …) is in `sys.modules`.
 2. Every model registers at app-population — importing the router adds none.
 3. No signal receiver connects _only_ when the router is built.
 
@@ -189,7 +199,18 @@ Two failures killed it.
 First, cost relocation (above): in a web pod the deferred builds land on each worker's first `/query` after every deploy — previously paid at boot, behind the readiness probe, pre-fork and COW-shared — and the obvious warm-up loop measured ~2.5x more expensive than eager class creation (`model_rebuild()` re-resolves namespaces per model).
 Second, and fatal: query runners _construct_ response models directly (no validation, so nothing triggers the lazy build), and `model_dump()` then feeds a deferred child model's mock serializer into pydantic-core through a polymorphic field — `TypeError: 'MockValSer' object cannot be converted to 'SchemaSerializer'`, a hard 500 in any process.
 Round-trip tests on a single model cannot catch this: for `defer_build`, the serialization _matrix_ (construct-then-dump, subclass-through-parent, `Any`-typed fields) is the test surface.
-The ~1.8s the schema costs at import is real but structural — the tracked path is splitting the generated module, not deferring builds.
+The ~1.8s the schema cost at import was real but structural — it was eventually removed by evicting the module from setup entirely (mechanism 5), not by deferring builds.
+
+**Vanished re-exports.**
+When a module stops importing a name at module scope (moved under `TYPE_CHECKING`, deferred to call time, or dropped by regeneration), every `from that_module import name` elsewhere breaks — and the consumers are invisible until import time, because they were importing the name _incidentally_ through a module that merely happened to hold it.
+The eviction hit this with `from posthog.hogql.modifiers import HogQLQueryModifiers` in test files: fine for years, ImportError the day modifiers stopped binding the name.
+Before unbinding a name, grep for every import form — including `from package import module` and relative `from ...schema import` spellings, which a `^from posthog\.schema import` regex misses — and repoint consumers to the defining module.
+
+**Tests that patch a module attribute break when the import moves to call time.**
+`@patch("some.module.helper")` works by replacing the _attribute on the module object_; a function that does `from elsewhere import helper` at call time never reads that attribute, so the patch silently stops intercepting and the real code runs in the test.
+This caused three rounds of follow-up fixes in one week (conversations person lookup and groups lookup, the LLM-gateway policy task, the subscription free-tier constant).
+Fix the test, not the deferral: patch the name where it is _read_ — the defining module (`@patch("posthog.hogql.query.execute_hogql_query")`), which the call-time import resolves at call time, after the patch is in place.
+For a lazy module constant resolved via PEP 562 `__getattr__`, read it through `getattr(sys.modules[__name__], ...)` rather than as a bare global so a patched attribute still takes effect.
 
 **Regenerating a shared snapshot on top of a bad merge.**
 Query-count snapshot files (`.ambr`) are generated.

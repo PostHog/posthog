@@ -1,7 +1,11 @@
+from datetime import timedelta
+from typing import TYPE_CHECKING
+
 import pytest
 from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
+from django.apps import apps
 from django.conf import settings
 from django.utils import timezone
 
@@ -13,7 +17,6 @@ from posthog.models import Team
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
-from products.customer_analytics.backend.models import Account
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -23,6 +26,11 @@ from products.surveys.backend.models import Survey
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.context.entity_search import EntitySearchContext
 from ee.models.rbac.access_control import AccessControl
+
+if TYPE_CHECKING:
+    from products.customer_analytics.backend.models import Account
+else:
+    Account = apps.get_model("customer_analytics", "Account")
 
 
 class TestEntitySearchContext(NonAtomicBaseTest):
@@ -48,7 +56,7 @@ class TestEntitySearchContext(NonAtomicBaseTest):
             ("survey", "test_survey_id", "/project/{team_id}/surveys/test_survey_id"),
             ("error_tracking_issue", "test_issue_id", "/project/{team_id}/error_tracking/test_issue_id"),
             ("notebook", "test_notebook_id", "/project/{team_id}/notebooks/test_notebook_id"),
-            ("account", "test_account_id", "/project/{team_id}/customer_analytics/accounts"),
+            ("account", "test_account_id", "/project/{team_id}/customer_analytics/accounts/test_account_id"),
         ]
     )
     def test_build_url(self, entity_type, result_id, expected_path):
@@ -404,6 +412,109 @@ class TestEntitySearchContext(NonAtomicBaseTest):
 
         assert entities == []
         assert total == 0
+
+    async def test_list_entities_feature_flag_surfaces_status(self):
+        await FeatureFlag.objects.acreate(
+            team=self.team, key="my-flag", name="My flag", active=True, created_by=self.user
+        )
+
+        entities, total = await self.context.list_entities("feature_flag", limit=10, offset=0)
+
+        assert total == 1
+        assert len(entities) == 1
+        assert entities[0]["type"] == "feature_flag"
+        assert entities[0]["extra_fields"]["key"] == "my-flag"
+        # A fresh flag with no usage data is enabled (status uses the tool's vocabulary, not "active")
+        assert entities[0]["extra_fields"]["status"] == "enabled"
+        assert entities[0]["extra_fields"]["active"] is True
+
+        # Status shows up as a column in the formatted output (assert the rendered boolean, since
+        # the literal "active" also appears as the status value)
+        formatted = self.context.format_entities(entities)
+        assert "status" in formatted
+        assert "True" in formatted
+
+    async def test_list_feature_flags_stale_filter(self):
+        # Config-based stale: 30+ days old, no usage data, fully rolled out to 100%
+        stale_flag = await FeatureFlag.objects.acreate(
+            team=self.team,
+            key="stale-flag",
+            active=True,
+            created_at=timezone.now() - timedelta(days=60),
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            created_by=self.user,
+        )
+        # Active: freshly created, no usage data yet
+        await FeatureFlag.objects.acreate(team=self.team, key="fresh-flag", active=True, created_by=self.user)
+
+        entities, total = await self.context.list_feature_flags(limit=10, offset=0, active_filter="STALE")
+
+        assert total == 1
+        assert len(entities) == 1
+        assert entities[0]["result_id"] == str(stale_flag.id)
+        assert entities[0]["extra_fields"]["status"] == "stale"
+        assert entities[0]["extra_fields"]["rollout"] == "100%"
+
+    async def test_list_entities_feature_flag_pagination(self):
+        for i in range(5):
+            await FeatureFlag.objects.acreate(team=self.team, key=f"flag-{i}", active=True, created_by=self.user)
+
+        entities, total = await self.context.list_entities("feature_flag", limit=2, offset=2)
+
+        assert total == 5
+        # Newest-first: offset=2 of the descending list is flag-2, flag-1
+        assert [e["extra_fields"]["key"] for e in entities] == ["flag-2", "flag-1"]
+
+    async def test_list_feature_flags_disabled_shows_disabled_status(self):
+        # The status checker reports ACTIVE for disabled flags; the listing should show "disabled"
+        await FeatureFlag.objects.acreate(team=self.team, key="off-flag", active=False, created_by=self.user)
+
+        entities, _ = await self.context.list_feature_flags(limit=10, offset=0, active_filter="false")
+
+        assert len(entities) == 1
+        assert entities[0]["extra_fields"]["status"] == "disabled"
+        assert entities[0]["extra_fields"]["active"] is False
+
+    async def test_list_feature_flags_denied_without_resource_access(self):
+        # A role without feature flag viewer access must not receive any flag metadata
+        await FeatureFlag.objects.acreate(team=self.team, key="some-flag", active=True, created_by=self.user)
+
+        with patch.object(
+            EntitySearchContext,
+            "user_access_control",
+            new_callable=PropertyMock,
+        ) as mock_uac:
+            mock_uac.return_value.check_access_level_for_resource.return_value = False
+
+            entities, total = await self.context.list_feature_flags(limit=10, offset=0)
+
+        assert entities == []
+        assert total == 0
+
+    async def test_list_entities_feature_flag_applies_access_control(self):
+        flag1 = await FeatureFlag.objects.acreate(
+            team=self.team, key="accessible-flag", active=True, created_by=self.user
+        )
+        flag2 = await FeatureFlag.objects.acreate(
+            team=self.team, key="restricted-flag", active=True, created_by=self.user
+        )
+
+        # Mock filter_queryset_by_access_level to filter out flag2
+        def mock_filter(qs):
+            return qs.exclude(id=flag2.id)
+
+        with patch.object(
+            EntitySearchContext,
+            "user_access_control",
+            new_callable=PropertyMock,
+        ) as mock_uac:
+            mock_uac.return_value.filter_queryset_by_access_level = mock_filter
+
+            entities, total = await self.context.list_entities("feature_flag", limit=10, offset=0)
+
+        assert len(entities) == 1
+        assert total == 1
+        assert entities[0]["result_id"] == str(flag1.id)
 
     async def test_search_entities_account_by_partial_name(self):
         account = await Account.objects.unscoped().acreate(team=self.team, name="Globex", external_id="globex-1")

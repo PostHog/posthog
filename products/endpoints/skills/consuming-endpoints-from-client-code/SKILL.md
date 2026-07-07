@@ -40,7 +40,7 @@ If the user is **creating** the endpoint, use `creating-an-endpoint` first.
 ```
 
 - `team_id` is the project ID (numeric). Available in PostHog under project settings, or via
-  `posthog-get-projects` if the user doesn't know it.
+  `projects-get` if the user doesn't know it.
 - `name` is the endpoint name — see `endpoints-get-all` if the user isn't sure.
 - The trailing `/run` is required.
 

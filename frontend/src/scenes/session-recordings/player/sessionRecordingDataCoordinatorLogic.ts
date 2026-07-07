@@ -32,7 +32,6 @@ import type { sessionRecordingDataCoordinatorLogicType } from './sessionRecordin
 import { sessionRecordingMetaLogic } from './sessionRecordingMetaLogic'
 import { posthogTelemetry } from './snapshot-processing/process-all-snapshots'
 import { snapshotDataLogic } from './snapshotDataLogic'
-import { convertSegmentKinds } from './utils/segment-kind-conversion'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 
 export interface SessionRecordingDataCoordinatorLogicProps {
@@ -41,6 +40,18 @@ export interface SessionRecordingDataCoordinatorLogicProps {
     blobV2PollingDisabled?: boolean
     playerKey?: string
     accessToken?: string
+}
+
+// For a short window after a recording starts it may still be ingesting, so a missing full
+// snapshot is not yet definitive — late data (including the initial full snapshot) can still
+// arrive. Past this grace period a missing full snapshot means the data never reached PostHog.
+// NB: this clock is anchored on recording start, whereas snapshotDataLogic's
+// POLLING_INACTIVITY_TIMEOUT_MS is anchored on the last source change — they both happen to be
+// ~5 minutes but measure from different events, so tune them together, not in isolation.
+export const INGESTION_GRACE_PERIOD_MINUTES = 5
+
+export function isWithinIngestionGracePeriod(start: Dayjs | null): boolean {
+    return start != null && now().diff(start, 'minute') <= INGESTION_GRACE_PERIOD_MINUTES
 }
 
 export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoordinatorLogicType>([
@@ -206,10 +217,15 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
             const sources = values.snapshotSources
             const snapshotsBySource = {} as Record<string, { snapshots: RecordingSnapshot[] }>
+            // fetched sources this pass will cover — promoted to loaded on completion, including empty ones that contribute no snapshots
+            const coveredIndexes: number[] = []
             if (sources) {
                 for (let i = 0; i < sources.length; i++) {
                     const entry = values.snapshotStore.getEntry(i)
-                    if (entry?.state === 'loaded' && entry.processedSnapshots?.length) {
+                    if (entry?.state === 'fetched') {
+                        coveredIndexes.push(i)
+                    }
+                    if (entry?.state !== 'unloaded' && entry?.processedSnapshots?.length) {
                         snapshotsBySource[keyForSource(sources[i])] = {
                             snapshots: entry.processedSnapshots,
                         }
@@ -217,27 +233,42 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 }
             }
 
-            const result = await processAllSnapshots(
-                sources,
-                snapshotsBySource,
-                cache.processingCache,
-                values.viewportForTimestamp,
-                props.sessionRecordingId,
-                posthogTelemetry
-            )
+            let result: RecordingSnapshot[]
+            try {
+                result = await processAllSnapshots(
+                    sources,
+                    snapshotsBySource,
+                    cache.processingCache,
+                    values.viewportForTimestamp,
+                    props.sessionRecordingId,
+                    posthogTelemetry
+                )
+            } catch (error) {
+                // A processing throw on the final batch would otherwise leave fetched sources unplayable forever (nothing re-triggers processing), so retry with backoff.
+                posthog.captureException(error)
+                cache.processingFailureCount = (cache.processingFailureCount ?? 0) + 1
+                if (cache.processingFailureCount <= 3) {
+                    await breakpoint(cache.processingFailureCount * 1000)
+                    actions.processSnapshotsAsync()
+                }
+                return
+            }
+            cache.processingFailureCount = 0
 
             breakpoint()
 
+            // Promotion is what makes these sources count as playable — the oracle, segments, and planner all key on it, so it must land with the processed snapshots.
+            const promoted = values.snapshotStore.markProcessed(coveredIndexes)
             // processAllSnapshots may synthesize full snapshots (e.g. for mobile recordings).
-            // Sync them back to the store so canPlayAt() and LoadingScheduler work correctly.
-            if (values.snapshotStore.syncFullSnapshotTimestamps(result)) {
-                actions.storeUpdated()
-            }
+            // Sync them back to the store so canPlayAt() and the load planner work correctly.
+            const synced = values.snapshotStore.syncFullSnapshotTimestamps(result)
 
-            // Release raw snapshot arrays from the store — only the metadata
-            // (fullSnapshotTimestamps, metaTimestamps, state) is still needed.
+            // Release raw snapshot arrays from the store — only the metadata (fullSnapshots, state) is still needed.
             values.snapshotStore.clearSnapshotData()
 
+            if (promoted || synced) {
+                actions.storeUpdated()
+            }
             actions.setProcessedSnapshots(result)
         },
 
@@ -249,7 +280,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             }
         },
     })),
-    selectors(({ cache }) => ({
+    selectors(() => ({
         snapshots: [
             (s) => [s.processedSnapshots],
             (processedSnapshots: RecordingSnapshot[]): RecordingSnapshot[] => {
@@ -306,7 +337,6 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 s.end,
                 s.trackedWindow,
                 s.snapshotsByWindowId,
-                s.isLoadingSnapshots,
                 s.snapshotStore,
                 s.storeVersion,
             ],
@@ -316,11 +346,11 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 end: Dayjs | null,
                 trackedWindow: number | null,
                 snapshotsByWindowId: Record<number, eventWithTime[]>,
-                isLoadingSnapshots: boolean,
                 snapshotStore: SnapshotStore
             ): RecordingSegment[] => {
-                const segments = createSegments(snapshots || [], start, end, trackedWindow, snapshotsByWindowId)
-                return convertSegmentKinds(segments, snapshotStore, isLoadingSnapshots)
+                return createSegments(snapshots || [], start, end, trackedWindow, snapshotsByWindowId, (s, e) =>
+                    snapshotStore.isRangeLoaded(s, e)
+                )
             },
         ],
 
@@ -351,19 +381,21 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
         windowIdForTimestamp: [
             (s) => [s.segments],
-            (segments) =>
-                (timestamp: number): number | undefined => {
-                    cache.windowIdForTimestamp = cache.windowIdForTimestamp || {}
-                    if (cache.windowIdForTimestamp[timestamp] !== undefined) {
-                        return cache.windowIdForTimestamp[timestamp]
+            (segments) => {
+                // memoized per segments recompute — segments reshape as data loads, so a logic-lifetime cache would pin stale window attributions
+                const memo: Record<number, number | undefined> = {}
+                return (timestamp: number): number | undefined => {
+                    if (timestamp in memo) {
+                        return memo[timestamp]
                     }
                     const matchingWindowId = segments.find(
                         (segment) => segment.startTimestamp <= timestamp && segment.endTimestamp >= timestamp
                     )?.windowId
 
-                    cache.windowIdForTimestamp[timestamp] = matchingWindowId
+                    memo[timestamp] = matchingWindowId
                     return matchingWindowId
-                },
+                }
+            },
         ],
 
         urls: [
@@ -413,12 +445,12 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     return false
                 }
 
-                const anyWindowMissingFullSnapshot = !Object.values(windowsHaveFullSnapshot).some((x) => x)
-                const everyWindowMissingFullSnapshot = !Object.values(windowsHaveFullSnapshot).every((x) => x)
+                const noWindowHasFullSnapshot = !Object.values(windowsHaveFullSnapshot).some((x) => x)
+                const someWindowMissingFullSnapshot = !Object.values(windowsHaveFullSnapshot).every((x) => x)
 
                 const recordingAgeMs = now().diff(start, 'millisecond')
 
-                if (everyWindowMissingFullSnapshot) {
+                if (noWindowHasFullSnapshot) {
                     // video is definitely unplayable
                     posthog.capture('recording_has_no_full_snapshot', {
                         watchedSession: sessionRecordingId,
@@ -426,7 +458,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                         teamName: currentTeam?.name,
                         recordingAgeMs,
                     })
-                } else if (anyWindowMissingFullSnapshot) {
+                } else if (someWindowMissingFullSnapshot) {
                     posthog.capture('recording_window_missing_full_snapshot', {
                         watchedSession: sessionRecordingId,
                         teamID: currentTeam?.id,
@@ -435,16 +467,22 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     })
                 }
 
-                return everyWindowMissingFullSnapshot
+                return noWindowHasFullSnapshot
             },
         ],
 
         isRecentAndInvalid: [
             (s) => [s.start, s.snapshotsInvalid],
             (start, snapshotsInvalid) => {
-                const lessThanFiveMinutesOld = dayjs().diff(start, 'minute') <= 5
-                return snapshotsInvalid && lessThanFiveMinutesOld
+                return snapshotsInvalid && isWithinIngestionGracePeriod(start)
             },
+        ],
+
+        // past the ingestion grace period, a missing full snapshot means the data never arrived,
+        // e.g. the browser closed or went offline before the recording finished uploading
+        isOldAndInvalid: [
+            (s) => [s.snapshotsInvalid, s.isRecentAndInvalid],
+            (snapshotsInvalid, isRecentAndInvalid) => snapshotsInvalid && !isRecentAndInvalid,
         ],
 
         windowIds: [
@@ -480,7 +518,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         effectiveSourceLoadingStates: [
             (s) => [s.sourceLoadingStates, s.segments],
             (states: SourceLoadingState[], segments: RecordingSegment[]): SourceLoadingState[] => {
-                let lastNonGapState: 'loaded' | 'unloaded' = 'unloaded'
+                let lastNonGapState: SourceLoadingState['state'] = 'unloaded'
                 return states.map((s) => {
                     const inGap = !segments.some(
                         (seg) => seg.kind !== 'gap' && seg.startTimestamp < s.endMs && seg.endTimestamp > s.startMs
@@ -565,7 +603,6 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         ],
     })),
     beforeUnmount(({ cache, actions, values }) => {
-        cache.windowIdForTimestamp = undefined
         cache.processingCache = undefined
         // Force clear processedSnapshots to release memory immediately
         // This breaks the reference chain in selector memoization cache

@@ -7,12 +7,12 @@ import { eventPropertyFilteringLogic } from 'lib/components/EventPropertyTabs/ev
 import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
 import { dayjs } from 'lib/dayjs'
 import { LemonTab, LemonTabs, LemonTabsProps } from 'lib/lemon-ui/LemonTabs'
-import { isKeyOf } from 'lib/utils'
-import { AutocaptureImageTab, autocaptureToImage } from 'lib/utils/autocapture-previews'
+import { isKeyOf } from 'lib/utils/guards'
 
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, POSTHOG_EVENT_PROMOTED_PROPERTIES } from '~/taxonomy/taxonomy'
-import { EventType, RecordingEventType } from '~/types'
+import { EventType, RecordingEventType, SurveyEventProperties } from '~/types'
 
+import { AutocaptureImageTab, hasAutocaptureImage } from '../AutocapturePreviewImage/AutocapturePreviewImage'
 import { ErrorEventType } from '../Errors/types'
 
 export type ErrorPropertyTabEvent = EventType | RecordingEventType | ErrorEventType
@@ -59,9 +59,10 @@ export const EventPropertyTabs = ({
     const isAITagEvent = event.event === '$ai_tag'
 
     const isErrorEvent = event.event === '$exception'
-    const isSurveyResponseEvent = event.event === 'survey sent'
+    const isSurveyResponseEvent = event.event === 'survey sent' && !!event.properties?.[SurveyEventProperties.SURVEY_ID]
     const isMcpEvent =
-        typeof event.event === 'string' && (event.event.startsWith('mcp_') || event.event.startsWith('mcp '))
+        typeof event.event === 'string' &&
+        (event.event.startsWith('mcp_') || event.event.startsWith('$mcp_') || event.event.startsWith('mcp '))
 
     const { filterProperties } = useValues(eventPropertyFilteringLogic)
 
@@ -188,7 +189,7 @@ export const EventPropertyTabs = ({
                   ),
               }
             : null,
-        event.elements && autocaptureToImage(event.elements)
+        event.elements && hasAutocaptureImage(event.elements)
             ? {
                   key: 'image',
                   label: 'Image',

@@ -1,19 +1,17 @@
-import { CSSProperties, ReactNode, useCallback, useEffect, useMemo, useRef } from 'react'
-import { List, useDynamicRowHeight, useListRef } from 'react-window'
+import { CSSProperties, ReactNode, useCallback, useMemo, useRef } from 'react'
+import { List, useListRef } from 'react-window'
 
-import { IconChevronRight } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonTag } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 import { cn } from 'lib/utils/css-classes'
 
-import { formatDuration } from '../../TraceFlameChart'
+import { formatDuration } from '../../TraceWaterfallView'
 import type { TracingOrderBy, TracingOrderDirection } from '../../tracingFiltersLogic'
 import { SPAN_KIND_LABELS, STATUS_CODE_LABELS } from '../../types'
 import type { Span } from '../../types'
-import { ExpandedSpanContent } from './ExpandedSpanContent'
 import { SpanRowActions } from './SpanRowActions'
 
 const ROW_HEIGHT = 36
@@ -23,7 +21,6 @@ const LOAD_MORE_THRESHOLD = 10
 
 // Fixed column widths (px). The name column flexes to fill the remaining space.
 const COL_WIDTH = {
-    expand: 32,
     timestamp: 190,
     service: 150,
     kind: 90,
@@ -54,8 +51,6 @@ interface VirtualizedSpanListProps extends SortProps {
     loading: boolean
     onRowClick: (span: Span) => void
     onVisibleRowRangeChange: (startIndex: number, stopIndex: number) => void
-    expandedSpanIds: Record<string, boolean>
-    onToggleExpand: (uuid: string) => void
     hasMoreToLoad?: boolean
     onLoadMore?: () => void
     emptyState?: ReactNode
@@ -64,9 +59,6 @@ interface VirtualizedSpanListProps extends SortProps {
 interface SpanRowProps {
     dataSource: Span[]
     onRowClick: (span: Span) => void
-    expandedSpanIds: Record<string, boolean>
-    onToggleExpand: (uuid: string) => void
-    dynamicRowHeight: ReturnType<typeof useDynamicRowHeight>
 }
 
 function Cell({ width, children }: { width?: number; children: React.ReactNode }): JSX.Element {
@@ -114,7 +106,6 @@ function SpanRowHeader({ orderBy, orderDirection, onSort }: SortProps): JSX.Elem
             // eslint-disable-next-line react/forbid-dom-props
             style={{ height: HEADER_HEIGHT }}
         >
-            <Cell width={COL_WIDTH.expand}> </Cell>
             <SortableHeaderCell
                 column="timestamp"
                 label="Timestamp"
@@ -141,17 +132,7 @@ function SpanRowHeader({ orderBy, orderDirection, onSort }: SortProps): JSX.Elem
     )
 }
 
-function SpanRow({
-    span,
-    isExpanded,
-    onToggleExpand,
-    onClick,
-}: {
-    span: Span
-    isExpanded: boolean
-    onToggleExpand: () => void
-    onClick: () => void
-}): JSX.Element {
+function SpanRow({ span, onClick }: { span: Span; onClick: () => void }): JSX.Element {
     const status = STATUS_CODE_LABELS[span.status_code] ?? { label: String(span.status_code), type: 'default' as const }
 
     return (
@@ -169,17 +150,6 @@ function SpanRow({
             role="button"
             tabIndex={0}
         >
-            <Cell width={COL_WIDTH.expand}>
-                <LemonButton
-                    size="xsmall"
-                    icon={<IconChevronRight className={cn('transition-transform', isExpanded && 'rotate-90')} />}
-                    tooltip={isExpanded ? 'Collapse' : 'Expand'}
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        onToggleExpand()
-                    }}
-                />
-            </Cell>
             <Cell width={COL_WIDTH.timestamp}>{new Date(span.timestamp).toLocaleString()}</Cell>
             <Cell>
                 <span className="flex items-center gap-2 truncate">
@@ -215,35 +185,17 @@ function SpanListRow({
     style,
     dataSource,
     onRowClick,
-    expandedSpanIds,
-    onToggleExpand,
-    dynamicRowHeight,
 }: {
     ariaAttributes: { 'aria-posinset': number; 'aria-setsize': number; role: 'listitem' }
     index: number
     style: CSSProperties
 } & SpanRowProps): JSX.Element {
-    const rowRef = useRef<HTMLDivElement>(null)
     const span = dataSource[index]
-    const isExpanded = !!expandedSpanIds[span.uuid]
-
-    // Report the rendered height back to react-window so expanded rows grow the list.
-    useEffect(() => {
-        if (rowRef.current) {
-            return dynamicRowHeight.observeRowElements([rowRef.current])
-        }
-    }, [dynamicRowHeight])
 
     return (
         // eslint-disable-next-line react/forbid-dom-props
-        <div {...ariaAttributes} ref={rowRef} style={style} data-index={index} data-row-key={span.uuid}>
-            <SpanRow
-                span={span}
-                isExpanded={isExpanded}
-                onToggleExpand={() => onToggleExpand(span.uuid)}
-                onClick={() => onRowClick(span)}
-            />
-            {isExpanded && <ExpandedSpanContent span={span} />}
+        <div {...ariaAttributes} style={style} data-index={index} data-row-key={span.uuid}>
+            <SpanRow span={span} onClick={() => onRowClick(span)} />
         </div>
     )
 }
@@ -253,8 +205,6 @@ export function VirtualizedSpanList({
     loading,
     onRowClick,
     onVisibleRowRangeChange,
-    expandedSpanIds,
-    onToggleExpand,
     hasMoreToLoad = false,
     onLoadMore,
     emptyState = 'No spans found',
@@ -266,7 +216,6 @@ export function VirtualizedSpanList({
     const lastVisibleRangeRef = useRef<{ startIndex: number; stopIndex: number } | null>(null)
 
     const listRef = useListRef(null)
-    const dynamicRowHeight = useDynamicRowHeight({ defaultRowHeight: ROW_HEIGHT })
 
     const handleRowsRendered = useCallback(
         (
@@ -291,10 +240,7 @@ export function VirtualizedSpanList({
         [dataSource.length, hasMoreToLoad, loading, onLoadMore, onVisibleRowRangeChange]
     )
 
-    const rowProps = useMemo(
-        (): SpanRowProps => ({ dataSource, onRowClick, expandedSpanIds, onToggleExpand, dynamicRowHeight }),
-        [dataSource, onRowClick, expandedSpanIds, onToggleExpand, dynamicRowHeight]
-    )
+    const rowProps = useMemo((): SpanRowProps => ({ dataSource, onRowClick }), [dataSource, onRowClick])
 
     if (dataSource.length === 0 && !loading) {
         return (
@@ -327,7 +273,7 @@ export function VirtualizedSpanList({
                                     style={{ height: height - HEADER_HEIGHT, width: rowWidth }}
                                     overscanCount={10}
                                     rowCount={dataSource.length}
-                                    rowHeight={dynamicRowHeight}
+                                    rowHeight={ROW_HEIGHT}
                                     rowComponent={SpanListRow}
                                     rowProps={rowProps}
                                     onRowsRendered={handleRowsRendered}

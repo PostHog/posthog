@@ -28,7 +28,7 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { getCookie } from 'lib/api'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
-import { roundToDecimal } from 'lib/utils'
+import { roundToDecimal } from 'lib/utils/numbers'
 
 // cookie values
 const PH_CURRENT_INSTANCE = 'ph_current_instance'

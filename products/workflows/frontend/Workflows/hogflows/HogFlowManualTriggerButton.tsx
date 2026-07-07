@@ -5,13 +5,13 @@ import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonInput, Popover } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { CyclotronJobInputSchemaType } from '~/types'
 
 import { WorkflowLogicProps, workflowLogic } from '../workflowLogic'
 import { hogFlowManualTriggerButtonLogic } from './HogFlowManualTriggerButtonLogic'
-import { batchTriggerLogic, BLAST_RADIUS_LIMIT } from './steps/batchTriggerLogic'
+import { batchTriggerLogic } from './steps/batchTriggerLogic'
 
 const TriggerPopover = ({
     setPopoverVisible,
@@ -32,7 +32,10 @@ const TriggerPopover = ({
     )
 
     const blastRadiusExceeded =
-        workflow?.trigger?.type === 'batch' && blastRadius != null && blastRadius.affected > BLAST_RADIUS_LIMIT
+        workflow?.trigger?.type === 'batch' &&
+        blastRadius != null &&
+        blastRadius.limit != null &&
+        blastRadius.affected > blastRadius.limit
 
     const blastRadiusSuffix = (): string => {
         if (workflow?.trigger?.type === 'batch') {
@@ -104,8 +107,8 @@ const TriggerPopover = ({
                     status="alt"
                     loading={blastRadiusLoading}
                     disabledReason={
-                        blastRadiusExceeded
-                            ? `Batch size exceeds the limit of ${humanFriendlyNumber(BLAST_RADIUS_LIMIT)} users. Add filters to narrow your audience. This limit will be loosened in the future.`
+                        blastRadiusExceeded && blastRadius?.limit != null
+                            ? `Batch size exceeds the limit of ${humanFriendlyNumber(blastRadius.limit)} users. Add filters to narrow your audience. This limit will be loosened in the future.`
                             : undefined
                     }
                     onClick={() => {

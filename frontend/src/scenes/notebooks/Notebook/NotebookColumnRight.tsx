@@ -1,15 +1,18 @@
 import clsx from 'clsx'
 import { BuiltLogic, useValues } from 'kea'
 
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 
 import { NotebookNodeChildRenderer } from '../Nodes/NodeWrapper'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
+import { isMarkdownNotebookContent } from './markdownNotebookV2'
+import { NotebookKernelInfo } from './NotebookKernelInfo'
 import { notebookLogic } from './notebookLogic'
 
 export const NotebookColumnRight = (): JSX.Element | null => {
-    const { isShowingLeftColumn, nodeLogicsWithChildren } = useValues(notebookLogic)
-    const isShowing = nodeLogicsWithChildren.length && !isShowingLeftColumn
+    const { content, isShowingLeftColumn, nodeLogicsWithChildren, showKernelInfo } = useValues(notebookLogic)
+    const shouldShowMarkdownKernelInfo = isMarkdownNotebookContent(content) && showKernelInfo
+    const isShowing = (nodeLogicsWithChildren.length > 0 || shouldShowMarkdownKernelInfo) && !isShowingLeftColumn
 
     return (
         <div
@@ -21,6 +24,7 @@ export const NotebookColumnRight = (): JSX.Element | null => {
             <div className="NotebookColumn__content">
                 {isShowing ? (
                     <>
+                        {shouldShowMarkdownKernelInfo ? <NotebookKernelInfo /> : null}
                         {nodeLogicsWithChildren.map((x, i) => (
                             <Widgets key={i} nodeLogic={x} />
                         ))}

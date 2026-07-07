@@ -1,7 +1,8 @@
 """Anonymous opt-out telemetry for hogli CLI.
 
-Events are queued in-process and flushed as a single batch POST to a
-PostHog-compatible ``/batch/`` endpoint.
+Events are queued in-process and sent as batch POSTs to a PostHog-compatible
+``/batch/`` endpoint -- eagerly via :func:`flush_async`, or blocking via
+:func:`flush` (registered atexit, which also joins in-flight sends).
 
 Telemetry is **disabled** unless an API key is configured via the
 ``telemetry.api_key`` section of ``hogli.yaml`` (or the
@@ -19,6 +20,7 @@ from __future__ import annotations
 import os
 import sys
 import json
+import time
 import uuid
 import atexit
 import threading
@@ -87,11 +89,12 @@ def _save_config(config: TelemetryConfig) -> None:
 
 
 class TelemetryClient:
-    """Queue-based telemetry client that batches events into a single POST."""
+    """Queue-based telemetry client that sends events as batch POSTs."""
 
     def __init__(self) -> None:
         self._queue: list[dict[str, Any]] = []
         self._lock = threading.Lock()
+        self._inflight: list[threading.Thread] = []
 
     # -- config-backed helpers --
 
@@ -125,6 +128,19 @@ class TelemetryClient:
             return False
         return _load_config().get("enabled", True)
 
+    def is_active(self) -> bool:
+        """The single emission predicate: a track() call right now would queue and send.
+
+        Stricter than :meth:`is_enabled`: also requires the first-run notice
+        flag to have been persisted, which never happens on read-only or
+        ephemeral HOMEs. Never raises -- telemetry must not break its host.
+        """
+        try:
+            return self.is_enabled() and bool(_load_config().get("first_run_notice_shown"))
+        except Exception as exc:
+            _debug(f"is_active check failed (treating as inactive): {exc}")
+            return False
+
     def get_anonymous_id(self) -> str:
         config = _load_config()
         anon_id = config.get("anonymous_id")
@@ -153,7 +169,8 @@ class TelemetryClient:
         click.echo(
             "\n"
             "hogli collects anonymous usage data to help improve the developer experience.\n"
-            "No personal information is collected -- only command names and timing.\n"
+            "No personal information is collected -- only command names, timing, and\n"
+            "environment context (OS, tool versions, dev-environment type).\n"
             "\n"
             "You can opt out at any time:\n"
             "  hogli telemetry:off          (persistent)\n"
@@ -173,16 +190,12 @@ class TelemetryClient:
     # -- event tracking --
 
     def track(self, event: str, properties: dict[str, Any] | None = None) -> None:
-        """Queue a single event. No-ops if telemetry is disabled."""
-        if not self.is_enabled():
-            return
-        config = _load_config()
-        if not config.get("first_run_notice_shown"):
+        """Queue a single event. No-ops unless telemetry is active."""
+        if not self.is_active():
             return
 
         props: dict[str, Any] = {
             "$process_person_profile": False,
-            "$groups": {"project": "hogli"},
         }
         if properties:
             props.update(properties)
@@ -199,16 +212,40 @@ class TelemetryClient:
             self._queue.append(entry)
 
     def flush(self, timeout: float = 2.0) -> None:
-        """Send queued events as a single batch POST, blocking up to *timeout*."""
+        """Send queued events and wait for in-flight sends, up to *timeout* total.
+
+        Each send thread is joined at most once across flush calls; a thread
+        still alive after its window is abandoned to its daemon fate, so a
+        hung send can't stall both the post-command flush and the atexit one.
+        """
+        self._start_send()
+        with self._lock:
+            pending, self._inflight = self._inflight, []
+        deadline = time.monotonic() + timeout
+        for thread in pending:
+            thread.join(timeout=max(0.0, deadline - time.monotonic()))
+
+    def flush_async(self) -> None:
+        """Send queued events in the background without blocking (joined later
+        by :meth:`flush`). On a hard kill the POST is already in flight, so
+        eagerly-flushed events usually survive where queued ones never do.
+        """
+        self._start_send()
+
+    def _start_send(self) -> None:
+        # Drain, start, and register in one critical section so a concurrent
+        # flush() can never swap _inflight between them: appending first would
+        # let it join an unstarted thread (RuntimeError), appending after
+        # start outside the lock would let the thread escape the join. The
+        # send thread never touches _lock, so starting it here can't deadlock.
         with self._lock:
             if not self._queue:
                 return
             batch = self._queue[:]
             self._queue.clear()
-
-        thread = threading.Thread(target=self._send_batch, args=(batch,), daemon=True)
-        thread.start()
-        thread.join(timeout=timeout)
+            thread = threading.Thread(target=self._send_batch, args=(batch,), daemon=True)
+            thread.start()
+            self._inflight.append(thread)
 
     def _send_batch(self, batch: list[dict[str, Any]]) -> None:
         host = self._host
@@ -230,11 +267,26 @@ class TelemetryClient:
 # ---------------------------------------------------------------------------
 
 _client = TelemetryClient()
-atexit.register(_client.flush)
+
+
+def _flush_at_exit() -> None:
+    # Never let telemetry teardown print a traceback at process exit (e.g.
+    # thread creation failing under resource exhaustion).
+    try:
+        _client.flush()
+    except Exception:
+        pass
+
+
+atexit.register(_flush_at_exit)
 
 
 def is_enabled() -> bool:
     return _client.is_enabled()
+
+
+def is_active() -> bool:
+    return _client.is_active()
 
 
 def get_anonymous_id() -> str:
@@ -255,6 +307,10 @@ def track(event: str, properties: dict[str, Any] | None = None) -> None:
 
 def flush(timeout: float = 2.0) -> None:
     _client.flush(timeout)
+
+
+def flush_async() -> None:
+    _client.flush_async()
 
 
 # ---------------------------------------------------------------------------

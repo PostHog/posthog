@@ -8,6 +8,8 @@ from posthoganalytics import capture_exception
 
 from posthog.schema import AssistantMessage
 
+from posthog.sync import database_sync_to_async
+
 from ee.hogai.chat_agent.slash_commands.commands import SlashCommand
 from ee.hogai.chat_agent.slash_commands.commands.usage.queries import (
     format_usage_message,
@@ -34,13 +36,15 @@ class UsageCommand(SlashCommand):
                     messages=[AssistantMessage(content="Unable to retrieve conversation information.", id=str(uuid4()))]
                 )
 
-            conversation_start = await sync_to_async(get_conversation_start_time)(conversation_id)
+            conversation_start = await database_sync_to_async(get_conversation_start_time)(conversation_id)
             if not conversation_start:
                 return PartialAssistantState(
                     messages=[AssistantMessage(content="Unable to retrieve conversation start time.", id=str(uuid4()))]
                 )
 
-            usage_period = get_ai_usage_period(self._team, config.get("configurable", {}).get("billing_context"))
+            usage_period = await database_sync_to_async(get_ai_usage_period)(
+                self._team, config.get("configurable", {}).get("billing_context")
+            )
 
             conversation_credits = await sync_to_async(get_ai_credits_for_conversation, thread_sensitive=False)(
                 team_id=self._team.id,
@@ -73,4 +77,4 @@ class UsageCommand(SlashCommand):
 
         except Exception as e:
             capture_exception(e)
-            raise Exception("PostHog AI usage information query failed. Please try again later.")
+            raise Exception("PostHog AI usage information query failed. Please try again later.") from e

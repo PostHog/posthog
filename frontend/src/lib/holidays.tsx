@@ -1,7 +1,8 @@
 import posthog from 'posthog-js'
 
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+
 import { FEATURE_FLAGS } from './constants'
-import { inStorybook, inStorybookTestRunner } from './utils'
 
 // Please remember that in Javascript months are 0-indexed
 // January is 0 and December is 11
@@ -67,4 +68,16 @@ export const holidaysMatcher = <T,>(matcher: HolidayMatcher<T>, orElse: T): T =>
     }
 
     return orElse
+}
+
+/** The holiday the logomark should dress up for right now, or `undefined` outside the season. */
+export const currentHoliday = (): Holiday | undefined => {
+    if (isChristmas()) {
+        return 'christmas'
+    }
+    if (isHalloween()) {
+        return 'halloween'
+    }
+
+    return undefined
 }

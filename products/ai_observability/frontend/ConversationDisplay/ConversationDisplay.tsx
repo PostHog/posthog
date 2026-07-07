@@ -84,8 +84,8 @@ export function ConversationDisplay({
                 <AIDataLoading variant="block" />
             ) : (
                 <ConversationMessagesDisplay
-                    inputNormalized={normalizeMessages(input, 'user', tools)}
-                    outputNormalized={normalizeMessages(output, 'assistant')}
+                    inputNormalized={normalizeMessages(input, 'user', tools).messages}
+                    outputNormalized={normalizeMessages(output, 'assistant').messages}
                     inputSourceIndices={inputSourceIndices}
                     errorData={eventProperties.$ai_error}
                     httpStatus={eventProperties.$ai_http_status}

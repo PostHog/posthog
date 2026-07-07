@@ -1,12 +1,16 @@
-from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.core.exceptions import ObjectDoesNotExist
 
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.group.util import get_group_by_key
-from posthog.models.tagged_item import TaggedItem
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
-from products.customer_analytics.backend.models import Account
-from products.notebooks.backend.models import Notebook, ResourceNotebook
+from products.customer_analytics.backend.facade.api import get_account_context_data
+from products.customer_analytics.backend.facade.constants import (
+    BILLING_SPEND_INSIGHT_SHORT_IDS,
+    BILLING_USAGE_INSIGHT_SHORT_IDS,
+)
+from products.customer_analytics.backend.facade.contracts import AccountContextData
 
 from .prompts import (
     ACCOUNT_ANALYSIS_CONNECTED_TEMPLATE,
@@ -40,27 +44,30 @@ class AccountContext:
     agent can scope usage and event analysis to the right group.
     """
 
-    def __init__(self, team: Team, account_id: str | None = None, external_id: str | None = None):
+    def __init__(self, team: Team, user: User, account_id: str | None = None, external_id: str | None = None):
         self._team = team
+        self._user = user
         self._account_id = account_id
         self._external_id = external_id
 
-    async def aget_account(self) -> Account | None:
-        try:
-            if self._account_id:
-                return await Account.objects.unscoped().aget(id=self._account_id, team=self._team)
-            if self._external_id:
-                return await Account.objects.unscoped().aget(external_id=self._external_id, team=self._team)
-            return None
-        except (Account.DoesNotExist, ValidationError, ValueError):
-            return None
+    @property
+    def user_access_control(self) -> UserAccessControl:
+        return UserAccessControl(user=self._user, team=self._team, organization_id=str(self._team.organization_id))
+
+    async def aget_account(self) -> AccountContextData | None:
+        return await database_sync_to_async(get_account_context_data)(
+            team_id=self._team.id,
+            account_id=self._account_id,
+            external_id=self._external_id,
+            user_access_control=self.user_access_control,
+        )
 
     def get_not_found_message(self) -> str:
         identifier = f"id={self._account_id}" if self._account_id else f"external_id={self._external_id}"
         return ACCOUNT_NOT_FOUND_TEMPLATE.format(identifier=identifier)
 
     @database_sync_to_async
-    def format_account(self, account: Account) -> str:
+    def format_account(self, account: AccountContextData) -> str:
         return ACCOUNT_CONTEXT_TEMPLATE.format(
             name=account.name,
             account_id=str(account.id),
@@ -79,7 +86,7 @@ class AccountContext:
             return self.get_not_found_message()
         return await self.format_account(account)
 
-    def _roles_section(self, account: Account) -> str:
+    def _roles_section(self, account: AccountContextData) -> str:
         properties = account.properties
         lines = [
             f"- {label}: {assignment.email} (user {assignment.id})"
@@ -90,35 +97,25 @@ class AccountContext:
             return ""
         return "\n" + ACCOUNT_ROLES_TEMPLATE.format(roles_list="\n".join(lines))
 
-    def _external_ids_section(self, account: Account) -> str:
+    def _external_ids_section(self, account: AccountContextData) -> str:
         properties = account.properties
         lines = [f"- {label}: {value}" for label, field in _EXTERNAL_ID_LABELS if (value := getattr(properties, field))]
         if not lines:
             return ""
         return "\n" + ACCOUNT_EXTERNAL_IDS_TEMPLATE.format(ids_list="\n".join(lines))
 
-    def _tags_section(self, account: Account) -> str:
-        tags = sorted(TaggedItem.objects.filter(account=account).values_list("tag__name", flat=True))
-        if not tags:
+    def _tags_section(self, account: AccountContextData) -> str:
+        if not account.tags:
             return ""
-        return "\n" + ACCOUNT_TAGS_TEMPLATE.format(tags_list=", ".join(tags))
+        return "\n" + ACCOUNT_TAGS_TEMPLATE.format(tags_list=", ".join(account.tags))
 
-    def _notes_section(self, account: Account) -> str:
-        links = (
-            ResourceNotebook.objects.filter(
-                account=account,
-                notebook__deleted=False,
-                notebook__visibility=Notebook.Visibility.INTERNAL,
-            )
-            .select_related("notebook")
-            .order_by("-notebook__last_modified_at")
-        )
-        lines = [f'- "{link.notebook.title}" (short_id: {link.notebook.short_id})' for link in links]
+    def _notes_section(self, account: AccountContextData) -> str:
+        lines = [f'- "{note.title}" (short_id: {note.short_id})' for note in account.notes]
         if not lines:
             return ""
         return "\n" + ACCOUNT_NOTES_TEMPLATE.format(notes_list="\n".join(lines))
 
-    def _analysis_section(self, account: Account) -> str:
+    def _analysis_section(self, account: AccountContextData) -> str:
         group_type_index = self._account_group_type_index()
         if group_type_index is None:
             return ACCOUNT_ANALYSIS_NOT_CONFIGURED_TEMPLATE
@@ -126,13 +123,20 @@ class AccountContext:
             return ACCOUNT_ANALYSIS_NO_EXTERNAL_ID_TEMPLATE
 
         group = get_group_by_key(
-            team_id=account.team_id, group_type_index=group_type_index, group_key=account.external_id
+            team_id=self._team.id, group_type_index=group_type_index, group_key=account.external_id
         )
         if group is None:
             return ACCOUNT_ANALYSIS_GROUP_NOT_FOUND_TEMPLATE.format(group_key=account.external_id)
         return ACCOUNT_ANALYSIS_CONNECTED_TEMPLATE.format(
-            group_type_index=group_type_index, group_key=account.external_id
+            group_type_index=group_type_index,
+            group_key=account.external_id,
+            billing_insights_clause=self._billing_insights_clause(),
         )
+
+    def _billing_insights_clause(self) -> str:
+        usage = ", ".join(BILLING_USAGE_INSIGHT_SHORT_IDS)
+        spend = ", ".join(BILLING_SPEND_INSIGHT_SHORT_IDS)
+        return f" (Usage insight short ids: {usage}; Spend insight short ids: {spend})"
 
     def _account_group_type_index(self) -> int | None:
         try:

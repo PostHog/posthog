@@ -32,7 +32,8 @@ This scans millions of events. If the experiment results page is viewed 10 times
 self.experiment = Experiment.objects.get(id=self.query.experiment_id)
 self.feature_flag = self.experiment.feature_flag
 self.variants = [variant["key"] for variant in self.feature_flag.variants]
-self.date_range = get_experiment_date_range(self.experiment, self.team, self.override_end_date)
+self.as_of = as_of if as_of is not None else (self.experiment.end_date or datetime.now(UTC))
+self.date_range = experiment_window(self.experiment, self.team, self.as_of)
 ```
 
 ---
@@ -46,7 +47,7 @@ def _ensure_exposures_precomputed(self, builder: ExperimentQueryBuilder) -> Lazy
     query_string, placeholders = builder.get_exposure_query_for_precomputation()
 
     date_from = self.experiment.start_date
-    date_to = self.override_end_date or self.experiment.end_date or datetime.now(UTC)
+    date_to = experiment_window_end(self.experiment, self.as_of)
 
     return ensure_precomputed(
         team=self.team,
@@ -257,7 +258,7 @@ GROUP BY variant
 
 2. **Query hash determines cache sharing**: Different feature flags, variants, or exposure criteria produce different hashes. Each experiment typically has its own lazy-computed data.
 
-3. **TTL and expiration**: Jobs use variable TTL based on data age (current day: 15 min, yesterday: 1 hour, older: 60 days). This avoids recomputing frozen historical data. The system ignores jobs expiring within 1 hour to avoid race conditions. ClickHouse TTL automatically deletes expired rows.
+3. **TTL and expiration**: Jobs use variable TTL based on data age (current day: 15 min, yesterday: 1 hour, 2-4 days ago: 18 hours, 5+ days: 60 days). The 2-4 day band stays recomputable so the daily warmer folds in late-arriving exposure events before a window freezes — a frozen window keeps a stale `first_exposure_time` if an earlier exposure event arrives after it was computed. This avoids recomputing genuinely frozen historical data while still re-folding the late-arrival tail. The system ignores jobs expiring within 1 hour to avoid race conditions. ClickHouse TTL automatically deletes expired rows.
 
 4. **Fallback**: If precomputation fails or isn't ready, the query falls back to scanning the events table directly.
 

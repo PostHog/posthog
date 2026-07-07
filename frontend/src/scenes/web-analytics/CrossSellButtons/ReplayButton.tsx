@@ -1,5 +1,8 @@
+import posthog from 'posthog-js'
+
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { recordWebAnalyticsInteraction } from 'scenes/web-analytics/achievements/recordInteraction'
 import { BREAKDOWN_NULL_DISPLAY } from 'scenes/web-analytics/common'
 
 import {
@@ -16,6 +19,8 @@ import {
     RecordingUniversalFilters,
     UniversalFiltersGroupValue,
 } from '~/types'
+
+import { InteractionKindEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
 /**
  * Build a property filter for a breakdown value. When the value is the
@@ -140,6 +145,8 @@ export const ReplayButton = ({
 
     const handleClick = (e: React.MouseEvent): void => {
         e.stopPropagation()
+        posthog.capture('web_analytics_recording_opened', { breakdown_by: breakdownBy })
+        recordWebAnalyticsInteraction(InteractionKindEnumApi.Recording)
         void addProductIntentForCrossSell({
             from: ProductKey.WEB_ANALYTICS,
             to: ProductKey.SESSION_REPLAY,

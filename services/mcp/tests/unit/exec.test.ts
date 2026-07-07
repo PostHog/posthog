@@ -4,6 +4,7 @@ import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
 import { ToolInputValidationError } from '@/lib/errors'
+import { estimateTokens } from '@/lib/estimate-tokens'
 import { buildQueryToolsBlock, buildToolDomainsBlock } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { SessionManager } from '@/lib/SessionManager'
@@ -125,14 +126,49 @@ describe('exec tool', () => {
         it('throws usage error for bare call', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'call' })).rejects.toThrow(
-                'Usage: call [--json] <tool_name> <json_input>'
+                'Usage: call [--json] [--confirm] <tool_name> <json_input>'
             )
         })
 
         it('throws usage error for call --json with no tool name', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'call --json' })).rejects.toThrow(
-                'Usage: call [--json] <tool_name> <json_input>'
+                'Usage: call [--json] [--confirm] <tool_name> <json_input>'
+            )
+        })
+
+        it('allows --confirm before --json when dispatching a call', async () => {
+            const exec = createExec()
+            const result = await exec.handler(mockContext, { command: 'call --confirm --json mock-tool' })
+            const parsed = JSON.parse(result as string)
+            expect(parsed).toEqual({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
+        })
+
+        it('requires --confirm for destructive tools when enabled', async () => {
+            const destructive = makeMockTool({
+                annotations: {
+                    destructiveHint: true,
+                    idempotentHint: true,
+                    openWorldHint: false,
+                    readOnlyHint: false,
+                },
+            })
+            const exec = createExecTool(
+                [destructive],
+                mockContext,
+                'test description',
+                'test command reference',
+                undefined,
+                undefined,
+                [],
+                { requireDestructiveConfirmation: true }
+            )
+
+            await expect(exec.handler(mockContext, { command: 'call mock-tool' })).rejects.toThrow(
+                'Tool "mock-tool" is destructive'
+            )
+            await expect(exec.handler(mockContext, { command: 'call --confirm --json mock-tool' })).resolves.toEqual(
+                JSON.stringify({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
             )
         })
 
@@ -168,7 +204,8 @@ describe('exec tool', () => {
             expect(result.__execBuiltPayload).toBe(true)
         })
 
-        it.each([[undefined], ['cline'], ['claude-code'], ['slack'], ['posthog_code']])(
+        // posthog_ai is sent as its own consumer for attribution but is NOT a UI-apps host.
+        it.each([[undefined], ['cline'], ['claude-code'], ['slack'], ['posthog_code'], ['posthog_ai']])(
             'returns plain text (no UI payload) when consumer is %s even if the inner tool has a UI app',
             async (consumer) => {
                 const tool = makeMockTool({
@@ -193,6 +230,30 @@ describe('exec tool', () => {
                 calls.push({ toolName, properties })
             }
             const exec = createExecTool(
+                [makeMockTool({ schema: z.object({ query: z.string() }) })],
+                mockContext,
+                'test description',
+                'test command reference',
+                undefined,
+                tracker
+            )
+            await exec.handler(mockContext, { command: 'call --json mock-tool {"query":"SELECT 1"}' })
+            expect(calls).toHaveLength(1)
+            expect(calls[0]!.toolName).toBe('mock-tool')
+            expect(calls[0]!.properties.success).toBe(true)
+            expect(calls[0]!.properties.output_format).toBe('json')
+            expect(typeof calls[0]!.properties.duration_ms).toBe('number')
+            expect(calls[0]!.properties.input_tokens).toBeGreaterThan(0)
+            expect(calls[0]!.properties.output_tokens).toBeGreaterThan(0)
+            expect(calls[0]!.properties.input).toEqual({ query: 'SELECT 1' })
+        })
+
+        it('estimates inner output tokens from the serialized output (TOON vs JSON)', async () => {
+            const calls: { toolName: string; properties: ExecInnerCallProperties }[] = []
+            const tracker = (toolName: string, properties: ExecInnerCallProperties): void => {
+                calls.push({ toolName, properties })
+            }
+            const exec = createExecTool(
                 [makeMockTool()],
                 mockContext,
                 'test description',
@@ -200,12 +261,15 @@ describe('exec tool', () => {
                 undefined,
                 tracker
             )
-            await exec.handler(mockContext, { command: 'call --json mock-tool' })
-            expect(calls).toHaveLength(1)
-            expect(calls[0]!.toolName).toBe('mock-tool')
-            expect(calls[0]!.properties.success).toBe(true)
-            expect(calls[0]!.properties.output_format).toBe('json')
-            expect(typeof calls[0]!.properties.duration_ms).toBe('number')
+
+            const toonOutput = await exec.handler(mockContext, { command: 'call mock-tool' })
+            const jsonOutput = await exec.handler(mockContext, { command: 'call --json mock-tool' })
+
+            // Each estimate matches the text actually returned, not a re-stringified object.
+            expect(calls[0]!.properties.output_tokens).toBe(estimateTokens(toonOutput))
+            expect(calls[1]!.properties.output_tokens).toBe(estimateTokens(jsonOutput))
+            // TOON and JSON serialize to different sizes — the estimate tracks the wire format.
+            expect(calls[0]!.properties.output_tokens).not.toBe(calls[1]!.properties.output_tokens)
         })
 
         it('passes inline JSON arguments to the inner tool', async () => {
@@ -328,6 +392,9 @@ describe('exec tool', () => {
             expect(calls[0]!.properties.success).toBe(false)
             expect(calls[0]!.properties.error_message).toBe('boom')
             expect(calls[0]!.properties.output_format).toBe('text')
+            // Token estimates are success-only — nothing useful to measure on a throw.
+            expect(calls[0]!.properties.input_tokens).toBeUndefined()
+            expect(calls[0]!.properties.output_tokens).toBeUndefined()
         })
 
         it('invokes the inner-call tracker with validation_error=true when input fails validation', async () => {
@@ -715,10 +782,63 @@ describe('exec tool', () => {
             const result = await exec.handler(mockContext, { command: 'search feature-flag' })
             expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
         })
+
+        it('ranks tools for a multi-word plain-language query that a single regex would miss', async () => {
+            // /create dashboard insight/i matches no tool literally; routing to
+            // ranked search is the whole point of this command.
+            const tools = [
+                makeMockTool({ name: 'dashboard-create', title: 'Create dashboard' }),
+                makeMockTool({ name: 'insight-create', title: 'Create insight' }),
+                makeMockTool({ name: 'feature-flag-get-all', title: 'List feature flags' }),
+            ]
+            const exec = createExec(tools)
+            const result = JSON.parse(
+                (await exec.handler(mockContext, { command: 'search create dashboard insight' })) as string
+            )
+            expect(Array.isArray(result)).toBe(true)
+            expect(result.slice(0, 2)).toEqual(['dashboard-create', 'insight-create'])
+        })
+
+        it('surfaces scope-gated tools for a plain-language query', async () => {
+            const exec = createExecTool([makeMockTool()], mockContext, 'desc', 'cmd', undefined, undefined, [
+                {
+                    name: 'experiment-create',
+                    title: 'Create experiment',
+                    description: 'Create a new experiment',
+                    missingScopes: ['experiment:write'],
+                },
+            ])
+            const result = JSON.parse(
+                (await exec.handler(mockContext, { command: 'search create experiment' })) as string
+            )
+            expect(result.scope_gated_matches).toEqual([
+                { name: 'experiment-create', missing_scopes: ['experiment:write'] },
+            ])
+            expect(result.hint).toContain('experiment:write')
+        })
+
+        it('caps ranked results and notes truncation', async () => {
+            const tools = Array.from({ length: 30 }, (_, i) =>
+                makeMockTool({ name: `dashboard-tool-${i}`, title: `Dashboard tool ${i}` })
+            )
+            const exec = createExec(tools)
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search dashboard' })) as string)
+            expect(result.truncated).toBe(true)
+            expect(result.matches).toHaveLength(25)
+            expect(result.hint).toContain('30')
+        })
+
+        it('reports an invalid regex gracefully', async () => {
+            const exec = createExec([makeMockTool()])
+            await expect(exec.handler(mockContext, { command: 'search [invalid' })).rejects.toThrow(
+                /invalid regex pattern/i
+            )
+        })
     })
 
     describe('deprecated tool redirects', () => {
         it.each([
+            ['read-data-warehouse-schema', 'execute-sql'],
             ['entity-search', 'execute-sql'],
             ['event-definitions-list', 'read-data-schema'],
             ['properties-list', 'read-data-schema'],
@@ -744,6 +864,8 @@ describe('exec tool', () => {
             ['call my-tool {}', 'my-tool'],
             ['call my-tool', 'my-tool'],
             ['call --json my-tool {}', 'my-tool'],
+            ['call --confirm my-tool {}', 'my-tool'],
+            ['call --json --confirm my-tool {}', 'my-tool'],
             ['  call   my-tool   {}  ', 'my-tool'],
         ])('extracts inner tool name from "%s"', (command, expected) => {
             expect(parseExecCallInnerToolName(command)).toBe(expected)

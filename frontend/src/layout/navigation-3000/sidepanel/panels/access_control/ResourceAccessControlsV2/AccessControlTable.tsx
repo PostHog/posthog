@@ -3,8 +3,8 @@ import { capitalizeFirstLetter } from 'kea-forms'
 import { IconPencil } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns, LemonTag, ProfilePicture } from '@posthog/lemon-ui'
 
-import { fullName } from 'lib/utils'
 import { pluralizeResource } from 'lib/utils/accessControlUtils'
+import { fullName } from 'lib/utils/strings'
 
 import { APIScopeObject } from '~/types'
 

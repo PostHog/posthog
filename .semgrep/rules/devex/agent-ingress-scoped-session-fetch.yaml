@@ -1,0 +1,33 @@
+rules:
+    - id: agent-ingress-scoped-session-fetch
+      message: |
+          Trigger handlers must fetch sessions through `getOwnedSession(ctx, sessionId)`
+          (`products/agent_platform/services/agent-ingress/src/triggers/session-access.ts`),
+          not `queue.get(...)` directly.
+
+          A `session_id` on a request is client-supplied, and for public agents every
+          principal is `{ kind: 'anonymous' }` — so the handler must scope the session to
+          the resolved agent (`application_id`). `queue.get` returns a session for ANY
+          agent and the ownership check fails open if forgotten — that's the cross-tenant
+          gap that hit `/send` `/listen` `/cancel` `/client_tool_result`, `/mcp/stream`,
+          and the Slack interactivity handler. `getOwnedSession` routes through
+          `queue.getForApplication`, which scopes in SQL.
+
+          If you genuinely need an unscoped fetch (you almost never do in a request
+          handler), suppress with
+          `// nosemgrep: agent-ingress-scoped-session-fetch -- <reason>`.
+      languages: [typescript]
+      severity: ERROR
+      patterns:
+          - pattern-either:
+                - pattern: $Q.queue.get($ID)
+                # Catches the destructuring escape hatch:
+                # `const { queue } = deps; queue.get(id)` — the member-access
+                # pattern above misses it, leaving an unscoped fetch.
+                - pattern: queue.get($ID)
+      paths:
+          include:
+              - products/agent_platform/services/agent-ingress/src/triggers/**/*.ts
+          exclude:
+              - products/agent_platform/services/agent-ingress/src/triggers/session-access.ts
+              - products/agent_platform/services/agent-ingress/src/triggers/**/*.test.ts

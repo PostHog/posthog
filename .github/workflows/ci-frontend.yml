@@ -1,6 +1,12 @@
 name: Frontend CI
 on:
     pull_request:
+        # Draft PRs run a narrowed jest selection; ready PRs run the full matrix
+        # (the merge gate). ready_for_review re-triggers the full run on the
+        # current head when a PR leaves draft. To force the full matrix on a
+        # draft, add the `run-ci-frontend` label — labeled/unlabeled re-trigger
+        # the run so it starts without needing a new push.
+        types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
     merge_group:
     push:
         branches:
@@ -15,6 +21,9 @@ permissions:
     pull-requests: write
     actions: read
 
+env:
+    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+
 jobs:
     # Job to decide if we should run frontend ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
@@ -24,9 +33,23 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         name: Determine need to run frontend checks
+        # A snapshot-only bot push (Visual Review auto-commits frontend/snapshots.yml after
+        # approval) skips ci-storybook and ci-e2e-playwright (the snapshot-baseline-dependent
+        # suites), not these checks. Jest, TypeScript, format, and bundle-size don't depend on
+        # the baseline and still gate merge, so they run purely off the paths filter here.
         outputs:
-            frontend: ${{ steps.filter.outputs.frontend || 'true' }}
-            frontend_code: ${{ steps.filter.outputs.frontend_code || 'true' }}
+            # AND the broad filter with `exclude` (below): a PR that touches only
+            # Node-only product workspaces (their own ci-agents.yml suite, no stories,
+            # nothing in the bundle) must not trigger frontend CI. The excluded dirs are
+            # derived from pnpm-workspace.yaml, not hardcoded — see the exclude step.
+            frontend: >-
+                ${{ (steps.filter.outputs.frontend || 'true') == 'true'
+                    && (steps.exclude.outputs.outside_node_product_workspaces || 'true') == 'true' }}
+            frontend_code: >-
+                ${{ (steps.filter.outputs.frontend_code || 'true') == 'true'
+                    && (steps.exclude.outputs.outside_node_product_workspaces || 'true') == 'true' }}
+            replay_shared: >-
+                ${{ (steps.filter.outputs.replay_shared || 'true') == 'true' }}
         steps:
             # For pull requests it's not necessary to check out the code, but we
             # also want this to run on master, so we need to check out
@@ -51,6 +74,7 @@ jobs:
                         - 'frontend/**'
                         - 'ee/frontend/**'
                         - 'common/esbuilder/**'
+                        - 'packages/**'
                         - 'products/**/*.ts'
                         - 'products/**/*.tsx'
                         - 'products/**/*.json'
@@ -83,6 +107,7 @@ jobs:
                         - 'frontend/**'
                         - 'ee/frontend/**'
                         - 'common/esbuilder/**'
+                        - 'packages/**'
                         - 'products/**/*.ts'
                         - 'products/**/*.tsx'
                         - 'products/**/*.json'
@@ -99,6 +124,176 @@ jobs:
                         - tsconfig.*.json
                         - webpack.config.js
                         - stylelint*
+                      # The @posthog/replay-shared package's own jest suite (the
+                      # jest-replay-shared job). posthog-js bumps land via the catalog +
+                      # lockfile and have broken it before (rrweb subpath entries switching
+                      # to ESM); its zstd tests need the node:zlib support pinned by .nvmrc.
+                      replay_shared:
+                        - 'common/replay-shared/**'
+                        - pnpm-workspace.yaml
+                        - pnpm-lock.yaml
+                        - .nvmrc
+                        - .github/workflows/ci-frontend.yml
+
+            # The broad `products/**/*.ts(x)` rules above correctly match all product
+            # frontend code (which doesn't always live under frontend/ — see
+            # products/games, products/data_warehouse, products/ai_observability/shared),
+            # but they also match product dirs that are their own Node services
+            # (products/agent_platform/services/**) with their own ci-agents.yml suite and
+            # nothing in the bundle. Exclude those so a PR touching only them skips frontend
+            # CI. The excluded dirs are derived from pnpm-workspace.yaml (the product paths
+            # that declare nested pnpm workspaces) rather than hardcoded, so a new product's
+            # services are excluded automatically — see bin/frontend-exclude-filter.
+            #
+            # A separate `every`-quantifier step is required: appending a plain `!...` to the
+            # broad filter wouldn't work because dorny's default `some` quantifier OR-matches
+            # predicates and neutralizes the negation (same gotcha as
+            # ci-migrations-service-separation-check.yml). With `every`, the filter is true
+            # only when some changed file lives OUTSIDE every excluded dir.
+            - name: Derive Node-only product workspace exclusions
+              if: github.event_name != 'push'
+              run: bin/frontend-exclude-filter > "$RUNNER_TEMP/frontend-exclude.yml"
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+              id: exclude
+              if: github.event_name != 'push'
+              with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
+                  predicate-quantifier: 'every'
+                  filters: ${{ runner.temp }}/frontend-exclude.yml
+
+    # Pick which jest tests to run on draft PRs by passing changed files to
+    # `jest --findRelatedTests` (jest's resolver walks the import graph for us).
+    # Skipped on ready PRs, master push, and merge_group; the jest job falls back
+    # to its full FOSS×EE × chunk matrix in those cases. The ready-for-review
+    # full run is the merge gate. The run-ci-frontend label forces the full
+    # matrix on a draft. When selection can't be trusted on a draft (config
+    # change, oversized diff, selector failure), the draft skips jest entirely
+    # and defers to the ready full run.
+    select-jest-tests:
+        name: Select jest tests
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        needs: changes
+        if: |
+            always() && needs.changes.outputs.frontend_code == 'true'
+            && github.event_name == 'pull_request'
+            && github.event.pull_request.draft == true
+            && !contains(github.event.pull_request.labels.*.name, 'run-ci-frontend')
+        outputs:
+            mode: ${{ steps.classify.outputs.mode }}
+            matrix: ${{ steps.classify.outputs.matrix }}
+            should_run: ${{ steps.classify.outputs.should_run }}
+            changed_files: ${{ steps.classify.outputs.changed_files }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 1000
+                  filter: blob:none
+
+            - name: Compute changed files
+              id: diff
+              continue-on-error: true
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: |
+                  set -euo pipefail
+                  git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+                  # `...` resolves against the merge-base so files merged in from base
+                  # don't inflate the diff (mirrors find-affected-stories / snob).
+                  git diff --name-only "origin/$BASE_REF...HEAD" > /tmp/changed.txt
+                  wc -l < /tmp/changed.txt
+
+            - name: Build narrowed matrix
+              id: classify
+              env:
+                  DIFF_OUTCOME: ${{ steps.diff.outcome }}
+              run: |
+                  set -euo pipefail
+
+                  # Untrusted selection on a draft skips jest entirely (should_run=false
+                  # gates the jest job off); the ready-for-review full run is the gate.
+                  # Use this whenever the selector can't reason about the diff — a
+                  # narrowed run it can't vouch for would be false confidence, and a
+                  # full run on every draft push is the spend this selection avoids.
+                  # The run-ci-frontend label forces the full matrix on a draft.
+                  fall_back_to_skip() {
+                      echo "mode=skip" >> "$GITHUB_OUTPUT"
+                      echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
+                      echo "should_run=false" >> "$GITHUB_OUTPUT"
+                      echo "changed_files=" >> "$GITHUB_OUTPUT"
+                  }
+
+                  if [[ "$DIFF_OUTCOME" != "success" ]] || [[ ! -s /tmp/changed.txt ]]; then
+                      echo "::warning::could not derive changed files; draft skips jest (full run happens on ready for review)"
+                      fall_back_to_skip
+                      exit 0
+                  fi
+
+                  changed_count=$(wc -l < /tmp/changed.txt)
+                  if [[ "$changed_count" -gt 200 ]]; then
+                      echo "::notice::diff has $changed_count files (>200); draft skips jest (full run happens on ready for review)"
+                      fall_back_to_skip
+                      exit 0
+                  fi
+
+                  # Skip when jest config / build / lock files change — these
+                  # invalidate jest's resolver, transformer cache, or test discovery
+                  # in ways `--findRelatedTests` can't see, so no narrowed run can be
+                  # trusted. Pattern matches mirror the frontend_code paths-filter
+                  # in `changes`.
+                  while IFS= read -r f; do
+                      case "$f" in
+                          jest.*.ts|babel.config.js|tsconfig.json|tsconfig.*.json|\
+                          package.json|pnpm-lock.yaml|webpack.config.js|\
+                          .github/workflows/ci-frontend.yml|.nvmrc)
+                              echo "::notice::config change ($f); draft skips jest (full run happens on ready for review)"
+                              fall_back_to_skip
+                              exit 0
+                              ;;
+                      esac
+                  done < /tmp/changed.txt
+
+                  # Filter the diff to source files jest can resolve. Any code under
+                  # frontend/, products/, common/, ee/frontend/ — anything else (docs,
+                  # workflows, backend) doesn't reach the jest module graph. Convert
+                  # repo-root paths to paths relative to the @posthog/frontend package
+                  # cwd because `pnpm --filter=@posthog/frontend exec` runs from there.
+                  CHANGED_FILES=$(
+                      awk '
+                          /\.(ts|tsx|js|jsx|mjs|cjs)$/ {
+                              if ($0 ~ /^frontend\//) {
+                                  sub(/^frontend\//, "", $0)
+                                  print
+                                  next
+                              }
+                              if ($0 ~ /^(products|common|ee\/frontend)\//) {
+                                  print "../" $0
+                              }
+                          }
+                      ' /tmp/changed.txt | tr '\n' ' ' | sed 's/ $//'
+                  )
+
+                  if [[ -z "$CHANGED_FILES" ]]; then
+                      # No frontend source changes (e.g. PR only edits backend or docs)
+                      # but `frontend_code` paths-filter still flagged the PR. Skip jest.
+                      echo "mode=selective" >> "$GITHUB_OUTPUT"
+                      echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
+                      echo "should_run=false" >> "$GITHUB_OUTPUT"
+                      echo "changed_files=" >> "$GITHUB_OUTPUT"
+                      echo "Selective mode: no frontend source files changed, skipping jest"
+                      exit 0
+                  fi
+
+                  # Selective mode: single EE-tree job, no chunk sharding. The FOSS
+                  # structural check (ee/ removed) only matters when ee imports are
+                  # touched; defer that to the ready-for-review full run. --findRelatedTests
+                  # walks jest's import graph from these files and runs the matching
+                  # *.test.* files.
+                  echo "mode=selective" >> "$GITHUB_OUTPUT"
+                  echo 'matrix={"include":[{"segment":"EE","chunk":1}]}' >> "$GITHUB_OUTPUT"
+                  echo "should_run=true" >> "$GITHUB_OUTPUT"
+                  echo "changed_files=$CHANGED_FILES" >> "$GITHUB_OUTPUT"
+                  echo "Selective mode: $(echo "$CHANGED_FILES" | wc -w) frontend source files"
 
     frontend-format:
         name: Frontend formatting
@@ -109,37 +304,13 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
               with:
-                  node-version-file: .nvmrc
-                  token: ${{ github.token }}
+                  install-command: pnpm --filter=@posthog/playwright... install --frozen-lockfile
 
-            - name: Get pnpm store path
-              id: pnpm-store
-              run: echo "path=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-
-            - name: Restore pnpm cache
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: ${{ steps.pnpm-store.outputs.path }}
-                  key: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-
-
-            - name: Install package.json dependencies with pnpm
-              run: |
-                  pnpm --filter=@posthog/playwright... install --frozen-lockfile
-                  bin/turbo --filter=@posthog/frontend prepare
-
-            - name: Save pnpm cache
-              if: github.ref == 'refs/heads/master'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: ${{ steps.pnpm-store.outputs.path }}
-                  key: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+            - name: Prepare frontend
+              run: bin/turbo --filter=@posthog/frontend prepare
 
             - name: Check formatting with oxfmt
               run: pnpm run format:frontend:check
@@ -169,8 +340,17 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   filter: blob:none
+
+            # The bundle-size build below git-resets to the base branch mid-job, which
+            # removes this repo's local actions from the workspace — a local
+            # ./.github/actions/pnpm-install would then fail in its post phase. Use
+            # inline cache steps (remote actions, no workspace-dependent post) sharing
+            # the same pnpm-<os>-<lockhash> key.
             - name: Install pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+
+            - name: Fix node-gyp permissions
+              run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
 
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -180,54 +360,149 @@ jobs:
 
             - name: Get pnpm store path
               id: pnpm-store
-              run: echo "path=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+              run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
 
             - name: Restore pnpm cache
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
-                  key: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-
+                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: pnpm-${{ runner.os }}-
 
             - name: Install package.json dependencies with pnpm
-              run: |
-                  pnpm --filter=@posthog/playwright... install --frozen-lockfile
-                  bin/turbo --filter=@posthog/frontend prepare
+              run: pnpm --filter=@posthog/playwright... install --frozen-lockfile
 
             - name: Save pnpm cache
               if: github.ref == 'refs/heads/master'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
-                  key: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+            - name: Prepare frontend
+              run: bin/turbo --filter=@posthog/frontend prepare
 
             - name: Build products
               run: pnpm --filter=@posthog/frontend build:products
 
-            - name: Check frontend bundle size
-              uses: preactjs/compressed-size-action@66325aad6443cb7cf89c4bfcd414aea2367cda94 # v2.9.1
-              with:
-                  build-script: '--filter=@posthog/frontend build:with-report'
-                  install-script: 'pnpm --filter=@posthog/frontend... install'
-                  compression: 'none'
-                  # dist-report/ carries the source bundle (posthog-app, exporter, …) and source
-                  # path in the filename, so strip-hash yields a deterministic identity. dist/ has
-                  # cross-bundle basename collisions that cause phantom size changes.
-                  pattern: 'frontend/dist-report/**/*.js'
-                  # Shared chunk hashes change every build, ignore those
-                  exclude: '{**/_chunks/chunk*.js}'
-                  # Only show large changes
-                  minimum-change-threshold: 1000
-                  order-by: 'Size:desc'
-                  strip-hash: "-[A-Za-z0-9]{8}\\.js$"
+            # Vendored replacement for preactjs/compressed-size-action: build the PR branch,
+            # then git-reset to the base branch and rebuild so the bundle-size and eager-graph
+            # reports (both written by build:with-report) get a vs-base baseline. The base
+            # build runs LAST in the same workspace, so the plain report filenames hold the
+            # base numbers while the sha-suffixed ones hold the PR build's — the post scripts
+            # pick the PR report by sha and treat the plain file as the base. Reports are
+            # untracked, so they survive `git reset --hard` onto the base tree. A failing base
+            # build (build:with-report runs the eager-graph check in --report-only) must never
+            # abort the job for every open PR, so budgets are enforced warn-only further down.
+            - name: Build frontend (bundle-size + eager-graph report)
+              run: pnpm --filter=@posthog/frontend build:with-report
+
+            # Measured before the base build overwrites dist/. Untracked, so it survives the
+            # git reset --hard onto the base tree; the dist-size section reads it back.
+            - name: Measure PR dist size
+              run: du -sb frontend/dist | cut -f1 > frontend/dist-size-pr.txt
+
+            # Runs against the PR's own build, before the base rebuild below overwrites dist/.
+            - name: Check toolbar bundle stays under the CloudFront gzip limit
+              run: pnpm --filter=@posthog/frontend check-toolbar-size
+
+            - name: Build base branch for size comparison
+              # A broken base build (install/esbuild — which --report-only does not cover) must
+              # only cost the vs-base delta, never redden every open PR's job. The comment steps
+              # below already degrade to "no base measurement" when the base reports are absent.
+              continue-on-error: true
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+              run: |
+                  git fetch -n origin "$BASE_SHA"
+                  git reset --hard "$BASE_SHA"
+                  # dist/ is untracked so it survives the reset. Without a clean, the base
+                  # build layers differently-hashed chunks on top of the PR's, inflating the
+                  # base measurement by hundreds of MiB and making every PR's dist-size delta
+                  # a large spurious negative. The build never cleans dist/ itself.
+                  rm -rf frontend/dist
+                  pnpm --filter=@posthog/frontend... install
+                  pnpm --filter=@posthog/frontend build:with-report
+                  du -sb frontend/dist | cut -f1 > frontend/dist-size-base.txt
+
+            # Each frontend check contributes one section to a single ci-report comment
+            # (how a section writer picks the PR vs base report is report-files.mjs's story).
+            # After the base build the tree is on the BASE branch, so guard for the scripts'
+            # absence (also covers branches predating a check). Budgets are surfaced
+            # warn-only further down.
+            - name: Clean up legacy per-check CI comments
+              if: always() && github.event_name == 'pull_request'
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f frontend/bin/ci-report/delete-legacy-comments.mjs ]; then
+                      node frontend/bin/ci-report/delete-legacy-comments.mjs
+                  else
+                      echo "Skipping legacy CI comment cleanup — script not present on this checkout"
+                  fi
+
+            - name: Post CI report — eager graph
+              if: always() && github.event_name == 'pull_request'
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f frontend/bin/post-eager-graph-comment.mjs ]; then
+                      node frontend/bin/post-eager-graph-comment.mjs
+                  else
+                      echo "Skipping eager graph section — script not present on this checkout"
+                  fi
+
+            - name: Post CI report — bundle size
+              if: always() && github.event_name == 'pull_request'
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f frontend/bin/post-bundle-size-comment.mjs ]; then
+                      node frontend/bin/post-bundle-size-comment.mjs
+                  else
+                      echo "Skipping bundle size section — script not present on this checkout"
+                  fi
+
+            - name: Post CI report — dist size
+              if: always() && github.event_name == 'pull_request'
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f frontend/bin/post-dist-size-comment.mjs ]; then
+                      node frontend/bin/post-dist-size-comment.mjs
+                  else
+                      echo "Skipping dist size section — script not present on this checkout"
+                  fi
+
+            - name: Check eager graph budgets (warn only)
+              if: always() && github.event_name == 'pull_request'
+              run: |
+                  if [ ! -f frontend/bin/check-eager-graph.mjs ]; then
+                      echo "Skipping eager graph check — script not present on this checkout"
+                      exit 0
+                  fi
+                  REPORT="frontend/eager-graph-report-${GITHUB_SHA}.json"
+                  if [ ! -f "$REPORT" ]; then
+                      REPORT="frontend/eager-graph-report.json"
+                  fi
+                  if [ ! -f "$REPORT" ]; then
+                      echo "Skipping eager graph check — no report found (branch may predate the check)"
+                      exit 0
+                  fi
+                  node frontend/bin/check-eager-graph.mjs --assert-report "$REPORT"
 
             - name: Check toolbar for CSP eval violations
               run: pnpm --filter=@posthog/frontend check-toolbar-csp-eval
 
             - name: Calculate dist folder size
               id: dist-size
+              # After the base build the workspace's dist/ holds the BASE branch's build, so
+              # read back the PR measurement taken before it — the captured metric must be
+              # the PR's size. The du fallback covers runs where that file wasn't written
+              # (dist/ is still the PR's own build then).
               run: |
-                  size_bytes=$(du -sb frontend/dist | cut -f1)
+                  size_bytes=$(cat frontend/dist-size-pr.txt 2>/dev/null || du -sb frontend/dist | cut -f1)
                   echo "size_bytes=${size_bytes}" >> $GITHUB_OUTPUT
                   echo "Frontend dist folder size: ${size_bytes} bytes ($(numfmt --to=iec-i --suffix=B ${size_bytes}))"
 
@@ -277,37 +552,13 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
               with:
-                  node-version-file: .nvmrc
-                  token: ${{ github.token }}
+                  install-command: pnpm --filter=@posthog/playwright... install --no-frozen-lockfile
 
-            - name: Get pnpm store path
-              id: pnpm-store
-              run: echo "path=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-
-            - name: Restore pnpm cache
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: ${{ steps.pnpm-store.outputs.path }}
-                  key: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-
-
-            - name: Install package.json dependencies with pnpm
-              run: |
-                  pnpm --filter=@posthog/playwright... install --no-frozen-lockfile
-                  bin/turbo --filter=@posthog/frontend prepare
-
-            - name: Save pnpm cache
-              if: github.ref == 'refs/heads/master'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: ${{ steps.pnpm-store.outputs.path }}
-                  key: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+            - name: Prepare frontend
+              run: bin/turbo --filter=@posthog/frontend prepare
 
             - name: Restore .typegen cache
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
@@ -335,14 +586,8 @@ jobs:
                   path: .typegen
                   key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
 
-            - name: Run typescript with strict
+            - name: Run typescript check (tsgo)
               run: pnpm --filter=@posthog/frontend typescript:check
-              env:
-                  NODE_OPTIONS: --max-old-space-size=16384
-
-            - name: Run tsgo (shadow, non-blocking)
-              run: pnpm --filter=@posthog/frontend typescript:check:tsgo
-              continue-on-error: true
 
             - name: Check if schema.json and validators.js are up to date
               run: pnpm --filter=@posthog/frontend schema:build:json && git diff --exit-code
@@ -358,16 +603,20 @@ jobs:
     jest:
         runs-on: ubuntu-latest
         timeout-minutes: 15
-        needs: changes
-        if: needs.changes.outputs.frontend_code == 'true'
+        needs: [changes, select-jest-tests]
+        if: |
+            always() && needs.changes.outputs.frontend_code == 'true'
+            && needs.select-jest-tests.outputs.should_run != 'false'
         name: Jest test (${{ matrix.segment }} - ${{ matrix.chunk }})
-
         strategy:
             # If one test fails, still run the others
             fail-fast: false
-            matrix:
-                segment: ['FOSS', 'EE']
-                chunk: [1, 2]
+            # On draft PRs, select-jest-tests may narrow this to a single EE job
+            # running only the tests reachable from changed frontend source files,
+            # or skip jest entirely (should_run=false) when selection can't be
+            # trusted. On ready PRs, master push, and merge_group it's skipped, so
+            # we fall back to the full FOSS×EE × chunk fanout (the merge gate).
+            matrix: ${{ fromJson(needs.select-jest-tests.outputs.matrix || '{"segment":["FOSS","EE"],"chunk":[1,2,3,4]}') }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -376,46 +625,155 @@ jobs:
               if: matrix.segment == 'FOSS'
               run: rm -rf ee
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
               with:
-                  node-version-file: .nvmrc
-                  token: ${{ github.token }}
-
-            - name: Get pnpm store path
-              id: pnpm-store
-              run: echo "path=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-
-            - name: Restore pnpm cache
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: ${{ steps.pnpm-store.outputs.path }}
-                  key: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-
-
-            - name: Install package.json dependencies with pnpm
-              run: pnpm --filter=@posthog/frontend... install --frozen-lockfile
-
-            - name: Save pnpm cache
-              if: github.ref == 'refs/heads/master'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: ${{ steps.pnpm-store.outputs.path }}
-                  key: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+                  install-command: pnpm --filter=@posthog/frontend... install --frozen-lockfile
 
             - name: Test with Jest
-              run: bin/turbo run test --filter=@posthog/frontend -- --maxWorkers=2
+              id: run-jest
+              # continue-on-error so a failure doesn't fail the job here; the quarantine
+              # gate below is the verdict — it passes when every failure is an
+              # already-quarantined flake, fails otherwise.
+              continue-on-error: true
               env:
                   NODE_OPTIONS: --max-old-space-size=16384
                   SHARD_INDEX: ${{ matrix.chunk }}
-                  SHARD_COUNT: 2
+                  # Keep shard runtime well under timeout-minutes: the EE suite at 2
+                  # shards ran 13-15 min on the 2-worker config and regularly died at
+                  # the 15-min timeout, failing the whole run.
+                  SHARD_COUNT: 4
+                  MODE: ${{ needs.select-jest-tests.outputs.mode }}
+                  CHANGED_FILES: ${{ needs.select-jest-tests.outputs.changed_files }}
+                  JEST_JUNIT_OUTPUT_DIR: ${{ github.workspace }}/junit-results
+                  JEST_JUNIT_OUTPUT_NAME: junit-${{ matrix.segment }}-${{ matrix.chunk }}.xml
+                  # Trunk attributes flakes by test file; jest-junit's default suite name is the
+                  # top-level describe, which collides across files. Anchor identity to the file.
+                  JEST_JUNIT_SUITE_NAME: '{filepath}'
+                  JEST_JUNIT_ADD_FILE_ATTRIBUTE: 'true'
+              run: |
+                  if [ "$MODE" = "selective" ]; then
+                      # --findRelatedTests walks jest's import graph from the changed
+                      # source files and runs the matching tests. No --shard: single
+                      # job runs the entire selected set.
+                      #
+                      # No --testPathPattern: it is mutually exclusive with
+                      # --findRelatedTests (jest folds both into one path regex and
+                      # matches nothing), and CHANGED_FILES is already scoped to
+                      # frontend source files by select-jest-tests. --passWithNoTests
+                      # so a changed source file with no related test doesn't fail the
+                      # run — the ready-for-review full matrix is the gate.
+                      pnpm --filter=@posthog/frontend build:products
+                      # shellcheck disable=SC2086
+                      pnpm --filter=@posthog/frontend exec jest \
+                          --forceExit \
+                          --passWithNoTests \
+                          --findRelatedTests $CHANGED_FILES
+                  else
+                      # 100% = one worker per available core. Public-repo ubuntu-latest
+                      # runners have 4 vCPUs; a hardcoded 2 left half the machine idle.
+                      bin/turbo run test --filter=@posthog/frontend -- --maxWorkers=100%
+                  fi
+
+            - name: Upload test results
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: junit-results-frontend-${{ matrix.segment }}-${{ matrix.chunk }}
+                  path: junit-results/junit-*.xml
+                  if-no-files-found: ignore
+                  retention-days: 1
+
+            # Quarantine gate: uploads junit to Trunk and gates the job. Exit 0 when every
+            # failure is an already-quarantined flake, non-zero otherwise (falls back to the
+            # raw test outcome if Trunk is unreachable). FOSS and EE run the same test files,
+            # so each segment uploads under its own variant to keep their histories distinct.
+            # Runs the token only on internal PRs, master, and the merge queue — never on fork
+            # PRs or Dependabot, which have no secret.
+            - name: Quarantine gate
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: junit-results/junit-${{ matrix.segment }}-${{ matrix.chunk }}.xml
+                  org-slug: posthog-inc
+                  variant: ${{ matrix.segment }}
+                  quarantine: true
+                  previous-step-outcome: ${{ steps.run-jest.outcome }}
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+            # No Trunk secret on fork PRs and Dependabot; fall back to the raw jest outcome so
+            # a genuine failure still goes red exactly as before.
+            - name: Fail on jest failure (no quarantine gate)
+              if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && !(env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]') }}
+              shell: bash
+              run: exit 1
+
+    jest-replay-shared:
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        needs: changes
+        if: needs.changes.outputs.replay_shared == 'true'
+        name: Jest test (replay-shared)
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            # Full workspace install: the suite's jsdom test environment resolves
+            # through the workspace root, not the package's own dependencies, so a
+            # filtered install can't run it.
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+
+            - name: Test with Jest
+              id: run-jest
+              # continue-on-error so the quarantine gate below is the verdict.
+              continue-on-error: true
+              env:
+                  JEST_JUNIT_OUTPUT_DIR: ${{ github.workspace }}/junit-results
+                  JEST_JUNIT_OUTPUT_NAME: junit-replay-shared.xml
+                  # Anchor flake identity to the test file, matching the main jest job.
+                  JEST_JUNIT_SUITE_NAME: '{filepath}'
+                  JEST_JUNIT_ADD_FILE_ATTRIBUTE: 'true'
+              run: pnpm --filter=@posthog/replay-shared test
+
+            - name: Upload test results
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: junit-results-replay-shared
+                  path: junit-results/junit-*.xml
+                  if-no-files-found: ignore
+                  retention-days: 1
+
+            # Quarantine gate: see the jest job for the full rationale. Runs the token only
+            # on internal PRs, master, and the merge queue — never on fork PRs or Dependabot.
+            - name: Quarantine gate
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: junit-results/junit-replay-shared.xml
+                  org-slug: posthog-inc
+                  variant: replay-shared
+                  quarantine: true
+                  previous-step-outcome: ${{ steps.run-jest.outcome }}
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+            # No Trunk secret on fork PRs and Dependabot; fall back to the raw jest outcome so
+            # a genuine failure still goes red exactly as before.
+            - name: Fail on jest failure (no quarantine gate)
+              if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && !(env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]') }}
+              shell: bash
+              run: exit 1
 
     calculate-running-time:
         name: Calculate running time
-        needs: [jest, frontend-typescript-checks, frontend-format, frontend-bundle-size, frontend_tests, changes]
+        needs:
+            [
+                jest,
+                jest-replay-shared,
+                frontend-typescript-checks,
+                frontend-format,
+                frontend-bundle-size,
+                frontend_tests,
+                changes,
+            ]
         runs-on: ubuntu-latest
         timeout-minutes: 5
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
@@ -433,6 +791,7 @@ jobs:
                   private-key: ${{ secrets.GH_APP_TELEMETRY_PRIVATE_KEY }}
             - name: Capture running time to PostHog
               if: github.run_attempt == '1'
+              continue-on-error: true
               uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
@@ -456,7 +815,7 @@ jobs:
                   runner: 'github'
 
     frontend_tests:
-        needs: [jest, frontend-format, frontend-bundle-size, frontend-typescript-checks]
+        needs: [jest, jest-replay-shared, frontend-format, frontend-bundle-size, frontend-typescript-checks]
         name: Frontend Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -470,6 +829,11 @@ jobs:
                     exit 1
                   fi
                   echo "Frontend jest tests passed."
+                  if [[ "${{ needs.jest-replay-shared.result }}" != "success" && "${{ needs.jest-replay-shared.result }}" != "skipped" ]]; then
+                    echo "Replay shared jest tests failed."
+                    exit 1
+                  fi
+                  echo "Replay shared jest tests passed."
                   if [[ "${{ needs.frontend-format.result }}" != "success" && "${{ needs.frontend-format.result }}" != "skipped" ]]; then
                     echo "Frontend linting failed."
                     exit 1

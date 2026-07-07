@@ -22,7 +22,7 @@ from products.links.backend.models import Link
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.models.insight import Insight
 from products.surveys.backend.models import Survey
-from products.tasks.backend.models import Task
+from products.tasks.backend.facade.file_system import Task
 
 MIXIN_MODELS: dict[str, type[FileSystemSyncMixin]] = {
     "action": Action,

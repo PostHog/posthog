@@ -34,6 +34,10 @@ export interface CopyFlagsSuccessItemApi {
     active: boolean
     /** Team ID the flag was copied to */
     team_id: number
+    /** Warnings for flag dependencies that were dropped because no matching active flag exists in the target project */
+    flag_dependency_warnings?: string[]
+    /** Warning emitted when the flag was copied but its scheduled changes failed to copy */
+    schedule_copy_warning?: string
 }
 
 export interface CopyFlagsResultApi {
@@ -48,6 +52,55 @@ export interface CopyFlagsResponseApi {
     success: CopyFlagsSuccessItemApi[]
     /** List of failed copy attempts */
     failed: CopyFlagsResultApi[]
+}
+
+export interface OrganizationFeatureFlagRowApi {
+    /** ID of the representative feature flag for this key */
+    id: number
+    /** Team ID the representative feature flag belongs to */
+    team_id: number
+    /** Feature flag key, unique within the compared projects */
+    key: string
+    /** Human-readable name of the representative feature flag */
+    name: string
+    /** Whether the representative feature flag is enabled */
+    active: boolean
+    /** Release condition filters of the representative feature flag */
+    filters: unknown
+}
+
+export interface OrganizationFeatureFlagKeysResponseApi {
+    /** Total number of distinct flag keys across the compared projects */
+    count: number
+    /**
+     * URL for the next page of results, or null if none
+     * @nullable
+     */
+    next: string | null
+    /**
+     * URL for the previous page of results, or null if none
+     * @nullable
+     */
+    previous: string | null
+    /** One representative flag per distinct key across the compared projects */
+    results: OrganizationFeatureFlagRowApi[]
+}
+
+export interface EvaluationContextSuggestionRequestApi {
+    /**
+     * Name of the evaluation context to hide from (POST) or restore to (DELETE) the flag editor's suggestion list. Case-insensitive and whitespace-trimmed.
+     * @maxLength 255
+     */
+    context_name: string
+}
+
+export interface EvaluationContextSuggestionResponseApi {
+    /** Whether the suggestion visibility change was applied. */
+    success: boolean
+    /** Normalized name of the affected evaluation context. */
+    name: string
+    /** Whether the context is now hidden from the flag editor's suggestion list. */
+    hidden_from_suggestions: boolean
 }
 
 /**
@@ -176,6 +229,8 @@ export interface FeatureFlagApi {
     filters?: FeatureFlagApiFilters
     deleted?: boolean
     active?: boolean
+    /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
+    archived?: boolean
     readonly created_by: UserBasicApi
     created_at?: string
     /** @nullable */
@@ -675,6 +730,8 @@ export interface FeatureFlagCreateRequestSchemaApi {
     filters?: FeatureFlagFiltersSchemaApi
     /** Whether the feature flag is active. */
     active?: boolean
+    /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
+    archived?: boolean
     /** Organizational tags for this feature flag. */
     tags?: string[]
     /** Evaluation contexts that control where this flag evaluates at runtime. */
@@ -684,6 +741,22 @@ export interface FeatureFlagCreateRequestSchemaApi {
      * @nullable
      */
     is_remote_configuration?: boolean | null
+    /**
+     * Whether to persist a user's flag value across the anonymous-to-identified transition (the 'persist across authentication steps' option). Incompatible with device_id bucketing.
+     * @nullable
+     */
+    ensure_experience_continuity?: boolean | null
+    /** Where this flag is allowed to evaluate: 'server' (server-side SDKs only), 'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.
+     *
+     * * `server` - Server
+     * * `client` - Client
+     * * `all` - All */
+    evaluation_runtime?: EvaluationRuntimeEnumApi | null
+    /** Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.
+     *
+     * * `distinct_id` - User ID (default)
+     * * `device_id` - Device ID */
+    bucketing_identifier?: BucketingIdentifierEnumApi | null
 }
 
 export interface PatchedFeatureFlagPartialUpdateRequestSchemaApi {
@@ -695,6 +768,8 @@ export interface PatchedFeatureFlagPartialUpdateRequestSchemaApi {
     filters?: FeatureFlagFiltersSchemaApi
     /** Whether the feature flag is active. */
     active?: boolean
+    /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
+    archived?: boolean
     /** Organizational tags for this feature flag. */
     tags?: string[]
     /** Evaluation contexts that control where this flag evaluates at runtime. */
@@ -704,6 +779,22 @@ export interface PatchedFeatureFlagPartialUpdateRequestSchemaApi {
      * @nullable
      */
     is_remote_configuration?: boolean | null
+    /**
+     * Whether to persist a user's flag value across the anonymous-to-identified transition (the 'persist across authentication steps' option). Incompatible with device_id bucketing.
+     * @nullable
+     */
+    ensure_experience_continuity?: boolean | null
+    /** Where this flag is allowed to evaluate: 'server' (server-side SDKs only), 'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.
+     *
+     * * `server` - Server
+     * * `client` - Client
+     * * `all` - All */
+    evaluation_runtime?: EvaluationRuntimeEnumApi | null
+    /** Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.
+     *
+     * * `distinct_id` - User ID (default)
+     * * `device_id` - Device ID */
+    bucketing_identifier?: BucketingIdentifierEnumApi | null
 }
 
 export interface ChangeApi {
@@ -773,11 +864,27 @@ export interface DependentFlagApi {
     name: string
 }
 
+export interface FeatureFlagRolloutSummaryApi {
+    /** True if the flag is effectively rolled out to everyone, independent of recent evaluation. For boolean flags this means at least one release condition targets 100% with no property filters (or there are no release conditions); for multivariate flags it means a single variant is served to 100% via a fully rolled out release condition. This is the signal for 'fully rolled out' / GA — unlike `status`, which only reflects recent evaluation. */
+    effectively_full_rollout: boolean
+    /** True if any release condition has property filters, i.e. the flag is conditionally targeted rather than a blanket rollout. When true, `max_rollout_percentage` is a percentage within the targeted segment, not of the whole user base. */
+    has_targeting_conditions: boolean
+    /**
+     * Highest rollout percentage (0-100) across the flag's release conditions, treating a missing percentage as 100. Null when the flag has no release conditions. Interpret together with `has_targeting_conditions`.
+     * @nullable
+     */
+    max_rollout_percentage: number | null
+    /** True if the flag serves multiple variants (has a multivariate variant set). */
+    is_multivariate: boolean
+}
+
 export interface FeatureFlagStatusResponseApi {
-    /** Flag status: active, stale, deleted, or unknown */
+    /** Flag staleness/evaluation status: active, stale, archived, deleted, or unknown. 'active' means the flag was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness. */
     status: string
     /** Human-readable explanation of the status */
     reason: string
+    /** Summary of the flag's rollout configuration, for determining whether it is fully rolled out. */
+    rollout: FeatureFlagRolloutSummaryApi
 }
 
 export interface FeatureFlagTestEvaluationRequestApi {
@@ -988,8 +1095,12 @@ export interface BulkDeleteFiltersApi {
     excluded_properties?: string
     /** Tag names to filter by. Flags carrying at least one of these tags match. */
     tags?: string[]
+    /** Tag names to exclude. Flags carrying any of these tags are filtered out. */
+    excluded_tags?: string[]
     /** When true, only matches flags with at least one evaluation context. */
     has_evaluation_contexts?: boolean
+    /** Filter by archived state. When omitted, archived flags are excluded. */
+    archived?: boolean
 }
 
 export interface BulkDeleteRequestApi {
@@ -1079,9 +1190,9 @@ export interface BulkKeysResponseApi {
  * * `remove` - remove
  * * `set` - set
  */
-export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+export type BulkUpdateTagsActionEnumApi = (typeof BulkUpdateTagsActionEnumApi)[keyof typeof BulkUpdateTagsActionEnumApi]
 
-export const ActionEnumApi = {
+export const BulkUpdateTagsActionEnumApi = {
     Add: 'add',
     Remove: 'remove',
     Set: 'set',
@@ -1098,7 +1209,7 @@ export interface BulkUpdateTagsRequestApi {
      * * `add` - add
      * * `remove` - remove
      * * `set` - set */
-    action: ActionEnumApi
+    action: BulkUpdateTagsActionEnumApi
     /** Tag names to add, remove, or set. */
     tags: string[]
 }
@@ -1202,9 +1313,10 @@ export const ModelNameEnumApi = {
  * * `monthly` - monthly
  * * `yearly` - yearly
  */
-export type RecurrenceIntervalEnumApi = (typeof RecurrenceIntervalEnumApi)[keyof typeof RecurrenceIntervalEnumApi]
+export type ScheduledChangeRecurrenceIntervalEnumApi =
+    (typeof ScheduledChangeRecurrenceIntervalEnumApi)[keyof typeof ScheduledChangeRecurrenceIntervalEnumApi]
 
-export const RecurrenceIntervalEnumApi = {
+export const ScheduledChangeRecurrenceIntervalEnumApi = {
     Daily: 'daily',
     Weekly: 'weekly',
     Monthly: 'monthly',
@@ -1245,7 +1357,7 @@ export interface ScheduledChangeApi {
      * * `weekly` - weekly
      * * `monthly` - monthly
      * * `yearly` - yearly */
-    recurrence_interval?: RecurrenceIntervalEnumApi | null
+    recurrence_interval?: ScheduledChangeRecurrenceIntervalEnumApi | null
     /**
      * @maxLength 100
      * @nullable
@@ -1305,7 +1417,7 @@ export interface PatchedScheduledChangeApi {
      * * `weekly` - weekly
      * * `monthly` - monthly
      * * `yearly` - yearly */
-    recurrence_interval?: RecurrenceIntervalEnumApi | null
+    recurrence_interval?: ScheduledChangeRecurrenceIntervalEnumApi | null
     /**
      * @maxLength 100
      * @nullable
@@ -1322,10 +1434,47 @@ export interface PatchedScheduledChangeApi {
     readonly timezone?: string | null
 }
 
+export type OrgFeatureFlagsKeysParams = {
+    /**
+     * Page size (max 100)
+     */
+    limit?: number
+    /**
+     * Pagination offset
+     */
+    offset?: number
+    /**
+     * Filter by key or name
+     */
+    search?: string
+    /**
+     * Teams to compare, in priority order. Defaults to all accessible teams in the org.
+     */
+    team_ids?: number[]
+}
+
+export type OrganizationsProjectsEvaluationContextSuggestionsDestroyParams = {
+    /**
+     * Name of the evaluation context to restore to suggestions.
+     */
+    context_name: string
+}
+
+export type EnvironmentsEvaluationContextSuggestionsDestroyParams = {
+    /**
+     * Name of the evaluation context to restore to suggestions.
+     */
+    context_name: string
+}
+
 export type FeatureFlagsListParams = {
     active?: FeatureFlagsListActive
     /**
-     * The User ID which initially created the feature flag.
+     * Filter by archived state. When omitted, archived flags are excluded.
+     */
+    archived?: FeatureFlagsListArchived
+    /**
+     * Filter by the user(s) who created the feature flag. Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.
      */
     created_by_id?: string
     /**
@@ -1336,6 +1485,10 @@ export type FeatureFlagsListParams = {
      * JSON-encoded list of feature flag keys to exclude from the results.
      */
     excluded_properties?: string
+    /**
+     * JSON-encoded list of tag names to exclude. Flags carrying any of these tags are filtered out.
+     */
+    excluded_tags?: string
     /**
      * Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without.
      */
@@ -1367,11 +1520,18 @@ export const FeatureFlagsListActive = {
     True: 'true',
 } as const
 
+export type FeatureFlagsListArchived = (typeof FeatureFlagsListArchived)[keyof typeof FeatureFlagsListArchived]
+
+export const FeatureFlagsListArchived = {
+    False: 'false',
+    True: 'true',
+} as const
+
 export type FeatureFlagsListEvaluationRuntime =
     (typeof FeatureFlagsListEvaluationRuntime)[keyof typeof FeatureFlagsListEvaluationRuntime]
 
 export const FeatureFlagsListEvaluationRuntime = {
-    Both: 'both',
+    All: 'all',
     Client: 'client',
     Server: 'server',
 } as const

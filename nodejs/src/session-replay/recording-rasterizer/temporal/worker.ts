@@ -5,12 +5,13 @@ import * as http from 'http'
 import * as prometheus from 'prom-client'
 import express from 'ultimate-express'
 
-import { BrowserPool } from '../capture/browser-pool'
-import { playerHtmlCache } from '../capture/capture-page'
-import { config } from '../config'
-import { createLogger } from '../logger'
+import { EncryptionCodec } from '~/common/temporal/codec'
+import { BrowserPool } from '~/session-replay/recording-rasterizer/capture/browser-pool'
+import { playerHtmlCache } from '~/session-replay/recording-rasterizer/capture/capture-page'
+import { config } from '~/session-replay/recording-rasterizer/config'
+import { createLogger } from '~/session-replay/recording-rasterizer/logger'
+
 import { createActivities } from './activities'
-import { EncryptionCodec } from './codec'
 
 prometheus.collectDefaultMetrics()
 

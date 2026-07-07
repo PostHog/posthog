@@ -1,6 +1,6 @@
 from django.conf import settings
 
-from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
+from posthog.clickhouse.table_engines import Buffer, Distributed, MergeTreeEngine, ReplicationScheme
 
 QUERY_LOG_ARCHIVE_DATA_TABLE = "query_log_archive"
 QUERY_LOG_ARCHIVE_MV = "query_log_archive_mv"
@@ -505,6 +505,7 @@ def QUERY_LOG_ARCHIVE_UPDATE_MV_SQL(mv_name=QUERY_LOG_ARCHIVE_MV):
 # ============================================================================
 
 WRITABLE_QUERY_LOG_ARCHIVE_TABLE = "writable_query_log_archive"
+QUERY_LOG_ARCHIVE_BUFFER_TABLE = "query_log_archive_buffer"  # Buffer in front of sharded_query_log_archive, on OPS
 QUERY_LOG_ARCHIVE_OPS_MV = "ops_query_log_archive_mv"  # slim MV -> writable_query_log_archive, on every cluster
 
 # Curated JSON subset of log_comment. Keys not hinted here are still kept as
@@ -692,7 +693,9 @@ ORDER BY (team_id, event_date, event_time, query_id)
 PRIMARY KEY (team_id, event_date, event_time, query_id)"""
 
 
-def QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(table_name, engine, include_aliases=True, include_table_clauses=True):
+def QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(
+    table_name, engine, include_aliases=True, include_table_clauses=True, settings=None
+):
     """JSON-backed query_log_archive table.
 
     include_aliases=True for the data table and read tables (exposes lc_* / ProfileEvents_*).
@@ -701,11 +704,12 @@ def QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(table_name, engine, include_aliases=True, in
     columns = _QUERY_LOG_ARCHIVE_PHYSICAL_COLUMNS
     if include_aliases:
         columns = f"{columns},\n{_QUERY_LOG_ARCHIVE_ALIAS_COLUMNS}"
-    return "CREATE TABLE IF NOT EXISTS {table_name} (\n{columns}\n) ENGINE = {engine}{table_clauses}".format(
+    return "CREATE TABLE IF NOT EXISTS {table_name} (\n{columns}\n) ENGINE = {engine}{table_clauses} {settings}".format(
         table_name=table_name,
         columns=columns,
         engine=engine,
         table_clauses=_QUERY_LOG_ARCHIVE_OPS_TABLE_CLAUSES if include_table_clauses else "",
+        settings=settings if settings else "",
     )
 
 
@@ -718,6 +722,7 @@ def SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL():
     return QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(
         table_name=SHARDED_QUERY_LOG_ARCHIVE_TABLE,
         engine=SHARDED_QUERY_LOG_ARCHIVE_OPS_ENGINE(),
+        settings="SETTINGS object_shared_data_serialization_version='map_with_buckets',object_serialization_version='v3'",
     )
 
 
@@ -733,12 +738,39 @@ def DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(cluster=None):
     )
 
 
+def QUERY_LOG_ARCHIVE_BUFFER_OPS_TABLE_SQL():
+    """Buffer table on OPS, sitting in front of sharded_query_log_archive.
+
+    Every cluster's writable Distributed routes inserts here; the Buffer batches the
+    many small per-cluster MV inserts in memory and flushes them to the underlying
+    ReplicatedMergeTree, cutting part churn. Physical (insertable) columns only — the
+    structure must match the destination's real columns, and the lc_* / ProfileEvents_*
+    aliases are read-time only. Rows still buffered are not yet visible through the
+    read path (query_log_archive -> sharded_query_log_archive).
+    """
+    return QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(
+        table_name=QUERY_LOG_ARCHIVE_BUFFER_TABLE,
+        engine=Buffer(
+            destination_table=SHARDED_QUERY_LOG_ARCHIVE_TABLE,
+            num_layers=16,
+            min_time=10,
+            max_time=60,
+            min_rows=10_000,
+            max_rows=1_000_000,
+            min_bytes=10_000_000,
+            max_bytes=100_000_000,
+        ),
+        include_aliases=False,
+        include_table_clauses=False,
+    )
+
+
 def WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(cluster=None):
-    """Distributed write table carrying physical columns only, pointing at OPS."""
+    """Distributed write table carrying physical columns only, pointing at the OPS Buffer."""
     return QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(
         table_name=WRITABLE_QUERY_LOG_ARCHIVE_TABLE,
         engine=Distributed(
-            data_table=SHARDED_QUERY_LOG_ARCHIVE_TABLE,
+            data_table=QUERY_LOG_ARCHIVE_BUFFER_TABLE,
             cluster=cluster or settings.CLICKHOUSE_OPS_CLUSTER,
         ),
         include_aliases=False,
@@ -785,7 +817,7 @@ SELECT
     stack_trace,
 
     JSONExtractInt(log_comment, 'team_id') as team_id,
-    log_comment,
+    if(isValidJSON(log_comment), log_comment, '{}') AS log_comment,
     ProfileEvents
 FROM system.query_log
 WHERE
@@ -799,3 +831,67 @@ def QUERY_LOG_ARCHIVE_OPS_MV_SQL(view_name, dest_table):
         dest_table=dest_table,
         select_sql=MV_SELECT_SQL_OPS,
     )
+
+
+# ============================================================================
+# Daily aggregate exposed to the data warehouse
+# ----------------------------------------------------------------------------
+# A non-materialized view that rolls query_log_archive up to one row per day per
+# (team, user, query-attribution) tuple. The data warehouse ClickHouse source
+# (products/warehouse_sources/backend/temporal/data_imports/sources/clickhouse) syncs it into an internal
+# project incrementally on `day`, so query-cost analysis can live in PostHog
+# instead of Metabase.
+#
+# Reads the OPS-local sharded_query_log_archive directly (it carries the lc_* /
+# ProfileEvents_* aliases and, being replicated, holds the full dataset on every
+# OPS replica) so the scan stays on OPS and never touches the distributed read path.
+#
+# is_initial_query drops the per-shard sub-queries that would otherwise double-count.
+# event_date < today() exposes a day only once it is complete: the warehouse sync
+# advances its `day` cursor and never revisits a day, so a partial final day must
+# never be visible.
+# ============================================================================
+DAILY_AGGREGATED_QUERY_LOG_ARCHIVE_VIEW = "daily_aggregated_query_log_archive"
+
+
+def DAILY_AGGREGATED_QUERY_LOG_ARCHIVE_VIEW_SQL(view_name=DAILY_AGGREGATED_QUERY_LOG_ARCHIVE_VIEW):
+    return f"""
+CREATE VIEW IF NOT EXISTS {view_name} AS
+SELECT
+    event_date AS day,
+    team_id,
+    user,
+    current_database,
+    query_kind,
+    lc_kind,
+    lc_access_method,
+    lc_query_type,
+    lc_product,
+    lc_name,
+    lc_feature,
+    lc_query__kind,
+    lc_api_key_label,
+    count() AS query_count,
+    sum(read_bytes) AS read_bytes,
+    sum(read_rows) AS read_rows,
+    sum(query_duration_ms) AS query_duration_ms,
+    sum(ProfileEvents_OSCPUVirtualTimeMicroseconds) AS cpu_microseconds,
+    countIf(exception_code != 0) AS error_count,
+    countIf(exception_code IN (159, 160, 241)) AS timeout_oom_count
+FROM {SHARDED_QUERY_LOG_ARCHIVE_TABLE}
+WHERE is_initial_query AND event_date < today()
+GROUP BY
+    day,
+    team_id,
+    user,
+    current_database,
+    query_kind,
+    lc_kind,
+    lc_access_method,
+    lc_query_type,
+    lc_product,
+    lc_name,
+    lc_feature,
+    lc_query__kind,
+    lc_api_key_label
+"""

@@ -43,7 +43,7 @@ class TestEndpointQueryTagging(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_run_via_session_auth_tags_endpoint_playground(self):
-        with mock.patch("products.endpoints.backend.api.tag_queries", wraps=tag_queries) as spy:
+        with mock.patch("products.endpoints.backend.logic.execution.tag_queries", wraps=tag_queries) as spy:
             response = self.client.post(self.run_url, {}, format="json")
         assert response.status_code == status.HTTP_200_OK, response.json()
         call = _find_endpoint_feature_call(spy)
@@ -52,7 +52,7 @@ class TestEndpointQueryTagging(ClickhouseTestMixin, APIBaseTest):
 
     def test_run_via_personal_api_key_tags_endpoint_execution(self):
         self.client.logout()
-        with mock.patch("products.endpoints.backend.api.tag_queries", wraps=tag_queries) as spy:
+        with mock.patch("products.endpoints.backend.logic.execution.tag_queries", wraps=tag_queries) as spy:
             response = self.client.post(
                 self.run_url,
                 {},

@@ -15,7 +15,8 @@ escape_chars_map = {
     "\\": "\\\\",
 }
 singlequote_escape_chars_map = {**escape_chars_map, "'": "\\'"}
-backquote_escape_chars_map = {**escape_chars_map, "`": "\\`"}
+# The HogQL/Hog parsers only accept a doubled backtick inside a quoted identifier, not a backslash-escaped one.
+backquote_escape_chars_map = {**escape_chars_map, "`": "``"}
 
 
 # Copied from clickhouse_driver.util.escape_param

@@ -21,7 +21,8 @@ export function CrawlModeHelp(): JSX.Element {
     }
     return (
         <p className="text-xs text-muted">
-            BFS-crawl from this URL staying on the same scheme + host + port. Honors robots.txt.
+            Indexes this page and everything under its path on the same site. Use "Skip paths" to carve out sections you
+            don't want; depth and max pages bound the crawl. Honors robots.txt.
         </p>
     )
 }

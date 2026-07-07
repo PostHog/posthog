@@ -10,8 +10,6 @@ from django.db.models import QuerySet
 
 from rest_framework import exceptions
 
-from posthog.schema import PropertyOperator
-
 from posthog.hogql import ast
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.hogql import HogQLContext
@@ -36,6 +34,7 @@ from posthog.models.property.property import ValueT
 from posthog.models.team import Team
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.util import PersonPropertiesMode
+from posthog.schema_enums import PropertyOperator
 from posthog.session_recordings.queries.session_query import SessionQuery
 from posthog.types import ErrorTrackingIssueFilter
 from posthog.utils import is_json, is_valid_regex

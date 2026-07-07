@@ -10,6 +10,7 @@ import grpc
 import structlog
 from prometheus_client import Counter, Histogram
 
+from posthog.personhog_client.caller_tag import current_caller_tag
 from posthog.personhog_client.metrics import (
     PERSONHOG_ERRORS_TOTAL,
     PERSONHOG_RETRIES_TOTAL,
@@ -82,7 +83,10 @@ class ClientNameInterceptor(grpc.UnaryUnaryClientInterceptor):
         client_call_details: grpc.ClientCallDetails,
         request: Any,
     ) -> Any:
-        new_details = _with_metadata(client_call_details, [("x-client-name", self._client_name)])
+        new_details = _with_metadata(
+            client_call_details,
+            [("x-client-name", self._client_name), ("x-caller-tag", current_caller_tag())],
+        )
         return continuation(new_details, request)
 
 
@@ -150,6 +154,7 @@ _RETRYABLE_CODES = frozenset(
         grpc.StatusCode.UNAVAILABLE,
         grpc.StatusCode.DEADLINE_EXCEEDED,
         grpc.StatusCode.ABORTED,
+        grpc.StatusCode.UNKNOWN,
     }
 )
 
@@ -157,10 +162,11 @@ _RETRYABLE_CODES = frozenset(
 class RetryInterceptor(grpc.UnaryUnaryClientInterceptor):
     """Retries transient gRPC errors with jittered backoff.
 
-    Covers three failure modes:
+    Covers four failure modes:
     - UNAVAILABLE: client-to-router connection failure
     - ABORTED: HTTP/2 stream reset during router deploys
     - DEADLINE_EXCEEDED: transient timeout (event loop saturation, brief backend slowness)
+    - UNKNOWN: catch-all for transient failures that don't map to a specific code
 
     Sits outside MetricsInterceptor so each attempt gets its own per-call metrics.
     """

@@ -95,8 +95,8 @@ function EditSessionReplayWidgetModalContents(): JSX.Element {
                             setFilterTestAccounts={setFilterTestAccounts}
                         >
                             <p className="text-sm text-muted m-0 sm:col-span-2">
-                                Date range and property filters are on the tile filter bar (collapsible on the tile).
-                                Use this modal for test-account filtering, list size, and sort.
+                                Date range, property filters, and saved filters are on the tile filter bar (collapsible
+                                on the tile). Use this modal for test-account filtering, list size, and sort.
                             </p>
                             <LemonField.Pure
                                 label="Number of recordings"

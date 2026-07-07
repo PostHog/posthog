@@ -7,6 +7,7 @@ from posthog.schema import AgentMode
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.core.agent_modes.presets.customer_analytics import (
     CUSTOMER_ANALYTICS_MODE_DESCRIPTION,
+    POSITIVE_EXAMPLE_ACCOUNT_USAGE_SPIKE,
     CustomerAnalyticsAgentToolkit,
     customer_analytics_agent,
 )
@@ -41,3 +42,9 @@ class TestCustomerAnalyticsPreset(BaseTest):
 
         for term in _LEAKY_TERMS:
             self.assertNotIn(term.lower(), surface_text)
+
+    def test_usage_spike_example_is_wired_into_todo_examples(self):
+        # A defined-but-unused trajectory example is dead code — it never reaches the agent.
+        wired_examples = [example.example for example in CustomerAnalyticsAgentToolkit.POSITIVE_TODO_EXAMPLES]
+
+        self.assertIn(POSITIVE_EXAMPLE_ACCOUNT_USAGE_SPIKE, wired_examples)

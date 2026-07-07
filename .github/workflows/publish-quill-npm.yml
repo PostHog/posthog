@@ -13,8 +13,12 @@ on:
                     - latest
 
 permissions:
-    contents: write
+    contents: read
 
+# Serialized on purpose, and load-bearing for collision-safety: the bump base
+# is read live from npm, so two concurrent dispatches could read the same base
+# and collide on publish. Do not narrow the group (e.g. per-tag) or flip
+# cancel-in-progress to true — that reintroduces the race this PR closes.
 concurrency:
     group: ${{ github.workflow }}
     cancel-in-progress: false
@@ -26,7 +30,7 @@ jobs:
         timeout-minutes: 15
         environment: Release
         permissions:
-            contents: write
+            contents: read
             id-token: write
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -34,34 +38,72 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
+            - name: Fix node-gyp permissions
+              run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
+
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
                   registry-url: https://registry.npmjs.org
-                  cache: 'pnpm'
 
             - name: Ensure modern npm (OIDC trusted publishing support)
               run: npm install -g npm@11.6.4
 
+            # Version base is the highest version LIVE ON NPM for this package,
+            # not the in-repo package.json. master is branch-protected with no
+            # bypass actor, so the bumped version can never be committed back —
+            # the repo always lags. Basing on npm makes the workflow
+            # self-correcting: each run publishes above whatever's already on the
+            # registry, so a stale repo can't cause a "version already exists"
+            # collision. The repo package.json only seeds the very first publish
+            # of a never-published package.
+            #
+            # We base on the semver max across ALL dist-tags, not the dispatched
+            # tag's version, because (a) a per-tag lookup E404s identically for
+            # "tag absent on a published package" and "package absent", and
+            # (b) the tags are skewed here (`latest` trails `alpha`), so basing
+            # on one tag could bump backwards into an existing version. npm's
+            # `versions` array is in publish order, not semver order, so the max
+            # is computed explicitly with semver precedence.
             - name: Bump versions
               env:
                   NPM_TAG: ${{ inputs.tag }}
               run: |
-                  git config user.name "github-actions[bot]"
-                  git config user.email "github-actions[bot]@users.noreply.github.com"
                   BUMP_TYPE=$( [ "$NPM_TAG" = "latest" ] && echo "patch" || echo "prerelease" )
+                  bump() {
+                    local pkg_name="$1"
+                    # A genuine E404 means the package was never published, so we
+                    # fall back to the repo version as the seed. Any other npm
+                    # error (registry outage, auth) must fail the run rather than
+                    # silently reuse a stale base and risk a republish collision.
+                    local base versions_json
+                    if versions_json=$(npm view "$pkg_name" versions --json 2>/tmp/npm-view-err); then
+                      base=$(printf '%s' "$versions_json" | node -e 'function cmp(a,b){const pa=a.split("-"),pb=b.split("-");const ma=pa[0].split(".").map(Number),mb=pb[0].split(".").map(Number);for(let i=0;i<3;i++){if(ma[i]!==mb[i])return ma[i]-mb[i]}if(!pa[1]&&!pb[1])return 0;if(!pa[1])return 1;if(!pb[1])return -1;const ia=pa[1].split("."),ib=pb[1].split(".");for(let i=0;i<Math.max(ia.length,ib.length);i++){if(ia[i]===undefined)return -1;if(ib[i]===undefined)return 1;const na=/^\d+$/.test(ia[i]),nb=/^\d+$/.test(ib[i]);if(na&&nb){const d=Number(ia[i])-Number(ib[i]);if(d)return d}else if(na)return -1;else if(nb)return 1;else if(ia[i]!==ib[i])return ia[i]<ib[i]?-1:1}return 0}const vs=JSON.parse(require("fs").readFileSync(0,"utf8"));const a=Array.isArray(vs)?vs:[vs];console.log(a.length?a.reduce((m,v)=>cmp(v,m)>0?v:m):"")')
+                    else
+                      if grep -q "E404" /tmp/npm-view-err; then
+                        base=""
+                      else
+                        echo "::error::npm view $pkg_name versions failed (not a 404):" >&2
+                        cat /tmp/npm-view-err >&2
+                        return 1
+                      fi
+                    fi
+                    # --allow-same-version because the seed may already match the repo.
+                    if [ -n "$base" ]; then
+                      npm version "$base" --no-git-tag-version --allow-same-version >/dev/null
+                    fi
+                    npm version "$BUMP_TYPE" --no-git-tag-version >/dev/null
+                    node -p "require('./package.json').version"
+                  }
                   cd packages/quill/packages/tokens
-                  npm version "$BUMP_TYPE" --no-git-tag-version
-                  TOKENS_V=$(node -p "require('./package.json').version")
+                  TOKENS_V=$(bump "@posthog/quill-tokens")
                   echo "Bumped @posthog/quill-tokens to $TOKENS_V ($BUMP_TYPE)"
                   cd ../quill
-                  npm version "$BUMP_TYPE" --no-git-tag-version
-                  QUILL_V=$(node -p "require('./package.json').version")
+                  QUILL_V=$(bump "@posthog/quill")
                   echo "Bumped @posthog/quill to $QUILL_V ($BUMP_TYPE)"
                   cd ../charts
-                  npm version "$BUMP_TYPE" --no-git-tag-version
-                  CHARTS_V=$(node -p "require('./package.json').version")
+                  CHARTS_V=$(bump "@posthog/quill-charts")
                   echo "Bumped @posthog/quill-charts to $CHARTS_V ($BUMP_TYPE)"
 
             - name: Install dependencies
@@ -143,16 +185,12 @@ jobs:
               run: |
                   echo "summary=@posthog/quill-tokens@${TOKENS_VERSION}, @posthog/quill@${QUILL_VERSION}, @posthog/quill-charts@${CHARTS_VERSION}" >> $GITHUB_OUTPUT
 
-            - name: Commit version bump
-              run: |
-                  git add packages/quill/packages/tokens/package.json packages/quill/packages/quill/package.json packages/quill/packages/charts/package.json
-                  TOKENS_V=$(node -p "require('./packages/quill/packages/tokens/package.json').version")
-                  QUILL_V=$(node -p "require('./packages/quill/packages/quill/package.json').version")
-                  CHARTS_V=$(node -p "require('./packages/quill/packages/charts/package.json').version")
-                  git commit -m "chore(quill): bump quill-tokens to $TOKENS_V, quill to $QUILL_V, quill-charts to $CHARTS_V [skip ci]"
-                  if ! git push; then
-                    echo "::warning::git push failed (likely branch protection). Versions were published successfully but package.json not updated in repo. A manual bump or PR may be needed."
-                  fi
+            # No commit-back to master: it's branch-protected with no bypass
+            # actor, and a package.json bump trips the PR-approval agent's
+            # deny-list (T2-never) and is skipped as bot-authored — so an
+            # auto-merging PR could never land unattended. The published version
+            # is sourced from npm in the "Bump versions" step instead, so the
+            # in-repo package.json is allowed to lag without causing collisions.
 
             - name: Notify Slack
               if: ${{ !cancelled() }}

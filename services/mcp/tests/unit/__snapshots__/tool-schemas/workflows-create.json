@@ -6,7 +6,193 @@
             "items": {
                 "properties": {
                     "config": {
-                        "description": "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
+                        "anyOf": [
+                            {
+                                "additionalProperties": {},
+                                "description": "Config for every action type except wait_until_condition — see the field description for per-type shapes.",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "type": "object"
+                            },
+                            {
+                                "description": "Config for type='wait_until_condition'. Provide 'condition' and/or 'events' — an events-only wait (no condition) is valid.",
+                                "properties": {
+                                    "condition": {
+                                        "description": "Property-based wait condition; continues when the person matches. A condition with no property filters is ignored — the wait then relies on 'events' and the max_wait_duration timeout.",
+                                        "properties": {
+                                            "filters": {
+                                                "anyOf": [
+                                                    {
+                                                        "properties": {
+                                                            "actions": {
+                                                                "items": {
+                                                                    "additionalProperties": {},
+                                                                    "propertyNames": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "type": "object"
+                                                                },
+                                                                "type": "array"
+                                                            },
+                                                            "bytecode": {},
+                                                            "bytecode_error": {
+                                                                "type": "string"
+                                                            },
+                                                            "data_warehouse": {
+                                                                "items": {
+                                                                    "additionalProperties": {},
+                                                                    "propertyNames": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "type": "object"
+                                                                },
+                                                                "type": "array"
+                                                            },
+                                                            "events": {
+                                                                "items": {
+                                                                    "additionalProperties": {},
+                                                                    "propertyNames": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "type": "object"
+                                                                },
+                                                                "type": "array"
+                                                            },
+                                                            "filter_test_accounts": {
+                                                                "type": "boolean"
+                                                            },
+                                                            "properties": {
+                                                                "items": {
+                                                                    "additionalProperties": {},
+                                                                    "propertyNames": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "type": "object"
+                                                                },
+                                                                "type": "array"
+                                                            },
+                                                            "source": {
+                                                                "default": "events",
+                                                                "description": "* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table",
+                                                                "enum": [
+                                                                    "events",
+                                                                    "person-updates",
+                                                                    "data-warehouse-table"
+                                                                ],
+                                                                "type": "string"
+                                                            },
+                                                            "transpiled": {}
+                                                        },
+                                                        "type": "object"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Property conditions, e.g. {properties: [{key, value, operator, type}]}."
+                                            },
+                                            "name": {
+                                                "description": "Optional display name.",
+                                                "type": "string"
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    "events": {
+                                        "description": "Events to wait for: continues when ANY entry fires (OR'd with 'condition'). Each entry: {filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}.",
+                                        "items": {
+                                            "properties": {
+                                                "filters": {
+                                                    "anyOf": [
+                                                        {
+                                                            "properties": {
+                                                                "actions": {
+                                                                    "items": {
+                                                                        "additionalProperties": {},
+                                                                        "propertyNames": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "type": "object"
+                                                                    },
+                                                                    "type": "array"
+                                                                },
+                                                                "bytecode": {},
+                                                                "bytecode_error": {
+                                                                    "type": "string"
+                                                                },
+                                                                "data_warehouse": {
+                                                                    "items": {
+                                                                        "additionalProperties": {},
+                                                                        "propertyNames": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "type": "object"
+                                                                    },
+                                                                    "type": "array"
+                                                                },
+                                                                "events": {
+                                                                    "items": {
+                                                                        "additionalProperties": {},
+                                                                        "propertyNames": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "type": "object"
+                                                                    },
+                                                                    "type": "array"
+                                                                },
+                                                                "filter_test_accounts": {
+                                                                    "type": "boolean"
+                                                                },
+                                                                "properties": {
+                                                                    "items": {
+                                                                        "additionalProperties": {},
+                                                                        "propertyNames": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "type": "object"
+                                                                    },
+                                                                    "type": "array"
+                                                                },
+                                                                "source": {
+                                                                    "default": "events",
+                                                                    "description": "* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table",
+                                                                    "enum": [
+                                                                        "events",
+                                                                        "person-updates",
+                                                                        "data-warehouse-table"
+                                                                    ],
+                                                                    "type": "string"
+                                                                },
+                                                                "transpiled": {}
+                                                            },
+                                                            "type": "object"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "description": "Event/action filters; the workflow wakes when a matching event fires. Must target at least one event or action (entries targeting neither are dropped)."
+                                                },
+                                                "name": {
+                                                    "description": "Optional display name.",
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "type": "object"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "max_wait_duration": {
+                                        "description": "'<number><unit>' with unit m|h|d, e.g. '30m' (same rules as delay).",
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["max_wait_duration"],
+                                "type": "object"
+                            }
+                        ],
+                        "description": "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
                     },
                     "created_at": {
                         "description": "Created at (epoch ms). Frontend-managed.",
@@ -96,21 +282,21 @@
                     "on_error": {
                         "anyOf": [
                             {
-                                "description": "* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch",
-                                "enum": ["continue", "abort", "complete", "branch"],
+                                "description": "* `continue` - continue\n* `abort` - abort",
+                                "enum": ["continue", "abort"],
                                 "type": "string"
                             },
                             {
                                 "type": "null"
                             }
                         ],
-                        "description": "On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).\n\n* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch"
+                        "description": "On failure: continue (skip the action and proceed) or abort (stop the run).\n\n* `continue` - continue\n* `abort` - abort"
                     },
                     "output_variable": {
                         "description": "Output variable definition for downstream actions."
                     },
                     "type": {
-                        "description": "trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.",
+                        "description": "trigger | function | function_email | function_sms | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.",
                         "maxLength": 100,
                         "type": "string"
                     },
@@ -125,7 +311,112 @@
             "type": "array"
         },
         "conversion": {
-            "description": "Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side."
+            "anyOf": [
+                {
+                    "properties": {
+                        "bytecode": {
+                            "description": "Compiled server-side from 'filters'. Do not set; ignored if sent."
+                        },
+                        "events": {
+                            "description": "Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}].",
+                            "items": {
+                                "properties": {
+                                    "filters": {
+                                        "description": "Event/action filters for this conversion event, same shape as trigger filters: {events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], properties?: [<cond>]}. bytecode is compiled server-side.",
+                                        "properties": {
+                                            "actions": {
+                                                "items": {
+                                                    "additionalProperties": {},
+                                                    "propertyNames": {
+                                                        "type": "string"
+                                                    },
+                                                    "type": "object"
+                                                },
+                                                "type": "array"
+                                            },
+                                            "bytecode": {},
+                                            "bytecode_error": {
+                                                "type": "string"
+                                            },
+                                            "data_warehouse": {
+                                                "items": {
+                                                    "additionalProperties": {},
+                                                    "propertyNames": {
+                                                        "type": "string"
+                                                    },
+                                                    "type": "object"
+                                                },
+                                                "type": "array"
+                                            },
+                                            "events": {
+                                                "items": {
+                                                    "additionalProperties": {},
+                                                    "propertyNames": {
+                                                        "type": "string"
+                                                    },
+                                                    "type": "object"
+                                                },
+                                                "type": "array"
+                                            },
+                                            "filter_test_accounts": {
+                                                "type": "boolean"
+                                            },
+                                            "properties": {
+                                                "items": {
+                                                    "additionalProperties": {},
+                                                    "propertyNames": {
+                                                        "type": "string"
+                                                    },
+                                                    "type": "object"
+                                                },
+                                                "type": "array"
+                                            },
+                                            "source": {
+                                                "default": "events",
+                                                "description": "* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table",
+                                                "enum": ["events", "person-updates", "data-warehouse-table"],
+                                                "type": "string"
+                                            },
+                                            "transpiled": {}
+                                        },
+                                        "type": "object"
+                                    }
+                                },
+                                "required": ["filters"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "filters": {
+                            "description": "Property-based conversion conditions, as an ARRAY of property filters: [{key, value, operator, type: event|person|group}, ...]. Event-based goals do NOT go here — put them in 'events'. Empty array = any event within the window converts.",
+                            "items": {
+                                "additionalProperties": {},
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "window_minutes": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Conversion window in minutes after a person enters the workflow. null = no explicit window."
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side."
         },
         "description": {
             "default": "",
@@ -141,7 +432,7 @@
                         "type": "string"
                     },
                     "index": {
-                        "description": "Required for type='branch'. Index into config.conditions on conditional_branch / wait_until_condition.",
+                        "description": "Required for type='branch'. conditional_branch: index into config.conditions[index]. wait_until_condition: use index:0 — it advances via the index:0 branch edge when it resolves (a condition match or an events entry firing).",
                         "type": "number"
                     },
                     "to": {

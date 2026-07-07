@@ -1,4 +1,9 @@
+import re
+
 from posthog.test.base import BaseTest
+
+from django.urls import get_resolver
+from django.urls.resolvers import URLPattern, URLResolver
 
 from rest_framework import viewsets
 
@@ -8,12 +13,18 @@ from posthog.api.team import TeamSerializer, TeamViewSet
 
 # /api/projects/ (Project model) is the canonical surface; /api/environments/ (Team model) is the
 # backward-compat alias we intend to deprecate and permanently redirect onto /api/projects/. For that
-# redirect to be safe, the project surface must be a SUPERSET of the environment surface: every field
-# and action a client can reach on /api/environments/ must also exist on /api/projects/.
+# redirect to be safe, the project surface must be a SUPERSET of the environment surface — at two levels:
+#   - RESOURCE parity: every serializer field and viewset action on the root Team viewset also exists on
+#     the root Project viewset (the superset tests below).
+#   - ROUTE parity: every URL reachable under /api/environments/ also resolves under /api/projects/. This is
+#     broader than the root viewset pair — it covers nested viewsets registered directly on
+#     `environments_router`, raw path()/include() mounts in urls.py, and resources that never opted into the
+#     dual-route helper. test_environment_only_routes_match_known_allowlist walks the resolved URL trees to
+#     catch those (the resource tests are blind to anything outside the root viewset pair).
 #
-# These allowlists capture the only intentional differences. Anything outside them is drift — most
-# likely a field or action added to the Team/environment side without mirroring it onto projects — and
-# fails this test loudly so it gets fixed before it reaches clients.
+# These allowlists capture the only intentional differences. Anything outside them is drift — most likely a
+# field, action, or route added to the Team/environment side without mirroring it onto projects — and fails
+# loudly so it gets fixed before it reaches clients.
 
 # Fields that legitimately exist only on the project surface (a genuine Project concept, not a Team field).
 # is_pending_deletion was added project-side on master; a project-only field is fine for the redirect target.
@@ -22,6 +33,15 @@ PROJECT_ONLY_SERIALIZER_FIELDS = {"product_description", "is_pending_deletion"}
 # Actions that legitimately exist only on the project surface (operate on the Project, not the Team).
 PROJECT_ONLY_ACTIONS = {"change_organization"}
 
+# Routes (normalized suffix after `/api/<prefix>/<id>/`, path params -> `{id}`) that resolve ONLY
+# under /api/environments/. The async-query progress endpoints are defunct stubs (real progress
+# polling goes through the dual-routed query/{id}?show_progress=true) pending removal.
+# Anything else env-only is drift — mirror it onto /api/projects/ (dual-route the viewset) instead.
+KNOWN_ENVIRONMENT_ONLY_ROUTES: set[str] = {
+    "progress",
+    "query/{id}/progress",
+}
+
 
 def _serializer_field_names(serializer_class) -> set[str]:
     return set(serializer_class().fields.keys())
@@ -29,6 +49,47 @@ def _serializer_field_names(serializer_class) -> set[str]:
 
 def _extra_action_names(viewset_class: type[viewsets.GenericViewSet]) -> set[str]:
     return {action.__name__ for action in viewset_class.get_extra_actions()}
+
+
+_NAMED_GROUP = re.compile(r"\(\?P<[^>]+>(?:[^()]|\([^()]*\))*\)")  # (?P<x>...) incl. one nested ()
+_PATH_CONVERTER = re.compile(r"<(?:[a-zA-Z_]+:)?[^>]+>")  # <int:x>, <drf_format_suffix:format>, <x>
+
+
+def _route_segment(pattern) -> str:
+    # str() of a regex pattern carries a leading ^ anchor; strip per-segment so concatenation is clean.
+    return str(pattern.pattern).lstrip("^")
+
+
+def _walk_routes(patterns, prefix=""):
+    for entry in patterns:
+        if isinstance(entry, URLResolver):
+            yield from _walk_routes(entry.url_patterns, prefix + _route_segment(entry))
+        elif isinstance(entry, URLPattern):
+            yield prefix + _route_segment(entry)
+
+
+def _normalize_route(full: str, marker: str) -> str | None:
+    if marker not in full:
+        return None
+    suffix = full[full.find(marker) + len(marker) :]
+    suffix = _NAMED_GROUP.sub("{id}", suffix)  # (?P<x>...) -> {id}
+    suffix = _PATH_CONVERTER.sub("{id}", suffix)  # <int:x> / <drf_format_suffix:format> -> {id}
+    suffix = suffix.replace("\\", "")  # drop escapes: \. -> .
+    suffix = re.sub(r"\.\{id\}", "", suffix)  # drop the DRF `.{format}` suffix variant
+    for token in ("(?:", "(", ")", "?", "^", "$"):  # nuke leftover regex grouping syntax
+        suffix = suffix.replace(token, "")
+    suffix = re.sub(r"^\{id\}/?", "", suffix)  # drop the leading team/project id segment
+    suffix = re.sub(r"/+", "/", suffix).strip("/")
+    return suffix or None
+
+
+def _routes_under(marker: str) -> set[str]:
+    routes: set[str] = set()
+    for full in _walk_routes(get_resolver().url_patterns):
+        norm = _normalize_route(full, marker)
+        if norm is not None:
+            routes.add(norm)
+    return routes
 
 
 class TestTeamProjectParity(BaseTest):
@@ -98,4 +159,27 @@ class TestTeamProjectParity(BaseTest):
 
         self.assertEqual(
             mismatches, {}, f"Shared actions expose different HTTP methods (team vs project): {mismatches}"
+        )
+
+    def test_environment_only_routes_match_known_allowlist(self):
+        # Route-level (URL-tree) parity: walk both prefixes' resolved patterns and assert the only routes
+        # reachable solely under /api/environments/ are the known, intentionally environment-only ones.
+        env_only = _routes_under("api/environments/") - _routes_under("api/projects/")
+
+        unexpected = env_only - KNOWN_ENVIRONMENT_ONLY_ROUTES
+        self.assertEqual(
+            unexpected,
+            set(),
+            "New route(s) reachable only under /api/environments/ with no /api/projects/ counterpart: "
+            f"{sorted(unexpected)}. A redirect from /api/environments/ to /api/projects/ would not reach them. "
+            "Either mirror the route onto /api/projects/ (dual-route the viewset, or register it project-side) "
+            "or, if it is intentionally environment-scoped, add it to KNOWN_ENVIRONMENT_ONLY_ROUTES with a reason.",
+        )
+
+        resolved = KNOWN_ENVIRONMENT_ONLY_ROUTES - env_only
+        self.assertEqual(
+            resolved,
+            set(),
+            "Route(s) in KNOWN_ENVIRONMENT_ONLY_ROUTES now have a /api/projects/ counterpart (or no longer "
+            f"exist): {sorted(resolved)}. Remove them from the allowlist so it reflects only still-env-only routes.",
         )

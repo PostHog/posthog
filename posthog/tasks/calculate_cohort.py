@@ -647,11 +647,28 @@ def insert_cohort_from_filters(cohort_id: int, team_id: Optional[int] = None) ->
         )
 
 
-@shared_task(ignore_result=True, max_retries=1)
+# No task-level retry: transient failures are already retried per page with backoff
+# inside get_cohort_actors_for_feature_flag, and by the time an exception propagates
+# here the task has recorded final error state (calculation history, errors_calculating,
+# is_calculating=False) — a Celery retry after that would contradict the recorded state.
+# Runs on the long-running queue (like the sibling cohort tasks) so a large paging run
+# can't clog the default workers, with a generous soft limit as a backstop ceiling.
+# SoftTimeLimitExceeded subclasses Exception, so get_cohort_actors_for_feature_flag's
+# except block records error state and re-raises it like any other failure.
+@shared_task(
+    ignore_result=True,
+    max_retries=0,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    soft_time_limit=4 * 60 * 60,
+)
 def insert_cohort_from_feature_flag(cohort_id: int, flag_key: str, team_id: int) -> None:
     from posthog.api.cohort import get_cohort_actors_for_feature_flag
 
-    get_cohort_actors_for_feature_flag(cohort_id, flag_key, team_id, batchsize=10_000)
+    # batchsize is also the per-page `limit` sent to the flags service, which evaluates a
+    # page sequentially under a 120s request timeout. The service's hard cap is 10_000, but
+    # paging at the cap risks a deterministic, retry-immune timeout on large or
+    # condition-heavy flags, so page well below it.
+    get_cohort_actors_for_feature_flag(cohort_id, flag_key, team_id, batchsize=2_000)
 
 
 def _collect_cohort_calculation_metrics(history: CohortCalculationHistory, start_time: datetime) -> None:

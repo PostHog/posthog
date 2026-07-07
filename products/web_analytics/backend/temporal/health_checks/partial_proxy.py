@@ -4,7 +4,14 @@ from collections import defaultdict
 from posthog.dags.common.owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.detectors import CLICKHOUSE_BATCH_EXECUTION_POLICY
-from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation
+from posthog.temporal.health_checks.framework import (
+    _SEVERITY_WEIGHT,
+    AlertContent,
+    HealthCheck,
+    Remediation,
+    SignalContent,
+    build_signal_extra,
+)
 from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 
@@ -77,6 +84,27 @@ class PartialProxyCheck(HealthCheck):
             title="Partial reverse-proxy coverage",
             summary=summary,
             link="/web/health",
+        )
+
+    @classmethod
+    def render_signal(cls, issue: HealthIssue) -> SignalContent | None:
+        unproxied = issue.payload.get("unproxied_hosts") or []
+        hosts_clause = f" ({', '.join(unproxied[:5])})" if unproxied else ""
+        title = "Partial reverse-proxy coverage"
+        summary = (
+            f"{len(unproxied)} host(s) lack a reverse proxy{hosts_clause}"
+            if unproxied
+            else issue.payload.get("reason", "Reverse proxy is only configured on some hostnames.")
+        )
+        return SignalContent(
+            description=(
+                f"This project sends events through a reverse proxy on some hostnames but not others — "
+                f"{len(unproxied)} host(s) are unproxied{hosts_clause}. Traffic from the unproxied hosts is "
+                "more likely to be blocked by ad blockers and to have inaccurate geolocation, so analytics "
+                "will be inconsistent across your domains. Recommend extending the reverse proxy to every host."
+            ),
+            weight=_SEVERITY_WEIGHT[issue.severity],
+            extra=build_signal_extra(issue, title=title, summary=summary, link="/web/health"),
         )
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:

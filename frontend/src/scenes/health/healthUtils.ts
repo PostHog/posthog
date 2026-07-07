@@ -1,6 +1,6 @@
 import type { LemonTagType } from '@posthog/lemon-ui'
 
-import { identifierToHuman } from 'lib/utils'
+import { identifierToHuman } from 'lib/utils/strings'
 
 import { categoryForKind, HEALTH_CATEGORY_CONFIG, KIND_LABELS } from './healthCategories'
 import type { HealthIssueKind } from './healthCategories'

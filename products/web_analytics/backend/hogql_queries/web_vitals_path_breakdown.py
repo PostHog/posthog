@@ -1,5 +1,6 @@
 from posthog.schema import (
     CachedWebStatsTableQueryResponse,
+    WebAnalyticsPreComputeStrategy,
     WebVitalsMetricBand,
     WebVitalsPathBreakdownQuery,
     WebVitalsPathBreakdownQueryResponse,
@@ -119,6 +120,7 @@ HAVING value >= 0
             timings=response.timings,
             hogql=response.hogql,
             modifiers=self.modifiers,
+            preComputeStrategy=WebAnalyticsPreComputeStrategy.LIVE,
         )
 
     def _get_results_for_band(

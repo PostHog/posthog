@@ -1,0 +1,34 @@
+<div style="margin: 10px 0;">
+    {% if not wallet.has_ledger %}
+        <em>Ledger backend not wired in this region — no wallet to show.</em>
+    {% else %}
+        {% if wallet.known %}
+            <p style="margin: 0 0 8px;"><strong>Balance: ${{ wallet.balance }}</strong></p>
+        {% else %}
+            <p style="margin: 0 0 8px;"><em>No gateway account yet — balance is $0.00 until the first credit or spend.</em></p>
+        {% endif %}
+        <a class="button" href="{{ add_credit_url }}">Add credit</a>
+        {% if wallet.recent %}
+            <table style="margin-top: 12px; border-collapse: collapse;">
+                <thead>
+                    <tr>
+                        <th style="text-align: left; padding: 2px 12px 2px 0;">When</th>
+                        <th style="text-align: left; padding: 2px 12px 2px 0;">Kind</th>
+                        <th style="text-align: right; padding: 2px 12px 2px 0;">Amount</th>
+                        <th style="text-align: left; padding: 2px 0;">Reference</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in wallet.recent %}
+                        <tr>
+                            <td style="padding: 2px 12px 2px 0;">{{ entry.when }}</td>
+                            <td style="padding: 2px 12px 2px 0;">{{ entry.kind }}</td>
+                            <td style="padding: 2px 12px 2px 0; text-align: right;">{{ entry.amount }}</td>
+                            <td style="padding: 2px 0;">{{ entry.reference }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
+    {% endif %}
+</div>

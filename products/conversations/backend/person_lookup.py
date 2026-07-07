@@ -7,6 +7,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.person.person import Person
 from posthog.models.person.util import get_persons_by_uuids
 from posthog.models.team import Team
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 
 # Case-insensitive batch email lookup. Exposed so tests can EXPLAIN the exact query that runs.
 PERSON_EMAIL_LOOKUP_QUERY = """
@@ -51,7 +52,8 @@ def _get_persons_by_email(
             if lower not in email_to_uuid:
                 email_to_uuid[lower] = str(person_uuid)
 
-    persons = get_persons_by_uuids(team.pk, list(email_to_uuid.values()))
+    with personhog_caller_tag("conversations/email-person-lookup"):
+        persons = get_persons_by_uuids(team.pk, list(email_to_uuid.values()))
     uuid_to_person: dict[str, Person] = {str(p.uuid): p for p in persons}
 
     result: dict[str, Person] = {}

@@ -26,6 +26,7 @@ import {
     IconHeart,
     IconHeartFilled,
     IconStickiness,
+    IconTrash,
     IconTrends,
     IconUserPaths,
     IconVideoCamera,
@@ -36,10 +37,10 @@ import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Alerts } from 'lib/components/Alerts/views/Alerts'
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -56,11 +57,11 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isNonEmptyObject } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { isNonEmptyObject } from 'lib/utils/guards'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
@@ -510,6 +511,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconLlmAnalytics,
         inMenu: false,
     },
+    [NodeKind.SessionQuery]: {
+        name: 'AI observability session',
+        icon: IconLlmAnalytics,
+        inMenu: false,
+    },
     [NodeKind.TraceNeighborsQuery]: {
         name: 'AI observability trace neighbors',
         icon: IconLlmAnalytics,
@@ -558,6 +564,16 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     },
     [NodeKind.TraceSpansTreeQuery]: {
         name: 'Trace Spans Tree',
+        icon: IconLive,
+        inMenu: false,
+    },
+    [NodeKind.TraceSpansAttributeBreakdownQuery]: {
+        name: 'Trace Spans Attribute Breakdown',
+        icon: IconLive,
+        inMenu: false,
+    },
+    [NodeKind.TraceSpansSymbolStatsQuery]: {
+        name: 'Trace Spans Symbol Stats',
         icon: IconLive,
         inMenu: false,
     },
@@ -614,6 +630,54 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.WebNotableChangesQuery]: {
         name: 'Notable changes',
         description: 'View notable changes in web analytics metrics.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPHarnessBreakdownQuery]: {
+        name: 'MCP harness breakdown',
+        description: 'MCP tool-call activity grouped by client harness.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPToolSampleIntentsQuery]: {
+        name: 'MCP tool sample intents',
+        description: 'Recent sampled intents for a single MCP tool.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPToolNeighborsQuery]: {
+        name: 'MCP tool neighbors',
+        description: 'Tools called adjacent to a single MCP tool within a conversation.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPToolStatsQuery]: {
+        name: 'MCP tool stats',
+        description: 'Summary stats for a single MCP tool.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPToolDailyStatsQuery]: {
+        name: 'MCP tool daily stats',
+        description: 'Per-day activity for a single MCP tool.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPToolDescriptionsQuery]: {
+        name: 'MCP tool descriptions',
+        description: 'Reported descriptions for a single MCP tool.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPToolTopUsersQuery]: {
+        name: 'MCP tool top users',
+        description: 'Top users of a single MCP tool.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPToolFailuresQuery]: {
+        name: 'MCP tool failures',
+        description: 'Recurring exception messages for a single MCP tool.',
         icon: IconPieChart,
         inMenu: false,
     },
@@ -735,7 +799,7 @@ export function NewInsightButton(): JSX.Element {
             resourceType={AccessControlResourceType.Insight}
             minAccessLevel={AccessControlLevel.Editor}
         >
-            <AppShortcut
+            <Shortcut
                 name="NewInsight"
                 keybind={[keyBinds.new]}
                 intent="New insight"
@@ -754,16 +818,30 @@ export function NewInsightButton(): JSX.Element {
                         New
                     </LemonButton>
                 </LemonMenu>
-            </AppShortcut>
+            </Shortcut>
         </AccessControlAction>
     )
 }
 
 export function SavedInsights(): JSX.Element {
-    const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
-        useActions(savedInsightsLogic)
-    const { insights, insightsLoading, filters, sorting, pagination, alertModalId, usingFilters } =
-        useValues(savedInsightsLogic)
+    const {
+        loadInsights,
+        updateFavoritedInsight,
+        renameInsight,
+        duplicateInsight,
+        setSavedInsightsFilters,
+        bulkDeleteInsights,
+    } = useActions(savedInsightsLogic)
+    const {
+        insights,
+        insightsLoading,
+        filters,
+        sorting,
+        pagination,
+        alertModalId,
+        usingFilters,
+        bulkDeleteResponseLoading,
+    } = useValues(savedInsightsLogic)
 
     const { currentProjectId } = useValues(projectLogic)
     const summarizeInsight = useSummarizeInsight()
@@ -1055,14 +1133,44 @@ export function SavedInsights(): JSX.Element {
                                 `Select insight ${insight.name || 'Untitled'}`,
                             headerAriaLabel: 'Select all insights on this page',
                             renderActions: (ctx) => (
-                                <BulkUpdateTagsButton
-                                    resource="insights"
-                                    selectedIds={ctx.selectedKeys}
-                                    onSuccess={() => {
-                                        ctx.clearSelection()
-                                        loadInsights()
-                                    }}
-                                />
+                                <>
+                                    <BulkUpdateTagsButton
+                                        resource="insights"
+                                        selectedIds={ctx.selectedKeys}
+                                        onSuccess={() => {
+                                            ctx.clearSelection()
+                                            loadInsights()
+                                        }}
+                                    />
+                                    <LemonButton
+                                        type="primary"
+                                        status="danger"
+                                        size="small"
+                                        icon={<IconTrash />}
+                                        loading={bulkDeleteResponseLoading}
+                                        onClick={() => {
+                                            const count = ctx.selectedCount
+                                            const noun = count === 1 ? 'insight' : 'insights'
+                                            LemonDialog.open({
+                                                title: `Delete ${count} ${noun}?`,
+                                                description: `Are you sure you want to delete ${count} ${noun}? This action can be undone.`,
+                                                primaryButton: {
+                                                    children: 'Delete',
+                                                    status: 'danger',
+                                                    onClick: () => {
+                                                        bulkDeleteInsights({ ids: [...ctx.selectedKeys] })
+                                                        ctx.clearSelection()
+                                                    },
+                                                },
+                                                secondaryButton: {
+                                                    children: 'Cancel',
+                                                },
+                                            })
+                                        }}
+                                    >
+                                        Delete selected
+                                    </LemonButton>
+                                </>
                             ),
                         }}
                     />

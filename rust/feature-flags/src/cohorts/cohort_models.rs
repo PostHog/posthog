@@ -22,35 +22,53 @@ pub enum CohortType {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, FromRow)]
 pub struct Cohort {
     pub id: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub team_id: i32,
     pub deleted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub filters: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub query: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_version: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub count: Option<i32>,
     pub is_calculating: bool,
     pub is_static: bool,
     pub errors_calculating: i32,
     pub groups: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub created_by_id: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cohort_type: Option<CohortType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub last_backfill_person_properties_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub last_backfill_events_at: Option<DateTime<Utc>>,
 }
 
 impl Cohort {
     /// Returns true if this cohort's membership should be resolved via the
     /// realtime cohort_membership table rather than the static cohortpeople table.
-    /// Requires both a realtime/behavioral cohort type AND a populated backfill
-    /// timestamp, which indicates that the membership table has been written to.
-    /// Without the timestamp, the cohort falls through to dynamic filter evaluation.
+    /// Requires both a realtime/behavioral cohort type AND at least one populated
+    /// backfill timestamp, which indicates that the membership table has been written to.
+    /// Without any timestamp, the cohort falls through to dynamic filter evaluation.
+    ///
+    /// Note: Python's `Cohort.is_flag_compatible` gates on filter composition (person vs
+    /// behavioral) and requires the matching timestamp(s) before a flag can reference the
+    /// cohort at all. Here we only need to know that the membership table has been
+    /// populated, so accepting either timestamp is sufficient.
     pub fn uses_realtime_membership(&self) -> bool {
         matches!(
             self.cohort_type,
             Some(CohortType::Realtime) | Some(CohortType::Behavioral)
-        ) && self.last_backfill_person_properties_at.is_some()
+        ) && (self.last_backfill_person_properties_at.is_some()
+            || self.last_backfill_events_at.is_some())
     }
 
     /// Estimates the memory size of this cohort in bytes.
@@ -100,14 +118,30 @@ pub struct CohortProperty {
 pub struct InnerCohortProperty {
     #[serde(rename = "type")]
     pub prop_type: CohortPropertyType,
-    pub values: Vec<CohortValues>,
+    pub values: Vec<CohortValuesItem>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CohortValues {
     #[serde(rename = "type")]
     pub prop_type: String,
-    pub values: Vec<PropertyFilter>,
+    pub values: Vec<CohortValuesItem>,
+}
+
+/// A single entry inside a cohort property group: either a nested group or a leaf
+/// property filter. Mirrors `FilterOrGroup` in posthog/api/cohort.py — the cohort UI
+/// always wraps filters in an inner group, but the API contract allows filters
+/// directly in a group and arbitrarily deep nesting, so evaluation must accept both.
+///
+/// `Filter` is listed first because `#[serde(untagged)]` tries variants in order:
+/// `PropertyFilter` requires `key`, so a group (no `key`) falls through to `Group`,
+/// while an ambiguous object carrying both `key` and `values` is kept as the filter
+/// it most likely is rather than silently dropping its `key`/`value`/`operator`.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum CohortValuesItem {
+    Filter(PropertyFilter),
+    Group(CohortValues),
 }
 
 #[cfg(test)]
@@ -158,6 +192,7 @@ mod tests {
             created_by_id: Some(1),
             cohort_type: None,
             last_backfill_person_properties_at: None,
+            last_backfill_events_at: None,
         }
     }
 
@@ -283,33 +318,49 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::type_complexity)]
     fn test_uses_realtime_membership() {
         let backfill_ts = Some(Utc::now());
 
-        let cases: Vec<(Option<CohortType>, Option<DateTime<Utc>>, bool)> = vec![
-            (None, None, false),
-            (None, backfill_ts, false),
-            (Some(CohortType::Static), None, false),
-            (Some(CohortType::Static), backfill_ts, false),
-            (Some(CohortType::PersonProperty), None, false),
-            (Some(CohortType::PersonProperty), backfill_ts, false),
-            (Some(CohortType::Analytical), None, false),
-            (Some(CohortType::Analytical), backfill_ts, false),
-            (Some(CohortType::Realtime), None, false),
-            (Some(CohortType::Realtime), backfill_ts, true),
-            (Some(CohortType::Behavioral), None, false),
-            (Some(CohortType::Behavioral), backfill_ts, true),
+        // (cohort_type, person_props_ts, events_ts, expected)
+        let cases: Vec<(
+            Option<CohortType>,
+            Option<DateTime<Utc>>,
+            Option<DateTime<Utc>>,
+            bool,
+        )> = vec![
+            (None, None, None, false),
+            (None, backfill_ts, None, false),
+            (None, None, backfill_ts, false),
+            (Some(CohortType::Static), None, None, false),
+            (Some(CohortType::Static), backfill_ts, None, false),
+            (Some(CohortType::PersonProperty), None, None, false),
+            (Some(CohortType::PersonProperty), backfill_ts, None, false),
+            (Some(CohortType::Analytical), None, None, false),
+            (Some(CohortType::Analytical), backfill_ts, None, false),
+            // Realtime: either timestamp enables realtime membership
+            (Some(CohortType::Realtime), None, None, false),
+            (Some(CohortType::Realtime), backfill_ts, None, true),
+            (Some(CohortType::Realtime), None, backfill_ts, true),
+            (Some(CohortType::Realtime), backfill_ts, backfill_ts, true),
+            // Behavioral: either timestamp enables realtime membership
+            (Some(CohortType::Behavioral), None, None, false),
+            (Some(CohortType::Behavioral), backfill_ts, None, true),
+            (Some(CohortType::Behavioral), None, backfill_ts, true),
+            (Some(CohortType::Behavioral), backfill_ts, backfill_ts, true),
         ];
 
-        for (cohort_type, ts, expected) in cases {
+        for (cohort_type, pp_ts, events_ts, expected) in cases {
             let mut cohort = create_test_cohort(None, None, serde_json::json!({}));
             cohort.cohort_type = cohort_type;
-            cohort.last_backfill_person_properties_at = ts;
+            cohort.last_backfill_person_properties_at = pp_ts;
+            cohort.last_backfill_events_at = events_ts;
             assert_eq!(
                 cohort.uses_realtime_membership(),
                 expected,
-                "cohort_type={cohort_type:?}, backfill_ts={} should return {expected}",
-                ts.is_some()
+                "cohort_type={cohort_type:?}, pp_ts={}, events_ts={} should return {expected}",
+                pp_ts.is_some(),
+                events_ts.is_some()
             );
         }
     }
@@ -370,5 +421,85 @@ mod tests {
             size > 1000,
             "Large JSON should have significant estimated size"
         );
+    }
+}
+
+#[cfg(test)]
+mod skip_serializing_if_tests {
+    //! Verify the `skip_serializing_if = "Option::is_none"` sweep on `Cohort`.
+    //! For every swept `Option<T>` field, absent input must round-trip as absent
+    //! (no fabricated `null` key on cache-write serialize), and a real value must
+    //! round-trip unchanged. See
+    //! plans/rust-flag-models-skip-serializing-if-sweep.md.
+    use super::*;
+
+    fn assert_absent(value: &serde_json::Value, key: &str) {
+        let map = value
+            .as_object()
+            .expect("serialized cohort should be an object");
+        assert!(
+            !map.contains_key(key),
+            "absent field `{key}` must not be promoted to a null key on serialize"
+        );
+    }
+
+    /// Minimal cohort with every swept Option field at `None`.
+    fn minimal_cohort() -> Cohort {
+        Cohort {
+            id: 1,
+            team_id: 1,
+            groups: serde_json::json!({}),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn cohort_absent_options_stay_absent() {
+        let output = serde_json::to_value(minimal_cohort()).unwrap();
+        for key in [
+            "name",
+            "description",
+            "filters",
+            "query",
+            "version",
+            "pending_version",
+            "count",
+            "created_by_id",
+            "cohort_type",
+            "last_backfill_person_properties_at",
+        ] {
+            assert_absent(&output, key);
+        }
+    }
+
+    #[test]
+    fn cohort_values_round_trip() {
+        let cohort = Cohort {
+            id: 1,
+            name: Some("QA".to_string()),
+            description: Some("desc".to_string()),
+            team_id: 1,
+            filters: Some(serde_json::json!({"k": "v"})),
+            query: Some(serde_json::json!({"q": 1})),
+            version: Some(2),
+            pending_version: Some(3),
+            count: Some(7),
+            created_by_id: Some(9),
+            cohort_type: Some(CohortType::Behavioral),
+            last_backfill_person_properties_at: Some(Utc::now()),
+            groups: serde_json::json!({}),
+            ..Default::default()
+        };
+        let output = serde_json::to_value(&cohort).unwrap();
+        assert_eq!(output["name"], "QA");
+        assert_eq!(output["description"], "desc");
+        assert_eq!(output["filters"]["k"], "v");
+        assert_eq!(output["query"]["q"], 1);
+        assert_eq!(output["version"], 2);
+        assert_eq!(output["pending_version"], 3);
+        assert_eq!(output["count"], 7);
+        assert_eq!(output["created_by_id"], 9);
+        assert_eq!(output["cohort_type"], "behavioral");
+        assert!(output["last_backfill_person_properties_at"].is_string());
     }
 }

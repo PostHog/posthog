@@ -3,10 +3,17 @@ from django.db.models import Q
 from posthog.dags.common.owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.detectors import DEFAULT_EXECUTION_POLICY
-from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation
+from posthog.temporal.health_checks.framework import (
+    _SEVERITY_WEIGHT,
+    AlertContent,
+    HealthCheck,
+    Remediation,
+    SignalContent,
+    build_signal_extra,
+)
 from posthog.temporal.health_checks.models import HealthCheckResult
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
 
 class MaterializedViewFailureCheck(HealthCheck):
@@ -42,6 +49,23 @@ class MaterializedViewFailureCheck(HealthCheck):
             title="Materialized view failed",
             summary=f"{name} failed to refresh",
             link="/health/data_modeling",
+        )
+
+    @classmethod
+    def render_signal(cls, issue: HealthIssue) -> SignalContent | None:
+        name = issue.payload.get("pipeline_name", "a materialized view")
+        error = (issue.payload.get("error") or "").strip()
+        error_clause = f' Latest error: "{error}".' if error else ""
+        title = "Materialized view failed"
+        summary = f"{name} failed to refresh"
+        return SignalContent(
+            description=(
+                f'The materialized view "{name}" failed to refresh for this project, so queries and insights '
+                f"reading from it are serving stale data.{error_clause} Recommend opening the model, reviewing the "
+                "error, and re-running the materialization once the underlying query is fixed."
+            ),
+            weight=_SEVERITY_WEIGHT[issue.severity],
+            extra=build_signal_extra(issue, title=title, summary=summary, link="/health/data_modeling"),
         )
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:

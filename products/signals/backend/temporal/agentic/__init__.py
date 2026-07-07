@@ -6,7 +6,7 @@ from posthog.models.team.team import Team
 from posthog.models.user_integration import UserGitHubIntegration
 
 from products.signals.backend.report_generation.select_repo import resolve_team_github_integration
-from products.tasks.backend.models import SandboxEnvironment
+from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
 
@@ -17,30 +17,25 @@ SIGNALS_REPORT_RESEARCH_ENV_NAME = "SIGNALS_REPORT_RESEARCH"
 def get_or_create_signals_sandbox_env(
     team_id: int,
     name: str,
-    network_access_level: SandboxEnvironment.NetworkAccessLevel,
+    network_access_level: "tasks_facade.SandboxNetworkAccessLevel",
     *,
     allowed_domains: list[str] | None = None,
     include_default_domains: bool = False,
 ) -> str:
     """Get or create a SandboxEnvironment for a Signals agent. Returns the env ID as a string.
 
-    Uses update_or_create to reassert the expected policy on every call,
-    so manual edits via the API are corrected on next run.
+    Reasserts the expected policy on every call, so manual edits via the API are corrected on
+    next run.
     """
-    defaults: dict = {
-        "network_access_level": network_access_level,
-        "private": False,
-        "internal": True,
-    }
-    if allowed_domains is not None:
-        defaults["allowed_domains"] = allowed_domains
-        defaults["include_default_domains"] = include_default_domains
-    env, _ = SandboxEnvironment.objects.update_or_create(
-        team_id=team_id,
-        name=name,
-        defaults=defaults,
+    return str(
+        tasks_facade.upsert_internal_sandbox_env(
+            team_id,
+            name,
+            network_access_level,
+            allowed_domains=allowed_domains,
+            include_default_domains=include_default_domains,
+        )
     )
-    return str(env.id)
 
 
 def resolve_user_id_for_team(team_id: int, github: GitHubIntegrationBase | None = None) -> int:
@@ -80,3 +75,34 @@ def resolve_user_id_for_team(team_id: int, github: GitHubIntegrationBase | None 
     if not membership:
         raise RuntimeError(f"No active users in organization '{team.organization.name}' (team {team.id})")
     return membership.user_id
+
+
+def resolve_acting_user_id_for_team(team_id: int) -> int | None:
+    """Resolve the user a Signals scout sandbox acts as, *without* requiring GitHub.
+
+    `resolve_user_id_for_team` gates on a GitHub integration because the repo-cloning callers
+    (report generation, repo selection, custom agent) need those credentials. The scout cadence
+    path never clones a repo — `user_id` only scopes the sandbox connection token / MCP identity —
+    so a GitHub integration is the wrong precondition there. Prefer the GitHub-integration creator
+    when one exists (stable attribution, matches the other surfaces), otherwise fall back to any
+    active org member.
+
+    Returns ``None`` only when the org has no active member to act as — a genuine "can't run yet"
+    that the scheduled caller short-circuits on, rather than crashing deep in the spawn path and
+    booking a bogus `failed` outcome. Genuine errors (missing team, DB failures) still propagate.
+    """
+    team = Team.objects.select_related("organization").get(id=team_id)
+    github = resolve_team_github_integration(team_id, team=team)
+    if github is not None:
+        try:
+            return resolve_user_id_for_team(team_id, github=github)
+        except RuntimeError:
+            # Integration present but its user is unusable — fall through to any active member.
+            pass
+    membership = (
+        OrganizationMembership.objects.select_related("user")
+        .filter(organization=team.organization, user__is_active=True)
+        .order_by("id")
+        .first()
+    )
+    return membership.user_id if membership else None

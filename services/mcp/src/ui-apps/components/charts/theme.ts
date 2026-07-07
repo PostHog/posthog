@@ -1,17 +1,30 @@
-import { type ChartTheme } from '@posthog/quill-charts'
+import { useMemo } from 'react'
+
+import { type ChartTheme, useChartTheme } from '@posthog/quill-charts'
 
 import type { LifecycleStatus } from '../types'
 
 // PostHog brand palette. Canvas can't read CSS custom properties, so we hand the
 // chart concrete hexes. The chart picks one per series by index; legends use the
-// same array to stay in sync.
+// same array to stay in sync. Mirrors the web's --data-color-1..15 (light mode) in
+// frontend/src/styles/base.scss so MCP charts match the product and series with many
+// categories (e.g. retention cohorts) get distinct colors before wrapping.
 export const CHART_COLORS = [
-    '#1d4aff', // PostHog blue
-    '#621da6', // PostHog purple
-    '#00d683', // PostHog green
-    '#f54e00', // PostHog orange
-    '#f7a501', // PostHog yellow
-    '#dc2626', // red
+    '#1d4aff',
+    '#621da6',
+    '#42827e',
+    '#ce0e74',
+    '#f14f58',
+    '#7c440e',
+    '#529a0a',
+    '#0476fb',
+    '#fe729e',
+    '#35416b',
+    '#41cbc4',
+    '#b64b02',
+    '#e4a604',
+    '#a56eff',
+    '#30d5c8',
 ]
 
 // Picks a palette color by index, wrapping when there are more series than colors.
@@ -32,15 +45,20 @@ export const LIFECYCLE_COLORS: Record<LifecycleStatus, string> = {
 export const lifecycleColor = (status: string | undefined): string =>
     LIFECYCLE_COLORS[(status ?? 'new') as LifecycleStatus] ?? LIFECYCLE_COLORS.new
 
-// Single mid-gray for axis labels — readable on both light and dark hosts. Claude
-// Desktop's iframe doesn't set `prefers-color-scheme`, so we can't detect the host
-// theme and adapt at runtime.
+// Static light fallback. Components should use useMcpChartTheme() so the canvas tracks the host theme.
 export const CHART_THEME: ChartTheme = {
     colors: CHART_COLORS,
     backgroundColor: '#ffffff',
-    axisColor: '#9ca3af',
+    axisColor: '#6b7280',
     gridColor: 'rgba(128, 128, 128, 0.2)',
     crosshairColor: 'rgba(128, 128, 128, 0.5)',
     tooltipBackground: '#ffffff',
     tooltipColor: '#111827',
+}
+
+// Background/axis/grid/tooltip track the host's light/dark CSS vars (bridged to quill's graph
+// tokens in tailwind.css); series colors stay on the curated brand palette.
+export function useMcpChartTheme(): ChartTheme {
+    const base = useChartTheme()
+    return useMemo(() => ({ ...base, colors: CHART_COLORS }), [base])
 }

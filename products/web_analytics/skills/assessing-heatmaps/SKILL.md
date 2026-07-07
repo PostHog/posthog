@@ -45,6 +45,12 @@ querying-posthog-data skill, `models-heatmaps`):
 Use `aggregation: "unique_visitors"` when you care about how many people (not how many clicks); `total_count`
 exaggerates a few heavy clickers.
 
+Click results come back **hottest-first** and are capped at `limit` (default 500). A busy page can have
+thousands of distinct coordinates, so the default page plus the `fold` summary is almost always enough — the
+hottest points are what analysis turns on. Don't ask for everything: raise `limit` or page with `offset` only
+when you specifically need more, and check `has_more` to know the list was truncated. `scrolldepth` ignores
+`limit` and always returns every bucket.
+
 ### Step 2b: Above the fold — read the `fold` summary
 
 For the click types, `heatmaps-list` returns a `fold` object alongside `results`:

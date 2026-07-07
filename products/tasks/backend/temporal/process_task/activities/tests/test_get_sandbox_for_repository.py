@@ -5,8 +5,8 @@ import pytest
 
 from asgiref.sync import async_to_sync
 
+from products.tasks.backend.logic.services.sandbox import Sandbox
 from products.tasks.backend.models import SandboxSnapshot
-from products.tasks.backend.services.sandbox import Sandbox
 from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_repository import (
     GetSandboxForRepositoryInput,
     get_sandbox_for_repository,
@@ -33,7 +33,7 @@ class TestGetSandboxForRepositoryActivity:
         )
 
     @pytest.mark.django_db(transaction=True)
-    def test_get_sandbox_with_existing_snapshot(
+    def test_get_sandbox_with_unavailable_snapshot_falls_back(
         self, activity_environment, github_integration, test_task, test_task_run
     ):
         snapshot = SandboxSnapshot.objects.create(
@@ -51,8 +51,8 @@ class TestGetSandboxForRepositoryActivity:
             result = async_to_sync(activity_environment.run)(get_sandbox_for_repository, input_data)
 
             assert result.sandbox_id is not None
-            assert result.used_snapshot is True
-            assert result.should_create_snapshot is False
+            assert result.used_snapshot is False
+            assert result.should_create_snapshot is True
 
             sandbox_id = result.sandbox_id
 

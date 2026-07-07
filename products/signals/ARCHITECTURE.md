@@ -6,6 +6,8 @@ The **Signals** product is a signal grouping and report-generation pipeline. Sig
 
 Today the active ingestion path is **emitter → buffer → grouping v2**. The summary path is no longer a simple "summarize signals" LLM step: it runs a report-level safety judge, selects a repository, then performs sandbox-backed multi-turn research that produces findings, actionability, priority, title, summary, and suggested reviewers. Reports that are immediately actionable can automatically start a Tasks coding run via the **autonomy** system.
 
+A report is a **living document**: every piece of work done on it — judgments, repo selection, research findings, pushed commits, task runs, free-form notes — is recorded as an attributed, schema-validated, append-only `SignalReportArtefact`. The status-bearing types resolve latest-wins; the rest accumulate as a work log. This is the surface autonomous agents (the pipeline, custom scouts, and other inbox-driven products) read and write as they act on a report.
+
 ---
 
 ## Temporal Workflows
@@ -157,7 +159,7 @@ Defined in `backend/temporal/summary.py`.
    - If no repository is selected, the workflow synthesizes a “repository selection required” title/summary and transitions to `pending_input`
 5. **Agentic research** → `run_agentic_report_activity` (`temporal/agentic/report.py`)
    - Sandbox-backed multi-turn research over the selected repository plus MCP data
-   - Persists `repo_selection`, `signal_finding`, `actionability_judgment`, `priority_judgment`, and `suggested_reviewers` artefacts atomically on success
+   - Appends `repo_selection`, `signal_finding`, `actionability_judgment`, `priority_judgment`, and `suggested_reviewers` artefacts atomically on success (append-only — on re-research only entries that actually changed are appended)
 6. **Conditional coding-task auto-start** (inside `run_agentic_report_activity`) — see Autonomy & Auto-Start below
 7. **Apply the decision**:
    - If **not actionable** → `reset_report_to_potential_activity` (weight resets to 0, status becomes `potential`)
@@ -205,15 +207,19 @@ Bulk sync (`sync_full_cache`) fans the per-repo sync out via `run_parallel_with_
 
 #### Re-promotion
 
-Reports are re-promoted when new evidence arrives, but not on every single signal forever. `signals_at_run` is advanced when a run starts, and the grouping logic only re-promotes when `signal_count >= signals_at_run`.
+Reports are re-promoted when new evidence arrives. A `READY` / `RESOLVED` report re-promotes on every new matching signal (so research reruns with the latest evidence), and a report reset to `potential` re-promotes once it clears the `signals_at_run` snooze gate again.
+
+**Re-research cap.** The research activity reads every non-deleted signal, so re-research cost scales with report size. Once an already-researched report exceeds `RERESEARCH_MAX_SIGNALS` (`SIGNAL_RERESEARCH_MAX_SIGNALS`, default 10), `READY` / `RESOLVED` re-promotion is suppressed: new signals are still assigned, weighted, and emitted, but no new summary run spawns. The cap is enforced in two places: the grouping promotion gate (`assign_and_emit_signal_activity`), which fires the `signal_report_reresearch_skipped` event per suppressed signal so the saved volume is trackable, and the summary self-loop (`mark_report_ready_activity`), which stops an in-flight run from looping into another research pass (no event — this is a rare mid-run edge).
+
+The cap covers **only** the `READY` / `RESOLVED` path (the one that re-promotes on every signal). Re-promotions through the `potential` gate stay uncapped — first research, `candidate` self-heal, snooze return, and a not-actionable reset re-accumulating weight — because they are weight / `signals_at_run`-gated rather than per-signal, so strong new evidence can still resurface a large report.
 
 On re-promotion:
 
 - **Repo selection** reuses the previous `repo_selection` artefact when possible
 - **Agentic research** reconstructs previous findings / actionability / priority from artefacts and reuses prior work signal-by-signal when still valid
-- **Agentic artefacts** from the previous run are deleted and replaced atomically before writing the new run’s artefacts
-- **`SignalReportTask` rows are not deleted** on re-promotion; they are historical records of research and auto-started coding runs
-- **Auto-start is deduplicated per report** by checking for an existing `SignalReportTask` with `relationship=implementation`
+- **Agentic artefacts** are append-only — the previous run's rows are kept; the new run appends only the entries that actually changed (the agent confirms a still-correct finding/judgment instead of regenerating it), and status types resolve latest-wins
+- **`task_run` artefacts are never removed** on re-promotion; they are the historical record of research and auto-started coding runs
+- **Auto-start is deduplicated per report** by a legacy `SignalReportTask` implementation link (not the freeform `task_run` log), checked inside the report-row `select_for_update`
 - **Workflow ID** includes `run_count` on reruns to avoid Temporal ID collisions with earlier executions
 
 ### `SignalReportReingestionWorkflow` (`signal-report-reingestion`)
@@ -300,6 +306,8 @@ Defined in `backend/temporal/agentic/scout_coordinator.py`.
 
 The coordinator's lifetime is seconds regardless of fan-out width; throttling happens at the Temporal task queue + worker concurrency layer. Pausing a scout is `enabled=False` on its config; slowing it is a larger `run_interval_minutes` — both tunable via the `signals-scout-config-update` MCP tool.
 
+**Per-scout holdback (`withheld_skills`).** The same flag payload carries a hard denylist for keeping an unreleased scout off the fleet while dogfooding it on a single project. A `withheld_skills` list (a `default_team_config` fleet-wide default, overridable per team via `team_configs[<id>].withheld_skills` with replace-not-merge semantics — set `[]` to release the full fleet to one team) names scouts that, for a held-back team, are never seeded into its `LLMSkill` rows (`sync_canonical_skills` skips them), never get a `SignalScoutConfig` (`register_missing_configs` drops them from its return), and are never dispatched. Resolved by `_resolve_withheld_skills`, most-specific-layer-first like the run caps. Unlike the soft `enabled_skills` seed allowlist (a default a user can still toggle on), this is a hard gate at the seed + dispatch layer — e.g. `default_team_config.withheld_skills = ["signals-scout-error-tracking"]` with `team_configs["2"].withheld_skills = []` dogfoods error tracking on project 2 only.
+
 ### `RunSignalsScoutWorkflow`
 
 Child workflow per planned run. Defined in `backend/temporal/agentic/scout_scheduler.py`.
@@ -343,9 +351,9 @@ potential → candidate → in_progress → ready
                                     → failed
                                     → potential (reset by actionability judge)
 
-# Re-promotion: READY reports are re-promoted to candidate when enough new signals
-# accumulate (signal_count >= signals_at_run), triggering a new summary run that
-# reuses the previous repo selection and findings for already-seen signals.
+# Re-promotion: READY reports are re-promoted to candidate on each new matching signal,
+# triggering a new summary run that reuses the previous repo selection and findings for
+# already-seen signals. Suppressed once signal_count > RERESEARCH_MAX_SIGNALS (see Re-research cap).
 ready → candidate
 
 # Transitions enforced by SignalReport.transition_to():
@@ -380,33 +388,57 @@ any (except deleted) → suppressed
 
 ### `SignalReportArtefact`
 
-JSON artefacts attached to reports. Used for video segments, safety / actionability judgments, research findings, repo selection, and suggested reviewers.
+An **append-only, attributed, schema-validated log of the work done on a report**. A report reads as a living document: the evidence the research agent gathered, the commits it pushed, the task runs that executed, and free-form notes, accumulating over time. Producers never mutate in place — re-assessing appends a new row.
 
-| Field     | Type              | Description                                |
-| --------- | ----------------- | ------------------------------------------ |
-| `team`    | FK → Team         | Owning team                                |
-| `report`  | FK → SignalReport | Parent report (`related_name="artefacts"`) |
-| `type`    | CharField         | Artefact type (see `ArtefactType` enum)    |
-| `content` | TextField         | JSON content stored as text                |
+| Field        | Type                             | Description                                          |
+| ------------ | -------------------------------- | ---------------------------------------------------- |
+| `team`       | FK → Team                        | Owning team                                          |
+| `report`     | FK → SignalReport                | Parent report (`related_name="artefacts"`)           |
+| `type`       | CharField                        | Artefact type (see `ArtefactType` enum)              |
+| `content`    | TextField                        | JSON content stored as text                          |
+| `created_at` | DateTime                         | Auto-set; rows are ordered newest-first              |
+| `updated_at` | DateTime (nullable, `auto_now`)  | Log entries are editable in place                    |
+| `created_by` | FK → User (`SET_NULL`, nullable) | Attribution — the user who produced the row, if any  |
+| `task`       | FK → Task (`SET_NULL`, nullable) | Attribution — the task that produced the row, if any |
+
+`created_by` / `task` are nullable: legacy rows and explicit system writes carry NULLs.
+
+**Status vs log.** Everything is append-only; the `STATUS_ARTEFACT_TYPES` / `LOG_ARTEFACT_TYPES` sets classify what an entry _means_:
+
+- **status** — the report's current state (`safety_judgment`, `actionability_judgment`, `priority_judgment`, `repo_selection`, `suggested_reviewers`). Each (re)assessment appends a row; the current status is the **latest row of that type** (serializers derive priority/actionability/reviewers via `order_by("-created_at")[:1]`).
+- **log** — discrete work (`code_reference`, `commit`, `task_run`, `note`); these accumulate and are addressable by UUID (PATCH/DELETE).
+- `signal_finding` is in neither set: its identity is `(report, content.signal_id)`, latest per signal wins. `dismissal` entries stack.
 
 **Artefact types** (`SignalReportArtefact.ArtefactType` enum):
 
-| Type                     | Content                                                                                                                                        |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `video_segment`          | Video segment data from session clustering                                                                                                     |
-| `safety_judgment`        | `{"choice": bool, "explanation": "..."}` — true = safe                                                                                         |
-| `actionability_judgment` | `{"actionability": "immediately_actionable" \| "requires_human_input" \| "not_actionable", "explanation": "...", "already_addressed": bool}`   |
-| `priority_judgment`      | `{"priority": "P0"\|"P1"\|"P2"\|"P3"\|"P4", "explanation": "..."}`                                                                             |
-| `signal_finding`         | `{"signal_id": "...", "relevant_code_paths": [...], "relevant_commit_hashes": {"abc1234": "reason"}, "data_queried": "...", "verified": bool}` |
-| `repo_selection`         | `{"repository": "owner/repo" \| null, "reason": "..."}`                                                                                        |
-| `suggested_reviewers`    | `[{"github_login": "...", "github_name": "...", "relevant_commits": [...]}]` — enriched with current PostHog user data at serializer read time |
+| Type                     | Content                                                                                                                                                         |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `video_segment`          | Video segment data from session clustering                                                                                                                      |
+| `safety_judgment`        | `{"choice": bool, "explanation": "..."}` — true = safe                                                                                                          |
+| `actionability_judgment` | `{"actionability": "immediately_actionable" \| "requires_human_input" \| "not_actionable", "explanation": "...", "already_addressed": bool}`                    |
+| `priority_judgment`      | `{"priority": "P0"\|"P1"\|"P2"\|"P3"\|"P4", "explanation": "..."}`                                                                                              |
+| `signal_finding`         | `{"signal_id": "...", "relevant_code_paths": [...], "relevant_commit_hashes": {"abc1234": "reason"}, "data_queried": "...", "verified": bool}`                  |
+| `repo_selection`         | `{"repository": "owner/repo" \| null, "reason": "...", "task_id"?: "..."}`                                                                                      |
+| `suggested_reviewers`    | `[{"github_login": "...", "github_name": "...", "relevant_commits": [...]}]` — enriched with current PostHog user data at serializer read time                  |
+| `dismissal`              | `{"reason"?, "note"?, "user_id"?, "user_uuid"?, "slack_user_id"?}` — stacking dismissal entries                                                                 |
+| `code_reference`         | `{"file_path": "...", "start_line": int, "end_line": int, "contents": "...", "relevance_note": "..."}` — a span of source lines (single line = equal start/end) |
+| `commit`                 | `{"repository": "owner/repo", "branch": "...", "commit_sha": "...", "message": "...", "note"?: "..."}` — one pushed commit                                      |
+| `task_run`               | `{"task_id": "...", "run_id"?: "...", "product": "...", "type": "..."}` — a task run associated with the report (see below)                                     |
+| `note`                   | `{"note": "...", "author"?: "..."}` — free-form note (markdown allowed)                                                                                         |
+
+**Content schemas.** `artefact_schemas.py` is the canonical, pydantic-only home of every content shape, collected in `ARTEFACT_CONTENT_SCHEMAS` (one model per type; a test asserts exact coverage). Raw payloads become typed models once, at the boundaries (`parse_artefact_content`); the model helpers derive a row's type from the content model's class (`artefact_type_for`), so a type can never mismatch its content. `repo_selection` reuses the tasks product's `RepoSelectionResult` DTO directly (kept in the dependency-light leaf module `repo_selection/types.py` so importing the schema registry doesn't pull in the sandbox runtime). Reads of legacy rows stay tolerant — parse failures are skipped or degraded, never raised.
+
+**Attribution.** Every write helper (`append_status` / `add_log` / `append_finding` / `append_dismissal`) requires an `ArtefactAttribution` — exactly one of `from_user(user_id)` / `from_task(task_id)` / `system()` — so no write site can silently skip it. Agent writes are attributed deterministically: sandbox provisioning bakes the agent's task id into an `X-PostHog-Task-Id` header on its MCP config, forwarded by the MCP server on every API call; the LLM never handles its own task id. The header is attribution metadata, not an authorization boundary (the token is team-scoped and the named task must belong to the same team).
+
+**Write surface.** `SignalReportArtefactViewSet` exposes POST / PATCH / DELETE for any type (a status write appends a new latest-wins row), the bespoke `suggested_reviewers` PUT, and a `diff` action that renders a `commit` artefact's branch against the repository default branch via `GitHubIntegration.get_diff` (GitHub compare API, validated repo/ref/sha). All gated by `scope_object = "task"` (`task:write`). Custom agents queue artefacts during a run via `CustomSignalAgent.register_artefact`, persisted in the report's transaction and attributed to the agent's task — except `commit` (written automatically by the signed-commit harness) and `task_run` (written by report persistence), which never need registering there.
+
+**Task↔report association.** A `task_run` artefact _is_ the association (no link table): its `task` FK is the task it records. Associating is just POSTing a `task_run` (its `content.task_id` defaults from the header — "associate me"); the reports list accepts `?task_id=`. Auto-start idempotency does **not** key on this freeform, API-mutable log — it uses a legacy `SignalReportTask` implementation row, which auto-start dual-writes alongside the `task_run` artefact (see Autonomy & Auto-Start).
 
 Notes:
 
 - The serializer still supports legacy `actionability_judgment` payloads that used `choice` instead of `actionability`.
-- Agentic report persistence deletes and replaces only the artefact types owned by the agentic path (`repo_selection`, `signal_finding`, `actionability_judgment`, `priority_judgment`, `suggested_reviewers`). `safety_judgment` is written separately by the safety judge.
 
-**Indexes:** `(report)` (`signals_sig_report__idx`)
+**Indexes:** `(report)` (`signals_sig_report__idx`) plus a latest-wins `(report, type, -created_at)` index backing status derivation.
 
 ### `SignalTeamConfig`
 
@@ -423,8 +455,8 @@ Per-team singleton config for Signals settings, including the default autonomy p
 Notes:
 
 - Auto-created as a team extension via `register_team_extension_signal`
-- `default_autostart_priority` defaults to `P0`
-- Individual users can override this threshold via `SignalUserAutonomyConfig.autostart_priority`
+- `default_autostart_priority` defaults to `P4` (every report priority auto-starts). The threshold is no longer user-configurable in the inbox UI; everyone runs on this default.
+- `SignalUserAutonomyConfig.autostart_priority` can still hold a per-user override at the data layer (`null` = use the team default), but there is no UI to set it.
 
 ### `SignalUserAutonomyConfig`
 
@@ -444,42 +476,26 @@ Notes:
 - User is not scoped to a team — the autostart logic resolves team membership at runtime
 - Managed via `PUT /api/users/@me/signal_autonomy/` (opt in / update) and `DELETE` (opt out)
 
-### `SignalReportTask`
+### `SignalReportTask` (legacy — implementation gate only)
 
-Tracks the relationship between signal reports and tasks (research sandbox runs, auto-started implementation tasks, etc.).
-
-| Field          | Type              | Description                                                            |
-| -------------- | ----------------- | ---------------------------------------------------------------------- |
-| `id`           | UUID (PK)         | Primary key (UUIDModel)                                                |
-| `team`         | FK → Team         | Owning team                                                            |
-| `report`       | FK → SignalReport | Parent report (`related_name="report_tasks"`, cascade delete)          |
-| `task`         | FK → Task         | The linked task (`related_name="signal_report_tasks"`, cascade delete) |
-| `relationship` | CharField(200)    | One of: `repo_selection`, `research`, `implementation`                 |
-| `created_at`   | DateTime          | Auto-set on creation                                                   |
-
-Notes:
-
-- `research` rows are created immediately when the multi-turn research sandbox session starts
-- `implementation` rows are created when autonomy auto-starts a fix task
-- Cascading delete on both `report` and `task` FKs
-- Used as the guard against duplicate auto-starts (checks for existing `implementation` row)
+The legacy report↔task link table. General task↔report association has moved to `task_run` artefacts (a `task_run` artefact's `task` FK is the association; purpose comes from its `(product, type)`). This table survives for **one** job: it's the auto-start idempotency gate. `record_implementation_task` dual-writes a `relationship="implementation"` row here **and** the `task_run` artefact; auto-start checks this table (not the freeform, API-mutable artefact log) when deciding whether an implementation has already started. Once `backfill_task_run_artefacts` has converted every legacy row into a `task_run` artefact, the gate can move to the artefact log and this table can be dropped.
 
 ### `SignalSourceConfig`
 
 Per-team configuration for which signal sources are enabled.
 
-| Field            | Type      | Description                                                                                                                                                       |
-| ---------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `team`           | FK → Team | Owning team (`related_name="signal_source_configs"`)                                                                                                              |
-| `source_product` | CharField | One of: `session_replay`, `llm_analytics`, `github`, `linear`, `zendesk`, `conversations`, `error_tracking`, `signals_scout` (`SourceProduct` enum)               |
-| `source_type`    | CharField | One of: `session_analysis_cluster`, `evaluation`, `issue`, `ticket`, `issue_created`, `issue_reopened`, `issue_spiking`, `cross_source_issue` (`SourceType` enum) |
-| `enabled`        | Boolean   | Whether this source is active (default `True`)                                                                                                                    |
-| `config`         | JSONField | Source-specific configuration                                                                                                                                     |
-| `created_by`     | FK → User | User who created the config (nullable)                                                                                                                            |
+| Field            | Type      | Description                                                                                                                                                                            |
+| ---------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `team`           | FK → Team | Owning team (`related_name="signal_source_configs"`)                                                                                                                                   |
+| `source_product` | CharField | One of: `session_replay`, `llm_analytics`, `github`, `linear`, `zendesk`, `conversations`, `error_tracking`, `signals_scout` (`SourceProduct` enum)                                    |
+| `source_type`    | CharField | One of: `session_analysis_cluster`, `evaluation`, `evaluation_report`, `issue`, `ticket`, `issue_created`, `issue_reopened`, `issue_spiking`, `cross_source_issue` (`SourceType` enum) |
+| `enabled`        | Boolean   | Whether this source is active (default `True`)                                                                                                                                         |
+| `config`         | JSONField | Source-specific configuration                                                                                                                                                          |
+| `created_by`     | FK → User | User who created the config (nullable)                                                                                                                                                 |
 
 **Behavioral notes:**
 
-- `SignalSourceConfig.is_source_enabled()` special-cases `llm_analytics`: eval signals are always allowed at the model gate and are then further filtered by the eval workflow’s own config checks.
+- `llm_analytics` signals go through the standard enabled-row check like every other source. Per-result `evaluation` signals are additionally filtered by the per-evaluation `evaluation_ids` allowlist in the row's `config`, enforced upstream in the eval workflows; `evaluation_report` signals are gated by their own `(llm_analytics, evaluation_report)` row (the inbox "AI observability" toggle).
 - For session replay configs, serializer validation enforces that `config.recording_filters` is a JSON object when present.
 - The serializer exposes a computed `status` field:
   - `session_analysis_cluster` derives status from the Temporal clustering workflow
@@ -498,14 +514,14 @@ Per-scout binding for the headless **Signals agent**: one row per `(team, skill_
 | `skill_name`           | CharField            | The `signals-scout-*` skill this row controls. Auto-registered by the coordinator when it finds the skill on a participating team.                                                                                                              |
 | `enabled`              | Boolean              | Per-scout switch; defaults `True`. `False` pauses just this scout.                                                                                                                                                                              |
 | `emit`                 | Boolean              | Dry-run vs emit. Defaults `True`: a freshly authored scout is live from its first tick. Flip to `False` for dry-run — the scout runs and logs but `emit_finding` writes nothing — to validate it on a team before its findings reach the inbox. |
-| `run_interval_minutes` | PositiveSmallInt     | Minutes between runs. The coordinator dispatches when `last_run_at is None or now - last_run_at >= run_interval_minutes`. Default `60` (hourly). Validated `10 <= N <= 43200`.                                                                  |
+| `run_interval_minutes` | PositiveSmallInt     | Minutes between runs. The coordinator dispatches when `last_run_at is None or now - last_run_at >= run_interval_minutes`. Default `1440` (daily). Validated `30 <= N <= 43200`.                                                                 |
 | `last_run_at`          | DateTime (nullable)  | Stamped after each dispatch; drives the due-check. Excluded from activity logging (written every run).                                                                                                                                          |
 | `created_by`           | FK → User (nullable) | Audit pointer                                                                                                                                                                                                                                   |
 | `enabled_by`           | FK → User (nullable) | Who last flipped `enabled` — tracked because enablement drives spend.                                                                                                                                                                           |
 
 ### `SignalScoutRun`
 
-Thin bridge from a Tasks `TaskRun` to the scout skill that ran inside it. Mirrors `SignalReportTask` (the bridge used by the SignalReport research flow): one scout-domain row per scheduled agent run that links its `TaskRun` to the skill it executed. Status, timing, error context, and the full chat log live on the `TaskRun`; emitted findings are `Signal` / `SignalReport` rows written by `emit_signal()`. This row carries only the scout-specific fields that need to be queryable as real columns.
+Thin bridge from a Tasks `TaskRun` to the scout skill that ran inside it: one scout-domain row per scheduled agent run that links its `TaskRun` to the skill it executed. Status, timing, error context, and the full chat log live on the `TaskRun`; emitted findings are `Signal` / `SignalReport` rows written by `emit_signal()`. This row carries only the scout-specific fields that need to be queryable as real columns.
 
 | Field           | Type                              | Description                                                                                                                                                        |
 | --------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -731,7 +747,7 @@ Read + delete + state transitions. Uses `IsAuthenticated` + `APIScopePermission`
 
 | Method | Path                                   | Description                                                                                                                                                                                                                                                                                                                         |
 | ------ | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `signals/reports/`                     | List reports. Excludes `deleted` always and excludes `suppressed` by default. Supports `?status=`, `?search=`, `?source_product=`, `?suggested_reviewers=`, and `?ordering=`.                                                                                                                                                       |
+| GET    | `signals/reports/`                     | List reports. Excludes `deleted` always and excludes `suppressed` by default. Supports `?status=`, `?search=`, `?source_product=`, `?suggested_reviewers=`, `?task_id=` (resolved through `task_run` artefacts), and `?ordering=`.                                                                                                  |
 | GET    | `signals/reports/{id}/`                | Retrieve a single report                                                                                                                                                                                                                                                                                                            |
 | DELETE | `signals/reports/{id}/`                | Soft-delete a report and its signals. Starts `SignalReportDeletionWorkflow`. On success returns `202`. If the workflow is already running, returns `200 {"status": "already_running"}`. The API immediately transitions the Postgres report to `deleted` to hide it from list results while ClickHouse cleanup runs asynchronously. |
 | POST   | `signals/reports/{id}/state/`          | Transition report state. Body: `{ "state": "suppressed" \| "potential", ...transition_to kwargs }`. Only `suppressed` and `potential` are exposed via API. Returns `409` on invalid transitions and `400` on invalid arguments.                                                                                                     |
@@ -758,15 +774,20 @@ So with `ordering=status`, **`failed` sorts after actionable `ready`**. With `or
 
 Default ordering is **`-is_suggested_reviewer,status,-updated_at,id`**.
 
-#### `SignalReportTaskViewSet`
+#### `SignalReportArtefactViewSet`
 
-Read-only list of tasks associated with a signal report. Nested under the reports router.
+The artefact log read/write surface, nested under the reports router (`environment_signal_report_artefacts`). Team-scoped via `safely_get_queryset` (report id from the URL + `self.team`); gated by `scope_object = "task"`.
 
-| Method | Path                          | Description                                  |
-| ------ | ----------------------------- | -------------------------------------------- |
-| GET    | `signals/reports/{id}/tasks/` | List `SignalReportTask` entries for a report |
+| Method | Path                                         | Description                                                                                            |
+| ------ | -------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| GET    | `signals/reports/{id}/artefacts/`            | List all artefacts for a report, ordered by `-created_at`                                              |
+| GET    | `signals/reports/{id}/artefacts/{aid}/`      | Retrieve one artefact                                                                                  |
+| POST   | `signals/reports/{id}/artefacts/`            | Append an artefact of any type (status types append a new latest-wins row); per-type schema validation |
+| PATCH  | `signals/reports/{id}/artefacts/{aid}/`      | Edit a log/status row's content in place                                                               |
+| DELETE | `signals/reports/{id}/artefacts/{aid}/`      | Delete an artefact row                                                                                 |
+| GET    | `signals/reports/{id}/artefacts/{aid}/diff/` | Render a `commit` artefact's branch against the repo default branch via `GitHubIntegration.get_diff`   |
 
-Supports ordering via `?ordering=` with fields: `created_at`, `relationship`. Default: `-created_at`. Each item includes `id`, `relationship`, `task_id`, and `created_at`.
+POSTing a `task_run` artefact is the "associate me" operation: `content.task_id` defaults from the `X-PostHog-Task-Id` header, `product`/`type` default to `tasks`/`agent_run`, the named task must belong to the team, and re-association is idempotent. The bespoke `suggested_reviewers` PUT (reviewer enrichment) also lives here. Writes are attributed to the header's task when present, else the requesting user.
 
 #### `SignalProcessingViewSet`
 
@@ -823,9 +844,6 @@ Generated MCP tool names:
   - Exposes `id`, `type`, `content`, `created_at`
   - Parses JSON text into structured content
   - For `suggested_reviewers`, enriches the stored GitHub-only payload with fresh PostHog org-member data at read time
-- **`SignalReportTaskSerializer`**
-  - Exposes `id`, `relationship`, `task_id`, `task_title`, `task_status`, `created_at`
-  - `task_status` is derived from the latest `TaskRun` via prefetch
 
 ---
 
@@ -839,6 +857,7 @@ All events use `distinct_id = team.uuid` and `groups(organization, team)`. Per-s
 - `signal_emission_started` — `emit_signal()` past validation
 - `signal_emitted` — `emit_signal()` after Temporal dispatch succeeds
 - `signal_assigned_to_report` — grouping assigned the signal (+ `report_id`, `is_new_report`, `promoted`)
+- `signal_report_reresearch_skipped` — signal hit an already-researched report past the re-research cap, so no new run spawned (+ `report_id`, `signal_count`, `status`, `threshold`). Fires per suppressed signal
 - `signal_report_started` — report run began (+ `report_id`, `signal_count`, `run_count`, `source_products`)
 - `signals_repo_research_started` / `signals_repo_research_completed` — repo selection stage (+ `report_id`, `result`: `reused` | `selected` | `no_repo` | `failed`, optional `failure_reason`: `no_github_integration` | `agentic_activity_error`)
 - `signal_report_completed` — terminal per run (+ `result`: `ready` | `failed` | `pending_input` | `not_actionable`, optional `failure_reason`)
@@ -942,7 +961,7 @@ The research flow produces:
 
 These are assembled into `ReportResearchOutput`, then persisted by `run_agentic_report_activity`.
 
-A `SignalReportTask(relationship=RESEARCH)` row is created immediately after the `MultiTurnSession` starts (before any research turns), linking the sandbox `Task` to the report.
+A `task_run` artefact (`type=research`) is appended immediately after the `MultiTurnSession` starts (before any research turns), associating the sandbox `Task` with the report and attributing it to that task.
 
 ---
 
@@ -973,7 +992,7 @@ Runs inside `maybe_autostart_implementation_task()` in `backend/auto_start.py`, 
 - Report actionability is `immediately_actionable`
 - Report has a `priority_judgment`
 - Report has suggested reviewers
-- No existing `SignalReportTask` with `relationship=implementation` for this report
+- No legacy `SignalReportTask` implementation row exists for the report (checked inside a `select_for_update` on the report row, so concurrent evaluations can't double-start)
 
 **User selection** via `_resolve_autostart_assignee()` in `backend/auto_start.py`:
 
@@ -988,7 +1007,7 @@ Runs inside `maybe_autostart_implementation_task()` in `backend/auto_start.py`, 
 **Task creation:**
 
 1. `Task.create_and_run(origin_product=SIGNAL_REPORT, ...)`
-2. Create `SignalReportTask(relationship=IMPLEMENTATION)` linking the task to the report
+2. `record_implementation_task` writes the legacy `SignalReportTask` implementation gate row (in the same transaction) and appends an `implementation` `task_run` artefact
 3. Errors are caught and logged but do not fail the report workflow
 
 ### Priority Rank
@@ -997,19 +1016,38 @@ Runs inside `maybe_autostart_implementation_task()` in `backend/auto_start.py`, 
 
 ### Task Tracking
 
-All report ↔ task relationships are tracked via `SignalReportTask`:
+Report ↔ task relationships are recorded as `task_run` artefacts (see `SignalReportArtefact`), one per associated run, with the run's purpose carried in the artefact's `(product, type)`. The built-in pipeline writes `product="signals"` with `type` in `{research, implementation, repo_selection}`; custom agents supply their own `identifier()` pair.
 
-| Relationship     | Created when                                          | Created where                                                      |
-| ---------------- | ----------------------------------------------------- | ------------------------------------------------------------------ |
-| `research`       | Immediately after the research sandbox session starts | `run_multi_turn_research()` in `report_generation/research.py`     |
-| `implementation` | After auto-starting a coding task                     | `maybe_autostart_implementation_task()` in `backend/auto_start.py` |
-| `repo_selection` | Reserved for future use                               | Not yet created anywhere                                           |
-
-Both `report` and `task` FKs cascade on delete — deleting a report or task cleans up the relationship rows automatically.
+Auto-start dedup is separate from this freeform log: `maybe_autostart_implementation_task()` (`backend/auto_start.py`) gates on a legacy `SignalReportTask` implementation row, checked inside the report-row `select_for_update`, so concurrent evaluations can't double-start. Both the auto-start and the manual tasks-API path go through `record_implementation_task`, which dual-writes that gate row and the `implementation` `task_run` artefact — the transitional arrangement until the backfill lets the gate move to artefacts (see `SignalReportTask`).
 
 ### Eval-signal summarization (`backend/temporal/emit_eval_signal.py`)
 
 Separate from report generation, the `emit-eval-signal` workflow uses `call_llm()` with extended thinking to turn an LLMA evaluation result into a signal-sized description plus significance score. Low-significance eval results are dropped before calling `emit_signal()`.
+
+### Resetting self-driving state for local re-testing
+
+The self-driving wizard (`npx @posthog/wizard … self-driving`) enables signal sources, materializes and enables the scout fleet, and creates custom `signals-scout-*` skills for the project. To re-test a run from a clean slate without manually undoing each change, use the dev-only `reset_signals_self_driving` command (the practical inverse of `enable_signals_autonomy`; `DEBUG`-gated like `cleanup_signals`):
+
+```text
+python manage.py reset_signals_self_driving --team-id 1 --yes \
+    --install-dir /path/to/your/test/project
+```
+
+For a fresh team the signals config tables are empty, so the reset **deletes** rather than disables — the next wizard run's `sync` call re-creates the canonical fleet (enabled) exactly as it would for a brand-new team. (Disabling instead would leave the fleet off on the next run, since the wizard's scout step only _disables_ misfits and relies on the fresh default being enabled.)
+
+Cleared for the team:
+
+| What               | Tables / artifacts                                                                                                                                                                                                                                      |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Signal sources     | `SignalSourceConfig` (all rows)                                                                                                                                                                                                                         |
+| Scout fleet config | `SignalScoutConfig` (all rows)                                                                                                                                                                                                                          |
+| Custom scouts      | `LLMSkill` rows whose `name` starts `signals-scout-` and are **not** seeded — i.e. not in the set of names carrying `metadata.seeded_by == "signals_scout_harness"` (covers the common case where the key is absent entirely) (cascades `LLMSkillFile`) |
+| Scout run-state    | `SignalScratchpad`, `SignalProjectProfile`, `SignalScoutRun`, `SignalEmissionRecord`                                                                                                                                                                    |
+| Emitted findings   | `SignalReport` + artefacts + ClickHouse rows + Temporal workflows (delegates to `cleanup_signals`; skip with `--keep-findings`)                                                                                                                         |
+| Wizard report      | `<install-dir>/posthog-self-driving-report.md` (only if `--install-dir` is given)                                                                                                                                                                       |
+| Wizard log         | `/tmp/posthog-wizard.log` → backed up to `/tmp/posthog-wizard-previous-<timestamp>.log` then removed (override `--wizard-log`, skip `--keep-log`)                                                                                                       |
+
+Preserved: canonical scouts and the `authoring-scouts` companion, identified by `metadata.seeded_by == "signals_scout_harness"`. That tag is the practical marker this DEBUG reset uses; it is not a perfect canonical test on its own — `_scout_origin` also requires the name to ship on disk, since `duplicate_skill` copies the tag verbatim — but the wizard authors custom scouts via `llma-skill-create` with no tag, so tag-only suffices here. The command does **not** touch `SignalTeamConfig` or `SignalUserAutonomyConfig` (autostart / per-user opt-in are set by `enable_signals_autonomy`, not the wizard); `llm_analytics` sources are gated by their `SignalSourceConfig` rows like any other source.
 
 ---
 
@@ -1064,7 +1102,7 @@ Signal {index}:
 | S3 prefix                                | `signals/signal_batches/`     | Object storage path for signal batch files (cleaned up by S3 lifecycle policies)                                             |
 | `COORDINATOR_INTERVAL_MINUTES`           | `30`                          | Signals agent coordinator poll cadence (Temporal schedule, `SKIP` overlap policy)                                            |
 | `MAX_RUNS_PER_TICK`                      | `50`                          | Hard cap on planned runs per coordinator tick (most-overdue-first, truncated after sort)                                     |
-| `SignalScoutConfig.run_interval_minutes` | `60`                          | Per-scout default schedule in minutes (hourly); due-check, no sampling (`10`–`43200`)                                        |
+| `SignalScoutConfig.run_interval_minutes` | `1440`                        | Per-scout default schedule in minutes (daily); due-check, no sampling (`10`–`43200`)                                         |
 | `SignalScoutConfig.emit`                 | `True`                        | Per-scout emit gate — defaults emit-on; flip to `False` for dry-run (scout runs and logs, but `emit_finding` writes nothing) |
 
 ---
@@ -1079,9 +1117,9 @@ products/signals/
 │   ├── api.py                       # emit_signal() entry point + source/org guards
 │   ├── apps.py                      # Django app config
 │   ├── models.py                    # SignalReport, SignalReportArtefact, SignalTeamConfig, SignalUserAutonomyConfig, SignalReportTask, SignalSourceConfig, SignalScoutConfig, SignalScoutRun, SignalScratchpad, SignalProjectProfile, SignalEmissionRecord
-│   ├── serializers.py               # DRF serializers for source configs, reports, artefacts, team config, user autonomy config, report tasks
+│   ├── serializers.py               # DRF serializers for source configs, reports, artefacts, team config, user autonomy config
 │   ├── utils.py                     # Compatibility re-exports for signal query helpers
-│   ├── views.py                     # SignalViewSet, InternalSignalViewSet, SignalSourceConfigViewSet, SignalTeamConfigViewSet, SignalReportViewSet, SignalReportTaskViewSet, SignalProcessingViewSet
+│   ├── views.py                     # SignalViewSet, InternalSignalViewSet, SignalSourceConfigViewSet, SignalTeamConfigViewSet, SignalReportViewSet, SignalReportArtefactViewSet, SignalProcessingViewSet
 │   ├── scout_harness/               # Headless Signals agent — see scout_harness/AGENTS.md
 │   │   ├── AGENTS.md
 │   │   ├── __init__.py              # Public re-exports (LoadedSkill, sync helpers, …)
@@ -1115,6 +1153,7 @@ products/signals/
 │   │       ├── list_signal_reports.py
 │   │       ├── parse_sandbox_log.py
 │   │       ├── reingest_team_signals.py   # Starts TeamSignalReingestionWorkflow for a team
+│   │       ├── reset_signals_self_driving.py  # Dev-only: undo a self-driving wizard run (configs, custom scouts, run-state)
 │   │       ├── run_signals_scout.py       # One-shot scout run; bypasses the coordinator
 │   │       ├── select_repo.py
 │   │       ├── signal_pipeline_status.py
@@ -1122,7 +1161,7 @@ products/signals/
 │   │       └── sync_signals_scout_skills.py  # Force a canonical SKILL.md sync to LLMSkill rows
 │   ├── report_generation/
 │   │   ├── AGENTS.md                # Documentation for the agentic report generation flow
-│   │   ├── research.py              # Multi-turn sandbox research orchestration + output schemas + SignalReportTask(RESEARCH) creation
+│   │   ├── research.py              # Multi-turn sandbox research orchestration + output schemas + research task_run artefact creation
 │   │   ├── resolve_reviewers.py     # Suggested-reviewer resolution and enrichment helpers
 │   │   └── select_repo.py           # Repository selection sandbox flow
 │   ├── test/

@@ -1,6 +1,5 @@
 import { useCallback, useMemo } from 'react'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import {
     BarChart,
     type BarChartConfig,
@@ -9,8 +8,10 @@ import {
     type TooltipContext,
     ValueLabels,
 } from '@posthog/quill-charts'
+import { Skeleton } from '@posthog/quill-primitives'
 
-import { formatPercentage } from 'lib/utils'
+import { useChartConfig } from 'lib/charts/hooks'
+import { formatPercentage } from 'lib/utils/numbers'
 
 import { type ToolRow } from '../mcpDashboardOverviewLogic'
 import { Card, CardState } from './Card'
@@ -49,16 +50,20 @@ export function ToolErrorRateChart({
         ],
         [sorted, theme]
     )
-    const config = useMemo<BarChartConfig>(() => {
+    const config = useChartConfig<BarChartConfig>(() => {
         const axisMax = niceErrorAxisMax(sorted[0]?.error_rate_pct ?? 0)
         return {
             axisOrientation: 'horizontal',
             barLayout: 'grouped',
-            showGrid: false,
-            showAxisLines: false,
+            showAxisLines: true,
+            showTickMarks: true,
+            showCrosshair: true,
+            showGrid: true,
+            yTickFormatter: (value: number) => formatPercentage(value, { compact: true }),
             tooltip: { placement: 'cursor' },
             margins: { top: 4, right: 20, bottom: 22 },
-            bars: { cornerRadius: 3, minBandSize: 30, track: { hover: false }, valueDomain: [0, axisMax] },
+            barCornerRadius: 4,
+            bars: { minBandSize: 30, valueDomain: [0, axisMax] },
         }
     }, [sorted])
     const byTool = useMemo(() => new Map(sorted.map((r) => [r.tool, r])), [sorted])
@@ -90,7 +95,7 @@ export function ToolErrorRateChart({
                 skeleton={
                     <div className="space-y-2 py-3">
                         {Array.from({ length: 5 }).map((_, i) => (
-                            <LemonSkeleton key={i} className="h-7 w-full" />
+                            <Skeleton key={i} className="h-7 w-full" />
                         ))}
                     </div>
                 }

@@ -6,8 +6,11 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DEFAULT_QUERY } from 'scenes/notebooks/Nodes/NotebookNodeQuery'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookNodeType } from 'scenes/notebooks/types'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { CustomerProfileScope, GroupTypeIndex } from '~/types'
+
+import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 
 import { customerProfileConfigLogic } from './customerProfileConfigLogic'
 import type { customerProfileLogicType } from './customerProfileLogicType'
@@ -25,9 +28,9 @@ export const DEFAULT_PERSON_PROFILE_CONTENT: JSONContent[] = [
     { type: NotebookNodeType.CustomerJourney, index: 1, attrs: { title: 'Customer journey' } },
     { type: NotebookNodeType.PersonFeed, index: 2, attrs: { title: 'Session feed' } },
     { type: NotebookNodeType.LLMTrace, index: 3, attrs: { title: 'LLM traces' } },
-    { type: NotebookNodeType.ZendeskTickets, index: 4, attrs: { title: 'Zendesk tickets' } },
-    { type: NotebookNodeType.Issues, index: 5, attrs: { title: 'Issues' } },
-    { type: NotebookNodeType.SupportTickets, index: 6, attrs: { title: 'Support tickets' } },
+    { type: NotebookNodeType.SupportTickets, index: 4, attrs: { title: 'Support tickets' } },
+    { type: NotebookNodeType.ZendeskTickets, index: 5, attrs: { title: 'Zendesk tickets' } },
+    { type: NotebookNodeType.Issues, index: 6, attrs: { title: 'Issues' } },
 ]
 
 export const DEFAULT_GROUP_PROFILE_SIDEBAR: JSONContent[] = [
@@ -44,6 +47,40 @@ export const DEFAULT_GROUP_PROFILE_CONTENT: JSONContent[] = [
     { type: NotebookNodeType.ZendeskTickets, index: 4, attrs: { title: 'Zendesk tickets' } },
     { type: NotebookNodeType.Issues, index: 5, attrs: { title: 'Issues' } },
 ]
+
+interface PanelAvailability {
+    isJourneysEnabled: boolean
+    isSupportEnabled: boolean
+    hasZendeskSource: boolean
+    dataWarehouseSourcesLoading: boolean
+}
+
+// Panels backed by a product or warehouse source that may not be set up must be filtered out of
+// *every* content path — defaults and saved configs alike — so we never render a live query
+// against tables that don't exist (e.g. the Zendesk panel with no Zendesk warehouse source).
+// Keeping this in one helper means any future entry point that builds profile content stays safe.
+function filterAvailablePanels(
+    nodes: JSONContent[],
+    { isJourneysEnabled, isSupportEnabled, hasZendeskSource, dataWarehouseSourcesLoading }: PanelAvailability
+): JSONContent[] {
+    return (
+        nodes
+            .filter((node) => node.type !== NotebookNodeType.CustomerJourney || isJourneysEnabled)
+            // Hide the Zendesk panel unless a Zendesk warehouse source exists — without one its
+            // query targets non-existent zendesk_* tables.
+            .filter((node) => node.type !== NotebookNodeType.ZendeskTickets || hasZendeskSource)
+            // Support panel: show the table when support is on; when it's off, show the "set up
+            // support" prompt only if there's no Zendesk either (don't nag teams that already use
+            // Zendesk). Wait for sources to load before deciding, so we never flash the prompt at
+            // a Zendesk team.
+            .filter(
+                (node) =>
+                    node.type !== NotebookNodeType.SupportTickets ||
+                    isSupportEnabled ||
+                    (!hasZendeskSource && !dataWarehouseSourcesLoading)
+            )
+    )
+}
 
 export type CustomerProfileAttrs = {
     personId?: string | undefined
@@ -70,12 +107,18 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
             ['customerProfileConfig'],
             featureFlagLogic,
             ['featureFlags'],
+            sourceManagementLogic,
+            ['hasZendeskSource', 'dataWarehouseSourcesLoading'],
+            teamLogic,
+            ['currentTeam'],
         ],
         actions: [
             customerProfileConfigLogic({ scope: props.scope }),
             ['createConfig', 'updateConfig', 'loadConfigsSuccess', 'updateConfigSuccess', 'createConfigSuccess'],
             notebookLogic({ shortId: props.canvasShortId, mode: 'canvas' }),
             ['setLocalContent'],
+            sourceManagementLogic,
+            ['loadSourcesSuccess'],
         ],
     })),
 
@@ -140,16 +183,33 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
                 s.scopedSidebarContent,
                 s.scopedAddAttrFunction,
                 s.featureFlags,
+                s.hasZendeskSource,
+                s.dataWarehouseSourcesLoading,
+                s.currentTeam,
                 (_, props) => props.scope,
                 (_, props) => props.attrs,
             ],
-            (scopedSidebarContent, scopedAddAttrFunction, featureFlags, scope, attrs) => {
-                const isJourneysEnabled = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_JOURNEYS]
-                const scopedDefaultContent = (
+            (
+                scopedSidebarContent,
+                scopedAddAttrFunction,
+                featureFlags,
+                hasZendeskSource,
+                dataWarehouseSourcesLoading,
+                currentTeam,
+                scope,
+                attrs
+            ) => {
+                const scopedDefaultContent = filterAvailablePanels(
                     scope === CustomerProfileScope.PERSON
                         ? DEFAULT_PERSON_PROFILE_CONTENT
-                        : DEFAULT_GROUP_PROFILE_CONTENT
-                ).filter((node) => node.type !== NotebookNodeType.CustomerJourney || isJourneysEnabled)
+                        : DEFAULT_GROUP_PROFILE_CONTENT,
+                    {
+                        isJourneysEnabled: !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_JOURNEYS],
+                        isSupportEnabled: !!currentTeam?.conversations_enabled,
+                        hasZendeskSource,
+                        dataWarehouseSourcesLoading,
+                    }
+                )
 
                 const sidebar = scopedSidebarContent.map((node) => scopedAddAttrFunction({ attrs, node }))
                 return scopedDefaultContent.map((node, index) => {
@@ -164,18 +224,41 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
             (s) => [
                 s.customerProfileConfig,
                 s.scopedAddAttrFunction,
+                s.featureFlags,
+                s.hasZendeskSource,
+                s.dataWarehouseSourcesLoading,
+                s.currentTeam,
                 (_, props) => props.attrs,
-                (_, props) => props.scope,
             ],
-            (customerProfileConfig, scopedAddAttrFunction, attrs): JSONContent[] | null => {
+            (
+                customerProfileConfig,
+                scopedAddAttrFunction,
+                featureFlags,
+                hasZendeskSource,
+                dataWarehouseSourcesLoading,
+                currentTeam,
+                attrs
+            ): JSONContent[] | null => {
                 if (!customerProfileConfig) {
                     return null
                 }
 
+                // Saved configs bypass defaultContent, so apply the same availability filter here —
+                // otherwise a previously-saved Zendesk/support panel would render against a product
+                // or source that is no longer set up.
+                // `content` is declared as Record<string, any> on the config type but is stored as a
+                // node array; cast to its real shape for the shared filter.
+                const availableContent = filterAvailablePanels(customerProfileConfig.content as JSONContent[], {
+                    isJourneysEnabled: !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_JOURNEYS],
+                    isSupportEnabled: !!currentTeam?.conversations_enabled,
+                    hasZendeskSource,
+                    dataWarehouseSourcesLoading,
+                })
+
                 const sidebar = customerProfileConfig.sidebar.map((node: JSONContent) =>
                     scopedAddAttrFunction({ attrs, node })
                 )
-                return customerProfileConfig.content.map((node: JSONContent, index: number) => {
+                return availableContent.map((node: JSONContent, index: number) => {
                     if (index === 0) {
                         return scopedAddAttrFunction({ attrs, node, children: sidebar })
                     }
@@ -256,6 +339,12 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
             actions.resetToDefaults()
         },
         loadConfigsSuccess: () => {
+            actions.setLocalContent(values.content, true)
+        },
+        // The source list loads asynchronously, so the initial mount sync can run before we
+        // know whether a Zendesk source exists. Re-sync once it resolves so the Zendesk and
+        // Support panels appear/disappear to match the actual source and support state.
+        loadSourcesSuccess: () => {
             actions.setLocalContent(values.content, true)
         },
     })),

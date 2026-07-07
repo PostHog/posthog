@@ -2,9 +2,10 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
-import { isMultiSeriesFormula } from 'lib/utils'
+import { isMultiSeriesFormula } from 'lib/utils/strings'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
@@ -18,6 +19,7 @@ import {
     getTrendResultCustomizationKey,
 } from 'scenes/insights/utils'
 
+import { isSharedView } from '~/exporter/exporterViewLogic'
 import {
     BreakdownFilter,
     EventsNode,
@@ -105,6 +107,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'isBreakdownSeries',
                 'hasLegend',
                 'showLegend',
+                'legendPosition',
                 'showAnnotations',
                 'vizSpecificOptions',
                 'yAxisScaleType',
@@ -113,6 +116,8 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'getTheme',
                 'theme',
             ],
+            insightLogic(props),
+            ['showPersonsModal'],
         ],
         actions: [insightVizDataLogic(props), ['setInsightData', 'updateInsightFilter', 'updateBreakdownFilter']],
     })),
@@ -174,8 +179,12 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             },
         ],
         hasPersonsModal: [
-            (s) => [s.formula, s.hasDataWarehouseSeries, s.isLifecycle, s.querySource],
-            (formula, hasDataWarehouseSeries, isLifecycle, querySource) => {
+            (s) => [s.formula, s.hasDataWarehouseSeries, s.isLifecycle, s.querySource, s.showPersonsModal],
+            (formula, hasDataWarehouseSeries, isLifecycle, querySource, showPersonsModal) => {
+                if (!showPersonsModal || isSharedView()) {
+                    return false
+                }
+
                 if (isMultiSeriesFormula(formula)) {
                     return false
                 }

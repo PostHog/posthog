@@ -246,6 +246,9 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                 actions.setEditMode(false)
 
                 if (!currentLocation.initial && matchesExistingLogic && isSameSceneState) {
+                    // Same experiment, already mounted — skip the full reload, but still run the
+                    // page-load stale check so a warming-up experiment refreshes on in-app return.
+                    values.experimentLogicRef?.logic.actions.refreshStaleResultsOnReentry()
                     return
                 }
 
@@ -300,6 +303,9 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                 actions.setEditMode(false)
 
                 if (!currentLocation.initial && matchesExistingLogic && isSameSceneState) {
+                    // Same experiment, already mounted — skip the full reload, but still run the
+                    // page-load stale check so a warming-up experiment refreshes on in-app return.
+                    values.experimentLogicRef?.logic.actions.refreshStaleResultsOnReentry()
                     return
                 }
 

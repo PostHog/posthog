@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
+import { PostHogApiError } from '@/lib/errors'
 import { StateManager } from '@/lib/StateManager'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
 import type { State } from '@/tools/types'
@@ -283,6 +284,7 @@ describe('StateManager', () => {
             const mockApi = stateManager as any
             vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(scopedOrgApiKey)
             vi.spyOn(stateManager, 'getUser').mockResolvedValue(mockUser)
+            const reportSpy = vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
 
             mockApi._api = {
                 organizations: () => ({
@@ -299,6 +301,47 @@ describe('StateManager', () => {
 
             expect(result.organizationId).toBe('org-3')
             expect(result.projectId).toBeUndefined()
+            // Unexpected failures still reach error tracking.
+            expect(reportSpy).toHaveBeenCalledOnce()
+        })
+
+        it('does not capture a 404 from the scoped-org projects lookup', async () => {
+            // A misconfigured key pointed at a deleted or inaccessible org makes
+            // the org-nested projects endpoint return 404 on every retry. This
+            // is a recoverable user-config state, so it must not flood error
+            // tracking — the agent recovers via switch-project/switch-organization.
+            const scopedOrgApiKey = {
+                ...mockApiKey,
+                scoped_organizations: ['org-3'],
+            }
+
+            const mockApi = stateManager as any
+            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(scopedOrgApiKey)
+            vi.spyOn(stateManager, 'getUser').mockResolvedValue(mockUser)
+            const reportSpy = vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+
+            mockApi._api = {
+                organizations: () => ({
+                    projects: () => ({
+                        list: vi.fn().mockResolvedValue({
+                            success: false,
+                            error: new PostHogApiError({
+                                status: 404,
+                                statusText: 'Not Found',
+                                body: '{"detail":"Organization not found."}',
+                                url: 'https://app.posthog.com/api/organizations/org-3/projects/',
+                                method: 'GET',
+                            }),
+                        }),
+                    }),
+                }),
+            }
+
+            const result = await stateManager.setDefaultOrganizationAndProject()
+
+            expect(result.organizationId).toBe('org-3')
+            expect(result.projectId).toBeUndefined()
+            expect(reportSpy).not.toHaveBeenCalled()
         })
     })
 
@@ -491,6 +534,102 @@ describe('StateManager', () => {
                 expect(result).toMatchObject({ id: 'org-1', name: 'Org 1' })
             }
         )
+    })
+
+    describe('getAiConsentGiven', () => {
+        it.each([
+            [true, true],
+            [false, false],
+            [null, false],
+        ])('returns consent from the fetched org when the org is resolvable (flag %s)', async (flag, expected) => {
+            vi.spyOn(stateManager, 'getCachedOrFetchOrg').mockResolvedValue({
+                id: 'org-1',
+                name: 'Org 1',
+                is_ai_data_processing_approved: flag,
+            } as any)
+            const userSpy = vi.spyOn(stateManager, 'getCachedOrFetchUser')
+
+            const result = await stateManager.getAiConsentGiven()
+
+            expect(result).toBe(expected)
+            expect(userSpy).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            [true, true],
+            [false, false],
+        ])(
+            'falls back to users/@me consent when the org is unreachable and the current org owns the active project (flag %s)',
+            async (flag, expected) => {
+                // Team-scoped tokens (e.g. sandbox OAuth tokens) can never fetch
+                // `/api/organizations/{id}/`, so getCachedOrFetchOrg yields undefined.
+                vi.spyOn(stateManager, 'getCachedOrFetchOrg').mockResolvedValue(undefined)
+                vi.spyOn(stateManager, 'getCachedOrFetchUser').mockResolvedValue({
+                    ...mockUser,
+                    organization: { id: 'org-1', name: 'Org 1', is_ai_data_processing_approved: flag },
+                })
+                vi.spyOn(stateManager, 'getCachedOrFetchProject').mockResolvedValue({
+                    id: 456,
+                    organization: 'org-1',
+                } as any)
+
+                const result = await stateManager.getAiConsentGiven()
+
+                expect(result).toBe(expected)
+            }
+        )
+
+        it("returns undefined when the user's current org does not own the active project", async () => {
+            vi.spyOn(stateManager, 'getCachedOrFetchOrg').mockResolvedValue(undefined)
+            vi.spyOn(stateManager, 'getCachedOrFetchUser').mockResolvedValue({
+                ...mockUser,
+                organization: { id: 'org-other', name: 'Other Org', is_ai_data_processing_approved: true },
+            })
+            vi.spyOn(stateManager, 'getCachedOrFetchProject').mockResolvedValue({
+                id: 456,
+                organization: 'org-1',
+            } as any)
+
+            const result = await stateManager.getAiConsentGiven()
+
+            expect(result).toBeUndefined()
+        })
+
+        it('returns undefined when the user has no current org', async () => {
+            vi.spyOn(stateManager, 'getCachedOrFetchOrg').mockResolvedValue(undefined)
+            vi.spyOn(stateManager, 'getCachedOrFetchUser').mockResolvedValue({ ...mockUser, organization: null })
+            vi.spyOn(stateManager, 'getCachedOrFetchProject').mockResolvedValue({
+                id: 456,
+                organization: 'org-1',
+            } as any)
+
+            const result = await stateManager.getAiConsentGiven()
+
+            expect(result).toBeUndefined()
+        })
+
+        it('returns undefined when no project is resolvable', async () => {
+            vi.spyOn(stateManager, 'getCachedOrFetchOrg').mockResolvedValue(undefined)
+            vi.spyOn(stateManager, 'getCachedOrFetchUser').mockResolvedValue({
+                ...mockUser,
+                organization: { id: 'org-1', name: 'Org 1', is_ai_data_processing_approved: true },
+            })
+            vi.spyOn(stateManager, 'getCachedOrFetchProject').mockResolvedValue(undefined)
+
+            const result = await stateManager.getAiConsentGiven()
+
+            expect(result).toBeUndefined()
+        })
+
+        it('returns undefined (fail closed) when the fallback fetches throw', async () => {
+            vi.spyOn(stateManager, 'getCachedOrFetchOrg').mockResolvedValue(undefined)
+            vi.spyOn(stateManager, 'getCachedOrFetchUser').mockRejectedValue(new Error('boom'))
+            vi.spyOn(stateManager, 'getCachedOrFetchProject').mockResolvedValue(undefined)
+
+            const result = await stateManager.getAiConsentGiven()
+
+            expect(result).toBeUndefined()
+        })
     })
 
     describe('getProjectId', () => {

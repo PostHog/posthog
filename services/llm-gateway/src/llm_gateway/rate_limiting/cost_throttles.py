@@ -16,7 +16,7 @@ from llm_gateway.config import (
 if TYPE_CHECKING:
     from llm_gateway.config import UserCostLimit
 from llm_gateway.rate_limiting.redis_limiter import CostRateLimiter
-from llm_gateway.rate_limiting.throttles import Throttle, ThrottleContext, ThrottleResult, get_team_multiplier
+from llm_gateway.rate_limiting.throttles import Throttle, ThrottleContext, ThrottleResult, get_rate_limit_multiplier
 from llm_gateway.services.plan_resolver import POSTHOG_CODE_PRODUCT, get_billing_period_number, is_pro_plan
 
 logger = structlog.get_logger(__name__)
@@ -46,8 +46,8 @@ class CostThrottle(Throttle):
         self._redis = redis
         self._limiters: dict[str, CostRateLimiter] = {}
 
-    def _get_team_multiplier(self, context: ThrottleContext) -> int:
-        return get_team_multiplier(context.user.team_id)
+    def _get_multiplier(self, context: ThrottleContext) -> int:
+        return get_rate_limit_multiplier(context.user)
 
     @abstractmethod
     def _get_cache_key(self, context: ThrottleContext) -> str: ...
@@ -165,11 +165,11 @@ class ProductCostThrottle(CostThrottle):
         return "Product rate limit exceeded"
 
     def _get_cache_key(self, context: ThrottleContext) -> str:
-        team_mult = self._get_team_multiplier(context)
+        mult = self._get_multiplier(context)
         base = f"cost:product:{context.product}"
-        if team_mult == 1:
+        if mult == 1:
             return base
-        return f"{base}:tm{team_mult}"
+        return f"{base}:m{mult}"
 
     def _get_limit_and_window(self, context: ThrottleContext) -> tuple[float, int]:
         settings = get_settings()
@@ -180,14 +180,14 @@ class ProductCostThrottle(CostThrottle):
         else:
             base_limit = 1000.0
             window = 86400
-        team_mult = self._get_team_multiplier(context)
-        return base_limit * team_mult, window
+        mult = self._get_multiplier(context)
+        return base_limit * mult, window
 
     async def get_status_for_product(self, product: str) -> CostStatus | None:
-        """Return CostStatus for a product using the shared (team multiplier = 1) pool.
+        """Return CostStatus for a product using the shared (multiplier = 1) pool.
 
         Intended for monitoring/gauges, not throttling decisions — throttling needs
-        a full ThrottleContext to apply team multipliers. Returns None when the
+        a full ThrottleContext to apply the rate-limit multiplier. Returns None when the
         product has no configured cost limit.
         """
         settings = get_settings()
@@ -232,11 +232,11 @@ class _UserCostThrottleBase(CostThrottle):
     def _get_cache_key(self, context: ThrottleContext) -> str:
         if not context.end_user_id:
             return ""
-        team_mult = self._get_team_multiplier(context)
+        mult = self._get_multiplier(context)
         base = f"cost:user:{self.scope}:{context.product}:{context.end_user_id}"
-        if team_mult == 1:
+        if mult == 1:
             return base
-        return f"{base}:tm{team_mult}"
+        return f"{base}:m{mult}"
 
     def _get_config(self, context: ThrottleContext) -> UserCostLimit:
         if _is_free_plan_throttled(context):
@@ -277,8 +277,8 @@ class UserCostBurstThrottle(_UserCostThrottleBase):
 
     def _get_limit_and_window(self, context: ThrottleContext) -> tuple[float, int]:
         config = self._get_config(context)
-        team_mult = self._get_team_multiplier(context)
-        return config.burst_limit_usd * team_mult, config.burst_window_seconds
+        mult = self._get_multiplier(context)
+        return config.burst_limit_usd * mult, config.burst_window_seconds
 
 
 class UserCostSustainedThrottle(_UserCostThrottleBase):
@@ -302,5 +302,5 @@ class UserCostSustainedThrottle(_UserCostThrottleBase):
 
     def _get_limit_and_window(self, context: ThrottleContext) -> tuple[float, int]:
         config = self._get_config(context)
-        team_mult = self._get_team_multiplier(context)
-        return config.sustained_limit_usd * team_mult, config.sustained_window_seconds
+        mult = self._get_multiplier(context)
+        return config.sustained_limit_usd * mult, config.sustained_window_seconds

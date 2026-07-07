@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# hogli `ai_gateway` capability entry — one-shot local ai-gateway in resolver
+# mode with a real phs_ credential.
+#
+# Provisioning lives in bin/setup-gateway-e2e: enable the team, mint the phs_,
+# publish the credential blob to the gateway's valkey, set resolver mode, fund
+# the ledger. We run it (retried until PostHog's DB/migrations are ready), start
+# the gateway on the host under air, then once it's up — and has created its
+# ledger schema on first boot — re-run setup so the topup lands on a truly fresh
+# stack. The runner picks up the gateway from its dev config defaults (no
+# .env.local needed); with the ai_gateway capability disabled this is unused.
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+AI_GATEWAY_REPO="${AI_GATEWAY_REPO:-$HOME/Development/ai-gateway}"
+GATEWAY_URL="${AI_GATEWAY_LOCAL_URL:-http://localhost:8080}"
+
+if [ ! -d "$AI_GATEWAY_REPO" ]; then
+    cat >&2 <<EOF
+[start-ai-gateway] No sibling clone at $AI_GATEWAY_REPO.
+  git clone git@github.com:PostHog/ai-gateway.git "$AI_GATEWAY_REPO"
+Or disable the ai_gateway capability — the runner falls back to direct providers.
+Override the path with AI_GATEWAY_REPO=... if your clone lives elsewhere.
+EOF
+    exit 1
+fi
+
+# Pin the sibling gateway's compose project to its own name — PostHog's dev env
+# exports COMPOSE_PROJECT_NAME=posthog, which would otherwise scope the gateway's
+# containers under the posthog project. Inherited by setup-gateway-e2e and the
+# sibling's `bin/start gateway` below.
+export COMPOSE_PROJECT_NAME=ai-gateway
+
+# Provision (deps + resolver mode + phs_ + blob; ledger funding is best-effort
+# until the gateway has booted once). Retry until PostHog's DB/migrations ready.
+provisioned=false
+for i in $(seq 1 10); do
+    if "$REPO_ROOT/bin/setup-gateway-e2e"; then
+        provisioned=true
+        break
+    fi
+    echo "[start-ai-gateway] waiting for PostHog (db/migrations) before provisioning (attempt $i/10)..."
+    sleep 3
+done
+
+# Don't start the gateway without a credential — it would boot in resolver mode
+# and 401 every request with no signal. Fail loud instead.
+if [ "$provisioned" != true ]; then
+    echo "[start-ai-gateway] provisioning failed after 10 attempts (see Django output above) — aborting." >&2
+    exit 1
+fi
+
+# Once the gateway is listening — it migrates the ledger schema before serving —
+# re-run setup so the topup lands (a no-op once the team is already funded). Runs
+# in the background so it doesn't block the gateway, and survives the exec below.
+(
+    for _ in $(seq 1 60); do
+        if curl -sf "$GATEWAY_URL/livez" >/dev/null 2>&1; then
+            "$REPO_ROOT/bin/setup-gateway-e2e" >/dev/null 2>&1 || true
+            break
+        fi
+        sleep 1
+    done
+) &
+
+# Run the gateway on the host. bin/start brings up the sibling deps and runs
+# under air with hot reload; it reads AI_GATEWAY_AUTH_MODE=resolver from the
+# sibling .env that setup-gateway-e2e wrote.
+cd "$AI_GATEWAY_REPO"
+exec bin/start gateway

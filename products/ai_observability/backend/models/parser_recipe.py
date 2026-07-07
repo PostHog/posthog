@@ -3,6 +3,8 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
+MAX_SOURCE_LENGTH = 100_000
+
 
 class ParserRecipe(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     """A team's net-new custom recipe for the message normalizer.

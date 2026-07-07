@@ -1,6 +1,8 @@
 import { IconInfo } from '@posthog/icons'
-import { LemonCalendarSelectInput, LemonCheckbox, LemonInput, Tooltip } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput, Tooltip } from '@posthog/lemon-ui'
 
+import { DatePicker } from 'lib/components/DatePicker/DatePicker'
+import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { DESTINATIONS } from './destinations'
@@ -36,11 +38,12 @@ export function BatchExportGeneralEditFields({
                         }
                     >
                         {({ value, onChange }) => (
-                            <LemonCalendarSelectInput
+                            <DatePicker
                                 value={value}
                                 onChange={onChange}
                                 placeholder="Select end date (optional)"
                                 clearable
+                                maxDate={dayjs().add(5, 'year')}
                             />
                         )}
                     </LemonField>
@@ -79,24 +82,16 @@ export function BatchExportGeneralEditFields({
 export function BatchExportsEditFields({
     isNew,
     batchExportConfigForm,
-    configurationChanged,
 }: {
     isNew: boolean
     batchExportConfigForm: BatchExportConfigurationForm
-    configurationChanged: boolean
 }): JSX.Element {
     const destination = batchExportConfigForm.destination
     const definition = destination ? DESTINATIONS[destination] : undefined
 
     return (
         <div className="flex flex-col gap-y-4 max-w-200">
-            {definition && (
-                <definition.Fields
-                    isNew={isNew}
-                    formValues={batchExportConfigForm}
-                    configurationChanged={configurationChanged}
-                />
-            )}
+            {definition && <definition.Fields isNew={isNew} formValues={batchExportConfigForm} />}
         </div>
     )
 }

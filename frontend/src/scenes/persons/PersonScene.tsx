@@ -17,9 +17,9 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { isMobile, pluralize } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { openInAdminPanel } from 'lib/utils/person-actions'
+import { isMobile } from 'lib/utils/dom'
+import { pluralize } from 'lib/utils/strings'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
@@ -43,8 +43,9 @@ import { ComposeTicketButton } from 'products/conversations/frontend/components/
 import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
 
 import { MergeSplitPerson } from './MergeSplitPerson'
-import { asDisplay } from './person-utils'
+import { asDisplay, pickBestPersonDistinctId } from './person-utils'
 import { PersonCohorts } from './PersonCohorts'
+import { PersonEmailsTab } from './PersonEmailsTab'
 import { PersonLogsTab } from './PersonLogsTab'
 import PersonProfileCanvas from './PersonProfileCanvas'
 import { PERSON_EVENTS_CONTEXT_KEY, PersonsLogicProps, personsLogic } from './personsLogic'
@@ -60,6 +61,9 @@ export const scene: SceneExport<PersonsLogicProps> = {
 }
 
 function PersonCaption({ person }: { person: PersonType }): JSX.Element {
+    // Show the most human-readable distinct ID first; the rest fall into the "+N" menu.
+    const primaryDistinctId = pickBestPersonDistinctId(person.distinct_ids) ?? person.distinct_ids[0]
+    const otherDistinctIds = person.distinct_ids.filter((distinct_id) => distinct_id !== primaryDistinctId)
     return (
         <div className="flex flex-wrap items-center gap-2">
             <div className="flex deprecated-space-x-1">
@@ -71,20 +75,20 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
                             description="person distinct ID"
                             style={{ justifyContent: 'flex-end' }}
                         >
-                            {person.distinct_ids[0]}
+                            {primaryDistinctId}
                         </CopyToClipboardInline>
                     </span>
                 </div>
-                {person.distinct_ids.length > 1 && (
+                {otherDistinctIds.length > 0 && (
                     <LemonMenu
-                        items={person.distinct_ids.slice(1).map((distinct_id: string) => ({
+                        items={otherDistinctIds.map((distinct_id: string) => ({
                             label: distinct_id,
                             sideIcon: <IconCopy className="text-primary-3000" />,
                             onClick: () => copyToClipboard(distinct_id, 'distinct id'),
                         }))}
                     >
                         <LemonTag type="primary" className="inline-flex">
-                            <span>+{person.distinct_ids.length - 1}</span>
+                            <span>+{otherDistinctIds.length}</span>
                             <IconChevronDown className="w-4 h-4" />
                         </LemonTag>
                     </LemonMenu>
@@ -246,7 +250,7 @@ export function PersonScene(): JSX.Element | null {
                         <ComposeTicketButton
                             size="small"
                             type="secondary"
-                            distinctId={person.distinct_ids[0]}
+                            distinctId={primaryDistinctId ?? person.distinct_ids[0]}
                             email={typeof person.properties?.email === 'string' ? person.properties.email : undefined}
                         />
                         {user?.is_staff && <OpenInAdminPanelButton />}
@@ -316,6 +320,7 @@ export function PersonScene(): JSX.Element | null {
                                 embedded={false}
                                 onDelete={(key) => deleteProperty(key)}
                                 filterable
+                                collapsible
                             />
                         ),
                     },
@@ -392,6 +397,13 @@ export function PersonScene(): JSX.Element | null {
                         label: <span data-attr="persons-logs-tab">Logs</span>,
                         content: <PersonLogsTab person={person} />,
                     },
+                    person.uuid
+                        ? {
+                              key: PersonsTabType.EMAILS,
+                              label: <span data-attr="persons-emails-tab">Emails</span>,
+                              content: <PersonEmailsTab teamId={currentTeam?.id ?? 0} personId={String(person.uuid)} />,
+                          }
+                        : false,
                     {
                         key: PersonsTabType.EXCEPTIONS,
                         label: <span data-attr="persons-exceptions-tab">Exceptions</span>,
@@ -517,6 +529,22 @@ export function PersonScene(): JSX.Element | null {
 function OpenInAdminPanelButton({ size = 'small' }: { size?: LemonButtonProps['size'] }): JSX.Element {
     const { person } = useValues(personsLogic)
     const disabledReason = !person?.properties.email ? 'Person has no email' : undefined
+
+    const openInAdminPanel = async (email: string): Promise<void> => {
+        try {
+            const response = await api.users.list(email)
+
+            if (!response.results || response.results.length === 0) {
+                throw new Error('User not found')
+            }
+
+            const userId = response.results[0].id
+            window.open(`/admin/posthog/user/${userId}/change/`, '_blank')
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            lemonToast.error(`Failed to open admin panel: ${message}`)
+        }
+    }
 
     return (
         <LemonButton

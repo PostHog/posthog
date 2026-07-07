@@ -29,6 +29,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.redis import get_client
 from posthog.session_recordings.ai_summary_cap import atomic_check_and_consume, refund
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
@@ -71,7 +72,12 @@ from posthog.temporal.session_replay.session_summary.types.video import (
 
 from products.replay.backend.models.session_summaries import SingleSessionSummary
 
-from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_UNDERSTANDING_MODEL, SESSION_SUMMARIES_MODEL
+from ee.hogai.session_summaries.constants import (
+    DEFAULT_VIDEO_UNDERSTANDING_MODEL,
+    MAX_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S,
+    MIN_SESSION_DURATION_FOR_VIDEO_SUMMARY_S,
+    SESSION_SUMMARIES_MODEL,
+)
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 from ee.hogai.session_summaries.utils import serialize_to_sse_event
 
@@ -81,6 +87,10 @@ logger = structlog.get_logger(__name__)
 SESSION_VIDEO_CHUNK_DURATION_S = 60
 # How large should the active period be, so we still analyze it (or skip it, if it's smaller)
 MIN_SESSION_PERIOD_DURATION_S = 1
+
+# Returned by the workflow run() when the session has no events to summarize, so the
+# streaming endpoint can surface a specific message instead of the generic error.
+SUMMARY_RESULT_NO_EVENTS = "no_events"
 
 # Drives the step counter in the get_progress query so the frontend can render "Step N of M".
 VIDEO_PHASE_ORDER: tuple[str, ...] = (
@@ -131,7 +141,7 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
         return cast(SingleSessionProgress, dict(self._progress))
 
     @temporalio.workflow.run
-    async def run(self, inputs: SingleSessionSummaryInputs) -> None:
+    async def run(self, inputs: SingleSessionSummaryInputs) -> str | None:
         start_time = temporalio.workflow.now()
         progress = self._progress if inputs.video_based else None
         _set_phase(progress, "fetching_data")
@@ -142,7 +152,9 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         if not session_got_data:
-            return None
+            # The session has no events to summarize — signal the reason so the
+            # stream surfaces a clear message rather than a generic failure.
+            return SUMMARY_RESULT_NO_EVENTS
         await ensure_llm_single_session_summary(inputs, progress=progress)
         duration_seconds = (temporalio.workflow.now() - start_time).total_seconds()
         await temporalio.workflow.execute_activity(
@@ -161,6 +173,8 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
+        # Success path writes the summary to Postgres; no sentinel to return.
+        return None
 
 
 def _validate_period(
@@ -827,6 +841,10 @@ async def execute_summarize_session_video_stream(
     client and workflow handle — both of which hold asyncio-bound state — are
     reused safely across iterations.
     """
+
+    def error_event(message: str) -> str:
+        return serialize_to_sse_event(event_label="session-summary-error", event_data=message)
+
     # Fast path: if a summary already exists, yield it immediately and skip Temporal entirely.
     existing_summary = await database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
         team_id=team.id, session_id=session_id, extra_summary_context=extra_summary_context
@@ -842,6 +860,36 @@ async def execute_summarize_session_video_stream(
             event_data=json.dumps({"id": str(existing_summary.id), "summary": existing_summary.summary}),
         )
         return
+
+    # Length is knowable from cheap metadata, so reject too-short/too-long sessions up front
+    # with a clear message rather than starting a doomed workflow. (The no-events case can only
+    # be determined after fetching events, so it's signalled from inside the workflow instead.)
+    try:
+        metadata = await database_sync_to_async(SessionReplayEvents().get_metadata, thread_sensitive=False)(
+            session_id=session_id, team=team
+        )
+    except Exception as e:
+        # Don't block summarization on a flaky metadata read; downstream activities still guard length.
+        logger.warning(
+            "video summary length precheck skipped (metadata read failed)",
+            session_id=session_id,
+            error=str(e),
+            signals_type="session-summaries",
+        )
+        metadata = None
+    if metadata:
+        if (metadata.get("duration") or 0) < MIN_SESSION_DURATION_FOR_VIDEO_SUMMARY_S:
+            yield error_event(
+                f"This recording is too short to summarize — recordings under "
+                f"{MIN_SESSION_DURATION_FOR_VIDEO_SUMMARY_S} seconds can't be summarized."
+            )
+            return
+        if (metadata.get("active_seconds") or 0) > MAX_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S:
+            yield error_event(
+                f"This recording is too long to summarize — AI summaries are limited to "
+                f"{MAX_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S // 60} minutes of activity."
+            )
+            return
 
     _, _, _, session_input, workflow_id = _prepare_execution(
         session_id=session_id,
@@ -893,12 +941,9 @@ async def execute_summarize_session_video_stream(
                 },
                 groups=groups(None, team),
             )
-            yield serialize_to_sse_event(
-                event_label="session-summary-error",
-                event_data=(
-                    "You've reached this team's monthly limit for AI session summaries "
-                    f"({cap_decision.used}/{cap_decision.cap}). Try again next month."
-                ),
+            yield error_event(
+                "You've reached this team's monthly limit for AI session summaries "
+                f"({cap_decision.used}/{cap_decision.cap}). Try again next month."
             )
             return
 
@@ -930,21 +975,21 @@ async def execute_summarize_session_video_stream(
 
     while True:
         try:
-            status, _final_result = await _check_handle_data(handle)
+            status, final_result = await _check_handle_data(handle)
             if status is None:
                 await asyncio.sleep(VIDEO_PROGRESS_POLL_INTERVAL_S)
                 continue
 
             if status == WorkflowExecutionStatus.COMPLETED:
+                if final_result == SUMMARY_RESULT_NO_EVENTS:
+                    yield error_event("This recording has no events to summarize.")
+                    return
                 # Workflow writes the summary to Postgres, doesn't return it.
                 summary_row = await database_sync_to_async(
                     SingleSessionSummary.objects.get_summary, thread_sensitive=False
                 )(team_id=team.id, session_id=session_id, extra_summary_context=extra_summary_context)
                 if not summary_row:
-                    yield serialize_to_sse_event(
-                        event_label="session-summary-error",
-                        event_data="Something went wrong while generating the summary. Please try again.",
-                    )
+                    yield error_event("Something went wrong while generating the summary. Please try again.")
                     return
                 yield serialize_to_sse_event(
                     event_label="session-summary-stream",
@@ -964,10 +1009,7 @@ async def execute_summarize_session_video_stream(
                     WorkflowExecutionStatus.TERMINATED: "The summary generation was terminated unexpectedly. Please try again.",
                     WorkflowExecutionStatus.TIMED_OUT: "The summary generation timed out. The recording may be too long or complex. Please try again.",
                 }
-                yield serialize_to_sse_event(
-                    event_label="session-summary-error",
-                    event_data=status_messages[status],
-                )
+                yield error_event(status_messages[status])
                 return
 
             progress_payload = await _fetch_summary_progress(client, handle)
@@ -990,8 +1032,5 @@ async def execute_summarize_session_video_stream(
             await asyncio.sleep(VIDEO_PROGRESS_POLL_INTERVAL_S)
         except Exception as e:
             capture_exception(e)
-            yield serialize_to_sse_event(
-                event_label="session-summary-error",
-                event_data="Something went wrong while generating the summary. Please try again.",
-            )
+            yield error_event("Something went wrong while generating the summary. Please try again.")
             return

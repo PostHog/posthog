@@ -25,6 +25,7 @@ import {
     JsonType,
 } from '~/types'
 
+import { UNFILED_DASHBOARDS_FOLDER } from './dashboardConstants'
 import type { newDashboardLogicType } from './newDashboardLogicType'
 
 export interface NewDashboardForm {
@@ -193,6 +194,11 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             }),
             submit: async ({ name, description, useTemplate, show, _create_in_folder }, breakpoint) => {
                 actions.setIsLoading(true)
+                // Read before the await: the modal/menu that mounts this logic can close
+                // mid-request (e.g. the "Start from scratch" menu), unmounting it. Reading
+                // `values` afterwards throws `[KEA] Can not find path`, which the catch below
+                // would mislabel as "Could not create dashboard" even though creation succeeded.
+                const redirectAfterCreation = values.redirectAfterCreation
                 try {
                     const result: DashboardType = await api.create(
                         `api/environments/${teamLogic.values.currentTeamId}/dashboards/`,
@@ -212,7 +218,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     tryShowMCPHint('dashboards.create', {
                         derivedPrompt: result.name ? `Build a dashboard called ${result.name}` : undefined,
                     })
-                    if (show && values.redirectAfterCreation) {
+                    if (show && redirectAfterCreation) {
                         breakpoint()
                         router.actions.push(urls.dashboard(result.id))
                     }
@@ -262,7 +268,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     {
                         template: dashboardJSON,
                         creation_context: creationContext,
-                        _create_in_folder: 'Unfiled/Dashboards',
+                        _create_in_folder: UNFILED_DASHBOARDS_FOLDER,
                     }
                 )
 

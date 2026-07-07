@@ -4,7 +4,6 @@ from django.db.models.signals import post_save
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import UniqueConstraintByExpression, UUIDTModel
-from posthog.tasks.tasks import sync_insight_caching_state
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -48,23 +47,34 @@ class InsightCachingState(UUIDTModel):
     updated_at = models.DateTimeField(auto_now=True)
 
 
+def _queue_sync_insight_caching_state(team_id: int, **kwargs: int | None) -> None:
+    # posthog.tasks.__init__ eagerly imports every task module (celery autoimport), so a
+    # module-level import here would pull the whole task graph into django.setup() via models.
+    from posthog.tasks.tasks import sync_insight_caching_state  # noqa: PLC0415
+
+    sync_insight_caching_state.delay(team_id, **kwargs)
+
+
 @mutable_receiver(post_save, sender=SharingConfiguration)
 def sync_sharing_configuration(sender, instance: SharingConfiguration, **kwargs):
     if instance.insight is not None and not instance.insight.deleted:
-        sync_insight_caching_state.delay(instance.team_id, insight_id=instance.insight_id)
+        _queue_sync_insight_caching_state(instance.team_id, insight_id=instance.insight_id)
     elif instance.dashboard is not None and not instance.dashboard.deleted:
         for tile in instance.dashboard.tiles.all():
-            sync_insight_caching_state.delay(instance.team_id, dashboard_tile_id=tile.pk)
+            _queue_sync_insight_caching_state(instance.team_id, dashboard_tile_id=tile.pk)
 
 
 @mutable_receiver(post_save, sender=Insight)
 def sync_insight(sender, instance: Insight, **kwargs):
-    sync_insight_caching_state.delay(instance.team_id, insight_id=instance.pk)
+    _queue_sync_insight_caching_state(instance.team_id, insight_id=instance.pk)
 
 
 @mutable_receiver(post_save, sender=DashboardTile)
 def sync_dashboard_tile(sender, instance: DashboardTile, **kwargs):
-    sync_insight_caching_state.delay(instance.dashboard.team_id, dashboard_tile_id=instance.pk)
+    # Use the denormalized team_id (always populated in DashboardTile.save() before this
+    # signal fires) rather than instance.dashboard.team_id, which triggers a DB fetch of the
+    # dashboard row on every tile save.
+    _queue_sync_insight_caching_state(instance.team_id, dashboard_tile_id=instance.pk)
 
 
 @mutable_receiver(post_save, sender=Dashboard)
@@ -78,4 +88,4 @@ def sync_dashboard_updated(sender, instance: Dashboard, **kwargs):
         return
 
     for tile_id in DashboardTile.objects.filter(dashboard=instance).values_list("pk", flat=True):
-        sync_insight_caching_state.delay(instance.team_id, dashboard_tile_id=tile_id)
+        _queue_sync_insight_caching_state(instance.team_id, dashboard_tile_id=tile_id)

@@ -1,13 +1,13 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { MutableRefObject } from 'react'
 
-import { clamp } from 'lib/utils'
+import { clamp } from 'lib/utils/numbers'
 import {
     SessionRecordingPlayerLogicProps,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-import { InteractEvent, ReactInteractEvent, THUMB_OFFSET, THUMB_SIZE, getXPos } from '../utils/playerUtils'
+import { InteractEvent, ReactInteractEvent, THUMB_OFFSET, getXPos } from '../utils/playerUtils'
 import type { seekbarLogicType } from './seekbarLogicType'
 
 export const seekbarLogic = kea<seekbarLogicType>([
@@ -168,7 +168,9 @@ export const seekbarLogic = kea<seekbarLogicType>([
             actions.startScrub()
             const xPos = getXPos(event)
             let diffFromThumb = xPos - values.thumb.getBoundingClientRect().left - THUMB_OFFSET
-            if (Math.abs(diffFromThumb) > THUMB_SIZE) {
+            // Only a press on the thumb itself keeps the grab offset; pressing the bar next to
+            // it seeks to the exact position — otherwise small seeks near the thumb go nowhere
+            if (Math.abs(diffFromThumb) > THUMB_OFFSET) {
                 diffFromThumb = 0
             }
             actions.setCursorDiff(diffFromThumb)

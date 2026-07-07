@@ -17,7 +17,7 @@ from unittest.mock import patch
 from django.db import transaction
 from django.utils import timezone
 
-from parameterized import parameterized, parameterized_class
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import HogQLQueryModifiers, MaterializationMode
@@ -26,8 +26,7 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import ActivityLog, Comment, Organization, Tag, User
-from posthog.models.person import Person
-from posthog.personhog_client.test_helpers import PersonhogTestMixin
+from posthog.test.persons import create_person
 
 from products.conversations.backend.api.tickets import TicketReplyRequestSerializer
 from products.conversations.backend.models import Ticket, TicketAssignment
@@ -688,7 +687,7 @@ class TestTicketAPI(APIBaseTest):
                 distinct_id=f"user-{i}",
             )
             # Create person for this ticket
-            Person.objects.create(
+            create_person(
                 team=self.team,
                 distinct_ids=[f"user-{i}"],
                 properties={"email": f"user{i}@example.com"},
@@ -713,10 +712,10 @@ class TestTicketAPI(APIBaseTest):
 
         # Query count should be constant regardless of number of tickets
         # Includes: session, user, org, team, permissions, feature flag permission org lookup,
-        # count query, tickets query, persons query (batch), distinct_ids prefetch,
-        # tagged_items prefetch
-        # Note: message stats are denormalized, no subqueries needed
-        with self.assertNumQueries(14):
+        # count query, tickets query, tagged_items prefetch, and the session-activity metadata
+        # write (deferred to on_commit, which this test class patches to run synchronously)
+        # Note: person reads go through personhog (no DB queries)
+        with self.assertNumQueries(12):
             response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             # Should have original ticket + 10 new tickets = 11 total
@@ -1300,12 +1299,8 @@ class TestTicketManager(BaseTest):
         self.assertEqual(ticket2.ticket_number, 2)
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
-class TestTicketPersonData(PersonhogTestMixin, APIBaseTest):
-    """Tests that ticket person enrichment produces identical results
-    via the ORM and personhog paths."""
-
+class TestTicketPersonData(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.ticket = Ticket.objects.create_with_number(
@@ -1317,7 +1312,7 @@ class TestTicketPersonData(PersonhogTestMixin, APIBaseTest):
         )
 
     def test_retrieve_ticket_includes_person_data(self, mock_on_commit):
-        person = self._seed_person(
+        person = create_person(
             team=self.team,
             distinct_ids=["user-123", "user@example.com", "another-id"],
             properties={"email": "test@example.com", "name": "Test User"},
@@ -1339,7 +1334,7 @@ class TestTicketPersonData(PersonhogTestMixin, APIBaseTest):
         assert response.json()["person"] is None
 
     def test_list_tickets_includes_person_data(self, mock_on_commit):
-        self._seed_person(
+        create_person(
             team=self.team,
             distinct_ids=["user-123", "user@example.com"],
             properties={"email": "test@example.com"},
@@ -1353,7 +1348,6 @@ class TestTicketPersonData(PersonhogTestMixin, APIBaseTest):
         assert person_data is not None
         assert person_data["properties"]["email"] == "test@example.com"
         assert set(person_data["distinct_ids"]) == {"user-123", "user@example.com"}
-        self._assert_personhog_called("get_persons_by_distinct_ids_in_team")
 
     def test_list_tickets_person_null_when_no_person(self, mock_on_commit):
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
@@ -1364,7 +1358,7 @@ class TestTicketPersonData(PersonhogTestMixin, APIBaseTest):
 
     def test_person_data_scoped_to_team(self, mock_on_commit):
         other_team = self.organization.teams.create(name="Other Team")
-        self._seed_person(
+        create_person(
             team=other_team,
             distinct_ids=["user-123"],
             properties={"email": "other@example.com"},
@@ -1645,6 +1639,20 @@ class TestComposeTicketAPI(APIBaseTest):
         assert response.status_code == expected_status
         if expected_detail:
             assert expected_detail in response.json()["detail"]
+
+    def test_composed_ticket_is_not_born_verified(self, mock_on_commit):
+        # The team typed the recipient address; the recipient never proved they control it,
+        # so an outbound ticket must start with unknown identity (None) — never verified.
+        response = self._compose(
+            {
+                "recipient_email": "someone@test.com",
+                "email_config_id": str(self.email_config.id),
+                "message": "Hello!",
+            }
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.identity_verified is None
 
 
 class TestTicketPersonalAPIKeyScopes(APIBaseTest):

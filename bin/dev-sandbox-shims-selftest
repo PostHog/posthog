@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Self-test for bin/dev-sandbox-shims routing logic. Pure string logic, so it
+# runs anywhere (no sandbox-exec / macOS needed) — unlike bin/dev-sandbox-selftest.
+set -euo pipefail
+
+here="$(cd "$(dirname "$0")" && pwd -P)"
+# shellcheck source=/dev/null
+source "$here/dev-sandbox-shims"
+
+fail=0
+check() { # check <wrap|pass> <tool> <args...>
+    local expected="$1" got
+    shift
+    local tool="$1"
+    shift
+    if _ph_sandbox_should_wrap "$tool" "$@"; then got="wrap"; else got="pass"; fi
+    if [ "$got" != "$expected" ]; then
+        echo "FAIL: expected $expected, got $got for: $tool $*" >&2
+        fail=1
+    else
+        echo "ok: $tool $* -> $got"
+    fi
+}
+
+# uv: dependency-mutating subcommands are sandboxed
+check wrap uv sync
+check wrap uv add requests
+check wrap uv lock
+check wrap uv pip install requests
+check wrap uv pip sync
+check wrap uv --verbose sync
+# uv: everything else passes through
+check pass uv run pytest
+check pass uv pip list
+check pass uv tool install ruff
+check pass uv
+
+# pnpm: dependency-mutating subcommands are sandboxed
+check wrap pnpm install
+check wrap pnpm i
+check wrap pnpm add lodash
+check wrap pnpm update
+check wrap pnpm up
+check wrap pnpm --filter=@posthog/frontend install
+# pnpm: everything else passes through
+check pass pnpm dev
+check pass pnpm exec tsc
+check pass pnpm run install # a script named "install" is not `pnpm install`
+check pass pnpm
+
+# POSTHOG_DEV_SANDBOX=0 disables all wrapping
+echo "-- with POSTHOG_DEV_SANDBOX=0 --"
+POSTHOG_DEV_SANDBOX=0
+check pass uv sync
+check pass pnpm install
+unset POSTHOG_DEV_SANDBOX
+
+if [ "$fail" -ne 0 ]; then
+    echo "dev-sandbox-shims self-test FAILED" >&2
+    exit 1
+fi
+echo "dev-sandbox-shims self-test passed"

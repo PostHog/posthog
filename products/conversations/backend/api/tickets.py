@@ -14,7 +14,6 @@ from django.utils import timezone
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
-from loginas.utils import is_impersonated_session
 from rest_framework import (
     pagination,
     serializers,
@@ -30,21 +29,17 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
 from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
-from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
-from posthog.rate_limit import (
-    AIBurstRateThrottle,
-    AISustainedRateThrottle,
-    ComposeTicketBurstThrottle,
-    ComposeTicketSustainedThrottle,
-)
+from posthog.permissions import APIScopePermission
+from posthog.personhog_client.caller_tag import personhog_caller_tag
+from posthog.rate_limit import ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle
 from posthog.utils import relative_date_parse
 
-from products.conversations.backend.ai.suggest import NoMessagesError, suggest_reply
 from products.conversations.backend.api.serializers import TicketAssignmentSerializer
 from products.conversations.backend.cache import (
     get_cached_unread_count,
@@ -65,11 +60,7 @@ from ee.models.rbac.role import Role
 logger = structlog.get_logger(__name__)
 
 
-class SuggestReplyResponseSerializer(serializers.Serializer):
-    suggestion = serializers.CharField()
-
-
-class SuggestReplyErrorSerializer(serializers.Serializer):
+class TicketErrorSerializer(serializers.Serializer):
     detail = serializers.CharField()
     error_type = serializers.CharField(required=False)
 
@@ -245,8 +236,10 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "priority",
             "assignee",
             "anonymous_traits",
+            "identity_verified",
             "ai_resolved",
             "escalation_reason",
+            "ai_triage",
             "created_at",
             "updated_at",
             "message_count",
@@ -267,6 +260,8 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "cc_participants",
             "github_repo",
             "github_issue_number",
+            "zendesk_ticket_id",
+            "organization_id",
             "person",
             "tags",
         ]
@@ -294,13 +289,31 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "cc_participants",
             "github_repo",
             "github_issue_number",
+            "zendesk_ticket_id",
+            "organization_id",
             "person",
+            "ai_triage",
+            "identity_verified",
         ]
         extra_kwargs = {
+            "identity_verified": {
+                "help_text": (
+                    "Trust signal indicating whether the ticket's claimed identity was attested by the server "
+                    "(widget HMAC, SPF-authenticated email, or a signature-validated platform webhook). "
+                    "True when verified, false when assessed but not attested, null when unknown "
+                    "(e.g. created before this signal existed)."
+                )
+            },
             "status": {"help_text": "Ticket status: new, open, pending, on_hold, or resolved"},
             "priority": {"help_text": "Ticket priority: low, medium, or high. Null if unset."},
             "sla_due_at": {"help_text": "SLA deadline set via workflows. Null means no SLA."},
             "anonymous_traits": {"help_text": "Customer-provided traits such as name and email"},
+            "organization_id": {
+                "help_text": "Customer's PostHog organization group key, resolved at ticket creation. Null when unknown."
+            },
+            "ai_triage": {
+                "help_text": "AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.)."
+            },
         }
 
     def get_email_to(self, obj: Ticket) -> str | None:
@@ -330,11 +343,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
     scope_object_write_actions = ["create", "update", "partial_update", "patch", "compose", "reply"]
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
-    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
+    permission_classes = [IsAuthenticated, APIScopePermission]
     pagination_class = TicketPagination
-    posthog_feature_flag = {
-        "product-support-ai-suggestion": ["suggest_reply"],
-    }
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """Filter tickets by team."""
@@ -476,6 +486,27 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             except json.JSONDecodeError:
                 pass
 
+        ai_triage_result_param = self.request.query_params.get("ai_triage_result")
+        if ai_triage_result_param:
+            valid_results = {
+                "persisted",
+                "escalated_with_best",
+                "escalated_no_reply",
+                "skipped_unactionable",
+                "blocked_unsafe",
+                "blocked_unsafe_reply",
+                "in_progress",
+            }
+            results = {r.strip() for r in ai_triage_result_param.split(",") if r.strip() in valid_results}
+            if results:
+                q = Q()
+                normal_results = results - {"in_progress"}
+                if normal_results:
+                    q |= Q(ai_triage__result__in=normal_results)
+                if "in_progress" in results:
+                    q |= Q(ai_triage__status="in_progress")
+                queryset = queryset.filter(q)
+
         allowed_orderings = {
             "updated_at",
             "-updated_at",
@@ -535,7 +566,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         if not distinct_ids:
             return
 
-        persons = get_persons_by_distinct_ids(self.team_id, distinct_ids)
+        with personhog_caller_tag("conversations/ticket-attach-persons"):
+            persons = get_persons_by_distinct_ids(self.team_id, distinct_ids)
 
         distinct_id_to_person: dict[str, Person] = {}
         distinct_ids_set = set(distinct_ids)
@@ -771,7 +803,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 self.organization,
                 request.user,
                 self.team_id,
-                is_impersonated_session(request),
+                is_impersonated(request),
             )
             # Refresh instance to get updated assignment
             instance.refresh_from_db()
@@ -849,7 +881,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                     organization_id=self.organization.id,
                     team_id=self.team_id,
                     user=request.user,
-                    was_impersonated=is_impersonated_session(request),
+                    was_impersonated=is_impersonated(request),
                     item_id=str(instance.id),
                     scope="Ticket",
                     activity="updated",
@@ -898,7 +930,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 organization_id=self.organization.id,
                 team_id=self.team_id,
                 user=request.user,
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
                 item_id=str(ticket.id),
                 scope="Ticket",
                 activity="updated",
@@ -967,57 +999,6 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         transaction.on_commit(_emit_bulk_side_effects)
 
         return Response({"updated": len(changed), "ids": [str(t.id) for t, _ in changed]})
-
-    @extend_schema(
-        request=None,
-        responses={
-            200: OpenApiResponse(response=SuggestReplyResponseSerializer),
-            400: OpenApiResponse(response=SuggestReplyErrorSerializer),
-            403: OpenApiResponse(response=SuggestReplyErrorSerializer),
-            500: OpenApiResponse(response=SuggestReplyErrorSerializer),
-        },
-    )
-    @action(
-        detail=True,
-        methods=["POST"],
-        url_path="suggest_reply",
-        throttle_classes=[AIBurstRateThrottle, AISustainedRateThrottle],
-    )
-    def suggest_reply_action(self, request, *args, **kwargs):
-        if not self.organization.is_ai_data_processing_approved:
-            return Response(
-                {"detail": "AI data processing is not approved for this organization"},
-                status=drf_status.HTTP_403_FORBIDDEN,
-            )
-
-        ticket = self.get_object()
-
-        try:
-            reply_text = suggest_reply(ticket, self.team, request.user)
-            return Response({"suggestion": reply_text})
-        except NoMessagesError:
-            return Response(
-                {"detail": "No messages in this ticket"},
-                status=drf_status.HTTP_400_BAD_REQUEST,
-            )
-        except ValueError:
-            logger.warning("AI suggest_reply validation error", extra={"ticket_id": str(ticket.id)})
-            return Response(
-                {
-                    "detail": "Failed to generate suggestion. Please try again.",
-                    "error_type": "validation_error",
-                },
-                status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-        except Exception as e:
-            logger.exception(
-                "AI suggest_reply failed", extra={"ticket_id": str(ticket.id), "error_type": type(e).__name__}
-            )
-            capture_exception(e, {"ticket_id": str(ticket.id)})
-            return Response(
-                {"detail": "Failed to generate suggestion. Please try again.", "error_type": "unknown_error"},
-                status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
 
     @action(detail=False, methods=["get"])
     def unread_count(self, request, *args, **kwargs):
@@ -1159,7 +1140,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         request=ComposeTicketSerializer,
         responses={
             201: OpenApiResponse(response=ComposeTicketResponseSerializer),
-            400: OpenApiResponse(response=SuggestReplyErrorSerializer),
+            400: OpenApiResponse(response=TicketErrorSerializer),
         },
     )
     @action(
@@ -1205,7 +1186,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
 
         person: Person | None = None
         if distinct_id != recipient_email:
-            person = get_person_by_distinct_id(team.id, distinct_id)
+            # Only person.properties is read for this lookup, so skip the distinct-id fetch.
+            with personhog_caller_tag("conversations/ticket-recipient-lookup"):
+                person = get_person_by_distinct_id(team.id, distinct_id, distinct_id_limit=0)
 
         if person is None:
             person = _get_persons_by_email(team, [recipient_email]).get(recipient_email.lower())
@@ -1230,6 +1213,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 email_config=email_config,
                 email_from=data["recipient_email"],
                 email_subject=data.get("email_subject", ""),
+                # The recipient hasn't proven control of this address — a team member just typed it —
+                # so leave identity unknown. It's promoted to verified if/when they reply and authenticate.
+                identity_verified=None,
             )
 
             Comment.objects.create(
@@ -1293,7 +1279,9 @@ def validate_assignee_membership(assignee, organization) -> None:
             raise serializers.ValidationError({"assignee": "role does not belong to this organization"})
 
 
-def assign_ticket(ticket: Ticket, assignee, organization, user, team_id, was_impersonated):
+def assign_ticket(
+    ticket: Ticket, assignee, organization, user, team_id, was_impersonated, trigger: Trigger | None = None
+):
     """
     Assign a ticket to a user or role.
 
@@ -1304,6 +1292,7 @@ def assign_ticket(ticket: Ticket, assignee, organization, user, team_id, was_imp
         user: The user making the change
         team_id: The team ID
         was_impersonated: Whether the session is impersonated
+        trigger: Optional Trigger identifying an automated source (e.g. a workflow) that made the change
     """
     validate_assignee(assignee)
     validate_assignee_membership(assignee, organization)
@@ -1347,6 +1336,7 @@ def assign_ticket(ticket: Ticket, assignee, organization, user, team_id, was_imp
                         action="changed",
                     )
                 ],
+                trigger=trigger,
             ),
         )
 

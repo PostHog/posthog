@@ -34,13 +34,27 @@ export interface ChartShellProps {
     overlayCanvasRef: React.RefObject<HTMLCanvasElement>
     className?: string
     dataAttr?: string
-    /** Show the pointer cursor — the hovered element is clickable. */
+    /** Show the pointer cursor — the hovered element is clickable. Takes precedence over `crosshair`. */
     pointer: boolean
+    /** Show the crosshair cursor — a drag gesture (e.g. drag-to-zoom) is available. */
+    crosshair?: boolean
     ariaLabel: string
-    handlers: Required<Pick<React.DOMAttributes<HTMLDivElement>, 'onMouseMove' | 'onMouseLeave' | 'onClick'>>
+    handlers: Required<Pick<React.DOMAttributes<HTMLDivElement>, 'onMouseMove' | 'onMouseLeave' | 'onClick'>> &
+        Pick<React.DOMAttributes<HTMLDivElement>, 'onMouseDown'>
     /** Render the overlay layer — bases gate this on layout readiness (dimensions + scales). */
     showOverlay: boolean
     children?: React.ReactNode
+}
+
+// Literal cursor classes (no runtime concat) so Tailwind v4's source scan sees them — see the package's tailwind contract.
+function cursorClass(pointer: boolean, crosshair: boolean): string {
+    if (pointer) {
+        return 'cursor-pointer'
+    }
+    if (crosshair) {
+        return 'cursor-crosshair'
+    }
+    return 'cursor-default'
 }
 
 /** Shared DOM shell of the chart bases — behavior (interaction, drawing, contexts) stays in the bases. */
@@ -51,6 +65,7 @@ export function ChartShell({
     className,
     dataAttr,
     pointer,
+    crosshair = false,
     ariaLabel,
     handlers,
     showOverlay,
@@ -59,10 +74,9 @@ export function ChartShell({
     return (
         <div
             ref={wrapperRef}
-            className={[WRAPPER_CLASS, pointer ? 'cursor-pointer' : 'cursor-default', className]
-                .filter(Boolean)
-                .join(' ')}
+            className={[WRAPPER_CLASS, cursorClass(pointer, crosshair), className].filter(Boolean).join(' ')}
             data-attr={dataAttr}
+            onMouseDown={handlers.onMouseDown}
             onMouseMove={handlers.onMouseMove}
             onMouseLeave={handlers.onMouseLeave}
             onClick={handlers.onClick}

@@ -73,6 +73,10 @@ where
 /// Type alias for flag definitions rate limiting (per-team)
 pub(crate) type FlagDefinitionsRateLimiter = KeyedRateLimiter<TeamId>;
 
+/// Remote config rate limiting is keyed per credential (the personal API key id), mirroring
+/// Django's `RemoteConfigThrottle`, which buckets by hashed bearer token.
+pub(crate) type RemoteConfigRateLimiter = KeyedRateLimiter<String>;
+
 impl<K> KeyedRateLimiter<K>
 where
     K: Hash + Eq + Clone + Display + Send + Sync + 'static,

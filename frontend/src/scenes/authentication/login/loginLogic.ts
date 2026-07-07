@@ -8,7 +8,9 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getRelativeNextPath } from 'lib/utils'
+import { isWebKitBrowser } from 'lib/utils/dom'
+import { getRelativeNextPath } from 'lib/utils/url'
+import { devLoginLogic } from 'scenes/authentication/shared/devLoginLogic'
 import { twoFactorResetLogic } from 'scenes/authentication/two-factor-reset/twoFactorResetLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
@@ -28,15 +30,9 @@ export interface PrecheckResponseType {
     saml_available: boolean
     status: 'pending' | 'completed'
     webauthn_credentials?: PublicKeyCredentialDescriptorJSON[]
+    // The email this precheck resolved for, used to dedupe redundant prechecks.
+    email?: string
 }
-
-export interface DevUser {
-    email: string
-    is_staff: boolean
-    label: string | null
-}
-
-export const DEV_LOGIN_SECONDS_SAVED_PER_CLICK = 5
 
 // Routes that should be handled by Django, not the React router
 const BACKEND_ONLY_ROUTES = [
@@ -83,12 +79,19 @@ export interface TwoFactorForm {
 export const loginLogic = kea<loginLogicType>([
     path(['scenes', 'authentication', 'login', 'loginLogic']),
     connect(() => ({
-        values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags']],
+        values: [
+            preflightLogic,
+            ['preflight'],
+            featureFlagLogic,
+            ['featureFlags'],
+            devLoginLogic,
+            ['devUsers', 'devUsersLoading', 'devLoginTimeSavedLabel'],
+        ],
+        actions: [devLoginLogic, ['devLogin', 'loadDevUsers']],
     })),
     actions({
         setGeneralError: (code: string, detail: string) => ({ code, detail }),
         clearGeneralError: true,
-        devLogin: (email: string) => ({ email }),
     }),
     reducers({
         // This is separate from the login form, so that the form can be submitted even if a general error is present
@@ -99,15 +102,8 @@ export const loginLogic = kea<loginLogicType>([
                 clearGeneralError: () => null,
             },
         ],
-        devLoginCount: [
-            0,
-            { persist: true },
-            {
-                devLogin: (count) => count + 1,
-            },
-        ],
     }),
-    loaders(() => ({
+    loaders(({ values }) => ({
         precheckResponse: [
             { status: 'pending' } as PrecheckResponseType,
             {
@@ -123,25 +119,16 @@ export const loginLogic = kea<loginLogicType>([
                         return { status: 'pending' }
                     }
 
+                    // The autofill effect and the email field's onBlur can both fire for the same
+                    // value — skip the redundant network call (and the duplicate passkey trigger it
+                    // would cause) when we've already resolved this email.
+                    if (email === values.precheckResponse.email && values.precheckResponse.status === 'completed') {
+                        return values.precheckResponse
+                    }
+
                     breakpoint()
                     const response = await api.create<any>('api/login/precheck', { email })
-                    return { status: 'completed', ...response }
-                },
-            },
-        ],
-        devUsers: [
-            [] as DevUser[],
-            {
-                // Not fired on an `onMount` because we don't always need it.
-                loadDevUsers: async (_, breakpoint) => {
-                    breakpoint()
-                    try {
-                        const response = await api.get<{ users: DevUser[] }>('api/login/dev')
-                        return response.users
-                    } catch {
-                        // Endpoint is unavailable unless allow_dev_login is set in preflight.
-                        return []
-                    }
+                    return { status: 'completed', ...response, email }
                 },
             },
         ],
@@ -175,23 +162,9 @@ export const loginLogic = kea<loginLogicType>([
                 return nextParam ? `/signup?next=${encodeURIComponent(nextParam)}` : '/signup'
             },
         ],
-        devLoginTimeSavedLabel: [
-            (s) => [s.devLoginCount],
-            (devLoginCount): string | null => {
-                if (devLoginCount === 0) {
-                    return null
-                }
-
-                const totalSeconds = devLoginCount * DEV_LOGIN_SECONDS_SAVED_PER_CLICK
-                if (totalSeconds < 60) {
-                    const unit = totalSeconds === 1 ? 'second' : 'seconds'
-                    return `You've saved ${totalSeconds} ${unit} by clicking this button.`
-                }
-
-                const minutes = Math.floor(totalSeconds / 60)
-                const unit = minutes === 1 ? 'minute' : 'minutes'
-                return `You've saved ${minutes} ${unit} by clicking this button.`
-            },
+        wasSignedOutForSessionRisk: [
+            () => [router.selectors.searchParams],
+            (searchParams: Record<string, string>): boolean => searchParams['reason'] === 'session_risk',
         ],
     })),
     forms(({ actions }) => ({
@@ -205,8 +178,12 @@ export const loginLogic = kea<loginLogicType>([
                 breakpoint()
                 // Clear any previous passkey errors when submitting with password
                 actions.clearGeneralError()
+                // Forward `next` so email verification / login-verification links can resume the
+                // original destination (e.g. an /oauth/authorize flow). The link carries `next`, so
+                // it works even when opened in a different browser than the one that started login.
+                const next = getRelativeNextPath(router.values.searchParams['next'], location) || undefined
                 try {
-                    return await api.create<any>('api/login', { email, password })
+                    return await api.create<any>('api/login', { email, password, ...(next ? { next } : {}) })
                 } catch (e) {
                     const { code, detail } = e as Record<string, any>
                     if (code === '2fa_required') {
@@ -236,31 +213,21 @@ export const loginLogic = kea<loginLogicType>([
             },
         },
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ values }) => ({
         submitLoginSuccess: () => {
             handleLoginRedirect()
             // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
             window.location.reload()
         },
-        devLogin: async ({ email }) => {
-            actions.clearGeneralError()
-            try {
-                await api.create<any>('api/login/dev', { email })
-            } catch (e) {
-                const { code, detail } = e as Record<string, any>
-                actions.setGeneralError(code || 'dev_login_failed', detail || 'Dev login failed')
-                return
-            }
-            handleLoginRedirect()
-            window.location.reload()
-        },
         precheckSuccess: async (_, breakpoint) => {
             const { precheckResponse } = values
-            // Auto-trigger passkey prompt if user has passkeys and SSO is not enforced
+            // Auto-trigger the modal passkey prompt if the user has passkeys and SSO isn't enforced.
+            // Skip on WebKit, it freezes Safari when triggered without a user gesture.
             if (
                 precheckResponse.webauthn_credentials &&
                 precheckResponse.webauthn_credentials.length > 0 &&
-                !precheckResponse.sso_enforcement
+                !precheckResponse.sso_enforcement &&
+                !isWebKitBrowser()
             ) {
                 breakpoint()
                 // Dynamic import to avoid circular dependency

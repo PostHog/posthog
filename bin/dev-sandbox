@@ -4,9 +4,9 @@
 # Usage: bin/dev-sandbox '<shell command>'
 #
 # The whole original shell command (operators and all) is passed as a single
-# argument and run via `bash -c`. Opt in by setting POSTHOG_DEV_SANDBOX=1 in
-# .env.local; the generator (hogli dev:generate) then wraps Python/Node service
-# commands with this script.
+# argument and run via `bash -c`. On by default; opt out by setting
+# POSTHOG_DEV_SANDBOX=0 in .env.local. The generator (hogli dev:generate) wraps
+# Python/Node service commands with this script unless opted out.
 #
 # The base profile denies all reads under $HOME. Because the repo lives under
 # $HOME, the OS / node module resolver / getcwd must still lstat+readdir the
@@ -52,7 +52,20 @@ fi
 # TMPDIR is canonicalized so the profile's self-write-deny (rendered below) matches
 # the physical path Seatbelt enforces against (/var/folders -> /private/var/...).
 tmpdir="$(cd "${TMPDIR:-/tmp}" 2>/dev/null && pwd -P || echo "${TMPDIR:-/tmp}")"
-cache_key="$(printf '%s\0' "$project" "$mainrepo" "$HOME" "${SSH_AUTH_SOCK:-}" | /usr/bin/shasum -a256 | cut -c1-16)"
+
+# The base profile allows the git config files by literal path, but Seatbelt
+# matches physical paths — when one is a symlink (dotfile managers), the read of
+# its target is still denied and cargo/libgit2 fails hard ("failed to stat
+# ~/.gitconfig"). Resolve symlinked configs here and allow (read) + deny (write,
+# hooksPath/credential-helper escape) their targets in the rendered profile.
+gitcfg_targets=()
+for _cfg in "$HOME/.gitconfig" "$HOME/.gitconfig.local" "$HOME/.config/git/config"; do
+    [[ -L "$_cfg" ]] || continue
+    _resolved="$(/usr/bin/readlink -f "$_cfg" 2>/dev/null || true)"
+    [[ -n "$_resolved" && "$_resolved" != "$_cfg" ]] && gitcfg_targets+=("$_resolved")
+done
+
+cache_key="$(printf '%s\0' "$project" "$mainrepo" "$HOME" "${SSH_AUTH_SOCK:-}" ${gitcfg_targets[@]+"${gitcfg_targets[@]}"} | /usr/bin/shasum -a256 | cut -c1-16)"
 rendered="$tmpdir/posthog-dev-sandbox-$cache_key.sb"
 stamp="$rendered.ok" # touched once the rendered profile passes the init preflight
 
@@ -75,7 +88,7 @@ render_profile() {
     ancestors+=("$HOME")
     # Paths are emitted as SBPL string literals; a " or \ would corrupt the
     # profile (quoted expansions match literally, dodging glob/escape ambiguity).
-    for _a in "${ancestors[@]}" "$rendered" "$stamp"; do
+    for _a in "${ancestors[@]}" "$rendered" "$stamp" ${gitcfg_targets[@]+"${gitcfg_targets[@]}"}; do
         case "$_a" in
         *"$_dq"* | *"$_bs"*)
             echo "⚠️  dev sandbox: path contains a quote/backslash, running WITHOUT sandbox: $_a" >&2
@@ -89,6 +102,16 @@ render_profile() {
         printf '(allow file-read*'
         printf ' (literal "%s")' "${ancestors[@]}"
         printf ')\n'
+        # Physical targets of symlinked git configs (resolved above): readable like
+        # the configs themselves, write-denied for the same hooksPath escape reason.
+        if [[ ${#gitcfg_targets[@]} -gt 0 ]]; then
+            printf '(allow file-read*'
+            printf ' (literal "%s")' "${gitcfg_targets[@]}"
+            printf ')\n'
+            printf '(deny file-write*'
+            printf ' (literal "%s")' "${gitcfg_targets[@]}"
+            printf ')\n'
+        fi
         # Deny the SSH agent socket (path varies per agent: Secretive, 1Password,
         # launchd, gpg). Canonicalize its dir — Seatbelt matches the kernel's
         # physical path (e.g. /tmp -> /private/tmp); fall back to the raw path.
@@ -134,6 +157,31 @@ if [[ "$rendered" -nt "$stamp" ]]; then
     fi
 fi
 
+# Drop $HOME PATH entries the sandbox denies, so bare-command spawns keep working.
+# node/libuv resolve a bare command name with execvP, which walks $PATH and aborts
+# the ENTIRE search on the first EPERM — and Seatbelt returns EPERM (not ENOENT) for
+# a dir that exists but is read-denied. So a single unreadable $HOME dir on PATH
+# (fnm/nvm/asdf/pyenv shims under ~/.local, ~/.nvm, …) breaks every bare-name spawn
+# before it can reach a usable binary — e.g. pnpm's lifecycle scripts during install
+# fail with `spawn EPERM`. Keep only the repo's own bins (node_modules/.bin) and
+# non-$HOME dirs (system, the flox/nix store) — the full toolchain the dev stack
+# actually uses. $HOME interpreters were already unusable inside the sandbox by
+# design (contents unreadable → exec fails); this just makes the search skip them
+# instead of dying on them.
+sandboxed_path=""
+_oldifs="$IFS"
+set -f # PATH entries are literal paths; never glob-expand them
+IFS=':'
+for _pdir in $PATH; do
+    case "$_pdir" in
+        "$project"/* | "$mainrepo"/*) ;;   # repo bins (node_modules/.bin) — keep
+        "$HOME"/* | "") continue ;;        # read-denied $HOME shim dir / empty — drop
+    esac
+    sandboxed_path+="${sandboxed_path:+:}$_pdir"
+done
+IFS="$_oldifs"
+set +f
+
 # Strip ambient personal tokens the dev stack doesn't need from the child env.
 # The application's own config env (DB URLs, OBJECT_STORAGE_* keys, 1Password-
 # injected API keys) is left intact — only credentials that happen to live in the
@@ -156,4 +204,5 @@ exec env \
     -u CARGO_REGISTRY_TOKEN \
     -u HUGGING_FACE_HUB_TOKEN \
     -u HF_TOKEN \
+    PATH="$sandboxed_path" \
     "${sandbox[@]}" /bin/bash -c "$cmd"

@@ -5,6 +5,7 @@ from uuid import UUID
 
 from django.db.models.query import QuerySet
 
+from opentelemetry import trace
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import GenericViewSet
@@ -247,6 +248,12 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 # touches a scoped model will get TeamScopeError, which is the
                 # correct fail-closed behavior.
                 return
+            # Tag the request (root) span as soon as the team is resolved, so the whole
+            # trace is attributable to a team. DjangoInstrumentor's request span is the
+            # current span here (no manual span has opened yet); a no-op when tracing is off.
+            request_span = trace.get_current_span()
+            if request_span.is_recording():
+                request_span.set_attribute("team_id", team_id)
             # Compute canonical team_id. self.team is a @cached_property
             # (line ~297) usually loaded by the permission checks above, so
             # this is free. Reading via __dict__ rather than attribute access

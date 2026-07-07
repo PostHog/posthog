@@ -2,6 +2,7 @@ from typing import Any, cast
 
 from django.db import IntegrityError
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
@@ -87,6 +88,7 @@ class DashboardCollaboratorSerializer(serializers.ModelSerializer, UserPermissio
             raise serializers.ValidationError("User already is a collaborator.")
 
 
+@extend_schema(extensions={"x-product": "dashboards"})
 class DashboardCollaboratorViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,

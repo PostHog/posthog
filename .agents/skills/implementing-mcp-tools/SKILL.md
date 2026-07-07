@@ -5,15 +5,15 @@ description: 'Guide for exposing PostHog product endpoints as MCP tools. Use whe
 
 # Implementing MCP tools
 
-Read the full guide at [docs/published/handbook/engineering/ai/implementing-mcp-tools.md](docs/published/handbook/engineering/ai/implementing-mcp-tools.md).
+Read the full guide at [docs/published/handbook/engineering/ai/implementing-mcp-tools.md](../../../docs/published/handbook/engineering/ai/implementing-mcp-tools.md).
 
 ## Quick workflow
 
 ```sh
 # 1. Scaffold a starter YAML with all operations disabled.
-#    --product discovers endpoints via x-product (priority 1) then
-#    URL substring match (fallback). ViewSets in products/<name>/backend/
-#    are auto-attributed via module path. ViewSets elsewhere need
+#    --product discovers endpoints via their x-product attribution.
+#    ViewSets in products/<name>/backend/ are auto-attributed via module
+#    path. ViewSets elsewhere need
 #    @extend_schema(extensions={"x-product": "<product>"}).
 pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
     --output ../../products/your_product/mcp/tools.yaml
@@ -187,7 +187,7 @@ These descriptions are what agents read to understand tool parameters.
 ## HogQL system tables
 
 Every list/get endpoint should have a corresponding HogQL system table
-in [`posthog/hogql/database/schema/system.py`](posthog/hogql/database/schema/system.py).
+in [`posthog/hogql/database/schema/system.py`](../../../posthog/hogql/database/schema/system.py).
 This lets agents query data via SQL in v2 of the MCP.
 
 Each system table **must include a `team_id` column** for data isolation.
@@ -196,8 +196,8 @@ Use `mcp_version: 1` on read/list YAML tools when a system table covers the same
 v2 agents use SQL instead.
 
 When adding a system table, also add a model reference file
-(`models-<domain>.md`) in [`products/posthog_ai/skills/querying-posthog-data/references/`](products/posthog_ai/skills/querying-posthog-data/references/)
-and register it in [`products/posthog_ai/skills/querying-posthog-data/SKILL.md`](products/posthog_ai/skills/querying-posthog-data/SKILL.md) under **Data Schema**.
+(`models-<domain>.md`) in [`products/posthog_ai/skills/querying-posthog-data/references/`](../../../products/posthog_ai/skills/querying-posthog-data/references/)
+and register it in [`products/posthog_ai/skills/querying-posthog-data/SKILL.md`](../../../products/posthog_ai/skills/querying-posthog-data/SKILL.md) under **Data Schema**.
 
 ## Two MCP versions
 

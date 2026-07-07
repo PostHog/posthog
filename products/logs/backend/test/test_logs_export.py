@@ -15,8 +15,8 @@ def _minimal_query_data() -> dict:
 
 
 class TestLogsExportEndpoint(APIBaseTest):
-    @patch("products.logs.backend.api.report_user_action")
-    @patch("products.logs.backend.api.export_asset")
+    @patch("products.logs.backend.presentation.views.api.report_user_action")
+    @patch("products.logs.backend.presentation.views.api.export_asset")
     def test_export_creates_asset_with_correct_context(self, mock_export_asset, mock_report):
         response = self.client.post(
             f"/api/projects/{self.team.pk}/logs/export/",
@@ -65,7 +65,7 @@ class TestLogsExportEndpoint(APIBaseTest):
             ),
         ]
     )
-    @patch("products.logs.backend.api.export_asset")
+    @patch("products.logs.backend.presentation.views.api.export_asset")
     def test_export_filename_includes_service_and_date_range(
         self, service_names, date_range, expected_filename, mock_export_asset
     ):
@@ -86,7 +86,7 @@ class TestLogsExportEndpoint(APIBaseTest):
         assert asset.export_context is not None
         assert asset.export_context["filename"] == expected_filename
 
-    @patch("products.logs.backend.api.export_asset")
+    @patch("products.logs.backend.presentation.views.api.export_asset")
     def test_export_creates_asset_successfully(self, mock_export_asset):
         response = self.client.post(
             f"/api/projects/{self.team.pk}/logs/export/",

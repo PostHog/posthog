@@ -1,6 +1,6 @@
 """Migrate pre-multi-schema SQL warehouse rows to qualified naming without re-syncing.
 
-Legacy rows are renamed in place (`users` → `public.users`) and tagged `dwh_storage_key=<original>`
+Legacy rows are renamed in place (`users` → `public.users`) and tagged `s3_folder_name=<original>`
 so sync keeps reading/writing the legacy Delta path. Source-agnostic — gated only by the namespace
 field being blank-able; Postgres direct-query plumbing stays in `postgres_warehouse_migration.py`.
 """
@@ -9,12 +9,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
-from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
-from posthog.temporal.data_imports.sources.common.sql.location import fill_missing_from_dotted_name, normalize_namespace
-
-from products.data_warehouse.backend.types import ExternalDataSourceType
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.source_management import (
+    SourceRegistry,
+    SQLSource,
+    fill_missing_from_dotted_name,
+    normalize_namespace,
+)
+from products.warehouse_sources.backend.facade.sources import NamingConvention
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 def _source_has_optional_schema_field(source: Any) -> bool:
@@ -33,8 +36,8 @@ def _source_has_optional_schema_field(source: Any) -> bool:
 def is_multi_schema_capable_sql_source(source_type: ExternalDataSourceType | str) -> bool:
     """True when the registered source for `source_type` has an optional (blank-able) `schema` field.
 
-    The optional field is the opt-in marker (Postgres today). Resolved via `get_all_sources`, not the
-    test-mockable `get_source`, so the gate stays config-driven.
+    The optional field is the opt-in marker (Postgres, MSSQL, Snowflake, Redshift today). Resolved via
+    `get_all_sources`, not the test-mockable `get_source`, so the gate stays config-driven.
     """
     try:
         resolved_type = ExternalDataSourceType(source_type)
@@ -56,7 +59,7 @@ def _qualify_legacy_row(
     target_source_table_name: str | None = None,
     duplicate_to_drop: Any | None = None,
 ) -> str | None:
-    """Rename `row` to qualified form, stash `dwh_storage_key`, optionally drop a duplicate.
+    """Rename `row` to qualified form, stash `s3_folder_name`, optionally drop a duplicate.
     Returns the new name, or None if a duplicate with its own data blocked the rename.
     """
     sync_type_config = row.sync_type_config or {}
@@ -81,12 +84,18 @@ def _qualify_legacy_row(
     merged_metadata.setdefault("foreign_keys", [])
 
     new_sync_type_config: dict[str, Any] = {**sync_type_config, "schema_metadata": merged_metadata}
-    if "dwh_storage_key" not in sync_type_config:
-        new_sync_type_config["dwh_storage_key"] = row.name
+
+    update_fields = ["name", "sync_type_config", "updated_at"]
+    if not row.s3_folder_name:
+        # The S3 folder is the normalized identifier — store that, so the column holds the real
+        # folder name (matching what the backfill writes and what readers compute). `resolved_*`
+        # picks up any legacy `dwh_storage_key` so a previously-migrated row keeps its path.
+        row.s3_folder_name = NamingConvention.normalize_identifier(row.resolved_s3_folder_name or row.name)
+        update_fields.append("s3_folder_name")
 
     row.name = qualified_name
     row.sync_type_config = new_sync_type_config
-    row.save(update_fields=["name", "sync_type_config", "updated_at"])
+    row.save(update_fields=update_fields)
     return qualified_name
 
 
@@ -94,7 +103,7 @@ def apply_on_schema_clear(source: ExternalDataSource, old_schema: str) -> None:
     """Pin legacy rows to the OLD schema before the next refresh sees `default_schema=None` and
     misroutes them to `"public"`.
     """
-    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
     rows = list(ExternalDataSchema.objects.filter(team_id=source.team_id, source_id=source.id, deleted=False))
     rows_by_name = {row.name: row for row in rows}
@@ -154,7 +163,7 @@ def apply_on_refresh(*, source: ExternalDataSource, team_id: int) -> dict[str, s
     falls back to `"public"` when `job_inputs.schema` is blank, missing the actual schema.
     Returns `{old_name: new_name}` for callers feeding `sync_old_schemas_with_new_schemas`.
     """
-    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
     rows = list(
         ExternalDataSchema.objects.filter(team_id=team_id, source_id=source.id, deleted=False).select_related("table")

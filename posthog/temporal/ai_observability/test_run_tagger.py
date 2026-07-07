@@ -178,8 +178,9 @@ class TestRunTaggerWorkflow:
             mock_response.usage = MagicMock(input_tokens=100, output_tokens=20, total_tokens=120)
             mock_client.complete.return_value = mock_response
 
-            with patch("posthog.temporal.ai_observability.run_tagger.EvaluationConfig") as mock_eval_config:
+            with patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as mock_eval_config:
                 mock_config = MagicMock()
+                mock_config.active_provider_key = None
                 mock_config.trial_evals_used = 0
                 mock_config.trial_eval_limit = 100
                 mock_eval_config.objects.get_or_create.return_value = (mock_config, False)
@@ -219,8 +220,9 @@ class TestRunTaggerWorkflow:
             mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
             mock_client.complete.return_value = mock_response
 
-            with patch("posthog.temporal.ai_observability.run_tagger.EvaluationConfig") as mock_eval_config:
+            with patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as mock_eval_config:
                 mock_config = MagicMock()
+                mock_config.active_provider_key = None
                 mock_config.trial_evals_used = 0
                 mock_config.trial_eval_limit = 100
                 mock_eval_config.objects.get_or_create.return_value = (mock_config, False)
@@ -261,8 +263,9 @@ class TestRunTaggerWorkflow:
             mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
             mock_client.complete.return_value = mock_response
 
-            with patch("posthog.temporal.ai_observability.run_tagger.EvaluationConfig") as mock_eval_config:
+            with patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as mock_eval_config:
                 mock_config = MagicMock()
+                mock_config.active_provider_key = None
                 mock_config.trial_evals_used = 0
                 mock_config.trial_eval_limit = 100
                 mock_eval_config.objects.get_or_create.return_value = (mock_config, False)
@@ -287,13 +290,14 @@ class TestRunTaggerWorkflow:
 
         event_data = create_mock_event_data(team.id)
 
-        with patch("posthog.temporal.ai_observability.run_tagger.EvaluationConfig") as mock_eval_config:
+        with patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as mock_eval_config:
             mock_config = MagicMock()
+            mock_config.active_provider_key = None
             mock_config.trial_evals_used = 100
             mock_config.trial_eval_limit = 100
             mock_eval_config.objects.get_or_create.return_value = (mock_config, False)
 
-            with pytest.raises(ApplicationError, match="Trial limit"):
+            with pytest.raises(ApplicationError, match="Trial evaluation limit"):
                 await execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
 
     @pytest.mark.asyncio
@@ -380,7 +384,7 @@ class TestRunTaggerWorkflow:
         event_data = create_mock_event_data(team.id, properties={})
 
         with patch("posthog.temporal.ai_observability.run_tagger.Team.objects.get") as mock_team_get:
-            with patch("posthog.temporal.ai_observability.run_tagger.capture_internal_routed") as mock_capture:
+            with patch("posthog.temporal.ai_observability.run_tagger.capture_internal") as mock_capture:
                 mock_team_get.return_value = team
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 

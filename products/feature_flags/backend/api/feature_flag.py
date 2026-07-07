@@ -6,15 +6,16 @@ import json
 import math
 import logging
 import functools
+from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Any, Optional, cast
 
 from django.conf import settings
+from django.contrib.postgres.aggregates import ArrayAgg
 from django.db import transaction
 from django.db.models import Count, Prefetch, Q, QuerySet, deletion
 
 import structlog
-import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema_field
 from rest_framework import exceptions, request, serializers, status, viewsets
@@ -35,45 +36,62 @@ from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, ErrorResponseSerializer, action
-from posthog.approvals.decorators import approval_gate
-from posthog.approvals.mixins import ApprovalHandlingMixin
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, TeamSecretTokenAuthentication
+from posthog.auth import (
+    IDJagAccessTokenAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
+    TeamSecretTokenAuthentication,
+)
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import FlagRequestType
-from posthog.date_util import thirty_days_ago
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
-from posthog.models.activity_logging.model_activity import ImpersonatedContext, is_impersonated_session
+from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.person.point_in_time_properties import (
     build_person_properties_at_time,
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.models.property import Property
-from posthog.permissions import TeamSecretTokenPermission
+from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes, is_service_auth
+from posthog.ph_client import feature_enabled_or_false
 from posthog.queries.base import determine_parsed_date_for_property_matching
-from posthog.rate_limit import BurstRateThrottle, ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+    PersonalOrProjectSecretApiKeyRateThrottle,
+    ProjectSecretApiKeyTeamRateThrottle,
+)
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings.feature_flags import REMOTE_CONFIG_RATE_LIMITS
 from posthog.utils import is_valid_regex
 from posthog.views import format_bytes
 
+from products.approvals.backend.decorators import approval_gate
+from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.dashboards.backend.api.dashboard import Dashboard
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, flag_has_live_experiment
+from products.feature_flags.backend.api.remote_config_shadow import shadow_compare_remote_config
 from products.feature_flags.backend.encrypted_flag_payloads import (
     REDACTED_PAYLOAD_VALUE,
     encrypt_flag_payloads,
     get_decrypted_flag_payloads_protected,
 )
 from products.feature_flags.backend.flag_analytics import increment_request_count
-from products.feature_flags.backend.flag_status import FeatureFlagStatusChecker
+from products.feature_flags.backend.flag_status import (
+    FeatureFlagStatusChecker,
+    exclude_archived_unless_requested,
+    filter_flags_by_active_param,
+)
 from products.feature_flags.backend.local_evaluation import _get_flag_properties_from_filters
 from products.feature_flags.backend.models.evaluation_context import normalize_context_name
 from products.feature_flags.backend.models.feature_flag import (
@@ -102,8 +120,53 @@ scope_audit_logger = structlog.get_logger("posthog.feature_flag_scope_audit")
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
 REALTIME_COHORT_FLAG_TARGETING_FLAG = "realtime-cohort-flag-targeting"
-MIXED_TARGETING_FLAG = "feature-flag-mixed-targeting"
 EARLY_EXIT_FLAG = "feature-flag-early-exit"
+
+# Gates enforcement of `feature_flag:write` on cross-resource flag mutations
+# (Survey / Early Access Feature endpoints). Kept off during the migration grace
+# period so we can notify affected customers before flipping it on per-org, then
+# to 100%. Remove the gate and make enforcement unconditional once fully rolled out.
+ENFORCE_FEATURE_FLAG_WRITE_SCOPE_FLAG = "enforce-feature-flag-write-scope-cross-resource"
+
+
+def parse_created_by_ids(value: Any) -> list[int]:
+    """Parse a `created_by_id` filter value into a list of user IDs.
+
+    Accepts a single int/str, a comma-separated string, or a JSON-encoded list
+    (as sent by the frontend creator multi-select). Keeps the original
+    single-value query param working for existing API consumers.
+    """
+    if value is None:
+        return []
+    if isinstance(value, bool):
+        return []
+    if isinstance(value, int):
+        return [value]
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return []
+        if text.startswith("["):
+            try:
+                value = json.loads(text)
+            except (json.JSONDecodeError, ValueError, RecursionError):
+                # Looks like a JSON list but doesn't parse — treat as no valid IDs
+                # rather than comma-splitting, which would half-apply malformed input
+                # (e.g. "[1,2" -> ["[1", "2"] -> silently filters by user 2).
+                return []
+        else:
+            value = text.split(",")
+    if not isinstance(value, list):
+        value = [value]
+
+    ids: list[int] = []
+    for item in value:
+        try:
+            ids.append(int(item))
+        except (TypeError, ValueError):
+            continue
+    return ids
+
 
 # Fields that Rust's FeatureFlag struct expects for historical evaluation
 RUST_FLAG_FIELDS = (
@@ -119,34 +182,66 @@ RUST_FLAG_FIELDS = (
 )
 
 
-def warn_if_missing_feature_flag_write_scope(
+def _is_enforce_feature_flag_write_scope_enabled(request, *, team_id: int | None) -> bool:
+    # Rollout gate for the feature_flag:write enforcement below. Evaluated against the
+    # organization that owns the *target* team, not the actor's current organization —
+    # otherwise a multi-org user could dodge enforcement by switching their current org
+    # to one where the rollout is off. Fails open (returns False) on missing context or
+    # any error, so a flag-service outage degrades to warn-only rather than blocking
+    # writes; the error is logged so a persistent failure is visible rather than silent.
+    user = getattr(request, "user", None)
+    if user is None or user.is_anonymous or team_id is None:
+        return False
+    try:
+        organization_id = str(Team.objects.values_list("organization_id", flat=True).get(pk=team_id))
+        return feature_enabled_or_false(
+            ENFORCE_FEATURE_FLAG_WRITE_SCOPE_FLAG,
+            user.distinct_id,
+            groups={"organization": organization_id},
+            group_properties={"organization": {"id": organization_id}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        logger.warning("enforce_feature_flag_write_scope_eval_failed", exc_info=True)
+        return False
+
+
+def _scope_audit_identity(authenticator) -> tuple[list[str], str, str | None, str | None] | None:
+    # (scopes, auth_kind, auth_id, auth_label) for a scoped token, or None for session and
+    # other non-token auth. Scope extraction is single-sourced via get_authenticator_scopes
+    # so the enforcement decision can't drift from APIScopePermission; the auth_kind/id/label
+    # below are audit-log metadata only.
+    scopes = get_authenticator_scopes(authenticator)
+    if scopes is None:
+        return None
+    if isinstance(authenticator, PersonalAPIKeyAuthentication):
+        key = authenticator.personal_api_key
+        return scopes, "personal_api_key", key.id, key.label
+    if isinstance(authenticator, OAuthAccessTokenAuthentication):
+        raw_id = getattr(authenticator.access_token, "id", None)
+        return scopes, "oauth_access_token", str(raw_id) if raw_id is not None else None, None
+    if isinstance(authenticator, IDJagAccessTokenAuthentication):
+        return scopes, "id_jag_access_token", None, None
+    psak = authenticator.project_secret_api_key
+    return scopes, "project_secret_api_key", str(getattr(psak, "id", "")) or None, None
+
+
+def assert_feature_flag_write_scope(
     request,
     *,
     action: str,
+    resource_scope: str,
     team_id: int | None = None,
     feature_flag_id: int | None = None,
 ) -> None:
-    # Temporary observability for a cross-resource scope bypass: SurveyViewSet and
-    # EarlyAccessFeatureViewSet mutate FeatureFlag rows under their own scope
-    # (`survey:write` / `early_access_feature:write`). Before enforcing
-    # `feature_flag:write` on these paths we want to know which customers rely on
-    # the transitive access so we can notify them. Remove this helper and its
-    # call sites once the scope is enforced.
-    authenticator = getattr(request, "successful_authenticator", None)
-    if isinstance(authenticator, PersonalAPIKeyAuthentication):
-        scopes = list(authenticator.personal_api_key.scopes or [])
-        auth_kind = "personal_api_key"
-        auth_id: str | None = authenticator.personal_api_key.id
-        auth_label: str | None = authenticator.personal_api_key.label
-    elif isinstance(authenticator, OAuthAccessTokenAuthentication):
-        scope_string = authenticator.access_token.scope or ""
-        scopes = scope_string.split()
-        auth_kind = "oauth_access_token"
-        raw_id = getattr(authenticator.access_token, "id", None)
-        auth_id = str(raw_id) if raw_id is not None else None
-        auth_label = None
-    else:
-        return
+    # Survey and Early Access Feature endpoints write FeatureFlag rows under their own
+    # scope. Require feature_flag:write for those writes too: always audit-log when it's
+    # missing, and raise once the rollout gate is enabled for the org.
+    identity = _scope_audit_identity(getattr(request, "successful_authenticator", None))
+    if identity is None:
+        return  # session / cookie auth has no scopes; access control is handled elsewhere
+    scopes, auth_kind, auth_id, auth_label = identity
 
     if "*" in scopes or "feature_flag:write" in scopes:
         return
@@ -163,6 +258,22 @@ def warn_if_missing_feature_flag_write_scope(
         user_id=getattr(getattr(request, "user", None), "id", None),
     )
 
+    if _is_enforce_feature_flag_write_scope_enabled(request, team_id=team_id):
+        # Tailor the remediation to the token type — only personal API keys are edited on the
+        # user-api-keys settings page; OAuth / ID-JAG / project-secret keys are managed elsewhere.
+        if auth_kind == "personal_api_key":
+            key_guidance = (
+                f"Add `feature_flag:write` to your personal API key at "
+                f"{settings.SITE_URL}/settings/user-api-keys (editing its scopes keeps the same key value), "
+                f"or use a key with the `*` scope."
+            )
+        else:
+            key_guidance = "Add `feature_flag:write` to the key you're using, or use a key with the `*` scope."
+        raise exceptions.PermissionDenied(
+            f"This action also modifies a feature flag, which requires the `feature_flag:write` scope "
+            f"in addition to `{resource_scope}`. {key_guidance}"
+        )
+
 
 def _is_realtime_cohort_flag_targeting_enabled(request) -> bool:
     """Check whether the realtime cohort flag targeting feature is enabled for this request."""
@@ -170,7 +281,7 @@ def _is_realtime_cohort_flag_targeting_enabled(request) -> bool:
         user = getattr(request, "user", None)
         if user is None or user.is_anonymous:
             return False
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             REALTIME_COHORT_FLAG_TARGETING_FLAG,
             user.distinct_id,
             groups={"organization": str(user.organization.id)},
@@ -283,6 +394,24 @@ def find_dependent_flags(flag_to_check: FeatureFlag) -> list[FeatureFlag]:
     )
 
 
+def raise_if_flag_has_dependents(flag: FeatureFlag, action: str = "disable") -> None:
+    """Raise ValidationError if any active flags depend on *flag*.
+
+    Centralises the format-and-raise logic so every caller (flag serializer,
+    experiment service, bulk-delete) stays in sync automatically.
+    """
+    dependent_flags = find_dependent_flags(flag)
+    if not dependent_flags:
+        return
+    names = ", ".join(f"{f.key} (ID: {f.id})" for f in dependent_flags[:5])
+    if len(dependent_flags) > 5:
+        names += f", and {len(dependent_flags) - 5} more"
+    raise exceptions.ValidationError(
+        f"Cannot {action} this feature flag because other flags depend on it: {names}. "
+        "Please update or disable the dependent flags first."
+    )
+
+
 def find_dependent_flags_batch(
     flags_to_check: list[FeatureFlag],
 ) -> dict[int, list[FeatureFlag]]:
@@ -342,22 +471,24 @@ def find_dependent_flags_batch(
 def _get_flag_rollout_info(flag: FeatureFlag, checker: FeatureFlagStatusChecker) -> dict[str, Any]:
     """Compute rollout state for a flag to include in bulk delete response.
 
-    Returns a dict with:
+    Thin adapter over ``FeatureFlagStatusChecker.get_rollout_summary`` so the
+    "fully rolled out" determination has a single source of truth. Maps the
+    summary to the bulk-delete vocabulary:
       - rollout_state: "fully_rolled_out", "not_rolled_out", or "partial"
       - active_variant: variant key if a multivariate flag is fully rolled out to one variant
     """
-    multivariate = flag.filters.get("multivariate", None)
+    summary = checker.get_rollout_summary(flag)
 
-    if multivariate:
-        is_fully_rolled_out, variant_key = checker.is_multivariate_flag_fully_rolled_out(flag)
-        if is_fully_rolled_out:
-            return {"rollout_state": "fully_rolled_out", "active_variant": variant_key}
-    elif checker.is_boolean_flag_fully_rolled_out(flag):
-        return {"rollout_state": "fully_rolled_out", "active_variant": None}
+    if summary.effectively_full_rollout:
+        active_variant = None
+        if summary.is_multivariate:
+            # summary already established full rollout; this only fetches the winning variant key.
+            # Both calls read the same in-memory flag, so they cannot disagree.
+            _, active_variant = checker.is_multivariate_flag_fully_rolled_out(flag)
+        return {"rollout_state": "fully_rolled_out", "active_variant": active_variant}
 
-    # Check if flag is effectively at 0%: all groups have rollout_percentage == 0
-    groups = flag.filters.get("groups", [])
-    if groups and all(g.get("rollout_percentage", None) == 0 for g in groups):
+    # Effectively at 0%: every release condition is at 0 (max across groups is 0).
+    if summary.max_rollout_percentage == 0:
         return {"rollout_state": "not_rolled_out", "active_variant": None}
 
     return {"rollout_state": "partial", "active_variant": None}
@@ -435,23 +566,46 @@ def check_flag_limits_for_team(
         )
 
 
-class RemoteConfigThrottle(BurstRateThrottle):
+# Default per-key and per-team cap for remote_config. Both throttles below respect
+# per-team overrides from REMOTE_CONFIG_RATE_LIMITS.
+REMOTE_CONFIG_DEFAULT_RATE = "600/minute"
+
+
+def _apply_remote_config_team_rate_override(throttle, view) -> None:
+    # Raise or lower a specific team's remote_config cap via REMOTE_CONFIG_RATE_LIMITS. On any
+    # lookup/parse failure, leave the default rate in place rather than failing the request.
+    team_id = throttle.safely_get_team_id_from_view(view)
+    if team_id:
+        try:
+            custom_rate = REMOTE_CONFIG_RATE_LIMITS.get(team_id)
+            if custom_rate:
+                num_requests, duration = throttle.parse_rate(custom_rate)
+                throttle.rate = custom_rate
+                throttle.num_requests = num_requests
+                throttle.duration = duration
+        except Exception:
+            logger.exception("Error getting team-specific rate limit for team %s", team_id)
+
+
+class RemoteConfigThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    # Per-key throttle; the PSAK-aware base also throttles PSAK requests, which the plain
+    # PersonalApiKeyRateThrottle would let through.
     scope = "feature_flag_remote_config"
-    rate = "600/minute"
+    rate = REMOTE_CONFIG_DEFAULT_RATE
 
     def allow_request(self, request, view):
-        logger = logging.getLogger(__name__)
+        _apply_remote_config_team_rate_override(self, view)
+        return super().allow_request(request, view)
 
-        team_id = self.safely_get_team_id_from_view(view)
-        if team_id:
-            try:
-                custom_rate = REMOTE_CONFIG_RATE_LIMITS.get(team_id)
-                if custom_rate:
-                    self.rate = custom_rate
-                    self.num_requests, self.duration = self.parse_rate(self.rate)
-            except Exception:
-                logger.exception(f"Error getting team-specific rate limit for team {team_id}")
 
+class RemoteConfigProjectSecretApiKeyTeamThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    # Per-team aggregate cap stacked alongside the per-key RemoteConfigThrottle so a project can't
+    # multiply its budget by minting many keys. Defense-in-depth for the new credential.
+    scope = "feature_flag_remote_config_psak_team"
+    rate = REMOTE_CONFIG_DEFAULT_RATE
+
+    def allow_request(self, request, view):
+        _apply_remote_config_team_rate_override(self, view)
         return super().allow_request(request, view)
 
 
@@ -470,7 +624,7 @@ class EvaluationTagsChecker:
 
         # Check FLAG_EVALUATION_TAGS feature flag
         try:
-            return posthoganalytics.feature_enabled(
+            return feature_enabled_or_false(
                 "flag-evaluation-tags",
                 request.user.distinct_id,
                 groups={"organization": str(request.user.organization.id)},
@@ -569,12 +723,11 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
                 capture_exception(e)
 
     def _log_evaluation_context_change(self, obj: FeatureFlag, before: list[str], after: list[str]) -> None:
-        from loginas.utils import is_impersonated_session
 
         from posthog.models.activity_logging.activity_log import Change, Detail
 
         request = self.context.get("request")
-        was_impersonated = is_impersonated_session(request) if request else False
+        was_impersonated = is_impersonated(request)
 
         log_activity(
             organization_id=obj.team.organization_id,
@@ -625,6 +778,10 @@ class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
     )
     filters = FeatureFlagFiltersSchemaSerializer(required=False, help_text="Feature flag targeting configuration.")
     active = serializers.BooleanField(required=False, help_text="Whether the feature flag is active.")
+    archived = serializers.BooleanField(
+        required=False,
+        help_text="Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).",
+    )
     tags = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -639,6 +796,26 @@ class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.",
+    )
+    ensure_experience_continuity = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Whether to persist a user's flag value across the anonymous-to-identified transition "
+        "(the 'persist across authentication steps' option). Incompatible with device_id bucketing.",
+    )
+    evaluation_runtime = serializers.ChoiceField(
+        choices=FeatureFlag.EVALUATION_RUNTIME_CHOICES,
+        required=False,
+        allow_null=True,
+        help_text="Where this flag is allowed to evaluate: 'server' (server-side SDKs only), "
+        "'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.",
+    )
+    bucketing_identifier = serializers.ChoiceField(
+        choices=FeatureFlag.BUCKETING_IDENTIFIER_CHOICES,
+        required=False,
+        allow_null=True,
+        help_text="Identifier used to bucket users into rollout percentages and variants: 'distinct_id' "
+        "(user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.",
     )
 
 
@@ -651,6 +828,10 @@ class FeatureFlagPartialUpdateRequestSchemaSerializer(serializers.Serializer):
     )
     filters = FeatureFlagFiltersSchemaSerializer(required=False, help_text="Feature flag targeting configuration.")
     active = serializers.BooleanField(required=False, help_text="Whether the feature flag is active.")
+    archived = serializers.BooleanField(
+        required=False,
+        help_text="Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).",
+    )
     tags = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -665,6 +846,26 @@ class FeatureFlagPartialUpdateRequestSchemaSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.",
+    )
+    ensure_experience_continuity = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Whether to persist a user's flag value across the anonymous-to-identified transition "
+        "(the 'persist across authentication steps' option). Incompatible with device_id bucketing.",
+    )
+    evaluation_runtime = serializers.ChoiceField(
+        choices=FeatureFlag.EVALUATION_RUNTIME_CHOICES,
+        required=False,
+        allow_null=True,
+        help_text="Where this flag is allowed to evaluate: 'server' (server-side SDKs only), "
+        "'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.",
+    )
+    bucketing_identifier = serializers.ChoiceField(
+        choices=FeatureFlag.BUCKETING_IDENTIFIER_CHOICES,
+        required=False,
+        allow_null=True,
+        help_text="Identifier used to bucket users into rollout percentages and variants: 'distinct_id' "
+        "(user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.",
     )
 
 
@@ -693,6 +894,11 @@ class FeatureFlagSerializer(
 
     ensure_experience_continuity = ClassicBehaviorBooleanFieldSerializer()
     has_enriched_analytics = ClassicBehaviorBooleanFieldSerializer()
+
+    archived = serializers.BooleanField(
+        required=False,
+        help_text="Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).",
+    )
 
     experiment_set = serializers.SerializerMethodField()
     experiment_set_metadata = serializers.SerializerMethodField()
@@ -732,6 +938,7 @@ class FeatureFlagSerializer(
             "filters",
             "deleted",
             "active",
+            "archived",
             "created_by",
             "created_at",
             "updated_at",
@@ -809,6 +1016,7 @@ class FeatureFlagSerializer(
         # regardless of creation_context (surveys, etc.) or evaluation contexts.
         self._validate_device_bucketing_with_persist_auth(attrs)
         self._validate_encrypted_payloads_require_remote_config(attrs)
+        self._validate_archived_flags_are_disabled(attrs)
         self._validate_flag_limits()
 
         request = self.context.get("request")
@@ -892,6 +1100,24 @@ class FeatureFlagSerializer(
                     "Cannot enable 'persist across authentication steps' when using device ID bucketing. "
                     "These features are incompatible."
                 )
+
+    def _validate_archived_flags_are_disabled(self, attrs: dict) -> None:
+        """An archived flag must be disabled — archived means "done for good", not paused."""
+        # Resolve effective values: use incoming attrs, falling back to instance for updates
+        archived = attrs.get("archived", getattr(self.instance, "archived", False) if self.instance else False)
+        # On create, fall back to the model default (active=True)
+        active = attrs.get("active", getattr(self.instance, "active", True) if self.instance else True)
+
+        if not (archived and active):
+            return
+
+        # If this request set archived=True, the user is archiving an enabled flag;
+        # otherwise they're enabling an already-archived flag.
+        if attrs.get("archived"):
+            raise serializers.ValidationError(
+                "Cannot archive an enabled feature flag. Disable it first, or send active: false in the same request."
+            )
+        raise serializers.ValidationError("Cannot enable an archived feature flag. Unarchive it first.")
 
     def _validate_encrypted_payloads_require_remote_config(self, attrs: dict) -> None:
         """Encrypted payloads are only valid on remote configuration flags."""
@@ -1065,12 +1291,6 @@ class FeatureFlagSerializer(
             if all(a == condition_aggregations[0] for a in condition_aggregations):
                 filters["aggregation_group_type_index"] = condition_aggregations[0]
             else:
-                if not self._is_mixed_targeting_enabled():
-                    raise serializers.ValidationError(
-                        "Mixed aggregation types across condition sets are not yet supported. "
-                        "All condition sets must use the same aggregation type.",
-                        code="invalid_input",
-                    )
                 filters["aggregation_group_type_index"] = None
 
         # Check Early Access Feature constraint: no condition set can use group
@@ -1159,9 +1379,26 @@ class FeatureFlagSerializer(
                         initial_cohort: Cohort = Cohort.objects.get(
                             pk=cast(str | int, prop.value), team__project_id=self.context["project_id"]
                         )
-                        dependency_cohorts = get_all_cohort_dependencies(initial_cohort)
+                        # Static cohorts (including one-time snapshots) hold a
+                        # materialised person list.  The populating criteria may
+                        # still be stored on the record, but they are inert – the
+                        # cohort no longer re-evaluates them, and the Rust engine's
+                        # extract_dependencies returns an empty set for them.  Skip
+                        # both the behavioural property check and the dependency walk
+                        # so snapshot cohorts can be used in flags without an extra
+                        # export step, even when their inert criteria reference
+                        # another cohort.  See #65270.
+                        dependency_cohorts = (
+                            []
+                            if initial_cohort.is_static
+                            else get_all_cohort_dependencies(initial_cohort, stop_traversal_at_static=True)
+                        )
                         for cohort in [initial_cohort, *dependency_cohorts]:
-                            if [prop for prop in cohort.properties.flat if prop.type == "behavioral"]:
+                            # Static cohorts have materialized membership, any preserved behavioral
+                            # filters are display-only and never evaluated, so skip them.
+                            if cohort.is_static:
+                                continue
+                            if any(cohort_prop.type == "behavioral" for cohort_prop in cohort.properties.flat):
                                 _validate_behavioral_cohort_for_feature_flag(
                                     cohort, allow_realtime_backfilled=self._allow_realtime_backfilled
                                 )
@@ -1373,26 +1610,6 @@ class FeatureFlagSerializer(
                 dependencies.add(flag_key)
         return dependencies
 
-    def _is_mixed_targeting_enabled(self) -> bool:
-        try:
-            request = self.context.get("request")
-            if not request:
-                return False
-            user = getattr(request, "user", None)
-            if user is None or user.is_anonymous:
-                return False
-            return posthoganalytics.feature_enabled(
-                MIXED_TARGETING_FLAG,
-                user.distinct_id,
-                groups={"organization": str(user.organization.id)},
-                group_properties={"organization": {"id": str(user.organization.id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        except Exception:
-            logger.exception("Failed to check mixed targeting flag")
-            return False
-
     def _is_early_exit_enabled(self) -> bool:
         try:
             request = self.context.get("request")
@@ -1401,7 +1618,7 @@ class FeatureFlagSerializer(
             user = getattr(request, "user", None)
             if user is None or user.is_anonymous:
                 return False
-            return posthoganalytics.feature_enabled(
+            return feature_enabled_or_false(
                 EARLY_EXIT_FLAG,
                 user.distinct_id,
                 groups={"organization": str(user.organization.id)},
@@ -1559,7 +1776,7 @@ class FeatureFlagSerializer(
 
         if "deleted" in validated_data and validated_data["deleted"] is True:
             # Check for linked early access features
-            if instance.features.count() > 0:
+            if instance.features.exists():
                 raise exceptions.ValidationError(
                     "Cannot delete a feature flag that is in use with early access features. Please delete the early access feature before deleting the flag."
                 )
@@ -1569,21 +1786,13 @@ class FeatureFlagSerializer(
             # only a currently running experiment blocks deletion.
             running_experiments = [exp for exp in instance.experiment_set.filter(deleted=False) if exp.is_running]
             if running_experiments:
-                experiment_ids = [exp.id for exp in running_experiments]
+                experiment_names = ", ".join(f'"{exp.name}" (ID: {exp.id})' for exp in running_experiments)
                 raise exceptions.ValidationError(
-                    f"Cannot delete a feature flag that is linked to running experiment(s) with ID(s): {', '.join(map(str, experiment_ids))}. Please stop the experiment(s) before deleting the flag."
+                    f"Cannot delete a feature flag that is linked to running experiment(s): {experiment_names}. Please stop the experiment(s) before deleting the flag."
                 )
 
             # Check for other flags that depend on this flag
-            dependent_flags = self._find_dependent_flags(instance)
-            if dependent_flags:
-                dependent_flag_names = [f"{flag.key} (ID: {flag.id})" for flag in dependent_flags[:5]]
-                if len(dependent_flags) > 5:
-                    dependent_flag_names.append(f"and {len(dependent_flags) - 5} more")
-                raise exceptions.ValidationError(
-                    f"Cannot delete this feature flag because other flags depend on it: {', '.join(dependent_flag_names)}. "
-                    f"Please update or delete the dependent flags first."
-                )
+            raise_if_flag_has_dependents(instance, action="delete")
 
             # Check if flag is used in session replay settings
             if Team.objects.filter(
@@ -1621,16 +1830,7 @@ class FeatureFlagSerializer(
 
         # Check for dependency conflicts when disabling a flag
         if "active" in validated_data and validated_data["active"] is False and instance.active is True:
-            # Check for other flags that depend on this flag
-            dependent_flags = self._find_dependent_flags(instance)
-            if dependent_flags:
-                dependent_flag_names = [f"{flag.key} (ID: {flag.id})" for flag in dependent_flags[:5]]
-                if len(dependent_flags) > 5:
-                    dependent_flag_names.append(f"and {len(dependent_flags) - 5} more")
-                raise exceptions.ValidationError(
-                    f"Cannot disable this feature flag because other flags depend on it: {', '.join(dependent_flag_names)}. "
-                    f"Please update or disable the dependent flags first."
-                )
+            raise_if_flag_has_dependents(instance)
 
         # Check for dependency conflicts when enabling a flag
         if "active" in validated_data and validated_data["active"] is True and instance.active is False:
@@ -1762,22 +1962,8 @@ class FeatureFlagSerializer(
                 # nosemgrep: idor-lookup-without-team -- dashboard objects validated via get_fields() queryset restriction
                 FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
 
-        # Propagate the new variants and aggregation group type index to the linked experiments
-        if "filters" in validated_data:
-            filters = validated_data["filters"] or {}
-            multivariate = filters.get("multivariate") or {}
-            variants = multivariate.get("variants", [])
-            aggregation_group_type_index = filters.get("aggregation_group_type_index")
-
-            for experiment in instance.experiment_set.all():
-                if experiment.parameters is None:
-                    experiment.parameters = {}
-                experiment.parameters["feature_flag_variants"] = variants
-                if aggregation_group_type_index is not None:
-                    experiment.parameters["aggregation_group_type_index"] = aggregation_group_type_index
-                else:
-                    experiment.parameters.pop("aggregation_group_type_index", None)
-                experiment.save()
+        # The linked feature flag is the source of truth for variants and aggregation group type;
+        # experiment reads derive these from the flag (see ExperimentBaseSerializer).
 
         if old_key != instance.key:
             _update_feature_flag_dashboard(instance, old_key)
@@ -1836,10 +2022,6 @@ class FeatureFlagSerializer(
             and original_flag[field] != getattr(current_instance, field)
             and validated_data[field] != getattr(current_instance, field)
         ]
-
-    def _find_dependent_flags(self, flag_to_check: FeatureFlag) -> list[FeatureFlag]:
-        """Find all active flags that depend on the given flag."""
-        return find_dependent_flags(flag_to_check)
 
     def _find_disabled_dependencies(self, flag_to_check: FeatureFlag) -> list[FeatureFlag]:
         """Find all disabled flags that the given flag depends on."""
@@ -2055,9 +2237,48 @@ class EvaluationReasonsResponseSerializer(serializers.Serializer):
     pass
 
 
+class FeatureFlagRolloutSummarySerializer(serializers.Serializer):
+    effectively_full_rollout = serializers.BooleanField(
+        help_text=(
+            "True if the flag is effectively rolled out to everyone, independent of recent evaluation. "
+            "For boolean flags this means at least one release condition targets 100% with no property "
+            "filters (or there are no release conditions); for multivariate flags it means a single variant "
+            "is served to 100% via a fully rolled out release condition. This is the signal for "
+            "'fully rolled out' / GA — unlike `status`, which only reflects recent evaluation."
+        )
+    )
+    has_targeting_conditions = serializers.BooleanField(
+        help_text=(
+            "True if any release condition has property filters, i.e. the flag is conditionally targeted "
+            "rather than a blanket rollout. When true, `max_rollout_percentage` is a percentage within the "
+            "targeted segment, not of the whole user base."
+        )
+    )
+    max_rollout_percentage = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Highest rollout percentage (0-100) across the flag's release conditions, treating a missing "
+            "percentage as 100. Null when the flag has no release conditions. Interpret together with "
+            "`has_targeting_conditions`."
+        ),
+    )
+    is_multivariate = serializers.BooleanField(
+        help_text="True if the flag serves multiple variants (has a multivariate variant set)."
+    )
+
+
 class FeatureFlagStatusResponseSerializer(serializers.Serializer):
-    status = serializers.CharField(help_text="Flag status: active, stale, deleted, or unknown")
+    status = serializers.CharField(
+        help_text=(
+            "Flag staleness/evaluation status: active, stale, archived, deleted, or unknown. 'active' means the flag "
+            "was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled "
+            "out. Use the `rollout` object to determine rollout completeness."
+        )
+    )
     reason = serializers.CharField(help_text="Human-readable explanation of the status")
+    rollout = FeatureFlagRolloutSummarySerializer(
+        help_text="Summary of the flag's rollout configuration, for determining whether it is fully rolled out."
+    )
 
 
 class DependentFlagSerializer(serializers.Serializer):
@@ -2275,6 +2496,35 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
             return []
 
 
+class EvaluationFeatureFlagSerializer(MinimalFeatureFlagSerializer):
+    """Flag representation for the SDK-facing evaluation paths: the flags cache the Rust
+    service reads (`serialize_feature_flags`) and the local-evaluation response.
+
+    Adds `has_experiment` on top of the minimal flag shape. It lives here rather than on
+    MinimalFeatureFlagSerializer so the many UI endpoints that embed the minimal serializer
+    (surveys, early access features, product tours, experiments, my_flags) don't each pay a
+    per-flag experiment lookup for a field only the SDKs consume.
+    """
+
+    has_experiment = serializers.SerializerMethodField(
+        help_text=(
+            "True if the flag has at least one non-deleted linked experiment. SDKs use this to decide whether "
+            "to keep all $feature_flag_called event properties or send a minimal event."
+        )
+    )
+
+    class Meta(MinimalFeatureFlagSerializer.Meta):
+        fields = [*MinimalFeatureFlagSerializer.Meta.fields, "has_experiment"]
+
+    def get_has_experiment(self, feature_flag: FeatureFlag) -> bool:
+        # The evaluation/cache batch queries annotate `_has_experiment` via a bulk Exists,
+        # so this avoids an N+1. The exists() fallback only fires for unannotated callers.
+        cached = getattr(feature_flag, "_has_experiment", None)
+        if cached is not None:
+            return cached
+        return flag_has_live_experiment(feature_flag.pk)
+
+
 class MyFlagsResponseSerializer(serializers.Serializer):
     feature_flag = MinimalFeatureFlagSerializer()
     value = serializers.JSONField()
@@ -2342,9 +2592,18 @@ class BulkDeleteFiltersSerializer(serializers.Serializer):
         required=False,
         help_text="Tag names to filter by. Flags carrying at least one of these tags match.",
     )
+    excluded_tags = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Tag names to exclude. Flags carrying any of these tags are filtered out.",
+    )
     has_evaluation_contexts = serializers.BooleanField(
         required=False,
         help_text="When true, only matches flags with at least one evaluation context.",
+    )
+    archived = serializers.BooleanField(
+        required=False,
+        help_text="Filter by archived state. When omitted, archived flags are excluded.",
     )
 
 
@@ -2424,6 +2683,7 @@ class FeatureFlagViewSet(
     """
 
     scope_object = "feature_flag"
+    psak_allowed_actions = ["remote_config"]
     # Opt the shared TaggedItemViewSetMixin action into feature_flag:write.
     # Other inheritors of the mixin don't extend write actions and so still
     # reject PAT calls — keeps the scope local to this viewset.
@@ -2516,6 +2776,8 @@ class FeatureFlagViewSet(
                 Q(id__in=product_tour_internal_targeting_flags)
             )
 
+            queryset = exclude_archived_unless_requested(queryset, requested="archived" in self.request.GET)
+
             # add additional filters provided by the client
             queryset = self._filter_request(self.request, queryset)
 
@@ -2541,7 +2803,10 @@ class FeatureFlagViewSet(
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="The User ID which initially created the feature flag.",
+                description=(
+                    "Filter by the user(s) who created the feature flag. Accepts a single user ID, "
+                    "or a JSON-encoded / comma-separated list of user IDs to match any of them."
+                ),
             ),
             OpenApiParameter(
                 "search",
@@ -2562,7 +2827,7 @@ class FeatureFlagViewSet(
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                enum=["server", "client", "both"],
+                enum=[choice[0] for choice in FeatureFlag.EVALUATION_RUNTIME_CHOICES],
                 description="Filter feature flags by their evaluation runtime.",
             ),
             OpenApiParameter(
@@ -2578,6 +2843,21 @@ class FeatureFlagViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description="JSON-encoded list of tag names to filter feature flags by.",
+            ),
+            OpenApiParameter(
+                "excluded_tags",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="JSON-encoded list of tag names to exclude. Flags carrying any of these tags are filtered out.",
+            ),
+            OpenApiParameter(
+                "archived",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["true", "false"],
+                description="Filter by archived state. When omitted, archived flags are excluded.",
             ),
             OpenApiParameter(
                 "has_evaluation_contexts",
@@ -2789,11 +3069,23 @@ class FeatureFlagViewSet(
             FeatureFlag.objects.filter(team__project_id=self.project_id)
             .exclude(Q(id__in=survey_flag_ids))
             .exclude(Q(id__in=product_tour_internal_targeting_flags))
+            .annotate(
+                evaluation_tag_names_agg=ArrayAgg(
+                    "flag_evaluation_contexts__evaluation_context__name",
+                    filter=Q(flag_evaluation_contexts__isnull=False),
+                    distinct=True,
+                ),
+            )
             .order_by("-created_at")
         )
 
         if not feature_flags:
             return Response([])
+
+        # Transfer the bulk-aggregated context names onto _evaluation_tag_names so the
+        # serializer answers without a per-flag query (see get_evaluation_contexts).
+        for flag in feature_flags:
+            flag._evaluation_tag_names = getattr(flag, "evaluation_tag_names_agg", None)
 
         groups = request.validated_query_data.get("groups", {})
         # Ensure groups is always a dict, not a string
@@ -2915,6 +3207,8 @@ class FeatureFlagViewSet(
         ).values_list("internal_targeting_flag_id", flat=True)
         queryset = queryset.exclude(Q(id__in=survey_flag_ids)).exclude(Q(id__in=product_tour_internal_targeting_flags))
 
+        queryset = exclude_archived_unless_requested(queryset, requested="archived" in self.request.GET)
+
         # Apply client filters (same filtering as list endpoint)
         queryset = self._filter_request(self.request, queryset)
 
@@ -3013,6 +3307,9 @@ class FeatureFlagViewSet(
         queryset = queryset.exclude(Q(id__in=survey_flag_ids)).exclude(Q(id__in=product_tour_internal_targeting_flags))
 
         if filters:
+            # Match the list endpoint's semantics: archived flags are not deleted by
+            # filter-based bulk deletion unless explicitly requested.
+            queryset = exclude_archived_unless_requested(queryset, requested="archived" in filters)
             # Apply filters from request body (same logic as _filter_request but from dict)
             queryset = self._apply_filters(filters, queryset)
         else:
@@ -3081,7 +3378,7 @@ class FeatureFlagViewSet(
         activity_log_entries: list[LogActivityEntry] = []
 
         current_user = request.user if request.user.is_authenticated else None
-        was_impersonated = is_impersonated_session(request)
+        was_impersonated = is_impersonated(request)
 
         for flag in flags_list:
             flag_id = flag.id
@@ -3102,12 +3399,12 @@ class FeatureFlagViewSet(
             # currently running experiment blocks deletion.
             running_experiments = [exp for exp in flag.experiment_set.all() if not exp.deleted and exp.is_running]
             if running_experiments:
-                experiment_ids = [exp.id for exp in running_experiments]
+                experiment_names = ", ".join(f'"{exp.name}" (ID: {exp.id})' for exp in running_experiments)
                 errors.append(
                     {
                         "id": flag_id,
                         "key": flag.key,
-                        "reason": f"Cannot delete a feature flag linked to running experiment(s): {', '.join(map(str, experiment_ids))}",
+                        "reason": f"Cannot delete a feature flag linked to running experiment(s): {experiment_names}",
                     }
                 )
                 continue
@@ -3220,66 +3517,14 @@ class FeatureFlagViewSet(
 
         for key, value in filters.items():
             if key == "active":
-                if value == "STALE":
-                    # Get stale flags using the best available signal:
-                    # 1. If last_called_at exists: flag hasn't been called in 30+ days
-                    # 2. If last_called_at is NULL: flag is 100% rolled out and 30+ days old
-                    stale_threshold = thirty_days_ago()
-                    usage_based_stale = Q(last_called_at__lt=stale_threshold, active=True)
-                    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
-                    config_based_queryset = queryset.filter(
-                        last_called_at__isnull=True,
-                        active=True,
-                        created_at__lt=stale_threshold,
-                    ).extra(
-                        where=[
-                            """
-                            (
-                                (
-                                    EXISTS (
-                                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
-                                        WHERE elem->>'rollout_percentage' = '100'
-                                        AND (elem->'properties')::text = '[]'::text
-                                    )
-                                    AND (posthog_featureflag.filters->>'multivariate' IS NULL
-                                        OR posthog_featureflag.filters->'multivariate' = '{}'::jsonb
-                                        OR jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') = 0)
-                                )
-                                OR
-                                (
-                                    EXISTS (
-                                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'multivariate'->'variants') AS variant
-                                        WHERE variant->>'rollout_percentage' = '100'
-                                    )
-                                    AND EXISTS (
-                                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
-                                        WHERE elem->>'rollout_percentage' = '100'
-                                        AND (elem->'properties')::text = '[]'::text
-                                    )
-                                )
-                                OR
-                                (
-                                    EXISTS (
-                                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
-                                        WHERE elem->>'rollout_percentage' = '100'
-                                        AND (elem->'properties')::text = '[]'::text
-                                        AND elem->'variant' IS NOT NULL
-                                        AND elem->>'variant' IS NOT NULL
-                                    )
-                                    AND (posthog_featureflag.filters->>'multivariate' IS NOT NULL AND jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') > 0)
-                                )
-                                OR (posthog_featureflag.filters IS NULL OR posthog_featureflag.filters = '{}'::jsonb)
-                            )
-                            """
-                        ]
-                    )
-                    queryset = queryset.filter(usage_based_stale) | config_based_queryset
-                else:
-                    # Handle both string "true"/"false" and boolean True/False
-                    is_active = value == "true" or value is True
-                    queryset = queryset.filter(active=is_active)
+                queryset = filter_flags_by_active_param(queryset, value)
+            elif key == "archived":
+                is_archived = value if isinstance(value, bool) else str(value).lower() == "true"
+                queryset = queryset.filter(archived=is_archived)
             elif key == "created_by_id":
-                queryset = queryset.filter(created_by_id=value)
+                user_ids = parse_created_by_ids(value)
+                if user_ids:
+                    queryset = queryset.filter(created_by_id__in=user_ids)
             elif key == "search":
                 if isinstance(value, str):
                     value = value.strip()
@@ -3327,6 +3572,21 @@ class FeatureFlagViewSet(
                     tags = value if isinstance(value, list) else json.loads(value) if isinstance(value, str) else []
                     if tags:
                         queryset = queryset.filter(tagged_items__tag__name__in=tags).distinct()
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            elif key == "excluded_tags":
+                try:
+                    # Handle both list and JSON string
+                    excluded_tags = (
+                        value if isinstance(value, list) else json.loads(value) if isinstance(value, str) else []
+                    )
+                    if excluded_tags:
+                        # Exclude by ID subquery so a flag carrying both an excluded and a
+                        # non-excluded tag is still reliably filtered out.
+                        flags_with_excluded_tags = FeatureFlag.objects.filter(
+                            team__project_id=self.project_id, tagged_items__tag__name__in=excluded_tags
+                        ).values("pk")
+                        queryset = queryset.exclude(pk__in=flags_with_excluded_tags)
                 except (json.JSONDecodeError, TypeError):
                     pass
             elif key == "has_evaluation_contexts":
@@ -3502,11 +3762,14 @@ class FeatureFlagViewSet(
             feature_flag=feature_flag,
         )
         flag_status, reason = checker.get_status()
+        rollout = checker.get_rollout_summary(feature_flag)
 
-        return Response(
-            {"status": flag_status, "reason": reason},
-            status=status.HTTP_200_OK,
+        # Route through the declared serializer so it is the single source of truth for the
+        # response shape and the dataclass cannot silently drift from the OpenAPI/MCP schema.
+        response = FeatureFlagStatusResponseSerializer(
+            {"status": flag_status, "reason": reason, "rollout": asdict(rollout)}
         )
+        return Response(response.data, status=status.HTTP_200_OK)
 
     @validated_request(
         request_serializer=FeatureFlagTestEvaluationRequestSerializer,
@@ -3812,11 +4075,22 @@ class FeatureFlagViewSet(
         required_scopes=["feature_flag:read"],
         authentication_classes=[
             TeamSecretTokenAuthentication,
+            ProjectSecretAPIKeyAuthentication,
         ],
         permission_classes=[TeamSecretTokenPermission],
-        throttle_classes=[RemoteConfigThrottle],
+        throttle_classes=[RemoteConfigThrottle, RemoteConfigProjectSecretApiKeyTeamThrottle],
     )
     def remote_config(self, request: request.Request, **kwargs):
+        response = self._remote_config_response(request, **kwargs)
+        # Temporary (Rust remote_config port, phase 2): shadow-compare against Rust; delete after cutover.
+        # Guarded here too so a bug in the throwaway shadow can never break the live endpoint.
+        try:
+            shadow_compare_remote_config(request, response, project_id=self.project_id, key=kwargs["pk"])
+        except Exception:
+            logger.exception("remote_config shadow comparison failed")
+        return response
+
+    def _remote_config_response(self, request: request.Request, **kwargs) -> Response:
         is_flag_id_provided = kwargs["pk"].isdigit()
 
         try:
@@ -3831,8 +4105,17 @@ class FeatureFlagViewSet(
         if not feature_flag.is_remote_configuration:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
+        # Remote config usage is tracked for telemetry only (never billed), and only genuine SDK
+        # fetches (legacy team secret token or feature-flag-scoped PSAK, both phs_…) count. Session
+        # and personal-key requests are the app's own preview/decrypt feature, not customer usage,
+        # and a session-authenticated GET would otherwise let a cross-site request inflate the team's
+        # usage numbers.
+        should_count = is_service_auth(request)
+
         if not feature_flag.has_encrypted_payloads:
             payloads = feature_flag.filters.get("payloads", {})
+            if should_count:
+                increment_request_count(self.team.pk, 1, FlagRequestType.REMOTE_CONFIG)
             return Response(payloads.get("true") or None)
 
         # Note: This decryption step is protected by the feature_flag:read scope, so we can assume the
@@ -3842,9 +4125,9 @@ class FeatureFlagViewSet(
             request, feature_flag.filters.get("payloads", {})
         )
 
-        sampling_rate = getattr(settings, "DECIDE_BILLING_SAMPLING_RATE", 1.0)
-        count = int(1 / sampling_rate)
-        increment_request_count(self.team.pk, count, FlagRequestType.REMOTE_CONFIG)
+        # Count after a successful decryption so a decrypt failure (500) is never counted.
+        if should_count:
+            increment_request_count(self.team.pk, 1, FlagRequestType.REMOTE_CONFIG)
 
         return Response(decrypted_flag_payloads["true"] or None)
 

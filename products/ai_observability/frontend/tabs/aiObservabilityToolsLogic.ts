@@ -1,7 +1,7 @@
 import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
 
-import { escapeRegex } from 'lib/actionUtils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { escapeRegex } from 'lib/utils/actions'
 
 import { groupsModel } from '~/models/groupsModel'
 import {

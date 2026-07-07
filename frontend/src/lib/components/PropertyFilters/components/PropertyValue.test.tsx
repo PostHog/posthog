@@ -7,7 +7,7 @@ import { Provider } from 'kea'
 import { useMocks } from '~/mocks/jest'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { initKeaTests } from '~/test/init'
-import { PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
+import { GroupTypeIndex, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
 
 import { PropertyValue } from './PropertyValue'
 
@@ -220,5 +220,28 @@ describe('PropertyValue', () => {
         await userEvent.type(input, '7a.8$')
 
         expect(input).toHaveValue('7.8')
+    })
+
+    it('renders a group `id` filter with the generic value editor, not the group-name picker', () => {
+        // Reverting the editor swap for `id` is the regression fix: a group property
+        // named `id` must keep its normal value input (GroupKeySelect, used only for
+        // the true `$group_key` identity, would replace it with a group search).
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="id"
+                    type={PropertyFilterType.Group}
+                    groupTypeIndex={0 as GroupTypeIndex}
+                    operator={PropertyOperator.Exact}
+                    onSet={jest.fn()}
+                    value={['org-abc-123']}
+                />
+            </Provider>
+        )
+
+        // GroupKeySelect's distinctive placeholder is absent — the generic editor is used.
+        expect(screen.queryByPlaceholderText('Search groups by name...')).not.toBeInTheDocument()
+        // The pasted id is shown as the value.
+        expect(screen.getByText('org-abc-123')).toBeInTheDocument()
     })
 })

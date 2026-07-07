@@ -53,7 +53,7 @@ def wait_for_backfill_runs(backfill_id: str, timeout: int = 30) -> list[BatchExp
 def test_cancelling_a_batch_export_backfill(client: HttpClient, organization, team, user, temporal):
     """Test cancelling a BatchExportBackfill."""
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",

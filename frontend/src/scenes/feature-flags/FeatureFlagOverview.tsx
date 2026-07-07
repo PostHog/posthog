@@ -61,7 +61,6 @@ export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): 
     const { toggleFeatureFlagActive } = useActions(featureFlagLogic)
 
     const hasEvaluationContexts = !!featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] // NB: the tag was named "flag-evaluation-tags" before we renamed the concept – i.e. this powers evaluation contexts even though the name implies tags
-    const hasEvaluationRuntimes = !!featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES]
 
     const multivariateEnabled = !!featureFlag.filters?.multivariate
     const variants = featureFlag.filters?.multivariate?.variants || []
@@ -195,18 +194,16 @@ export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): 
                                 />
                             </div>
 
-                            {hasEvaluationRuntimes && (
-                                <div className="flex flex-col gap-2">
-                                    <label className="text-sm font-medium">Evaluation runtime</label>
-                                    <div className="flex items-center gap-2">
-                                        {evaluationRuntimeDisplay.icon}
-                                        <span className="text-sm">{evaluationRuntimeDisplay.label}</span>
-                                        <LemonTag type="muted" size="small">
-                                            {evaluationRuntimeDisplay.tag}
-                                        </LemonTag>
-                                    </div>
+                            <div className="flex flex-col gap-2">
+                                <label className="text-sm font-medium">Evaluation runtime</label>
+                                <div className="flex items-center gap-2">
+                                    {evaluationRuntimeDisplay.icon}
+                                    <span className="text-sm">{evaluationRuntimeDisplay.label}</span>
+                                    <LemonTag type="muted" size="small">
+                                        {evaluationRuntimeDisplay.tag}
+                                    </LemonTag>
                                 </div>
-                            )}
+                            </div>
 
                             {!featureFlag.is_remote_configuration && (
                                 <div className="flex flex-col gap-2">

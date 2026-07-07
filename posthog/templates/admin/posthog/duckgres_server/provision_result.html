@@ -1,0 +1,37 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+<div style="max-width: 640px;">
+    <p>Provisioned a managed warehouse for organization <code>{{ organization_id }}</code>
+    (first team <code>{{ team_id }}</code>).</p>
+
+    <p style="background: #fff3cd; border: 1px solid #ffe69c; border-radius: 4px; padding: 12px 16px; color: #664d03;">
+        <strong>Save the password now.</strong> The root password is returned by the control plane
+        only once and is stored encrypted afterwards &mdash; it <strong>cannot be retrieved later</strong>.
+        If you lose it, the warehouse must be re-provisioned or its credentials rotated.
+    </p>
+
+    <h2>Connection</h2>
+    <table style="border-collapse: collapse; margin-bottom: 20px;">
+        <tr><th style="text-align: left; padding: 4px 16px 4px 0;">Host</th><td><code>{{ connection.host }}</code></td></tr>
+        <tr><th style="text-align: left; padding: 4px 16px 4px 0;">Port</th><td><code>{{ connection.port }}</code></td></tr>
+        <tr><th style="text-align: left; padding: 4px 16px 4px 0;">Database</th><td><code>{{ connection.database }}</code></td></tr>
+        <tr><th style="text-align: left; padding: 4px 16px 4px 0;">Username</th><td><code>{{ connection.username }}</code></td></tr>
+    </table>
+
+    <h2>Password</h2>
+    {% if password %}
+    <p>Copy this now:</p>
+    <input type="text" readonly value="{{ password }}" onclick="this.select()"
+           style="width: 100%; padding: 8px; font-family: monospace; font-size: 14px;" />
+    {% else %}
+    <p><em>The control plane did not return a password in this response. Retrieve the credentials
+    via the duckgres control plane / 1Password onboarding flow.</em></p>
+    {% endif %}
+
+    <p style="margin-top: 24px;">
+        <a href="{% url 'admin:posthog_duckgresserver_changelist' %}" class="default" style="padding: 8px 16px;">Done</a>
+    </p>
+</div>
+{% endblock %}

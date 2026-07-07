@@ -149,6 +149,13 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     ai_s3_region: "us-east-1".to_string(),
     ai_s3_access_key_id: None,
     ai_s3_secret_access_key: None,
+    ai_gateway_signing_secret: None,
+    ai_sink_mode: capture::config::AiSinkMode::Primary,
+    ai_secondary_allowlist_tokens: None,
+    ai_secondary_kafka_hosts: None,
+    ai_secondary_kafka_topic: None,
+    ai_secondary_kafka_tls: false,
+    ai_secondary_kafka_client_id: String::new(),
     http1_header_read_timeout_ms: Some(5000), // 5 seconds default
     body_chunk_read_timeout_ms: None,         // disabled by default in tests
     body_read_chunk_size_kb: 256,             // 256KB default
@@ -161,6 +168,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     capture_v1_sinks: String::new(),
     capture_v1_max_compressed_body_bytes: 10 * 1024 * 1024,
     capture_v1_max_decompressed_body_bytes: 50 * 1024 * 1024,
+    capture_v1_scatter_gather_min_batch: 8,
 });
 
 /// Build the per-sink env snapshot the v1 sink loader expects, with every
@@ -222,6 +230,16 @@ impl ServerHandle {
     pub async fn for_v1_topic(topic: &EphemeralTopic) -> Self {
         let mut config = DEFAULT_CONFIG.clone();
         config.capture_v1_sinks = "msk".to_string();
+        let sink_env = v1_sink_env_for_topic("msk", topic.topic_name());
+        Self::for_config_with_sink_env(config, sink_env).await
+    }
+
+    /// Like `for_v1_topic`, with the AI-gateway signing secret configured so the
+    /// provenance check runs.
+    pub async fn for_v1_topic_with_signing_secret(topic: &EphemeralTopic, secret: &str) -> Self {
+        let mut config = DEFAULT_CONFIG.clone();
+        config.capture_v1_sinks = "msk".to_string();
+        config.ai_gateway_signing_secret = Some(secret.to_string());
         let sink_env = v1_sink_env_for_topic("msk", topic.topic_name());
         Self::for_config_with_sink_env(config, sink_env).await
     }
@@ -297,6 +315,34 @@ impl ServerHandle {
             .header("PostHog-Request-Timestamp", "2026-03-19T14:30:00.000Z")
             .header("content-type", "application/json")
             .header("user-agent", "test-client/1.0")
+            .body(body)
+            .send()
+            .await
+            .expect("failed to send request")
+    }
+
+    /// Like `capture_v1`, plus the AI-gateway provenance headers.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn capture_v1_with_gateway_headers<T: Into<reqwest::Body>>(
+        &self,
+        token: &str,
+        body: T,
+        signature: &str,
+        signed_at: &str,
+        request_id: &str,
+    ) -> reqwest::Response {
+        self.client
+            .post(format!("http://{:?}/i/v1/analytics/events", self.addr))
+            .header("authorization", format!("Bearer {token}"))
+            .header("PostHog-Sdk-Info", "posthog-rs/1.0.0")
+            .header("PostHog-Attempt", "1")
+            .header("PostHog-Request-Id", uuid::Uuid::new_v4().to_string())
+            .header("PostHog-Request-Timestamp", "2026-03-19T14:30:00.000Z")
+            .header("content-type", "application/json")
+            .header("user-agent", "test-client/1.0")
+            .header("PostHog-Ai-Gateway-Signature", signature)
+            .header("PostHog-Ai-Gateway-Signed-At", signed_at)
+            .header("PostHog-Ai-Gateway-Request-Id", request_id)
             .body(body)
             .send()
             .await

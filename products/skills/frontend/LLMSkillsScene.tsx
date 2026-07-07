@@ -1,17 +1,20 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 
-import { IconPlusSmall } from '@posthog/icons'
-import { LemonSwitch, Link } from '@posthog/lemon-ui'
+import { IconDownload, IconPlusSmall, IconUpload } from '@posthog/icons'
+import { LemonDivider, LemonModal, LemonSwitch, LemonTabs, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -25,9 +28,17 @@ import { atColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import type { LLMSkillListApi } from 'products/ai_observability/frontend/generated/api.schemas'
+import type { LLMSkillListApi } from 'products/skills/frontend/generated/api.schemas'
 
-import { SKILLS_GROUP_LIMIT, SKILLS_PER_PAGE, SkillGroupNode, SkillGroupTree, llmSkillsLogic } from './llmSkillsLogic'
+import {
+    DEFAULT_SKILLS_TAB_KEY,
+    SKILLS_GROUP_LIMIT,
+    SKILLS_PER_PAGE,
+    SkillGroupNode,
+    SkillGroupTree,
+    llmSkillsLogic,
+    skillTabUrl,
+} from './llmSkillsLogic'
 import { SKILL_NAME_MAX_LENGTH, validateSkillName } from './skillConstants'
 import { openArchiveSkillDialog } from './skillSceneComponents'
 
@@ -37,10 +48,20 @@ export const scene: SceneExport = {
     productKey: ProductKey.AI_OBSERVABILITY,
 }
 
+// Mirrors `metadata.seeded_by` stamped by the Signals scout harness (kept local so the skills
+// product needn't depend on the signals product). Its presence marks a canonical scout.
+const HARNESS_SEEDED_BY = 'signals_scout_harness'
+
+function isCanonicalScout(skill: LLMSkillListApi): boolean {
+    return (skill.metadata as Record<string, unknown> | undefined)?.seeded_by === HARNESS_SEEDED_BY
+}
+
 function buildSkillColumns(
     skillUrl: (name: string) => string,
     duplicateSkill: (name: string, newName: string) => void,
-    deleteSkill: (name: string) => void
+    deleteSkill: (name: string) => void,
+    downloadSkillZip: (name: string) => void,
+    options?: { showScoutOrigin?: boolean }
 ): LemonTableColumns<LLMSkillListApi> {
     return [
         {
@@ -56,6 +77,23 @@ function buildSkillColumns(
                 )
             },
         },
+        ...(options?.showScoutOrigin
+            ? ([
+                  {
+                      title: 'Origin',
+                      key: 'origin',
+                      width: 110,
+                      render: function renderOrigin(_, skill) {
+                          const canonical = isCanonicalScout(skill)
+                          return (
+                              <LemonTag type={canonical ? 'completion' : 'default'}>
+                                  {canonical ? 'Canonical' : 'Custom'}
+                              </LemonTag>
+                          )
+                      },
+                  },
+              ] as LemonTableColumns<LLMSkillListApi>)
+            : []),
         {
             title: 'Description',
             dataIndex: 'description',
@@ -101,6 +139,15 @@ function buildSkillColumns(
                             <>
                                 <LemonButton to={skillUrl(skill.name)} data-attr="llma-skill-dropdown-view" fullWidth>
                                     View
+                                </LemonButton>
+
+                                <LemonButton
+                                    icon={<IconDownload />}
+                                    onClick={() => downloadSkillZip(skill.name)}
+                                    data-attr="llma-skill-dropdown-download"
+                                    fullWidth
+                                >
+                                    Download .zip
                                 </LemonButton>
 
                                 <AccessControlAction
@@ -255,19 +302,158 @@ function GroupedSkillsView({
     )
 }
 
-export function LLMSkillsScene(): JSX.Element {
-    const { setFilters, deleteSkill, duplicateSkill } = useActions(llmSkillsLogic)
-    const { skills, skillsLoading, sorting, pagination, filters, skillCountLabel, groupedSkills } =
+function MarketplaceCredentialSection(): JSX.Element {
+    const { marketplaceCommand, codexCommand, marketplaceState, marketplaceLoading, issuingCredential } =
         useValues(llmSkillsLogic)
+    const { issueMarketplaceCommand } = useActions(llmSkillsLogic)
+
+    if (marketplaceLoading && !marketplaceState) {
+        return (
+            <div className="flex items-center gap-2 text-sm text-secondary">
+                <Spinner /> Checking your skill store connection…
+            </div>
+        )
+    }
+
+    const justIssued = !!marketplaceState?.token
+    const alreadyConnected = !!marketplaceState?.connected && !justIssued
+
+    return (
+        <>
+            {justIssued ? (
+                <LemonBanner type="warning" className="text-sm">
+                    This token is shown <b>once</b>. It is <b>read-only</b> and scoped to skills only (
+                    <code>llm_skill:read</code>) — it can't touch anything else. It's tied to your account and
+                    automatically stops working if you lose access to this project. Manage or revoke it anytime in{' '}
+                    <Link to={urls.settings('user-api-keys')}>Settings → Personal API keys</Link>.
+                </LemonBanner>
+            ) : alreadyConnected ? (
+                <LemonBanner type="info" className="text-sm">
+                    You already have a skill store credential
+                    {marketplaceState?.mask_value ? (
+                        <>
+                            {' '}
+                            (<code>{marketplaceState.mask_value}</code>)
+                        </>
+                    ) : null}
+                    {marketplaceState?.created_at ? <> from {dayjs(marketplaceState.created_at).fromNow()}</> : null}.
+                    Existing setups keep working — the token can't be shown again. Setting up a new machine? Generate an
+                    install command below.
+                </LemonBanner>
+            ) : (
+                <p className="m-0 text-sm text-secondary">
+                    We'll mint a dedicated <b>read-only</b> credential (scope <code>llm_skill:read</code> only — it can
+                    read this project's skills and nothing else), just for you, and drop it straight into a
+                    ready-to-paste command.
+                </p>
+            )}
+            {!justIssued && (
+                <div>
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <LemonButton
+                            type="primary"
+                            onClick={() => issueMarketplaceCommand(alreadyConnected)}
+                            loading={issuingCredential}
+                            data-attr="generate-marketplace-credential-button"
+                        >
+                            {alreadyConnected
+                                ? 'Generate an install command (replaces your old token)'
+                                : 'Generate read-only credential & command'}
+                        </LemonButton>
+                    </AccessControlAction>
+                </div>
+            )}
+            <div className="flex flex-col gap-1">
+                <p className="m-0 text-xs font-semibold text-secondary">Claude Code</p>
+                <CodeSnippet language={Language.Bash} thing="Claude Code command">
+                    {marketplaceCommand}
+                </CodeSnippet>
+                <p className="m-0 text-xs text-secondary">
+                    Run each line in Claude Code — skills then appear as <code>/posthog-skill-store:&lt;name&gt;</code>,
+                    auto-updating as you publish.
+                </p>
+            </div>
+            <div className="flex flex-col gap-1">
+                <p className="m-0 text-xs font-semibold text-secondary">Codex</p>
+                <CodeSnippet language={Language.Bash} thing="Codex command">
+                    {codexCommand}
+                </CodeSnippet>
+                <p className="m-0 text-xs text-secondary">
+                    Run both lines in your terminal — the same marketplace, added to Codex and installed. Codex loads
+                    the skills automatically.
+                </p>
+            </div>
+        </>
+    )
+}
+
+function ConnectToClaudeCodeModal(): JSX.Element {
+    const { connectModalOpen } = useValues(llmSkillsLogic)
+    const { setConnectModalOpen } = useActions(llmSkillsLogic)
+
+    return (
+        <LemonModal
+            isOpen={connectModalOpen}
+            onClose={() => setConnectModalOpen(false)}
+            title="Connect a coding agent"
+            description="Install your team's skills into Claude Code or Codex with automatic updates – or let any MCP-connected agent load them directly."
+            width={640}
+        >
+            <div className="flex flex-col gap-4">
+                <section className="flex flex-col gap-2">
+                    <h4 className="m-0 font-semibold">Plugin marketplace (Claude Code &amp; Codex)</h4>
+                    <MarketplaceCredentialSection />
+                </section>
+
+                <LemonDivider />
+
+                <section className="flex flex-col gap-2">
+                    <h4 className="m-0 font-semibold">Any agent (PostHog MCP)</h4>
+                    <p className="m-0 text-sm text-secondary">
+                        If the PostHog MCP is connected, an agent can list and load these skills directly via its{' '}
+                        <code>skill-*</code> tools — no marketplace needed. Just ask:
+                    </p>
+                    <CodeSnippet language={Language.Text} thing="agent prompt">
+                        List my PostHog skills, then load the one that fits this task.
+                    </CodeSnippet>
+                </section>
+            </div>
+        </LemonModal>
+    )
+}
+
+export function LLMSkillsScene(): JSX.Element {
+    const { setFilters, deleteSkill, duplicateSkill, downloadSkillZip, importSkill, setConnectModalOpen } =
+        useActions(llmSkillsLogic)
+    const {
+        skills,
+        skillsLoading,
+        sorting,
+        pagination,
+        filters,
+        skillCountLabel,
+        groupedSkills,
+        importing,
+        activeTabKey,
+        activeCategory,
+        activeTabDescription,
+        visibleCategoryTabs,
+    } = useValues(llmSkillsLogic)
     const { searchParams } = useValues(router)
     const skillUrl = (name: string): string => combineUrl(urls.skill(name), searchParams).url
+    const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+    const showScoutOrigin = activeCategory === 'scout'
 
     // Memoize columns so the array reference doesn't change every render — otherwise every
     // nested LemonTable inside the grouped tree reconciles on each parent re-render.
     const columns = useMemo(
-        () => buildSkillColumns(skillUrl, duplicateSkill, deleteSkill),
+        () => buildSkillColumns(skillUrl, duplicateSkill, deleteSkill, downloadSkillZip, { showScoutOrigin }),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [searchParams, duplicateSkill, deleteSkill]
+        [searchParams, duplicateSkill, deleteSkill, downloadSkillZip, showScoutOrigin]
     )
 
     const showGroupedView = filters.group_by_prefix && groupedSkills && !skillsLoading
@@ -276,26 +462,80 @@ export function LLMSkillsScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <input
+                ref={fileInputRef}
+                type="file"
+                accept=".zip,application/zip"
+                className="hidden"
+                data-attr="import-skill-file-input"
+                onChange={(e) => {
+                    const file = e.currentTarget.files?.[0]
+                    if (file) {
+                        importSkill(file)
+                    }
+                    // Reset so selecting the same file again re-triggers onChange.
+                    e.currentTarget.value = ''
+                }}
+            />
+            <ConnectToClaudeCodeModal />
             <SceneTitleSection
                 name="Skills"
-                description="Manage versioned agent skills that any MCP-connected agent can discover and use."
+                description={activeTabDescription}
                 resourceType={{ type: 'llm_analytics' }}
                 actions={
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
+                    <>
                         <LemonButton
-                            type="primary"
-                            to={skillUrl('new')}
-                            icon={<IconPlusSmall />}
-                            data-attr="new-skill-button"
+                            type="secondary"
+                            size="small"
+                            onClick={() => setConnectModalOpen(true)}
+                            data-attr="connect-coding-agent-button"
                         >
-                            New skill
+                            Load skills in your agent
                         </LemonButton>
-                    </AccessControlAction>
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconUpload />}
+                                onClick={() => fileInputRef.current?.click()}
+                                loading={importing}
+                                data-attr="import-skill-button"
+                                tooltip="Import a skill from a spec-compliant .zip"
+                            >
+                                Import
+                            </LemonButton>
+                        </AccessControlAction>
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                to={skillUrl('new')}
+                                icon={<IconPlusSmall />}
+                                data-attr="new-skill-button"
+                            >
+                                New skill
+                            </LemonButton>
+                        </AccessControlAction>
+                    </>
                 }
             />
+
+            {visibleCategoryTabs.length > 0 && (
+                <LemonTabs
+                    activeKey={activeTabKey}
+                    onChange={(key) => router.actions.push(skillTabUrl(key))}
+                    tabs={[
+                        { key: DEFAULT_SKILLS_TAB_KEY, label: 'Skills' },
+                        ...visibleCategoryTabs.map((tab) => ({ key: tab.key, label: tab.label })),
+                    ]}
+                />
+            )}
 
             <div className="space-y-4">
                 <div className="flex gap-x-4 gap-y-2 items-center flex-wrap">

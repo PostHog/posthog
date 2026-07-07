@@ -15,7 +15,6 @@ use personhog_proto::personhog::replica::v1::person_hog_replica_server::{
     PersonHogReplica, PersonHogReplicaServer,
 };
 use personhog_proto::personhog::service::v1::person_hog_service_client::PersonHogServiceClient;
-use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogServiceServer;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembershipResponse, CountCohortMembersRequest,
     CountCohortMembersResponse, CountGroupTypeMappingsRequest, CountGroupTypeMappingsResponse,
@@ -24,7 +23,8 @@ use personhog_proto::personhog::types::v1::{
     DeleteGroupTypeMappingResponse, DeleteGroupTypeMappingsBatchForTeamRequest,
     DeleteGroupTypeMappingsBatchForTeamResponse, DeleteGroupsBatchForTeamRequest,
     DeleteGroupsBatchForTeamResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
+    DeleteHashKeyOverridesByTeamsResponse, DeletePersonlessDistinctIdsBatchForTeamRequest,
+    DeletePersonlessDistinctIdsBatchForTeamResponse, DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
     GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
@@ -39,7 +39,9 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse, Person,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    SetPersonDistinctIdVersionFloorRequest, SetPersonDistinctIdVersionFloorResponse,
+    SetPersonVersionFloorRequest, SetPersonVersionFloorResponse, SplitPersonRequest,
+    SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
     UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
     UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
@@ -48,8 +50,6 @@ use personhog_router::backend::{
 };
 use personhog_router::config::RetryConfig;
 use personhog_router::proxy::RawProxyService;
-use personhog_router::router::PersonHogRouter;
-use personhog_router::service::PersonHogRouterService;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 use tonic::codec::CompressionEncoding;
@@ -446,6 +446,40 @@ impl PersonHogReplica for TestReplicaService {
             deleted_count: 0,
         }))
     }
+
+    async fn delete_personless_distinct_ids_batch_for_team(
+        &self,
+        _request: Request<DeletePersonlessDistinctIdsBatchForTeamRequest>,
+    ) -> Result<Response<DeletePersonlessDistinctIdsBatchForTeamResponse>, Status> {
+        Ok(Response::new(
+            DeletePersonlessDistinctIdsBatchForTeamResponse { deleted_count: 0 },
+        ))
+    }
+
+    async fn split_person(
+        &self,
+        _request: Request<SplitPersonRequest>,
+    ) -> Result<Response<SplitPersonResponse>, Status> {
+        Ok(Response::new(SplitPersonResponse { splits: vec![] }))
+    }
+
+    async fn set_person_distinct_id_version_floor(
+        &self,
+        _request: Request<SetPersonDistinctIdVersionFloorRequest>,
+    ) -> Result<Response<SetPersonDistinctIdVersionFloorResponse>, Status> {
+        Ok(Response::new(SetPersonDistinctIdVersionFloorResponse {
+            person: None,
+        }))
+    }
+
+    async fn set_person_version_floor(
+        &self,
+        _request: Request<SetPersonVersionFloorRequest>,
+    ) -> Result<Response<SetPersonVersionFloorResponse>, Status> {
+        Ok(Response::new(SetPersonVersionFloorResponse {
+            updated: false,
+        }))
+    }
 }
 
 /// Start a test replica server on a random port and return its address
@@ -521,44 +555,6 @@ pub async fn start_test_replica_with_async_gzip_disabled(
             .unwrap();
     });
 
-    tokio::time::sleep(Duration::from_millis(10)).await;
-
-    addr
-}
-
-/// Start a test router server connected to the given replica address
-pub async fn start_test_router(replica_addr: SocketAddr) -> SocketAddr {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-
-    let replica_url = format!("http://{}", replica_addr);
-    let retry_config = RetryConfig {
-        max_retries: 1,
-        initial_backoff_ms: 1,
-        max_backoff_ms: 1,
-    };
-    let backend = ReplicaBackend::new_dns(ReplicaDnsConfig {
-        url: replica_url,
-        timeout: Duration::from_secs(5),
-        retry_config,
-        keepalive_interval: None,
-        keepalive_timeout: None,
-        max_send_message_size: 4 * 1024 * 1024,
-        max_recv_message_size: 4 * 1024 * 1024,
-        num_channels: 1,
-    });
-    let router = PersonHogRouter::new(Arc::new(backend));
-    let service = PersonHogRouterService::new(Arc::new(router));
-
-    tokio::spawn(async move {
-        Server::builder()
-            .add_service(PersonHogServiceServer::new(service))
-            .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
-            .await
-            .unwrap();
-    });
-
-    // Give the server a moment to start
     tokio::time::sleep(Duration::from_millis(10)).await;
 
     addr
@@ -762,73 +758,6 @@ pub async fn start_test_leader(service: TestLeaderService) -> SocketAddr {
     addr
 }
 
-/// Start a test router with both replica and leader backends.
-/// All partitions are mapped to the given leader address.
-pub async fn start_test_router_with_leader(
-    replica_addr: SocketAddr,
-    leader_addr: SocketAddr,
-    num_partitions: u32,
-) -> SocketAddr {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-
-    let retry_config = RetryConfig {
-        max_retries: 1,
-        initial_backoff_ms: 1,
-        max_backoff_ms: 1,
-    };
-
-    // Replica backend
-    let replica_url = format!("http://{}", replica_addr);
-    let replica = ReplicaBackend::new_dns(ReplicaDnsConfig {
-        url: replica_url,
-        timeout: Duration::from_secs(5),
-        retry_config,
-        keepalive_interval: None,
-        keepalive_timeout: None,
-        max_send_message_size: 4 * 1024 * 1024,
-        max_recv_message_size: 4 * 1024 * 1024,
-        num_channels: 1,
-    });
-
-    // Leader backend: all partitions → "leader-0", resolver → leader_addr
-    let mut routing = HashMap::new();
-    for p in 0..num_partitions {
-        routing.insert(p, "leader-0".to_string());
-    }
-    let routing_table = Arc::new(RwLock::new(routing));
-    let leader_url = format!("http://{}", leader_addr);
-    let address_resolver: Arc<dyn Fn(&str) -> Option<String> + Send + Sync> =
-        Arc::new(move |_pod_name| Some(leader_url.clone()));
-    let leader = LeaderBackend::new(
-        routing_table,
-        address_resolver,
-        LeaderBackendConfig {
-            num_partitions,
-            timeout: Duration::from_secs(5),
-            retry_config,
-            max_send_message_size: 4 * 1024 * 1024,
-            max_recv_message_size: 4 * 1024 * 1024,
-        },
-        StashTable::with_bounds(usize::MAX, usize::MAX),
-    );
-
-    let router = PersonHogRouter::new(Arc::new(replica)).with_leader(Arc::new(leader));
-    let service = PersonHogRouterService::new(Arc::new(router));
-
-    tokio::spawn(async move {
-        Server::builder()
-            .add_service(PersonHogServiceServer::new(service))
-            .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
-            .await
-            .unwrap();
-    });
-
-    tokio::time::sleep(Duration::from_millis(10)).await;
-
-    addr
-}
-
 // ============================================================
 // Raw proxy test helpers
 // ============================================================
@@ -845,8 +774,6 @@ fn make_replica_backend(replica_addr: SocketAddr) -> Arc<ReplicaBackend> {
         retry_config,
         keepalive_interval: None,
         keepalive_timeout: None,
-        max_send_message_size: 4 * 1024 * 1024,
-        max_recv_message_size: 4 * 1024 * 1024,
         num_channels: 1,
     }))
 }

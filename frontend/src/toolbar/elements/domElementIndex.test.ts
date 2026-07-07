@@ -1,77 +1,8 @@
-import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
+import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 
-import { elementToSelector } from 'lib/actionUtils'
+import { ElementsEventType } from '~/toolbar/types'
 
-import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
-
-import { buildDOMIndex, matchEventToElementUsingIndex } from './domElementIndex'
-
-function matchEventToElementOriginal(
-    event: ElementsEventType,
-    dataAttributes: string[],
-    matchLinksByHref: boolean,
-    pageElements: HTMLElement[],
-    selectorCache: Record<string, HTMLElement[]>
-): CountedHTMLElement | null {
-    let lastSelector: string | undefined
-
-    for (let i = 0; i < event.elements.length; i++) {
-        const element = event.elements[i]
-        const selector =
-            elementToSelector(matchLinksByHref ? element : { ...element, href: undefined }, dataAttributes) || '*'
-        const combinedSelector = lastSelector ? `${selector} > ${lastSelector}` : selector
-
-        try {
-            let domElements: HTMLElement[] | undefined = selectorCache[combinedSelector]
-            if (domElements === undefined) {
-                domElements = Array.from(querySelectorAllDeep(combinedSelector, document, pageElements))
-                selectorCache[combinedSelector] = domElements
-            }
-
-            if (domElements.length === 1) {
-                const e = event.elements[i]
-                const isTooSimple =
-                    i === 0 &&
-                    e.tag_name &&
-                    !e.attr_class &&
-                    !e.attr_id &&
-                    !e.href &&
-                    !e.text &&
-                    e.nth_child === 1 &&
-                    e.nth_of_type === 1 &&
-                    !e.attributes['attr__data-attr']
-
-                if (!isTooSimple) {
-                    return {
-                        element: domElements[0],
-                        count: event.count,
-                        selector: selector,
-                        hash: event.hash,
-                        type: event.type,
-                        clickCount: 0,
-                        rageclickCount: 0,
-                        deadclickCount: 0,
-                    }
-                }
-            }
-
-            if (domElements.length === 0) {
-                if (i === event.elements.length - 1) {
-                    return null
-                } else if (i > 0 && lastSelector) {
-                    lastSelector = `* > ${lastSelector}`
-                    continue
-                }
-            }
-        } catch {
-            break
-        }
-
-        lastSelector = combinedSelector
-    }
-
-    return null
-}
+import { buildDOMIndex, matchEventToElementUsingIndex, matchEventToElementUsingSelectors } from './domElementIndex'
 
 function createTestDOM(html: string): { container: HTMLElement; cleanup: () => void } {
     const container = document.createElement('div')
@@ -325,18 +256,121 @@ describe('domElementIndex', () => {
             }
         })
 
-        it('uses parent chain to disambiguate multiple candidates', () => {
-            const { container, cleanup } = createTestDOM(`
-                <div class="container-a"><button class="btn"></button></div>
-                <div class="container-b"><button class="btn" id="target"></button></div>
-            `)
-            try {
-                const index = buildDOMIndex(getAllElements(container))
-                const event = createEvent([
+        const parentChainCases = [
+            {
+                name: 'uses parent chain to disambiguate multiple candidates',
+                html: `
+                    <div class="container-a"><button class="btn"></button></div>
+                    <div class="container-b"><button class="btn" id="target"></button></div>
+                `,
+                event: [
                     { tag_name: 'button', attr_class: ['btn'] },
                     { tag_name: 'div', attr_class: ['container-b'] },
-                ])
-                const result = matchEventToElementUsingIndex(event, [], false, index)
+                ],
+            },
+            {
+                name: 'uses ancestor position to disambiguate repeated identical structures',
+                html: `
+                    <div class="row"><button class="btn"></button></div>
+                    <div class="row"><button class="btn" id="target"></button></div>
+                    <div class="row"><button class="btn"></button></div>
+                `,
+                event: [
+                    { tag_name: 'button', attr_class: ['btn'], nth_child: 1, nth_of_type: 1 },
+                    { tag_name: 'div', attr_class: ['row'], nth_child: 2, nth_of_type: 2 },
+                ],
+            },
+            {
+                name: 'walks one ancestor level per chain entry, not the parent repeatedly',
+                html: `
+                    <section class="outer-a"><div class="middle"><button class="btn"></button></div></section>
+                    <section class="outer-b"><div class="middle"><button class="btn" id="target"></button></div></section>
+                `,
+                event: [
+                    { tag_name: 'button', attr_class: ['btn'] },
+                    { tag_name: 'div', attr_class: ['middle'] },
+                    { tag_name: 'section', attr_class: ['outer-b'] },
+                ],
+            },
+            {
+                name: 'uses position to pick between siblings sharing a data attribute',
+                html: `
+                    <div>
+                        <button data-attr="cta"></button>
+                        <button data-attr="cta" id="target"></button>
+                    </div>
+                `,
+                event: [
+                    {
+                        tag_name: 'button',
+                        attributes: { 'attr__data-attr': 'cta' },
+                        nth_child: 2,
+                        nth_of_type: 2,
+                    },
+                ],
+                dataAttributes: ['data-attr'],
+            },
+            {
+                name: 'ignores drifted sibling position when the clicked element is identified by id',
+                html: `
+                    <div class="injected-banner"></div>
+                    <button id="target" class="btn"></button>
+                `,
+                event: [{ tag_name: 'button', attr_id: 'target', nth_child: 1, nth_of_type: 1 }],
+            },
+            {
+                name: 'ignores drifted sibling position when the clicked element is identified by a data attribute',
+                html: `
+                    <div class="injected-banner"></div>
+                    <button data-attr="cta" id="target"></button>
+                `,
+                event: [
+                    {
+                        tag_name: 'button',
+                        attributes: { 'attr__data-attr': 'cta' },
+                        nth_child: 1,
+                        nth_of_type: 1,
+                    },
+                ],
+                dataAttributes: ['data-attr'],
+            },
+            {
+                name: 'ignores drifted sibling position when the ancestor is identified by id',
+                html: `
+                    <div class="injected-banner"></div>
+                    <div id="main-panel"><button class="btn" id="target"></button></div>
+                    <div class="other"><button class="btn"></button></div>
+                `,
+                event: [
+                    { tag_name: 'button', attr_class: ['btn'], nth_child: 1, nth_of_type: 1 },
+                    { tag_name: 'div', attr_id: 'main-panel', nth_child: 1, nth_of_type: 1 },
+                ],
+            },
+            {
+                name: 'ignores drifted sibling position when the ancestor is identified by a data attribute',
+                html: `
+                    <div class="injected-banner"></div>
+                    <div data-attr="main-panel"><button class="btn" id="target"></button></div>
+                    <div class="other"><button class="btn"></button></div>
+                `,
+                event: [
+                    { tag_name: 'button', attr_class: ['btn'], nth_child: 1, nth_of_type: 1 },
+                    {
+                        tag_name: 'div',
+                        attributes: { 'attr__data-attr': 'main-panel' },
+                        nth_child: 1,
+                        nth_of_type: 1,
+                    },
+                ],
+                dataAttributes: ['data-attr'],
+            },
+        ]
+
+        it.each(parentChainCases)('$name', ({ html, event, dataAttributes = [] }) => {
+            const { container, cleanup } = createTestDOM(html)
+            try {
+                const index = buildDOMIndex(getAllElements(container))
+                const result = matchEventToElementUsingIndex(createEvent(event), dataAttributes, false, index)
 
                 expect(result).not.toBeNull()
                 expect(result?.element.id).toBe('target')
@@ -467,37 +501,67 @@ describe('domElementIndex', () => {
                 event: [{ tag_name: 'button', attributes: { 'attr__data-testid': 'cta-button' } }],
                 dataAttributes: ['data-testid'],
             },
+            {
+                name: 'matches within repeated identical structures via ancestor position',
+                html: `
+                    <div class="row"><a class="link" href="/one">One</a></div>
+                    <div class="row"><a class="link" href="/two">Two</a></div>
+                    <div class="row"><a class="link" href="/three">Three</a></div>
+                `,
+                event: [
+                    { tag_name: 'a', attr_class: ['link'], nth_child: 1, nth_of_type: 1 },
+                    { tag_name: 'div', attr_class: ['row'], nth_child: 3, nth_of_type: 3 },
+                ],
+            },
+            {
+                name: 'matches when only a grandparent disambiguates',
+                html: `
+                    <section class="outer-a"><div class="middle"><button class="btn">A</button></div></section>
+                    <section class="outer-b"><div class="middle"><button class="btn">B</button></div></section>
+                `,
+                event: [
+                    { tag_name: 'button', attr_class: ['btn'] },
+                    { tag_name: 'div', attr_class: ['middle'] },
+                    { tag_name: 'section', attr_class: ['outer-b'] },
+                ],
+            },
         ]
 
-        it.each(comparisonCases)('$name: both implementations agree', ({ html, event, dataAttributes = [] }) => {
-            const { cleanup } = createTestDOM(html)
-            try {
-                const pageElements = collectAllElementsDeep('*', document) as HTMLElement[]
-                const index = buildDOMIndex(pageElements)
-                const selectorCache: Record<string, HTMLElement[]> = {}
+        const shadowRootModes = [{ hasShadowRoots: true }, { hasShadowRoots: false }]
 
-                const eventObj = createEvent(event)
+        it.each(comparisonCases.flatMap((c) => shadowRootModes.map((mode) => ({ ...c, ...mode }))))(
+            '$name: both implementations agree (hasShadowRoots=$hasShadowRoots)',
+            ({ html, event, dataAttributes = [], hasShadowRoots }) => {
+                const { cleanup } = createTestDOM(html)
+                try {
+                    const pageElements = collectAllElementsDeep('*', document) as HTMLElement[]
+                    const index = buildDOMIndex(pageElements)
+                    const selectorCache = new Map<string, HTMLElement[]>()
 
-                const indexResult = matchEventToElementUsingIndex(eventObj, dataAttributes, true, index)
-                const originalResult = matchEventToElementOriginal(
-                    eventObj,
-                    dataAttributes,
-                    true,
-                    pageElements,
-                    selectorCache
-                )
+                    const eventObj = createEvent(event)
 
-                if (originalResult === null) {
-                    expect(indexResult).toBeNull()
-                } else {
-                    expect(indexResult).not.toBeNull()
-                    expect(indexResult?.element).toBe(originalResult.element)
-                    expect(indexResult?.count).toBe(originalResult.count)
-                    expect(indexResult?.hash).toBe(originalResult.hash)
+                    const indexResult = matchEventToElementUsingIndex(eventObj, dataAttributes, true, index)
+                    const selectorResult = matchEventToElementUsingSelectors(
+                        eventObj,
+                        dataAttributes,
+                        true,
+                        pageElements,
+                        selectorCache,
+                        hasShadowRoots
+                    )
+
+                    if (selectorResult === null) {
+                        expect(indexResult).toBeNull()
+                    } else {
+                        expect(indexResult).not.toBeNull()
+                        expect(indexResult?.element).toBe(selectorResult.element)
+                        expect(indexResult?.count).toBe(selectorResult.count)
+                        expect(indexResult?.hash).toBe(selectorResult.hash)
+                    }
+                } finally {
+                    cleanup()
                 }
-            } finally {
-                cleanup()
             }
-        })
+        )
     })
 })

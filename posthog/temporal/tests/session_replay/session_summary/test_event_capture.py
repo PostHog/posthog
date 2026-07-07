@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 from pytest_mock import MockerFixture
 
-from posthog.api.capture_dispatch import CaptureRoutedError
+from posthog.api.capture import CaptureInternalError
 from posthog.sync import database_sync_to_async
 from posthog.temporal.session_replay.session_summary.activities.video_based.a7c_store_video_session_summary import (
     store_video_session_summary_activity,
@@ -45,16 +45,16 @@ def test_capture_session_summary_ready_emits_internal_project_event(
     )
     settings.SITE_URL = "http://localhost:8000"
     result = mocker.MagicMock()
-    capture_internal_routed = mocker.patch(
-        "posthog.temporal.session_replay.session_summary.event_capture.capture_internal_routed", return_value=result
+    mock_capture_internal = mocker.patch(
+        "posthog.temporal.session_replay.session_summary.event_capture.capture_internal", return_value=result
     )
 
     from posthog.temporal.session_replay.session_summary.event_capture import capture_session_summary_ready
 
     capture_session_summary_ready(summary, team_api_token="token-override")
 
-    capture_internal_routed.assert_called_once()
-    _, kwargs = capture_internal_routed.call_args
+    mock_capture_internal.assert_called_once()
+    _, kwargs = mock_capture_internal.call_args
     assert kwargs["token"] == "token-override"
     assert kwargs["event_name"] == "$session_summary_ready"
     assert kwargs["event_source"] == "session_summary_events"
@@ -88,10 +88,8 @@ def test_capture_session_summary_ready_swallow_capture_errors(
         created_by=user,
     )
     result = mocker.MagicMock()
-    result.raise_for_status.side_effect = CaptureRoutedError("boom", status_code=500)
-    mocker.patch(
-        "posthog.temporal.session_replay.session_summary.event_capture.capture_internal_routed", return_value=result
-    )
+    result.raise_for_status.side_effect = CaptureInternalError("boom", status_code=500)
+    mocker.patch("posthog.temporal.session_replay.session_summary.event_capture.capture_internal", return_value=result)
     logger = mocker.patch("posthog.temporal.session_replay.session_summary.event_capture.logger")
 
     from posthog.temporal.session_replay.session_summary.event_capture import capture_session_summary_ready

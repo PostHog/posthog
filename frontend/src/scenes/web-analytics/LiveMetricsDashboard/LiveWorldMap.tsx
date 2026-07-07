@@ -3,7 +3,7 @@ import '~/scenes/insights/views/WorldMap/WorldMap.scss'
 import { useActions, useValues } from 'kea'
 import React, { useCallback, useEffect } from 'react'
 
-import { gradateColor } from 'lib/utils'
+import { gradateColor } from 'lib/utils/colors'
 import { countryVectors } from 'scenes/insights/views/WorldMap/countryVectors'
 
 import { CountryBreakdownItem } from './LiveWebAnalyticsMetricsTypes'

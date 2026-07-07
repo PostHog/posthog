@@ -60,7 +60,7 @@ test('create trends insight via API and snapshot', async ({ page, playwrightSetu
     await expect(page.getByTestId('insights-graph')).toBeVisible({ timeout: 30000 })
 
     // Verify the insight rendered — either a chart canvas or an empty state
-    const canvas = page.getByTestId('insights-graph').locator('canvas')
+    const canvas = page.getByTestId('insights-graph').locator('canvas[role="img"]')
     const emptyState = page.getByText('There are no matching events for this query')
     await expect(canvas.or(emptyState)).toBeVisible({ timeout: 30000 })
 

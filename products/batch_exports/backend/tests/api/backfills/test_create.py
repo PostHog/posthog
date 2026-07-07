@@ -35,7 +35,7 @@ def _create_batch_export_ok(
 ):
     """Helper function to create a BatchExport."""
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",

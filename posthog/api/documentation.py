@@ -1086,9 +1086,10 @@ def custom_postprocessing_hook(result, generator, request, public):
             #      When present, NOTHING else is added — the dev intent wins. Use this to send
             #      an endpoint to the core bucket from inside ``products/<X>/backend/`` (e.g.
             #      ``extensions={"x-product": "core"}``).
-            #   2. ``@extend_schema(tags=[...])`` values matching a product folder — supported
-            #      for legacy call sites; the explicit form above is preferred for new code.
-            #      Non-folder tag values are dropped here (tags=[...] is for display, not routing).
+            #   2. ``@extend_schema(tags=[...])`` values — supported for legacy call sites; the
+            #      explicit form above is preferred for new code. Non-folder values pass through
+            #      here; consumers ignore anything that doesn't match a product folder or
+            #      definition file (tags=[...] is for display, not routing).
             #   3. Module-path auto-attribution: ViewSet in ``products/<name>/backend/`` → ``<name>``.
             #
             # The resulting list is read by ``generate-openapi-types.mjs`` and

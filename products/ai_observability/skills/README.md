@@ -15,18 +15,16 @@ Also available to Claude Code / Codex via `hogli sync:skill`.
   by model/provider/user/trace/custom dimension, token and cache economics,
   cost regressions, and materializing cost insights, dashboards, and alerts.
 - **exploring-llm-evaluations** — how to manage and investigate AI observability
-  evaluations (both `hog` and `llm_judge` types), run them on specific generations,
-  query individual results, and generate AI-powered summaries of pass/fail/N/A patterns.
-- **skills-store** — discover and use shared team skills stored as prompts in PostHog.
-- **working-with-skills** — best-practice playbook for agents managing skills via the
-  `llma-skill-*` MCP tools: decision tree for picking the right write primitive,
-  progressive disclosure discipline, large multi-file workflows, concurrency, and
-  common pitfalls.
+  evaluations (`hog`, `llm_judge`, and `sentiment`), run them on specific generations,
+  query individual results, and generate AI-powered summaries of pass/fail/N/A patterns for boolean evaluations.
+
+Skills for managing skills themselves (`skills-store`, `working-with-skills`) now live in
+the standalone Skills product — see `products/skills/skills/`.
 
 ## Adding a new skill
 
 ```bash
-hogli init:skill -- --product llm_analytics --name my-new-skill
+hogli init:skill -- --product ai_observability --name my-new-skill
 ```
 
 See `products/posthog_ai/scripts/build_skills.py` for the build pipeline

@@ -1,4 +1,7 @@
 from llm_gateway.products.config import (
+    POSTHOG_AI_DEV_APP_ID,
+    POSTHOG_AI_EU_APP_ID,
+    POSTHOG_AI_US_APP_ID,
     POSTHOG_CODE_EU_APP_ID,
     POSTHOG_CODE_US_APP_ID,
     PRODUCTS,
@@ -14,6 +17,9 @@ from llm_gateway.products.config import (
 __all__ = [
     "POSTHOG_CODE_EU_APP_ID",
     "POSTHOG_CODE_US_APP_ID",
+    "POSTHOG_AI_DEV_APP_ID",
+    "POSTHOG_AI_EU_APP_ID",
+    "POSTHOG_AI_US_APP_ID",
     "PRODUCTS",
     "ProductConfig",
     "TWIG_EU_APP_ID",

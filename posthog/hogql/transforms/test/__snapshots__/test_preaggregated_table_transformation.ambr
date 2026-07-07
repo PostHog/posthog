@@ -483,7 +483,7 @@
   GROUP BY t,
            u,
            web_pre_aggregated_stats.utm_medium
-  HAVING and(ifNull(greater(c, 0), 0), ifNull(equals(u, ''), 0))
+  HAVING and(greater(c, 0), ifNull(equals(u, ''), 0))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,

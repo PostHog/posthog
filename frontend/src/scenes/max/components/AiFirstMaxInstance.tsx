@@ -10,11 +10,15 @@ import { urls } from 'scenes/urls'
 
 import { SceneName } from '~/layout/scenes/components/SceneTitleSection'
 
+import { EmbeddedRunner } from 'products/posthog_ai/frontend/api/runner'
+
 import { Intro } from '../Intro'
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from '../maxThreadLogic'
 import { Thread } from '../Thread'
+import { MaxNotConfigured } from './MaxNotConfigured'
+import { PhaiViewToggle } from './PhaiViewToggle'
 import { SidebarQuestionInputWithSuggestions } from './SidebarQuestionInputWithSuggestions'
 import { ThreadAutoScroller } from './ThreadAutoScroller'
 
@@ -52,6 +56,7 @@ export function ChatHeader({
                 )}
             </div>
             <div className="flex items-center gap-2">
+                <PhaiViewToggle variant="lemon" />
                 {conversationId ? (
                     <LemonButton
                         size="small"
@@ -91,6 +96,22 @@ interface AiFirstMaxInstanceProps {
 export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Element {
     const { threadVisible, threadLogicKey, conversation, conversationId } = useValues(maxLogic({ panelId: tabId }))
     const { startNewConversation } = useActions(maxLogic({ panelId: tabId }))
+    const { isMaxAvailable, effectivePhaiView } = useValues(maxGlobalLogic)
+
+    // On `/ai` the new view is the full TaskTracker product (tasks list + composer + run detail); a thin
+    // bar keeps the toggle reachable so the user can drop back to the legacy chat.
+    if (effectivePhaiView === 'new') {
+        return (
+            <div className="flex flex-col grow overflow-hidden h-full">
+                <div className="flex w-full items-center justify-end gap-2 py-2 px-2 border-b border-primary">
+                    <PhaiViewToggle variant="lemon" />
+                </div>
+                <div className="flex flex-col flex-1 min-h-0">
+                    <EmbeddedRunner />
+                </div>
+            </div>
+        )
+    }
 
     const threadProps: MaxThreadLogicProps = {
         panelId: tabId,
@@ -104,12 +125,16 @@ export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Elem
                 <BindLogic logic={maxThreadLogic} props={threadProps}>
                     <div className="flex flex-col grow overflow-hidden">
                         <ChatHeader conversationId={conversationId} tabId={tabId} />
-                        <ChatArea
-                            threadVisible={threadVisible}
-                            conversationId={conversationId}
-                            conversation={conversation}
-                            onStartNewConversation={startNewConversation}
-                        />
+                        {isMaxAvailable ? (
+                            <ChatArea
+                                threadVisible={threadVisible}
+                                conversationId={conversationId}
+                                conversation={conversation}
+                                onStartNewConversation={startNewConversation}
+                            />
+                        ) : (
+                            <MaxNotConfigured />
+                        )}
                     </div>
                 </BindLogic>
             </BindLogic>

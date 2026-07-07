@@ -3594,7 +3594,7 @@
                     "type": "string"
                 },
                 "aggregationAxisPostfix": {
-                    "description": "Custom postfix to add to the aggregation axis, e.g., ` clicks` to format 5 as `5 clicks`. You may need to add a space before postfix.",
+                    "description": "Custom postfix to add to the aggregation axis, e.g., ` clicks` to format 5 as `5 clicks`. You may need to add a space before postfix. Never set a postfix that `aggregationAxisFormat` already renders: `percentage` and `percentage_scaled` already append the `%` sign, so a `%` postfix would render values as `50%%`.",
                     "type": "string"
                 },
                 "aggregationAxisPrefix": {
@@ -3607,7 +3607,7 @@
                 },
                 "display": {
                     "default": "ActionsLineGraph",
-                    "description": "Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number. You CANNOT use this with breakdown or if the insight has more than one series. `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.",
+                    "description": "Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number. You CANNOT use this with breakdown or if the insight has more than one series. `Metric` - single large number with a period-over-period change pill and a sparkline. Like `BoldNumber` but trend-aware; configure it with the `metric*` fields below. Single series, no breakdown. `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.",
                     "enum": [
                         "Auto",
                         "ActionsLineGraph",
@@ -3616,13 +3616,15 @@
                         "ActionsAreaGraph",
                         "ActionsLineGraphCumulative",
                         "BoldNumber",
+                        "Metric",
                         "ActionsPie",
                         "ActionsBarValue",
                         "ActionsTable",
                         "WorldMap",
                         "CalendarHeatmap",
                         "TwoDimensionalHeatmap",
-                        "BoxPlot"
+                        "BoxPlot",
+                        "SlopeGraph"
                     ],
                     "type": "string"
                 },
@@ -3642,6 +3644,38 @@
                         "type": "object"
                     },
                     "type": "array"
+                },
+                "metricChangeDecreaseColor": {
+                    "description": "Only applies when `display` is `Metric`. Hex color (e.g. `#db3707`) for the change pill when the metric went DOWN. Defaults to red (`#db3707`). For a \"lower is better\" metric (latency, error rate, cost), set this to a green (e.g. `#388600`) so a decrease reads as good.",
+                    "type": "string"
+                },
+                "metricChangeIncreaseColor": {
+                    "description": "Only applies when `display` is `Metric`. Hex color (e.g. `#388600`) for the change pill when the metric went UP. Defaults to green (`#388600`). For a \"lower is better\" metric (latency, error rate, cost), set this to a red (e.g. `#db3707`) so an increase reads as bad.",
+                    "type": "string"
+                },
+                "metricColorByDirection": {
+                    "default": false,
+                    "description": "Only applies when `display` is `Metric`. Color the sparkline under the big number by whether the metric increased or decreased over the period (using the increase/decrease line colors).",
+                    "type": "boolean"
+                },
+                "metricLineDecreaseColor": {
+                    "description": "Only applies when `display` is `Metric` and `metricColorByDirection` is `true`. Hex color for the sparkline when the metric went DOWN. Defaults to red (`#db3707`). Flip to a green for a \"lower is better\" metric.",
+                    "type": "string"
+                },
+                "metricLineIncreaseColor": {
+                    "description": "Only applies when `display` is `Metric` and `metricColorByDirection` is `true`. Hex color for the sparkline when the metric went UP. Defaults to green (`#388600`). Flip to a red for a \"lower is better\" metric.",
+                    "type": "string"
+                },
+                "metricShowChange": {
+                    "default": true,
+                    "description": "Only applies when `display` is `Metric`. Show the change pill next to the big number. What it compares follows `metricSummary`: `total`/`average` compare against the previous period when \"compare to previous\" is on (otherwise first→last of the series), and `latest` is always first→last of the series.",
+                    "type": "boolean"
+                },
+                "metricSummary": {
+                    "default": "total",
+                    "description": "Only applies when `display` is `Metric`. Which summary the resting big number shows: `total` (sum over the period), `average` (mean of the points), or `latest` (last point). Hovering the sparkline always shows the hovered point's value regardless of this setting. Also drives the change pill: `total`/`average` compare against the previous period when \"compare to previous\" is on; `latest` compares first→last of the series.",
+                    "enum": ["total", "average", "latest"],
+                    "type": "string"
                 },
                 "showAlertThresholdLines": {
                     "default": false,

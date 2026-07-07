@@ -24,14 +24,12 @@ jobs:
         # Production build/deploy runs only from the canonical deploy repo (CD_DEPLOY_ENABLED).
         if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true'
         runs-on: depot-ubuntu-latest
-        # Bumped from 30: the deploy dispatch now waits for backend CI on this commit
-        # before firing, so the job stays alive through the build + the wait window.
-        timeout-minutes: 75
+        # Covers the build plus the post-build image-boot verification before dispatch.
+        timeout-minutes: 40
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
             packages: write # allow push to ghcr.io
-            checks: read # allow reading backend CI check results to gate the deploy
 
         steps:
             - name: Check out
@@ -51,7 +49,11 @@ jobs:
               with:
                   image-name: posthog
                   ecr-image-name: posthog-cloud
-                  push-to-dockerhub: 'true'
+                  # Public registries (DockerHub + ghcr) hold the OSS image; prod deploys
+                  # from the private ECR `posthog-cloud`. Pause the public push when
+                  # PUBLIC_IMAGE_PUSH_PAUSED is set (deploy is unaffected — ECR still pushes).
+                  push-to-dockerhub: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
+                  push-to-ghcr: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
                   aws-role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
@@ -138,47 +140,28 @@ jobs:
                   event: 'posthog-image-build'
                   properties: '{"status": "failure", "commit_hash": "${{ github.sha }}"}'
 
-            # Gate the deploy on backend CI. The image is already built and pushed above
-            # (ci-backend.yml runs in parallel on the same commit) — we only hold the
-            # deploy *dispatch* to Charts until this commit's backend suite is green.
-            # A stale merge once shipped a red master commit to prod because the dispatch
-            # fired regardless of test results; this is the backstop. Cross-workflow
-            # check-waiting on the same SHA mirrors the pattern in ci-hobby.yml.
-            - name: Wait for backend/product checks to pass
-              # Only gate automatic master pushes. A manual workflow_dispatch is the
-              # break-glass: it skips the wait so an operator can force a deploy.
-              if: github.event_name == 'push'
-              id: wait-for-backend
-              uses: fountainhead/action-wait-for-check@5a908a24814494009c4bb27c242ea38c93c593be # v1.2.0
-              with:
-                  token: ${{ secrets.GITHUB_TOKEN }}
-                  checkName: Django Tests Pass
-                  ref: ${{ github.sha }}
-                  # Must outlast the longest backend job (django tests: 45m in
-                  # ci-backend.yml) plus its start lag, so a slow-but-green check
-                  # still reports before we give up and block the deploy.
-                  timeoutSeconds: 3300
-                  intervalSeconds: 30
-
-            - name: Block deploy if backend/product checks did not pass
+            # Boot every entrypoint before dispatching, so a fatal import error (a dropped build-context
+            # file, or a stale merge relocating a module a worker still imports) blocks the deploy instead
+            # of crash-looping in prod. Web alone isn't enough: temporal/celery import product code that
+            # django.setup() skips, so a worker-only break still boots web-green. STATIC_COLLECTION=1 lets
+            # Django boot without live services or a real SECRET_KEY. Skipped on workflow_dispatch (break-glass).
+            - name: Verify image boots (web + temporal + celery)
               if: github.event_name == 'push'
               env:
-                  BACKEND_CONCLUSION: ${{ steps.wait-for-backend.outputs.conclusion }}
-                  BACKEND_CHECK_NAME: Django Tests Pass
+                  IMAGE: ghcr.io/posthog/posthog:${{ github.sha }}
               run: |
-                  conclusion="$BACKEND_CONCLUSION"
-                  # `skipped` = the backend suite didn't run for this commit; nothing to gate on.
-                  if [ "$conclusion" = "skipped" ]; then
-                    echo "Required backend check \"$BACKEND_CHECK_NAME\" skipped for this commit — proceeding with deploy."
-                    exit 0
-                  fi
-                  if [ "$conclusion" != "success" ]; then
-                    echo "::error::Required backend check \"$BACKEND_CHECK_NAME\" concluded \"${conclusion:-incomplete/timed out}\". Not deploying."
-                    echo "Open the Backend CI aggregate check for dependency results; it lists failed, cancelled, and timed-out jobs separately."
-                    echo "Fix CI and rerun, or trigger this workflow via workflow_dispatch to override."
-                    exit 1
-                  fi
-                  echo "Required backend check \"$BACKEND_CHECK_NAME\" passed — proceeding with deploy."
+                  set -euo pipefail
+                  docker pull "$IMAGE"
+                  docker run --rm \
+                      -e SKIP_SERVICE_VERSION_REQUIREMENTS=1 \
+                      -e STATIC_COLLECTION=1 \
+                      -e DATABASE_URL=postgres:/// \
+                      -e REDIS_URL=redis:/// \
+                      -e INTERNAL_API_SECRET=ci-boot-test-dummy-secret \
+                      "$IMAGE" sh -ec '
+                          python -c "import posthog.asgi; import posthog.management.commands.start_temporal_worker; from posthog.celery import app; app.loader.import_default_modules()"
+                          python manage.py check
+                      '
 
             - name: get deployer token
               id: deployer
@@ -329,7 +312,7 @@ jobs:
             - name: Check for changes that affect Tasks Agent Temporal worker
               id: check_changes_tasks_agent_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^products/tasks/backend|^posthog/tasks/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^posthog/temporal/ai/posthog_code_slack_|^posthog/temporal/ai/slack_app/|^products/slack_app/backend|^products/tasks/backend|^posthog/tasks/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
@@ -359,7 +342,16 @@ jobs:
             - name: Check for changes that affect general purpose temporal worker
               id: check_changes_general_purpose_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/exports/backend/temporal/subscriptions|^products/experiments/backend/temporal/|^posthog/temporal/common|^posthog/temporal/session_recordings|^posthog/temporal/proxy_service|^posthog/temporal/(ai_observability|llm_analytics)|^posthog/temporal/product_analytics|^posthog/temporal/delete_persons|^posthog/temporal/ingestion_acceptance_test|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/exports/backend/temporal/subscriptions|^products/engineering_analytics/backend/logic/job_logs/|^posthog/temporal/common|^posthog/temporal/session_recordings|^posthog/temporal/proxy_service|^posthog/temporal/(ai_observability|llm_analytics)|^posthog/temporal/product_analytics|^posthog/temporal/delete_persons|^posthog/temporal/delete_teams|^posthog/temporal/ingestion_acceptance_test|^posthog/temporal/backfill_group_type_created_at|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                      echo "changed=true" >> $GITHUB_OUTPUT
+                  else
+                      echo "changed=false" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Check for changes that affect experiments recalculation temporal worker
+              id: check_changes_experiments_recalculation_temporal_worker
+              run: |
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/experiments/backend/temporal/|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
@@ -377,7 +369,7 @@ jobs:
             - name: Check for changes that affect video export temporal worker
               id: check_changes_video_export_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/exports_video|^posthog/tasks/exports/video_exporter.py|^products/signals/backend/|^products/business_knowledge/backend/|^posthog/temporal/data_imports/workflow_activities/emit_signals|^posthog/temporal/data_imports/signals/|^nodejs/src/scripts/record-replay|^ee/hogai/session_summaries|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/exports_video|^posthog/tasks/exports/video_exporter.py|^products/signals/backend/|^products/business_knowledge/backend/|^products/warehouse_sources/backend/temporal/data_imports/workflow_activities/emit_signals|^products/signals/backend/emission/|^nodejs/src/scripts/record-replay|^ee/hogai/session_summaries|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
@@ -542,6 +534,27 @@ jobs:
                           }
                         },
                         "release": "temporal-worker-replay-vision",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
+
+            - name: Trigger Experiments Recalculation Temporal Worker Cloud deployment
+              if: steps.check_changes_experiments_recalculation_temporal_worker.outputs.changed == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-experiments-recalculation",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ steps.labels.outputs.labels }},
@@ -828,7 +841,7 @@ jobs:
             - name: Check for changes that affect data warehouse temporal worker
               id: check_changes_data_warehouse_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/hogql|^posthog/temporal/data_modeling|^posthog/temporal/common|^posthog/temporal/data_imports|^posthog/warehouse/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/hogql|^posthog/temporal/data_modeling|^posthog/temporal/common|^products/warehouse_sources/backend/temporal/data_imports|^posthog/warehouse/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
@@ -855,10 +868,31 @@ jobs:
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
+            - name: Trigger Data Warehouse Metadata Temporal Worker Cloud deployment
+              if: steps.check_changes_data_warehouse_temporal_worker.outputs.changed == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-data-warehouse-metadata",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
+
             - name: Check for changes that affect warehouse-sources-load
               id: check_changes_warehouse_sources_load
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/data_imports/pipelines/pipeline_v3/|^posthog/temporal/data_imports/pipelines/pipeline/|^posthog/management/commands/run_warehouse_sources_load\.py$|^posthog/warehouse/|^products/data_warehouse/backend/|^pyproject\.toml$|^Dockerfile$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/|^products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline/|^posthog/management/commands/run_warehouse_sources_load\.py$|^posthog/warehouse/|^products/data_warehouse/backend/|^pyproject\.toml$|^Dockerfile$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
@@ -879,6 +913,36 @@ jobs:
                           }
                         },
                         "release": "warehouse-sources-load",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
+
+            - name: Check for changes that affect warehouse-sources-duckgres-load
+              id: check_changes_warehouse_sources_duckgres_load
+              run: |
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/|^products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline/|^posthog/management/commands/run_warehouse_sources_duckgres_load\.py$|^posthog/warehouse/|^posthog/ducklake/|^products/data_warehouse/backend/|^products/warehouse_sources/backend/|^products/warehouse_sources_queue/backend/|^pyproject\.toml$|^Dockerfile$|^posthog/clickhouse/migrations/'; then
+                      echo "changed=true" >> $GITHUB_OUTPUT
+                  else
+                      echo "changed=false" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Trigger Warehouse Sources Duckgres Load Cloud deployment
+              if: steps.check_changes_warehouse_sources_duckgres_load.outputs.changed == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "warehouse-sources-duckgres-load",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ steps.labels.outputs.labels }},

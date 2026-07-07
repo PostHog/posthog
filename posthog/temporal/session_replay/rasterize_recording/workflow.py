@@ -10,6 +10,14 @@ from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_
 with wf.unsafe.imports_passed_through():
     from django.conf import settings
 
+    from prometheus_client import Counter
+
+    RASTERIZATION_COMPLETED_COUNTER = Counter(
+        "posthog_rasterization_completed",
+        "Rasterization completions by product and task queue",
+        ["product", "task_queue"],
+    )
+
 from .activities import (
     BumpStuckCounterInput,
     build_rasterization_input,
@@ -45,6 +53,7 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
             await self._maybe_bump_stuck_counter()
             raise
         await self._maybe_clear_stuck_counter()
+        RASTERIZATION_COMPLETED_COUNTER.labels(product=inputs.product, task_queue=wf.info().task_queue).inc()
         return result
 
     async def _maybe_bump_stuck_counter(self) -> None:

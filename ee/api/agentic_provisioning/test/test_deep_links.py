@@ -84,6 +84,9 @@ class TestDeepLinks(ProvisioningTestBase):
         )
         assert res.status_code == 200
 
+        self.user.is_email_verified = True
+        self.user.save(update_fields=["is_email_verified"])
+
         login_token = res.json()["url"].split("token=")[1].split("&")[0]
         login_res = self.client.get(f"/agentic/login?token={login_token}")
         assert login_res.status_code == 302
@@ -137,6 +140,13 @@ class TestDeepLinks(ProvisioningTestBase):
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestAgenticLogin(ProvisioningTestBase):
+    def setUp(self):
+        super().setUp()
+        # Default test user is is_email_verified=None; happy-path tests in this class
+        # assume a verified user. Unverified scenarios opt in explicitly.
+        self.user.is_email_verified = True
+        self.user.save(update_fields=["is_email_verified"])
+
     def _create_deep_link_token(self) -> str:
         token = "test_deep_link_token"
         cache.set(
@@ -219,6 +229,30 @@ class TestAgenticLogin(ProvisioningTestBase):
         assert res.status_code == 302
         assert not res["Location"].startswith("http")
 
+    @parameterized.expand(
+        [
+            ("false", False),
+            ("null_legacy", None),
+        ]
+    )
+    def test_unverified_user_redirects_to_verify_email(self, _name, verified_value):
+        # Both False (new partner account) and None (legacy NULL passthrough) must be
+        # blocked - deep-link login has no password challenge.
+        self.user.is_email_verified = verified_value
+        self.user.save(update_fields=["is_email_verified"])
+        token = self._create_deep_link_token()
+        res = self.client.get(f"/agentic/login?token={token}")
+        assert res.status_code == 302
+        assert res["Location"] == f"/verify_email/{self.user.uuid}"
+
+    def test_unverified_user_does_not_create_session(self):
+        self.user.is_email_verified = False
+        self.user.save(update_fields=["is_email_verified"])
+        token = self._create_deep_link_token()
+        self.client.get(f"/agentic/login?token={token}")
+        res = self.client.get("/api/users/@me/")
+        assert res.status_code == 401
+
     def test_path_token_redirects_to_path(self):
         token = "test_path_token"
         target = f"/project/{self.team.id}/replay/abc123-DEF"
@@ -238,6 +272,12 @@ class TestAgenticLogin(ProvisioningTestBase):
             {"user_id": self.user.id, "team_id": self.team.id, "path": "//evil.com"},
             timeout=600,
         )
+        res = self.client.get(f"/agentic/login?token={token}")
+        assert res.status_code == 302
+        assert res["Location"] == f"/project/{self.team.id}"
+
+    def test_verified_user_logs_in(self):
+        token = self._create_deep_link_token()
         res = self.client.get(f"/agentic/login?token={token}")
         assert res.status_code == 302
         assert res["Location"] == f"/project/{self.team.id}"

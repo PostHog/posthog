@@ -48,7 +48,10 @@ runs:
           run: cargo build -p affected-services --release --locked
 
         - name: Save binary to cache
-          if: steps.cache.outputs.cache-hit != 'true'
+          # Save only on master — a PR ref's cache is scoped to that PR alone and
+          # just evicts the shared one. PRs restore master's binary; PRs that touch
+          # affected-services rebuild without saving. Matches setup-sccache/sqlx-cli.
+          if: steps.cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/master'
           uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
           with:
               path: rust/target/release/affected-services

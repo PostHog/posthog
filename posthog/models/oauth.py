@@ -5,8 +5,10 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.contrib.auth.signals import user_logged_out
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
+from django.db.models import Q
 from django.dispatch import receiver
 from django.utils import timezone
 
@@ -18,8 +20,11 @@ from oauth2_provider.models import (
     AbstractIDToken,
     AbstractRefreshToken,
 )
+from oauth2_provider.settings import oauth2_settings
+from oauth2_provider.validators import AllowedURIValidator
 
 from posthog.helpers.encrypted_fields import EncryptedCharField
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDT, generate_random_token, hash_key_value, mask_key_value
 
 if TYPE_CHECKING:
@@ -51,7 +56,7 @@ def is_loopback_host(hostname: str | None) -> bool:
     return False
 
 
-class OAuthApplication(AbstractApplication):
+class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore[django-manager-missing]
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
     # NOTE: By default an application should be linked to the organization that created it.
@@ -106,8 +111,38 @@ class OAuthApplication(AbstractApplication):
         db_default=[],
         blank=True,
         null=False,
-        help_text=("Scope ceiling — strings tokens issued for this app may carry. Empty list means no per-app cap."),
+        help_text=(
+            "Required scope ceiling — strings tokens issued for this app may carry, all required and "
+            "locked on the consent screen. Empty list means a broad/deferred request (the user picks freely)."
+        ),
     )
+
+    optional_scopes: ArrayField = ArrayField(
+        models.CharField(max_length=100),
+        default=list,
+        db_default=[],
+        blank=True,
+        null=False,
+        help_text=(
+            "Additive declinable scopes layered on top of the required `scopes` base — the user may "
+            "decline these at consent. Requires a non-empty `scopes` (an app with optional extras must "
+            "have a required base)."
+        ),
+    )
+
+    @property
+    def ceiling_scopes(self) -> list[str]:
+        """The full grantable set: `scopes` plus `optional_scopes`, deduplicated."""
+        return list(dict.fromkeys([*self.scopes, *self.optional_scopes]))
+
+    @property
+    def required_scopes(self) -> list[str]:
+        # Everything in the explicit ceiling is required and locked at consent; optional_scopes
+        # are additive declinable extras. An empty `scopes` is a broad/deferred request
+        # (MCP / `*` / empty) so nothing is required and the user picks freely. Self-registered
+        # (DCR / CIMD) ceilings are already filtered to grantable scopes and shown as locked rows
+        # the user can decline by cancelling, so they carry the same required floor as any other app.
+        return list(self.scopes)
 
     # Generation marker for app-wide session revocation. A refresh presenting a token issued
     # before this timestamp is rejected at mint time, so a refresh racing revoke_application_sessions
@@ -252,46 +287,100 @@ class OAuthApplication(AbstractApplication):
         )
 
     def clean(self):
-        super().clean()
+        # Full override of AbstractApplication.clean(). We run django-oauth-toolkit's redirect_uri
+        # validator ourselves with a carve-out for authority-less native-app schemes (com.example.app:/oauth),
+        # and re-implement its remaining model checks in _validate_application_config — rather than
+        # calling super().clean(), which would re-run the redirect validation and reject those native schemes.
+        self._validate_redirect_uris()
+        self._validate_optional_scopes()
+        self._validate_application_config()
 
-        for uri in self.redirect_uris.split(" "):
-            if not uri:
-                continue
-
+    def _validate_redirect_uris(self):
+        validator = AllowedURIValidator(
+            {scheme.lower() for scheme in self.get_allowed_schemes()},
+            name="redirect uri",
+            allow_path=True,
+            allow_query=True,
+            allow_hostname_wildcard=oauth2_settings.ALLOW_URI_WILDCARDS,
+        )
+        for uri in self.redirect_uris.split():
             parsed_uri = urlparse(uri)
 
-            if parsed_uri.fragment:
-                raise ValidationError({"redirect_uris": f"Redirect URI {uri} cannot contain fragments"})
-
-            # Custom URL schemes for native apps (RFC 8252 Section 7.1)
-            # These look like: myapp://callback, posthog-code://oauth
-            is_custom_scheme = parsed_uri.scheme not in ["http", "https", ""]
-
-            if is_custom_scheme:
-                # Block dangerous schemes that could be used for attacks (XSS, data exfiltration, etc.)
-                # Since we use DCR with pre-registration, clients can use any scheme not in this blocklist
+            # RFC 8252 Section 7.1 private-use scheme redirects (e.g. com.example.app:/oauth)
+            # are authority-less by design; django-oauth-toolkit validator rejects them solely for lacking a host.
+            # Everything else goes through validator unchanged.
+            if parsed_uri.scheme not in ("http", "https", "") and parsed_uri.hostname is None:
                 if parsed_uri.scheme in self.get_blocked_schemes():
                     raise ValidationError(
                         {
                             "redirect_uris": f"Redirect URI scheme '{parsed_uri.scheme}' is not allowed for security reasons"
                         }
                     )
-            else:
-                # Standard HTTP(S) validation
-                if not parsed_uri.netloc:
-                    raise ValidationError({"redirect_uris": f"Redirect URI {uri} must contain a host"})
+                if parsed_uri.fragment:
+                    raise ValidationError({"redirect_uris": f"Redirect URI {uri} cannot contain fragments"})
+                continue
 
-                is_loopback = is_loopback_host(parsed_uri.hostname)
+            # django-oauth-toolkit validates scheme, fragment, and URL shape
+            validator(uri)
 
-                # http is only allowed for loopback addresses (localhost, 127.x.x.x)
-                allowed_schemes = ["http", "https"] if is_loopback else ["https"]
+            # django-oauth-toolkit permits any allowlisted scheme; we additionally require https except on loopback.
+            if parsed_uri.scheme == "http" and not is_loopback_host(parsed_uri.hostname):
+                raise ValidationError(
+                    {
+                        "redirect_uris": f"Redirect URI {uri} must use https (http is only allowed for loopback addresses)"
+                    }
+                )
 
-                if parsed_uri.scheme not in allowed_schemes:
-                    raise ValidationError(
-                        {
-                            "redirect_uris": f"Redirect URI {uri} must start with one of the following schemes: {', '.join(allowed_schemes)}"
-                        }
-                    )
+    def _validate_optional_scopes(self):
+        if not self.optional_scopes:
+            return
+        if not self.scopes:
+            raise ValidationError(
+                {"optional_scopes": "Declaring optional scopes requires a non-empty required set in `scopes`."}
+            )
+        for field, values in (("scopes", self.scopes), ("optional_scopes", self.optional_scopes)):
+            non_resource = [scope for scope in values if ":" not in scope]
+            if non_resource:
+                # `*` or identity scopes in a required set either brick /authorize
+                # (explicit ceilings reject `*`) or 400 every consent the client
+                # didn't request them on, with no UI recourse.
+                raise ValidationError(
+                    {
+                        field: f"With optional scopes declared, every entry must be a resource scope "
+                        f"(object:action); invalid: {', '.join(non_resource)}"
+                    }
+                )
+
+    def _validate_application_config(self):
+        # Mirror of AbstractApplication.clean()'s non-redirect checks (grant type, allowed origins,
+        # signing algorithm). Re-implemented here because clean() does not call super().clean()
+        code_grant_types = (
+            AbstractApplication.GRANT_AUTHORIZATION_CODE,
+            AbstractApplication.GRANT_IMPLICIT,
+            AbstractApplication.GRANT_OPENID_HYBRID,
+        )
+        if not self.redirect_uris.split() and self.authorization_grant_type in code_grant_types:
+            raise ValidationError(f"redirect_uris cannot be empty with grant_type {self.authorization_grant_type}")
+
+        allowed_origins = self.allowed_origins.split()
+        if allowed_origins:
+            origin_validator = AllowedURIValidator(
+                oauth2_settings.ALLOWED_SCHEMES,
+                name="allowed origin",
+                allow_hostname_wildcard=oauth2_settings.ALLOW_URI_WILDCARDS,
+            )
+            for origin in allowed_origins:
+                origin_validator(origin)
+
+        if self.algorithm == AbstractApplication.RS256_ALGORITHM and not oauth2_settings.OIDC_RSA_PRIVATE_KEY:
+            raise ValidationError("You must set OIDC_RSA_PRIVATE_KEY to use RSA algorithm")
+
+        if self.algorithm == AbstractApplication.HS256_ALGORITHM and (
+            self.authorization_grant_type
+            in (AbstractApplication.GRANT_IMPLICIT, AbstractApplication.GRANT_OPENID_HYBRID)
+            or self.client_type == AbstractApplication.CLIENT_PUBLIC
+        ):
+            raise ValidationError("You cannot use HS256 with public grants or clients")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -315,6 +404,23 @@ class OAuthAccessToken(AbstractAccessToken):
         verbose_name = "OAuth Access Token"
         verbose_name_plural = "OAuth Access Tokens"
         swappable = "OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL"
+        indexes = [
+            # The gateway credential cache scans for tokens holding a given scope via a
+            # whitespace-bounded regex on the space-separated `scope` text. A trigram GIN
+            # index lets that parameterized `~*` use an index scan; partial on
+            # application_id IS NOT NULL (which every such scan already filters on) keeps
+            # it to app tokens. See posthog/storage/gateway_credential_cache.py.
+            GinIndex(
+                fields=["scope"],
+                name="oauthaccesstoken_scope_trgm",
+                opclasses=["gin_trgm_ops"],
+                condition=Q(application__isnull=False),
+            ),
+            # B-tree on the plaintext `token` so equality lookups by token value resolve
+            # via an index scan instead of a sequential scan. These lookups account for a
+            # large share of the server's CPU time; the index removes that hot-path scan.
+            models.Index(fields=["token"], name="oauthaccesstoken_token_idx"),
+        ]
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 

@@ -6,11 +6,16 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from posthog.schema import PropertyOperator
 
-from products.dashboards.backend.constants import MAX_WIDGET_RESULT_LIMIT, WIDGET_DATE_FROM_VALUES_ORDERED
+from products.dashboards.backend.constants import (
+    ACTIVITY_EVENTS_MAX_LIMIT,
+    LOGS_LIST_MAX_LIMIT,
+    MAX_WIDGET_RESULT_LIMIT,
+    WIDGET_DATE_FROM_VALUES_ORDERED,
+)
 
 WIDGET_DATE_FROM_VALUES = frozenset(WIDGET_DATE_FROM_VALUES_ORDERED)
 
-WidgetDateFrom = Literal["-1h", "-3h", "-24h", "-7d", "-14d", "-30d", "-90d"]
+WidgetDateFrom = Literal["-1M", "-30M", "-1h", "-3h", "-24h", "-7d", "-14d", "-30d", "-90d"]
 WidgetOrderDirection = Literal["ASC", "DESC"]
 
 
@@ -50,10 +55,28 @@ def validate_widget_filters_map(
     return widget_filters
 
 
-class WidgetListConfigBase(BaseModel):
+class WidgetDateRangeConfigBase(BaseModel):
+    """Shared base for widgets that accept a preset date range but not the full list-filter set."""
+
     model_config = ConfigDict(extra="forbid")
 
     dateRange: WidgetDateRange | None = None
+
+    @field_validator("dateRange", mode="before")
+    @classmethod
+    def validate_date_range(cls, value: object) -> WidgetDateRange | None:
+        if value is None:
+            return None
+        if not isinstance(value, dict):
+            raise ValueError("dateRange must be an object.")
+        date_from = value.get("date_from")
+        if date_from is not None and (not isinstance(date_from, str) or date_from not in WIDGET_DATE_FROM_VALUES):
+            allowed = ", ".join(sorted(WIDGET_DATE_FROM_VALUES))
+            raise ValueError(f"dateRange.date_from must be one of: {allowed}.")
+        return WidgetDateRange(date_from=date_from)
+
+
+class WidgetListConfigBase(WidgetDateRangeConfigBase):
     filterTestAccounts: bool | None = None
     widgetFilters: dict[str, WidgetFilterEntry] | None = None
 
@@ -71,18 +94,7 @@ class WidgetListConfigBase(BaseModel):
     def validate_widget_filters(cls, value: dict[str, WidgetFilterEntry] | None) -> dict[str, WidgetFilterEntry] | None:
         return validate_widget_filters_map(value)
 
-    @field_validator("dateRange", mode="before")
-    @classmethod
-    def validate_date_range(cls, value: object) -> WidgetDateRange | None:
-        if value is None:
-            return None
-        if not isinstance(value, dict):
-            raise ValueError("dateRange must be an object.")
-        date_from = value.get("date_from")
-        if date_from is not None and (not isinstance(date_from, str) or date_from not in WIDGET_DATE_FROM_VALUES):
-            allowed = ", ".join(sorted(WIDGET_DATE_FROM_VALUES))
-            raise ValueError(f"dateRange.date_from must be one of: {allowed}.")
-        return WidgetDateRange(date_from=date_from)
-
 
 WidgetLimit = Annotated[int, Field(ge=1, le=MAX_WIDGET_RESULT_LIMIT)]
+ActivityWidgetLimit = Annotated[int, Field(ge=1, le=ACTIVITY_EVENTS_MAX_LIMIT)]
+LogsWidgetLimit = Annotated[int, Field(ge=1, le=LOGS_LIST_MAX_LIMIT)]

@@ -30,6 +30,13 @@ class CreateExperimentInput:
     # Feature flag configuration
     parameters: dict[str, Any] | None = None
 
+    # Running-time calculator state (minimum_detectable_effect, recommended_running_time,
+    # recommended_sample_size, exposure_estimate_config)
+    running_time_calculation: dict[str, Any] | None = None
+
+    # Variant keys dropped from statistical analysis
+    excluded_variants: list[str] | None = None
+
     # Metrics configuration
     metrics: list[dict] | None = None
     metrics_secondary: list[dict] | None = None

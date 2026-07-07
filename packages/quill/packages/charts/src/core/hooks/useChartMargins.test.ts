@@ -46,14 +46,34 @@ describe('useChartMargins', () => {
         expect(render({ series: [], labels: [] }).left).toBeGreaterThanOrEqual(20)
     })
 
-    it('adds left space for a y-axis title', () => {
-        const withoutTitle = render()
-        const withTitle = render({ yAxisLabel: 'Unique users' })
+    it('reserves room for the [0, 1] fallback y-ticks when there is no data', () => {
+        // Empty data renders a [0, 1] domain whose ticks format as "0.00".."1.00" (4 chars). The
+        // margin must fit them, not collapse to the bare floor — otherwise the labels clip.
+        const empty = render({ series: [], labels: [] })
+        const fourCharLabelReserve = '0.00'.length * 10 // matches the mocked measureLabelWidth
+        expect(empty.left).toBeGreaterThanOrEqual(fourCharLabelReserve)
+    })
+
+    it('reserves the left title band for a horizontal chart category-axis title', () => {
+        const withoutTitle = render({ axisOrientation: 'horizontal' })
+        const withTitle = render({ axisOrientation: 'horizontal', yAxisTitles: { left: 'Series' } })
         expect(withTitle.left).toBeGreaterThan(withoutTitle.left)
     })
 
-    it('does not add left space for a whitespace-only y-axis title', () => {
-        expect(render({ yAxisLabel: '   ' }).left).toBe(render().left)
+    it('reserves a title band per titled axis stacked on the same side', () => {
+        const threeAxis: Series[] = [
+            { key: 'a', label: 'A', data: [1, 2, 3] },
+            { key: 'b', label: 'B', data: [4, 5, 6], yAxisId: 'right' },
+            { key: 'c', label: 'C', data: [7, 8, 9], yAxisId: 'right2' },
+        ]
+        const positions = { left: 'left', right: 'right', right2: 'right' } as const
+        const oneTitle = render({ series: threeAxis, yAxisPositions: positions, yAxisTitles: { right: 'One' } })
+        const twoTitles = render({
+            series: threeAxis,
+            yAxisPositions: positions,
+            yAxisTitles: { right: 'One', right2: 'Two' },
+        })
+        expect(twoTitles.right).toBeGreaterThan(oneTitle.right)
     })
 
     it('grows the right margin to at least 48 when multiple y-axes are present', () => {
@@ -74,6 +94,17 @@ describe('useChartMargins', () => {
             { key: 'b', label: 'B', data: [4, 5, 6], yAxisId: 'right', visibility: { excluded: true } },
         ]
         expect(render({ series: oneVisible, labels: ['a', 'b'] }).right).toBeLessThan(48)
+    })
+
+    it('reserves the gutter on the right for a single axis pinned right', () => {
+        const data = [200, 800, 1200]
+        const onRight: Series[] = [{ key: 'a', label: 'A', data, yAxisId: 'right' }]
+        const soleRight = render({ series: onRight, labels: ['a', 'b', 'c'], yAxisPositions: { right: 'right' } })
+        const soleLeft = render({ series: [{ key: 'a', label: 'A', data }], labels: ['a', 'b', 'c'] })
+        // The right gutter is reserved (dual-axis floor) and the left no longer holds the axis labels.
+        expect(soleRight.right).toBeGreaterThanOrEqual(48)
+        expect(soleRight.right).toBeGreaterThan(soleLeft.right)
+        expect(soleRight.left).toBeLessThan(soleLeft.left)
     })
 
     it('widens the left margin to fit long y-tick labels', () => {

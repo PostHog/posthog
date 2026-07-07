@@ -40,8 +40,8 @@ describe('slackIntegrationLogic — loadAllSlackChannels search & pagination', (
         ]
         useMocks({
             get: {
-                '/api/environments/:team_id/integrations/:id/channels': (req) => {
-                    lastChannelsQuery = Object.fromEntries(req.url.searchParams.entries())
+                '/api/environments/:team_id/integrations/:id/channels': ({ request }) => {
+                    lastChannelsQuery = Object.fromEntries(new URL(request.url).searchParams.entries())
                     return [
                         200,
                         {

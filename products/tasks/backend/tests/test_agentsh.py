@@ -8,7 +8,7 @@ from django.test import TestCase, override_settings
 import yaml
 from parameterized import parameterized
 
-from products.tasks.backend.services.agentsh import (
+from products.tasks.backend.logic.services.agentsh import (
     AGENTSH_AUDIT_DB,
     ENV_WRAPPER_SCRIPT,
     INFRASTRUCTURE_DOMAINS,
@@ -274,7 +274,7 @@ class TestBuildExecPrefix(TestCase):
 @override_settings(DEBUG=True, SANDBOX_PROVIDER="modal")
 class TestModalSandboxAgentShWrapping(TestCase):
     def test_command_without_domains_skips_agentsh_exec(self):
-        from products.tasks.backend.services.modal_sandbox import ModalSandbox
+        from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 
         sandbox = ModalSandbox.__new__(ModalSandbox)
         cmd = sandbox._build_agent_server_command(
@@ -292,7 +292,7 @@ class TestModalSandboxAgentShWrapping(TestCase):
         self.assertIn("nohup", cmd)
 
     def test_command_includes_allowed_domains(self):
-        from products.tasks.backend.services.modal_sandbox import ModalSandbox
+        from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 
         sandbox = ModalSandbox.__new__(ModalSandbox)
         cmd = sandbox._build_agent_server_command(
@@ -310,7 +310,7 @@ class TestModalSandboxAgentShWrapping(TestCase):
         self.assertIn("example.com,api.example.com", cmd)
 
     def test_command_includes_runtime_environment_variables(self):
-        from products.tasks.backend.services.modal_sandbox import ModalSandbox
+        from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 
         sandbox = ModalSandbox.__new__(ModalSandbox)
         cmd = sandbox._build_agent_server_command(
@@ -330,8 +330,8 @@ class TestModalSandboxAgentShWrapping(TestCase):
         self.assertIn("POSTHOG_CODE_REASONING_EFFORT=high", cmd)
 
     def test_write_file_uses_filesystem_api_before_rename(self):
-        from products.tasks.backend.services.modal_sandbox import ModalSandbox
-        from products.tasks.backend.services.sandbox import ExecutionResult, SandboxConfig
+        from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
+        from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig
 
         sandbox = ModalSandbox.__new__(ModalSandbox)
         sandbox.id = "sb-123"

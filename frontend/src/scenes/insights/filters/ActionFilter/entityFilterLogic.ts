@@ -4,9 +4,10 @@ import { actions, connect, events, kea, key, listeners, path, props, reducers, s
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
-import { assignField, uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { GraphSeriesAddedSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
+import { assignField } from 'lib/utils/guards'
 
 import {
     ActionFilter,

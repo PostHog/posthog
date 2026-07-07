@@ -23,6 +23,37 @@ tools:
             Returns a window of content chunks from a business knowledge document, centered around a specific ordinal.
             Use after searching knowledge to get more surrounding context for a specific result.
         feature_flag: product-business-knowledge
+    business-knowledge-documents-search:
+        operation: business_knowledge_documents_search_list
+        enabled: true
+        scopes:
+            - business_knowledge:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Search business knowledge
+        description: >
+            Hybrid (semantic + full-text) search over the project's business knowledge base. Returns ranked chunks with
+            document_id and ordinal — pass these to the document-window tool to drill down into surrounding context. Use
+            for any question about the team's own product, policies, domain knowledge, or internal docs. Set rerank=true
+            for a listwise LLM rerank pass when top-result precision matters.
+        feature_flag: product-business-knowledge
+    business-knowledge-gap-suggestions-accept-create:
+        operation: business_knowledge_gap_suggestions_accept_create
+        enabled: false
+    business-knowledge-gap-suggestions-accept-topic-create:
+        operation: business_knowledge_gap_suggestions_accept_topic_create
+        enabled: false
+    business-knowledge-gap-suggestions-dismiss-create:
+        operation: business_knowledge_gap_suggestions_dismiss_create
+        enabled: false
+    business-knowledge-gap-suggestions-dismiss-topic-create:
+        operation: business_knowledge_gap_suggestions_dismiss_topic_create
+        enabled: false
+    business-knowledge-gap-suggestions-list:
+        operation: business_knowledge_gap_suggestions_list
+        enabled: false
     business-knowledge-sources-destroy:
         operation: business_knowledge_sources_destroy
         enabled: false
@@ -52,13 +83,27 @@ tools:
                 - chunk_count
                 - source_url
                 - has_unsafe_documents
+                - always_include
                 - refresh_interval
                 - next_refresh_at
                 - created_at
                 - updated_at
     business-knowledge-sources-partial-update:
         operation: business_knowledge_sources_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - business_knowledge:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update business knowledge source
+        description: >
+            Update an existing business knowledge source by ID. Change its name, replace the text content (text sources
+            only — triggers a re-chunk), or toggle `always_include`. Set `always_include: true` to inject this source's
+            content into every support reply as general guidance (tone, policies, company direction); set false to make
+            it retrieval-only again. Only the fields you pass are changed.
+        feature_flag: product-business-knowledge
     business-knowledge-sources-refresh-create:
         operation: business_knowledge_sources_refresh_create
         enabled: false

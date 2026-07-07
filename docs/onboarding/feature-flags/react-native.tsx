@@ -1,4 +1,4 @@
-import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { getReactNativeSteps as getReactNativeStepsPA } from '../product-analytics/react-native'
 import { StepDefinition } from '../steps'
@@ -36,7 +36,7 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                                         if (isMyFlagEnabled) {
                                             // Do something differently for this user
                                             // Optional: fetch the payload
-                                            const matchedFlagPayload = posthog.getFeatureFlagPayload('flag-key')
+                                            const matchedFlagPayload = posthog.getFeatureFlagResult('flag-key')?.payload
                                         }
 
                                         return <View>...</View>
@@ -67,7 +67,7 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                                         if (enabledVariant === 'variant-key') { // replace 'variant-key' with the key of your variant
                                             // Do something differently for this user
                                             // Optional: fetch the payload
-                                            const matchedFlagPayload = posthog.getFeatureFlagPayload('flag-key')
+                                            const matchedFlagPayload = posthog.getFeatureFlagResult('flag-key')?.payload
                                         }
 
                                         return <View>...</View>

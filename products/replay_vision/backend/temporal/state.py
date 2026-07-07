@@ -13,6 +13,8 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.redis import get_async_client
 
+from products.replay_vision.backend.temporal.types import ScannerLlmInputs
+
 logger = structlog.get_logger(__name__)
 
 TModel = TypeVar("TModel", bound=BaseModel)
@@ -84,3 +86,9 @@ async def get_data_class_from_redis(
         msg = f"Failed to parse Redis payload at {redis_key} into {target_class.__name__}: {err}"
         logger.exception(msg, redis_key=redis_key)
         raise ApplicationError(msg, non_retryable=True) from err
+
+
+async def load_scanner_llm_inputs(observation_id: str) -> ScannerLlmInputs | None:
+    """Read the ScannerLlmInputs a scan stashed under the SESSION_EVENTS key; None if absent (its TTL has lapsed)."""
+    redis_client, redis_key = get_redis_state_client(label=StateActivitiesEnum.SESSION_EVENTS, state_id=observation_id)
+    return await get_data_class_from_redis(redis_client, redis_key, target_class=ScannerLlmInputs)

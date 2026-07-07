@@ -2,8 +2,6 @@ import uuid as uuid_mod
 from datetime import UTC, datetime
 from typing import Literal, Optional, cast
 
-from django.db import connections
-
 import orjson as json
 import structlog
 
@@ -17,20 +15,12 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
 from posthog.models import Team
-from posthog.models.person import Person, PersonDistinctId
-from posthog.models.person.util import (
-    PERSONHOG_BATCH_SIZE,
-    _batched_get_distinct_ids_for_persons,
-    _batched_get_persons_by_uuids,
-)
+from posthog.models.person.util import _batched_get_distinct_ids_for_persons, _batched_get_persons_by_uuids
 from posthog.models.user import User
-from posthog.person_db_router import PERSONS_DB_FOR_READ
-from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
+from posthog.personhog_client.caller_tag import personhog_caller_tag
+from posthog.utils import is_anonymous_id
 
 logger = structlog.get_logger(__name__)
-
-# Use centralized database routing constant
-READ_DB_FOR_PERSONS = PERSONS_DB_FOR_READ
 
 
 class ActorStrategy:
@@ -71,41 +61,46 @@ class PersonStrategy(ActorStrategy):
     origin = "persons"
     origin_id = "id"
 
-    def get_actors(self, actor_ids, sort_by_created_at_descending: bool = False) -> dict[str, dict]:
-        from posthog.personhog_client.client import get_personhog_client
+    # Default 101 matches the canonical ClickHouse person query (groupArray(101)): consumers read
+    # distinct_ids[0] or the display-name scorer, none needs the full set. get_serialized_people
+    # overrides with its own distinct_id_limit for the persons-list/export API.
+    def get_actors(
+        self, actor_ids, sort_by_created_at_descending: bool = False, limit_per_person: int | None = 101
+    ) -> dict[str, dict]:
+        from posthog.personhog_client.client import personhog_call
 
-        client = get_personhog_client()
-        if client is not None:
-            try:
-                result = self._get_actors_via_personhog(actor_ids, sort_by_created_at_descending)
-                PERSONHOG_ROUTING_TOTAL.labels(
-                    operation="get_actors", source="personhog", client_name=get_client_name()
-                ).inc()
-                return result
-            except Exception:
-                PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-                    operation="get_actors", source="personhog", error_type="grpc_error", client_name=get_client_name()
-                ).inc()
-                logger.warning("personhog_get_actors_failure", team_id=self.team.pk, exc_info=True)
+        result = personhog_call(
+            "get_actors",
+            lambda: self._get_actors_via_personhog(actor_ids, sort_by_created_at_descending, limit_per_person),
+        )
 
-        PERSONHOG_ROUTING_TOTAL.labels(operation="get_actors", source="raw_sql", client_name=get_client_name()).inc()
-        return self._get_actors_via_raw_sql(actor_ids, sort_by_created_at_descending)
+        # Surface identified (non-anonymous) distinct IDs first so consumers that read distinct_ids[0]
+        # (person links, CSV exports) get the user-defined ID rather than an auto-generated anonymous one.
+        # Mirrors PersonSerializer.to_representation, which sorts the same way for the persons API.
+        for person in result.values():
+            person["distinct_ids"] = sorted(person["distinct_ids"], key=is_anonymous_id)
+
+        return result
 
     def _get_actors_via_personhog(
         self,
         actor_ids,
         sort_by_created_at_descending: bool,
+        limit_per_person: int | None,
     ) -> dict[str, dict]:
         actor_ids_list = [str(uid) for uid in actor_ids]
         team_id = self.team.pk
 
-        all_persons = _batched_get_persons_by_uuids(team_id, actor_ids_list, operation="get_actors")
+        with personhog_caller_tag("persons/hogql-actors"):
+            all_persons = _batched_get_persons_by_uuids(team_id, actor_ids_list, operation="get_actors")
 
-        if sort_by_created_at_descending:
-            all_persons.sort(key=lambda p: (-p.created_at, p.uuid))
+            if sort_by_created_at_descending:
+                all_persons.sort(key=lambda p: (-p.created_at, p.uuid))
 
-        person_ids = [p.id for p in all_persons]
-        distinct_ids_by_person = _batched_get_distinct_ids_for_persons(team_id, person_ids)
+            person_ids = [p.id for p in all_persons]
+            distinct_ids_by_person = _batched_get_distinct_ids_for_persons(
+                team_id, person_ids, limit_per_person=limit_per_person
+            )
 
         return {
             p.uuid: {
@@ -118,68 +113,6 @@ class PersonStrategy(ActorStrategy):
             }
             for p in all_persons
         }
-
-    # Hand-written SQL instead of ORM because the ORM was blowing up memory on exports
-    def _get_actors_via_raw_sql(
-        self,
-        actor_ids,
-        sort_by_created_at_descending: bool,
-    ) -> dict[str, dict]:
-        person_table = Person._meta.db_table
-        pdi_table = PersonDistinctId._meta.db_table
-        conn = connections[READ_DB_FOR_PERSONS]
-
-        actor_ids_list = list(actor_ids)
-        all_people: list = []
-        all_distinct_ids: list = []
-
-        with conn.cursor() as cursor:
-            for i in range(0, len(actor_ids_list), PERSONHOG_BATCH_SIZE):
-                batch = actor_ids_list[i : i + PERSONHOG_BATCH_SIZE]
-                persons_query = f"""SELECT {person_table}.id, {person_table}.uuid, {person_table}.properties, {person_table}.is_identified, {person_table}.created_at, {person_table}.last_seen_at
-                    FROM {person_table}
-                    WHERE {person_table}.uuid = ANY(%(uuids)s)
-                    AND {person_table}.team_id = %(team_id)s"""
-                cursor.execute(persons_query, {"uuids": batch, "team_id": self.team.pk})
-                all_people.extend(cursor.fetchall())
-
-            if sort_by_created_at_descending:
-                from datetime import datetime as _datetime
-
-                min_dt = _datetime.min
-                all_people.sort(key=lambda p: (-(p[4] or min_dt).timestamp(), str(p[1])))
-
-            person_ids = [x[0] for x in all_people]
-            for i in range(0, len(person_ids), PERSONHOG_BATCH_SIZE):
-                batch = person_ids[i : i + PERSONHOG_BATCH_SIZE]
-                cursor.execute(
-                    f"""SELECT {pdi_table}.person_id, {pdi_table}.distinct_id
-                    FROM {pdi_table}
-                    WHERE {pdi_table}.person_id = ANY(%(people_ids)s)
-                    AND {pdi_table}.team_id = %(team_id)s""",
-                    {"people_ids": batch, "team_id": self.team.pk},
-                )
-                all_distinct_ids.extend(cursor.fetchall())
-
-        person_id_to_raw_person_and_set: dict[int, tuple] = {person[0]: (person, []) for person in all_people}
-
-        for pdid in all_distinct_ids:
-            person_id_to_raw_person_and_set[pdid[0]][1].append(pdid[1])
-        del all_distinct_ids
-
-        person_uuid_to_person = {
-            str(person[1]): {
-                "id": person[1],
-                "properties": json.loads(person[2]),
-                "is_identified": person[3],
-                "created_at": person[4],
-                "last_seen_at": person[5],
-                "distinct_ids": distinct_ids,
-            }
-            for person, distinct_ids in person_id_to_raw_person_and_set.values()
-        }
-
-        return person_uuid_to_person
 
     def input_columns(self) -> list[str]:
         if isinstance(self.query.source, InsightActorsQuery) and isinstance(self.query.source.source, TrendsQuery):

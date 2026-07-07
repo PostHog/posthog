@@ -1,17 +1,20 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AccountsQueryResponse, DataNode } from '~/queries/schema/schema-general'
 
-import { ACCOUNTS_HOGQL_DATA_NODE_KEY } from '../../constants'
+import type { CustomPropertyDisplayTypeEnumApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+
+import { ACCOUNTS_METRICS_DATA_NODE_KEY } from '../../constants'
+import { isNumericDisplayType } from '../../scenes/CustomerAnalyticsConfigurationScene/account/customPropertyTypes'
 import { AccountColumnGroup, AccountColumnOption, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import type { accountsOverviewTilesLogicType } from './accountsOverviewTilesLogicType'
 import {
-    ACCOUNTS_OVERVIEW_PERSIST_CONFIG,
+    ACCOUNTS_OVERVIEW_LEGACY_TILES_PREFIX,
     AccountsEvents,
     AccountsOverviewThresholdOperator,
     DEFAULT_TILES,
@@ -53,7 +56,11 @@ export function stripHogqlAlias(expression: string): string {
 }
 
 export function isNumericColumnType(type: string | undefined): boolean {
-    return !!type && NUMERIC_FIELD_TYPES.has(type)
+    if (!type) {
+        return false
+    }
+    // Regular columns carry a HogQL field type; custom-property columns carry a display type.
+    return NUMERIC_FIELD_TYPES.has(type) || isNumericDisplayType(type as CustomPropertyDisplayTypeEnumApi)
 }
 
 export function numericColumnOptions(groups: AccountColumnGroup[]): AccountColumnOption[] {
@@ -62,10 +69,14 @@ export function numericColumnOptions(groups: AccountColumnGroup[]): AccountColum
         .flatMap((group) =>
             group.options
                 .filter((option) => isNumericColumnType(option.type))
-                .map((option) => ({
-                    ...option,
-                    expression: stripHogqlAlias(option.expression),
-                }))
+                .map((option) => {
+                    const expression = stripHogqlAlias(option.expression)
+                    return {
+                        ...option,
+                        // Custom-property values are stored as coalesced strings; cast so sum/avg aggregate numerically.
+                        expression: group.key === 'custom_properties' ? `toFloatOrNull(${expression})` : expression,
+                    }
+                })
         )
 }
 
@@ -155,13 +166,34 @@ export function diffOverviewTiles(
     return { changed: added > 0 || removed > 0 || updated > 0 || reordered, added, removed, updated, reordered }
 }
 
+// Read-only access to the legacy per-team localStorage tiles (see ACCOUNTS_OVERVIEW_LEGACY_TILES_PREFIX
+// in constants.ts). We never write this key; we read any pre-existing CUSTOM value once on mount to
+// seed the working state and emit a tombstone, so the localStorage read path can eventually be removed.
+function readLegacyOverviewTiles(): AccountsOverviewTile[] | null {
+    try {
+        const key = Object.keys(window.localStorage).find(
+            (k) => k.startsWith(ACCOUNTS_OVERVIEW_LEGACY_TILES_PREFIX) && k.endsWith('.tiles')
+        )
+        if (!key) {
+            return null
+        }
+        const parsed = JSON.parse(window.localStorage.getItem(key) ?? 'null')
+        if (Array.isArray(parsed) && parsed.length > 0 && !objectsEqual(parsed, DEFAULT_TILES)) {
+            return parsed as AccountsOverviewTile[]
+        }
+    } catch {
+        // Inaccessible or malformed localStorage — fall back to defaults.
+    }
+    return null
+}
+
 export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
     path(['scenes', 'customerAnalytics', 'accounts', 'accountsOverviewTilesLogic']),
     connect(() => ({
         values: [
             accountsColumnConfigLogic,
             ['accountsColumnGroups'],
-            dataNodeLogic({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY, query: {} as DataNode }),
+            dataNodeLogic({ key: ACCOUNTS_METRICS_DATA_NODE_KEY, query: {} as DataNode }),
             ['response as accountsResponse', 'responseLoading as accountsResponseLoading'],
         ],
     })),
@@ -170,6 +202,7 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
         updateTile: (id: string, tile: Omit<AccountsOverviewTile, 'id'>) => ({ id, tile }),
         removeTile: (id: string) => ({ id }),
         moveTile: (oldIndex: number, newIndex: number) => ({ oldIndex, newIndex }),
+        setTiles: (tiles: AccountsOverviewTile[]) => ({ tiles }),
         toggleTileSelection: (tile: AccountsOverviewTile) => ({ tile }),
         setTileFilter: (filter: TileFilter | null) => ({ filter }),
         resetTiles: true,
@@ -179,7 +212,6 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
     reducers(() => ({
         tiles: [
             DEFAULT_TILES,
-            ACCOUNTS_OVERVIEW_PERSIST_CONFIG,
             {
                 addTile: (
                     state: AccountsOverviewTile[],
@@ -205,6 +237,7 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
                     next.splice(newIndex, 0, removed)
                     return next
                 },
+                setTiles: (_state: AccountsOverviewTile[], { tiles }: { tiles: AccountsOverviewTile[] }) => tiles,
                 resetTiles: () => [...DEFAULT_TILES],
             },
         ],
@@ -294,4 +327,13 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
             actions.setTileFilter(values.tileFilter?.tileId === tile.id ? null : next)
         },
     })),
+    afterMount(({ actions }) => {
+        // Seed from any legacy localStorage tiles (read-only) and emit a tombstone so we can tell
+        // when the localStorage read path is safe to remove. Saved views are the durable store.
+        const legacyTiles = readLegacyOverviewTiles()
+        if (legacyTiles) {
+            actions.setTiles(legacyTiles)
+            posthog.capture(AccountsEvents.OverviewTilesLocalStorageRead, { tile_count: legacyTiles.length })
+        }
+    }),
 ])

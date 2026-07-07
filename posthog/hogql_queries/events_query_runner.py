@@ -28,10 +28,12 @@ from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, get_query_runner
+from posthog.hogql_queries.utils.person_display_name import person_display_name_property_exprs
 from posthog.models import Person, PropertyDefinition
 from posthog.models.element import chain_to_elements
-from posthog.models.person.person import get_distinct_ids_for_subquery
+from posthog.models.person.person import MAX_LIMIT_DISTINCT_IDS, get_distinct_ids_for_subquery
 from posthog.models.person.util import get_person_by_pk_or_uuid, get_persons_mapped_by_distinct_id
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.utils import relative_date_parse
 
 from products.actions.backend.models.action import Action, ActionStepJSON
@@ -97,13 +99,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 person_indices.append(index)
             elif col.split("--")[0].strip() == "person_display_name":
                 property_keys = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-                # Only use backticks for property names with spaces or special chars
-                props = []
-                for key in property_keys:
-                    if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", key):
-                        props.append(f"toString(person.properties.{key})")
-                    else:
-                        props.append(f"toString(person.properties.`{key}`)")
+                props = person_display_name_property_exprs(property_keys, "person.properties")
                 expr = f"(coalesce({', '.join([*props, 'distinct_id'])}), toString(person.id), distinct_id)"
                 select_input.append(expr)
             else:
@@ -278,8 +274,10 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                         ]
                         where_exprs.append(steps_to_expr(steps, self.team))
                 if self.query.personId:
-                    with self.timings.measure("person_id"):
-                        person: Person | None = get_person_by_pk_or_uuid(self.team.pk, self.query.personId)
+                    with self.timings.measure("person_id"), personhog_caller_tag("persons/events-query"):
+                        person: Person | None = get_person_by_pk_or_uuid(
+                            self.team.pk, self.query.personId, distinct_id_limit=MAX_LIMIT_DISTINCT_IDS
+                        )
                         where_exprs.append(
                             ast.CompareOperation(
                                 left=ast.Call(name="cityHash64", args=[ast.Field(chain=["distinct_id"])]),
@@ -337,12 +335,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                             property_keys = (
                                 self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
                             )
-                            props = []
-                            for key in property_keys:
-                                if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", key):
-                                    props.append(f"toString(person.properties.{key})")
-                                else:
-                                    props.append(f"toString(person.properties.`{key}`)")
+                            props = person_display_name_property_exprs(property_keys, "person.properties")
                             expr = f"(coalesce({', '.join([*props, 'distinct_id'])}), toString(person.id))"
                             newCol = re.sub(r"person_display_name -- Person ", expr, col)
                             columns.append(newCol)
@@ -487,9 +480,10 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
 
                 distinct_to_person: dict[str, Person] = {}
                 batch_size = 1000
-                for i in range(0, len(distinct_ids), batch_size):
-                    batch_distinct_ids = distinct_ids[i : i + batch_size]
-                    distinct_to_person.update(get_persons_mapped_by_distinct_id(self.team.pk, batch_distinct_ids))
+                with personhog_caller_tag("persons/events-person-column"):
+                    for i in range(0, len(distinct_ids), batch_size):
+                        batch_distinct_ids = distinct_ids[i : i + batch_size]
+                        distinct_to_person.update(get_persons_mapped_by_distinct_id(self.team.pk, batch_distinct_ids))
 
                 # Load restricted person properties to strip from the side-channel result
                 from products.access_control.backend.property_access_control import (

@@ -11,6 +11,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     BatchCheckRequestApi,
     BatchCheckResponseApi,
+    ClusteringConfigApi,
+    ClusteringConfigSetEventFiltersApi,
     ClusteringJobApi,
     ClusteringRunRequestApi,
     DatasetApi,
@@ -32,15 +34,6 @@ import type {
     LLMPromptPublicApi,
     LLMPromptResolveResponseApi,
     LLMProviderKeyApi,
-    LLMSkillApi,
-    LLMSkillCreateApi,
-    LLMSkillDuplicateApi,
-    LLMSkillFileApi,
-    LLMSkillFileCreateApi,
-    LLMSkillFileRenameApi,
-    LLMSkillResolveResponseApi,
-    LlmAnalyticsClusteringConfigRetrieve200,
-    LlmAnalyticsClusteringConfigSetEventFiltersCreate200,
     LlmAnalyticsClusteringJobsListParams,
     LlmAnalyticsEvaluationReportsListParams,
     LlmAnalyticsEvaluationReportsRunsListParams,
@@ -57,11 +50,6 @@ import type {
     LlmPromptsListParams,
     LlmPromptsNameRetrieveParams,
     LlmPromptsResolveNameRetrieveParams,
-    LlmSkillsListParams,
-    LlmSkillsNameFilesDestroyParams,
-    LlmSkillsNameFilesRetrieveParams,
-    LlmSkillsNameRetrieveParams,
-    LlmSkillsResolveNameRetrieveParams,
     OfflineExperimentItemsRequestApi,
     OfflineExperimentItemsResponseApi,
     PaginatedClusteringJobListApi,
@@ -72,7 +60,6 @@ import type {
     PaginatedEvaluationReportRunListApi,
     PaginatedLLMPromptListListApi,
     PaginatedLLMProviderKeyListApi,
-    PaginatedLLMSkillListListApi,
     PaginatedParserRecipeListApi,
     PaginatedReviewQueueItemListApi,
     PaginatedReviewQueueListApi,
@@ -87,7 +74,6 @@ import type {
     PatchedEvaluationReportApi,
     PatchedLLMPromptPublishApi,
     PatchedLLMProviderKeyApi,
-    PatchedLLMSkillPublishApi,
     PatchedParserRecipeApi,
     PatchedReviewQueueItemUpdateApi,
     PatchedReviewQueueUpdateApi,
@@ -102,10 +88,6 @@ import type {
     ScoreDefinitionApi,
     ScoreDefinitionCreateApi,
     ScoreDefinitionNewVersionApi,
-    SentimentBatchResponseApi,
-    SentimentGenerationsRequestApi,
-    SentimentGenerationsResponseApi,
-    SentimentRequestApi,
     SummarizeRequestApi,
     SummarizeResponseApi,
     TaggerApi,
@@ -157,7 +139,7 @@ export const getLlmAnalyticsPersonalSpendListUrl = (params: LlmAnalyticsPersonal
 }
 
 /**
- * Return a structured personal LLM spend analysis for the requesting user. Pass `date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound the window — defaults to the last 30 days, max 90 days. The `product=<ai_product>` query param is required and scopes the tool / model / trace breakdowns to a single product; supported values: posthog_code. `by_product` is always returned for cross-product visibility. Use `refresh=true` to bypass the 5-minute response cache.
+ * Return a structured personal LLM spend analysis for the requesting user. Pass `date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound the window — defaults to the last 30 days, max 90 days. The `product=<ai_product>` query param is required and scopes the tool / model / day / trace breakdowns to a single product; supported values: posthog_code. `by_product` is always returned for cross-product visibility. `by_day` returns a day-ascending spend series for the scoped product. Use `refresh=true` to bypass the 5-minute response cache.
  */
 export const llmAnalyticsPersonalSpendList = async (
     params: LlmAnalyticsPersonalSpendListParams,
@@ -535,18 +517,18 @@ export const evaluationsTestHogCreate = async (
     })
 }
 
-export const getLlmAnalyticsClusteringConfigRetrieveUrl = (projectId: string) => {
+export const getLlmAnalyticsClusteringConfigListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/llm_analytics/clustering_config/`
 }
 
 /**
  * Team-level clustering configuration (event filters for automated pipelines).
  */
-export const llmAnalyticsClusteringConfigRetrieve = async (
+export const llmAnalyticsClusteringConfigList = async (
     projectId: string,
     options?: RequestInit
-): Promise<LlmAnalyticsClusteringConfigRetrieve200> => {
-    return apiMutator<LlmAnalyticsClusteringConfigRetrieve200>(getLlmAnalyticsClusteringConfigRetrieveUrl(projectId), {
+): Promise<ClusteringConfigApi> => {
+    return apiMutator<ClusteringConfigApi>(getLlmAnalyticsClusteringConfigListUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -561,15 +543,15 @@ export const getLlmAnalyticsClusteringConfigSetEventFiltersCreateUrl = (projectI
  */
 export const llmAnalyticsClusteringConfigSetEventFiltersCreate = async (
     projectId: string,
+    clusteringConfigSetEventFiltersApi: ClusteringConfigSetEventFiltersApi,
     options?: RequestInit
-): Promise<LlmAnalyticsClusteringConfigSetEventFiltersCreate200> => {
-    return apiMutator<LlmAnalyticsClusteringConfigSetEventFiltersCreate200>(
-        getLlmAnalyticsClusteringConfigSetEventFiltersCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-        }
-    )
+): Promise<ClusteringConfigApi> => {
+    return apiMutator<ClusteringConfigApi>(getLlmAnalyticsClusteringConfigSetEventFiltersCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(clusteringConfigSetEventFiltersApi),
+    })
 }
 
 export const getLlmAnalyticsClusteringJobsListUrl = (
@@ -592,7 +574,7 @@ export const getLlmAnalyticsClusteringJobsListUrl = (
 }
 
 /**
- * CRUD for clustering job configurations (max 5 per team).
+ * CRUD for clustering job configurations (max 10 per team).
  */
 export const llmAnalyticsClusteringJobsList = async (
     projectId: string,
@@ -610,7 +592,7 @@ export const getLlmAnalyticsClusteringJobsCreateUrl = (projectId: string) => {
 }
 
 /**
- * CRUD for clustering job configurations (max 5 per team).
+ * CRUD for clustering job configurations (max 10 per team).
  */
 export const llmAnalyticsClusteringJobsCreate = async (
     projectId: string,
@@ -630,7 +612,7 @@ export const getLlmAnalyticsClusteringJobsRetrieveUrl = (projectId: string, id: 
 }
 
 /**
- * CRUD for clustering job configurations (max 5 per team).
+ * CRUD for clustering job configurations (max 10 per team).
  */
 export const llmAnalyticsClusteringJobsRetrieve = async (
     projectId: string,
@@ -648,7 +630,7 @@ export const getLlmAnalyticsClusteringJobsUpdateUrl = (projectId: string, id: st
 }
 
 /**
- * CRUD for clustering job configurations (max 5 per team).
+ * CRUD for clustering job configurations (max 10 per team).
  */
 export const llmAnalyticsClusteringJobsUpdate = async (
     projectId: string,
@@ -669,7 +651,7 @@ export const getLlmAnalyticsClusteringJobsPartialUpdateUrl = (projectId: string,
 }
 
 /**
- * CRUD for clustering job configurations (max 5 per team).
+ * CRUD for clustering job configurations (max 10 per team).
  */
 export const llmAnalyticsClusteringJobsPartialUpdate = async (
     projectId: string,
@@ -690,7 +672,7 @@ export const getLlmAnalyticsClusteringJobsDestroyUrl = (projectId: string, id: s
 }
 
 /**
- * CRUD for clustering job configurations (max 5 per team).
+ * CRUD for clustering job configurations (max 10 per team).
  */
 export const llmAnalyticsClusteringJobsDestroy = async (
     projectId: string,
@@ -1617,40 +1599,6 @@ export const llmAnalyticsScoreDefinitionsNewVersionCreate = async (
     })
 }
 
-export const getLlmAnalyticsSentimentCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/llm_analytics/sentiment/`
-}
-
-export const llmAnalyticsSentimentCreate = async (
-    projectId: string,
-    sentimentRequestApi: SentimentRequestApi,
-    options?: RequestInit
-): Promise<SentimentBatchResponseApi> => {
-    return apiMutator<SentimentBatchResponseApi>(getLlmAnalyticsSentimentCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sentimentRequestApi),
-    })
-}
-
-export const getLlmAnalyticsSentimentGenerationsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/llm_analytics/sentiment/generations/`
-}
-
-export const llmAnalyticsSentimentGenerationsCreate = async (
-    projectId: string,
-    sentimentGenerationsRequestApi?: SentimentGenerationsRequestApi,
-    options?: RequestInit
-): Promise<SentimentGenerationsResponseApi> => {
-    return apiMutator<SentimentGenerationsResponseApi>(getLlmAnalyticsSentimentGenerationsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sentimentGenerationsRequestApi),
-    })
-}
-
 export const getLlmAnalyticsSummarizationCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/llm_analytics/summarization/`
 }
@@ -2045,269 +1993,6 @@ export const llmPromptsResolveNameRetrieve = async (
     options?: RequestInit
 ): Promise<LLMPromptResolveResponseApi> => {
     return apiMutator<LLMPromptResolveResponseApi>(getLlmPromptsResolveNameRetrieveUrl(projectId, promptName, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getLlmSkillsListUrl = (projectId: string, params?: LlmSkillsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/llm_skills/?${stringifiedParams}`
-        : `/api/projects/${projectId}/llm_skills/`
-}
-
-export const llmSkillsList = async (
-    projectId: string,
-    params?: LlmSkillsListParams,
-    options?: RequestInit
-): Promise<PaginatedLLMSkillListListApi> => {
-    return apiMutator<PaginatedLLMSkillListListApi>(getLlmSkillsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getLlmSkillsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/llm_skills/`
-}
-
-export const llmSkillsCreate = async (
-    projectId: string,
-    lLMSkillCreateApi: NonReadonly<LLMSkillCreateApi>,
-    options?: RequestInit
-): Promise<LLMSkillCreateApi> => {
-    return apiMutator<LLMSkillCreateApi>(getLlmSkillsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(lLMSkillCreateApi),
-    })
-}
-
-export const getLlmSkillsNameRetrieveUrl = (
-    projectId: string,
-    skillName: string,
-    params?: LlmSkillsNameRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/llm_skills/name/${skillName}/?${stringifiedParams}`
-        : `/api/projects/${projectId}/llm_skills/name/${skillName}/`
-}
-
-export const llmSkillsNameRetrieve = async (
-    projectId: string,
-    skillName: string,
-    params?: LlmSkillsNameRetrieveParams,
-    options?: RequestInit
-): Promise<LLMSkillApi> => {
-    return apiMutator<LLMSkillApi>(getLlmSkillsNameRetrieveUrl(projectId, skillName, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getLlmSkillsNamePartialUpdateUrl = (projectId: string, skillName: string) => {
-    return `/api/projects/${projectId}/llm_skills/name/${skillName}/`
-}
-
-export const llmSkillsNamePartialUpdate = async (
-    projectId: string,
-    skillName: string,
-    patchedLLMSkillPublishApi?: PatchedLLMSkillPublishApi,
-    options?: RequestInit
-): Promise<LLMSkillApi> => {
-    return apiMutator<LLMSkillApi>(getLlmSkillsNamePartialUpdateUrl(projectId, skillName), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedLLMSkillPublishApi),
-    })
-}
-
-export const getLlmSkillsNameArchiveCreateUrl = (projectId: string, skillName: string) => {
-    return `/api/projects/${projectId}/llm_skills/name/${skillName}/archive/`
-}
-
-export const llmSkillsNameArchiveCreate = async (
-    projectId: string,
-    skillName: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getLlmSkillsNameArchiveCreateUrl(projectId, skillName), {
-        ...options,
-        method: 'POST',
-    })
-}
-
-export const getLlmSkillsNameDuplicateCreateUrl = (projectId: string, skillName: string) => {
-    return `/api/projects/${projectId}/llm_skills/name/${skillName}/duplicate/`
-}
-
-export const llmSkillsNameDuplicateCreate = async (
-    projectId: string,
-    skillName: string,
-    lLMSkillDuplicateApi: LLMSkillDuplicateApi,
-    options?: RequestInit
-): Promise<LLMSkillApi> => {
-    return apiMutator<LLMSkillApi>(getLlmSkillsNameDuplicateCreateUrl(projectId, skillName), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(lLMSkillDuplicateApi),
-    })
-}
-
-export const getLlmSkillsNameFilesCreateUrl = (projectId: string, skillName: string) => {
-    return `/api/projects/${projectId}/llm_skills/name/${skillName}/files/`
-}
-
-export const llmSkillsNameFilesCreate = async (
-    projectId: string,
-    skillName: string,
-    lLMSkillFileCreateApi: LLMSkillFileCreateApi,
-    options?: RequestInit
-): Promise<LLMSkillApi> => {
-    return apiMutator<LLMSkillApi>(getLlmSkillsNameFilesCreateUrl(projectId, skillName), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(lLMSkillFileCreateApi),
-    })
-}
-
-export const getLlmSkillsNameFilesRenameCreateUrl = (projectId: string, skillName: string) => {
-    return `/api/projects/${projectId}/llm_skills/name/${skillName}/files-rename/`
-}
-
-export const llmSkillsNameFilesRenameCreate = async (
-    projectId: string,
-    skillName: string,
-    lLMSkillFileRenameApi: LLMSkillFileRenameApi,
-    options?: RequestInit
-): Promise<LLMSkillApi> => {
-    return apiMutator<LLMSkillApi>(getLlmSkillsNameFilesRenameCreateUrl(projectId, skillName), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(lLMSkillFileRenameApi),
-    })
-}
-
-export const getLlmSkillsNameFilesRetrieveUrl = (
-    projectId: string,
-    skillName: string,
-    filePath: string,
-    params?: LlmSkillsNameFilesRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/llm_skills/name/${skillName}/files/${filePath}/?${stringifiedParams}`
-        : `/api/projects/${projectId}/llm_skills/name/${skillName}/files/${filePath}/`
-}
-
-export const llmSkillsNameFilesRetrieve = async (
-    projectId: string,
-    skillName: string,
-    filePath: string,
-    params?: LlmSkillsNameFilesRetrieveParams,
-    options?: RequestInit
-): Promise<LLMSkillFileApi> => {
-    return apiMutator<LLMSkillFileApi>(getLlmSkillsNameFilesRetrieveUrl(projectId, skillName, filePath, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getLlmSkillsNameFilesDestroyUrl = (
-    projectId: string,
-    skillName: string,
-    filePath: string,
-    params?: LlmSkillsNameFilesDestroyParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/llm_skills/name/${skillName}/files/${filePath}/?${stringifiedParams}`
-        : `/api/projects/${projectId}/llm_skills/name/${skillName}/files/${filePath}/`
-}
-
-export const llmSkillsNameFilesDestroy = async (
-    projectId: string,
-    skillName: string,
-    filePath: string,
-    params?: LlmSkillsNameFilesDestroyParams,
-    options?: RequestInit
-): Promise<LLMSkillApi> => {
-    return apiMutator<LLMSkillApi>(getLlmSkillsNameFilesDestroyUrl(projectId, skillName, filePath, params), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getLlmSkillsResolveNameRetrieveUrl = (
-    projectId: string,
-    skillName: string,
-    params?: LlmSkillsResolveNameRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/llm_skills/resolve/name/${skillName}/?${stringifiedParams}`
-        : `/api/projects/${projectId}/llm_skills/resolve/name/${skillName}/`
-}
-
-export const llmSkillsResolveNameRetrieve = async (
-    projectId: string,
-    skillName: string,
-    params?: LlmSkillsResolveNameRetrieveParams,
-    options?: RequestInit
-): Promise<LLMSkillResolveResponseApi> => {
-    return apiMutator<LLMSkillResolveResponseApi>(getLlmSkillsResolveNameRetrieveUrl(projectId, skillName, params), {
         ...options,
         method: 'GET',
     })

@@ -35,7 +35,7 @@ class TestLogsViewAPI(APIBaseTest):
 
     # --- CRUD ---
 
-    @patch("products.logs.backend.views_api.report_user_action")
+    @patch("products.logs.backend.presentation.views.views_api.report_user_action")
     def test_create(self, mock_report):
         data = self._create_via_api()
         assert data["name"] == "Error logs"
@@ -67,7 +67,7 @@ class TestLogsViewAPI(APIBaseTest):
         assert response.json()["short_id"] == created["short_id"]
         assert response.json()["name"] == "Error logs"
 
-    @patch("products.logs.backend.views_api.report_user_action")
+    @patch("products.logs.backend.presentation.views.views_api.report_user_action")
     def test_partial_update(self, mock_report):
         created = self._create_via_api()
         mock_report.reset_mock()
@@ -96,7 +96,7 @@ class TestLogsViewAPI(APIBaseTest):
         assert response.json()["name"] == "Just rename"
         assert response.json()["filters"] == {"severityLevels": ["error"], "serviceNames": ["api"]}
 
-    @patch("products.logs.backend.views_api.report_user_action")
+    @patch("products.logs.backend.presentation.views.views_api.report_user_action")
     def test_delete(self, mock_report):
         created = self._create_via_api()
         mock_report.reset_mock()

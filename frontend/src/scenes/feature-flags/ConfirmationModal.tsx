@@ -1,7 +1,7 @@
 import { IconWarning } from '@posthog/icons'
 import { LemonDialog, Link } from '@posthog/lemon-ui'
 
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { FeatureFlagType } from '~/types'

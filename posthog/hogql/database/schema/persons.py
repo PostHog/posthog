@@ -2,8 +2,6 @@ from typing import Optional, Self, cast
 
 import posthoganalytics
 
-from posthog.schema import PersonsArgMaxVersion
-
 from posthog.hogql import ast
 from posthog.hogql.ast import And, CompareOperation, CompareOperationOp, Field, JoinExpr, SelectQuery
 from posthog.hogql.base import Expr
@@ -32,14 +30,29 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 
 from posthog.models.organization import Organization
+from posthog.schema_enums import PersonsArgMaxVersion
 
 PERSONS_FIELDS: dict[str, FieldOrTable] = {
-    "id": StringDatabaseField(name="id", nullable=False),
-    "created_at": DateTimeDatabaseField(name="created_at", nullable=False),
+    "id": StringDatabaseField(
+        name="id", nullable=False, description="Stable person identifier; join target for `events.person_id`."
+    ),
+    "created_at": DateTimeDatabaseField(
+        name="created_at", nullable=False, description="When the person was first seen by PostHog."
+    ),
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
-    "properties": StringJSONDatabaseField(name="properties", nullable=False),
-    "is_identified": BooleanDatabaseField(name="is_identified", nullable=False),
-    "last_seen_at": DateTimeDatabaseField(name="last_seen_at", nullable=True),
+    "properties": StringJSONDatabaseField(
+        name="properties",
+        nullable=False,
+        description="JSON map of person properties (latest known values). Access keys with `properties.email` etc.",
+    ),
+    "is_identified": BooleanDatabaseField(
+        name="is_identified",
+        nullable=False,
+        description="True once the person has been identified (vs. an anonymous distinct_id).",
+    ),
+    "last_seen_at": DateTimeDatabaseField(
+        name="last_seen_at", nullable=True, description="Timestamp of the most recent event for this person."
+    ),
     "pdi": LazyJoin(
         from_field=["id"],
         join_table=PersonsPDITable(),
@@ -281,6 +294,10 @@ def join_with_persons_table(
 
 
 class RawPersonsTable(Table):
+    description: str = (
+        "Raw, un-deduplicated persons rows (one per version). Query `persons` instead unless you need to "
+        "resolve the latest version yourself via `is_deleted`/`version`."
+    )
     fields: dict[str, FieldOrTable] = {
         **PERSONS_FIELDS,
         "is_deleted": BooleanDatabaseField(name="is_deleted", nullable=False),
@@ -298,6 +315,7 @@ class RawPersonsTable(Table):
 # It pulls any "persons.id in ()" statement inside of the argmax subselect
 # This is useful when executing a query for a large team.
 class PersonsTable(LazyTable):
+    description: str = "Deduplicated people in the project, with their latest properties. One row per person."
     fields: dict[str, FieldOrTable] = PERSONS_FIELDS
     filter: Optional[Expr] = None
 

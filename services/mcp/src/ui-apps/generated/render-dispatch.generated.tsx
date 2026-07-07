@@ -45,7 +45,15 @@ import {
     type SurveyStatsData,
 } from 'products/surveys/mcp/apps'
 import { TraceSpanListView, TraceSpanView, type TraceSpanData, type TraceSpanListData } from 'products/tracing/mcp/apps'
-import { WorkflowListView, WorkflowView, type WorkflowData, type WorkflowListData } from 'products/workflows/mcp/apps'
+import { InviteEmailPreviewView, type InviteEmailPreviewData } from 'products/user_interviews/mcp/apps'
+import {
+    EmailTemplateView,
+    WorkflowListView,
+    WorkflowView,
+    type EmailTemplateData,
+    type WorkflowData,
+    type WorkflowListData,
+} from 'products/workflows/mcp/apps'
 
 import type { UiAppKey } from '../../resources/ui-apps.generated'
 
@@ -364,6 +372,7 @@ export const RENDER_DISPATCH: Partial<Record<UiAppKey, (props: RenderDispatchPro
     'action-list': ({ data, app }) => <ActionListContent data={data as ActionListData} app={app} />,
     cohort: ({ data }) => <CohortView cohort={data as CohortData} />,
     'cohort-list': ({ data, app }) => <CohortListContent data={data as CohortListData} app={app} />,
+    'email-template': ({ data }) => <EmailTemplateView template={data as EmailTemplateData} />,
     'error-details': ({ data }) => <ErrorDetailsView data={data as ErrorDetailsData} />,
     'error-issue': ({ data }) => <ErrorIssueView issue={data as ErrorIssueData} />,
     'error-issue-list': ({ data, app }) => <ErrorIssueListContent data={data as ErrorIssueListData} app={app} />,
@@ -376,6 +385,7 @@ export const RENDER_DISPATCH: Partial<Record<UiAppKey, (props: RenderDispatchPro
     'insight-actors': ({ data, openLink }) => (
         <InsightActorsView data={data as InsightActorsData} openLink={openLink} />
     ),
+    'invite-email-preview': ({ data }) => <InviteEmailPreviewView data={data as InviteEmailPreviewData} />,
     'llm-costs': ({ data }) => <LLMCostsView data={data as LLMCostsData} />,
     'session-recording': ({ data }) => <SessionRecordingView recording={data as SessionRecordingData} />,
     'session-summary': ({ data }) => <SessionSummaryView data={data as SessionSummaryData} />,

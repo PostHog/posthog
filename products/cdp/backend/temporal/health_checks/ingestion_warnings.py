@@ -3,7 +3,14 @@ import structlog
 from posthog.dags.common.owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.detectors import CLICKHOUSE_BATCH_EXECUTION_POLICY
-from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation
+from posthog.temporal.health_checks.framework import (
+    _SEVERITY_WEIGHT,
+    AlertContent,
+    HealthCheck,
+    Remediation,
+    SignalContent,
+    build_signal_extra,
+)
 from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 
@@ -71,6 +78,24 @@ class IngestionWarningsCheck(HealthCheck):
             title="Ingestion warning detected",
             summary=summary,
             link="/health/ingestion",
+        )
+
+    @classmethod
+    def render_signal(cls, issue: HealthIssue) -> SignalContent | None:
+        warning_type = issue.payload.get("warning_type", "ingestion warning")
+        count = issue.payload.get("affected_count")
+        count_clause = f"{count:,} times" if isinstance(count, int) else "repeatedly"
+        title = "Ingestion warning detected"
+        summary = f"{warning_type} fired {count} times" if count is not None else f"{warning_type} detected"
+        return SignalContent(
+            description=(
+                f"PostHog raised the ingestion warning `{warning_type}` {count_clause} for this project in the last "
+                "week. Ingestion warnings mean events are being dropped, mis-merged, or degraded on the way in — so "
+                "the affected data is incomplete or inaccurate. Recommend reviewing the ingestion warnings page to "
+                "find the source and fix the instrumentation producing them."
+            ),
+            weight=_SEVERITY_WEIGHT[issue.severity],
+            extra=build_signal_extra(issue, title=title, summary=summary, link="/health/ingestion"),
         )
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:

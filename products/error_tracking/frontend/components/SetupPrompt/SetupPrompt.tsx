@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import type { ComponentType } from 'react'
+import { type ComponentType, isValidElement } from 'react'
 
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 
@@ -11,20 +11,25 @@ import {
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { cn } from 'lib/utils/css-classes'
-import androidImage from 'scenes/onboarding/sdks/logos/android.svg'
-import flutterImage from 'scenes/onboarding/sdks/logos/flutter.svg'
-import javascriptImage from 'scenes/onboarding/sdks/logos/javascript_web.svg'
-import nextjsImage from 'scenes/onboarding/sdks/logos/nextjs.svg'
-import nodejsImage from 'scenes/onboarding/sdks/logos/nodejs.svg'
-import pythonImage from 'scenes/onboarding/sdks/logos/python.svg'
-import reactImage from 'scenes/onboarding/sdks/logos/react.svg'
+import androidImage from 'scenes/onboarding/legacy/sdks/logos/android.svg'
+import flutterImage from 'scenes/onboarding/legacy/sdks/logos/flutter.svg'
+import { IOSLogo } from 'scenes/onboarding/legacy/sdks/logos/IOSLogo'
+import javascriptImage from 'scenes/onboarding/legacy/sdks/logos/javascript_web.svg'
+import nextjsImage from 'scenes/onboarding/legacy/sdks/logos/nextjs.svg'
+import nodejsImage from 'scenes/onboarding/legacy/sdks/logos/nodejs.svg'
+import pythonImage from 'scenes/onboarding/legacy/sdks/logos/python.svg'
+import reactImage from 'scenes/onboarding/legacy/sdks/logos/react.svg'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { exceptionIngestionLogic } from './exceptionIngestionLogic'
 
-export const ERROR_TRACKING_FRAMEWORK_LINKS: { name: string; image?: string; docsLink: string }[] = [
+export const ERROR_TRACKING_FRAMEWORK_LINKS: {
+    name: string
+    image?: string | JSX.Element
+    docsLink: string
+}[] = [
     {
         name: 'JavaScript',
         image: javascriptImage,
@@ -34,7 +39,7 @@ export const ERROR_TRACKING_FRAMEWORK_LINKS: { name: string; image?: string; doc
     { name: 'React', image: reactImage, docsLink: 'https://posthog.com/docs/error-tracking/installation/react' },
     { name: 'Node.js', image: nodejsImage, docsLink: 'https://posthog.com/docs/error-tracking/installation/nodejs' },
     { name: 'Python', image: pythonImage, docsLink: 'https://posthog.com/docs/error-tracking/installation/python' },
-    { name: 'iOS', docsLink: 'https://posthog.com/docs/error-tracking/installation/ios' },
+    { name: 'iOS', image: <IOSLogo />, docsLink: 'https://posthog.com/docs/error-tracking/installation/ios' },
     { name: 'Android', image: androidImage, docsLink: 'https://posthog.com/docs/error-tracking/installation/android' },
     {
         name: 'React Native',
@@ -128,7 +133,9 @@ export function ErrorTrackingIngestionPrompt({
                                 targetBlank
                                 onClick={onDocsLinkClick}
                                 icon={
-                                    image ? (
+                                    isValidElement(image) ? (
+                                        <span className="flex w-5 h-5 [&_svg]:w-full [&_svg]:h-full">{image}</span>
+                                    ) : typeof image === 'string' ? (
                                         <img src={image} alt="" aria-hidden="true" className="w-5 h-5" />
                                     ) : undefined
                                 }

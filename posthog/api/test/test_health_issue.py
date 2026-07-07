@@ -1,3 +1,6 @@
+import json
+from datetime import UTC, datetime, timedelta
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -8,6 +11,9 @@ from rest_framework import status
 
 from posthog.models.health_issue import HealthIssue
 from posthog.models.team import Team
+from posthog.redis import get_client
+
+from products.growth.backend.constants import github_sdk_versions_key
 
 
 class TestHealthIssueAPI(APIBaseTest):
@@ -260,6 +266,33 @@ class TestHealthIssueAPI(APIBaseTest):
         self.assertEqual(data["total"], 0)
         self.assertEqual(data["by_severity"], {})
         self.assertEqual(data["by_kind"], {})
+
+    def test_sdk_issue_visible_even_when_latest_release_is_fresh(self):
+        # A fresh upstream release (<7 days old) must not hide sdk_outdated issues — fast-releasing
+        # SDKs like posthog-python and posthog-js always have a recent release, so any blanket
+        # exclusion keyed on release freshness blacks out their issues permanently. The Redis seed
+        # below sets up exactly that condition; the endpoints must ignore it, so don't remove it
+        # as unused setup.
+        key = github_sdk_versions_key("posthog-python")
+        release_date = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        get_client().set(key, json.dumps({"latestVersion": "7.18.3", "releaseDates": {"7.18.3": release_date}}))
+        self.addCleanup(get_client().delete, key)
+
+        issue = self._create_issue(
+            severity=HealthIssue.Severity.CRITICAL,
+            payload={"sdk_name": "posthog-python", "current_version": "7.14.1", "latest_version": "7.18.3"},
+            unique_hash="fresh_release",
+        )
+
+        list_response = self.client.get(self._url(), {"status": "active", "dismissed": "false"})
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual([result["id"] for result in list_response.json()["results"]], [str(issue.id)])
+
+        summary_response = self.client.get(self._url("/summary"))
+        self.assertEqual(summary_response.status_code, status.HTTP_200_OK)
+        summary = summary_response.json()
+        self.assertEqual(summary["total"], 1)
+        self.assertEqual(summary["by_kind"], {"sdk_outdated": 1})
 
     def test_resolve_already_resolved_returns_400(self):
         issue = self._create_issue(status=HealthIssue.Status.RESOLVED)

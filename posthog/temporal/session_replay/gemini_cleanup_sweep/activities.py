@@ -7,7 +7,6 @@ from django.conf import settings
 import structlog
 from asgiref.sync import sync_to_async
 from google.genai import Client as RawGenAIClient
-from google.genai.errors import APIError
 from temporalio import activity
 from temporalio.client import Client, WorkflowExecutionStatus
 from temporalio.service import RPCError, RPCStatusCode
@@ -21,6 +20,7 @@ from posthog.temporal.session_replay.gemini_cleanup_sweep.constants import (
 )
 from posthog.temporal.session_replay.gemini_cleanup_sweep.tracking import (
     index_size,
+    is_gemini_file_gone,
     iter_tracked_files,
     untrack_uploaded_file,
 )
@@ -113,34 +113,24 @@ async def sweep_gemini_files_activity(inputs: CleanupSweepInputs) -> CleanupSwee
         async with delete_sem:
             try:
                 await sync_to_async(raw_client.files.delete, thread_sensitive=False)(name=tracked.gemini_file_name)
-            except APIError as e:
-                if e.code == 404:
-                    # File already gone (e.g., a previous untrack failed). Drop the key so we
-                    # don't keep retrying a doomed delete.
-                    logger.info(
-                        "cleanup_sweep.delete_already_gone",
+            except Exception as e:
+                if not is_gemini_file_gone(e):
+                    # Key kept for next-cycle retry; 48h TTL backstops.
+                    logger.exception(
+                        "cleanup_sweep.delete_failed",
                         gemini_file_name=tracked.gemini_file_name,
                         workflow_id=tracked.workflow_id,
                         signals_type="cleanup-sweep",
                     )
-                    await untrack_uploaded_file(tracked.gemini_file_name)
-                    return True
-                logger.exception(
-                    "cleanup_sweep.delete_failed",
+                    return False
+                # File already gone (e.g., a previous untrack failed). Drop the key so we
+                # don't keep retrying a doomed delete.
+                logger.info(
+                    "cleanup_sweep.delete_already_gone",
                     gemini_file_name=tracked.gemini_file_name,
                     workflow_id=tracked.workflow_id,
                     signals_type="cleanup-sweep",
                 )
-                return False
-            except Exception:
-                # Key kept for next-cycle retry; 48h TTL backstops.
-                logger.exception(
-                    "cleanup_sweep.delete_failed",
-                    gemini_file_name=tracked.gemini_file_name,
-                    workflow_id=tracked.workflow_id,
-                    signals_type="cleanup-sweep",
-                )
-                return False
             await untrack_uploaded_file(tracked.gemini_file_name)
             return True
 

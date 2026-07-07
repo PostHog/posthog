@@ -122,7 +122,7 @@ const subscriptionsDeliveriesList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedSubscriptionDeliveryList>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.subscription_id))}/deliveries/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.subscription_id))}/deliveries/`,
             query: {
                 cursor: params.cursor,
                 status: params.status,
@@ -131,7 +131,13 @@ const subscriptionsDeliveriesList = (): ToolBase<
         const filtered = {
             ...result,
             results: (result.results ?? []).map((item: any) =>
-                omitResponseFields(item, ['content_snapshot', 'recipient_results', 'error'])
+                omitResponseFields(item, [
+                    'content_snapshot',
+                    'recipient_results',
+                    'error',
+                    'ai_report',
+                    'ai_report_diagnostics',
+                ])
             ),
         } as typeof result
         return await withPostHogUrl(context, filtered, '/subscriptions')
@@ -150,9 +156,14 @@ const subscriptionsDeliveriesRetrieve = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SubscriptionDelivery>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.subscription_id))}/deliveries/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.subscription_id))}/deliveries/${encodeURIComponent(String(params.id))}/`,
         })
-        const filtered = omitResponseFields(result, ['content_snapshot', 'recipient_results', 'error']) as typeof result
+        const filtered = omitResponseFields(result, [
+            'content_snapshot',
+            'recipient_results',
+            'error',
+            'ai_report_diagnostics',
+        ]) as typeof result
         return filtered
     },
 })

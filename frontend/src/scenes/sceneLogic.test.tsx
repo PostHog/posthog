@@ -4,7 +4,7 @@ import { expectLogic, partial, truth } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -46,8 +46,6 @@ describe('sceneLogic', () => {
         featureFlagLogic.mount()
         router.actions.push(urls.eventDefinitions())
         logic = sceneLogic.build({ scenes: testScenes })
-        // Simulate a fresh mount so that stored tabs are read from localStorage.
-        logic.cache.tabsLoaded = false
         logic.mount()
         await expectLogic(logic).delay(1)
     })
@@ -105,8 +103,6 @@ describe('sceneLogic', () => {
             hash: '',
             title: 'Default dashboard',
             iconType: 'dashboard' as const,
-            active: false,
-            pinned: true,
             sceneId: Scene.Dashboard,
             sceneKey: 'dashboard-42',
             sceneParams: { params: {}, searchParams: {}, hashParams: {} },
@@ -143,8 +139,6 @@ describe('sceneLogic', () => {
                 featureFlagLogic.mount()
                 router.actions.push(urls.eventDefinitions())
                 const bootstrappedLogic = sceneLogic.build({ scenes: testScenes })
-                // Simulate a fresh mount the same way the suite's beforeEach does.
-                bootstrappedLogic.cache.tabsLoaded = false
                 bootstrappedLogic.mount()
                 // homepage is populated synchronously from APP_CONTEXT — no setHomepage / API round-trip needed.
                 bootstrappedHomepagePathname = removeProjectIdIfPresent(

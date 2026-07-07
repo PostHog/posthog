@@ -17,6 +17,7 @@ from posthog.schema import (
     SessionsV2JoinMode,
     WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields,
+    WebAnalyticsPreComputeStrategy,
     WebAnalyticsSampling,
     WebStatsBreakdown,
     WebStatsTableQuery,
@@ -26,7 +27,11 @@ from posthog.models.utils import uuid7
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
-from products.web_analytics.backend.hogql_queries.web_stats_frustration_lazy_precompute import can_use_lazy_precompute
+from products.web_analytics.backend.hogql_queries.web_stats_frustration_lazy_precompute import (
+    _FRUSTRATION_EVENT_TYPES,
+    INSERT_QUERY_TEMPLATE,
+    can_use_lazy_precompute,
+)
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -134,6 +139,20 @@ class TestWebStatsFrustrationLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
     def test_eligible_when_flag_on_and_opt_in_set(self):
         with self._enable_lazy():
             assert can_use_lazy_precompute(self._runner(self._build_query())) is True
+
+    def test_insert_scans_only_frustration_event_types(self):
+        # $pageview/$screen contribute 0 to every metric and their groups are
+        # dropped by the HAVING, so the insert must not scan them — they only
+        # inflate the GROUP BY cardinality that OOMs high-traffic teams.
+        # Result-parity with the live (5-type) scan is covered by
+        # test_lazy_response_matches_live.
+        assert "{event_scan_filter}" in INSERT_QUERY_TEMPLATE
+        assert "$pageview" not in INSERT_QUERY_TEMPLATE
+        assert "$screen" not in INSERT_QUERY_TEMPLATE
+        for frustration_event in ("$rageclick", "$dead_click", "$exception"):
+            assert frustration_event in _FRUSTRATION_EVENT_TYPES
+        assert "$pageview" not in _FRUSTRATION_EVENT_TYPES
+        assert "$screen" not in _FRUSTRATION_EVENT_TYPES
 
     def test_rejected_when_org_flag_off(self):
         # Default mocked-off feature flag: gate refuses.
@@ -267,8 +286,7 @@ class TestWebStatsFrustrationLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.pk, status=PreaggregationJob.Status.READY
         ).count()
         assert ready_jobs > 0, "expected at least one READY precompute job"
-        assert lazy_response.usedLazyPrecompute is True
-        assert lazy_response.usedPreAggregatedTables is True
+        assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
 
         lazy_by_path = self._collect_metrics(lazy_response.results)
         assert lazy_by_path == live_by_path, f"lazy/live mismatch: lazy={lazy_by_path}, live={live_by_path}"

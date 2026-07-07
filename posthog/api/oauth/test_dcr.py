@@ -7,6 +7,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.api.oauth.client_name import sanitize_client_name
 from posthog.models.oauth import OAuthApplication, OAuthApplicationAccessLevel
 
 
@@ -366,6 +367,30 @@ class TestDynamicClientRegistration(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("script_tag", "<script>alert(1)</script>"),
+            ("attribute_breakout", '"><img src=x onerror=alert(1)>'),
+            ("ampersand_preserved", "Acme & Co"),
+            ("over_length_after_escape", "<" * 255),
+        ]
+    )
+    def test_client_name_is_html_escaped_when_stored(self, _name, payload):
+        response = self.client.post(
+            "/oauth/register/",
+            {"client_name": payload, "redirect_uris": ["https://example.com/callback"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Escaped once at ingestion and capped to the model's name column.
+        expected = sanitize_client_name(payload)
+        app = OAuthApplication.objects.get(client_id=response.json()["client_id"])
+        self.assertEqual(app.name, expected)
+        self.assertNotIn("<", app.name)
+        self.assertNotIn(">", app.name)
+        self.assertEqual(response.json()["client_name"], expected)
+
+    @parameterized.expand(
+        [
             # (name, requested scope, expected app.scopes ceiling, expected echoed `scope` in 201 — None means omitted)
             ("single_scope", "experiment:read", ["experiment:read"], "experiment:read"),
             (
@@ -383,7 +408,7 @@ class TestDynamicClientRegistration(APIBaseTest):
             ("strips_internal", "experiment:read signal_scout_internal:write", ["experiment:read"], "experiment:read"),
             (
                 "strips_hidden",
-                "experiment:read metrics:read wizard_session:write",
+                "experiment:read wizard_session:write",
                 ["experiment:read"],
                 "experiment:read",
             ),
@@ -420,7 +445,7 @@ class TestDynamicClientRegistration(APIBaseTest):
     @parameterized.expand(
         [
             ("only_privileged", "llm_gateway:read llm_gateway:write"),
-            ("only_internal_hidden_junk", "signal_scout_internal:write metrics:read not_a_real:scope"),
+            ("only_internal_hidden_junk", "signal_scout_internal:write wizard_session:read not_a_real:scope"),
         ]
     )
     def test_register_with_only_ungrantable_scopes_is_rejected(self, _name, scope):

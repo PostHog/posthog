@@ -1,6 +1,5 @@
 import { useCallback, useMemo } from 'react'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import {
     type ChartTheme,
     PieChart,
@@ -9,14 +8,16 @@ import {
     type TooltipContext,
     useRadialLayout,
 } from '@posthog/quill-charts'
+import { Skeleton } from '@posthog/quill-primitives'
 
-import { formatPercentage } from 'lib/utils'
+import { formatPercentage } from 'lib/utils/numbers'
 
 import { type HarnessRow } from '../mcpDashboardOverviewLogic'
 import { Card } from './Card'
 import { ChartTooltip } from './ChartTooltip'
 import { formatNumber } from './formatters'
-import { HARNESS_LOGOS, HarnessPill, harnessSliceColor } from './harness'
+import { HarnessPill } from './harness'
+import { harnessLogo, harnessSliceColor } from './harnessRegistry'
 
 const HARNESS_DONUT_CONFIG: PieChartConfig = {
     innerRadiusRatio: 0.6,
@@ -41,7 +42,7 @@ function HarnessSliceLabels(): JSX.Element | null {
                 const x = layout.cx + Math.sin(slice.centroidAngle) * midRadius
                 const y = layout.cy - Math.cos(slice.centroidAngle) * midRadius
                 const category = slice.series.label
-                const logo = HARNESS_LOGOS[category]
+                const logo = harnessLogo(category)
                 return (
                     <div
                         key={slice.series.key}
@@ -111,7 +112,7 @@ export function HarnessDonut({
         return (
             <Card className="flex flex-1 flex-col" title="Share of calls by harness">
                 <div className="flex min-h-[300px] flex-1 items-center justify-center">
-                    <LemonSkeleton className="h-[180px] w-[180px] rounded-full" />
+                    <Skeleton className="h-[180px] w-[180px] rounded-full" />
                 </div>
             </Card>
         )

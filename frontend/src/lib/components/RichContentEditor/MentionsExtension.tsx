@@ -7,8 +7,8 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useSt
 import { LemonButton, ProfilePicture } from '@posthog/lemon-ui'
 
 import { Popover } from 'lib/lemon-ui/Popover'
-import { isKeyOf } from 'lib/utils'
 import { createFuse } from 'lib/utils/fuseSearch'
+import { isKeyOf } from 'lib/utils/guards'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { OrganizationMemberType } from '~/types'

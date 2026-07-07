@@ -10,7 +10,9 @@ export const bigqueryDefinition: DestinationDefinition = {
     type: 'BigQuery',
     usesIntegration: true,
     defaults: () => ({}),
-    requiredFields: ({ isNew }) => [...(isNew ? ['integration_id'] : []), 'dataset_id', 'table_id'],
+    requiredFields: () => ['integration_id', 'dataset_id', 'table_id'],
+    // Credentials and project_id now live on the integration; json_config_file is a removed legacy field.
+    configKeys: ['dataset_id', 'table_id', 'use_json_type'],
     eventTableOverrides: { teamIdHogql: 'team_id' },
     eventTableExtraFields: {
         bq_ingested_timestamp: {

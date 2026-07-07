@@ -1,5 +1,6 @@
 {
     "id": 13,
+    "is_legacy": true,
     "name": "experiment-funnels-query",
     "description": null,
     "start_date": "2025-05-20T14:16:00Z",
@@ -59,10 +60,12 @@
                 "key": "test-2",
                 "rollout_percentage": 33
             }
-        ],
-        "recommended_sample_size": 0,
+        ]
+    },
+    "running_time_calculation": {
+        "minimum_detectable_effect": 30,
         "recommended_running_time": 0,
-        "minimum_detectable_effect": 30
+        "recommended_sample_size": 0
     },
     "secondary_metrics": [],
     "saved_metrics": [],

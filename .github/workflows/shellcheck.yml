@@ -18,3 +18,10 @@ jobs:
               run: sudo apt update && sudo apt install -y shellcheck
             - name: Check secrets scripts
               run: cd bin && shellcheck deploy-hobby
+
+            # Runs here, not in a path-gated ci-* job, so AGENTS/CLAUDE changes
+            # anywhere in the repo are validated on every PR.
+            - name: Check AGENTS.md / CLAUDE.md symlinks
+              run: |
+                  shellcheck .github/scripts/check-agents-md-symlinks.sh
+                  .github/scripts/check-agents-md-symlinks.sh

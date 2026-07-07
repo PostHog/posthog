@@ -5,7 +5,7 @@
          groups__revenue_analytics.revenue AS revenue,
          groups__revenue_analytics.mrr AS mrr
   FROM
-    (SELECT tupleElement(argMax(tuple(groups.group_key), toTimeZone(groups._timestamp, 'UTC')), 1) AS groups___key,
+    (SELECT argMax(groups.group_key, toTimeZone(groups._timestamp, 'UTC')) AS groups___key,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -47,15 +47,15 @@
                     if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
                     divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                     'USD' AS currency,
-                    if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
+                    if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
            FROM events
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+              HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
            ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
         WHERE notEmpty(group_key)
@@ -93,15 +93,15 @@
                        if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
                        divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                        'USD' AS currency,
-                       if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
+                       if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
               FROM events
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
               WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
               ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
            WHERE notEmpty(group_key)) AS customer_to_group
@@ -146,15 +146,15 @@
                              if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
                              divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                              'USD' AS currency,
-                             if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
+                             if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
                     FROM events
                     LEFT OUTER JOIN
-                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                     ORDER BY timestamp DESC) AS revenue_item
                  WHERE and(revenue_item.is_recurring, isNotNull(revenue_item.subscription_id), greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), -60))), lessOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
@@ -175,7 +175,7 @@
                            toString(person_id) AS customer_id,
                            NULL AS status,
                            min_timestamp AS started_at,
-                           if(ifNull(greater(max_timestamp_plus_dropoff_days, today()), 0), NULL, max_timestamp_plus_dropoff_days) AS ended_at,
+                           if(greater(max_timestamp_plus_dropoff_days, today()), NULL, max_timestamp_plus_dropoff_days) AS ended_at,
                            NULL AS metadata
                     FROM
                       (SELECT events__person.id AS person_id,
@@ -186,18 +186,18 @@
                               addDays(max_timestamp, 45.0) AS max_timestamp_plus_dropoff_days
                        FROM events
                        LEFT OUTER JOIN
-                         (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                         (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                  person_distinct_id_overrides.distinct_id AS distinct_id
                           FROM person_distinct_id_overrides
                           WHERE equals(person_distinct_id_overrides.team_id, 99999)
                           GROUP BY person_distinct_id_overrides.distinct_id
-                          HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                          HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                        LEFT JOIN
                          (SELECT person.id AS id
                           FROM person
                           WHERE equals(person.team_id, 99999)
                           GROUP BY person.id
-                          HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                          HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
                        WHERE and(equals(events.team_id, 99999), and(1, isNotNull(subscription_id)))
                        GROUP BY subscription_id,
                                 person_id)
@@ -212,7 +212,7 @@
                        subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
            GROUP BY customer_id) AS mrr_by_customer ON equals(customer_to_group.customer_id, mrr_by_customer.customer_id)
         GROUP BY group_key) AS mrr_agg ON equals(revenue_agg.group_key, mrr_agg.group_key)) AS groups__revenue_analytics ON equals(groups.groups___key, groups__revenue_analytics.group_key)
-  WHERE ifNull(equals(groups.key, 'lolol0:xxx'), 0)
+  WHERE equals(groups.key, 'lolol0:xxx')
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=60,
@@ -234,7 +234,7 @@
          groups__revenue_analytics.revenue AS revenue,
          groups__revenue_analytics.mrr AS mrr
   FROM
-    (SELECT tupleElement(argMax(tuple(groups.group_key), toTimeZone(groups._timestamp, 'UTC')), 1) AS groups___key,
+    (SELECT argMax(groups.group_key, toTimeZone(groups._timestamp, 'UTC')) AS groups___key,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -254,7 +254,7 @@
                inner.email AS email,
                inner.phone AS phone,
                inner.address AS address,
-               if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+               if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
                inner.country AS country,
                inner.cohort AS cohort,
                inner.initial_coupon AS initial_coupon,
@@ -338,7 +338,7 @@
                     if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
                     divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                     'GBP' AS currency,
-                    divideDecimal(if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
+                    divideDecimal(if(equals(original_currency, currency), toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
            FROM
              (SELECT posthog_test_stripe_invoice.id AS id,
                      parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
@@ -401,7 +401,7 @@
                           if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
                           divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                           'GBP' AS currency,
-                          divideDecimal(if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
+                          divideDecimal(if(equals(original_currency, currency), toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
                  FROM
                    (SELECT posthog_test_stripe_invoice.id AS id,
                            parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
@@ -476,7 +476,7 @@
          groups__revenue_analytics.revenue AS revenue,
          groups__revenue_analytics.revenue AS `$virt_revenue`
   FROM
-    (SELECT tupleElement(argMax(tuple(groups.group_key), toTimeZone(groups._timestamp, 'UTC')), 1) AS groups___key,
+    (SELECT argMax(groups.group_key, toTimeZone(groups._timestamp, 'UTC')) AS groups___key,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -518,15 +518,15 @@
                     if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
                     divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                     'USD' AS currency,
-                    if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
+                    if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
            FROM events
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+              HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
            ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
         WHERE notEmpty(group_key)
@@ -564,15 +564,15 @@
                        if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
                        divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                        'USD' AS currency,
-                       if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
+                       if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
               FROM events
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
               WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
               ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
            WHERE notEmpty(group_key)) AS customer_to_group
@@ -617,15 +617,15 @@
                              if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
                              divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                              'USD' AS currency,
-                             if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
+                             if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
                     FROM events
                     LEFT OUTER JOIN
-                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                     ORDER BY timestamp DESC) AS revenue_item
                  WHERE and(revenue_item.is_recurring, isNotNull(revenue_item.subscription_id), greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), -60))), lessOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
@@ -659,7 +659,7 @@
                        subscription_id ASC) AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
            GROUP BY customer_id) AS mrr_by_customer ON equals(customer_to_group.customer_id, mrr_by_customer.customer_id)
         GROUP BY group_key) AS mrr_agg ON equals(revenue_agg.group_key, mrr_agg.group_key)) AS groups__revenue_analytics ON equals(groups.groups___key, groups__revenue_analytics.group_key)
-  WHERE ifNull(equals(groups.key, 'lolol0:xxx'), 0)
+  WHERE equals(groups.key, 'lolol0:xxx')
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -680,7 +680,7 @@
          groups__revenue_analytics.revenue AS revenue,
          groups__revenue_analytics.revenue AS `$virt_revenue`
   FROM
-    (SELECT tupleElement(argMax(tuple(groups.group_key), toTimeZone(groups._timestamp, 'UTC')), 1) AS groups___key,
+    (SELECT argMax(groups.group_key, toTimeZone(groups._timestamp, 'UTC')) AS groups___key,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -700,7 +700,7 @@
                inner.email AS email,
                inner.phone AS phone,
                inner.address AS address,
-               if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+               if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
                inner.country AS country,
                inner.cohort AS cohort,
                inner.initial_coupon AS initial_coupon,
@@ -784,7 +784,7 @@
                     if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
                     divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                     'GBP' AS currency,
-                    divideDecimal(if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
+                    divideDecimal(if(equals(original_currency, currency), toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
            FROM
              (SELECT posthog_test_stripe_invoice.id AS id,
                      parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
@@ -847,7 +847,7 @@
                           if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
                           divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                           'GBP' AS currency,
-                          divideDecimal(if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
+                          divideDecimal(if(equals(original_currency, currency), toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
                  FROM
                    (SELECT posthog_test_stripe_invoice.id AS id,
                            parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
@@ -921,7 +921,7 @@
   SELECT groups.key AS key,
          groups__revenue_analytics.revenue AS revenue
   FROM
-    (SELECT tupleElement(argMax(tuple(groups.group_key), toTimeZone(groups._timestamp, 'UTC')), 1) AS groups___key,
+    (SELECT argMax(groups.group_key, toTimeZone(groups._timestamp, 'UTC')) AS groups___key,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -941,7 +941,7 @@
                inner.email AS email,
                inner.phone AS phone,
                inner.address AS address,
-               if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+               if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
                inner.country AS country,
                inner.cohort AS cohort,
                inner.initial_coupon AS initial_coupon,
@@ -1025,7 +1025,7 @@
                     if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
                     divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                     'GBP' AS currency,
-                    divideDecimal(if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
+                    divideDecimal(if(equals(original_currency, currency), toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
            FROM
              (SELECT posthog_test_stripe_invoice.id AS id,
                      parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
@@ -1088,7 +1088,7 @@
                           if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
                           divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                           'GBP' AS currency,
-                          divideDecimal(if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
+                          divideDecimal(if(equals(original_currency, currency), toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
                  FROM
                    (SELECT posthog_test_stripe_invoice.id AS id,
                            parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
@@ -1162,7 +1162,7 @@
   SELECT groups.key AS key,
          groups__revenue_analytics.revenue AS `$virt_revenue`
   FROM
-    (SELECT tupleElement(argMax(tuple(groups.group_key), toTimeZone(groups._timestamp, 'UTC')), 1) AS groups___key,
+    (SELECT argMax(groups.group_key, toTimeZone(groups._timestamp, 'UTC')) AS groups___key,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -1182,7 +1182,7 @@
                inner.email AS email,
                inner.phone AS phone,
                inner.address AS address,
-               if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+               if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
                inner.country AS country,
                inner.cohort AS cohort,
                inner.initial_coupon AS initial_coupon,
@@ -1266,7 +1266,7 @@
                     if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
                     divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                     'GBP' AS currency,
-                    divideDecimal(if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
+                    divideDecimal(if(equals(original_currency, currency), toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
            FROM
              (SELECT posthog_test_stripe_invoice.id AS id,
                      parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
@@ -1329,7 +1329,7 @@
                           if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
                           divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                           'GBP' AS currency,
-                          divideDecimal(if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
+                          divideDecimal(if(equals(original_currency, currency), toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
                  FROM
                    (SELECT posthog_test_stripe_invoice.id AS id,
                            parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
@@ -1403,7 +1403,7 @@
   SELECT groups.key AS key,
          groups__revenue_analytics.revenue AS `$virt_revenue`
   FROM
-    (SELECT tupleElement(argMax(tuple(groups.group_key), toTimeZone(groups._timestamp, 'UTC')), 1) AS groups___key,
+    (SELECT argMax(groups.group_key, toTimeZone(groups._timestamp, 'UTC')) AS groups___key,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -1423,7 +1423,7 @@
                inner.email AS email,
                inner.phone AS phone,
                inner.address AS address,
-               if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+               if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
                inner.country AS country,
                inner.cohort AS cohort,
                inner.initial_coupon AS initial_coupon,
@@ -1507,7 +1507,7 @@
                     if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
                     divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                     'GBP' AS currency,
-                    divideDecimal(if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
+                    divideDecimal(if(equals(original_currency, currency), toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
            FROM
              (SELECT posthog_test_stripe_invoice.id AS id,
                      parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
@@ -1570,7 +1570,7 @@
                           if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
                           divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                           'GBP' AS currency,
-                          divideDecimal(if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
+                          divideDecimal(if(equals(original_currency, currency), toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
                  FROM
                    (SELECT posthog_test_stripe_invoice.id AS id,
                            parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
@@ -1645,7 +1645,7 @@
          groups__revenue_analytics.revenue AS revenue,
          groups__revenue_analytics.revenue AS `$virt_revenue`
   FROM
-    (SELECT tupleElement(argMax(tuple(groups.group_key), toTimeZone(groups._timestamp, 'UTC')), 1) AS groups___key,
+    (SELECT argMax(groups.group_key, toTimeZone(groups._timestamp, 'UTC')) AS groups___key,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -1665,7 +1665,7 @@
                inner.email AS email,
                inner.phone AS phone,
                inner.address AS address,
-               if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+               if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
                inner.country AS country,
                inner.cohort AS cohort,
                inner.initial_coupon AS initial_coupon,
@@ -1749,7 +1749,7 @@
                     if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
                     divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                     'GBP' AS currency,
-                    divideDecimal(if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
+                    divideDecimal(if(equals(original_currency, currency), toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
            FROM
              (SELECT posthog_test_stripe_invoice.id AS id,
                      parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
@@ -1812,7 +1812,7 @@
                           if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
                           divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                           'GBP' AS currency,
-                          divideDecimal(if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
+                          divideDecimal(if(equals(original_currency, currency), toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
                  FROM
                    (SELECT posthog_test_stripe_invoice.id AS id,
                            parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
@@ -1921,15 +1921,15 @@
                     if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
                     divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                     'USD' AS currency,
-                    if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
+                    if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
            FROM events
            LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+              HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
            ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
         WHERE notEmpty(group_key)
@@ -1967,15 +1967,15 @@
                        if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
                        divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                        'USD' AS currency,
-                       if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
+                       if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
               FROM events
               LEFT OUTER JOIN
-                (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                         person_distinct_id_overrides.distinct_id AS distinct_id
                  FROM person_distinct_id_overrides
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                 HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
               WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
               ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
            WHERE notEmpty(group_key)) AS customer_to_group
@@ -2020,15 +2020,15 @@
                              if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
                              divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                              'USD' AS currency,
-                             if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
+                             if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
                     FROM events
                     LEFT OUTER JOIN
-                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
                        FROM person_distinct_id_overrides
                        WHERE equals(person_distinct_id_overrides.team_id, 99999)
                        GROUP BY person_distinct_id_overrides.distinct_id
-                       HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                       HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                     WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                     ORDER BY timestamp DESC) AS revenue_item
                  WHERE and(revenue_item.is_recurring, isNotNull(revenue_item.subscription_id), greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), -60))), lessOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
@@ -2049,7 +2049,7 @@
                            toString(person_id) AS customer_id,
                            NULL AS status,
                            min_timestamp AS started_at,
-                           if(ifNull(greater(max_timestamp_plus_dropoff_days, today()), 0), NULL, max_timestamp_plus_dropoff_days) AS ended_at,
+                           if(greater(max_timestamp_plus_dropoff_days, today()), NULL, max_timestamp_plus_dropoff_days) AS ended_at,
                            NULL AS metadata
                     FROM
                       (SELECT events__person.id AS person_id,
@@ -2060,18 +2060,18 @@
                               addDays(max_timestamp, 45.0) AS max_timestamp_plus_dropoff_days
                        FROM events
                        LEFT OUTER JOIN
-                         (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                         (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
                                  person_distinct_id_overrides.distinct_id AS distinct_id
                           FROM person_distinct_id_overrides
                           WHERE equals(person_distinct_id_overrides.team_id, 99999)
                           GROUP BY person_distinct_id_overrides.distinct_id
-                          HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                          HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
                        LEFT JOIN
                          (SELECT person.id AS id
                           FROM person
                           WHERE equals(person.team_id, 99999)
                           GROUP BY person.id
-                          HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                          HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
                        WHERE and(equals(events.team_id, 99999), and(1, isNotNull(subscription_id)))
                        GROUP BY subscription_id,
                                 person_id)
@@ -2120,7 +2120,7 @@
                inner.email AS email,
                inner.phone AS phone,
                inner.address AS address,
-               if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(ifNull(notEquals(inner.resolved_distinct_id, ''), 1), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
+               if(notEquals(JSONExtractString(inner.metadata, 'posthog_person_distinct_id'), ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id_source', 'customer'))), if(notEquals(inner.resolved_distinct_id, ''), toJSONString(mapUpdate(mapFromArrays(JSONExtractKeys(ifNull(inner.metadata, '{}')), arrayMap(k -> JSONExtractString(ifNull(inner.metadata, '{}'), k), JSONExtractKeys(ifNull(inner.metadata, '{}')))), map('posthog_person_distinct_id', inner.resolved_distinct_id, 'posthog_person_distinct_id_source', inner.resolved_source))), inner.metadata)) AS metadata,
                inner.country AS country,
                inner.cohort AS cohort,
                inner.initial_coupon AS initial_coupon,
@@ -2204,7 +2204,7 @@
                     if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
                     divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                     'GBP' AS currency,
-                    divideDecimal(if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
+                    divideDecimal(if(equals(original_currency, currency), toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
            FROM
              (SELECT posthog_test_stripe_invoice.id AS id,
                      parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
@@ -2267,7 +2267,7 @@
                           if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
                           divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                           'GBP' AS currency,
-                          divideDecimal(if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
+                          divideDecimal(if(equals(original_currency, currency), toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))), accurateCastOrNull(invoice.period_months, 'Decimal64(10)')) AS amount
                  FROM
                    (SELECT posthog_test_stripe_invoice.id AS id,
                            parseDateTime64BestEffortOrNull(toString(posthog_test_stripe_invoice.created), 6, 'UTC') AS created_at,
@@ -2342,7 +2342,7 @@
          groups__revenue_analytics.revenue AS revenue,
          groups__revenue_analytics.mrr AS mrr
   FROM
-    (SELECT tupleElement(argMax(tuple(groups.group_key), toTimeZone(groups._timestamp, 'UTC')), 1) AS groups___key,
+    (SELECT argMax(groups.group_key, toTimeZone(groups._timestamp, 'UTC')) AS groups___key,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -2374,7 +2374,7 @@
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_mrr_events_revenue_view/revenue_analytics.events.purchase.mrr_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`mrr` Nullable(Decimal64(10)), `customer_id` Nullable(String), `source_label` Nullable(String), `subscription_id` Nullable(String)') AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
            GROUP BY customer_id) AS mrr_by_customer ON equals(customer_to_group.customer_id, mrr_by_customer.customer_id)
         GROUP BY group_key) AS mrr_agg ON equals(revenue_agg.group_key, mrr_agg.group_key)) AS groups__revenue_analytics ON equals(groups.groups___key, groups__revenue_analytics.group_key)
-  WHERE ifNull(equals(groups.key, 'lolol0:xxx'), 0)
+  WHERE equals(groups.key, 'lolol0:xxx')
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=60,
@@ -2396,7 +2396,7 @@
          groups__revenue_analytics.revenue AS revenue,
          groups__revenue_analytics.mrr AS mrr
   FROM
-    (SELECT tupleElement(argMax(tuple(groups.group_key), toTimeZone(groups._timestamp, 'UTC')), 1) AS groups___key,
+    (SELECT argMax(groups.group_key, toTimeZone(groups._timestamp, 'UTC')) AS groups___key,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -2455,7 +2455,7 @@
          groups__revenue_analytics.revenue AS revenue,
          groups__revenue_analytics.revenue AS `$virt_revenue`
   FROM
-    (SELECT tupleElement(argMax(tuple(groups.group_key), toTimeZone(groups._timestamp, 'UTC')), 1) AS groups___key,
+    (SELECT argMax(groups.group_key, toTimeZone(groups._timestamp, 'UTC')) AS groups___key,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -2487,7 +2487,7 @@
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_mrr_events_revenue_view/revenue_analytics.events.purchase.mrr_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`mrr` Nullable(Decimal64(10)), `customer_id` Nullable(String), `source_label` Nullable(String), `subscription_id` Nullable(String)') AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
            GROUP BY customer_id) AS mrr_by_customer ON equals(customer_to_group.customer_id, mrr_by_customer.customer_id)
         GROUP BY group_key) AS mrr_agg ON equals(revenue_agg.group_key, mrr_agg.group_key)) AS groups__revenue_analytics ON equals(groups.groups___key, groups__revenue_analytics.group_key)
-  WHERE ifNull(equals(groups.key, 'lolol0:xxx'), 0)
+  WHERE equals(groups.key, 'lolol0:xxx')
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
                      max_execution_time=60,
@@ -2509,7 +2509,7 @@
          groups__revenue_analytics.revenue AS revenue,
          groups__revenue_analytics.revenue AS `$virt_revenue`
   FROM
-    (SELECT tupleElement(argMax(tuple(groups.group_key), toTimeZone(groups._timestamp, 'UTC')), 1) AS groups___key,
+    (SELECT argMax(groups.group_key, toTimeZone(groups._timestamp, 'UTC')) AS groups___key,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -2567,7 +2567,7 @@
   SELECT groups.key AS key,
          groups__revenue_analytics.revenue AS revenue
   FROM
-    (SELECT tupleElement(argMax(tuple(groups.group_key), toTimeZone(groups._timestamp, 'UTC')), 1) AS groups___key,
+    (SELECT argMax(groups.group_key, toTimeZone(groups._timestamp, 'UTC')) AS groups___key,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -2625,7 +2625,7 @@
   SELECT groups.key AS key,
          groups__revenue_analytics.revenue AS `$virt_revenue`
   FROM
-    (SELECT tupleElement(argMax(tuple(groups.group_key), toTimeZone(groups._timestamp, 'UTC')), 1) AS groups___key,
+    (SELECT argMax(groups.group_key, toTimeZone(groups._timestamp, 'UTC')) AS groups___key,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -2684,7 +2684,7 @@
          groups__revenue_analytics.revenue AS revenue,
          groups__revenue_analytics.revenue AS `$virt_revenue`
   FROM
-    (SELECT tupleElement(argMax(tuple(groups.group_key), toTimeZone(groups._timestamp, 'UTC')), 1) AS groups___key,
+    (SELECT argMax(groups.group_key, toTimeZone(groups._timestamp, 'UTC')) AS groups___key,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups

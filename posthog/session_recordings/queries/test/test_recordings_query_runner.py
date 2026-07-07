@@ -1,6 +1,8 @@
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 
+from parameterized import parameterized
+
 from posthog.schema import RecordingsQuery, SessionRecordingType, SnapshotSource
 
 from posthog.clickhouse.client import sync_execute
@@ -86,6 +88,23 @@ class TestRecordingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         session_ids = [r.id for r in response.results]
         assert "session-new" in session_ids
         assert "session-old" not in session_ids
+
+    @parameterized.expand(
+        [
+            ("narrow_window_excludes", "-1d", []),
+            ("covering_window_includes", "-10d", ["session-old"]),
+        ]
+    )
+    def test_session_ids_respect_date_window(self, _name: str, date_from: str, expected: list[str]):
+        # within the 30d retention, so only the date window can exclude it
+        self._produce_replay("session-old", first_timestamp="2020-12-25T12:00:00", last_timestamp="2020-12-25T12:10:00")
+
+        runner = RecordingsQueryRunner(
+            query=RecordingsQuery(session_ids=["session-old"], date_from=date_from), team=self.team
+        )
+        response = runner.calculate()
+
+        assert [r.id for r in response.results] == expected
 
     @snapshot_clickhouse_queries
     def test_generates_valid_hogql(self):

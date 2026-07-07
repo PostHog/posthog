@@ -1,0 +1,77 @@
+import {
+    KAFKA_APP_METRICS_2,
+    KAFKA_METRICS_CLICKHOUSE,
+    KAFKA_METRICS_INGESTION,
+    KAFKA_METRICS_INGESTION_DLQ,
+    KAFKA_METRICS_INGESTION_OVERFLOW,
+} from '~/common/config/kafka-topics'
+import { isProdEnv } from '~/common/utils/env-utils'
+
+import { MetricsProducerName, WARPSTREAM_INGESTION_PRODUCER, WARPSTREAM_METRICS_PRODUCER } from './outputs/producers'
+
+export type MetricsIngestionOutputsConfig = {
+    METRICS_INGESTION_OUTPUT_APP_METRICS_TOPIC: string
+    METRICS_INGESTION_OUTPUT_APP_METRICS_PRODUCER: MetricsProducerName
+    METRICS_INGESTION_OUTPUT_METRICS_PRODUCER: MetricsProducerName
+    METRICS_INGESTION_OUTPUT_DLQ_PRODUCER: MetricsProducerName
+}
+
+export function getDefaultMetricsIngestionOutputsConfig(): MetricsIngestionOutputsConfig {
+    return {
+        METRICS_INGESTION_OUTPUT_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
+        METRICS_INGESTION_OUTPUT_APP_METRICS_PRODUCER: WARPSTREAM_INGESTION_PRODUCER,
+        METRICS_INGESTION_OUTPUT_METRICS_PRODUCER: WARPSTREAM_METRICS_PRODUCER,
+        METRICS_INGESTION_OUTPUT_DLQ_PRODUCER: WARPSTREAM_METRICS_PRODUCER,
+    }
+}
+
+export type MetricsIngestionConsumerConfig = {
+    METRICS_INGESTION_CONSUMER_GROUP_ID: string
+    METRICS_INGESTION_CONSUMER_CONSUME_TOPIC: string
+    METRICS_INGESTION_CONSUMER_OVERFLOW_TOPIC: string
+    METRICS_INGESTION_CONSUMER_DLQ_TOPIC: string
+    METRICS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC: string
+    METRICS_REDIS_HOST: string
+    METRICS_REDIS_PORT: number
+    METRICS_REDIS_PASSWORD: string
+    METRICS_REDIS_TLS: boolean
+    METRICS_LIMITER_ENABLED_TEAMS: string
+    METRICS_LIMITER_DISABLED_FOR_TEAMS: string
+    METRICS_LIMITER_BUCKET_SIZE_KB: number
+    METRICS_LIMITER_REFILL_RATE_KB_PER_SECOND: number
+    METRICS_LIMITER_TTL_SECONDS: number
+    METRICS_LIMITER_TEAM_BUCKET_SIZE_KB: string
+    METRICS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: string
+    REDIS_URL: string
+    REDIS_POOL_MIN_SIZE: number
+    REDIS_POOL_MAX_SIZE: number
+    KAFKA_CLIENT_RACK: string | undefined
+}
+
+export function getDefaultMetricsIngestionConsumerConfig(): MetricsIngestionConsumerConfig {
+    return {
+        METRICS_INGESTION_CONSUMER_GROUP_ID: 'ingestion-metrics',
+        METRICS_INGESTION_CONSUMER_CONSUME_TOPIC: KAFKA_METRICS_INGESTION,
+        METRICS_INGESTION_CONSUMER_OVERFLOW_TOPIC: KAFKA_METRICS_INGESTION_OVERFLOW,
+        METRICS_INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_METRICS_INGESTION_DLQ,
+        METRICS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC: KAFKA_METRICS_CLICKHOUSE,
+        METRICS_REDIS_HOST: '127.0.0.1',
+        METRICS_REDIS_PORT: 6379,
+        METRICS_REDIS_PASSWORD: '',
+        METRICS_REDIS_TLS: isProdEnv() ? true : false,
+        METRICS_LIMITER_ENABLED_TEAMS: isProdEnv() ? '' : '*',
+        METRICS_LIMITER_DISABLED_FOR_TEAMS: '',
+        METRICS_LIMITER_BUCKET_SIZE_KB: 10000,
+        METRICS_LIMITER_REFILL_RATE_KB_PER_SECOND: 1000,
+        METRICS_LIMITER_TTL_SECONDS: 60 * 60 * 24,
+        METRICS_LIMITER_TEAM_BUCKET_SIZE_KB: '',
+        METRICS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: '',
+        // Overlapping fields with CommonConfig, included for standalone usage
+        // ok to connect to localhost over plaintext
+        // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
+        REDIS_URL: 'redis://127.0.0.1',
+        REDIS_POOL_MIN_SIZE: 1,
+        REDIS_POOL_MAX_SIZE: 3,
+        KAFKA_CLIENT_RACK: undefined,
+    }
+}

@@ -1,10 +1,10 @@
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 from datetime import timedelta
 from enum import StrEnum
 from typing import Any, Literal
 
 from django.conf import settings
-from django.db.models import Max, Q, QuerySet
+from django.db.models import Max
 from django.utils import timezone
 
 from pydantic import ValidationError
@@ -23,9 +23,16 @@ from posthog.sync import database_sync_to_async
 from products.actions.backend.models.action import Action
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.cohorts.backend.models.cohort import Cohort
-from products.customer_analytics.backend.models import Account
+from products.customer_analytics.backend.facade import api as customer_analytics_facade
+from products.customer_analytics.backend.facade.api import build_account_deeplink
+from products.customer_analytics.backend.facade.contracts import AccountRef
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.flag_status import (
+    FeatureFlagStatus,
+    FeatureFlagStatusChecker,
+    filter_flags_by_active_param,
+)
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.models.insight import Insight
@@ -240,6 +247,9 @@ class EntitySearchContext:
         elif entity_type == "account":
             # Account uses a fail-closed manager, so it can't go through the shared FTS path
             return await self._list_accounts(limit, offset)
+        elif entity_type == "feature_flag":
+            # Specialized queryset so we can surface each flag's status
+            return await self.list_feature_flags(limit, offset)
         else:
             # Fetch database entities
             db_results, _, maybe_count = await database_sync_to_async(search_entities_fts, thread_sensitive=False)(
@@ -359,33 +369,88 @@ class EntitySearchContext:
 
         return all_entities, total_count
 
-    def _accounts_queryset(self) -> QuerySet[Account]:
-        """Base accounts queryset. Uses the unscoped manager since Account is fail-closed."""
-        if not self.user_access_control.check_access_level_for_resource("account", "viewer"):
-            return Account.objects.unscoped().none()
-        return self.user_access_control.filter_queryset_by_access_level(
-            Account.objects.unscoped().filter(team=self._team)
-        )
-
     @staticmethod
-    def _account_entities(accounts: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    def _account_entities(accounts: Iterable[AccountRef]) -> list[dict[str, Any]]:
         return [
             {
                 "type": "account",
-                "result_id": str(account["id"]),
-                "extra_fields": {"name": account["name"], "external_id": account["external_id"]},
+                "result_id": account.id,
+                "extra_fields": {"name": account.name, "external_id": account.external_id},
             }
             for account in accounts
         ]
+
+    async def list_feature_flags(
+        self, limit: int = 100, offset: int = 0, active_filter: str | None = None
+    ) -> tuple[list[dict[str, Any]], int]:
+        """
+        List feature flags, newest first, surfacing each flag's status so stale flags can be
+        identified without reading them one by one. `active_filter` ("STALE"/"true"/"false")
+        reuses the same backend filter as the feature_flags API.
+        """
+        return await database_sync_to_async(self._list_feature_flags_sync, thread_sensitive=False)(
+            limit, offset, active_filter
+        )
+
+    def _list_feature_flags_sync(
+        self, limit: int = 100, offset: int = 0, active_filter: str | None = None
+    ) -> tuple[list[dict[str, Any]], int]:
+        # Resource-level gate: filter_queryset_by_access_level only prunes object-level denials, so a
+        # role without feature flag access would still see flags here (also reachable via list_data).
+        if not self.user_access_control.check_access_level_for_resource("feature_flag", "viewer"):
+            return [], 0
+
+        queryset = self.user_access_control.filter_queryset_by_access_level(
+            FeatureFlag.objects.filter(team=self._team, deleted=False)
+        )
+        if active_filter is not None:
+            queryset = filter_flags_by_active_param(queryset, active_filter)
+        queryset = queryset.order_by("-updated_at")
+
+        total_count = queryset.count()
+        flags = list(queryset[offset : offset + limit])
+
+        all_entities: list[dict[str, Any]] = []
+        for flag in flags:
+            status, _ = FeatureFlagStatusChecker(feature_flag=flag).get_status()
+            # Map to the tool's stale/enabled/disabled vocabulary. The checker reports ACTIVE for
+            # disabled flags (it skips staleness for them) and "active" isn't a value the tool
+            # exposes, so derive the label from `active` + STALE instead of using status.value.
+            if not flag.active:
+                display_status = "disabled"
+            elif status == FeatureFlagStatus.STALE:
+                display_status = "stale"
+            else:
+                display_status = "enabled"
+            all_entities.append(
+                {
+                    "type": "feature_flag",
+                    "result_id": str(flag.id),
+                    "extra_fields": {
+                        "key": flag.key,
+                        "name": flag.name,
+                        "status": display_status,
+                        "active": flag.active,
+                        "rollout": self._flag_rollout_summary(flag),
+                    },
+                }
+            )
+        return all_entities, total_count
+
+    def _flag_rollout_summary(self, flag: FeatureFlag) -> str | None:
+        """Highest release-condition rollout percentage, as a display hint (not staleness logic)."""
+        groups = (flag.filters or {}).get("groups", [])
+        percentages = [g.get("rollout_percentage") for g in groups if g.get("rollout_percentage") is not None]
+        return f"{max(percentages)}%" if percentages else None
 
     async def _search_accounts(self, query: str) -> tuple[list[dict[str, Any]], int]:
         """Search accounts by name or external id."""
         return await database_sync_to_async(self._search_accounts_sync, thread_sensitive=False)(query)
 
     def _search_accounts_sync(self, query: str) -> tuple[list[dict[str, Any]], int]:
-        queryset = self._accounts_queryset().filter(Q(name__icontains=query) | Q(external_id__icontains=query))
-        total_count = queryset.count()
-        accounts = list(queryset.order_by("name")[:SEARCH_LIMIT].values("id", "name", "external_id"))
+        accounts, total_count = customer_analytics_facade.search_accounts(
+            self._team.id, query, self.user_access_control, SEARCH_LIMIT
+        )
         return self._account_entities(accounts), total_count
 
     async def _list_accounts(self, limit: int = 100, offset: int = 0) -> tuple[list[dict[str, Any]], int]:
@@ -393,9 +458,9 @@ class EntitySearchContext:
         return await database_sync_to_async(self._list_accounts_sync, thread_sensitive=False)(limit, offset)
 
     def _list_accounts_sync(self, limit: int = 100, offset: int = 0) -> tuple[list[dict[str, Any]], int]:
-        queryset = self._accounts_queryset().order_by("-created_at")
-        total_count = queryset.count()
-        accounts = list(queryset[offset : offset + limit].values("id", "name", "external_id"))
+        accounts, total_count = customer_analytics_facade.list_accounts(
+            self._team.id, offset, limit, self.user_access_control
+        )
         return self._account_entities(accounts), total_count
 
     def _get_entity_row_values(self, result: dict, extra_columns: list[str], include_type: bool) -> list[str]:
@@ -486,6 +551,7 @@ class EntitySearchContext:
             case "alert_configuration":
                 return f"{base_url}/insights?tab=alerts&alert_id={result_id}"
             case "account":
-                return f"{base_url}/customer_analytics/accounts"
+                # Deep-link to the specific account (filtered + expanded) rather than the bare list.
+                return f"{base_url}{build_account_deeplink(account_id=result_id)}"
             case _:
                 raise ValueError(f"Unknown entity type: {entity_type}")

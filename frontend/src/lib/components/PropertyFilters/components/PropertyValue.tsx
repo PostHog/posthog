@@ -14,23 +14,24 @@ import { AssigneeSelect } from '@posthog/products-error-tracking/frontend/compon
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { DistinctIdSelect } from 'lib/components/PropertyFilters/components/DistinctIdSelect'
+import { GroupKeyFilterTooltip } from 'lib/components/PropertyFilters/components/GroupKeyFilterTooltip'
 import { GroupKeySelect } from 'lib/components/PropertyFilters/components/GroupKeySelect'
 import { PropertyFilterBetween } from 'lib/components/PropertyFilters/components/PropertyFilterBetween'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { propertyValueLogic } from 'lib/components/PropertyFilters/components/propertyValueLogic'
-import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
+import { isGroupCardFilterKey, propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { formatDate } from 'lib/utils/datetime'
 import {
-    formatDate,
     isOperatorBetween,
     isOperatorDate,
     isOperatorFlag,
     isOperatorMulti,
     isOperatorRegex,
-    toString,
-} from 'lib/utils'
+} from 'lib/utils/operators'
+import { toString } from 'lib/utils/strings'
 
 import {
     PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS,
@@ -107,6 +108,20 @@ export function PropertyValue({
 
     const isGroupKeyProperty = propertyKey === '$group_key' && groupTypeIndex != null
     const isDistinctIdProperty = propertyKey === 'distinct_id' && type === PropertyFilterType.Person
+
+    // A group property like `id` often holds the group key. We don't swap the
+    // value editor (that would break filtering the property by an arbitrary
+    // value), but we do decorate the value with a read-only group-info card so
+    // the user can confirm a pasted id resolves to the right group. Display only
+    // — it falls back to the plain value when the lookup isn't a real group key.
+    const showGroupCardOnValue = isGroupCardFilterKey(propertyKey, type) && groupTypeIndex != null
+    const groupCardTooltip = (groupKey: string): JSX.Element => (
+        <GroupKeyFilterTooltip
+            groupTypeIndex={groupTypeIndex as GroupTypeIndex}
+            groupKey={groupKey}
+            fallbackLabel={groupKey}
+        />
+    )
 
     // TODO: Add semver input validation when a semver operator is selected.
     // This will require detecting isOperatorSemver(operator) and validating the input
@@ -473,24 +488,34 @@ export function PropertyValue({
                 status={validationError ? 'danger' : 'default'}
                 title={titleNode}
                 popoverClassName="max-w-200"
-                options={displayOptions.map(({ name: _name }, index) => {
-                    const name = toString(_name)
-                    return {
-                        key: name,
-                        label: name,
-                        value: isFlagDependencyProperty ? _name : undefined, // Preserve original type for flags
-                        labelComponent: (
-                            <span
-                                key={name}
-                                data-attr={'prop-val-' + index}
-                                className="ph-no-capture flex items-center gap-1.5"
-                                title={name}
-                            >
-                                {formatLabelContent(isFlagDependencyProperty ? _name : name)}
-                            </span>
-                        ),
-                    }
-                })}
+                options={[
+                    ...displayOptions.map(({ name: _name }, index) => {
+                        const name = toString(_name)
+                        return {
+                            key: name,
+                            label: name,
+                            value: isFlagDependencyProperty ? _name : undefined, // Preserve original type for flags
+                            tooltip: showGroupCardOnValue ? groupCardTooltip(name) : undefined,
+                            labelComponent: (
+                                <span
+                                    key={name}
+                                    data-attr={'prop-val-' + index}
+                                    className="ph-no-capture flex items-center gap-1.5"
+                                    title={name}
+                                >
+                                    {formatLabelContent(isFlagDependencyProperty ? _name : name)}
+                                </span>
+                            ),
+                        }
+                    }),
+                    // A pasted group id is a custom value absent from the suggestions, so add
+                    // an option for each selected value to carry the group-card tooltip on its snack.
+                    ...(showGroupCardOnValue
+                        ? formattedValues
+                              .filter((v) => !displayOptions.some((o) => toString(o.name) === v))
+                              .map((v) => ({ key: v, label: v, tooltip: groupCardTooltip(v) }))
+                        : []),
+                ]}
             />
             {showInlineValidationErrors && validationError && (
                 <div className="text-danger flex items-center gap-1 text-sm mt-1">

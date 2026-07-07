@@ -5,8 +5,7 @@ import { router, urlToAction } from 'kea-router'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import { objectsEqual } from 'lib/utils'
-import { hasRecentAIEvents } from 'lib/utils/aiEventsUtils'
+import { objectsEqual } from 'lib/utils/objects'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -20,8 +19,16 @@ import { AnyPropertyFilter, Breadcrumb } from '~/types'
 import type { aiObservabilitySharedLogicType } from './aiObservabilitySharedLogicType'
 import { AI_OBSERVABILITY_CLUSTER_URL_PATTERN } from './clusters/constants'
 import { parserRecipesLogic } from './settings/parserRecipesLogic'
+import { hasRecentAIEvents } from './utils/aiEvents'
 
 export const AI_OBSERVABILITY_DATA_COLLECTION_NODE_ID = 'ai-observability-data'
+
+// Params this logic owns and rewrites when its state changes. Everything else is
+// passed through untouched — other logics (e.g. reviews' `review_*`, queues'
+// `queue_*`) own their params, so an allowlist here must never strip them.
+const SHARED_PARAMS = new Set(['filters', 'date_from', 'date_to', 'filter_test_accounts'])
+// Params from the trace view that must not linger on list-tab URLs.
+const STALE_PARAMS = new Set(['event', 'timestamp', 'msg'])
 
 export type AIObservabilityTabId =
     | 'dashboard'
@@ -255,12 +262,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
     }),
 
     urlToAction(({ actions, values, cache }) => {
-        const KNOWN_PARAMS = new Set(['filters', 'date_from', 'date_to', 'filter_test_accounts'])
-
-        function applySearchParams(
-            searchParams: Record<string, unknown>,
-            options?: { stripStaleParams?: boolean }
-        ): void {
+        function applySearchParams(searchParams: Record<string, unknown>): void {
             const { filters, date_from, date_to, filter_test_accounts } = searchParams
 
             const parsedFilters = isAnyPropertyFilters(filters) ? filters : []
@@ -277,8 +279,8 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             if (filtersChanged || datesChanged || testAccountsChanged) {
                 // Dispatch a single batched action so actionToUrl produces one URL
                 // change instead of up to 3 separate ones. The actionToUrl handler
-                // for applyUrlState emits only known params, which also strips any
-                // stale params carried over from other pages.
+                // for applyUrlState rewrites the shared params and drops stale
+                // trace-view params, passing all other params through.
                 actions.applyUrlState({
                     propertyFilters: parsedFilters,
                     dateFrom: newDateFrom,
@@ -286,15 +288,15 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                     shouldFilterTestAccounts: filterTestAccountsValue,
                     datesChanged,
                 })
-            } else if (options?.stripStaleParams !== false) {
-                // No state changed, but stale params may still need stripping
-                // (e.g. event, timestamp, msg from trace view).
-                const hasStaleParams = Object.keys(searchParams).some((key) => !KNOWN_PARAMS.has(key))
+            } else {
+                // No state changed, but stale params from the trace view may
+                // still need stripping (e.g. event, timestamp, msg).
+                const hasStaleParams = Object.keys(searchParams).some((key) => STALE_PARAMS.has(key))
                 if (hasStaleParams) {
                     const cleanParams: Record<string, unknown> = {}
-                    for (const key of KNOWN_PARAMS) {
-                        if (searchParams[key] !== undefined) {
-                            cleanParams[key] = searchParams[key]
+                    for (const [key, value] of Object.entries(searchParams)) {
+                        if (!STALE_PARAMS.has(key)) {
+                            cleanParams[key] = value
                         }
                     }
                     router.actions.replace(router.values.location.pathname, cleanParams)
@@ -317,12 +319,9 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             }, 15000)
         }
 
-        function applyNonDashboard(
-            searchParams: Record<string, unknown>,
-            options?: { stripStaleParams?: boolean }
-        ): void {
+        function applyNonDashboard(searchParams: Record<string, unknown>): void {
             clearDashboardTimer()
-            applySearchParams(searchParams, options)
+            applySearchParams(searchParams)
         }
 
         return {
@@ -331,14 +330,14 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                 startDashboardTimer()
             },
             [urls.aiObservabilityGenerations()]: (_, searchParams) => applyNonDashboard(searchParams),
-            [urls.aiObservabilityReviews()]: (_, searchParams) =>
-                applyNonDashboard(searchParams, { stripStaleParams: false }),
+            [urls.aiObservabilityReviews()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilityTraces()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilityUsers()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilityErrors()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilityTools()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilitySentiment()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilitySessions()]: (_, searchParams) => applyNonDashboard(searchParams),
+            '/ai-observability/sessions/:id': (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilityPlayground()]: (_, searchParams) => applyNonDashboard(searchParams),
             // Cluster list and detail both honor the same `filters` / `filter_test_accounts`
             // params so deep links from generations/traces tabs carry their filter set through.
@@ -349,17 +348,28 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
     }),
 
     trackedActionToUrl(() => {
-        // Only preserve params that belong to the shared logic — drop stale
-        // params from other pages (e.g. event, timestamp, msg from trace view).
+        // Pass through params owned by other logics (e.g. review_*, queue_*) —
+        // only rewrite the shared params and drop stale trace-view params.
+        function passthroughSearchParams(): Record<string, unknown> {
+            const passthrough: Record<string, unknown> = {}
+            for (const [key, value] of Object.entries(router.values.searchParams)) {
+                if (!SHARED_PARAMS.has(key) && !STALE_PARAMS.has(key)) {
+                    passthrough[key] = value
+                }
+            }
+            return passthrough
+        }
+
         function sharedSearchParams(): Record<string, unknown> {
             const { filters, date_from, date_to, filter_test_accounts } = router.values.searchParams
-            return { filters, date_from, date_to, filter_test_accounts }
+            return { ...passthroughSearchParams(), filters, date_from, date_to, filter_test_accounts }
         }
 
         return {
             applyUrlState: ({ propertyFilters, dateFrom, dateTo, shouldFilterTestAccounts }) => [
                 router.values.location.pathname,
                 {
+                    ...passthroughSearchParams(),
                     filters: propertyFilters.length > 0 ? propertyFilters : undefined,
                     date_from: dateFrom === INITIAL_EVENTS_DATE_FROM ? undefined : dateFrom || undefined,
                     date_to: dateTo || undefined,

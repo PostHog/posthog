@@ -5,6 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { MockSignature } from '~/mocks/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
@@ -14,13 +15,15 @@ import { PersonsTabType, PersonType, PropertyFilterType, PropertyOperator } from
 import { personsLogic } from './personsLogic'
 
 describe('personsLogic', () => {
+    afterEach(resumeKeaLoadersErrors)
     let logic: ReturnType<typeof personsLogic.build>
 
-    const mockPersonsApiHandler: MockSignature = (req) => {
-        if (['+', 'abc', 'xyz'].includes(req.url.searchParams.get('distinct_id') ?? '')) {
+    const mockPersonsApiHandler: MockSignature = ({ request }) => {
+        const url = new URL(request.url)
+        if (['+', 'abc', 'xyz'].includes(url.searchParams.get('distinct_id') ?? '')) {
             return [200, { results: ['person from api'] }]
         }
-        if (['test@test.com'].includes(req.url.searchParams.get('distinct_id') ?? '')) {
+        if (['test@test.com'].includes(url.searchParams.get('distinct_id') ?? '')) {
             return [
                 200,
                 {
@@ -144,6 +147,7 @@ describe('personsLogic', () => {
 
     describe('loadPersonUUID error handling', () => {
         it('surfaces a genuine load failure as personError', async () => {
+            silenceKeaLoadersErrors()
             jest.spyOn(api, 'query').mockRejectedValueOnce(new Error('boom'))
 
             await expectLogic(logic, () => {

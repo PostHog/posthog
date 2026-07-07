@@ -7,6 +7,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { Experiment, ExperimentStatus, ExperimentsTabs, FeatureFlagType } from '~/types'
 
@@ -51,6 +52,7 @@ const mockDraftExperiment = createMockExperiment({
 const mkFlag = (id: number, key: string): FeatureFlagType => ({ ...NEW_FLAG, id, key })
 
 describe('experimentsLogic', () => {
+    afterEach(resumeKeaLoadersErrors)
     let logic: ReturnType<typeof experimentsLogic.build>
 
     beforeEach(() => {
@@ -332,7 +334,7 @@ describe('experimentsLogic', () => {
             api.create.mockResolvedValue({})
 
             await expectLogic(logic, () => {
-                logic.actions.archiveExperiment(mockExperiment.id as number)
+                logic.actions.archiveExperiment({ id: mockExperiment.id as number, disableFeatureFlag: false })
             })
                 .toFinishAllListeners()
                 .toMatchValues({
@@ -343,7 +345,8 @@ describe('experimentsLogic', () => {
                 })
 
             expect(api.create).toHaveBeenCalledWith(
-                expect.stringContaining(`/experiments/${mockExperiment.id}/archive`)
+                expect.stringContaining(`/experiments/${mockExperiment.id}/archive`),
+                { disable_feature_flag: false }
             )
         })
 
@@ -426,6 +429,7 @@ describe('experimentsLogic', () => {
         })
 
         it('does not run the copy success callback when the copy fails', async () => {
+            silenceKeaLoadersErrors()
             const onSuccess = jest.fn()
             api.create.mockRejectedValue(new Error('Permission denied'))
 

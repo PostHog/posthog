@@ -133,6 +133,9 @@ const alertSimulate = (): ToolBase<typeof AlertSimulateSchema, Schemas.AlertSimu
         if (params.date_from !== undefined) {
             body['date_from'] = params.date_from
         }
+        if (params.config !== undefined) {
+            body['config'] = params.config
+        }
         const result = await context.api.request<Schemas.AlertSimulateResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/simulate/`,

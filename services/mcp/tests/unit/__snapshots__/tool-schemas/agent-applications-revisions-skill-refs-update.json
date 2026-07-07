@@ -1,0 +1,41 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "application_id": {
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this agent revision.",
+            "type": "string"
+        },
+        "skill_refs": {
+            "description": "The complete set of store-skill references for this draft; replaces any existing references.",
+            "items": {
+                "description": "One reference to a versioned skill in the llma-skill store, pinned into\nthis agent's bundle at freeze.",
+                "properties": {
+                    "alias": {
+                        "description": "Folder the resolved skill is materialized under in the bundle (`skills/<alias>/`). Lowercase letters, digits, hyphens or underscores, starting and ending with a letter or digit; must be unique within the revision.",
+                        "maxLength": 64,
+                        "pattern": "^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$",
+                        "type": "string"
+                    },
+                    "from_template": {
+                        "description": "Name of the skill in the llma-skill store to pin into this agent. Resolved at freeze to the chosen `version` and materialized into the bundle.",
+                        "maxLength": 64,
+                        "type": "string"
+                    },
+                    "version": {
+                        "description": "Specific published version to pin. Omit to pin the store's latest version at freeze time.",
+                        "minimum": 1,
+                        "type": "number"
+                    }
+                },
+                "required": ["from_template", "alias"],
+                "type": "object"
+            },
+            "type": "array"
+        }
+    },
+    "required": ["application_id", "id", "skill_refs"],
+    "type": "object"
+}

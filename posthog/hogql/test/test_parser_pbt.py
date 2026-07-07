@@ -12,21 +12,28 @@ are compared.
 
 import os
 import math
+import importlib
+from types import ModuleType
 from typing import Any
 
 import pytest
 
+import numpy as np
 from hypothesis import (
     HealthCheck,
     assume,
+    event,
     given,
     settings,
     strategies as st,
+    target,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.scripts._diagnostic_common import ast_depth
+from posthog.hogql.test._pbt_corpus_db import shared_corpus_database
 
 # These tests are too slow for CI (~8 min). Run manually with:
 #   RUN_PBT=1 pytest posthog/hogql/test/test_parser_pbt.py
@@ -34,6 +41,22 @@ pytestmark = pytest.mark.skipif(
     not os.environ.get("RUN_PBT"),
     reason="PBT tests are slow (~8 min); set RUN_PBT=1 to run",
 )
+
+# Optional `rust_edges` steering signal: only available when the loaded
+# `hogql_parser_rs` wheel was built with `--features coverage` (see
+# `rust/hogql/parser/README.md` → "Coverage-instrumented build"). Production
+# wheels do NOT expose `cov_snapshot` / `cov_reset`, so this gracefully
+# degrades to just the `ast_depth` target on a normal install. Detected at
+# import time so each test invocation is a single `hasattr` short-circuit
+# rather than a try/except.
+_hogql_parser_rs_module: ModuleType | None
+try:
+    _hogql_parser_rs_module = importlib.import_module("hogql_parser_rs")
+except ImportError:
+    _hogql_parser_rs_module = None
+_RUST_COV: bool = _hogql_parser_rs_module is not None and hasattr(_hogql_parser_rs_module, "cov_snapshot")
+# Must match `cov::BITMAP_SIZE` in rust/hogql/parser/src/cov.rs.
+_RUST_COV_BITMAP_BYTES: int = 1 << 16
 
 # ---------------------------------------------------------------------------
 # AST generation strategies
@@ -349,12 +372,51 @@ def _roundtrip_check(expr: ast.Expr) -> None:
 # ---------------------------------------------------------------------------
 
 
+# Shared settings base: replay the per-developer local seed read-only + write
+# new examples to the default `.hypothesis/examples` (see _pbt_corpus_db). The
+# seed dir is `.gitignore`d — devs populate it locally if they want, nothing
+# churns the repo. Per-test decorators set `parent=_BASE` to inherit the
+# database + slow-test allowances without re-wiring them on every class.
+_BASE = settings(
+    database=shared_corpus_database(),
+    deadline=None,
+    suppress_health_check=[HealthCheck.too_slow],
+)
+
+
+# Cumulative edge bitmap for the `rust_edges` Pareto target — accumulates
+# across every example in this test session. Per-rule keying isn't needed
+# here (only one test method exercises the rust backend). Allocated lazily
+# to zero bytes when the rust wheel is the production (non-coverage) build,
+# so the import cost is paid only when the instrumented wheel is loaded.
+_seen_edges: np.ndarray = np.zeros(_RUST_COV_BITMAP_BYTES, dtype=np.uint8) if _RUST_COV else np.zeros(0, dtype=np.uint8)
+
+
+def _emit_rust_edges_target() -> None:
+    """Snapshot the rust edge bitmap, count edges this parse hit for the first
+    time, OR them into the cumulative `_seen_edges`, and feed the count to
+    Hypothesis `target("rust_edges", ...)`. No-op when the loaded `hogql_parser_rs`
+    wheel isn't the coverage-instrumented build (production wheels never expose
+    `cov_snapshot`). Call after each rust parse, never twice per test case."""
+    if not _RUST_COV or _hogql_parser_rs_module is None:
+        return
+    bitmap = np.frombuffer(_hogql_parser_rs_module.cov_snapshot(), dtype=np.uint8)
+    novel = int(np.count_nonzero(bitmap & ~_seen_edges))
+    np.bitwise_or(_seen_edges, bitmap, out=_seen_edges)
+    target(float(novel), label="rust_edges")
+
+
 class TestExprRoundTrip:
     """Print → parse → print yields the same HogQL string."""
 
     @given(expr=_expr_strategy())
-    @settings(max_examples=2000, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+    @settings(parent=_BASE, max_examples=2000)
     def test_print_parse_print_idempotent(self, expr: ast.Expr) -> None:
+        # Steer toward deeper generated expression trees — the long tail
+        # where printer/parser round-tripping is most likely to drift. Mainly
+        # useful at shrink time: when a failure does pop, prefer to minimise
+        # to a small-but-still-deep repro rather than the trivial leaf.
+        target(float(ast_depth(expr)), label="ast_depth")
         _roundtrip_check(expr)
 
 
@@ -362,26 +424,41 @@ class TestParserBackendEquivalence:
     """Both parser backends produce equivalent ASTs for generated HogQL strings."""
 
     @given(expr=_expr_strategy())
-    @settings(max_examples=2000, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+    @settings(parent=_BASE, max_examples=2000)
     def test_rust_py_and_cpp_backends_agree(self, expr: ast.Expr) -> None:
+        target(float(ast_depth(expr)), label="ast_depth")
         try:
             hogql_string = _print_hogql(expr)
         except BaseHogQLError:
             assume(False)
             return  # type: ignore[unreachable]
 
+        # Clear the rust edge bitmap before the rust parse so the post-parse
+        # snapshot captures only edges hit by THIS example. The cpp parse
+        # doesn't touch the bitmap (cpp is a separate wheel without sancov),
+        # so it doesn't matter that it runs in the same `_parse_both_backends`
+        # call. No-op when the loaded wheel isn't the coverage build.
+        if _RUST_COV and _hogql_parser_rs_module is not None:
+            _hogql_parser_rs_module.cov_reset()
+
         rust_ast, cpp_ast = _parse_both_backends(hogql_string)
+        _emit_rust_edges_target()
 
         if rust_ast is None and cpp_ast is None:
+            event("outcome", "both_reject")
             assume(False)
             return  # type: ignore[unreachable]
 
-        # If one succeeds and the other fails, that's a bug
-        assert (rust_ast is None) == (cpp_ast is None), (
-            f"Backend disagreement on parsability of: {hogql_string!r}\n"
-            f"  Rust: {'failed' if rust_ast is None else 'ok'}\n"
-            f"  C++:  {'failed' if cpp_ast is None else 'ok'}"
-        )
+        # If one succeeds and the other fails, that's a bug. Same label as the
+        # grammar PBT so `--hypothesis-show-statistics` aggregates cleanly across
+        # both files.
+        if (rust_ast is None) != (cpp_ast is None):
+            event("outcome", "accept/reject divergence")
+            raise AssertionError(
+                f"Backend disagreement on parsability of: {hogql_string!r}\n"
+                f"  Rust: {'failed' if rust_ast is None else 'ok'}\n"
+                f"  C++:  {'failed' if cpp_ast is None else 'ok'}"
+            )
 
         assert rust_ast is not None and cpp_ast is not None
 
@@ -390,28 +467,32 @@ class TestParserBackendEquivalence:
         rust_printed = _print_hogql(rust_ast)
         cpp_printed = _print_hogql(cpp_ast)
 
-        assert rust_printed == cpp_printed, (
-            f"Backend outputs differ for: {hogql_string!r}\n"
-            f"  Rust backend: {rust_printed!r}\n"
-            f"  C++ backend:  {cpp_printed!r}"
-        )
+        if rust_printed != cpp_printed:
+            event("outcome", "ast mismatch")
+            raise AssertionError(
+                f"Backend outputs differ for: {hogql_string!r}\n"
+                f"  Rust backend: {rust_printed!r}\n"
+                f"  C++ backend:  {cpp_printed!r}"
+            )
+
+        event("outcome", "match")
 
 
 class TestConstantRoundTrip:
     """Focused round-trip tests for constant values (strings, numbers, booleans, null)."""
 
     @given(s=_SAFE_STRING)
-    @settings(max_examples=1000)
+    @settings(parent=_BASE, max_examples=1000)
     def test_string_constant_roundtrip(self, s: str) -> None:
         _roundtrip_check(ast.Constant(value=s))
 
     @given(n=_SAFE_INTEGER)
-    @settings(max_examples=1000)
+    @settings(parent=_BASE, max_examples=1000)
     def test_integer_constant_roundtrip(self, n: int) -> None:
         _roundtrip_check(ast.Constant(value=n))
 
     @given(f=_SAFE_FLOAT)
-    @settings(max_examples=1000)
+    @settings(parent=_BASE, max_examples=1000)
     def test_float_constant_roundtrip(self, f: float) -> None:
         node = ast.Constant(value=f)
         printed = _print_hogql(node)

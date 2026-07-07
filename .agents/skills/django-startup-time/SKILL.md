@@ -19,6 +19,7 @@ The guards live in `posthog/test/test_startup_import_budget.py`. **When one fail
 - New app/product: register models from `models/__init__.py`, wire receivers from `AppConfig.ready()`, keep `ready()` light.
 - New receiver: wire it at the owning `AppConfig.ready()`, from a dedicated light module (`activity_logging.py`, `signals.py`) — never via the API/viewset module, even if it looks light today; those accumulate heavy imports and `ready()` silently inherits them.
 - New heavy dependency (vendor SDK, Temporal/AI/ClickHouse, pandas/pyarrow/scipy): import it function-locally on the path that uses it with `# noqa: PLC0415`, never at module scope.
+- Schema types on a setup-path module: enums from `posthog.schema_enums` (cheap); pydantic models from `posthog.schema` only inside the method that uses them. No module-level `from posthog.tasks...` on setup paths — `CeleryQueue` lives in `posthog.celery_queues`.
 - New viewset/route: it no longer loads at setup — don't rely on import side effects; routes go in `rest_router.py`, not the `__init__.py` shim.
 - Any deferral relocates cost — ask which process pays now, on what path, and whether that path is latency-sensitive (background workers paying lazily: fine; web workers paying on first requests: usually not).
 
@@ -32,7 +33,8 @@ One line each — the doc has the full write-up and the fix recipe for every ent
 - **Lazy-router merge conflicts** — keep the `__init__.py` shim, port master's aggregator deltas into `rest_router.py`.
 - **Aggregator package `__init__`s** — shim with PEP 562 `__getattr__`, via `importlib.import_module` and an `__all__` whitelist (catch-alls recurse or deadlock on sibling imports).
 - **Serializer field kwargs run at import** — `choices=...` inputs can't be function-locally deferred; move the constant to an import-light module.
-- **Vanished re-exports** — regenerating/shimming a module drops names other code imported from it incidentally (e.g. `schema.BaseModel`); grep for consumers of the old namespace.
+- **Vanished re-exports** — regenerating/shimming a module drops names other code imported from it incidentally (e.g. `schema.BaseModel`); grep for consumers of the old namespace, including relative-import spellings.
+- **Patch targets break on call-time imports** — `@patch("mod.helper")` stops intercepting once `mod` imports `helper` at call time; patch the defining module instead.
 - **Snapshot regen on a bad merge** — regenerate `.ambr` against the merged branch, then confirm it isn't masking a regression.
 - **Measuring the wrapper, not the work** — time inside the process; `importtime` + `tuna`, not pyinstrument; `grimp` for cycles and door enumeration.
 - **Phantom importtime costs from GC** — re-capture with `gc.disable()`; if the cost vanishes, the finding is GC, not the module. Keep the entrypoints' GC window closing in a `finally`.

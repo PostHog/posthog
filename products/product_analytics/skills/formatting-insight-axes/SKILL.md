@@ -48,7 +48,9 @@ Companion fields on `trendsFilter`:
 - `aggregationAxisPrefix` — literal prefix (e.g. `"$"`) when you need a symbol
   pinned to a specific currency or unit, regardless of project settings
 - `aggregationAxisPostfix` — literal suffix; reserve for genuine units the
-  format can't express (e.g. `" req"`, `" events"`), never for `"mins"` / `"s"`
+  format can't express (e.g. `" req"`, `" events"`), never for `"mins"` /
+  `"s"` / `"%"` — the percentage formats already append the `%` sign, so a
+  `"%"` postfix renders `50%%`
 - `decimalPlaces` — cap decimals (1 or 2 is usually right for currency / ratios)
 
 ### Currency — pick `format` or `prefix` carefully

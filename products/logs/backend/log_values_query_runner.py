@@ -13,7 +13,7 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 
-from products.logs.backend.logs_query_runner import LogsQueryRunnerMixin
+from products.logs.backend.logs_query_runner import LogsQueryRunnerMixin, ilike_pattern
 
 # Read a max of 5GB from the table at a time - this should get us plenty of results
 # without having long and expensive attributes queries. Users can always search or add other
@@ -44,12 +44,12 @@ class LogValuesQueryRunner(AnalyticsQueryRunner[LogValuesQueryResponse], LogsQue
         query = parse_select(
             """
             SELECT
-                groupArray({limit})(attribute_value) as values,
+                groupArray({limit})((attribute_value, value_count)) as values,
                 count() as total_count
             FROM (
                 SELECT
                     attribute_value,
-                    sum(attribute_count)
+                    sum(attribute_count) AS value_count
                 FROM log_attributes
                 WHERE time_bucket >= {date_from_start_of_interval}
                 AND time_bucket <= {date_to_start_of_interval} + {one_interval_period}
@@ -63,7 +63,7 @@ class LogValuesQueryRunner(AnalyticsQueryRunner[LogValuesQueryResponse], LogsQue
             )
             """,
             placeholders={
-                "search": ast.Constant(value=f"%{self.query.search}%"),
+                "search": ast.Constant(value=ilike_pattern(self.query.search)),
                 "exact": ast.Constant(value=self.query.search),
                 "attributeType": ast.Constant(value=self.query.attributeType),
                 "attributeKey": ast.Constant(value=self.query.attributeKey),
@@ -107,8 +107,8 @@ class LogValuesQueryRunner(AnalyticsQueryRunner[LogValuesQueryResponse], LogsQue
 
         formatted_results: list[LogValueResult] = []
         if isinstance(response.results, list) and len(response.results) > 0 and len(response.results[0]) > 0:
-            for result in response.results[0][0]:
-                entry = LogValueResult(id=result, name=result)
+            for value, count in response.results[0][0]:
+                entry = LogValueResult(id=value, name=value, count=count)
                 formatted_results.append(entry)
 
         return LogValuesQueryResponse(results=formatted_results)

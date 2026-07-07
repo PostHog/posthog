@@ -13,7 +13,7 @@
 import { Autocomplete } from '@base-ui/react/autocomplete'
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { MutableRefObject, ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCheck, IconChevronRight, IconClock, IconPinFilled } from '@posthog/icons'
 import {
@@ -35,6 +35,7 @@ import {
     Skeleton,
 } from '@posthog/quill'
 
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { surveyQuestionLabelsLogic } from 'scenes/surveys/surveyQuestionLabelsLogic'
 
@@ -42,9 +43,20 @@ import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
 import { useTaxonomicFilterContext } from '../headless/context'
 import { useGroupList } from '../hooks/useGroupList'
-import { TaxonomicDefinitionTypes, TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../types'
+import {
+    OPEN_AS_SELF_ON_REOPEN,
+    TaxonomicDefinitionTypes,
+    TaxonomicFilterGroup,
+    TaxonomicFilterGroupType,
+} from '../types'
+import {
+    COLLAPSED_TO_CONTAINS_ROW,
+    partitionContainsShortcuts,
+    urlContainsRowLabel,
+} from '../utils/collapsedContainsRow'
 import { promoteMatchingBy } from '../utils/promoteProperties'
 import { MenuFilterHeader } from './Header'
+import { MatchedValueBadge } from './MatchedValueBadge'
 import { PreviewPane } from './PreviewPane'
 import { CommitFn, CommitSelectionContext, DrillCategory, MenuFilterEntry, TAXONOMIC_FILTER_SURFACE } from './types'
 import { VerificationBadge } from './VerificationBadge'
@@ -77,15 +89,6 @@ const HIDDEN_FROM_CHIPS: ReadonlySet<TaxonomicFilterGroupType> = new Set([
     TaxonomicFilterGroupType.HogQLExpression,
 ])
 
-/** Groups that feed the "all" surface but are collapsed to a single
- *  "URL contains <query>" suggestion rather than listing every matching value,
- *  and are not offered as a standalone chip/category. People filtering by URL
- *  overwhelmingly want a contains match, so one synthetic row (when any URL
- *  matches) beats a wall of exact URLs. */
-const COLLAPSED_TO_CONTAINS_ROW: ReadonlySet<TaxonomicFilterGroupType> = new Set([
-    TaxonomicFilterGroupType.PageviewUrls,
-])
-
 /** How many recents and pinned each lead the default "All" surface, matching
  *  the pill variant's top-3 face. */
 const RECENT_PINNED_PREFIX_LIMIT = 3
@@ -102,21 +105,61 @@ const NO_ENTRIES: MenuFilterEntry[] = []
  *  legacy picker so the search telemetry is comparable across variants. */
 export const SEARCH_QUERY_DEBOUNCE_MS = 500
 
+/** An entry's canonical value — what the dedup key, the DOM id, and the
+ *  selection match all key off. They MUST agree (a row keyed one way but
+ *  matched another is the bug class this file guards against), so they share
+ *  this single derivation rather than repeating it. */
+function entryValue(entry: MenuFilterEntry): string {
+    return String(entry.group.getValue?.(entry.item) ?? entry.name)
+}
+
 /** Identity for an entry's underlying definition — source group + value.
  *  Uses `::` as separator to serve as a dedup key (distinct from DOM ids). */
 function entryKey(entry: MenuFilterEntry): string {
-    return `${entry.group.type}::${String(entry.group.getValue?.(entry.item) ?? entry.name)}${
-        entry.recentPropertyFilter ? '::full' : ''
-    }`
+    return `${entry.group.type}::${entryValue(entry)}${entry.recentPropertyFilter ? '::full' : ''}`
 }
 
 /** Stable DOM id for a menu row — used for scroll-into-view, checkmark
  *  lookups, and `aria-activedescendant`. The format must be identical
  *  everywhere it is constructed. */
 function rowDomId(entry: MenuFilterEntry): string {
-    return `menu-filter-row-${entry.group.type}-${String(entry.group.getValue?.(entry.item) ?? entry.name)}${
-        entry.recentPropertyFilter ? '-full' : ''
-    }`
+    return `menu-filter-row-${entry.group.type}-${entryValue(entry)}${entry.recentPropertyFilter ? '-full' : ''}`
+}
+
+/** Exact match: the entry's canonical value equals the selection's. This is the
+ *  authoritative match — when it holds, the two are the same definition. */
+function entryValueMatchesSelection(entry: MenuFilterEntry, selected: MenuFilterEntry): boolean {
+    return entry.group.type === selected.group.type && entryValue(entry) === entryValue(selected)
+}
+
+/** Heuristic match: the selection's stored value equals the entry's raw name or
+ *  resolved friendly label. `ActionFilterRow` threads `filter.name`, which can
+ *  be the friendly label (`Pageview`) rather than the raw key (`$pageview`), so
+ *  a synthetic entry built from the label won't match the real row on value
+ *  alone — this bridges that gap. Looser than the value match: a custom event
+ *  literally named `Pageview` would label-match the core `$pageview` row, so
+ *  callers must prefer `entryValueMatchesSelection` first (see `selectedRowId`). */
+function entryLabelMatchesSelection(entry: MenuFilterEntry, selected: MenuFilterEntry): boolean {
+    if (entry.group.type !== selected.group.type) {
+        return false
+    }
+    const target = entryValue(selected)
+    return entry.name === target || (entry.friendlyLabel != null && entry.friendlyLabel === target)
+}
+
+/** Either kind of match — used for dedup, where any real row representing the
+ *  selection means we must not also prepend a synthetic placeholder. */
+function entryMatchesSelection(entry: MenuFilterEntry, selected: MenuFilterEntry): boolean {
+    return entryValueMatchesSelection(entry, selected) || entryLabelMatchesSelection(entry, selected)
+}
+
+/** Move the element at `index` to the front, preserving the order of the rest.
+ *  No-op when `index <= 0` (already first, or not found via `findIndex` -> -1). */
+function floatToFront<T>(list: T[], index: number): T[] {
+    if (index <= 0) {
+        return list
+    }
+    return [list[index], ...list.slice(0, index), ...list.slice(index + 1)]
 }
 
 function fuseMatchEntries(entries: MenuFilterEntry[], query: string): MenuFilterEntry[] {
@@ -143,6 +186,15 @@ export interface MenuFilterComboboxProps {
     title?: string
     /** Currently-committed selection — rendered with a checkmark + scrolled into view. */
     selectedEntry?: MenuFilterEntry | null
+    /** Shared ref to the search input so the popover can target it for focus.
+     *  Mutable because the adapter assigns the input element onto it. */
+    inputRef?: MutableRefObject<HTMLInputElement | null>
+    /**
+     * Filter-icon menu button shown as the field's prefix in input-trigger
+     * mode (where the field is a `LemonInput` in the trigger row). Omitted in
+     * the popover/button mode, which renders the field as a quill input.
+     */
+    iconButton?: ReactElement
 }
 
 export function MenuFilterCombobox({
@@ -155,25 +207,25 @@ export function MenuFilterCombobox({
     onBack,
     title,
     selectedEntry,
+    inputRef: externalInputRef,
+    iconButton,
 }: MenuFilterComboboxProps): JSX.Element {
     // Sync our local query to the orchestrator's so remote-endpoint groups
     // (Pageview URLs, Screens, etc.) actually fetch — `useGroupList` reads
     // `searchQuery` from the orchestrator's `getGroupListInput`, not from
     // us. Keeping a local mirror just for the controlled input ergonomics.
     const { groups, searchQuery, setSearchQuery } = useTaxonomicFilterContext()
-    // When opening with chips visible (`drillTo='all'`) and a current
-    // selection exists, start on the matching chip so the user lands on
-    // their selection's category by default — they can still tab back to
-    // "All" or any other chip without leaving the combobox.
-    const [activeChip, setActiveChip] = useState<DrillCategory>(() => {
-        // Collapsed groups (e.g. Pageview URLs) aren't navigable categories, so a
-        // selection from one lands on "All" — its row still surfaces there via the
-        // selected-entry prepend — instead of stranding the user in a hidden scope.
-        if (drillTo === 'all' && selectedEntry && !COLLAPSED_TO_CONTAINS_ROW.has(selectedEntry.group.type)) {
-            return selectedEntry.group.type
-        }
-        return drillTo
-    })
+    // Open on the drill scope ("All" for the default surface). Reopening with a committed
+    // selection used to jump to that item's category; we now lead with "All" so the user
+    // lands on recents/pinned + a cross-category search (the selection still surfaces via
+    // the selected-entry prepend). The exception is config/edit flows (data-warehouse
+    // columns reach the combobox as DataWarehouseProperties) — they reopen on their own
+    // chip so the user can reconfigure, mirroring the legacy `activeTab`.
+    const [activeChip, setActiveChip] = useState<DrillCategory>(() =>
+        drillTo === 'all' && selectedEntry && OPEN_AS_SELF_ON_REOPEN.has(selectedEntry.group.type)
+            ? selectedEntry.group.type
+            : drillTo
+    )
     // The scope the user is actually looking at: the active chip when chips show
     // (drillTo='all'), otherwise the drilled-to category. Single source for the
     // telemetry group type, empty state, stale-toggle gating, and reset trigger.
@@ -200,7 +252,8 @@ export function MenuFilterCombobox({
     // `filtered` (selected entry promoted to index 0) keeps the
     // highlight on the same row.
     const [highlightedEntry, setHighlightedEntry] = useState<MenuFilterEntry | null>(selectedEntry ?? null)
-    const inputRef = useRef<HTMLInputElement | null>(null)
+    const localInputRef = useRef<HTMLInputElement | null>(null)
+    const inputRef = externalInputRef ?? localInputRef
 
     // Stale events (event definitions not ingested within the staleness window)
     // are hidden by default to match the legacy picker. The opt-in is per-search:
@@ -216,48 +269,6 @@ export function MenuFilterCombobox({
     useEffect(() => {
         includeStaleEventsRef.current = includeStaleEvents
     }, [includeStaleEvents])
-
-    // Stable DOM id for the selected row — derived via `rowDomId` to stay in
-    // sync with `Row`'s `stableId` and the `filtered` selected-promotion logic.
-    const selectedRowId = useMemo<string | null>(() => {
-        if (!selectedEntry) {
-            return null
-        }
-        return rowDomId(selectedEntry)
-    }, [selectedEntry])
-
-    // Scroll the selected row into view after the list mounts. Polls a few
-    // animation frames because rows render after the underlying group's
-    // items resolve (remote endpoints), so the element won't exist on the
-    // first paint. Stops as soon as the node appears or after ~10 frames.
-    useEffect(() => {
-        if (!selectedRowId) {
-            return
-        }
-        let cancelled = false
-        let attempts = 0
-        const tick = (): void => {
-            if (cancelled) {
-                return
-            }
-            const el = document.getElementById(selectedRowId)
-            if (el) {
-                // `center` keeps a comfortable buffer above + below the
-                // selected row so it never lands flush against the edge
-                // of the scroll viewport (where the scroll-to button or
-                // the scrollbar fade can obscure it).
-                el.scrollIntoView({ block: 'center' })
-                return
-            }
-            if (attempts++ < 10) {
-                requestAnimationFrame(tick)
-            }
-        }
-        tick()
-        return () => {
-            cancelled = true
-        }
-    }, [selectedRowId])
 
     const reportItems = useCallback((type: string, next: TaxonomicDefinitionTypes[]): void => {
         setItemsByType((prev) => (prev[type] === next ? prev : { ...prev, [type]: next }))
@@ -347,12 +358,19 @@ export function MenuFilterCombobox({
             // `$current_url IContains <query>`.
             if (COLLAPSED_TO_CONTAINS_ROW.has(group.type)) {
                 if (trimmedQuery && items.length > 0) {
-                    const label = `URL contains "${trimmedQuery}"`
+                    const label = urlContainsRowLabel(trimmedQuery)
                     merged.push({
-                        // `isContainsShortcut` tags this synthetic row so the commit
-                        // telemetry can measure adoption of the contains shortcut vs
-                        // the old per-URL value-picker.
-                        item: { name: trimmedQuery, isContainsShortcut: true } as unknown as TaxonomicDefinitionTypes,
+                        // A plain item (not a QuickFilterItem): the commit reads its value via
+                        // `group.getValue` (the query) and the group `type` drives the host's
+                        // expansion — PageviewUrls -> `$current_url IContains`, PageviewEvents ->
+                        // a `$pageview` event with that filter (ActionFilterRow's group-type
+                        // branch). The legacy list reaches the same filter via the QuickFilterItem
+                        // `eventName` path instead — see `buildUrlContainsShortcut`.
+                        // `isContainsShortcut` tags it for commit telemetry + the lead-first ordering.
+                        item: {
+                            name: trimmedQuery,
+                            isContainsShortcut: true,
+                        } as unknown as TaxonomicDefinitionTypes,
                         group,
                         name: label,
                         friendlyLabel: label,
@@ -381,19 +399,13 @@ export function MenuFilterCombobox({
             // mixed scope left here is `all`.
             const fitsScope = scope === 'all' || scope === selectedEntry.group.type
             if (fitsScope) {
-                // Stringify both sides so a synthetic `selected` shimmed in
-                // by callers like `TaxonomicPopoverMenu` (where the value
-                // arrives as e.g. `'5'`) dedups against the real entry
-                // returned by the endpoint (`cohort.id === 5`). Without this
-                // coercion the two land side-by-side with two checkmarks —
-                // the stableId path below already coerces, so matching here
-                // keeps the prepend logic aligned with how rows are keyed.
-                const selectedValue = String(selectedEntry.group.getValue?.(selectedEntry.item) ?? selectedEntry.name)
-                const present = merged.some(
-                    (e) =>
-                        e.group.type === selectedEntry.group.type &&
-                        String(e.group.getValue?.(e.item) ?? e.name) === selectedValue
-                )
+                // `entryMatchesSelection` reconciles a synthetic `selected`
+                // shimmed in by callers like `TaxonomicPopoverMenu` against the
+                // real endpoint row — by value (`cohort.id === 5` vs `'5'`) or
+                // by friendly label (a value of `Pageview` vs the real
+                // `$pageview` row). Only prepend the placeholder when the real
+                // row genuinely isn't loaded (paginated past it).
+                const present = merged.some((e) => entryMatchesSelection(e, selectedEntry))
                 if (!present) {
                     merged.unshift(selectedEntry)
                 }
@@ -418,6 +430,57 @@ export function MenuFilterCombobox({
         searchQuery,
         surveyQuestionLabels,
     ])
+
+    // Stable DOM id for the selected row — drives `Row`'s checkmark, the
+    // scroll-into-view below, and the `filtered` idle-promotion. Resolve the
+    // committed selection to the real loaded row when one matches (the stored
+    // value may be a friendly label, not the row's raw value), so all three
+    // land on the canonical row rather than a synthetic placeholder. Falls back
+    // to the selection itself when the real row hasn't loaded (paginated past).
+    const selectedRowId = useMemo<string | null>(() => {
+        if (!selectedEntry) {
+            return null
+        }
+        // Prefer an exact value match over the label heuristic so a custom event
+        // sharing a core event's friendly label can't steal the selection.
+        const real =
+            indexed.find((e) => entryValueMatchesSelection(e, selectedEntry)) ??
+            indexed.find((e) => entryLabelMatchesSelection(e, selectedEntry))
+        return rowDomId(real ?? selectedEntry)
+    }, [indexed, selectedEntry])
+
+    // Scroll the selected row into view after the list mounts. Polls a few
+    // animation frames because rows render after the underlying group's
+    // items resolve (remote endpoints), so the element won't exist on the
+    // first paint. Stops as soon as the node appears or after ~10 frames.
+    useEffect(() => {
+        if (!selectedRowId) {
+            return
+        }
+        let cancelled = false
+        let attempts = 0
+        const tick = (): void => {
+            if (cancelled) {
+                return
+            }
+            const el = document.getElementById(selectedRowId)
+            if (el) {
+                // `center` keeps a comfortable buffer above + below the
+                // selected row so it never lands flush against the edge
+                // of the scroll viewport (where the scroll-to button or
+                // the scrollbar fade can obscure it).
+                el.scrollIntoView({ block: 'center' })
+                return
+            }
+            if (attempts++ < 10) {
+                requestAnimationFrame(tick)
+            }
+        }
+        tick()
+        return () => {
+            cancelled = true
+        }
+    }, [selectedRowId])
 
     // Recents + pinned that lead the default "All" surface (fixed order:
     // recents, then pinned). Idle shows the top-3 of each; searching shows the
@@ -483,29 +546,42 @@ export function MenuFilterCombobox({
                     : null
             base = indexed.filter((e) => !!e.group.endpoint || (localMatches?.has(e) ?? false))
         }
+        const scope = showChips ? activeChip : drillTo
         // Promote the committed selection to index 0 so base-ui's
-        // `autoHighlight="always"` lands on it the moment the list
-        // mounts — keyboard nav starts on the selected row, the
-        // preview pane shows the right definition, and `Enter` re-commits
-        // without forcing the user to scroll. Skip when the user has
-        // typed a search query — relevance order should win there.
-        if (!q && selectedRowId) {
-            const idx = base.findIndex((e) => rowDomId(e) === selectedRowId)
-            if (idx > 0) {
-                base = [base[idx], ...base.slice(0, idx), ...base.slice(idx + 1)]
-            }
+        // `autoHighlight="always"` lands on it the moment the list mounts — keyboard nav
+        // starts on the selected row, the preview shows the right definition, and `Enter`
+        // re-commits without scrolling. Skip while searching (relevance wins). The All scope
+        // re-floats after its recents/pinned assembly below, so only do it here for drilled scopes.
+        if (!q && selectedRowId && scope !== 'all') {
+            base = floatToFront(
+                base,
+                base.findIndex((e) => rowDomId(e) === selectedRowId)
+            )
         }
         // Default "All" surface leads with recents/pinned (fixed order), then
         // the cross-tab content with `email`/`url` promotion. Recents/pinned
         // stay above the content rows so users can learn the order.
-        const scope = showChips ? activeChip : drillTo
         if (scope === 'all') {
             const prefixKeys = new Set(recentsPinnedPrefix.map(entryKey))
             const content = prefixKeys.size > 0 ? base.filter((e) => !prefixKeys.has(entryKey(e))) : base
-            return [
+            // The "URL contains <query>" shortcut leads the whole list — ahead of
+            // recents/pinned/content — because a URL search almost always means the user
+            // wants the contains match. Everything else keeps the recents-then-pinned order.
+            const [shortcuts, rest] = partitionContainsShortcuts(content, (e) => e.item)
+            const assembled = [
+                ...shortcuts,
                 ...recentsPinnedPrefix,
-                ...promoteMatchingBy(content, searchQuery, (e) => (e.item as { name?: string }).name ?? e.name),
+                ...promoteMatchingBy(rest, searchQuery, (e) => (e.item as { name?: string }).name ?? e.name),
             ]
+            // Idle (no search): float the committed selection to the very first row so the
+            // user can see/verify what's currently chosen without leaving the All surface.
+            if (!q && selectedRowId) {
+                return floatToFront(
+                    assembled,
+                    assembled.findIndex((e) => rowDomId(e) === selectedRowId)
+                )
+            }
+            return assembled
         }
         return base
     }, [indexed, searchQuery, selectedRowId, recentsPinnedPrefix, showChips, activeChip, drillTo])
@@ -714,6 +790,27 @@ export function MenuFilterCombobox({
         })
     }, [telemetryGroupType, searchQuery])
 
+    // Only the active scope's groups are fetched, so a narrowed-to-one-category search
+    // that comes up empty can't know whether other categories have matches. Offer a jump
+    // to "All" (which fetches every group) so the user can check without re-typing. This is a
+    // deliberate divergence from the legacy `InfiniteList` empty state, which can read the
+    // aggregated count (`allSectionHasResults`) and only offers the jump when All has matches.
+    const canOfferAllSwitch =
+        showChips &&
+        !!searchQuery.trim() &&
+        activeScope !== 'all' &&
+        activeScope !== 'recent' &&
+        activeScope !== 'pinned'
+    const handleCheckOtherCategories = useCallback((): void => {
+        posthog.capture('taxonomic filter menu category changed', {
+            fromChip: activeChip,
+            toChip: 'all',
+            via: 'empty-state',
+        })
+        setActiveChip('all')
+        inputRef.current?.focus()
+    }, [activeChip]) // oxlint-disable-line react-hooks/exhaustive-deps
+
     const selectionContextFor = useCallback(
         (entry: MenuFilterEntry): CommitSelectionContext => {
             const key = entryKey(entry)
@@ -778,6 +875,99 @@ export function MenuFilterCombobox({
         }
     }
 
+    // Category dropdown — picks the active scope; replaces the old flex-wrapped
+    // chip row. Only shown when there's more than the implicit "All" category.
+    const categorySelect =
+        showChips && categoryOptions.length > 1 ? (
+            <Select<DrillCategory>
+                value={activeChip}
+                onValueChange={(value) => {
+                    posthog.capture('taxonomic filter menu category changed', {
+                        fromChip: activeChip,
+                        toChip: value ?? 'all',
+                        via: 'dropdown',
+                    })
+                    setActiveChip(value ?? 'all')
+                    inputRef.current?.focus()
+                }}
+                itemToStringLabel={(value) => categoryOptions.find((o) => o.value === value)?.label ?? 'All'}
+            >
+                <SelectTrigger
+                    size="sm"
+                    aria-label="Filter category"
+                    data-attr="menu-filter-category"
+                    className="mr-0.5"
+                >
+                    <SelectValue />
+                </SelectTrigger>
+                {/* Fit the list to its items: at least as wide as the trigger,
+                    grow to the longest option, capped at the available viewport
+                    width so it never overflows. */}
+                <SelectContent
+                    align="end"
+                    alignItemWithTrigger={false}
+                    className="w-max min-w-(--anchor-width) max-w-(--available-width)"
+                >
+                    <SelectGroup>
+                        {categoryOptions.map((o) => (
+                            <SelectItem key={o.value} value={o.value}>
+                                {o.label}
+                            </SelectItem>
+                        ))}
+                    </SelectGroup>
+                </SelectContent>
+            </Select>
+        ) : null
+
+    // The search field — a full-width row between the header and the
+    // list/preview, so the menu chrome wraps it (header above, results below).
+    // In input-trigger mode it's a LemonInput matching the surrounding scene's
+    // UI, with base-ui driving the inner input via `render`, the filter-icon
+    // button as its prefix and the category dropdown as its suffix. The button
+    // trigger keeps the quill input bar.
+    const searchField = iconButton ? (
+        <AutocompleteLemonInput
+            value={searchQuery}
+            onValueChange={setSearchQuery}
+            sharedInputRef={inputRef}
+            prefix={iconButton}
+            suffix={categorySelect ?? undefined}
+            placeholder={activePlaceholder}
+            data-attr="menu-filter-search"
+            onKeyDown={handleInputKeyDown}
+            onPaste={(e) => {
+                pastedCharsRef.current += e.clipboardData.getData('text').length
+            }}
+        />
+    ) : (
+        <>
+            <Autocomplete.Input
+                render={
+                    <InputGroupInput
+                        ref={inputRef}
+                        autoFocus
+                        data-attr="menu-filter-search"
+                        placeholder={activePlaceholder}
+                        onKeyDown={handleInputKeyDown}
+                        onPaste={(e: React.ClipboardEvent<HTMLInputElement>) => {
+                            pastedCharsRef.current += e.clipboardData.getData('text').length
+                        }}
+                    />
+                }
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+            />
+            {categorySelect && <InputGroupAddon align="inline-end">{categorySelect}</InputGroupAddon>}
+        </>
+    )
+
+    // Full-width input row, sitting between the header and the list/preview
+    // columns. The LemonInput (input-trigger) is full width on its own; the
+    // quill input needs the InputGroup wrapper.
+    const searchFieldRow = (
+        <div className="p-2 border-b">{iconButton ? searchField : <InputGroup>{searchField}</InputGroup>}</div>
+    )
+
     return (
         <div className="flex flex-col flex-1 min-h-0">
             <MenuFilterHeader
@@ -803,80 +993,12 @@ export function MenuFilterCombobox({
                 itemToStringValue={(entry: MenuFilterEntry) => entry.name}
                 onItemHighlighted={(entry) => setHighlightedEntry((entry as MenuFilterEntry | undefined) ?? null)}
             >
+                {searchFieldRow}
                 {/* Flex layout: list flexes, separator is 1px, preview is a
                     fixed 300px column. `shrink-0` on the preview keeps it
                     stable when the popover (or list contents) change width. */}
                 <div className="flex flex-1 min-h-0">
                     <div className="flex flex-col flex-1 min-w-0 min-h-0">
-                        <div className="p-2 border-b">
-                            <InputGroup>
-                                <Autocomplete.Input
-                                    render={
-                                        <InputGroupInput
-                                            ref={inputRef}
-                                            autoFocus
-                                            data-attr="menu-filter-search"
-                                            placeholder={activePlaceholder}
-                                            onKeyDown={handleInputKeyDown}
-                                            onPaste={(e: React.ClipboardEvent<HTMLInputElement>) => {
-                                                pastedCharsRef.current += e.clipboardData.getData('text').length
-                                            }}
-                                        />
-                                    }
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                />
-                                {/* Category dropdown — trailing addon. Picks
-                                    the active scope; replaces the old
-                                    flex-wrapped chip row. Only shown when
-                                    there's more than the implicit "All"
-                                    category to choose between. */}
-                                {showChips && categoryOptions.length > 1 && (
-                                    <InputGroupAddon align="inline-end">
-                                        <Select<DrillCategory>
-                                            value={activeChip}
-                                            onValueChange={(value) => {
-                                                posthog.capture('taxonomic filter menu category changed', {
-                                                    fromChip: activeChip,
-                                                    toChip: value ?? 'all',
-                                                    via: 'dropdown',
-                                                })
-                                                setActiveChip(value ?? 'all')
-                                                inputRef.current?.focus()
-                                            }}
-                                            itemToStringLabel={(value) =>
-                                                categoryOptions.find((o) => o.value === value)?.label ?? 'All'
-                                            }
-                                        >
-                                            <SelectTrigger
-                                                size="sm"
-                                                aria-label="Filter category"
-                                                data-attr="menu-filter-category"
-                                                className="mr-0.5"
-                                            >
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            {/* Fit the list to its items: at least as wide as the
-                                                trigger, grow to the longest option, capped at the
-                                                available viewport width so it never overflows. */}
-                                            <SelectContent
-                                                align="end"
-                                                alignItemWithTrigger={false}
-                                                className="w-max min-w-(--anchor-width) max-w-(--available-width)"
-                                            >
-                                                <SelectGroup>
-                                                    {categoryOptions.map((o) => (
-                                                        <SelectItem key={o.value} value={o.value}>
-                                                            {o.label}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectGroup>
-                                            </SelectContent>
-                                        </Select>
-                                    </InputGroupAddon>
-                                )}
-                            </InputGroup>
-                        </div>
                         {!drillItems &&
                             targetGroups.map((g) => (
                                 <Fetcher
@@ -915,6 +1037,16 @@ export function MenuFilterCombobox({
                                                         Include stale events
                                                     </Button>
                                                 )}
+                                                {canOfferAllSwitch && !emptyState.body && (
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        data-attr="menu-filter-check-other-categories"
+                                                        onClick={handleCheckOtherCategories}
+                                                    >
+                                                        Check for results in other categories
+                                                    </Button>
+                                                )}
                                             </div>
                                         )
                                     )}
@@ -922,6 +1054,7 @@ export function MenuFilterCombobox({
                                 <Autocomplete.Collection>
                                     {(entry: MenuFilterEntry) => (
                                         <Row
+                                            key={rowDomId(entry)}
                                             entry={entry}
                                             // Show the category label on mixed-group views (All,
                                             // Recent, Pinned) — those mix items from multiple
@@ -961,6 +1094,104 @@ export function MenuFilterCombobox({
     )
 }
 
+interface AutocompleteLemonInputProps {
+    value: string
+    onValueChange: (value: string) => void
+    /** Set alongside base-ui's own ref, so callers (popover `initialFocus`,
+     *  category-select refocus) can reach the input element. */
+    sharedInputRef?: MutableRefObject<HTMLInputElement | null>
+    prefix?: ReactElement
+    suffix?: ReactElement
+    placeholder?: string
+    'data-attr'?: string
+    /** Runs before base-ui's own keydown handler; base-ui's runs only when this
+     *  one didn't `preventDefault` (so Esc/Enter/Tab can take precedence over the
+     *  autocomplete's arrow-key navigation). */
+    onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void
+    onPaste?: (e: React.ClipboardEvent<HTMLInputElement>) => void
+}
+
+/**
+ * The single place that bridges base-ui's `Autocomplete.Input` onto a
+ * `LemonInput`. base-ui drives a controlled `<input>` through its `render` prop —
+ * value/onChange/ref/keyboard plus the combobox a11y attrs (`role`,
+ * `aria-activedescendant`, `aria-expanded`, …). `LemonInput`'s typed props don't
+ * include those a11y attrs but its inner `<input>` forwards unrecognised props,
+ * so we strip the props we drive ourselves and pass the rest through. Keeping the
+ * adapter in one named place (rather than inline in the combobox render) means a
+ * base-ui upgrade that changes how it drives the input has exactly one site to
+ * update — the typed destructure below and the input-trigger tests are what guard
+ * the contract.
+ */
+function AutocompleteLemonInput({
+    value,
+    onValueChange,
+    sharedInputRef,
+    prefix,
+    suffix,
+    placeholder,
+    onKeyDown,
+    onPaste,
+    'data-attr': dataAttr,
+}: AutocompleteLemonInputProps): JSX.Element {
+    return (
+        <Autocomplete.Input
+            value={value}
+            onChange={(e) => onValueChange(e.target.value)}
+            render={(autoProps) => {
+                // Type the incoming contract as input attributes (not `any`), then
+                // peel off the props we own — base-ui's value/onChange/className,
+                // its ref (merged below), and its keydown (composed below).
+                const {
+                    ref,
+                    value: _baseValue,
+                    onChange: _baseOnChange,
+                    className: _baseClassName,
+                    onKeyDown: baseOnKeyDown,
+                    ...baseInputAttrs
+                } = autoProps as React.InputHTMLAttributes<HTMLInputElement> & {
+                    ref?: React.Ref<HTMLInputElement>
+                }
+                const setRef = (el: HTMLInputElement | null): void => {
+                    if (typeof ref === 'function') {
+                        ref(el)
+                    } else if (ref) {
+                        ;(ref as React.MutableRefObject<HTMLInputElement | null>).current = el
+                    }
+                    if (sharedInputRef) {
+                        sharedInputRef.current = el
+                    }
+                }
+                return (
+                    <LemonInput
+                        // The remaining base-ui attrs (role, aria-activedescendant…)
+                        // are valid `<input>` attributes LemonInput forwards but
+                        // doesn't type — the one boundary cast the bridge needs.
+                        // eslint-disable-next-line react/no-unknown-property
+                        {...(baseInputAttrs as Record<string, unknown>)}
+                        inputRef={setRef}
+                        size="small"
+                        fullWidth
+                        prefix={prefix}
+                        suffix={suffix}
+                        data-attr={dataAttr}
+                        placeholder={placeholder}
+                        value={value}
+                        onChange={(next) => onValueChange(next)}
+                        onKeyDown={(e) => {
+                            onKeyDown?.(e)
+                            if (!e.defaultPrevented) {
+                                baseOnKeyDown?.(e)
+                            }
+                        }}
+                        onPaste={onPaste}
+                    />
+                )
+            }}
+        />
+    )
+}
+
 interface RowProps {
     entry: MenuFilterEntry
     /** Render the category label (mixed-group views always; drilled views skip it since the panel header already names the group). */
@@ -976,28 +1207,41 @@ interface RowProps {
 }
 
 /**
- * Resolve a row's three normalized cells:
+ * Resolve a row's normalized cells:
  *   - name:     human-friendly label (e.g. "Pageview", "/checkout")
- *   - value:    raw underlying value when distinct from the name
- *               (e.g. "$pageview", "localhost:8010")
+ *   - value:    raw underlying value when distinct from the name (the full
+ *               URL, or the raw `$key`). The preview pane is the primary home
+ *               for this ("Sent as"), but the preview is hidden below `md`, so
+ *               the row keeps a narrow-screen-only copy of it.
  *   - category: group name shown as an uppercase tag at the bottom
  *
- * URLs split into path (name) + host (value); friendly definitions
- * surface the friendly label as the name and the raw `$key` as the
- * value; everything else uses the entry name as the name and omits
- * the value cell.
+ * URLs surface their path tail as the name; friendly definitions surface
+ * the friendly label; everything else uses the entry name and has no
+ * distinct raw value to show.
  */
-function resolveRowCells(entry: MenuFilterEntry): { name: string; value?: string; category: string } {
+function resolveRowCells(entry: MenuFilterEntry): {
+    name: string
+    value?: string
+    category: string
+} {
     if (entry.recentLabel) {
         return { name: entry.recentLabel, category: entry.group.name }
     }
     const friendly = entry.friendlyLabel
-    const url = parseUrl(entry.name)
-    if (url) {
-        return { name: url.pathTail, value: url.host, category: entry.group.name }
+    const pathTail = parseUrlPathTail(entry.name)
+    if (pathTail !== null) {
+        return {
+            name: pathTail,
+            value: entry.name,
+            category: entry.group.name,
+        }
     }
     if (friendly && friendly.length > 0 && friendly !== entry.name) {
-        return { name: friendly, value: entry.name, category: entry.group.name }
+        return {
+            name: friendly,
+            value: entry.name,
+            category: entry.group.name,
+        }
     }
     return { name: entry.name, category: entry.group.name }
 }
@@ -1037,12 +1281,16 @@ function Row({ entry, showCategory, recency, opensSubmenu, selectedRowId, onSele
         >
             <div className="flex flex-col items-start gap-0 min-w-0 flex-1">
                 <span className="text-sm leading-tight truncate max-w-full">{name}</span>
-
-                <span className="font-mono text-xs text-tertiary/50 leading-tight truncate max-w-full">
-                    {value || <span className="opacity-50">N/A</span>}
-                </span>
-                {showCategory && <MenuLabel className="text-tertiary/50 text-xxs p-0 mt-px">{category}</MenuLabel>}
+                {/* The preview pane (hidden below `md`) is the primary home for the
+                    raw value, so only narrow screens keep it inline on the row. */}
+                {value && (
+                    <span className="md:hidden font-mono text-xs text-tertiary/50 leading-tight truncate max-w-full">
+                        {value}
+                    </span>
+                )}
+                {showCategory && <MenuLabel className="text-tertiary/50 text-xxs p-0 mt-1">{category}</MenuLabel>}
             </div>
+            <MatchedValueBadge entry={entry} />
             {recency && (
                 <Badge variant="default" className="gap-1 shrink-0">
                     {recency === 'recent' ? <IconClock className="size-3" /> : <IconPinFilled className="size-3" />}
@@ -1103,16 +1351,15 @@ function Fetcher({
 }
 
 /** Skeleton placeholder shown in place of the result list while a remote
- *  fetch is in flight and we have nothing to show yet. Matches the row
- *  layout (two-line label + tag stub) so the popover height doesn't jump
- *  when results arrive. */
+ *  fetch is in flight and we have nothing to show yet. Matches the
+ *  single-line row layout so the popover height doesn't jump when results
+ *  arrive. */
 function LoadingRows(): JSX.Element {
     return (
         <div className="flex flex-col gap-1 p-2" data-attr="menu-filter-loading">
             {[0, 1, 2, 3, 4].map((i) => (
-                <div key={i} className="flex flex-col gap-1 px-2 py-1">
+                <div key={i} className="px-2 py-1">
                     <Skeleton className="h-3.5 w-2/3 rounded" />
-                    <Skeleton className="h-3 w-1/3 rounded" />
                 </div>
             ))}
         </div>
@@ -1120,18 +1367,17 @@ function LoadingRows(): JSX.Element {
 }
 
 /**
- * Parse a URL-shaped string into `{ host, pathTail }` for two-line row
- * rendering. Returns `null` for anything that isn't a `http(s)://` URL or
- * fails to parse — caller falls back to default rendering.
+ * Parse a URL-shaped string into its path tail (path + search + hash) for
+ * row rendering. Returns `null` for anything that isn't a `http(s)://` URL
+ * or fails to parse — caller falls back to default rendering.
  */
-function parseUrl(s: string): { host: string; pathTail: string } | null {
+function parseUrlPathTail(s: string): string | null {
     if (typeof s !== 'string' || !/^https?:\/\//i.test(s)) {
         return null
     }
     try {
         const u = new URL(s)
-        const tail = (u.pathname || '/') + u.search + u.hash
-        return { host: u.host, pathTail: tail }
+        return (u.pathname || '/') + u.search + u.hash
     } catch {
         return null
     }

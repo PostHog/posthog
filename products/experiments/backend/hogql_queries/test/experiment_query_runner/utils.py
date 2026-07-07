@@ -4,15 +4,15 @@ from posthog.test.base import _create_event, _create_person
 
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group.util import create_group
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import Team
+from posthog.test.persons import create_group_type_mapping
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 def create_standard_group_test_events(team: Team, feature_flag: FeatureFlag):
     group_type_index: GroupTypeIndex = 0
-    GroupTypeMapping.objects.create(
+    create_group_type_mapping(
         team=team,
         project_id=team.project_id,
         group_type_index=group_type_index,

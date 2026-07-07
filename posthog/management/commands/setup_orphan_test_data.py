@@ -14,12 +14,13 @@ Usage:
 
 import uuid
 
+from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import Team
-from posthog.models.person import Person, PersonDistinctId
-from posthog.person_db_router import PERSONS_DB_FOR_WRITE
+from posthog.persons_db import persons_db_connection
+from posthog.persons_seed import PERSON_DISTINCT_ID_TABLE, insert_seed_distinct_id, insert_seed_person
 
 
 class Command(BaseCommand):
@@ -98,49 +99,48 @@ class Command(BaseCommand):
 
         created_persons: list[tuple[str, str, str | None]] = []
 
-        # 1. Fixable orphans: Person in CH + PG, DID only in PG
-        self.stdout.write(self.style.WARNING("\n[Fixable Orphans]"))
-        for i in range(fixable_count):
-            person_uuid = str(uuid.uuid4())
-            distinct_id = f"{prefix}-fixable-{i}-{person_uuid[:8]}"
+        # autocommit so each seeded row lands immediately, matching the prior per-create ORM behavior.
+        with persons_db_connection(writer=True, autocommit=True) as conn:
+            # 1. Fixable orphans: Person in CH + PG, DID only in PG
+            self.stdout.write(self.style.WARNING("\n[Fixable Orphans]"))
+            for i in range(fixable_count):
+                person_uuid = str(uuid.uuid4())
+                distinct_id = f"{prefix}-fixable-{i}-{person_uuid[:8]}"
 
-            # Create person in PostgreSQL with distinct ID
-            person = Person.objects.db_manager(PERSONS_DB_FOR_WRITE).create(  # nosemgrep: no-direct-persons-db-orm
-                team=team,
-                uuid=person_uuid,
-                properties={"test_type": "fixable", "index": i},
-            )
-            PersonDistinctId.objects.db_manager(PERSONS_DB_FOR_WRITE).create(  # nosemgrep: no-direct-persons-db-orm
-                team=team,
-                person=person,
-                distinct_id=distinct_id,
-                version=0,
-            )
+                # Create person in PostgreSQL with distinct ID
+                person_id = insert_seed_person(
+                    conn,
+                    team_id=team.id,
+                    properties={"test_type": "fixable", "index": i},
+                    uuid=person_uuid,
+                )
+                insert_seed_distinct_id(conn, team_id=team.id, person_id=person_id, distinct_id=distinct_id)
 
-            # Create person in ClickHouse WITHOUT distinct ID
-            self._insert_person_to_ch(team.id, person_uuid, version=0)
-            # Deliberately NOT inserting distinct_id to CH
+                # Create person in ClickHouse WITHOUT distinct ID
+                self._insert_person_to_ch(team.id, person_uuid, version=0)
+                # Deliberately NOT inserting distinct_id to CH
 
-            created_persons.append(("fixable", person_uuid, distinct_id))
-            self.stdout.write(f"  Created: {person_uuid[:8]}... -> {distinct_id}")
+                created_persons.append(("fixable", person_uuid, distinct_id))
+                self.stdout.write(f"  Created: {person_uuid[:8]}... -> {distinct_id}")
 
-        # 2. Truly orphaned: Person in CH + PG, no DID anywhere
-        self.stdout.write(self.style.WARNING("\n[Truly Orphaned]"))
-        for i in range(truly_orphaned_count):
-            person_uuid = str(uuid.uuid4())
+            # 2. Truly orphaned: Person in CH + PG, no DID anywhere
+            self.stdout.write(self.style.WARNING("\n[Truly Orphaned]"))
+            for i in range(truly_orphaned_count):
+                person_uuid = str(uuid.uuid4())
 
-            # Create person in PostgreSQL WITHOUT distinct ID
-            Person.objects.db_manager(PERSONS_DB_FOR_WRITE).create(  # nosemgrep: no-direct-persons-db-orm
-                team=team,
-                uuid=person_uuid,
-                properties={"test_type": "truly_orphaned", "index": i},
-            )
+                # Create person in PostgreSQL WITHOUT distinct ID
+                insert_seed_person(
+                    conn,
+                    team_id=team.id,
+                    properties={"test_type": "truly_orphaned", "index": i},
+                    uuid=person_uuid,
+                )
 
-            # Create person in ClickHouse WITHOUT distinct ID
-            self._insert_person_to_ch(team.id, person_uuid, version=0)
+                # Create person in ClickHouse WITHOUT distinct ID
+                self._insert_person_to_ch(team.id, person_uuid, version=0)
 
-            created_persons.append(("truly_orphaned", person_uuid, None))
-            self.stdout.write(f"  Created: {person_uuid[:8]}... (no DID)")
+                created_persons.append(("truly_orphaned", person_uuid, None))
+                self.stdout.write(f"  Created: {person_uuid[:8]}... (no DID)")
 
         # 3. CH-only orphans: Person only in CH, not in PG
         self.stdout.write(self.style.WARNING("\n[CH-Only Orphans]"))
@@ -167,26 +167,33 @@ class Command(BaseCommand):
     def cleanup_test_data(self, team: Team, prefix: str):
         self.stdout.write(f"\nCleaning up test data for team {team.id} with prefix '{prefix}'...")
 
-        # Find test persons in PostgreSQL by properties
-        pg_persons = Person.objects.db_manager(PERSONS_DB_FOR_WRITE).filter(  # nosemgrep: no-direct-persons-db-orm
-            team=team,
-            properties__test_type__in=["fixable", "truly_orphaned"],
-        )
-        pg_uuids = list(pg_persons.values_list("uuid", flat=True))
+        # Escape LIKE wildcards so the prefix matches literally, mirroring Django's __startswith.
+        like_prefix = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
-        # Delete from PostgreSQL
-        deleted_dids = (
-            PersonDistinctId.objects.db_manager(PERSONS_DB_FOR_WRITE)  # nosemgrep: no-direct-persons-db-orm
-            .filter(
-                team=team,
-                distinct_id__startswith=prefix,
+        with persons_db_connection(writer=True, autocommit=True) as conn, conn.cursor() as cursor:
+            # Find test persons by their seeded test_type property.
+            cursor.execute(
+                f"SELECT uuid FROM {settings.PERSON_TABLE_NAME} "
+                "WHERE team_id = %s AND properties->>'test_type' IN ('fixable', 'truly_orphaned')",
+                (team.id,),
             )
-            .delete()
-        )
-        deleted_persons = pg_persons.delete()
+            pg_uuids = [str(row[0]) for row in cursor.fetchall()]
 
-        self.stdout.write(f"  Deleted {deleted_persons[0]} persons from PostgreSQL")
-        self.stdout.write(f"  Deleted {deleted_dids[0]} distinct IDs from PostgreSQL")
+            cursor.execute(
+                f"DELETE FROM {PERSON_DISTINCT_ID_TABLE} WHERE team_id = %s AND distinct_id LIKE %s",
+                (team.id, like_prefix),
+            )
+            deleted_dids = cursor.rowcount
+
+            cursor.execute(
+                f"DELETE FROM {settings.PERSON_TABLE_NAME} "
+                "WHERE team_id = %s AND properties->>'test_type' IN ('fixable', 'truly_orphaned')",
+                (team.id,),
+            )
+            deleted_persons = cursor.rowcount
+
+        self.stdout.write(f"  Deleted {deleted_persons} persons from PostgreSQL")
+        self.stdout.write(f"  Deleted {deleted_dids} distinct IDs from PostgreSQL")
 
         # Mark as deleted in ClickHouse (we can't truly delete, but can mark is_deleted=1)
         if pg_uuids:

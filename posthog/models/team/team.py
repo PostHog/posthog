@@ -14,11 +14,9 @@ from django.db.models.signals import post_delete, post_save
 
 import pytz
 import pydantic
-import posthoganalytics
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.cloud_utils import is_cloud
-from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
@@ -34,20 +32,21 @@ from posthog.models.utils import (
     sane_repr,
     validate_rate_limit,
 )
+from posthog.ph_client import feature_enabled_or_false
 from posthog.rbac.decorators import field_access_control
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.settings.utils import get_list
 
-from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
+from products.customer_analytics.backend.facade.constants import DEFAULT_ACTIVITY_EVENT
 
 from ...hogql.modifiers import set_default_modifier_values
-from ...schema import CurrencyCode, HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
+from ...schema_enums import CurrencyCode, PersonsOnEventsMode
 from .extensions import get_or_create_team_extension
 from .team_caching import get_team_in_cache, set_team_in_cache
 
 if TYPE_CHECKING:
+    from posthog.schema import PathCleaningFilter
+
     from posthog.models.user import User
 
 TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
@@ -61,6 +60,9 @@ DEPRECATED_ATTRS = (
     "event_properties",
     "event_properties_with_usage",
     "event_properties_numerical",
+    # Replaced by the `revenue_analytics_config` extension; only the raw-SQL Postgres->ClickHouse
+    # ETL still reads the column, and that bypasses this manager.
+    "revenue_tracking_config",
 )
 
 # Django requires a list of tuples for choices
@@ -126,15 +128,22 @@ class TeamManager(models.Manager):
             team.extra_settings = {}
         team.extra_settings.setdefault("recorder_script", "posthog-recorder")
 
-        # Create default dashboards
-        default_app_template = DashboardTemplate.original_template()
+        # Create default dashboards (demo projects skip above)
+        from posthog.helpers.dashboard_templates import create_from_template  # noqa: PLC0415 — breaks team import cycle
+
+        from products.dashboards.backend.models.dashboard import Dashboard  # noqa: PLC0415 — breaks team import cycle
+        from products.dashboards.backend.models.dashboard_templates import (  # noqa: PLC0415 — breaks team import cycle
+            DashboardTemplate,
+        )
+
+        template = DashboardTemplate.default_signup_template()
         dashboard = Dashboard.objects.db_manager(self.db).create(
-            name="My App Dashboard",
+            name="Your starter dashboard",
             pinned=True,
             team=team,
-            description=default_app_template.dashboard_description or "",
+            description=template.dashboard_description or "",
         )
-        create_dashboard_from_template("DEFAULT_APP", dashboard)
+        create_from_template(dashboard, template)
         team.primary_dashboard = dashboard
 
         # Create default session recording playlists
@@ -265,6 +274,11 @@ class Team(UUIDTClassicModel):
     class Meta:
         verbose_name = "environment (aka team)"
         verbose_name_plural = "environments (aka teams)"
+        # Route forward-FK / related-object loads (e.g. `request.user.current_team`) through the
+        # `objects` manager so they inherit its `.defer(*DEPRECATED_ATTRS)`. Without this, Django
+        # falls back to a bare `Manager()` for related access and re-loads the fat deprecated
+        # taxonomy columns on every such fetch — on the hot path that's every authenticated request.
+        base_manager_name = "objects"
         constraints = [
             models.CheckConstraint(
                 name="project_id_is_not_null",
@@ -272,7 +286,17 @@ class Team(UUIDTClassicModel):
                 # be done without locking the table. By adding this constraint using Postgres's `NOT VALID` option
                 # (via Django `AddConstraintNotValid()`) and subsequent `VALIDATE CONSTRAINT`, we avoid locking.
                 condition=models.Q(project_id__isnull=False),
-            )
+            ),
+            models.CheckConstraint(
+                name="llm_gateway_overspend_allowance_usd_in_range",
+                # Mirrors OVERSPEND_ALLOWANCE_MIN/MAX_USD; null = unset stays valid. The Python
+                # write surfaces validate too, but update/bulk_update/shell/raw bypass them.
+                condition=models.Q(llm_gateway_overspend_allowance_usd__isnull=True)
+                | models.Q(
+                    llm_gateway_overspend_allowance_usd__gte=0,
+                    llm_gateway_overspend_allowance_usd__lte=10000,
+                ),
+            ),
         ]
 
     objects: TeamManager = TeamManager()
@@ -305,7 +329,7 @@ class Team(UUIDTClassicModel):
         validators=[MinLengthValidator(10, "Project's API token must be at least 10 characters long!")],
     )
     app_urls: ArrayField = field_access_control(
-        ArrayField(models.CharField(max_length=200, null=True), default=list, blank=True), "project", "admin"
+        ArrayField(models.CharField(max_length=200, null=True), default=list, blank=True), "web_analytics", "editor"
     )
     name = models.CharField(
         max_length=200,
@@ -404,11 +428,20 @@ class Team(UUIDTClassicModel):
         "admin",
     )
 
+    # Events data retention in months — denormalized from the billing entitlement by sync_events_retention, read on
+    # the HogQL hot path. Default 84 (7 years) grandfathers existing teams. db_default because posthog_team is also
+    # written by raw inserts in nodejs/rust and the test-schema builder.
+    event_retention_months = field_access_control(
+        models.PositiveSmallIntegerField(default=84, db_default=84),
+        "project",
+        "admin",
+    )
+
     # Conversations
     conversations_enabled = field_access_control(models.BooleanField(null=True, blank=True), "project", "admin")
     conversations_settings = field_access_control(models.JSONField(null=True, blank=True), "project", "admin")
 
-    # Proactive tasks (#team-signals)
+    # Proactive tasks (#team-self-driving)
     proactive_tasks_enabled = models.BooleanField(null=True, blank=True)
 
     # Surveys
@@ -449,6 +482,10 @@ class Team(UUIDTClassicModel):
     # null revoked_at = not revoked. Set by internal tooling/admin only.
     llm_gateway_enabled_at = models.DateTimeField(null=True, blank=True)
     llm_gateway_revoked_at = models.DateTimeField(null=True, blank=True)
+    # Per-team USD floor the gateway lets a team dispatch past $0 down to. Projected into
+    # gateway_credential.json as the `overspend_allowance_usd` wire key. Null = use the
+    # gateway default; 0 = no allowance. Range [0, 10000] validated at the write surfaces.
+    llm_gateway_overspend_allowance_usd = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)
 
     # Heatmaps
     heatmaps_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "project", "admin")
@@ -726,9 +763,7 @@ class Team(UUIDTClassicModel):
 
     @cached_property
     def customer_analytics_config(self):
-        from products.customer_analytics.backend.models.team_customer_analytics_config import (
-            TeamCustomerAnalyticsConfig,
-        )
+        from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 
         return get_or_create_team_extension(
             self, TeamCustomerAnalyticsConfig, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}
@@ -742,6 +777,10 @@ class Team(UUIDTClassicModel):
 
     @property
     def default_modifiers(self) -> dict:
+        # Deferred: posthog.schema (the pydantic models) stays off django.setup(),
+        # where this model loads in every process.
+        from posthog.schema import HogQLQueryModifiers  # noqa: PLC0415
+
         modifiers = HogQLQueryModifiers()
         set_default_modifier_values(modifiers, self)
         return modifiers.model_dump()
@@ -784,7 +823,7 @@ class Team(UUIDTClassicModel):
 
         # on PostHog Cloud, use the feature flag
         if is_cloud():
-            return posthoganalytics.feature_enabled(
+            return feature_enabled_or_false(
                 "persons-on-events-person-id-no-override-properties-on-events",
                 str(self.uuid),
                 groups={"project": str(self.id)},
@@ -810,7 +849,7 @@ class Team(UUIDTClassicModel):
 
         # on PostHog Cloud, use the feature flag
         if is_cloud():
-            return posthoganalytics.feature_enabled(
+            return feature_enabled_or_false(
                 "persons-on-events-v2-reads-enabled",
                 str(self.uuid),
                 groups={"organization": str(self.organization_id)},
@@ -871,7 +910,9 @@ class Team(UUIDTClassicModel):
     def timezone_info(self) -> ZoneInfo:
         return ZoneInfo(self.timezone)
 
-    def path_cleaning_filter_models(self) -> list[PathCleaningFilter]:
+    def path_cleaning_filter_models(self) -> list["PathCleaningFilter"]:
+        from posthog.schema import PathCleaningFilter  # noqa: PLC0415
+
         filters = []
         for f in self.path_cleaning_filters:
             try:

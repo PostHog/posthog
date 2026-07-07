@@ -48,6 +48,113 @@ tools:
             id:
                 cast: string-int
         ui_app: experiment
+    experiment-calculate-running-time:
+        operation: experiments_calculate_running_time_create
+        enabled: true
+        scopes:
+            - experiment:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Calculate experiment running time
+        description: >
+            Estimate the recommended sample size and how many days an experiment needs to run to detect an effect. This
+            is a stateless statistical calculation — it does not read or modify any experiment, so it works for planning
+            before an experiment exists.
+
+
+            Required: metric_type ('funnel' for conversion rates, 'mean_count' for events per user, 'mean_sum_or_avg'
+            for summed property values per user, 'ratio' or 'retention' for ratio-style metrics) and
+            minimum_detectable_effect (the smallest relative change to detect, as a percentage — e.g. 5 means a 5%
+            lift). number_of_variants defaults to 2 (control + one test).
+
+
+            Provide the baseline one of two ways: pass baseline_value directly (a conversion rate as a fraction 0-1 for
+            funnels, or an average per user for mean metrics), or pass baseline_stats (raw control-group statistics) and
+            let the server derive it. Ratio and retention metrics REQUIRE baseline_stats (with denominator_sum /
+            denominator_sum_squares / numerator_denominator_sum_product for the delta-method variance) or an explicit
+            variance — baseline_value alone is not enough.
+
+
+            Optionally pass exposure_rate_per_day (expected exposures per day across all variants) to also get
+            recommended_running_time_days. The response returns baseline_value, variance (null for funnels),
+            recommended_sample_size (total across variants), and recommended_running_time_days.
+    experiment-copy-to-project:
+        operation: experiments_copy_to_project_create
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Copy experiment to another project
+        description: >
+            Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the
+            user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.
+
+
+            REQUIRES EXPLICIT USER CONFIRMATION BEFORE CALLING. This writes a new experiment into a DIFFERENT project
+            than the one the user is currently looking at. Resolve the target project from the user's wording to a
+            concrete team id, then confirm the source experiment and the target project by name before invoking.
+
+
+            Copies an experiment into another project in the SAME organization as a new draft. The target project must
+            belong to the same organization — this CANNOT copy across organizations or regions. Use experiment-duplicate
+            instead when the copy should land in the same project.
+
+
+            What IS copied: name (defaults to "Original Name (Copy)", de-duplicated with a numeric suffix if that name
+            already exists in the target), description, type, parameters (variant split, rollout), filters, primary and
+            secondary metrics (each with freshly regenerated uuids and preserved ordering), stats config, scheduling
+            config, exposure criteria, and the only_count_matured_users setting.
+
+
+            What is NOT copied: saved-metric references (saved metrics are project-scoped, so they are dropped on a
+            cross-project copy), holdout, exposure cohort, start/end dates, results, and conclusion. The copy always
+            starts as a fresh draft.
+
+
+            Feature flag: pass feature_flag_key to control the flag key created in the target project. If omitted, the
+            source experiment's flag key is reused — and if a flag with that key already exists in the target project,
+            the copy SHARES that existing flag (its variants are reused) rather than creating a new one. A shared flag
+            means lifecycle operations on either experiment (shipping a variant, pausing) affect both. To avoid this,
+            pass a feature_flag_key that does not already exist in the target project. If an existing target flag is
+            reused, it must have at least 2 variants including one with key "control", otherwise the call returns 400
+            ("Feature flag must have at least 2 variants (control and at least one test variant)" or "Feature flag must
+            have a variant with key 'control'").
+
+
+            Returns 400 if the source experiment uses legacy metrics ("Copying is not supported for experiments using
+            legacy metrics."). Returns 404 if the target project is not found in the organization ("Target team not
+            found."). Returns 403 if you lack write access to the target project ("You do not have write access to the
+            target project.").
+
+
+            The returned experiment (including its id) belongs to the TARGET project, not the source project.
+        param_overrides:
+            id:
+                cast: string-int
+            target_team_id:
+                cast: string-int
+        response:
+            include:
+                - id
+                - name
+                - description
+                - type
+                - feature_flag_key
+                - status
+                - archived
+                - start_date
+                - end_date
+                - created_at
+                - parameters
+                - metrics
+                - metrics_secondary
+                - conclusion
+                - conclusion_comment
     experiment-create:
         operation: experiments_create
         enabled: true
@@ -170,6 +277,9 @@ tools:
             meaning changes to one experiment's flag (e.g. shipping a variant, pausing) will affect both experiments.
             Always confirm the new flag key with the user before duplicating. Optionally provide a custom name (defaults
             to "Original Name (Copy)").
+        include_params:
+            - name
+            - feature_flag_key
         param_overrides:
             id:
                 cast: string-int
@@ -202,8 +312,8 @@ tools:
             ("Experiment has already ended.").
 
 
-            Other options: use ship_variant to end AND roll out a winner. Use pause to temporarily deactivate the flag
-            without ending.
+            Other options: use experiment-ship-variant to end AND roll out a winner. Use pause to temporarily deactivate
+            the flag without ending.
         param_overrides:
             id:
                 cast: string-int
@@ -235,19 +345,128 @@ tools:
         ui_app: experiment
     experiment-holdouts-create:
         operation: experiment_holdouts_create
-        enabled: false
+        enabled: true
+        scopes:
+            - experiment_holdout:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create experiment holdout
+        description: >
+            Create a holdout group — a reserved slice of users excluded from experiment exposure, used as a held-back
+            baseline. Requires name and a non-empty filters array. Link experiments to it afterwards by passing the
+            returned id as holdout_id on experiment-create or experiment-update. Note that you can't change which
+            holdout an experiment points to once that experiment is running; the holdout itself stays editable (see
+            experiment-holdouts-partial-update, whose edits cascade to all linked experiments).
+        include_params:
+            - name
+            - description
+            - filters
+        param_overrides:
+            filters:
+                description: >
+                    Non-empty list of release-condition groups defining the held-out population. Each element needs a
+                    `rollout_percentage` (0–100, may be fractional) — this is the EXCLUSION percentage, i.e. the share
+                    of users held back from every experiment that references this holdout. `properties` optionally
+                    narrows the group by person/group properties (same shape as feature-flag release conditions); pass
+                    an empty array for an unconditional holdout. Do NOT set `variant` — the server sets it to
+                    `holdout-{id}` automatically. Only the first element's `rollout_percentage` is embedded into each
+                    linked experiment's feature flag. Example: [{ "rollout_percentage": 10, "properties": [] }].
     experiment-holdouts-destroy:
         operation: experiment_holdouts_destroy
-        enabled: false
+        enabled: true
+        scopes:
+            - experiment_holdout:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete experiment holdout
+        description: >
+            Delete a holdout group by ID. Use experiment-holdouts-list first if you don't have the ID, and always
+            confirm by name before deleting.
+
+
+            This clears the holdout reference from every linked experiment and feature flag (sets the flag's holdout to
+            null and nulls Experiment.holdout) — the affected experiments stop holding back any users. Returns 204 on
+            success.
+        param_overrides:
+            id:
+                cast: string-int
     experiment-holdouts-list:
         operation: experiment_holdouts_list
-        enabled: false
+        enabled: true
+        scopes:
+            - experiment_holdout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List experiment holdouts
+        description: >
+            List the experiment holdout groups in the current project. A holdout reserves a stable slice of users who
+            are excluded from experiment exposure, so you can measure the long-term effect of all experiments against a
+            held-back baseline. A holdout is NOT a feature flag — it is a separate object that experiments reference via
+            holdout_id.
+
+
+            Each holdout has a name, optional description, and a filters array (the held-out population definition).
+            Holdouts are project-scoped. Use the returned id with experiment-create / experiment-update's holdout_id to
+            link an experiment to a holdout.
+        response:
+            include:
+                - id
+                - name
+                - description
+                - filters
+                - created_at
+                - updated_at
     experiment-holdouts-partial-update:
         operation: experiment_holdouts_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - experiment_holdout:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Update experiment holdout
+        description: >
+            Update a holdout group's name, description, or filters by ID. Use experiment-holdouts-list first if you
+            don't have the ID.
+
+
+            CAUTION: editing the filters (e.g. the rollout/exclusion percentage) cascades atomically to EVERY experiment
+            linked to this holdout — it rewrites the exclusion_percentage on each linked feature flag, silently
+            re-assigning the held-out population for all of those experiments at once. Confirm with the user before
+            changing filters on a holdout that experiments depend on.
+        param_overrides:
+            id:
+                cast: string-int
+            filters:
+                description: >
+                    Non-empty list of release-condition groups defining the held-out population. Each element needs a
+                    `rollout_percentage` (0–100, may be fractional) — the EXCLUSION percentage. Do NOT set `variant`
+                    (the server manages it as `holdout-{id}`). Changing this cascades to every linked experiment's
+                    feature flag. Example: [{ "rollout_percentage": 10, "properties": [] }].
     experiment-holdouts-retrieve:
         operation: experiment_holdouts_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - experiment_holdout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get experiment holdout details
+        description: >
+            Get a single experiment holdout group by ID, including its name, description, and filters array (the
+            held-out population definition). Use experiment-holdouts-list first if you don't have the ID.
+        param_overrides:
+            id:
+                cast: string-int
     experiment-holdouts-update:
         operation: experiment_holdouts_update
         enabled: false
@@ -329,8 +548,6 @@ tools:
             limit:
                 cast: string-int
             offset:
-                cast: string-int
-            created_by_id:
                 cast: string-int
             feature_flag_id:
                 cast: string-int
@@ -495,13 +712,23 @@ tools:
         title: List shared experiment metrics
         description: >
             List shared metrics in the current project. Returns paginated results with id, name, description, query,
-            created_at, updated_at, tags. Use experiment-saved-metrics-retrieve for a single metric by ID, or this
-            listing to resolve by name.
+            created_at, updated_at, tags.
+
+
+            To REUSE a metric by what it measures (rather than by its name): pass ?event=<the event you're measuring> to
+            find metrics that reference it — directly or via an action — then compare each candidate's 'query'
+            (metric_type + math) against the metric you'd otherwise build. Use 'search' (name/description/tags) only
+            when the user named a specific metric to attach.
         param_overrides:
             limit:
                 cast: string-int
             offset:
                 cast: string-int
+            event:
+                description: >
+                    Filter to shared metrics whose query references this event name — matched directly (an EventsNode)
+                    or via the step events of any action the metric references. For finding a reusable metric by what it
+                    measures; then confirm the match against each row's 'query'.
         response:
             include:
                 - id
@@ -728,13 +955,16 @@ tools:
 
 
             Do NOT use this to change lifecycle state — use the dedicated launch, end, pause, resume, archive, or
-            ship_variant tools instead.
+            experiment-ship-variant tools instead.
         include_params:
             - name
             - description
             - parameters
+            - running_time_calculation
+            - excluded_variants
             - metrics
             - metrics_secondary
+            - saved_metrics_ids
             - stats_config
             - exposure_criteria
             - holdout_id
@@ -746,6 +976,14 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+            running_time_calculation:
+                description: >
+                    Persist a running-time / sample-size plan onto the experiment (the planning target shown in the
+                    experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage,
+                    e.g. 20 for a 20% lift), recommended_sample_size (total across all variants),
+                    recommended_running_time (days), and exposure_estimate_config.
+            saved_metrics_ids:
+                input_schema: SavedMetricsAttachSchema
         ui_app: experiment
         response:
             include:
@@ -760,13 +998,12 @@ tools:
                 - end_date
                 - created_at
                 - parameters
+                - running_time_calculation
                 - metrics
                 - metrics_secondary
+                - saved_metrics
                 - conclusion
                 - conclusion_comment
-    experiments-copy-to-project-create:
-        operation: experiments_copy_to_project_create
-        enabled: false
     experiments-create-exposure-cohort:
         operation: experiments_create_exposure_cohort_for_experiment_create
         enabled: false
@@ -775,6 +1012,15 @@ tools:
         enabled: false
     experiments-eligible-feature-flags:
         operation: experiments_eligible_feature_flags_retrieve
+        enabled: false
+    experiments-metrics-recalculation-create:
+        operation: experiments_metrics_recalculation_create
+        enabled: false
+    experiments-metrics-recalculation-latest-retrieve:
+        operation: experiments_metrics_recalculation_latest_retrieve
+        enabled: false
+    experiments-metrics-recalculation-retrieve:
+        operation: experiments_metrics_recalculation_retrieve
         enabled: false
     experiments-prompt-templates-retrieve:
         operation: experiments_prompt_templates_retrieve

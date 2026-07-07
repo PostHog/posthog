@@ -19,8 +19,6 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { nonHogFunctionTemplatesLogic } from 'scenes/data-pipelines/utils/nonHogFunctionTemplatesLogic'
-import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -30,6 +28,7 @@ import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-ge
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
 import SchemaForm from '../../shared/components/forms/SchemaForm'
+import { supportsDirectQuery } from '../../shared/components/forms/schemaGroupingUtils'
 import SourceForm, { SourceAccessMethodSelector } from '../../shared/components/forms/SourceForm'
 import { SyncProgressStep } from '../../shared/components/forms/SyncProgressStep'
 import { WebhookSetupForm } from '../../shared/components/forms/WebhookSetupForm'
@@ -40,6 +39,7 @@ import { BillingLimitNotice } from './components/BillingLimitNotice'
 import { SelfManagedSourceForm } from './components/SelfManagedSourceForm'
 import type { newSourceSceneLogicType } from './NewSourceSceneType'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
+import { SourceCatalog } from './SourceCatalog'
 import { type SourceWizardLogicProps, sourceWizardLogic } from './sourceWizardLogic'
 
 export const getEffectiveAccessMethod = (
@@ -88,11 +88,40 @@ export function NewSourceScene(): JSX.Element {
     const sceneRootLogic = newSourceSceneLogic()
     const { availableSources, availableSourcesLoading } = useValues(sceneRootLogic)
 
-    if (availableSourcesLoading || availableSources === null) {
+    if (availableSourcesLoading) {
         return <LemonSkeleton />
     }
 
+    if (availableSources === null) {
+        return <AvailableSourcesError />
+    }
+
     return <MountedNewSourceScene availableSources={availableSources} />
+}
+
+// The wizard endpoint failed (a timeout, a 5xx, or a 403 for members without data-source
+// access). Without this the scene keeps rendering a bare skeleton indefinitely, which reads
+// as a permanently stuck loading state.
+function AvailableSourcesError(): JSX.Element {
+    const { load } = useActions(availableSourcesLogic)
+
+    return (
+        <LemonBanner
+            type="error"
+            action={{
+                children: 'Try again',
+                // Retrying flips availableSourcesLoading, which swaps this banner for the
+                // skeleton in the parent guard — so the retry state shows there, not here.
+                onClick: () => void load(),
+            }}
+        >
+            <p className="font-semibold mb-1">Couldn't load the list of available sources</p>
+            <p className="m-0">
+                This can happen if the request timed out or you don't have permission to manage data sources in this
+                project. Try again, or ask an organization admin to check your access.
+            </p>
+        </LemonBanner>
+    )
 }
 
 function MountedNewSourceScene({ availableSources }: { availableSources: Record<string, SourceConfig> }): JSX.Element {
@@ -143,19 +172,25 @@ interface NewSourcesWizardProps {
     allowedSources?: ExternalDataSourceType[] // Filter to only show these source types
     initialSource?: ExternalDataSourceType // Pre-select this source and start on step 2
     hideBackButton?: boolean
+    autoConfigureTables?: boolean // Onboarding: pre-select all syncable tables for a one-click sync
     sourceWizardLogicProps?: SourceWizardLogicProps
 }
 
 export function NewSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
 
-    if (availableSourcesLoading || availableSources === null) {
+    if (availableSourcesLoading) {
         return <LemonSkeleton />
+    }
+
+    if (availableSources === null) {
+        return <AvailableSourcesError />
     }
 
     const sourceWizardLogicProps = {
         onComplete: props.onComplete,
         availableSources,
+        autoConfigureTables: props.autoConfigureTables,
     }
 
     return (
@@ -187,7 +222,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         sourceConnectionDetails?.access_method,
         source.access_method
     )
-    const showAccessMethodSelector = currentStep === 2 && selectedConnector?.name === 'Postgres'
+    const showAccessMethodSelector = currentStep === 2 && supportsDirectQuery(selectedConnector?.name)
     const { tableLoading: manualLinkIsLoading } = useValues(selfManagedSourceLogic)
 
     const mainContainer = useFloatingContainer()
@@ -214,7 +249,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         const nextButton = (disabledReason?: string | false): JSX.Element => (
             <LemonButton
                 loading={isLoading || manualLinkIsLoading}
-                disabledReason={disabledReason || (!canGoNext && 'You cant click next yet')}
+                disabledReason={disabledReason || (!canGoNext && 'Finish this step to continue')}
                 type="primary"
                 center
                 onClick={() => onSubmit()}
@@ -232,7 +267,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                         center
                         data-attr="source-modal-back-button"
                         onClick={onBack}
-                        disabledReason={!canGoBack && 'You cant go back from here'}
+                        disabledReason={!canGoBack && "You can't go back from here"}
                     >
                         Back
                     </LemonButton>
@@ -302,7 +337,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                 ) : currentStep === 2 ? (
                     <SecondStep sourceWizardLogicProps={props.sourceWizardLogicProps} />
                 ) : currentStep === 3 ? (
-                    <ThirdStep />
+                    <ThirdStep autoConfigureTables={props.autoConfigureTables} />
                 ) : currentStep === 4 ? (
                     <WebhookSetupStep sourceWizardLogicProps={props.sourceWizardLogicProps} />
                 ) : currentStep === 5 ? (
@@ -437,37 +472,12 @@ CREATE PUBLICATION "${pubName}" FOR TABLE ${tableList}
 
 function FirstStep({ allowedSources }: NewSourcesWizardProps): JSX.Element {
     const { availableSourcesLoading } = useValues(availableSourcesLogic)
-    const { connectors } = useValues(sourceWizardLogic)
 
-    // Filter out sources for onboarding flow
-    const sources = connectors.reduce(
-        (acc, cur) => {
-            if (allowedSources) {
-                if (allowedSources.indexOf(cur.name) !== -1) {
-                    acc[cur.name] = cur
-                }
-            } else {
-                acc[cur.name] = cur
-            }
+    if (availableSourcesLoading) {
+        return <LemonSkeleton className="h-64" />
+    }
 
-            return acc
-        },
-        {} as Record<string, SourceConfig>
-    )
-
-    const { hogFunctionTemplatesDataWarehouseSources } = useValues(
-        nonHogFunctionTemplatesLogic({
-            availableSources: sources ?? {},
-        })
-    )
-
-    return (
-        <HogFunctionTemplateList
-            type="source_webhook"
-            manualTemplates={hogFunctionTemplatesDataWarehouseSources}
-            manualTemplatesLoading={availableSourcesLoading}
-        />
-    )
+    return <SourceCatalog allowedSources={allowedSources} />
 }
 
 function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: SourceWizardLogicProps }): JSX.Element {
@@ -521,8 +531,44 @@ function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: Sourc
     )
 }
 
-function ThirdStep(): JSX.Element {
-    return <SchemaForm />
+function ThirdStep({ autoConfigureTables }: { autoConfigureTables?: boolean }): JSX.Element {
+    return autoConfigureTables ? <AutoConfigureTablesStep /> : <SchemaForm />
+}
+
+function AutoConfigureTablesStep(): JSX.Element {
+    const { databaseSchema } = useValues(sourceWizardLogic)
+    const [customize, setCustomize] = useState(false)
+
+    if (customize) {
+        return <SchemaForm />
+    }
+
+    const selectedCount = databaseSchema.filter((s) => s.should_sync).length
+
+    return (
+        <div className="flex flex-col gap-4">
+            {selectedCount === 0 ? (
+                <LemonBanner type="warning">
+                    No tables could be auto-configured — they may all have permission errors. Use "Review and customize
+                    tables" to inspect and fix them before syncing.
+                </LemonBanner>
+            ) : (
+                <LemonBanner type="info">
+                    We've auto-configured {selectedCount} {selectedCount === 1 ? 'table' : 'tables'} with smart sync
+                    defaults. Continue below to start importing, or review the configuration first.
+                </LemonBanner>
+            )}
+            <div>
+                <LemonButton
+                    type="secondary"
+                    onClick={() => setCustomize(true)}
+                    data-attr="dwh-onboarding-customize-tables"
+                >
+                    Review and customize tables
+                </LemonButton>
+            </div>
+        </div>
+    )
 }
 
 function WebhookSetupStep({

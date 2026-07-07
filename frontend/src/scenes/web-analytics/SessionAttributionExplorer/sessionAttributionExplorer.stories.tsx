@@ -5,6 +5,9 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
+import __sessionAttributionQuery from './__mocks__/sessionAttributionQuery.json'
+import __sessionAttributionQueryStatus from './__mocks__/sessionAttributionQueryStatus.json'
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/SessionAttributionExplorer',
@@ -18,15 +21,15 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/query/:id/': async (_, res, ctx) => {
+                '/api/environments/:team_id/query/:id/': () => {
                     // eslint-disable-next-line @typescript-eslint/no-var-requires
-                    return res(ctx.json(require('./__mocks__/sessionAttributionQueryStatus.json')))
+                    return [200, __sessionAttributionQueryStatus as any]
                 },
             },
             post: {
-                '/api/environments/:team_id/query/:kind/': async (_, res, ctx) => {
+                '/api/environments/:team_id/query/:kind/': () => {
                     // eslint-disable-next-line @typescript-eslint/no-var-requires
-                    return res(ctx.json(require('./__mocks__/sessionAttributionQuery.json')))
+                    return [200, __sessionAttributionQuery as any]
                 },
             },
         }),

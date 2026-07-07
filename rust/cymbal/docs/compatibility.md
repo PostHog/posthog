@@ -28,7 +28,7 @@ No generated type changes are needed:
 - Sampled events use the remote pool and do not silently fall back to local resolution on remote failures.
 - Unsampled events use the local exception and frame resolvers.
 - Sampled remote exceptions are grouped per team, flattened into `ResolveItem`s, and submitted over per-endpoint bidirectional `Resolve` streams.
-- Resolver-specific context is carried in `ResolveItem.metadata` as JSON bytes. The current Apple symbolication convention uses an `apple_debug_images_json` key.
+- Resolver-specific context is carried in `ResolveItem.metadata` as JSON bytes. The native symbolication convention uses a `debug_images_json` key.
 - Per-item `ResolveOutcome.Error.kind` is the control-flow surface. `ERROR_KIND_OVERLOADED` is result-only backpressure and triggers item reroute. Accepted items emit `ResolveOutcome.Accepted` before their terminal outcome; cymbal releases its routing permit on that acceptance signal. If `CYMBAL_REMOTE_RESOLUTION_OVERLOAD_EJECTION_MS` is non-zero, the overloaded endpoint is also temporarily excluded from new routing in that cymbal process. Repeated overloads double that cooldown up to `CYMBAL_REMOTE_RESOLUTION_OVERLOAD_EJECTION_MAX_MS`, and a quiet `CYMBAL_REMOTE_RESOLUTION_OVERLOAD_EJECTION_DECAY_MS` window resets it. `CYMBAL_REMOTE_RESOLUTION_ROUTING_JITTER` controls how much routing flattens across the rendezvous-ranked candidate list (`0.0` strict rank-0 sticky, `1.0` uniform across candidates). `LoadEvent` is only endpoint freshness/draining state.
 
 This means Node request chunking limits protect cymbal's public HTTP body size, while cymbal's private gRPC path owns exception-level routing, reroute depth, and overload handling.

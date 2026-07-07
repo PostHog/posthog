@@ -56,7 +56,6 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.temporal.data_modeling.activities.fail_materialization import (
     CONSECUTIVE_TIMEOUTS_TO_PAUSE,
     should_pause_schedule_for_timeout,
@@ -66,15 +65,20 @@ from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_me
 from posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow import DuckLakeCopyDataModelingWorkflow
 from posthog.temporal.ducklake.types import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
-from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
-from products.data_warehouse.backend.data_load.create_table import create_table_from_saved_query
-from products.data_warehouse.backend.data_load.saved_query_service import a_pause_saved_query_schedule
-from products.data_warehouse.backend.s3 import ensure_bucket_exists, get_s3_client
-from products.endpoints.backend.rate_limit import set_endpoint_materialization_ready
-from products.endpoints.backend.services.endpoint_materialization_service import prepare_executable_query
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
+from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.data_warehouse.backend.facade.api import (
+    a_pause_saved_query_schedule,
+    create_table_from_saved_query,
+    ensure_bucket_exists,
+    get_s3_client,
+)
+from products.endpoints.backend.facade.temporal import (
+    prepare_executable_query,
+    update_materialization_ready_for_saved_query,
+)
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.temporal import prepare_s3_files_for_querying
 
 LOGGER = get_logger(__name__)
 
@@ -542,6 +546,7 @@ async def materialize_model(
             batch, ch_types = res
             batch = _transform_unsupported_decimals(batch)
             batch = _transform_date_and_datetimes(batch, ch_types)
+            batch = _force_nullable(batch)
 
             if index == 0:
                 await logger.adebug(
@@ -816,7 +821,11 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
         modifiers=modifiers,
     )
     context.output_format = "TabSeparated"
-    context.database = await database_sync_to_async(Database.create_for)(team=team, modifiers=context.modifiers)
+    # Userless materialization context; bypass warehouse HogQL access control so the model query
+    # can resolve its source tables/views.
+    context.database = await database_sync_to_async(Database.create_for)(
+        team=team, modifiers=context.modifiers, bypass_warehouse_access_control=True
+    )
 
     prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
         query_node, context=context, dialect="clickhouse", settings=settings, stack=[]
@@ -868,7 +877,11 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
         limit_top_select=False,
         modifiers=modifiers,
     )
-    context.database = await database_sync_to_async(Database.create_for)(team=team, modifiers=context.modifiers)
+    # Userless materialization context; bypass warehouse HogQL access control so the model query
+    # can resolve its source tables/views.
+    context.database = await database_sync_to_async(Database.create_for)(
+        team=team, modifiers=context.modifiers, bypass_warehouse_access_control=True
+    )
 
     prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
         query_node, context=context, dialect="clickhouse", settings=settings, stack=[]
@@ -1176,6 +1189,25 @@ def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
     )
 
     return pa.RecordBatch.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
+
+
+def _force_nullable(batch: pa.RecordBatch) -> pa.RecordBatch:
+    """Mark every column nullable so batch schemas don't diverge across delta commits.
+
+    ClickHouse emits non-nullable columns for expressions, constants, concat()/toString(),
+    and non-Nullable source columns. When such a query spans more than one batch, the first
+    batch's overwrite pins a non-nullable delta schema and the later append routes through
+    delta-rs's DataFusion writer to reconcile schemas. DataFusion lowercases identifiers and
+    then fails to resolve case-sensitive columns, e.g. "No field named userid. ... Did you
+    mean 'userId'?" — breaking any column with uppercase characters. Pinning every column to
+    nullable keeps each batch's schema identical to the first overwrite, so the append never
+    triggers that path and camelCase column names survive.
+    """
+    nullable_schema = pa.schema(
+        [pa.field(field.name, field.type, nullable=True, metadata=field.metadata) for field in batch.schema],
+        metadata=typing.cast("dict[bytes | str, bytes | str] | None", batch.schema.metadata),
+    )
+    return batch.cast(nullable_schema)
 
 
 def _get_credentials():
@@ -1576,7 +1608,7 @@ async def update_saved_query_status(
 
     if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
         is_ready = status == DataWarehouseSavedQuery.Status.COMPLETED
-        await database_sync_to_async(set_endpoint_materialization_ready)(team_id, saved_query.name, is_ready)
+        await database_sync_to_async(update_materialization_ready_for_saved_query)(team_id, saved_query, is_ready)
 
 
 @dataclasses.dataclass

@@ -13,10 +13,11 @@ from django.test.utils import override_settings
 
 import pyarrow as pa
 import pytest_asyncio
+from structlog.testing import capture_logs
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models.scoping import team_scope
-from posthog.temporal.common.clickhouse import ClickHouseClient
+from posthog.temporal.common.clickhouse import ClickHouseClient, ClickHouseClientTimeoutError, ClickHouseQueryStatus
 
 from products.batch_exports.backend.models.batch_export import (
     BatchExport,
@@ -28,6 +29,7 @@ from products.batch_exports.backend.service import BackfillDetails, BatchExportM
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
     DataIntervalEndInFutureError,
+    _execute_query,
     _write_batch_export_record_batches_to_internal_stage,
     compute_num_partitions,
     insert_into_internal_stage_activity,
@@ -278,7 +280,8 @@ async def _run_activity(
         destination_default_fields=None,
     )
 
-    stage_folder = await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
+    stage_result = await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
+    stage_folder = stage_result.stage_folder
     await assert_files_in_s3(
         minio_client,
         bucket_name=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET,
@@ -334,6 +337,56 @@ async def test_insert_into_stage_activity_for_events_model(
     events_to_export_created = generate_test_data[0]
 
     assert len(records_exported) == len(events_to_export_created)
+
+
+@pytest.mark.parametrize("interval", ["day"], indirect=True)
+@pytest.mark.parametrize(
+    "model",
+    [
+        BatchExportModel(name="events", schema=None),
+    ],
+)
+@pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
+async def test_insert_into_stage_activity_reports_records_total_for_events_model(
+    generate_test_data,
+    interval,
+    activity_environment,
+    data_interval_start,
+    minio_client,
+    data_interval_end,
+    ateam,
+    model: BatchExportModel,
+):
+    """The activity reports the number of rows written to the stage, from ClickHouse's query summary."""
+
+    with capture_logs() as cap_logs:
+        records_exported = await _run_activity(
+            activity_environment=activity_environment,
+            minio_client=minio_client,
+            team_id=ateam.pk,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            model=model,
+        )
+
+    events_to_export_created = generate_test_data[0]
+    completed_logs = [log for log in cap_logs if log["event"] == "Staging data completed successfully"]
+    assert len(completed_logs) == 1
+    assert completed_logs[0]["records_total"] == len(events_to_export_created) == len(records_exported)
+
+
+@pytest.mark.parametrize("query_log_written_rows", [4242, None])
+async def test_execute_query_recovers_written_rows_from_query_log_on_timeout(query_log_written_rows):
+    """When the insert times out client-side, the row count is recovered from the query log."""
+    client = AsyncMock()
+    client.execute_query_with_summary.side_effect = ClickHouseClientTimeoutError("INSERT ...", "test-query-id")
+    client.acheck_query.return_value = ClickHouseQueryStatus.FINISHED
+    client.aget_written_rows_from_query_log.return_value = query_log_written_rows
+
+    result = await _execute_query(client, "INSERT INTO FUNCTION s3(...) SELECT ...", {})
+
+    assert result == query_log_written_rows
+    client.aget_written_rows_from_query_log.assert_awaited_once()
 
 
 class PersonToExport(t.TypedDict):
@@ -639,6 +692,21 @@ async def test_compute_num_partitions_db_error_falls_back_to_static_default():
     assert result == 10
 
 
+async def test_compute_num_partitions_disabled_uses_static_default():
+    with (
+        override_settings(
+            BATCH_EXPORT_DYNAMIC_PARTITIONING_ENABLED=False,
+            BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS=10,
+        ),
+        patch(_FETCHER_PATH, new=AsyncMock(return_value=5_000_000)) as mock_fetch,
+    ):
+        result = await compute_num_partitions(
+            batch_export_id=str(uuid.uuid4()), data_interval_start=_INTERVAL_START, data_interval_end=_INTERVAL_END
+        )
+    assert result == 10
+    mock_fetch.assert_not_called()
+
+
 async def test_compute_num_partitions_without_interval_start_falls_back_to_static_default():
     """An unbounded interval (no start) gives no frequency to match, so we don't risk an estimate."""
     with (
@@ -928,7 +996,8 @@ async def test_insert_into_stage_activity_writes_dynamic_number_of_files(
         BATCH_EXPORT_CLICKHOUSE_S3_MIN_PARTITIONS=1,
         BATCH_EXPORT_CLICKHOUSE_S3_MAX_PARTITIONS=50,
     ):
-        stage_folder = await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
+        stage_result = await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
+        stage_folder = stage_result.stage_folder
 
     _, keys = await assert_files_in_s3(
         minio_client,
@@ -976,7 +1045,8 @@ async def test_insert_into_stage_activity_uses_static_default_without_previous_r
         BATCH_EXPORT_CLICKHOUSE_S3_MIN_PARTITIONS=1,
         BATCH_EXPORT_CLICKHOUSE_S3_MAX_PARTITIONS=50,
     ):
-        stage_folder = await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
+        stage_result = await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
+        stage_folder = stage_result.stage_folder
 
     _, keys = await assert_files_in_s3(
         minio_client,

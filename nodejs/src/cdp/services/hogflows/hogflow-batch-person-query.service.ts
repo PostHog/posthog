@@ -1,7 +1,7 @@
 import { InternalFetchService } from '~/common/services/internal-fetch'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger, serializeError } from '~/common/utils/logger'
 import { Team } from '~/types'
-import { parseJSON } from '~/utils/json-parse'
-import { logger, serializeError } from '~/utils/logger'
 
 import { HogFunctionFilters } from '../../types'
 

@@ -18,6 +18,7 @@ from posthog.schema import (
     DataWarehousePropertyFilter,
     DateRange,
     EventsNode,
+    FunnelMathType,
     FunnelsActorsQuery,
     FunnelsDataWarehouseNode,
     FunnelsFilter,
@@ -33,7 +34,7 @@ from posthog.test.test_journeys import journeys_for
 from posthog.types import AnyPropertyFilter
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
-from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel_data_warehouse"
 
@@ -619,6 +620,73 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             runner = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True)
             response = runner.calculate()
 
+        results = response.results
+        assert results[0]["count"] == 2
+        assert results[1]["count"] == 2
+
+    def test_funnels_data_warehouse_first_time_for_user(self):
+        # cf6a408b's first-ever row is 2025-11-02, before the 2025-11-03 window start, so
+        # first-time-for-user must exclude that user from step 0 while a plain (total) funnel
+        # still counts their later 2025-11-06 row.
+        table_name = self.setup_data_warehouse()
+
+        def _query(first_time: bool) -> FunnelsQuery:
+            node = FunnelsDataWarehouseNode(
+                id=table_name,
+                table_name=table_name,
+                id_field="uuid",
+                aggregation_target_field="user_id",
+                timestamp_field="created",
+                math=FunnelMathType.FIRST_TIME_FOR_USER if first_time else None,
+            )
+            return FunnelsQuery(
+                kind="FunnelsQuery",
+                dateRange=DateRange(date_from="2025-11-03"),
+                series=[node, node],
+            )
+
+        with freeze_time("2025-11-07"):
+            total = FunnelsQueryRunner(query=_query(False), team=self.team, just_summarize=True).calculate()
+            first_time = FunnelsQueryRunner(query=_query(True), team=self.team, just_summarize=True).calculate()
+
+        # 4 distinct users have a row in the window; first-time-for-user drops cf6a408b,
+        # whose first-ever occurrence falls before the window.
+        assert total.results[0]["count"] == 4
+        assert first_time.results[0]["count"] == 3
+
+    def test_funnels_first_time_for_user_two_different_tables(self):
+        table_one_name, table_two_name = self.setup_same_config_different_tables_data_warehouse()
+
+        funnels_query = FunnelsQuery(
+            kind="FunnelsQuery",
+            dateRange=DateRange(date_from="2025-11-01"),
+            series=[
+                FunnelsDataWarehouseNode(
+                    id=table_one_name,
+                    table_name=table_one_name,
+                    id_field="id",
+                    aggregation_target_field="user_id",
+                    timestamp_field="created",
+                    math=FunnelMathType.FIRST_TIME_FOR_USER,
+                ),
+                FunnelsDataWarehouseNode(
+                    id=table_two_name,
+                    table_name=table_two_name,
+                    id_field="id",
+                    aggregation_target_field="user_id",
+                    timestamp_field="created",
+                    math=FunnelMathType.FIRST_TIME_FOR_USER,
+                ),
+            ],
+            funnelsFilter=FunnelsFilter(funnelOrderType=StepOrderValue.UNORDERED),
+        )
+
+        with freeze_time("2025-11-07"):
+            response = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True).calculate()
+
+        # Each user appears once per table, so first-time-for-user leaves the counts unchanged —
+        # but the funnel must still run with an independent first-time subquery per table
+        # (a config bleed between the two tables would error or miscount).
         results = response.results
         assert results[0]["count"] == 2
         assert results[1]["count"] == 2

@@ -122,6 +122,50 @@ async fn start_always_busy_worker() -> (String, tokio::task::JoinHandle<()>) {
     (url, handle)
 }
 
+/// Spin up a mock worker that returns 503 for its first `busy_times` requests,
+/// then 200 OK thereafter — simulating a worker that is momentarily at capacity.
+async fn start_busy_then_ok_worker(busy_times: usize) -> (String, tokio::task::JoinHandle<()>) {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let app = Router::new().route(
+        "/ingest",
+        post(move |Json(req): Json<IngestBatchRequest>| {
+            let calls = calls.clone();
+            async move {
+                let n = calls.fetch_add(1, Ordering::SeqCst);
+                if n < busy_times {
+                    return (
+                        axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                        axum::Json(IngestBatchResponse {
+                            batch_id: req.batch_id,
+                            status: "error".to_string(),
+                            accepted: 0,
+                            error: Some("at concurrent batch capacity (1)".to_string()),
+                        }),
+                    )
+                        .into_response();
+                }
+                axum::Json(IngestBatchResponse {
+                    batch_id: req.batch_id,
+                    status: "ok".to_string(),
+                    accepted: req.messages.len() as u32,
+                    error: None,
+                })
+                .into_response()
+            }
+        }),
+    );
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let url = format!("http://127.0.0.1:{}", addr.port());
+
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    (url, handle)
+}
+
 /// Spin up a mock worker that sleeps `delay` before responding ok. Records
 /// the max number of overlapping in-flight requests it ever observed.
 async fn start_slow_worker(
@@ -212,16 +256,15 @@ async fn transport_retries_on_server_error() {
 }
 
 #[tokio::test]
-async fn transport_fails_fast_on_worker_busy_without_retry() {
-    // The Rust consumer's per-worker semaphore is supposed to prevent 503s.
-    // If the worker still returns 503, that's a contract violation, not a
-    // transient state — fail immediately rather than hammering an already
-    // overloaded worker.
+async fn transport_retries_on_worker_busy() {
+    // 503 is transient backpressure (a shared worker can be momentarily full),
+    // so the transport retries with the longer, jittered busy backoff rather
+    // than failing fast. An always-busy worker exhausts retries and returns the
+    // last WorkerBusy error — but only after backing off at least once.
     let (url, _handle) = start_always_busy_worker().await;
 
     let urls = vec![url.clone()];
-    // max_retries = 3 — irrelevant for this path since WorkerBusy is non-retriable.
-    let transport = HttpTransport::new(Duration::from_secs(5), 3, None, &urls, 1);
+    let transport = HttpTransport::new(Duration::from_secs(5), 1, None, &urls, 1);
 
     let messages = vec![make_message("tok", "user", 0, "{}")];
 
@@ -233,14 +276,32 @@ async fn transport_fails_fast_on_worker_busy_without_retry() {
     let elapsed = start.elapsed();
 
     assert!(
-        matches!(err, TransportError::WorkerBusy(_)),
+        matches!(err.error, TransportError::WorkerBusy(_)),
         "expected WorkerBusy, got {err:?}"
     );
-    // No retry backoff should have been applied (would have been ≥100ms+200ms+400ms = 700ms).
+    // One retry means one busy backoff (base 250ms + jitter), so the call must
+    // take noticeably longer than the old fail-fast path (<200ms).
     assert!(
-        elapsed < Duration::from_millis(200),
-        "expected fail-fast on 503 (<200ms), got {elapsed:?}"
+        elapsed >= Duration::from_millis(240),
+        "expected a busy backoff before exhausting (≥240ms), got {elapsed:?}"
     );
+}
+
+#[tokio::test]
+async fn transport_recovers_after_worker_busy() {
+    // A worker that is busy once and then ready should succeed after a retry.
+    let (url, _handle) = start_busy_then_ok_worker(1).await;
+
+    let urls = vec![url.clone()];
+    let transport = HttpTransport::new(Duration::from_secs(5), 3, None, &urls, 1);
+
+    let messages = vec![make_message("tok", "user", 0, "{}")];
+
+    let accepted = transport
+        .send_batch(&url, "batch-recover", messages)
+        .await
+        .expect("should succeed after the worker stops being busy");
+    assert_eq!(accepted, 1);
 }
 
 #[tokio::test]
@@ -255,23 +316,22 @@ async fn transport_fails_on_unreachable_worker() {
 }
 
 #[tokio::test]
-async fn transport_rejects_send_to_unknown_worker() {
-    // Caller bug: send_batch invoked with a URL that wasn't registered at
-    // construction. We bail with UnknownWorker rather than silently bypassing
-    // the semaphore.
-    let urls = vec!["http://known-worker:9001".to_string()];
-    let transport = HttpTransport::new(Duration::from_secs(1), 0, None, &urls, 1);
+async fn transport_lazily_creates_semaphore_for_unseeded_worker() {
+    // Dynamic membership: a worker not seeded at construction (discovered at
+    // runtime) gets a semaphore created on first send and is served normally.
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let (url, _handle) = start_mock_worker(received.clone()).await;
+
+    // Construct with an empty worker set — the target is "unknown" at build time.
+    let transport = HttpTransport::new(Duration::from_secs(5), 0, None, &[], 1);
 
     let messages = vec![make_message("tok", "user", 0, "{}")];
-    let err = transport
-        .send_batch("http://unknown-worker:9999", "batch-x", messages)
+    let accepted = transport
+        .send_batch(&url, "batch-lazy", messages)
         .await
-        .unwrap_err();
+        .expect("send to an unseeded worker should succeed via lazy semaphore creation");
 
-    assert!(
-        matches!(err, TransportError::UnknownWorker(_)),
-        "expected UnknownWorker, got {err:?}"
-    );
+    assert_eq!(accepted, 1);
 }
 
 #[tokio::test]
@@ -389,6 +449,7 @@ async fn dispatcher_and_transport_end_to_end() {
             degraded_hold: Duration::from_secs(10),
             min_state_duration: Duration::ZERO,
             probe_failure_threshold: 2,
+            drain_timeout: Duration::from_secs(5),
         },
     ));
     let dispatcher = Arc::new(Dispatcher::new(Arc::clone(&registry)));
@@ -408,22 +469,22 @@ async fn dispatcher_and_transport_end_to_end() {
         make_message("tok", "user-3", 3, r#"{"event":"d"}"#),
     ];
 
-    let sub_batches = dispatcher.assign(messages);
+    let sub_batches = dispatcher.assign("b", messages);
 
     // Scatter to workers
     let mut handles = Vec::new();
     for sub_batch in sub_batches {
         let t = transport.clone();
-        let url = worker_urls[sub_batch.worker_idx].clone();
+        let worker = sub_batch.worker.clone();
         let routing_keys = sub_batch.routing_keys.clone();
-        let worker_idx = sub_batch.worker_idx;
+        let message_count = sub_batch.messages.len();
         let d = Arc::clone(&dispatcher);
         handles.push(tokio::spawn(async move {
             let result = t
-                .send_batch(&url, "batch-e2e", sub_batch.messages)
+                .send_batch(&worker, "batch-e2e", sub_batch.messages)
                 .await
                 .unwrap();
-            d.on_sub_batch_resolved(worker_idx, &routing_keys);
+            d.on_sub_batch_resolved(&worker, message_count, &routing_keys, false);
             result
         }));
     }

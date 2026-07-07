@@ -1,15 +1,33 @@
-from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from datetime import UTC, datetime, timedelta
+
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.core.cache import cache
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models import Organization, Team
+from posthog.models.utils import uuid7
+from posthog.temporal.mcp_analytics.intent_clustering.constants import CHILD_WORKFLOW_ID_PREFIX, WORKFLOW_NAME
+
 from products.mcp_analytics.backend import intent_generation
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
+from products.mcp_analytics.backend.presentation.serializers import (
+    MCP_SESSION_LIST_DEFAULT_LIMIT,
+    MCP_SESSION_LIST_MAX_LIMIT,
+    MCP_TOOL_CALLS_DEFAULT_LIMIT,
+    MCP_TOOL_CALLS_MAX_LIMIT,
+    MCPSessionListQuerySerializer,
+    MCPSessionToolCallsQuerySerializer,
+)
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 
 class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
+    # The mcp-analytics feature flag is enabled for the whole test by the mixin's setUp.
     @parameterized.expand(
         [
             ("feedback_create", "post", "feedback/", {"goal": "understand usage", "feedback": "Need clearer results"}),
@@ -46,10 +64,10 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
             ("missing_capability_list", "get", "missing_capabilities/", None),
         ]
     )
-    def test_endpoints_are_staff_only_in_cloud(
+    def test_endpoints_require_feature_flag(
         self, _name: str, method: str, path: str, payload: dict[str, str] | None
     ) -> None:
-        with self.is_cloud(True):
+        with patch("posthoganalytics.feature_enabled", return_value=False):
             request = getattr(self.client, method)
             response = request(f"/api/environments/{self.team.id}/mcp_analytics/{path}", payload, format="json")
 
@@ -134,7 +152,8 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert response.json()["attr"] == field
 
     def test_intent_clusters_returns_empty_idle_when_no_snapshot(self) -> None:
-        response = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/")
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/")
 
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
@@ -172,7 +191,8 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
             },
         )
 
-        response = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/")
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/")
 
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
@@ -181,21 +201,52 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert data["clusters"][0]["label"] == "check feature flag rollout"
         assert data["computed_with"]["n_clusters"] == 1
 
-    def test_intent_clusters_recompute_enqueues_task_and_returns_computing(self) -> None:
-        # Mock only the Celery dispatch so the synchronous COMPUTING write
-        # still runs. The 202 body should reflect the new state, not the
-        # stale pre-trigger state.
-        with patch("products.mcp_analytics.backend.tasks.tasks.compute_intent_clusters.delay") as mock_delay:
+    def test_intent_clusters_recompute_starts_workflow_and_returns_computing(self) -> None:
+        # Mock async_connect to return a client whose start_workflow is an
+        # AsyncMock — the facade awaits both inside asyncio.run. The
+        # synchronous COMPUTING write still runs against the real DB so
+        # the 202 body reflects the new state, not the stale pre-trigger one.
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock(return_value=MagicMock())
+        with (
+            patch("posthog.temporal.common.client.async_connect", new=AsyncMock(return_value=mock_client)),
+            patch("posthoganalytics.feature_enabled", return_value=True),
+        ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/recompute/", {}, format="json"
             )
 
         assert response.status_code == status.HTTP_202_ACCEPTED
         assert response.json()["status"] == "computing"
-        mock_delay.assert_called_once_with(self.team.id, self.user.id)
         snapshot = MCPIntentClusterSnapshot.objects.get(team=self.team)
         assert snapshot.status == MCPIntentClusterSnapshot.Status.COMPUTING
         assert snapshot.last_computed_by_id == self.user.id
+        mock_client.start_workflow.assert_awaited_once()
+        call_args = mock_client.start_workflow.call_args
+        assert call_args.args[0] == WORKFLOW_NAME
+        assert call_args.args[1].team_id == self.team.id
+        assert call_args.args[1].user_id == self.user.id
+        assert call_args.kwargs["id"].startswith(f"{CHILD_WORKFLOW_ID_PREFIX}-{self.team.id}-adhoc-")
+
+    def test_intent_clusters_recompute_dispatch_failure_reverts_to_error(self) -> None:
+        # If the workflow never starts, no activity will flip the status —
+        # the endpoint must revert its own COMPUTING write, not leave the
+        # snapshot stuck until the stale-COMPUTING sweep.
+        with (
+            patch(
+                "posthog.temporal.common.client.async_connect",
+                new=AsyncMock(side_effect=RuntimeError("temporal unreachable")),
+            ),
+            patch("posthoganalytics.feature_enabled", return_value=True),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/recompute/", {}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        snapshot = MCPIntentClusterSnapshot.objects.get(team=self.team)
+        assert snapshot.status == MCPIntentClusterSnapshot.Status.ERROR
+        assert snapshot.error_message == "Failed to start the intent clustering workflow"
 
     def test_feedback_list_is_team_scoped(self) -> None:
         MCPAnalyticsSubmission.objects.create(
@@ -269,6 +320,7 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
 
 
 class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
+    # The mcp-analytics feature flag is enabled for the whole test by the mixin's setUp.
     def _url(self, session_id: str) -> str:
         return f"/api/environments/{self.team.id}/mcp_analytics/sessions/{session_id}/generate_intent/"
 
@@ -277,8 +329,8 @@ class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         response = self.client.post(self._url("abc"))
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
-    def test_staff_only_in_cloud(self) -> None:
-        with self.is_cloud(True):
+    def test_requires_feature_flag(self) -> None:
+        with patch("posthoganalytics.feature_enabled", return_value=False):
             response = self.client.post(self._url("abc"))
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
@@ -286,7 +338,8 @@ class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         session_id = "session-123"
         MCPSession.objects.create(team=self.team, session_id=session_id, intent="A persisted summary.")
 
-        response = self.client.post(self._url(session_id))
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(self._url(session_id))
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"session_id": session_id, "intent": "A persisted summary."}
@@ -295,6 +348,7 @@ class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         session_id = "session-fresh"
         # Mock the two primitives so the endpoint path runs without ClickHouse or a real LLM call.
         with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
             patch.object(intent_generation, "fetch_session_intents", return_value=["check the funnel"]),
             patch.object(intent_generation, "summarize_intents", return_value="Generated summary."),
         ):
@@ -307,6 +361,7 @@ class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
     def test_returns_503_when_generation_unavailable(self) -> None:
         session_id = "session-unavailable"
         with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
             patch.object(intent_generation, "fetch_session_intents", return_value=["check the funnel"]),
             patch.object(
                 intent_generation,
@@ -319,3 +374,246 @@ class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         # Nothing persisted when generation fails.
         assert not MCPSession.objects.filter(team=self.team, session_id=session_id).exists()
+
+
+class TestMCPSessionToolCallsEndpoint(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    """The detail event list is bounded by the session's aggregated session_start. Listing *all*
+    events hinges on that bound surviving the serialize -> query-param -> parse round-trip without
+    dropping the first event (the one at exactly session_start)."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
+    def test_tool_calls_bounded_by_session_start_returns_every_event(self) -> None:
+        session_id = str(uuid7())
+        now = datetime.now(tz=UTC)
+        events = [(now - timedelta(hours=2), "first_tool"), (now - timedelta(minutes=5), "last_tool")]
+        for timestamp, tool in events:
+            _create_event(
+                team=self.team,
+                event="$mcp_tool_call",
+                distinct_id="seed",
+                timestamp=timestamp,
+                properties={"$session_id": session_id, "$mcp_tool_name": tool},
+            )
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            listed = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/sessions/", {"date_from": "-7d"})
+            assert listed.status_code == status.HTTP_200_OK
+            session = next(s for s in listed.json()["results"] if s["session_id"] == session_id)
+            # Hand the serialized session_start straight back, exactly as the UI does.
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/mcp_analytics/sessions/{session_id}/tool_calls/",
+                {"date_from": session["session_start"]},
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        # The first event sits at exactly session_start; a `timestamp >= session_start` bound must
+        # still include it after the round-trip — otherwise we'd get just ["last_tool"].
+        assert [c["tool_name"] for c in response.json()["results"]] == ["first_tool", "last_tool"]
+
+
+class TestMCPSessionListQuerySerializer(SimpleTestCase):
+    def test_defaults_when_pagination_params_omitted(self) -> None:
+        serializer = MCPSessionListQuerySerializer(data={})
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["limit"] == MCP_SESSION_LIST_DEFAULT_LIMIT
+        assert serializer.validated_data["offset"] == 0
+
+    @parameterized.expand(
+        [
+            ("limit_at_cap", {"limit": MCP_SESSION_LIST_MAX_LIMIT}, True, None),
+            ("limit_over_cap", {"limit": MCP_SESSION_LIST_MAX_LIMIT + 1}, False, "limit"),
+            ("limit_below_min", {"limit": 0}, False, "limit"),
+            ("offset_at_min", {"offset": 0}, True, None),
+            ("offset_negative", {"offset": -1}, False, "offset"),
+        ]
+    )
+    def test_pagination_bounds(
+        self, _name: str, data: dict[str, int], expected_valid: bool, error_field: str | None
+    ) -> None:
+        serializer = MCPSessionListQuerySerializer(data=data)
+        assert serializer.is_valid() is expected_valid, serializer.errors
+        if error_field is not None:
+            assert error_field in serializer.errors
+
+
+class TestMCPSessionToolCallsQuerySerializer(SimpleTestCase):
+    def test_defaults_when_pagination_params_omitted(self) -> None:
+        serializer = MCPSessionToolCallsQuerySerializer(data={})
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["limit"] == MCP_TOOL_CALLS_DEFAULT_LIMIT
+        assert serializer.validated_data["offset"] == 0
+
+    @parameterized.expand(
+        [
+            ("limit_at_cap", {"limit": MCP_TOOL_CALLS_MAX_LIMIT}, True, None),
+            ("limit_over_cap", {"limit": MCP_TOOL_CALLS_MAX_LIMIT + 1}, False, "limit"),
+            ("limit_below_min", {"limit": 0}, False, "limit"),
+            ("offset_at_min", {"offset": 0}, True, None),
+            ("offset_negative", {"offset": -1}, False, "offset"),
+        ]
+    )
+    def test_pagination_bounds(
+        self, _name: str, data: dict[str, int], expected_valid: bool, error_field: str | None
+    ) -> None:
+        serializer = MCPSessionToolCallsQuerySerializer(data=data)
+        assert serializer.is_valid() is expected_valid, serializer.errors
+        if error_field is not None:
+            assert error_field in serializer.errors
+
+    @parameterized.expand(
+        [
+            ("valid_iso", "2026-01-02T03:04:05Z", True),
+            ("unparseable", "not-a-date", None),
+        ]
+    )
+    def test_date_from_is_lenient(self, _name: str, raw: str, expect_datetime: bool | None) -> None:
+        # date_from is a scan-pruning hint: a bad value must fall back to None, not 400 the request.
+        serializer = MCPSessionToolCallsQuerySerializer(data={"date_from": raw})
+        assert serializer.is_valid(), serializer.errors
+        resolved = serializer.validated_data["date_from"]
+        if expect_datetime:
+            assert isinstance(resolved, datetime)
+        else:
+            assert resolved is None
+
+
+class TestMCPAnalyticsCrossTeamIsolation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
+    """Team A must never reach Team B's submissions. Now that the submission endpoints are
+    reachable by anyone inside the mcp-analytics flag (no longer staff-only), pin the tenant
+    boundary: another team's rows never appear in this team's list, and a user who is not a
+    member of another team's org is denied when hitting that team's URL.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        # The mcp-analytics feature flag is enabled for the whole test by the mixin's setUp.
+        # A team in a different organization that self.user is NOT a member of.
+        self.other_org = Organization.objects.create(name="other-org")
+        self.other_team = Team.objects.create(organization=self.other_org, name="other-team")
+
+        self.other_feedback = MCPAnalyticsSubmission.objects.create(
+            team=self.other_team,
+            created_by=self.user,
+            kind=MCPAnalyticsSubmission.Kind.FEEDBACK,
+            goal="team B goal",
+            summary="Team B feedback — must not leak",
+        )
+        self.other_missing_capability = MCPAnalyticsSubmission.objects.create(
+            team=self.other_team,
+            created_by=self.user,
+            kind=MCPAnalyticsSubmission.Kind.MISSING_CAPABILITY,
+            goal="team B goal",
+            summary="Team B missing capability — must not leak",
+            blocked=False,
+        )
+
+    @parameterized.expand(
+        [
+            ("feedback", "feedback/", "Team B feedback — must not leak"),
+            ("missing_capabilities", "missing_capabilities/", "Team B missing capability — must not leak"),
+        ]
+    )
+    def test_other_teams_submissions_never_appear_in_own_list(self, _name: str, path: str, leaked: str) -> None:
+        response = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/{path}")
+
+        assert response.status_code == status.HTTP_200_OK
+        summaries = [entry["summary"] for entry in response.json()["results"]]
+        assert leaked not in summaries
+        assert summaries == []
+
+    @parameterized.expand(
+        [
+            ("feedback_list", "get", "feedback/", None),
+            ("missing_capability_list", "get", "missing_capabilities/", None),
+            (
+                "feedback_create",
+                "post",
+                "feedback/",
+                {"goal": "understand usage", "feedback": "Need clearer results"},
+            ),
+            (
+                "missing_capability_create",
+                "post",
+                "missing_capabilities/",
+                {"goal": "debug surveys", "missing_capability": "Need an eligibility explainer"},
+            ),
+        ]
+    )
+    def test_cannot_reach_another_orgs_team_endpoint(
+        self, _name: str, method: str, path: str, payload: dict[str, str] | None
+    ) -> None:
+        request = getattr(self.client, method)
+        response = request(f"/api/environments/{self.other_team.id}/mcp_analytics/{path}", payload, format="json")
+
+        # Not a member of the other org's team: the request is rejected before any data is read.
+        assert response.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
+
+    def test_creating_in_own_team_does_not_touch_other_team(self) -> None:
+        self.client.post(
+            f"/api/environments/{self.team.id}/mcp_analytics/feedback/",
+            {"goal": "understand usage", "feedback": "My team's feedback"},
+            format="json",
+        )
+
+        # The other team's submission count is untouched by writes to this team.
+        assert MCPAnalyticsSubmission.objects.filter(team=self.other_team).count() == 2
+        assert MCPAnalyticsSubmission.objects.filter(team=self.team).count() == 1
+
+
+class TestMCPAnalyticsPersonalAPIKeyAccess(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
+    """The submission endpoints are now reachable by programmatic callers (Personal API
+    Keys / OAuth) via the mcp_analytics scope — the previous INTERNAL lock blocked that
+    entirely. Pin the scope mapping: the right scope works, the wrong/missing scope 403s.
+    The default test client uses force_login and skips the scope check, so this must drive
+    a real PAK to exercise the production auth path.
+    """
+
+    def _auth_with_pak(self, scopes: list[str]) -> None:
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
+
+    def test_read_scope_can_list_submissions(self) -> None:
+        self._auth_with_pak(["mcp_analytics:read"])
+        response = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/feedback/")
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+    def test_write_scope_can_create_submission(self) -> None:
+        self._auth_with_pak(["mcp_analytics:write"])
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_analytics/feedback/",
+            {"goal": "understand usage", "feedback": "Need clearer results"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+
+    def test_read_scope_cannot_create_submission(self) -> None:
+        self._auth_with_pak(["mcp_analytics:read"])
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_analytics/feedback/",
+            {"goal": "understand usage", "feedback": "Need clearer results"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+
+    @parameterized.expand(
+        [
+            ("list", "get", "feedback/", None),
+            (
+                "create",
+                "post",
+                "feedback/",
+                {"goal": "understand usage", "feedback": "Need clearer results"},
+            ),
+        ]
+    )
+    def test_missing_scope_is_forbidden(
+        self, _name: str, method: str, path: str, payload: dict[str, str] | None
+    ) -> None:
+        self._auth_with_pak(["insight:read"])
+        request = getattr(self.client, method)
+        response = request(f"/api/environments/{self.team.id}/mcp_analytics/{path}", payload, format="json")
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content

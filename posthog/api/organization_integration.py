@@ -42,6 +42,7 @@ class EnvironmentMappingUpdateSerializer(serializers.Serializer):
     development = serializers.IntegerField(required=False)
 
 
+@extend_schema(extensions={"x-product": "integrations"})
 class OrganizationIntegrationViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,

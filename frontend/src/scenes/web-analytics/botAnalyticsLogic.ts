@@ -1,7 +1,7 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
-import { isNotNil } from 'lib/utils'
+import { isNotNil } from 'lib/utils/guards'
 
 import {
     EventsNode,

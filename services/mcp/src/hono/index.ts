@@ -1,6 +1,8 @@
 import { serve } from '@hono/node-server'
 import Redis from 'ioredis'
 
+import { getCustomApiBaseUrl, isLocalApi } from '@/lib/constants'
+
 import { createApp } from './app'
 import { redisOperationsTotal } from './metrics'
 import { registerShutdownHandlers } from './shutdown'
@@ -56,6 +58,11 @@ async function main(): Promise<void> {
 
     const server = serve({ fetch: app.fetch, port: PORT, hostname: HOST }, (info) => {
         console.info(`[MCP] Server started on ${HOST}:${info.port}`)
+        if (isLocalApi()) {
+            console.info(
+                `[MCP] local API (${getCustomApiBaseUrl()}) — all feature-flag-gated tools force-enabled for local dev`
+            )
+        }
     })
 
     registerShutdownHandlers({ server, lifecycle, redis })

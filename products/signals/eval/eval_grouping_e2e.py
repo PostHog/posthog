@@ -38,11 +38,10 @@ import pytest
 from sklearn.metrics import adjusted_rand_score, homogeneity_completeness_v_measure
 from tqdm import tqdm
 
-from posthog.temporal.data_imports.signals.pipeline import (
+from products.signals.backend.emission.pipeline import (
     _check_actionability,
     summarize_long_descriptions as _summarize_long_descriptions,
 )
-
 from products.signals.backend.temporal.grouping import (
     generate_search_queries,
     match_signal_to_report,
@@ -136,7 +135,9 @@ class EvalGroupingPipeline:
                 self.progress.signal_dropped()
                 return
 
-            safety_result = await safety_filter(EVAL_TEAM_ID, description)
+            safety_result = await safety_filter(
+                EVAL_TEAM_ID, description, source_product=case.signal.content.source_product
+            )
             await self._capture_safety_filter(case, safety_result)
 
             if not safety_result.safe:

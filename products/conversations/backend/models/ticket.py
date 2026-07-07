@@ -46,8 +46,16 @@ class Ticket(UUIDTModel):
     status = models.CharField(max_length=20, choices=Status, default=Status.NEW)
     priority = models.CharField(max_length=20, choices=Priority, null=True, blank=True)
     anonymous_traits = models.JSONField(default=dict, blank=True)
+    # Trust signal (tri-state):
+    #   True  — the claimed identity was attested by the server (widget HMAC,
+    #           SPF-authenticated email, or a signature-validated platform webhook).
+    #   False — assessed but not attested (anonymous claim we couldn't verify).
+    #   None  — unknown; we never assessed it (e.g. predates this signal and the
+    #           channel doesn't structurally guarantee verification).
+    identity_verified = models.BooleanField(null=True)
     ai_resolved = models.BooleanField(default=False)
     escalation_reason = models.TextField(null=True, blank=True)
+    ai_triage = models.JSONField(default=dict, blank=True)
 
     # Unread message counters
     unread_customer_count = models.IntegerField(default=0)  # Messages customer hasn't seen (from team/AI)
@@ -68,6 +76,8 @@ class Ticket(UUIDTModel):
     teams_conversation_id = models.CharField(max_length=256, null=True, blank=True)  # Reply chain / thread ID
     teams_service_url = models.URLField(max_length=512, null=True, blank=True)  # Bot Connector endpoint for replies
     teams_tenant_id = models.CharField(max_length=64, null=True, blank=True)
+    # Shared-channel thread reply poller watermark (Graph createdDateTime of last ingested reply).
+    teams_thread_replies_synced_at = models.DateTimeField(null=True, blank=True)
 
     # GitHub channel fields (only set for channel_source="github")
     github_repo = models.CharField(max_length=256, null=True, blank=True)  # owner/repo
@@ -94,6 +104,14 @@ class Ticket(UUIDTModel):
 
     # Snooze — when set, ticket is "on hold" until this time, then auto-reopened by wake task
     snoozed_until = models.DateTimeField(null=True, blank=True)
+
+    # Customer's PostHog org group key, resolved once at creation (local org pk or cross-region analytics key).
+    organization_id = models.CharField(max_length=400, null=True, blank=True)
+
+    # Zendesk import dedup — set when a ticket is imported from Zendesk Support.
+    # No standalone index: the partial unique constraint below covers the dedup lookup
+    # (team + zendesk_ticket_id), mirroring the GitHub issue-number pattern.
+    zendesk_ticket_id = models.BigIntegerField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -137,6 +155,11 @@ class Ticket(UUIDTModel):
                 fields=["team", "github_repo", "github_issue_number"],
                 condition=models.Q(github_repo__isnull=False, github_issue_number__isnull=False),
                 name="posthog_con_github_issue_uniq",
+            ),
+            models.UniqueConstraint(
+                fields=["team", "zendesk_ticket_id"],
+                condition=models.Q(zendesk_ticket_id__isnull=False),
+                name="posthog_con_zendesk_ticket_uniq",
             ),
         ]
 

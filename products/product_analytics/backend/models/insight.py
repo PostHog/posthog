@@ -1,5 +1,5 @@
 from functools import cached_property
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
@@ -16,14 +16,29 @@ from posthog.logging.timing import timed
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from posthog.models.filters.utils import get_filter
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
 
 logger = structlog.get_logger(__name__)
 
+# Insight query kinds for which the rich query metadata is meaningful — mirrors the frontend
+# `sanitizeQuery` gate (isInsightVizNode || isInsightQueryNode).
+_ANALYTICS_INSIGHT_QUERY_KINDS = frozenset(
+    {
+        "TrendsQuery",
+        "FunnelsQuery",
+        "RetentionQuery",
+        "PathsQuery",
+        "StickinessQuery",
+        "LifecycleQuery",
+        "CalendarHeatmapQuery",
+    }
+)
+
 
 if TYPE_CHECKING:
+    from posthog.schema import NodeKind
+
     from posthog.models.team import Team
 
     from products.dashboards.backend.models.dashboard import Dashboard
@@ -152,6 +167,80 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
                 )
                 capture_exception(e)
         super().save(*args, **kwargs)
+
+    def get_analytics_query_kinds(self) -> dict[str, str]:
+        """
+        Top-level node kind (`query_kind`, e.g. "InsightVizNode"/"DataTableNode") and source kind
+        (`query_source_kind`, e.g. "TrendsQuery"/"HogQLQuery") for analytics, read straight off the stored
+        query. Covers every query (HogQL/table included). Reliable because the backend has the full query —
+        unlike the web view path, which passes a bare source node.
+        """
+        query = self.query if isinstance(self.query, dict) else None
+        if not query:
+            return {}
+        result: dict[str, str] = {}
+        query_kind = query.get("kind")
+        if query_kind:
+            result["query_kind"] = query_kind
+        source = query.get("source")
+        source_kind = source.get("kind") if isinstance(source, dict) else None
+        if source_kind:
+            result["query_source_kind"] = source_kind
+        return result
+
+    def get_analytics_query_metadata(self) -> dict[str, Any]:
+        """
+        Directly-readable query fields for analytics, mirroring the safe subset of the frontend
+        `sanitizeQuery`. Gated to insight-style queries (like the frontend), so HogQL/SQL/table queries
+        return ``{}``. Deliberately omits fields that depend on frontend default logic (``display``,
+        ``interval``) to avoid web↔backend value drift.
+        """
+        query = self.query if isinstance(self.query, dict) else None
+        if not query:
+            return {}
+        source = query.get("source", query)
+        if not isinstance(source, dict):
+            return {}
+        if query.get("kind") != "InsightVizNode" and source.get("kind") not in _ANALYTICS_INSIGHT_QUERY_KINDS:
+            return {}
+
+        metadata: dict[str, Any] = {}
+        series = source.get("series")
+        if isinstance(series, list):
+            metadata["series_length"] = len(series)
+            metadata["event_entity_count"] = sum(
+                1 for s in series if isinstance(s, dict) and s.get("kind") == "EventsNode"
+            )
+            metadata["action_entity_count"] = sum(
+                1 for s in series if isinstance(s, dict) and s.get("kind") == "ActionsNode"
+            )
+            metadata["data_warehouse_entity_count"] = sum(
+                1 for s in series if isinstance(s, dict) and s.get("kind") == "DataWarehouseNode"
+            )
+        metadata["has_properties"] = bool(source.get("properties"))
+        if "filterTestAccounts" in source:
+            metadata["filter_test_accounts"] = source.get("filterTestAccounts")
+        breakdown_filter = source.get("breakdownFilter")
+        if isinstance(breakdown_filter, dict) and breakdown_filter.get("breakdown_type"):
+            metadata["breakdown_type"] = breakdown_filter.get("breakdown_type")
+        trends_filter = source.get("trendsFilter")
+        if isinstance(trends_filter, dict):
+            metadata["has_formula"] = bool(trends_filter.get("formula") or trends_filter.get("formulas"))
+        funnels_filter = source.get("funnelsFilter")
+        if isinstance(funnels_filter, dict):
+            if funnels_filter.get("funnelVizType"):
+                metadata["funnel_viz_type"] = funnels_filter.get("funnelVizType")
+            if funnels_filter.get("funnelOrderType"):
+                metadata["funnel_order_type"] = funnels_filter.get("funnelOrderType")
+        date_range = source.get("dateRange")
+        if isinstance(date_range, dict):
+            if date_range.get("date_from"):
+                metadata["date_from"] = date_range.get("date_from")
+            if date_range.get("date_to"):
+                metadata["date_to"] = date_range.get("date_to")
+        if source.get("samplingFactor") is not None:
+            metadata["samplingFactor"] = source.get("samplingFactor")
+        return metadata
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Insight"]:
@@ -313,19 +402,29 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
         except (AttributeError, TypeError, KeyError):
             return False
 
-    @property
-    def are_alerts_supported(self) -> bool:
+    def _unwrapped_query_kind(self) -> str | None:
+        """Innermost query ``kind`` after unwrapping DataTable/DataVisualization/InsightVizNode
+        wrappers, or None if the insight has no query."""
         from posthog.schema_migrations.upgrade_manager import upgrade_query
 
         with upgrade_query(self):
             query = self.query
             if query is None:
-                return False
+                return None
             while query.get("source"):
                 query = query["source"]
-            if query.get("kind") != "TrendsQuery":
-                return False
-        return True
+            return query.get("kind")
+
+    @property
+    def alertable_query_kind(self) -> "NodeKind | None":
+        # Pure kind check (no flag gating — that's the caller's job), so existing alerts keep
+        # displaying and survive insight edits when a flag is off.
+        from posthog.schema import NodeKind  # noqa: PLC0415
+
+        kind = self._unwrapped_query_kind()
+        return (
+            NodeKind(kind) if kind in (NodeKind.TRENDS_QUERY, NodeKind.HOG_QL_QUERY, NodeKind.FUNNELS_QUERY) else None
+        )
 
     def generate_query_metadata(self):
         from posthog.hogql_queries.query_metadata import extract_query_metadata
@@ -360,6 +459,10 @@ class InsightViewed(models.Model):
 
 @timed("generate_insight_cache_key")
 def generate_insight_filters_hash(insight: Insight, dashboard: Optional["Dashboard"]) -> str:
+    # Deferred: the legacy filters layer imports the HogQL/schema universe, and this model
+    # loads at django.setup() in every process.
+    from posthog.models.filters.utils import get_filter  # noqa: PLC0415
+
     try:
         dashboard_insight_filter = get_filter(data=insight.dashboard_filters(dashboard=dashboard), team=insight.team)
         candidate_filters_hash = generate_cache_key(

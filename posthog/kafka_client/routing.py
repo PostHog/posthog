@@ -42,6 +42,7 @@ from posthog.kafka_client.topics import (
     KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT,
     KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS,
     KAFKA_EVENTS_JSON,
+    KAFKA_FLAGS_CACHE_INVALIDATION,
     KAFKA_GROUPS,
     KAFKA_LOG_ENTRIES,
     KAFKA_METRICS_TIME_TO_SEE_DATA,
@@ -85,6 +86,9 @@ _DEFAULT_TOPIC_ROUTING: dict[str, KafkaClusterProfile] = {
     KAFKA_DOCUMENT_EMBEDDING_RESULTS_TOPIC: KafkaClusterProfile.SHARED,
     KAFKA_NOTIFICATION_EVENTS: KafkaClusterProfile.SHARED,
     KAFKA_SIGNALS_REPORT_COMPLETED: KafkaClusterProfile.SHARED,
+    # KAFKA_FLAGS_CACHE_INVALIDATION_DLQ is produced only by the Rust consumer,
+    # so it needs no Django producer routing entry.
+    KAFKA_FLAGS_CACHE_INVALIDATION: KafkaClusterProfile.SHARED,
     # --- WAREHOUSE_SOURCES (Warpstream warehouse-pipelines) ---
     KAFKA_WAREHOUSE_SOURCES_JOBS: KafkaClusterProfile.WAREHOUSE_SOURCES,
     KAFKA_WAREHOUSE_SOURCES_JOBS_DLQ: KafkaClusterProfile.WAREHOUSE_SOURCES,

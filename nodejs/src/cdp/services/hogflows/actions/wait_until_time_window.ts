@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
+import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { CyclotronPerson } from '~/cdp/types'
-import { HogFlowAction } from '~/schema/hogflow'
 
 import { findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
@@ -17,10 +17,15 @@ export class WaitUntilTimeWindowHandler implements ActionHandler {
         action,
     }: ActionHandlerOptions<Extract<HogFlowAction, { type: 'wait_until_time_window' }>>): ActionHandlerResult {
         const nextTime = getWaitUntilTime(action, invocation.person)
-        return {
-            nextAction: findContinueAction(invocation),
-            scheduledAt: nextTime ?? undefined,
+
+        // Same as the delay handler: while still waiting for the window, park WITHOUT advancing
+        // currentAction, so the job doesn't look like it has reached the next step (which the
+        // subscription matcher could wake early). Advance only once the window has opened.
+        if (nextTime) {
+            return { scheduledAt: nextTime }
         }
+
+        return { nextAction: findContinueAction(invocation) }
     }
 }
 
@@ -85,25 +90,37 @@ export const getWaitUntilTime = (
     const config = action.config
 
     if (config.time === 'any') {
-        return getNextValidDay(now, config.day)
+        // Any time on a valid day: if today is valid the window is already open, so return null to
+        // advance now. Returning null is the only signal to advance — the handler re-parks otherwise.
+        return isValidDay(now, config.day) ? null : getNextValidDay(now, config.day)
     }
 
     const [startTime, endTime] = config.time
     const [startHours, startMinutes] = startTime.split(':').map(Number)
     const [endHours, endMinutes] = endTime.split(':').map(Number)
 
-    // Try today first
-    let nextTime = now.set({ hour: startHours, minute: startMinutes, second: 0, millisecond: 0 })
-    const endTimeToday = now.set({ hour: endHours, minute: endMinutes, second: 0, millisecond: 0 })
+    const startToday = now.set({ hour: startHours, minute: startMinutes, second: 0, millisecond: 0 })
+    const endToday = now.set({ hour: endHours, minute: endMinutes, second: 0, millisecond: 0 })
 
-    // If we're within the time window today, execute immediately
-    if (now >= nextTime && now <= endTimeToday && isValidDay(now, config.day)) {
+    // A window whose end is not strictly after its start wraps past midnight (e.g. 23:00 -> 01:00).
+    // It is open in two pieces: the evening piece [start, midnight) opened today, and the
+    // early-morning piece [midnight, end] opened the previous day - so day validity for the morning
+    // piece is checked against yesterday, the day the window actually started.
+    const wrapsMidnight = endToday <= startToday
+
+    const isOpen = wrapsMidnight
+        ? (now >= startToday && isValidDay(now, config.day)) ||
+          (now <= endToday && isValidDay(now.minus({ days: 1 }), config.day))
+        : now >= startToday && now <= endToday && isValidDay(now, config.day)
+
+    if (isOpen) {
         return null
     }
 
-    // If time has passed or day doesn't match, find next valid day
-    if (nextTime <= now || !isValidDay(nextTime, config.day)) {
-        nextTime = getNextValidDay(now, config.day).set({
+    // Not open: park at the next start of the window on a valid day.
+    let nextStart = startToday
+    if (nextStart <= now || !isValidDay(nextStart, config.day)) {
+        nextStart = getNextValidDay(now, config.day).set({
             hour: startHours,
             minute: startMinutes,
             second: 0,
@@ -111,5 +128,5 @@ export const getWaitUntilTime = (
         })
     }
 
-    return nextTime
+    return nextStart
 }

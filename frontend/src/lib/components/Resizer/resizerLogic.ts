@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, beforeUnmount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
 import type { resizerLogicType } from './resizerLogicType'
@@ -162,4 +162,8 @@ export const resizerLogic = kea<resizerLogicType>([
             document.body.classList.remove('is-resizing')
         },
     })),
+    // Clear the body resizing state if we unmount mid-drag (before mouseup fires endResize).
+    beforeUnmount(() => {
+        document.body.classList.remove('is-resizing')
+    }),
 ])

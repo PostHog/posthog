@@ -4,14 +4,16 @@ import { useState } from 'react'
 
 import { IconDocument, IconGear, IconHeadset, IconOpenSidebar } from '@posthog/icons'
 import { LemonBadge, LemonButton, Link } from '@posthog/lemon-ui'
+import { PostHogCaptureOnViewed } from '@posthog/react'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { WarningHog } from 'lib/components/hedgehogs'
 import { LiveRecordingsCount } from 'lib/components/LiveUserCount'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -88,7 +90,7 @@ function Header(): JSX.Element {
                     resourceType={AccessControlResourceType.SessionRecording}
                     minAccessLevel={AccessControlLevel.Editor}
                 >
-                    <AppShortcut
+                    <Shortcut
                         name="NewRecordingCollection"
                         keybind={[keyBinds.new]}
                         intent="New collection"
@@ -105,7 +107,7 @@ function Header(): JSX.Element {
                         >
                             New collection
                         </LemonButton>
-                    </AppShortcut>
+                    </Shortcut>
                 </AccessControlAction>
             )}
 
@@ -119,6 +121,46 @@ function Header(): JSX.Element {
                 Settings
             </LemonButton>
         </div>
+    )
+}
+
+const REPLAY_VISION_PROMO_DISMISS_KEY = 'replay-vision-waitlist-promo'
+
+function ReplayVisionPromoBanner(): JSX.Element | null {
+    // Teams with the flag already have access, so send them to the product instead of the waitlist
+    const hasReplayVision = useFeatureFlag('REPLAY_VISION')
+    const { isDismissed } = useValues(lemonBannerLogic({ dismissKey: REPLAY_VISION_PROMO_DISMISS_KEY }))
+
+    // A dismissed LemonBanner renders null but the viewed tracker would still fire, skewing impressions
+    if (isDismissed) {
+        return null
+    }
+
+    return (
+        <PostHogCaptureOnViewed name="replay-vision-waitlist-banner-shown">
+            <LemonBanner
+                type="ai"
+                dismissKey={REPLAY_VISION_PROMO_DISMISS_KEY}
+                action={
+                    hasReplayVision
+                        ? {
+                              children: 'Try Replay vision',
+                              to: urls.replayVision(),
+                              center: true,
+                              'data-attr': 'replay-vision-waitlist-banner-cta',
+                          }
+                        : {
+                              children: 'Join the waitlist',
+                              to: 'https://posthog.com/replay-vision?utm_medium=in-product&utm_campaign=replay-vision-waitlist-banner',
+                              targetBlank: true,
+                              center: true,
+                              'data-attr': 'replay-vision-waitlist-banner-cta',
+                          }
+                }
+            >
+                Tired of watching replays? Replay vision watches them for you and surfaces what matters.
+            </LemonBanner>
+        </PostHogCaptureOnViewed>
     )
 }
 
@@ -188,6 +230,18 @@ function Warnings(): JSX.Element {
     )
 }
 
+// Keeps the recordings logic mounted for the scene's lifetime so its state survives tab
+// switches. Rendered only on the Home tab so landing on Collections/Templates does not mount
+// it — which would otherwise fire a wasted loadSessionRecordings ClickHouse query on load.
+function AttachScenePlaylistLogic({
+    playlistLogicProps,
+}: {
+    playlistLogicProps: SessionRecordingPlaylistLogicProps
+}): null {
+    useAttachedLogic(sessionRecordingsPlaylistLogic(playlistLogicProps), sessionReplaySceneLogic())
+    return null
+}
+
 function MainPanel(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
     const isRedesignEnabled = useFeatureFlag('REPLAY_UI_REDESIGN_2026', 'test')
@@ -197,16 +251,16 @@ function MainPanel(): JSX.Element {
         updateSearchParams: true,
     }
 
-    useAttachedLogic(sessionRecordingsPlaylistLogic(playlistLogicProps), sessionReplaySceneLogic())
-
     return (
         <div className={cn('flex flex-col gap-y-4', ReplayTabs.Home === tab && 'grow')}>
+            <ReplayVisionPromoBanner />
             <Warnings />
 
             {!tab ? (
                 <Spinner />
             ) : tab === ReplayTabs.Home ? (
                 <div className="SessionRecordingPlaylistHeightWrapper grow">
+                    <AttachScenePlaylistLogic playlistLogicProps={playlistLogicProps} />
                     {isRedesignEnabled ? (
                         <SessionRecordingsPlaylistRedesign {...playlistLogicProps} />
                     ) : (

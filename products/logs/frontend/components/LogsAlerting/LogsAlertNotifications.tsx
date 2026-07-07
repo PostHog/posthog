@@ -12,6 +12,7 @@ import { LOGS_ALERT_NOTIFICATION_TYPE_OPTIONS, logsAlertNotificationLogic } from
 import {
     getHogFunctionEventKind,
     LOGS_ALERT_NOTIFICATION_TYPE_SLACK,
+    LOGS_ALERT_NOTIFICATION_TYPE_TEAMS,
     LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK,
     PendingLogsAlertNotification,
     resolveGroupLabel,
@@ -67,7 +68,7 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
             if (!webhookUrl) {
                 return
             }
-            addPendingNotification({ type: LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK, webhookUrl })
+            addPendingNotification({ type: selectedType, webhookUrl })
             setWebhookUrl('')
         }
     }
@@ -75,6 +76,9 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
     const getNotificationLabel = (notification: PendingLogsAlertNotification): string => {
         if (notification.type === LOGS_ALERT_NOTIFICATION_TYPE_SLACK) {
             return `Slack: #${notification.slackChannelName ?? 'channel'}`
+        }
+        if (notification.type === LOGS_ALERT_NOTIFICATION_TYPE_TEAMS) {
+            return `Microsoft Teams: ${notification.webhookUrl}`
         }
         return `Webhook: ${notification.webhookUrl}`
     }
@@ -148,7 +152,7 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
                             key={
                                 notification.type === LOGS_ALERT_NOTIFICATION_TYPE_SLACK
                                     ? `slack-${notification.slackChannelId}`
-                                    : `webhook-${notification.webhookUrl}`
+                                    : `${notification.type}-${notification.webhookUrl}`
                             }
                             className="flex items-center justify-between border rounded p-2 gap-2"
                         >
@@ -203,6 +207,21 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
                         onChange={setWebhookUrl}
                         fullWidth
                     />
+                )}
+
+                {selectedType === LOGS_ALERT_NOTIFICATION_TYPE_TEAMS && (
+                    <div className="space-y-1">
+                        <LemonInput
+                            placeholder="https://prod-00.westus.logic.azure.com:443/workflows/..."
+                            value={webhookUrl}
+                            onChange={setWebhookUrl}
+                            fullWidth
+                        />
+                        <p className="text-xs text-muted-alt m-0">
+                            Paste the URL from a Teams "Workflows" (Power Automate) or incoming webhook connector. We
+                            send a formatted Adaptive Card to it.
+                        </p>
+                    </div>
                 )}
 
                 <LemonButton

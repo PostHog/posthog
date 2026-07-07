@@ -1,6 +1,6 @@
 import { memo } from 'react'
 
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
 
 import { ElementRect } from '~/toolbar/types'
 import { EMPTY_STYLE, rectEqual } from '~/toolbar/utils'

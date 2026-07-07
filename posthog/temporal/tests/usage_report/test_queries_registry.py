@@ -6,8 +6,10 @@ duplicated names, multi specs without mappings, two specs writing to the
 same destination key, etc.
 """
 
+import ast
 import inspect
 
+from posthog.tasks.usage_report import _get_team_report
 from posthog.temporal.usage_report.queries import QUERIES, QUERY_INDEX
 
 
@@ -48,6 +50,32 @@ def test_single_specs_have_no_mapping() -> None:
             )
 
 
+def _destination_keys() -> set[str]:
+    keys: set[str] = set()
+    for spec in QUERIES:
+        if spec.output == "multi":
+            keys.update(spec.multi_keys_mapping.values())
+        else:
+            keys.add(spec.name)
+    return keys
+
+
+def _get_team_report_all_data_keys() -> set[str]:
+    source = inspect.getsource(_get_team_report)
+    tree = ast.parse(source)
+    keys: set[str] = set()
+
+    class AllDataKeyVisitor(ast.NodeVisitor):
+        def visit_Subscript(self, node: ast.Subscript) -> None:
+            if isinstance(node.value, ast.Name) and node.value.id == "all_data":
+                if isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, str):
+                    keys.add(node.slice.value)
+            self.generic_visit(node)
+
+    AllDataKeyVisitor().visit(tree)
+    return keys
+
+
 def test_destination_keys_are_unique_across_registry() -> None:
     """Each destination key in `all_data` must be produced by exactly one
     spec — otherwise the aggregator overwrites a real result with another
@@ -61,6 +89,11 @@ def test_destination_keys_are_unique_across_registry() -> None:
                 f"Destination key {key!r} produced by both {destinations[key]!r} and {spec.name!r}"
             )
             destinations[key] = spec.name
+
+
+def test_registry_covers_get_team_report_all_data_keys() -> None:
+    missing = _get_team_report_all_data_keys() - _destination_keys()
+    assert not missing, f"Query registry must produce every all_data key read by _get_team_report: {missing}"
 
 
 def test_kind_is_period_or_snapshot() -> None:

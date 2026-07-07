@@ -17,6 +17,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -31,6 +32,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.observability import HogQLTypeObservability
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -247,6 +249,7 @@ class _PropertySkipIndexTestBase(ClickhouseTestMixin, APIBaseTest):
         self,
         *,
         is_nullable: bool,
+        column_type: str | None = None,
         create_minmax_index: bool = False,
         create_bloom_filter_index: bool = False,
         create_ngram_lower_index: bool = False,
@@ -256,6 +259,7 @@ class _PropertySkipIndexTestBase(ClickhouseTestMixin, APIBaseTest):
             self._mat_property_key,
             table_column=self._mat_table_column,
             is_nullable=is_nullable,
+            column_type=column_type,
             create_minmax_index=create_minmax_index,
             create_bloom_filter_index=create_bloom_filter_index,
             create_ngram_lower_index=create_ngram_lower_index,
@@ -481,6 +485,102 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
             expected_not_used={index},
         )
 
+    def test_typed_numeric_mat_col_uses_minmax_index(self) -> None:
+        property_key = "typed_numeric_prop"
+        for i in range(10):
+            _create_event(
+                team=self.team,
+                distinct_id=f"d{i}",
+                event="test_event",
+                properties={property_key: i + 0.5},
+            )
+        flush_persons_and_events()
+
+        PropertyDefinition.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            name=property_key,
+            property_type=PropertyType.Numeric,
+            type=PropertyDefinition.Type.EVENT,
+        )
+        mat_col = materialize(
+            "events",
+            property_key,
+            table_column="properties",
+            is_nullable=True,
+            column_type="Nullable(Float64)",
+            create_minmax_index=True,
+        )
+        index = get_minmax_index_name(mat_col.name)
+
+        query, _ = self._filter_to_sql(
+            {
+                "type": "event",
+                "key": property_key,
+                "operator": PropertyOperator.LT.value,
+                "value": 5,
+            }
+        )
+        assert f"less(events.{mat_col.name}, 5)" in query
+        assert "accurateCastOrNull" not in query
+        self._assert_indexes(
+            {
+                "type": "event",
+                "key": property_key,
+                "operator": PropertyOperator.LT.value,
+                "value": 5,
+            },
+            expected_used={index},
+        )
+
+    def test_typed_datetime_mat_col_uses_minmax_index(self) -> None:
+        property_key = "typed_datetime_prop"
+        for i in range(10):
+            _create_event(
+                team=self.team,
+                distinct_id=f"d{i}",
+                event="test_event",
+                properties={property_key: f"2024-01-{i + 1:02d} 10:30:00"},
+            )
+        flush_persons_and_events()
+
+        PropertyDefinition.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            name=property_key,
+            property_type=PropertyType.Datetime,
+            type=PropertyDefinition.Type.EVENT,
+        )
+        mat_col = materialize(
+            "events",
+            property_key,
+            table_column="properties",
+            is_nullable=True,
+            column_type="Nullable(DateTime64(6, 'UTC'))",
+            create_minmax_index=True,
+        )
+        index = get_minmax_index_name(mat_col.name)
+
+        query, _ = self._filter_to_sql(
+            {
+                "type": "event",
+                "key": property_key,
+                "operator": PropertyOperator.LT.value,
+                "value": "2024-01-05 00:00:00",
+            }
+        )
+        assert f"less(events.{mat_col.name}, toDateTime64(" in query
+        assert "parseDateTime64BestEffortOrNull" not in query
+        self._assert_indexes(
+            {
+                "type": "event",
+                "key": property_key,
+                "operator": PropertyOperator.LT.value,
+                "value": "2024-01-05 00:00:00",
+            },
+            expected_used={index},
+        )
+
     # ----- mat col, NULLABLE, bloom_filter index ----------------------------
     # bloom_filter is built for membership: ``=`` and IN over string sets.
 
@@ -641,6 +741,34 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
         assert "dmat_string_0" in query, f"Expected dmat_string_0 in SQL, got: {query}"
         # No skip indexes are configured on dmat columns today.
         self._assert_indexes(self._filter(PropertyOperator.EXACT, "5"), expected_used=set())
+
+    # ----- observability ------------------------------------------------------
+
+    def test_observability_records_property_usage_and_range_rewrite(self) -> None:
+        self._seed()
+        self._materialize_with(is_nullable=True, create_minmax_index=True)
+
+        stats = HogQLTypeObservability(dialect="clickhouse", source="unknown")
+        with patch("posthog.hogql.printer.utils.create_hogql_type_observability", return_value=stats):
+            self._filter_to_sql(self._filter(PropertyOperator.LT, "5"))
+
+        # The column is nullable, so the bare comparison is guarded by isNotNull(col): a "fired_if_null" outcome.
+        assert stats.materialized_range_rewrite["fired_if_null"] >= 1
+        assert stats.materialized_property_usage["materialized_column"] >= 1
+
+    def test_observability_records_json_property_usage(self) -> None:
+        self._seed()
+
+        stats = HogQLTypeObservability(dialect="clickhouse", source="unknown")
+        with patch("posthog.hogql.printer.utils.create_hogql_type_observability", return_value=stats):
+            self._filter_to_sql(
+                self._filter(PropertyOperator.EXACT, "5"),
+                property_groups_mode=PropertyGroupsMode.DISABLED,
+                materialization_mode=MaterializationMode.DISABLED,
+            )
+
+        assert stats.materialized_property_usage["json"] >= 1
+        assert stats.materialized_property_usage["materialized_column"] == 0
 
 
 # ============================================================================

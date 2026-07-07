@@ -1,9 +1,10 @@
-import equal from 'fast-deep-equal'
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, isBreakpoint, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -15,6 +16,8 @@ import {
     visionScannersStatsRetrieve,
 } from '../generated/api'
 import type { ScannerStatsResponseApi, UserBasicApi, VisionScannersListParams } from '../generated/api.schemas'
+import { refreshVisionQuota, visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { csvParam, parseCsvParam, parseSortParam, serializeSortParam } from '../utils/urlParams'
 import type { replayScannersLogicType } from './replayScannersLogicType'
 import {
     ENABLED_OPTIONS,
@@ -69,18 +72,6 @@ export const DEFAULT_FILTERS: ScannersFilters = {
     sort: DEFAULT_SORT,
 }
 
-const csv = (values: string[]): string | undefined => (values.length > 0 ? values.join(',') : undefined)
-const splitCsv = (value: unknown): string[] =>
-    // The router coerces a single numeric param to a number, so coerce back to a string before splitting.
-    value === null || value === undefined || value === ''
-        ? []
-        : String(value)
-              .split(',')
-              .map((v) => v.trim())
-              .filter(Boolean)
-const fromCsv = <T extends string>(value: unknown, allowed: readonly T[]): T[] =>
-    splitCsv(value).filter((v): v is T => (allowed as readonly string[]).includes(v))
-
 export function resolveScannerOrderByKey(columnKey: string): ScannerOrderKey | null {
     return (SORTABLE_COLUMN_KEYS as readonly string[]).includes(columnKey) ? (columnKey as ScannerOrderKey) : null
 }
@@ -125,33 +116,19 @@ export function buildScannerListParams(
     return params
 }
 
-function parseSortParam(value: unknown): ScannersSorting | null {
-    if (typeof value !== 'string' || value.length === 0) {
-        return null
-    }
-    const descending = value.startsWith('-')
-    const key = resolveScannerOrderByKey(descending ? value.slice(1) : value)
-    if (!key) {
-        return null
-    }
-    return { columnKey: key, order: descending ? -1 : 1 }
-}
-
 export const replayScannersLogic = kea<replayScannersLogicType>([
     path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'replayScannersLogic']),
 
     actions({
         loadScanners: true,
+        // Declared here so the actions stay zero-arg despite the loaders' payload/breakpoint parameters.
+        loadCreators: true,
+        loadScannerStats: true,
         loadScannersSuccess: (scanners: ReplayScanner[], total: number) => ({ scanners, total }),
         loadScannersFailure: (error: string) => ({ error }),
-        loadCreators: true,
-        loadCreatorsSuccess: (creators: UserBasicApi[]) => ({ creators }),
-        loadCreatorsFailure: true,
-        loadScannerStats: true,
-        loadScannerStatsSuccess: (stats: ScannerStatsResponseApi) => ({ stats }),
-        loadScannerStatsFailure: true,
         deleteScanner: (id: string) => ({ id }),
         deleteScannerSuccess: (id: string) => ({ id }),
+        setScannerDeleting: (id: string, deleting: boolean) => ({ id, deleting }),
         toggleScannerEnabled: (id: string) => ({ id }),
         toggleScannerEnabledDone: (id: string) => ({ id }),
         revertScannerEnabled: (id: string) => ({ id }),
@@ -159,6 +136,44 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         setScannersFilters: (filters: Partial<ScannersFilters>, replace: boolean = false) => ({ filters, replace }),
         clearFilters: true,
     }),
+
+    loaders(({ values }) => ({
+        creators: [
+            [] as UserBasicApi[],
+            {
+                loadCreators: async () => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return values.creators
+                    }
+                    try {
+                        const response = await visionScannersCreatorsRetrieve(String(teamId))
+                        return response.creators ?? []
+                    } catch {
+                        return values.creators
+                    }
+                },
+            },
+        ],
+        scannerStats: [
+            null as ScannerStatsResponseApi | null,
+            {
+                loadScannerStats: async (_, breakpoint) => {
+                    // Debounce so a burst of mutations (rapid toggles, bulk delete) coalesces into one refetch.
+                    await breakpoint(50)
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return values.scannerStats
+                    }
+                    try {
+                        return await visionScannersStatsRetrieve(String(teamId))
+                    } catch {
+                        return values.scannerStats
+                    }
+                },
+            },
+        ],
+    })),
 
     reducers({
         scanners: [
@@ -206,16 +221,11 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 revertScannerEnabled: (state, { id }) => state.filter((i) => i !== id),
             },
         ],
-        creators: [
-            [] as UserBasicApi[],
+        deletingIds: [
+            [] as string[],
             {
-                loadCreatorsSuccess: (_, { creators }) => creators,
-            },
-        ],
-        scannerStats: [
-            null as ScannerStatsResponseApi | null,
-            {
-                loadScannerStatsSuccess: (_, { stats }) => stats,
+                setScannerDeleting: (state, { id, deleting }) =>
+                    deleting ? [...state, id] : state.filter((i) => i !== id),
             },
         ],
         scannersLoading: [
@@ -224,14 +234,6 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 loadScanners: () => true,
                 loadScannersSuccess: () => false,
                 loadScannersFailure: () => false,
-            },
-        ],
-        scannerStatsLoading: [
-            false,
-            {
-                loadScannerStats: () => true,
-                loadScannerStatsSuccess: () => false,
-                loadScannerStatsFailure: () => false,
             },
         ],
         chartDateFrom: [
@@ -249,9 +251,10 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        loadScanners: async () => {
+        loadScanners: async (_, breakpoint) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
+                actions.loadScannersFailure('No team in context') // Clear the loading flag; a bare return spins forever.
                 return
             }
             try {
@@ -269,67 +272,67 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                     offset
                 )
                 const response = await visionScannersList(String(teamId), params)
-                actions.loadScannersSuccess(scannersFromApi(response.results ?? []), response.count ?? 0)
+                // Drop out-of-order responses — the most recent filter/page change owns the table.
+                breakpoint()
+                const results = response.results ?? []
+                const count = response.count ?? 0
+                // A shrunken set (delete, narrowed filter, concurrent change) can strand an out-of-range page.
+                if (results.length === 0 && count > 0 && filters.page > 1) {
+                    actions.setScannersFilters({ page: Math.ceil(count / SCANNERS_PAGE_SIZE) })
+                    return
+                }
+                actions.loadScannersSuccess(scannersFromApi(results), count)
             } catch (error: any) {
+                if (error instanceof Error && isBreakpoint(error)) {
+                    throw error
+                }
                 lemonToast.error(`Failed to load scanners${error.detail ? `: ${error.detail}` : ''}`)
                 actions.loadScannersFailure(String(error))
             }
         },
 
-        // Any change that affects the result set has to refetch.
-        setScannersFilters: () => actions.loadScanners(),
+        // Refetch on any result-set change; debounce live search keystrokes only — URL restores must load immediately.
+        setScannersFilters: async ({ filters, replace }, breakpoint) => {
+            if (filters.search !== undefined && !replace) {
+                await breakpoint(300)
+            }
+            actions.loadScanners()
+        },
         clearFilters: () => actions.loadScanners(),
 
         deleteScanner: async ({ id }) => {
             const teamId = teamLogic.values.currentTeamId
-            if (!teamId) {
+            // The in-flight guard keeps a double-click from double-applying the optimistic quota delta below.
+            if (!teamId || values.deletingIds.includes(id)) {
                 return
             }
+            actions.setScannerDeleting(id, true)
+            // Deleting an enabled scanner removes its known contribution from the fleet sum — exact, so apply it now.
+            const scanner = values.scanners.find((s) => s.id === id)
+            const delta = scanner?.enabled ? -(scanner.estimated_monthly_observations ?? 0) : 0
+            visionQuotaLogic.findMounted()?.actions.adjustProjectedMonthly(delta)
             try {
                 await visionScannersDestroy(String(teamId), id)
                 actions.deleteScannerSuccess(id)
                 lemonToast.success('Scanner deleted')
             } catch (error: any) {
+                visionQuotaLogic.findMounted()?.actions.adjustProjectedMonthly(-delta)
                 lemonToast.error(`Failed to delete scanner${error.detail ? `: ${error.detail}` : ''}`)
+            } finally {
+                actions.setScannerDeleting(id, false)
             }
         },
 
-        loadCreators: async () => {
-            const teamId = teamLogic.values.currentTeamId
-            if (!teamId) {
-                return
-            }
-            try {
-                const response = await visionScannersCreatorsRetrieve(String(teamId))
-                actions.loadCreatorsSuccess(response.creators ?? [])
-            } catch {
-                actions.loadCreatorsFailure()
-            }
-        },
-
-        loadScannerStats: async (_, breakpoint) => {
-            // Debounce so a burst of mutations (rapid toggles, bulk delete) coalesces into one refetch.
-            await breakpoint(50)
-            const teamId = teamLogic.values.currentTeamId
-            if (!teamId) {
-                return
-            }
-            try {
-                const response = await visionScannersStatsRetrieve(String(teamId))
-                actions.loadScannerStatsSuccess(response)
-            } catch {
-                actions.loadScannerStatsFailure()
-            }
-        },
-
-        // Refetch after any mutation so the page + creator dropdown + team-wide stats stay accurate.
+        // Refetch after any mutation so the page + creator dropdown + team-wide stats + quota meter stay accurate.
         deleteScannerSuccess: () => {
             actions.loadScanners()
             actions.loadCreators()
             actions.loadScannerStats()
+            refreshVisionQuota()
         },
         toggleScannerEnabledDone: () => {
             actions.loadScannerStats()
+            refreshVisionQuota()
         },
 
         toggleScannerEnabled: async ({ id }) => {
@@ -343,12 +346,17 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 actions.revertScannerEnabled(id)
                 return
             }
+            // The stored estimate is kept ≤24h fresh even while disabled, so the projection shift is known up front.
+            const estimate = scanner.estimated_monthly_observations ?? 0
+            const delta = scanner.enabled ? estimate : -estimate
+            visionQuotaLogic.findMounted()?.actions.adjustProjectedMonthly(delta)
             try {
                 await visionScannersPartialUpdate(String(teamId), id, { enabled: scanner.enabled })
                 actions.toggleScannerEnabledDone(id)
             } catch (error: any) {
                 const verb = scanner.enabled ? 'enable' : 'disable'
                 lemonToast.error(`Failed to ${verb} scanner${error.detail ? `: ${error.detail}` : ''}`)
+                visionQuotaLogic.findMounted()?.actions.adjustProjectedMonthly(-delta)
                 actions.revertScannerEnabled(id)
             }
         },
@@ -389,19 +397,15 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
     trackedActionToUrl(({ values }) => {
         const buildUrl = (): [string, Record<string, string | undefined>, undefined, { replace: true }] => {
             const { filters } = values
-            const sortParam =
-                filters.sort &&
-                !(filters.sort.columnKey === DEFAULT_SORT.columnKey && filters.sort.order === DEFAULT_SORT.order)
-                    ? `${filters.sort.order === -1 ? '-' : ''}${filters.sort.columnKey}`
-                    : undefined
+            const sortParam = serializeSortParam(filters.sort, DEFAULT_SORT)
             return [
                 urls.replayVision(),
                 {
                     ...router.values.searchParams,
                     search: filters.search || undefined,
-                    enabled: csv(filters.enabledFilter),
-                    type: csv(filters.scannerTypeFilter),
-                    created_by: csv(filters.createdByFilter),
+                    enabled: csvParam(filters.enabledFilter),
+                    type: csvParam(filters.scannerTypeFilter),
+                    created_by: csvParam(filters.createdByFilter),
                     page: filters.page > 1 ? String(filters.page) : undefined,
                     sort: sortParam,
                 },
@@ -420,13 +424,13 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             const pageRaw = Number(searchParams.page ?? 1)
             const parsed: ScannersFilters = {
                 search: typeof searchParams.search === 'string' ? searchParams.search : '',
-                enabledFilter: fromCsv<EnabledFilter>(searchParams.enabled, ALL_ENABLED),
-                scannerTypeFilter: fromCsv<ScannerType>(searchParams.type, ALL_SCANNER_TYPES),
-                createdByFilter: splitCsv(searchParams.created_by),
+                enabledFilter: parseCsvParam<EnabledFilter>(searchParams.enabled, ALL_ENABLED),
+                scannerTypeFilter: parseCsvParam<ScannerType>(searchParams.type, ALL_SCANNER_TYPES),
+                createdByFilter: parseCsvParam(searchParams.created_by),
                 page: Number.isFinite(pageRaw) ? Math.max(1, pageRaw) : 1,
-                sort: parseSortParam(searchParams.sort) ?? DEFAULT_SORT,
+                sort: parseSortParam(searchParams.sort, resolveScannerOrderByKey) ?? DEFAULT_SORT,
             }
-            const changed = !equal(parsed, values.filters)
+            const changed = !objectsEqual(parsed, values.filters)
             if (changed) {
                 actions.setScannersFilters(parsed, true)
             } else if (!cache.initialLoad) {

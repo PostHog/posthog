@@ -21,6 +21,53 @@ from posthog.user_permissions import UserPermissions
 MAX_API_KEYS_PER_USER = 10  # Same as in scopes.tsx
 
 
+def validate_personal_api_key_scopes(
+    scopes: list[str],
+    requesting_user: User,
+    *,
+    existing_scopes: list[str] | None = None,
+    allowed_scopes: frozenset[str] | None = None,
+) -> None:
+    for scope in scopes:
+        if scope == "*":
+            if allowed_scopes is None:
+                continue
+            raise serializers.ValidationError(f"Invalid scope: {scope}")
+
+        scope_parts = scope.split(":")
+        if (
+            len(scope_parts) != 2
+            or scope_parts[0] not in API_SCOPE_OBJECTS
+            or scope_parts[0] in INTERNAL_API_SCOPE_OBJECTS
+            or scope_parts[1] not in API_SCOPE_ACTIONS
+        ):
+            raise serializers.ValidationError(f"Invalid scope: {scope}")
+
+        if allowed_scopes is not None and scope not in allowed_scopes:
+            raise serializers.ValidationError(f"Invalid scope: {scope}")
+
+        # Check feature flag for llm_gateway scope - block if newly adding this scope
+        if scope_parts[0] == "llm_gateway":
+            existing_has_llm_gateway = existing_scopes is not None and any(
+                s.startswith("llm_gateway:") for s in existing_scopes
+            )
+            if not existing_has_llm_gateway:
+                organization_id = requesting_user.current_organization_id
+                if organization_id is None:
+                    raise serializers.ValidationError("Unable to verify feature access.")
+                if not posthoganalytics.feature_enabled(
+                    "gateway-personal-api-key",
+                    str(requesting_user.distinct_id),
+                    groups={"organization": str(organization_id)},
+                    group_properties={"organization": {"id": str(organization_id)}},
+                    only_evaluate_locally=False,
+                    send_feature_flag_events=False,
+                ):
+                    raise serializers.ValidationError(
+                        "LLM gateway scope is not available. Contact support to enable this feature."
+                    )
+
+
 class PersonalAPIKeySerializer(serializers.ModelSerializer):
     # Specifying method name because the serializer class already has a get_value method
     value = serializers.SerializerMethodField(method_name="get_key_value", read_only=True)
@@ -67,40 +114,8 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 
     def validate_scopes(self, scopes):
         requesting_user = self.context["request"].user
-
-        for scope in scopes:
-            if scope == "*":
-                continue
-
-            scope_parts = scope.split(":")
-            if (
-                len(scope_parts) != 2
-                or scope_parts[0] not in API_SCOPE_OBJECTS
-                or scope_parts[0] in INTERNAL_API_SCOPE_OBJECTS
-                or scope_parts[1] not in API_SCOPE_ACTIONS
-            ):
-                raise serializers.ValidationError(f"Invalid scope: {scope}")
-
-            # Check feature flag for llm_gateway scope - block if newly adding this scope
-            if scope_parts[0] == "llm_gateway":
-                existing_has_llm_gateway = self.instance is not None and any(
-                    s.startswith("llm_gateway:") for s in self.instance.scopes
-                )
-                if not existing_has_llm_gateway:
-                    organization_id = requesting_user.current_organization_id
-                    if organization_id is None:
-                        raise serializers.ValidationError("Unable to verify feature access.")
-                    if not posthoganalytics.feature_enabled(
-                        "gateway-personal-api-key",
-                        str(requesting_user.distinct_id),
-                        groups={"organization": str(organization_id)},
-                        group_properties={"organization": {"id": str(organization_id)}},
-                        only_evaluate_locally=False,
-                        send_feature_flag_events=False,
-                    ):
-                        raise serializers.ValidationError(
-                            "LLM gateway scope is not available. Contact support to enable this feature."
-                        )
+        existing_scopes = list(self.instance.scopes or []) if self.instance is not None else None
+        validate_personal_api_key_scopes(scopes, requesting_user, existing_scopes=existing_scopes)
 
         return scopes
 

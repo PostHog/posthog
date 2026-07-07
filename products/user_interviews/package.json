@@ -1,8 +1,7 @@
 {
     "name": "@posthog/products-user-interviews",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short",
-        "backend:contract-check": "echo 'Contract files unchanged'"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
     },
     "dependencies": {
         "kea": "catalog:",
@@ -11,7 +10,8 @@
         "posthog-js": "catalog:"
     },
     "peerDependencies": {
-        "@posthog/icons": "*",
+        "@posthog/brand": "catalog:",
+        "@posthog/icons": "catalog:",
         "@storybook/react": "catalog:",
         "@types/react": "*",
         "clsx": "*",

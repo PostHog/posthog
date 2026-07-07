@@ -123,7 +123,7 @@ export const RelatedExperimentsTable = ({
                         key: 'remaining_time',
                         width: 80,
                         render: function Render(_, experiment: Experiment) {
-                            const remainingDays = experiment.parameters?.recommended_running_time
+                            const remainingDays = experiment.running_time_calculation?.recommended_running_time
                             const daysElapsed = experiment.start_date
                                 ? dayjs().diff(dayjs(experiment.start_date), 'day')
                                 : undefined

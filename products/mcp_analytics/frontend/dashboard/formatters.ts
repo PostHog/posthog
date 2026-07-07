@@ -1,4 +1,5 @@
-import { humanFriendlyDuration, humanFriendlyLargeNumber } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
+import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 const EMPTY = '—'
 
@@ -17,6 +18,23 @@ export function formatMs(n: number): string {
         return `${Math.round(n)}ms`
     }
     return humanFriendlyDuration(n / 1000, { secondsPrecision: 1 })
+}
+
+// Seconds-first duration for chart axes and tooltips: 500 → "0.5s", 1500 → "1.5s",
+// 2000 → "2s". One unit for the whole scale so axis ticks stay comparable; only
+// sub-100ms values keep ms, where seconds would round to a flat 0.1s.
+export function formatMsAsSeconds(n: number): string {
+    if (!isFinite(n)) {
+        return EMPTY
+    }
+    if (n === 0) {
+        return '0'
+    }
+    if (n < 100) {
+        return `${Math.round(n)}ms`
+    }
+    const rounded = Math.round(n / 100) / 10
+    return `${rounded}s`
 }
 
 export function formatDuration(seconds: number): string {

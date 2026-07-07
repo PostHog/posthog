@@ -22,9 +22,10 @@ describe('sharedMetricModalLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team_id/experiment_saved_metrics': (req) => {
-                    const offset = parseInt(req.url.searchParams.get('offset') ?? '0')
-                    const search = req.url.searchParams.get('search') ?? ''
+                '/api/projects/:team_id/experiment_saved_metrics': ({ request }) => {
+                    const url = new URL(request.url)
+                    const offset = parseInt(url.searchParams.get('offset') ?? '0')
+                    const search = url.searchParams.get('search') ?? ''
                     if (search === 'nomatch') {
                         return [200, { count: 0, next: null, previous: null, results: [] }]
                     }
@@ -149,8 +150,8 @@ describe('sharedMetricModalLogic', () => {
     it('a metric covered by another active tag stays selected when one tag is toggled off', async () => {
         useMocks({
             get: {
-                '/api/projects/:team_id/experiment_saved_metrics': (req) => {
-                    const offset = parseInt(req.url.searchParams.get('offset') ?? '0')
+                '/api/projects/:team_id/experiment_saved_metrics': ({ request }) => {
+                    const offset = parseInt(new URL(request.url).searchParams.get('offset') ?? '0')
                     if (offset === 0) {
                         return [
                             200,

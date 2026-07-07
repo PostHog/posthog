@@ -11,7 +11,7 @@ from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
-from posthog.temporal.common.utils import close_db_connections
+from posthog.temporal.common.utils import aretry_on_db_connection_drop, close_db_connections
 
 from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.report_generation.select_repo import (
@@ -25,7 +25,7 @@ from products.signals.backend.temporal.agentic import (
     resolve_user_id_for_team,
 )
 from products.signals.backend.temporal.types import SignalData
-from products.tasks.backend.models import SandboxEnvironment
+from products.tasks.backend.facade import api as tasks_facade
 
 # Repo discovery only runs `gh` CLI commands — limit egress to GitHub hosts.
 GITHUB_ONLY_DOMAINS = [
@@ -104,8 +104,18 @@ def _load_previous_repo_selection(report_id: str) -> RepoSelectionResult | None:
 @scoped_temporal()
 @close_db_connections
 async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelectionResult:
-    """Select the most relevant repository for a report's signals."""
-    team = await Team.objects.select_related("organization").aget(pk=input.team_id)
+    """Select the most relevant repository for a report's signals.
+
+    The early connect-time reads (the team fetch and the previous-selection lookup) go
+    through ``aretry_on_db_connection_drop``: the long-lived worker pools connections via
+    pgbouncer, so a pool recycle / failover / deploy can leave a stale pooled connection
+    that raises ``OperationalError`` on first use. Retrying once on a fresh connection
+    keeps a transient blip from escaping as error-tracking noise (Temporal still retries
+    the activity if the DB is genuinely degraded).
+    """
+    team = await aretry_on_db_connection_drop(
+        lambda: Team.objects.select_related("organization").aget(pk=input.team_id)
+    )
     _capture_repo_research_event(
         "signals_repo_research_started",
         team,
@@ -115,8 +125,8 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
     try:
         async with Heartbeater():
             # Check for a previous selection from an earlier run, if any
-            previous = await database_sync_to_async(_load_previous_repo_selection, thread_sensitive=False)(
-                input.report_id
+            previous = await aretry_on_db_connection_drop(
+                lambda: database_sync_to_async(_load_previous_repo_selection, thread_sensitive=False)(input.report_id)
             )
             if previous is not None and previous.repository is not None:
                 logger.info(
@@ -155,13 +165,14 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
             sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
                 input.team_id,
                 SIGNALS_REPO_DISCOVERY_ENV_NAME,
-                SandboxEnvironment.NetworkAccessLevel.CUSTOM,
+                tasks_facade.SandboxNetworkAccessLevel.CUSTOM,
                 allowed_domains=GITHUB_ONLY_DOMAINS,
             )
             result = await select_repository_for_report(
                 team_id=input.team_id,
                 user_id=user_id,
                 signals=input.signals,
+                signal_report_id=input.report_id,
                 sandbox_environment_id=sandbox_env_id,
             )
             logger.info(

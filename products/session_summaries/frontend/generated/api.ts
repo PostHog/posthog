@@ -11,7 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type { PatchedSessionSummariesConfigApi, SessionSummariesApi, SessionSummariesConfigApi } from './api.schemas'
 
 export const getRetrieveSessionSummariesConfigUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/session_summaries/config/`
+    return `/api/projects/${projectId}/session_summaries/config/`
 }
 
 /**
@@ -28,7 +28,7 @@ export const retrieveSessionSummariesConfig = async (
 }
 
 export const getUpdateSessionSummariesConfigUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/session_summaries/config/`
+    return `/api/projects/${projectId}/session_summaries/config/`
 }
 
 /**
@@ -48,7 +48,7 @@ export const updateSessionSummariesConfig = async (
 }
 
 export const getCreateSessionSummariesUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/session_summaries/create_session_summaries/`
+    return `/api/projects/${projectId}/session_summaries/create_session_summaries/`
 }
 
 /**

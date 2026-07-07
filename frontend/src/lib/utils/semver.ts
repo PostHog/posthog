@@ -27,14 +27,6 @@ export function parseVersion(version: string): SemanticVersion {
     return { major: majorInt, minor: minorInt, patch: patchInt, extra }
 }
 
-export function tryParseVersion(version: string): SemanticVersion | null {
-    try {
-        return parseVersion(version)
-    } catch {
-        return null
-    }
-}
-
 export interface SemanticVersionDiff {
     kind: 'major' | 'minor' | 'patch' | 'extra'
     diff: number
@@ -78,33 +70,6 @@ export function compareVersion(a: string | SemanticVersion, b: string | Semantic
         return 0
     }
     return diff.diff
-}
-
-export function lowestVersion(versions: (string | SemanticVersion)[]): SemanticVersion {
-    const parsed = versions.map((v) => (typeof v === 'string' ? parseVersion(v) : v))
-    // we expect this list to be small, so don't worry about nlogn vs n from using sort
-    parsed.sort(compareVersion)
-    return parsed[0]
-}
-
-export function highestVersion(versions: (string | SemanticVersion)[]): SemanticVersion {
-    const parsed = versions.map((v) => (typeof v === 'string' ? parseVersion(v) : v))
-    parsed.sort(compareVersion)
-    return parsed[parsed.length - 1]
-}
-
-export function isEqualVersion(a: string | SemanticVersion, b: string | SemanticVersion): boolean {
-    return diffVersions(a, b) === null
-}
-
-export function versionToString(version: SemanticVersion): string {
-    const versionPart = `${version.major}${
-        version.minor != null ? `.${version.minor}${version.patch != null ? `.${version.patch}` : ''}` : ''
-    }`
-    if (version.extra) {
-        return `${versionPart}-${version.extra}`
-    }
-    return versionPart
 }
 
 export function createVersionChecker(requiredVersion: string | SemanticVersion) {

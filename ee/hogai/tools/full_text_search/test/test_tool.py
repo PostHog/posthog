@@ -1,13 +1,20 @@
+from typing import TYPE_CHECKING
+
 from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import ANY, patch
 
-from langchain_core.runnables import RunnableConfig
+from django.apps import apps
 
-from products.customer_analytics.backend.models import Account
+from langchain_core.runnables import RunnableConfig
 
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.context.entity_search.context import ENTITY_MAP
 from ee.hogai.core.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
+
+if TYPE_CHECKING:
+    from products.customer_analytics.backend.models import Account
+else:
+    Account = apps.get_model("customer_analytics", "Account")
 from ee.hogai.tools.full_text_search.tool import EntityKind, EntitySearchTool
 from ee.hogai.utils.types.base import AssistantState
 

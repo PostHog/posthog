@@ -32,24 +32,12 @@ export function CohortCalculationHistory(props: CohortCalculationHistoryProps): 
     const cohortId = props.id && props.id !== 'new' ? parseInt(props.id) : 0
 
     const logic = cohortCalculationHistorySceneLogic({ cohortId })
-    const {
-        calculationHistory,
-        calculationHistoryResponseLoading,
-        cohort,
-        cohortMissing,
-        totalRecords,
-        page,
-        limit,
-        hasCalculationHistoryAccess,
-    } = useValues(logic)
+    const { calculationHistory, calculationHistoryResponseLoading, cohort, cohortMissing, totalRecords, page, limit } =
+        useValues(logic)
     const { setPage } = useActions(logic)
 
     if (!cohortId || cohortId <= 0) {
         return <div>Invalid cohort ID: {cohortId}. Please ensure you're visiting a valid cohort.</div>
-    }
-
-    if (!hasCalculationHistoryAccess) {
-        return <NotFound object="page" />
     }
 
     if (cohortMissing) {

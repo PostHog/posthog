@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
-import { dateStringToDayJs } from 'lib/utils'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { insightsApi } from 'scenes/insights/utils/api'
 
 import { DataVisualizationNode, HogQLVariable, NodeKind } from '~/queries/schema/schema-general'

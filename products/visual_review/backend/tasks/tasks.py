@@ -37,7 +37,7 @@ def process_run_diffs(self, team_id: int, run_id: str) -> None:
     Verifies hash integrity of new uploads before creating Artifact
     records and computing diffs.
     """
-    from posthog.models.integration import GitHubRateLimitError
+    from posthog.egress.github.transport import GitHubRateLimitError
 
     from .. import logic
     from ..diffing import process_diffs
@@ -80,20 +80,21 @@ def process_run_diffs(self, team_id: int, run_id: str) -> None:
     max_retries=3,
 )
 @with_team_scope()
-def post_approval_comment(self, team_id: int, run_id: str) -> None:
+def post_approval_comment(self, team_id: int, run_id: str, add_images: bool = False) -> None:
     """Update the PR comment in place with the approved-changes summary.
 
     Best-effort: failures don't block the approval flow. Retries on GitHub
-    rate-limit errors only.
+    rate-limit errors only. ``add_images`` embeds the before/after snapshot
+    images when the reviewer opted in at finalize time.
     """
-    from posthog.models.integration import GitHubRateLimitError
+    from posthog.egress.github.transport import GitHubRateLimitError
 
     from .. import logic
 
     run_uuid = UUID(run_id)
 
     try:
-        logic.post_approval_comment_for_run(run_uuid, team_id=team_id)
+        logic.post_approval_comment_for_run(run_uuid, team_id=team_id, add_images=add_images)
     except GitHubRateLimitError as e:
         logger.warning(
             "visual_review.approval_comment_rate_limited",

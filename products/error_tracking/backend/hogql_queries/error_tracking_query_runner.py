@@ -7,16 +7,16 @@ from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.error_tracking_fingerprint_issue_state import PENDING_UPDATES_HOGQL_CONTEXT_KEY
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.utils import relative_date_parse
 
+from products.error_tracking.backend.hogql_queries.error_tracking_query_builder import ErrorTrackingQueryBuilder
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import validate_uuid_param
-from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_v1 import ErrorTrackingQueryV1Builder
-from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_v2 import ErrorTrackingQueryV2Builder
-from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_v3 import ErrorTrackingQueryV3Builder
 
 
 class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse]):
@@ -43,19 +43,17 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
         if self.query.withAggregations is None:
             self.query.withAggregations = True
 
+        # First/last event fetches read every matching event's full properties blob, so they
+        # must be opted into explicitly rather than defaulting on.
         if self.query.withFirstEvent is None:
-            self.query.withFirstEvent = True
+            self.query.withFirstEvent = False
 
         if self.query.withLastEvent is None:
             self.query.withLastEvent = False
 
     @cached_property
-    def _builder(self) -> ErrorTrackingQueryV1Builder | ErrorTrackingQueryV2Builder | ErrorTrackingQueryV3Builder:
-        if self.query.useQueryV3:
-            return ErrorTrackingQueryV3Builder(self.query, self.team, self.date_from, self.date_to)
-        if self.query.useQueryV2:
-            return ErrorTrackingQueryV2Builder(self.query, self.date_from, self.date_to)
-        return ErrorTrackingQueryV1Builder(self.query, self.team, self.date_from, self.date_to)
+    def _builder(self) -> ErrorTrackingQueryBuilder:
+        return ErrorTrackingQueryBuilder(self.query, self.team, self.date_from, self.date_to)
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
@@ -102,13 +100,66 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                 context=self._hogql_context(),
             )
 
-        columns: list[str] = query_result.columns or []
+        columns, results = self._attach_events(query_result.columns or [], query_result.results)
 
         return ErrorTrackingQueryResponse(
             columns=columns,
-            results=self._builder.process_results(columns, query_result.results),
+            results=self._builder.process_results(columns, results),
             timings=query_result.timings,
             hogql=query_result.hogql,
             modifiers=self.modifiers,
             **self.paginator.response_params(),
         )
+
+    # Aggregation queries return only event uuids for first/last event (reading the
+    # properties blob inside argMin/argMax decompresses every matching event's blob);
+    # the payloads are fetched here with a point lookup over just the selected uuids.
+    EVENT_UUID_COLUMNS = {"first_event_uuid": "first_event", "last_event_uuid": "last_event"}
+
+    def _attach_events(self, columns: list[str], results: list) -> tuple[list[str], list]:
+        uuid_indexes = [index for index, column in enumerate(columns) if column in self.EVENT_UUID_COLUMNS]
+        if not uuid_indexes:
+            return columns, results
+
+        uuids = {str(row[index]) for row in results for index in uuid_indexes if row[index] is not None}
+        events: dict[str, tuple] = {}
+        if uuids:
+            with self.timings.measure("error_tracking_query_event_fetch"):
+                event_result = execute_hogql_query(
+                    query=parse_select(
+                        # The explicit LIMIT matters: without one, execute_hogql_query applies
+                        # the default 100-row limit and silently drops payloads beyond it.
+                        """
+                        SELECT uuid, distinct_id, timestamp, properties
+                        FROM events
+                        WHERE event = '$exception'
+                            AND uuid IN {uuids}
+                            AND timestamp >= toDateTime({date_from})
+                            AND timestamp <= toDateTime({date_to})
+                        LIMIT 1 BY uuid
+                        LIMIT {event_limit}
+                        """,
+                        placeholders={
+                            "uuids": ast.Constant(value=sorted(uuids)),
+                            "date_from": ast.Constant(value=self.date_from),
+                            "date_to": ast.Constant(value=self.date_to),
+                            "event_limit": ast.Constant(value=len(uuids)),
+                        },
+                    ),
+                    team=self.team,
+                    query_type="ErrorTrackingEventFetchQuery",
+                    timings=self.timings,
+                    modifiers=self.modifiers,
+                    limit_context=self.limit_context,
+                    user=self.user,
+                )
+            events = {str(row[0]): row for row in event_result.results}
+
+        new_columns = [self.EVENT_UUID_COLUMNS.get(column, column) for column in columns]
+        new_results = []
+        for row in results:
+            row = list(row)
+            for index in uuid_indexes:
+                row[index] = events.get(str(row[index])) if row[index] is not None else None
+            new_results.append(row)
+        return new_columns, new_results

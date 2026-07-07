@@ -5,8 +5,8 @@ import {
     RootAssistantMessage,
 } from '~/queries/schema/schema-assistant-messages'
 
-import { EnhancedToolCall } from './Thread'
-import { isMultiQuestionFormMessage, threadEndsWithMultiQuestionForm } from './utils'
+import { EnhancedToolCall } from './max-constants'
+import { findPendingClientToolCall, isMultiQuestionFormMessage, threadEndsWithMultiQuestionForm } from './utils'
 
 describe('max/utils', () => {
     describe('isMultiQuestionFormMessage()', () => {
@@ -210,6 +210,75 @@ describe('max/utils', () => {
                 },
             ] as unknown as RootAssistantMessage[]
             expect(threadEndsWithMultiQuestionForm(messages)).toBe(false)
+        })
+    })
+
+    describe('findPendingClientToolCall()', () => {
+        const clientToolNames = new Set(['my_client_tool'])
+
+        const humanMessage = (content: string): RootAssistantMessage =>
+            ({ type: AssistantMessageType.Human, content }) as unknown as RootAssistantMessage
+
+        const toolResultMessage = (toolCallId: string): RootAssistantMessage =>
+            ({
+                type: AssistantMessageType.ToolCall,
+                tool_call_id: toolCallId,
+                content: 'done',
+            }) as unknown as RootAssistantMessage
+
+        const assistantMessageWithCall = (id: string, name = 'my_client_tool'): RootAssistantMessage =>
+            ({
+                type: AssistantMessageType.Assistant,
+                content: '',
+                tool_calls: [{ id, name, args: { payload: 'data' } }],
+            }) as unknown as RootAssistantMessage
+
+        it('finds a dangling client tool call at the end of the thread', () => {
+            const pending = findPendingClientToolCall([assistantMessageWithCall('tc-1')], clientToolNames)
+
+            expect(pending).toEqual({
+                toolName: 'my_client_tool',
+                toolCallId: 'tc-1',
+                args: { payload: 'data' },
+            })
+        })
+
+        it('finds a dangling client tool call even when a sibling tool result lands after it', () => {
+            const messages = [
+                humanMessage('Set up a parser'),
+                assistantMessageWithCall('tc-1'),
+                toolResultMessage('tc-other'), // a parallel server-side tool finished after
+            ]
+
+            expect(findPendingClientToolCall(messages, clientToolNames)?.toolCallId).toBe('tc-1')
+        })
+
+        it('returns null when the client tool call already has a result message', () => {
+            const messages = [assistantMessageWithCall('tc-1'), toolResultMessage('tc-1')]
+
+            expect(findPendingClientToolCall(messages, clientToolNames)).toBeNull()
+        })
+
+        it('ignores dangling calls from previous turns', () => {
+            // An abandoned call followed by a new human message starts a fresh turn.
+            const messages = [
+                assistantMessageWithCall('tc-1'),
+                humanMessage('Never mind, do something else'),
+                { type: AssistantMessageType.Assistant, content: 'Sure!' } as unknown as RootAssistantMessage,
+            ]
+
+            expect(findPendingClientToolCall(messages, clientToolNames)).toBeNull()
+        })
+
+        it('returns null for tools that are not client-executed', () => {
+            const messages = [assistantMessageWithCall('tc-2', 'create_form')]
+
+            expect(findPendingClientToolCall(messages, clientToolNames)).toBeNull()
+        })
+
+        it('returns null for an empty thread or a thread ending with a human message', () => {
+            expect(findPendingClientToolCall([], clientToolNames)).toBeNull()
+            expect(findPendingClientToolCall([humanMessage('Hello')], clientToolNames)).toBeNull()
         })
     })
 })

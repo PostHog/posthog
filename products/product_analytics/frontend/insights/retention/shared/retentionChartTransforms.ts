@@ -5,6 +5,7 @@ import type {
     TimeSeriesLineChartConfig,
     TooltipConfig,
     TrendLineConfig,
+    YAxisConfig,
 } from '@posthog/quill-charts'
 
 import { schemaGoalLinesToConfigs } from 'products/product_analytics/frontend/insights/trends/shared/goalLinesAdapter'
@@ -112,7 +113,9 @@ export function buildRetentionLineChartConfig(opts: BuildRetentionChartConfigOpt
     }
 }
 
-export function buildRetentionBarChartConfig(opts: BuildRetentionChartConfigOpts): TimeSeriesBarChartConfig {
+export function buildRetentionBarChartConfig(
+    opts: BuildRetentionChartConfigOpts
+): TimeSeriesBarChartConfig & { yAxis?: YAxisConfig } {
     return {
         yAxis: {
             format: opts.isPercentage ? 'percentage' : 'numeric',
@@ -242,15 +245,16 @@ export interface BuildRetentionChartModelOpts {
     showTrendLines?: boolean
     getColor: (index: number) => string
     tooltip?: TooltipConfig
-    /** Cohorts beyond this are dropped so each line keeps a distinct palette color. */
-    maxCohorts: number
+    /** Cohorts beyond this are dropped so each line keeps a distinct palette color.
+     *  Omit for no cap (web behavior) — colors wrap once they exceed the palette. */
+    maxCohorts?: number
 }
 
 export interface RetentionChartModel {
     series: Series<RetentionSeriesMeta>[]
     labels: string[]
     lineConfig: TimeSeriesLineChartConfig
-    barConfig: TimeSeriesBarChartConfig
+    barConfig: TimeSeriesBarChartConfig & { yAxis?: YAxisConfig }
     /** Cohort count before the `maxCohorts` cap — lets the host show a truncation notice. */
     totalCohorts: number
 }
@@ -262,7 +266,7 @@ export function buildRetentionChartModel<C extends RetentionCohortLike>(
     opts: BuildRetentionChartModelOpts
 ): RetentionChartModel {
     const sorted = sortRetentionCohorts(cohorts)
-    const limited = sorted.slice(0, opts.maxCohorts)
+    const limited = opts.maxCohorts != null ? sorted.slice(0, opts.maxCohorts) : sorted
     const numIntervals = limited.reduce((max, c) => Math.max(max, c.values.length), 0)
     const labels = Array.from({ length: numIntervals }, (_, i) => `${opts.period} ${i}`)
 

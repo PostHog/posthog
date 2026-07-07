@@ -9,7 +9,7 @@ import { ViewportResolution } from '@posthog/replay-shared'
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { chainToElements } from 'lib/utils/elements-chain'
-import { getEventsWithPrimaryProperty } from 'lib/utils/primaryEventProperty'
+import { getEventsWithPrimaryProperty } from 'lib/utils/events'
 import { TimeTree } from 'lib/utils/time-tree'
 
 import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'

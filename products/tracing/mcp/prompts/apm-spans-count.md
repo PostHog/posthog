@@ -27,7 +27,7 @@ Filter by service names. Unlike `query-apm-spans`, an unfiltered count is cheap 
 
 ## query.statusCodes
 
-Filter by HTTP status codes (list of integers).
+Filter by OTel span status codes (list of integers: `0` Unset, `1` OK, `2` Error) â€” **not** HTTP status codes. Use `[2]` to select error spans.
 
 ## query.filterGroup
 
@@ -41,7 +41,7 @@ Property filters to narrow the count. Same format as `query-apm-spans` filters â
 {
   "query": {
     "serviceNames": ["api-gateway"],
-    "statusCodes": [500, 503],
+    "statusCodes": [2],
     "dateRange": { "date_from": "-1d" }
   }
 }

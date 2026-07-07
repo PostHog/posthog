@@ -5,7 +5,7 @@ import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table
 import { MarkdownManager } from '@tiptap/markdown'
 import StarterKit from '@tiptap/starter-kit'
 
-import { expandFlattenedMarkdownTables } from 'lib/utils/expandFlattenedMarkdownTables'
+import { expandFlattenedMarkdownTables } from 'lib/utils/markdown'
 
 const markdownManager = new MarkdownManager({
     extensions: [

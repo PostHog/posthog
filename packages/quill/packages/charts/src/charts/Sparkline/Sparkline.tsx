@@ -14,8 +14,12 @@ export interface SparklineProps {
     theme: ChartTheme
     color?: string
     height?: number
+    /** Fill the parent's height (flex child) instead of using a fixed `height`. */
+    fill?: boolean
     /** Peak opacity of the gradient fill under the line. Range 0–1. */
     fillOpacity?: number
+    /** Dash the line from this index onward (e.g. an in-progress trailing period). Omit for a fully solid line. */
+    dashedFromIndex?: number
     /** Fires the hovered index, or -1 when not hovering. */
     onHoverIndexChange?: (index: number) => void
     className?: string
@@ -28,7 +32,8 @@ const SPARKLINE_CONFIG: LineChartConfig = {
     hideYAxis: true,
     showCrosshair: true,
     tooltip: { enabled: false },
-    margins: { top: 0, right: 0, bottom: 0, left: 0 },
+    // Reserve room for the hover highlight ring (radius + 2 = 6px) so it isn't clipped at the top/bottom edge.
+    margins: { top: 6, right: 0, bottom: 6, left: 0 },
 }
 
 export function Sparkline(props: SparklineProps): React.ReactElement {
@@ -46,7 +51,9 @@ function SparklineInner({
     theme,
     color,
     height = 120,
+    fill = false,
     fillOpacity = 0.35,
+    dashedFromIndex,
     onHoverIndexChange,
     className,
     dataAttr,
@@ -64,14 +71,19 @@ function SparklineInner({
                 data,
                 color: resolvedColor,
                 fill: { gradient: true, opacity: fillOpacity },
+                stroke: dashedFromIndex != null ? { partial: { fromIndex: dashedFromIndex } } : undefined,
             },
         ],
-        [data, resolvedColor, fillOpacity]
+        [data, resolvedColor, fillOpacity, dashedFromIndex]
     )
-    const wrapperStyle = useMemo<React.CSSProperties>(() => ({ height }), [height])
+    const wrapperStyle = useMemo<React.CSSProperties | undefined>(() => (fill ? undefined : { height }), [fill, height])
 
     return (
-        <div className={`relative flex flex-col ${className ?? ''}`} style={wrapperStyle} data-attr={dataAttr}>
+        <div
+            className={`relative flex flex-col ${fill ? 'flex-1 min-h-0' : ''} ${className ?? ''}`}
+            style={wrapperStyle}
+            data-attr={dataAttr}
+        >
             <LineChart series={series} labels={resolvedLabels} theme={theme} config={SPARKLINE_CONFIG}>
                 {onHoverIndexChange ? <HoverWatcher onHoverChange={onHoverIndexChange} /> : null}
             </LineChart>

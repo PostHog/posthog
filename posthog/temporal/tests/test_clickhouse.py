@@ -38,6 +38,12 @@ async def _wait_for_query_status(
     """
     elapsed_time = 0.0
     while elapsed_time < max_wait_time:
+        # Force query_log to materialize before reading (its async flush lags under CI load).
+        # A transient flush failure is a retryable poll miss, so keep it out of the read's error handling.
+        try:
+            await client.execute_query("SYSTEM FLUSH LOGS")
+        except ClickHouseError:
+            pass
         try:
             status = await client.acheck_query_in_query_log(query_id, raise_on_error=raise_on_error)
             if status == expected_status:
@@ -197,6 +203,16 @@ def test_clickhouse_error_code_maps_to_exception(clickhouse_client, error_text, 
                 pass
 
 
+def test_post_query_disables_http_compression(clickhouse_client):
+    mock_response = MagicMock(status_code=200)
+    with _mock_internal_session_post(mock_response) as mock_factory:
+        with clickhouse_client.post_query("SELECT 1", query_parameters={}, query_id=None):
+            pass
+
+    call_kwargs = mock_factory.return_value.post.call_args.kwargs
+    assert call_kwargs["params"]["enable_http_compression"] == "0"
+
+
 @pytest.mark.parametrize(
     "query,query_parameters,expected",
     [
@@ -334,6 +350,26 @@ async def test_acheck_query_in_query_log_error(clickhouse_client, django_db_setu
         query_id = f"test-error-query-{uuid.uuid4()}"
         with pytest.raises(ClickHouseCheckQueryStatusError):
             await clickhouse_client.acheck_query_in_query_log(query_id)
+
+
+async def test_acheck_query_in_query_log_uses_unique_check_query_ids(clickhouse_client: ClickHouseClient) -> None:
+    query_id = f"test-check-query-id-{uuid.uuid4()}"
+    check_query_ids: list[str] = []
+
+    async def mock_read_query_as_jsonl(
+        _query: str, query_parameters: dict[str, object] | None = None, query_id: str | None = None
+    ) -> list[dict[str, str]]:
+        assert query_id is not None
+        check_query_ids.append(query_id)
+        return [{"type": "QueryFinish", "exception": ""}]
+
+    with patch.object(clickhouse_client, "read_query_as_jsonl", side_effect=mock_read_query_as_jsonl):
+        await clickhouse_client.acheck_query_in_query_log(query_id)
+        await clickhouse_client.acheck_query_in_query_log(query_id)
+
+    assert len(check_query_ids) == 2
+    assert check_query_ids[0] != check_query_ids[1]
+    assert all(value.startswith(f"{query_id}-CHECK-QUERY-LOG-") for value in check_query_ids)
 
 
 async def test_acheck_query_found(clickhouse_client, django_db_setup):

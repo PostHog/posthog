@@ -10,6 +10,7 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import {
     AnyResponseType,
+    WebAnalyticsPreComputeStrategy,
     WebVitalsMetricBand,
     WebVitalsPathBreakdownQuery,
     WebVitalsPathBreakdownQueryResponse,
@@ -54,7 +55,7 @@ export function WebVitalsPathBreakdown(props: {
 
     return (
         <div className="relative border rounded bg-surface-primary grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x min-h-60 h-full">
-            {webVitalsQueryResponse?.usedLazyPrecompute && (
+            {webVitalsQueryResponse?.preComputeStrategy === WebAnalyticsPreComputeStrategy.LazyPrecompute && (
                 <PreAggregatedBadge variant="precomputed" onDisable={props.context.onDisableWebAnalyticsPrecompute} />
             )}
             <div className="p-4">

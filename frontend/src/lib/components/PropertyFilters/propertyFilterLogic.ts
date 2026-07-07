@@ -9,7 +9,7 @@ import {
 } from 'lib/components/PropertyFilters/utils'
 import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { isOperatorFlag } from 'lib/utils'
+import { isOperatorFlag } from 'lib/utils/operators'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AnyPropertyFilter, EmptyPropertyFilter } from '~/types'

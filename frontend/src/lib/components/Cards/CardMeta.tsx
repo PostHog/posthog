@@ -10,7 +10,7 @@ import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 
 import { InsightColor } from '~/types'
 
@@ -39,6 +39,8 @@ export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>
     samplingFactor?: number | null
     /** Additional controls to show in the top controls area */
     extraControls?: JSX.Element | null
+    /** Refresh control revealed on card hover, shown in the top controls area. */
+    refreshControl?: JSX.Element | null
     /** Description shown in the compact popover. */
     metaDescription?: JSX.Element | null
     /** Heading always shown in the popover (e.g. insight type + date range). Falls back to topHeading. */
@@ -68,6 +70,7 @@ export function CardMeta({
     onMouseDown,
     samplingFactor,
     extraControls,
+    refreshControl,
 }: CardMetaProps): JSX.Element {
     const { ref: primaryRef, width: primaryWidth } = useResizeObserver()
     const { ref: detailsRef, height: detailsHeight } = useResizeObserver()
@@ -125,6 +128,7 @@ export function CardMeta({
                             <div className="CardMeta__top">
                                 <div className="CardMeta__heading">{topHeading}</div>
                                 <div className="CardMeta__controls">
+                                    {refreshControl}
                                     {showEditingControls &&
                                         (moreTooltip ? (
                                             <Tooltip title={moreTooltip}>
@@ -155,6 +159,7 @@ export function CardMeta({
                                     )}
                                 </h5>
                                 <div className="CardMeta__controls">
+                                    {refreshControl}
                                     {extraControls &&
                                         React.cloneElement(extraControls, {
                                             ...extraControls.props,

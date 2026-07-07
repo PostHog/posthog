@@ -197,7 +197,7 @@ services:
         restart: on-failure
 
     kafka:
-        image: docker.redpanda.com/redpandadata/redpanda:v25.1.9
+        image: docker.io/redpandadata/redpanda:v25.1.9
         restart: on-failure
         command:
             - redpanda
@@ -238,11 +238,16 @@ services:
 
     objectstorage:
         # SeaweedFS, S3-compatible object storage on objectstorage:19000.
-        # Run in default open-access mode (no -s3.config) so every credential pair our
-        # test/CI/dev code uses just works — including object_storage_root_user and
-        # any/any. Identity-based auth (-s3.config) was tried first but triggers known
-        # SeaweedFS SigV4 signature failures and presigned-URL regressions; see
-        # seaweedfs/seaweedfs #6635 and discussion #3976.
+        # No static -s3.config (it triggers known SeaweedFS SigV4 signature failures and
+        # presigned-URL regressions; see seaweedfs/seaweedfs #6635 and discussion #3976),
+        # but pure open-access mode doesn't work either: the POST-policy handler always
+        # looks the access key up in the identity store (no open-access bypass, also on
+        # master), so presigned POST uploads — error tracking symbol sets via posthog-cli —
+        # fail with InvalidAccessKeyId when no identities exist. The bootstrap loop below
+        # therefore registers the canonical dev credentials at runtime via `s3.configure`
+        # (which doesn't hit the static-config regressions), plus an `anonymous` identity
+        # so unsigned clients keep working. Signed requests with any other access key are
+        # rejected — everything in this repo uses object_storage_root_user against :19000.
         # Pin >= 4.05: that's the first release that persists Content-Encoding metadata
         # (4.03/4.04 silently drop it, breaking gzipped objects that rely on the header
         # round-tripping). 4.29 is the newest release that's been out at least two weeks.
@@ -251,21 +256,28 @@ services:
         entrypoint:
             - /bin/sh
             - -c
-            # Background a create-and-verify loop and exec weed as PID 1 so SIGTERM
+            # Background a setup-and-verify loop and exec weed as PID 1 so SIGTERM
             # reaches it directly. `weed shell` exits 0 as long as the master is
-            # reachable, even if individual `s3.bucket.create` commands fail (e.g. while
-            # the filer is still coming up), so we run create+list in one session and
-            # only touch the sentinel once `s3.bucket.list` reports every required bucket.
+            # reachable, even if individual commands fail (e.g. while the filer is still
+            # coming up), and setup output can't be grepped for success markers anyway:
+            # the identity is also named `posthog`, so its configure echo would shadow
+            # the `posthog` bucket check. The sentinel is therefore only touched once
+            # read-only `s3.bucket.list` / `s3.configure` sessions report every required
+            # bucket and identity from actual persisted state.
             - |
                 (
                     while true; do
-                        OUT=$$(printf 's3.bucket.create -name posthog\ns3.bucket.create -name ducklake-dev\ns3.bucket.create -name ai-blobs\ns3.bucket.list\n' \
-                                | /usr/bin/weed shell -master=localhost:19001 2>&1 || true)
-                        if echo "$$OUT" | grep -q posthog \
-                                && echo "$$OUT" | grep -q ducklake-dev \
-                                && echo "$$OUT" | grep -q ai-blobs; then
+                        printf 's3.configure -access_key=object_storage_root_user -secret_key=object_storage_root_password -user=posthog -actions=Admin -apply\ns3.configure -user=anonymous -actions=Admin -apply\ns3.bucket.create -name posthog\ns3.bucket.create -name ducklake-dev\ns3.bucket.create -name ai-blobs\n' \
+                                | /usr/bin/weed shell -master=localhost:19001 >/dev/null 2>&1 || true
+                        BUCKETS=$$(echo 's3.bucket.list' | /usr/bin/weed shell -master=localhost:19001 2>/dev/null || true)
+                        IDENTITIES=$$(echo 's3.configure' | /usr/bin/weed shell -master=localhost:19001 2>/dev/null || true)
+                        if echo "$$BUCKETS" | grep -q posthog \
+                                && echo "$$BUCKETS" | grep -q ducklake-dev \
+                                && echo "$$BUCKETS" | grep -q ai-blobs \
+                                && echo "$$IDENTITIES" | grep -q object_storage_root_user \
+                                && echo "$$IDENTITIES" | grep -q anonymous; then
                             touch /tmp/objectstorage-ready
-                            echo "Objectstorage SeaweedFS ready with required buckets"
+                            echo "Objectstorage SeaweedFS ready with required buckets and identities"
                             break
                         fi
                         sleep 1
@@ -335,6 +347,10 @@ services:
             DEPLOYMENT: hobby
             CDP_API_URL: 'http://plugins:6738'
             FLAGS_REDIS_ENABLED: false
+            # Off-ORM persons_db util (posthog/persons_db.py). Hobby keeps persons in
+            # the main posthog DB, so both point there.
+            PERSONS_DB_WRITER_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            PERSONS_DB_READER_URL: 'postgres://posthog:posthog@db:5432/posthog'
 
     web:
         <<: *worker
@@ -776,6 +792,18 @@ services:
             - jaeger
         networks:
             - otel_network
+        # Cap the footprint: the collector parses every container's logs, so one
+        # log-flooding container could otherwise peg many cores and balloon RAM.
+        cpus: 2
+        mem_limit: 2g
+        environment:
+            # Keep Go's GC under mem_limit so pressure triggers collection, not an OOM kill.
+            GOMEMLIMIT: 1750MiB
+        logging:
+            driver: json-file
+            options:
+                max-size: '50m'
+                max-file: '3'
 
     jaeger:
         image: jaegertracing/all-in-one:1.76.0

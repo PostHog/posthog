@@ -22,8 +22,8 @@ describe('ExperimentForm Integration', () => {
 
         useMocks({
             post: {
-                [`/api/projects/${MOCK_TEAM_ID}/experiments`]: async (req) => {
-                    const body = (await req.json()) as Experiment
+                [`/api/projects/${MOCK_TEAM_ID}/experiments`]: async ({ request }) => {
+                    const body = (await request.json()) as Experiment
                     return [
                         200,
                         {

@@ -1,11 +1,12 @@
 import { useActions } from 'kea'
 import { useState } from 'react'
 
-import { IconCopy, IconEllipsis, IconPencil, IconStack, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDropdown, LemonMenu, LemonTag } from '@posthog/lemon-ui'
+import { IconCopy, IconEllipsis, IconPencil, IconStack, IconTarget, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonDropdown, LemonMenu, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { isMetricThresholdCueVisible } from 'scenes/experiments/ExperimentMetricThreshold'
 import { METRIC_CONTEXTS, experimentMetricModalLogic } from 'scenes/experiments/Metrics/experimentMetricModalLogic'
 import { sharedMetricDetailsModalLogic } from 'scenes/experiments/Metrics/sharedMetricDetailsModalLogic'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
@@ -279,10 +280,19 @@ export const MetricHeader = ({
                         </div>
                     )}
                 </div>
-                <div className="deprecated-space-x-1">
+                <div className="flex flex-wrap items-center gap-1">
                     <LemonTag type="muted" size="small">
                         {getMetricTag(metric)}
                     </LemonTag>
+                    {isMetricThresholdCueVisible(metric) && (
+                        <Tooltip
+                            title={`Reports the percentage of users whose value reaches or exceeds ${metric.threshold}.`}
+                        >
+                            <LemonTag type="muted" size="small" icon={<IconTarget />}>
+                                ≥ {metric.threshold}
+                            </LemonTag>
+                        </Tooltip>
+                    )}
                     {experiment.parameters?.prompt_metadata && (
                         <LemonTag type="completion" size="small">
                             LLM

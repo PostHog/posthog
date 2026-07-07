@@ -37,6 +37,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 from posthog.ph_client import get_client
+from posthog.settings.ingestion import DedicatedAIEndpointRollout
 from posthog.sync import database_sync_to_async
 from posthog.utils import get_instance_region
 
@@ -45,7 +46,7 @@ from products.posthog_ai.backend.models.assistant import Conversation
 from ee.hogai.core.ai_event_truncation import ai_event_truncator
 from ee.hogai.core.base import BaseAssistantGraph
 from ee.hogai.core.stream_processor import AssistantStreamProcessorProtocol
-from ee.hogai.tool import ApprovalRequest
+from ee.hogai.tool import ApprovalRequest, ClientToolCallRequest
 from ee.hogai.utils.exceptions import (
     AGENT_RUN_UNHANDLED_ERROR_COUNTER,
     HTTPX_TRANSPORT_EXCEPTIONS,
@@ -200,17 +201,23 @@ class BaseAgentRunner(ABC):
 
             # flush_at=1 flushes each event immediately so traces deliver before short runs end;
             # before_send truncates oversized AI blobs so they clear the SDK's per-event size drop.
-            client_kwargs = {"flush_at": 1, "before_send": ai_event_truncator}
+            def make_client(region: str):
+                return get_client(
+                    region,
+                    flush_at=1,
+                    before_send=ai_event_truncator,
+                    dedicated_ai_endpoint_stage=DedicatedAIEndpointRollout.RUNNER,
+                )
 
             # Local deployment or hobby
             if not is_cloud() and (local_client := posthoganalytics.default_client):
                 self._callback_handlers.append(init_handler(local_client))
             elif region := get_instance_region():
                 # Add regional client first
-                self._callback_handlers.append(init_handler(get_client(region, **client_kwargs)))
+                self._callback_handlers.append(init_handler(make_client(region)))
                 # If we're in EU, add the US client as well, so we can see US and EU traces
                 if region == "EU":
-                    self._callback_handlers.append(init_handler(get_client("US", **client_kwargs)))
+                    self._callback_handlers.append(init_handler(make_client("US")))
 
         self._trace_id = trace_id
         self._parent_span_id = parent_span_id
@@ -465,6 +472,10 @@ class BaseAgentRunner(ABC):
                         elif isinstance(interrupt.value, MultiQuestionForm):
                             # No need to yield a message here - the form will be displayed to the user through the tool call args
                             # and the answers comes through the tool call result ui_payload
+                            should_not_update_state = True
+                        elif isinstance(interrupt.value, ClientToolCallRequest):
+                            # Nothing to stream (the tool call args are already in the thread); skipping
+                            # the state update lets an abandoned round trip start fresh, like approvals
                             should_not_update_state = True
                         elif isinstance(interrupt.value, ApprovalRequest):
                             # Check if this is an ApprovalRequest from interrupt() in a tool

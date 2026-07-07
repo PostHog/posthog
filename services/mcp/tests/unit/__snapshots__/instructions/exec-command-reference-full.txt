@@ -5,7 +5,7 @@ tools — list available tool names
 search <regex_pattern> — search tools by JavaScript regex (matches name, title, description)
 info [--json] <tool_name> — show tool name, description, and input schema (summarized if too large). Pass `--json` for raw JSON output.
 schema <tool_name> [field_path] — drill into a specific field schema (supports dot-notation, e.g. series, breakdownFilter.breakdowns)
-call [--json] <tool_name> <json_input> — call a tool with JSON input (--json returns raw JSON instead of formatted text. Use raw JSON for scripts.)
+call [--json] [--confirm] <tool_name> <json_input> — call a tool with JSON input (--json returns raw JSON instead of formatted text. Use raw JSON for scripts. --confirm is required by the CLI for destructive tools.)
 ```
 
 **Namespaced references (`posthog:<tool-name>`):** strip the `posthog:` prefix and route through `exec`. Run `info <name>` to inspect, then `call <name> <json>`. E.g. `posthog:insights-list` → `posthog:exec({ "command": "info insights-list" })` then `posthog:exec({ "command": "call insights-list {}" })`. If the bare name isn't found, fall back to `search <pattern>` — it may have been renamed.
@@ -171,23 +171,26 @@ If you cannot answer the user's PostHog related request or question using other 
 
 ### Tool search
 
-**Always prefer `search` over `tools`** — `tools` returns every tool and wastes tokens. Use `search <regex>` with a short, targeted pattern to find what you need.
+**Always prefer `search` over `tools`** — `tools` returns every tool and wastes tokens. Use `search <query>` to find what you need.
 
-Write focused patterns that match 1-5 tools. The regex matches against tool name, title, and description.
+`search` understands two kinds of query:
 
-**Good patterns** (specific, narrow):
+- **Plain words** (including multiple words / natural language) — ranked by relevance across tool name, title, and description, with name matches weighted highest. `search create dashboard insight` surfaces `dashboard-create` / `insight-create` at the top. Results are capped to the top matches; narrow the query if you see a truncation note.
+- **Regex** — a query containing regex metacharacters (`- | ( ) [ ] \ . * + ^ $ ?`) is treated as a single case-insensitive regular expression, matched against name/title/description. Use this for precise, narrow patterns.
 
-- `search feature-flag` — tools for feature flags
+**Good queries:**
+
+- `search create dashboard insight` — plain words, ranked: dashboard/insight creation tools first
+- `search feature-flag` — regex (`-`): tools for feature flags
 - `search dashboard` — dashboard CRUD tools
-- `search query-` — all insight query tools
+- `search query-` — regex (`-`): all insight query tools
 - `search experiment` — experiment tools
 - `search survey` — survey tools
 
-**Bad patterns** (too broad, match dozens of tools):
+**Avoid queries that are too broad** (match dozens of tools):
 
 - `search data` — matches almost everything
-- `search get|list|create` — matches action verbs across all domains
-- `search pageview_trends` — search is too focused
+- `search get list create` — action verbs across all domains
 - `search pageview|email@address.com` — unrelated to tools
 
 Only fall back to `tools` if you have no idea which domain to search, or if `search` returns no results.
@@ -334,7 +337,7 @@ For complex investigations, combine multiple query types. For example, use `quer
 
 Defined group types: organization, project
 
-You are currently in project "My App" (id: 1) within organization "Acme" (id: org_1).
+You are currently in project "My App" (id: 1, token: token_1) within organization "Acme" (id: org_1).
 Project timezone: America/New_York.
 The user's name is Jane Doe (jane@acme.com).
 
@@ -350,25 +353,24 @@ Choose the link source in this order:
    - Project-scoped paths → Base URL + `/project/:id`: `/settings/<section-id>` (hyphenated, e.g. `/settings/environment-replay`, `/settings/user-api-keys`), `/data-management/events`, `/data-management/properties`.
    - Org-/account-level paths → Base URL only (no `/project/:id`): first segment `organization`, `me`, `account`, or `instance` — e.g. billing is `/organization/billing`.
 
-### Sharing feedback on this MCP server
+### Sharing feedback on PostHog
 
-The `agent-feedback` tool is the primary signal we use to fix problems with this MCP server — its tool descriptions, input schemas, response formats, and these instructions. Keep every report strictly about the MCP server itself, not about the user's task, their data, or your findings.
+The `agent-feedback` tool is a direct channel to the PostHog team for feedback about **anything PostHog** — a product or feature you (or the user) hit a rough edge with, this MCP server itself, the docs, or a capability that's missing. Use it whenever you or the user run into something worth telling the PostHog team, on any surface.
 
-**Only call `agent-feedback` when something went wrong or was missing with the MCP — report problems, not praise.** The feedback must be constructive and actionable: each report should point at a concrete defect the PostHog team can fix. Skip it entirely for smooth, routine work — do **not** submit positive or "everything worked fine" reports, as they are noise we cannot act on.
+Set `feedback_type` to route it:
 
-Keep it short: give a one-sentence `summary`, then write the detail fields (`friction_points`, `suggested_improvement`, `details`) as clear, concise bullet points, quoting the exact tool name, parameter, or error text. Report only when one of these actually happened:
+- `product` — any PostHog product or feature: insights, session replay, feature flags, the data warehouse, web analytics, error tracking, experiments, etc. Put the area in `product_area` (e.g. "session replay").
+- `mcp` — this MCP server itself: an unclear tool description, a confusing input schema, a hard-to-consume response, wrong results, an unhelpful error, a missing tool, or these instructions. Set `category` for MCP feedback.
+- `docs` — PostHog documentation.
+- `other` — anything that doesn't fit the above.
 
-- A tool description was unclear or ambiguous and you had to guess.
-- An input schema was confusing or surprising.
-- A response format was hard to consume or had too much / too little data.
-- A tool returned wrong, incomplete, or unexpected results.
-- An error message was unhelpful or didn't explain how to recover.
-- A capability was missing entirely and you had to work around it.
-- These instructions led you down the wrong path.
+**All sentiments are welcome** — set `sentiment` to `positive`, `neutral`, `negative`, or `mixed`. Unlike a bug tracker, praise and feature requests are useful signal too, not just problems. Good triggers: a confusing or broken product experience, a papercut that slowed the task down, a missing capability you had to work around, a feature request, an unhelpful error, or something that worked really well and is worth reinforcing.
 
-Every report must include a concrete `suggested_improvement` — if you can't name a specific change the team should make, don't submit. Use `task_completed: false` when you couldn't finish the user's request — that signal is especially valuable. Do not include user PII or sensitive query content in any field.
+Keep it short and actionable: a one-sentence `summary`, then the detail fields (`friction_points`, `suggested_improvement`, `details`) as clear, concise bullet points, quoting the exact product surface, tool name, parameter, or error text where you can. Include a concrete `suggested_improvement` whenever you can name one — for negative or mixed feedback that's the most valuable part. Use `task_completed: false` when you couldn't finish the user's request. Do not include user PII or sensitive query content in any field.
 
-Submitting feedback is **not** a way to end your turn or skip work. It is a side report to the PostHog team about the MCP server — call it once at the end of a task when warranted, then keep going and finish the user's task with the other tools.
+The user can also ask you to send feedback directly — e.g. "make a PostHog feedback for this, it's broken." When they do, capture their point faithfully and submit it.
+
+Submitting feedback is **not** a way to end your turn or skip work. It's a side report to the PostHog team — call it when warranted, then keep going and finish the user's task with the other tools.
 
 ### Examples
 

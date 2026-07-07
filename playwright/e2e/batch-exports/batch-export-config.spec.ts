@@ -12,9 +12,36 @@ test.describe('Batch export configuration', () => {
         await playwrightSetup.login(page, workspace!)
     })
 
-    test('Create new S3 batch export', async ({ page }) => {
-        const name = randomString('S3 Export')
+    test('Create new AWS S3 batch export', async ({ page }) => {
+        const name = randomString('AWS S3 Export')
         const mockId = '01234567-0123-0123-0123-0123456789ab'
+        const integrationId = 42
+
+        // AWS S3 exports authenticate via an aws-s3 integration. Return one so the
+        // integration picker auto-selects it (IntegrationChoice picks the first of the kind).
+        await page.route(
+            (url) => /\/api\/(projects|environments)\/[^/]+\/integrations\/?$/.test(url.pathname),
+            async (route) => {
+                await route.fulfill({
+                    status: 200,
+                    contentType: 'application/json',
+                    body: JSON.stringify({
+                        count: 1,
+                        next: null,
+                        previous: null,
+                        results: [
+                            {
+                                id: integrationId,
+                                kind: 'aws-s3',
+                                display_name: 'Test AWS credentials',
+                                config: {},
+                                created_at: new Date().toISOString(),
+                            },
+                        ],
+                    }),
+                })
+            }
+        )
 
         // Mock the batch export creation endpoint (requires Temporal in real env)
         await page.route('**/api/environments/*/batch_exports/', async (route) => {
@@ -29,7 +56,7 @@ test.describe('Batch export configuration', () => {
                         name: body.name,
                         model: 'events',
                         destination: {
-                            type: 'S3',
+                            type: 'AwsS3',
                             config: {
                                 bucket_name: body.destination.config.bucket_name,
                                 region: body.destination.config.region,
@@ -53,8 +80,8 @@ test.describe('Batch export configuration', () => {
             }
         })
 
-        await page.goto('/pipeline/batch-exports/new/s3')
-        await expect(page.locator('.scene-name')).toContainText('S3')
+        await page.goto('/pipeline/batch-exports/new/awss3')
+        await expect(page.locator('.scene-name')).toContainText('AWS S3')
 
         // Edit the name of the batch export
         await page.click('.scene-name button')
@@ -76,16 +103,20 @@ test.describe('Batch export configuration', () => {
         await page.getByRole('menuitem', { name: 'US East (N. Virginia)' }).click()
 
         await page.locator('input[name="prefix"]').fill('events/')
-        await page.locator('input[name="aws_access_key_id"]').fill('AKIAIOSFODNN7EXAMPLE')
-        await page.locator('input[name="aws_secret_access_key"]').fill('wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY')
 
-        await page.locator('form').getByRole('button', { name: 'Create' }).click()
+        // Capture the create request to assert the selected integration is sent (instead of inline credentials)
+        const [createRequest] = await Promise.all([
+            page.waitForRequest((req) => req.url().includes('/batch_exports/') && req.method() === 'POST'),
+            page.locator('form').getByRole('button', { name: 'Create' }).click(),
+        ])
         await expect(page.locator('[data-attr="success-toast"]')).toContainText('Batch export created successfully')
+
+        expect(createRequest.postDataJSON().destination.integration).toBe(integrationId)
     })
 
     test('Validate required fields prevent save', async ({ page }) => {
-        await page.goto('/pipeline/batch-exports/new/s3')
-        await expect(page.locator('.scene-name')).toContainText('S3')
+        await page.goto('/pipeline/batch-exports/new/awss3')
+        await expect(page.locator('.scene-name')).toContainText('AWS S3')
 
         // Create button should be disabled when required fields are empty
         await expect(page.locator('form').getByRole('button', { name: 'Create' })).toBeDisabled()

@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    ElementsStatsRetrieveQueryParams,
     InsightsActivityRetrieveParams,
     InsightsActivityRetrieveQueryParams,
     InsightsAllActivityRetrieveQueryParams,
@@ -132,6 +133,7 @@ const AssistantDataVisualizationDisplayType = z.enum([
     'BoldNumber',
     'ActionsLineGraph',
     'ActionsBar',
+    'ActionsPie',
     'ActionsStackedBar',
     'ActionsAreaGraph',
     'TwoDimensionalHeatmap',
@@ -152,7 +154,7 @@ const AssistantDataVisualizationNode = z.object({
         'Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`.'
     ).optional(),
     display: AssistantDataVisualizationDisplayType.describe(
-        'Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Otherwise → `ActionsTable`.'
+        'Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Otherwise → `ActionsTable`.'
     ).optional(),
     kind: z.literal('DataVisualizationNode').default('DataVisualizationNode'),
     source: z.record(z.string(), z.unknown()).describe('HogQL query object that produces the rows to visualize.'),
@@ -162,6 +164,32 @@ const AssistantDataVisualizationNode = z.object({
 })
 
 const InsightQuery = z.union([AssistantInsightVizNode, AssistantDataVisualizationNode])
+
+const ElementsStatsRetrieveSchema = ElementsStatsRetrieveQueryParams
+
+const elementsStatsRetrieve = (): ToolBase<typeof ElementsStatsRetrieveSchema, Schemas.ElementStatsResponse> => ({
+    name: 'elements-stats-retrieve',
+    schema: ElementsStatsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof ElementsStatsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ElementStatsResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/elements/stats/`,
+            query: {
+                data_attributes: params.data_attributes,
+                date_from: params.date_from,
+                date_to: params.date_to,
+                filter_test_accounts: params.filter_test_accounts,
+                include: params.include,
+                limit: params.limit,
+                offset: params.offset,
+                properties: params.properties,
+                sampling_factor: params.sampling_factor,
+            },
+        })
+        return result
+    },
+})
 
 const InsightCreateSchema = InsightsCreateBody.omit({
     derived_name: true,
@@ -520,6 +548,7 @@ const insightsTrendingRetrieve = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'elements-stats-retrieve': elementsStatsRetrieve,
     'insight-create': insightCreate,
     'insight-delete': insightDelete,
     'insight-get': insightGet,

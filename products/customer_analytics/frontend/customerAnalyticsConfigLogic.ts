@@ -1,6 +1,6 @@
 import { actions, connect, kea, listeners, path, selectors } from 'kea'
 
-import { isEmptyObject } from 'lib/utils'
+import { isEmptyObject } from 'lib/utils/guards'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {

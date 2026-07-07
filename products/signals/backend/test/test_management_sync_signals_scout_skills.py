@@ -16,9 +16,9 @@ from unittest.mock import patch
 from django.core.management import call_command
 from django.core.management.base import CommandError
 
-from products.ai_observability.backend.models.skills import LLMSkill
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.lazy_seed import CanonicalSkill
+from products.skills.backend.models.skills import LLMSkill
 
 
 def _fake_canonical(name: str, body: str = "# canonical body\n") -> CanonicalSkill:
@@ -63,6 +63,24 @@ class TestSyncSignalsScoutSkillsCommand(BaseTest):
         output = out.getvalue()
         assert "+created" in output
         assert "signals-scout-alpha" in output
+
+    def test_honors_withheld_skills_holdback(self) -> None:
+        # The impatient fan-out must not seed a held-back scout's LLMSkill rows — same hard gate
+        # the coordinator enforces on the scheduled path.
+        allowed = _fake_canonical("signals-scout-alpha")
+        withheld = _fake_canonical("signals-scout-error-tracking")
+        payload_path = "products.signals.backend.scout_harness.team_limits.posthoganalytics.get_feature_flag_payload"
+        with (
+            self._patch_canonicals((allowed, withheld)),
+            patch(
+                payload_path,
+                return_value={"default_team_config": {"withheld_skills": ["signals-scout-error-tracking"]}},
+            ),
+        ):
+            call_command("sync_signals_scout_skills", "--team-id", str(self.team.id), stdout=StringIO())
+
+        assert LLMSkill.objects.filter(team=self.team, name="signals-scout-alpha", deleted=False).exists()
+        assert not LLMSkill.objects.filter(team=self.team, name="signals-scout-error-tracking").exists()
 
     def test_all_enabled_iterates_only_enabled_configs(self) -> None:
         # Two teams; only one has enabled config.

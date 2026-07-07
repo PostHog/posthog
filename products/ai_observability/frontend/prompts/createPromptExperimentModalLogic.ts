@@ -1,6 +1,7 @@
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { ApiConfig } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
@@ -153,6 +154,10 @@ export const createPromptExperimentModalLogic = kea<createPromptExperimentModalL
 
     listeners(({ values, actions }) => ({
         openModal: () => {
+            posthog.capture('llma prompt experiment modal opened', {
+                prompt_name: values.promptName,
+                prompt_total_versions: values.promptVersions.length,
+            })
             if (values.templates.length === 0) {
                 actions.loadTemplates()
             } else if (values.selectedTemplates.length === 0) {
@@ -204,6 +209,21 @@ export const createPromptExperimentModalLogic = kea<createPromptExperimentModalL
                 actions.submitCreateFailure(message)
                 lemonToast.error(message)
             }
+        },
+        submitCreateSuccess: ({ experimentId }) => {
+            posthog.capture('llma prompt experiment created', {
+                experiment_id: experimentId,
+                prompt_name: values.promptName,
+                versions: values.selectedVersions,
+                templates: values.selectedTemplates,
+                prompt_total_versions: values.promptVersions.length,
+            })
+        },
+        submitCreateFailure: ({ error }) => {
+            posthog.capture('llma prompt experiment creation failed', {
+                prompt_name: values.promptName,
+                error_message: error.slice(0, 200),
+            })
         },
     })),
 ])

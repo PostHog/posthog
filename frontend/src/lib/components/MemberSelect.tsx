@@ -1,19 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 
-import {
-    LemonButton,
-    LemonButtonProps,
-    LemonDropdown,
-    LemonDropdownProps,
-    LemonInput,
-    ProfilePicture,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, LemonDropdown, LemonDropdownProps, LemonInput } from '@posthog/lemon-ui'
 
-import { fullName } from 'lib/utils'
+import { fullName } from 'lib/utils/strings'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { UserBasicType } from '~/types'
+
+import { MemberSelectRow } from './MemberSelectRow'
 
 export type MemberSelectProps = {
     defaultLabel?: string
@@ -34,7 +29,7 @@ export function MemberSelect({
     children,
     ...buttonProps
 }: MemberSelectProps & Pick<LemonButtonProps, 'type' | 'size'>): JSX.Element {
-    const { meFirstMembers, filteredMembers, search, membersLoading } = useValues(membersLogic)
+    const { me, selectableMembers, meFirstMembers, search, membersLoading } = useValues(membersLogic)
     const { ensureAllMembersLoaded, setSearch } = useActions(membersLogic)
     const [showPopover, setShowPopover] = useState(false)
 
@@ -60,7 +55,7 @@ export function MemberSelect({
         }
     }, [showPopover]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    const selectableMembers = filteredMembers.filter((m) => !excludedMembers.includes(m.user[propToCompare]))
+    const members = selectableMembers(excludedMembers, propToCompare)
 
     return (
         <LemonDropdown
@@ -89,28 +84,18 @@ export function MemberSelect({
                             </li>
                         )}
 
-                        {selectableMembers.map((member) => (
-                            <li key={member.user.uuid}>
-                                <LemonButton
-                                    fullWidth
-                                    role="menuitem"
-                                    size="small"
-                                    icon={<ProfilePicture size="md" user={member.user} />}
-                                    onClick={() => _onChange(member.user)}
-                                >
-                                    <span className="flex items-center justify-between gap-2 flex-1">
-                                        <span>{fullName(member.user)}</span>
-                                        <span className="text-secondary">
-                                            {meFirstMembers[0] === member && `(you)`}
-                                        </span>
-                                    </span>
-                                </LemonButton>
-                            </li>
+                        {members.map((member) => (
+                            <MemberSelectRow
+                                key={member.user.uuid}
+                                member={member}
+                                isYou={member.user.uuid === me?.user.uuid}
+                                onClick={() => _onChange(member.user)}
+                            />
                         ))}
 
                         {membersLoading ? (
                             <div className="p-2 text-secondary italic truncate border-t">Loading...</div>
-                        ) : selectableMembers.length === 0 ? (
+                        ) : members.length === 0 ? (
                             <div className="p-2 text-secondary italic truncate border-t">
                                 {search ? <span>No matches</span> : <span>No users</span>}
                             </div>
@@ -126,7 +111,7 @@ export function MemberSelect({
                     {selectedMemberAsUser ? (
                         <span>
                             {fullName(selectedMemberAsUser)}
-                            {meFirstMembers[0].user.uuid === selectedMemberAsUser.uuid ? ` (you)` : ''}
+                            {me?.user.uuid === selectedMemberAsUser.uuid ? ` (you)` : ''}
                         </span>
                     ) : (
                         defaultLabel

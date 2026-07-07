@@ -1,3 +1,4 @@
+import { UNFILED_DASHBOARDS_FOLDER } from 'scenes/dashboard/dashboardConstants'
 import type { NewDashboardForm } from 'scenes/dashboard/newDashboardLogic'
 
 import type { DashboardTemplateType, DashboardTemplateVariableType } from '~/types'
@@ -53,6 +54,6 @@ export function runBlankDashboardFlow(ctx: { isLoading: boolean } & BlankDashboa
     ctx.addDashboard({
         name: 'New Dashboard',
         show: true,
-        _create_in_folder: 'Unfiled/Dashboards',
+        _create_in_folder: UNFILED_DASHBOARDS_FOLDER,
     })
 }

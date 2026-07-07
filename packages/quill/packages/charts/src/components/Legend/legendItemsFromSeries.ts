@@ -10,7 +10,7 @@ export function legendItemsFromSeries(series: ReadonlyArray<Series | ResolvedSer
             continue
         }
         const fallback = palette.length > 0 ? palette[i % palette.length] : '#000'
-        items.push({ key: s.key, label: s.label, color: s.color ?? fallback })
+        items.push({ key: s.key, label: s.label, color: s.color || fallback })
     }
     return items
 }

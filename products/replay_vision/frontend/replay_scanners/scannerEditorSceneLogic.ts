@@ -47,19 +47,35 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
         ],
         breadcrumbs: [
             (s) => [s.scannerId, s.isNew],
-            (scannerId: string, isNew: boolean): Breadcrumb[] => [
-                {
-                    key: 'replay-vision',
-                    name: 'Replay vision',
-                    path: urls.replayVision(),
-                    iconType: 'replay_vision',
-                },
-                {
-                    key: isNew ? 'new-scanner' : `scanner-${scannerId}`,
-                    name: isNew ? 'New scanner' : 'Scanner',
-                    path: urls.replayVision(scannerId),
-                },
-            ],
+            (scannerId: string, isNew: boolean): Breadcrumb[] => {
+                const crumbs: Breadcrumb[] = [
+                    {
+                        key: 'replay-vision',
+                        name: 'Replay vision',
+                        path: urls.replayVision(),
+                        iconType: 'replay_vision',
+                    },
+                ]
+                if (isNew) {
+                    crumbs.push({ key: 'new-scanner', name: 'New scanner', path: urls.replayVision('new') })
+                    return crumbs
+                }
+                // Editing an existing scanner: surface the detail page (on its Configuration tab, where the
+                // Edit button lives) as an intermediate crumb so the back arrow returns there, not to the list.
+                crumbs.push(
+                    {
+                        key: `scanner-${scannerId}`,
+                        name: 'Scanner',
+                        path: `${urls.replayVision(scannerId)}?tab=configuration`,
+                    },
+                    {
+                        key: `scanner-${scannerId}-edit`,
+                        name: 'Edit',
+                        path: urls.replayVisionScannerConfigure(scannerId),
+                    }
+                )
+                return crumbs
+            },
         ],
     }),
 

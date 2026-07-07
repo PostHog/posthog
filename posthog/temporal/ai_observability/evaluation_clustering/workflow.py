@@ -63,7 +63,6 @@ class AIObservabilityEvaluationSamplerWorkflow(PostHogWorkflow):
             window_end = window_end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
         max_samples = inputs.max_samples or SAMPLER_MAX_SAMPLES_PER_JOB
-        run_ts = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
         result = await workflow.execute_activity(
             sample_and_embed_for_job_activity,
@@ -71,7 +70,6 @@ class AIObservabilityEvaluationSamplerWorkflow(PostHogWorkflow):
                 team_id=inputs.team_id,
                 job_id=inputs.job_id,
                 job_name=inputs.job_name,
-                run_ts=run_ts,
                 window_start=window_start,
                 window_end=window_end,
                 max_samples=max_samples,

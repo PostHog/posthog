@@ -148,8 +148,8 @@ describe('DatabaseTablePreview', () => {
 
             useMocks({
                 post: {
-                    '/api/environments/:team/query/:kind': (req) => {
-                        const queryString = queryStringFromRequestBody(req.body)
+                    '/api/environments/:team/query/:kind': async ({ request }) => {
+                        const queryString = queryStringFromRequestBody(await request.json())
                         executedQueries.push(queryString)
 
                         const label = responseIndex === 0 ? 'first result' : 'second result'
@@ -200,8 +200,8 @@ describe('DatabaseTablePreview', () => {
 
         useMocks({
             post: {
-                '/api/environments/:team/query/:kind': (req) => {
-                    const queryString = queryStringFromRequestBody(req.body)
+                '/api/environments/:team/query/:kind': async ({ request }) => {
+                    const queryString = queryStringFromRequestBody(await request.json())
                     executedQueries.push(queryString)
 
                     return [

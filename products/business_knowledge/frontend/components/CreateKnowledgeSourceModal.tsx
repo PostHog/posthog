@@ -11,6 +11,7 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 
 import type { RefreshIntervalOption } from '../api'
 import { CreateTab, businessKnowledgeLogic } from '../scenes/businessKnowledgeLogic'
+import { AlwaysIncludeField } from './AlwaysIncludeField'
 import { CrawlConfigFields } from './CrawlConfigFields'
 import { CrawlModeHelp } from './CrawlModeHelp'
 
@@ -77,6 +78,7 @@ export function CreateKnowledgeSourceModal({
                                     Text is chunked paragraph-by-paragraph and stored in Postgres. The support agent can
                                     find it via SQL — no embeddings or vector DB in this stage.
                                 </p>
+                                <AlwaysIncludeField />
                             </Form>
                         ),
                     },
@@ -114,7 +116,7 @@ export function CreateKnowledgeSourceModal({
                                     />
                                 </LemonField>
                                 <CrawlModeHelp />
-                                <CrawlConfigFields crawlMode={urlSource.crawl_mode} />
+                                <CrawlConfigFields crawlMode={urlSource.crawl_mode} url={urlSource.url} />
                                 <LemonField
                                     name="refresh_interval"
                                     label="Auto-refresh"
@@ -122,6 +124,7 @@ export function CreateKnowledgeSourceModal({
                                 >
                                     <LemonSelect options={refreshIntervalOptions} />
                                 </LemonField>
+                                <AlwaysIncludeField />
                             </Form>
                         ),
                     },
@@ -153,6 +156,7 @@ export function CreateKnowledgeSourceModal({
                                     PDF, DOCX, Markdown, CSV, or plain text. Max 50 MB. The file is parsed into text and
                                     chunked — the original file is not stored.
                                 </p>
+                                <AlwaysIncludeField />
                             </Form>
                         ),
                     },

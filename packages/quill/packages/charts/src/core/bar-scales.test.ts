@@ -181,6 +181,50 @@ describe('hog-charts bar scales', () => {
         })
     })
 
+    describe('createBarScales — valuePadding (headroom past the bars)', () => {
+        const plotBottom = dimensions.plotTop + dimensions.plotHeight
+        const plotRight = dimensions.plotLeft + dimensions.plotWidth
+
+        it('holds back the requested px at the value-axis data end (vertical), baseline pinned', () => {
+            const series = [makeSeries({ key: 's1', data: [0, 50, 100] })]
+            const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions, { valuePadding: 40 })
+            // nice([0,100]) stays [0,100], so the data max lands exactly `padding` px below the top edge.
+            expect(value(100)).toBeCloseTo(dimensions.plotTop + 40)
+            expect(value(0)).toBeCloseTo(plotBottom)
+        })
+
+        it('holds back the requested px at the value-axis data end (horizontal)', () => {
+            const series = [makeSeries({ key: 's1', data: [0, 50, 100] })]
+            const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions, {
+                axisOrientation: 'horizontal',
+                valuePadding: 60,
+            })
+            expect(value(100)).toBeCloseTo(plotRight - 60)
+            expect(value(0)).toBeCloseTo(dimensions.plotLeft)
+        })
+
+        it('reserves at the negative extent end for all-negative data', () => {
+            const series = [makeSeries({ key: 's1', data: [-50, -100] })]
+            const { value } = createBarScales(series, ['a', 'b'], dimensions, { valuePadding: 40 })
+            // Bars grow down to -100, which lands `padding` px above the bottom edge; zero stays at top.
+            expect(value(-100)).toBeCloseTo(plotBottom - 40)
+            expect(value(0)).toBeCloseTo(dimensions.plotTop)
+        })
+
+        it('leaves the axis untouched when padding is 0 / omitted', () => {
+            const series = [makeSeries({ key: 's1', data: [0, 50, 100] })]
+            const withPadding = createBarScales(series, ['a', 'b', 'c'], dimensions, { valuePadding: 0 })
+            const without = createBarScales(series, ['a', 'b', 'c'], dimensions)
+            expect(withPadding.value(100)).toBeCloseTo(without.value(100))
+        })
+
+        it('caps the reserve at a third of the axis so it never swallows the plot', () => {
+            const series = [makeSeries({ key: 's1', data: [0, 100] })]
+            const { value } = createBarScales(series, ['a', 'b'], dimensions, { valuePadding: 100_000 })
+            expect(value(100)).toBeCloseTo(dimensions.plotTop + dimensions.plotHeight / 3)
+        })
+    })
+
     describe('createBarScales — valueDomain [min, max] (fixed)', () => {
         it.each([
             ['pins the domain regardless of data and skips nice()', undefined, [0, 40] as [number, number]],
@@ -306,11 +350,37 @@ describe('hog-charts bar scales', () => {
             expect(yAxes).toBeUndefined()
         })
 
-        it('ignores per-series axes for stacked layouts (shared axis only)', () => {
+        it('builds per-axis scales for stacked layouts (stacks are per-axis)', () => {
             const { yAxes } = createBarScales([smallSeries, largeSeries], ['a', 'b', 'c'], dimensions, {
                 barLayout: 'stacked',
             })
-            expect(yAxes).toBeUndefined()
+            expect(yAxes!.left.position).toBe('left')
+            expect(yAxes!.y1.position).toBe('right')
+            expect(yAxes!.left.scale(30)).toBeCloseTo(yAxes!.y1.scale(3000), 0)
+        })
+
+        it('honors explicit position and scaleType overrides from `axes`', () => {
+            const { yAxes } = createBarScales([smallSeries, largeSeries], ['a', 'b', 'c'], dimensions, {
+                barLayout: 'grouped',
+                axes: [
+                    { id: 'left', position: 'right' },
+                    { id: 'y1', position: 'left', scaleType: 'log' },
+                ],
+            })
+            expect(yAxes!.left.position).toBe('right')
+            expect(yAxes!.y1.position).toBe('left')
+            expect(yAxes!.left.scale.domain()[0]).toBe(0)
+            expect(yAxes!.y1.scale.domain()[0]).toBeGreaterThan(0)
+        })
+
+        it('produces a yAxes record for a sole axis explicitly positioned right', () => {
+            const series = [makeSeries({ key: 's1', data: [10, 20, 30], yAxisId: 'right' })]
+            const { yAxes, value } = createBarScales(series, ['a', 'b', 'c'], dimensions, {
+                barLayout: 'stacked',
+                axes: [{ id: 'right', position: 'right' }],
+            })
+            expect(yAxes!.right.position).toBe('right')
+            expect(value(30)).toBeCloseTo(yAxes!.right.scale(30), 5)
         })
     })
 })

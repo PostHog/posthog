@@ -1,11 +1,22 @@
 import React, { useMemo } from 'react'
 
-import { AxisLabels } from '../overlays/AxisLabels'
+import {
+    AxisLabels,
+    computeVisibleValueTicks,
+    computeVisibleXLabels,
+    computeVisibleYTicks,
+} from '../overlays/AxisLabels'
 import { AxisTitles } from '../overlays/AxisTitles'
 import { DefaultTooltip } from '../overlays/DefaultTooltip'
 import { Tooltip } from '../overlays/Tooltip'
 import { normalizeAxisLabel } from '../utils/axis-labels'
-import { composeDrawHoverWithCrosshair } from './canvas-renderer'
+import {
+    composeDrawHoverWithCrosshair,
+    composeDrawHoverWithSelection,
+    drawTickMarks,
+    resolveAxisLineColor,
+    type TickMarkCoords,
+} from './canvas-renderer'
 import { ChartHoverContext, ChartLayoutContext } from './chart-context'
 import type { ChartHoverContextValue, ChartLayoutContextValue } from './chart-context'
 import { ChartShell, countVisibleSeries, useCanvasBounds, useColoredSeries } from './chart-shell'
@@ -16,18 +27,21 @@ import { useChartMargins } from './hooks/useChartMargins'
 import { useLatest } from './hooks/useLatest'
 import { useResolvedYFormatter } from './hooks/useResolvedYFormatters'
 import { useStableResolveValue } from './hooks/useStableResolveValue'
+import { useYAxisMaps } from './hooks/useYAxisMaps'
 import type {
     ChartConfig,
     ChartDrawArgs,
     ChartScales,
     ChartTheme,
     CreateScalesFn,
+    DateRangeZoomData,
     DrawHoverResult,
     PointClickData,
     ResolveValueFn,
     Series,
     TooltipContext,
 } from './types'
+import { computeYAxisGutters, type Gutter } from './y-axis-gutters'
 
 const DEFAULT_AXIS_COLOR = 'rgba(0, 0, 0, 0.5)'
 const DEFAULT_HOVER_ANIMATION_MS = 150
@@ -55,6 +69,9 @@ export interface ChartProps<Meta = unknown> {
     drawHover: (args: ChartDrawArgs) => DrawHoverResult
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** Enables x-axis drag-to-zoom. Fired with the label range the user dragged across.
+     *  x-axis only — has no effect on charts with a vertical (`interactionAxis: 'y'`) interaction. */
+    onDateRangeZoom?: (data: DateRangeZoomData) => void
     className?: string
     dataAttr?: string
     children?: React.ReactNode
@@ -70,6 +87,9 @@ export interface ChartProps<Meta = unknown> {
      *  visual top of each segment, while each tooltip row still shows that series's own value
      *  via `resolveValue`. */
     resolvePositionValue?: ResolveValueFn
+    /** Resolves the stacked bottom value per series — used to compute segment midpoints for
+     *  tooltip closest-series detection. Only bar charts provide this. */
+    resolveBottomValue?: ResolveValueFn
     /** Required for horizontal orientation — maps labels to the coordinate on the categorical
      *  axis (y in horizontal mode). Should be referentially stable; non-stable identities
      *  invalidate the interaction memo on every render. */
@@ -83,6 +103,10 @@ export interface ChartProps<Meta = unknown> {
      *  cursor) before it reaches `onPointClick`, using the committed `scales` from this render.
      *  Chart-type adapters provide this; consumers do not. */
     wrapClickData?: (data: PointClickData<Meta>, scales: ChartScales) => PointClickData<Meta>
+    /** Chart-type seam: given the nearest band index and cursor, return the effective hover index — or
+     *  -1 to make the position a dead zone (no tooltip, pointer cursor, highlight, or click). Chart-type
+     *  adapters provide this; BarChart uses it for a capped track's blank volume gap. */
+    resolveHoverIndex?: (index: number, cursor: { x: number; y: number }, scales: ChartScales) => number
 }
 
 export function Chart<Meta = unknown>({
@@ -93,16 +117,19 @@ export function Chart<Meta = unknown>({
     createScales: createScalesFn,
     drawStatic,
     drawHover,
-    tooltip: renderTooltip = DefaultTooltip,
+    tooltip: renderTooltipProp,
     onPointClick,
+    onDateRangeZoom,
     className,
     dataAttr,
     children,
     resolveValue,
     resolvePositionValue,
+    resolveBottomValue,
     labelToCoord,
     valueRangeSeries,
     wrapClickData,
+    resolveHoverIndex,
 }: ChartProps<Meta>): React.ReactElement {
     const {
         xTickFormatter,
@@ -113,19 +140,61 @@ export function Chart<Meta = unknown>({
         yAxisLabel,
         tooltip: tooltipConfig,
         showCrosshair = false,
+        showTickMarks = false,
         axisOrientation = 'vertical',
         isPercent = false,
         animateHover,
         margins: marginsOverride,
         maxCategoryLabelWidth,
+        yAxes,
     } = config ?? {}
+
+    const {
+        formatters: yAxisFormatters,
+        positions: yAxisPositions,
+        titles: yAxisTitles,
+        hidden: yAxisHidden,
+    } = useYAxisMaps(yAxes, yAxisLabel)
     const hoverAnimationMs = resolveHoverAnimationMs(animateHover)
     const interactionAxis: 'x' | 'y' = axisOrientation === 'horizontal' ? 'y' : 'x'
     const {
         enabled: showTooltip = true,
         pinnable: pinnableTooltip = false,
+        resolveClickToNearestSeries = false,
         placement: tooltipPlacement = 'follow-data',
+        valueFormatter: tooltipValueFormatter,
+        labelFormatter: tooltipLabelFormatter,
+        showTotal: tooltipShowTotal,
+        totalLabel: tooltipTotalLabel,
+        totalFormatter: tooltipTotalFormatter,
+        sortedByValue: tooltipSortedByValue,
     } = tooltipConfig ?? {}
+
+    // No render prop: render DefaultTooltip with config.tooltip's formatters (all undefined → bare default).
+    const renderTooltip = useMemo<(ctx: TooltipContext<Meta>) => React.ReactNode>(
+        () =>
+            renderTooltipProp ??
+            ((ctx: TooltipContext<Meta>) => (
+                <DefaultTooltip
+                    {...ctx}
+                    valueFormatter={tooltipValueFormatter}
+                    labelFormatter={tooltipLabelFormatter}
+                    showTotal={tooltipShowTotal}
+                    totalLabel={tooltipTotalLabel}
+                    totalFormatter={tooltipTotalFormatter}
+                    sortedByValue={tooltipSortedByValue}
+                />
+            )),
+        [
+            renderTooltipProp,
+            tooltipValueFormatter,
+            tooltipLabelFormatter,
+            tooltipShowTotal,
+            tooltipTotalLabel,
+            tooltipTotalFormatter,
+            tooltipSortedByValue,
+        ]
+    )
 
     const margins = useChartMargins({
         series,
@@ -133,13 +202,16 @@ export function Chart<Meta = unknown>({
         hideXAxis,
         hideYAxis,
         xAxisLabel,
-        yAxisLabel,
         xTickFormatter,
         yTickFormatter,
         axisOrientation,
         override: marginsOverride,
         valueRangeSeries,
         maxCategoryLabelWidth,
+        yAxisFormatters,
+        yAxisPositions,
+        yAxisTitles,
+        yAxisHidden,
     })
 
     const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
@@ -155,7 +227,90 @@ export function Chart<Meta = unknown>({
 
     const resolvedYFormatter = useResolvedYFormatter(scales, yTickFormatter)
 
-    const { hoverIndex, hoverPosition, tooltipCtx, handlers } = useChartInteraction<Meta>({
+    // Computed once and shared with AxisLabels and AxisTitles via context so they can't drift.
+    const yGutters = useMemo<Gutter[]>(
+        () =>
+            !scales || hideYAxis || axisOrientation === 'horizontal'
+                ? []
+                : computeYAxisGutters(scales, {
+                      yTicks: scales.yTicks(),
+                      yTickFormatter: resolvedYFormatter,
+                      userYTickFormatter: yTickFormatter,
+                      yAxisFormatters,
+                      titles: yAxisTitles,
+                      hiddenAxes: yAxisHidden,
+                  }),
+        [
+            scales,
+            hideYAxis,
+            axisOrientation,
+            resolvedYFormatter,
+            yTickFormatter,
+            yAxisFormatters,
+            yAxisTitles,
+            yAxisHidden,
+        ]
+    )
+
+    // Mirrors AxisLabels' visible-label computation (same pure helpers, same inputs) so every tick
+    // mark sits next to a rendered label. Drawn on canvas rather than as DOM overlays so ticks share
+    // the axis/grid stroke snapping and can't drift a pixel against those lines.
+    const tickMarkCoords = useMemo<TickMarkCoords | null>(() => {
+        if (!showTickMarks || !scales || !dimensions) {
+            return null
+        }
+        if (axisOrientation === 'horizontal') {
+            const labelToY = labelToCoord ?? scales.x
+            const ys = hideYAxis
+                ? []
+                : labels
+                      .filter((label, i) => !xTickFormatter || xTickFormatter(label, i) !== null)
+                      .map((label) => labelToY(label))
+                      .filter((y): y is number => y != null && isFinite(y))
+                      .map((y) => ({ y, side: 'left' as const, offset: 0 }))
+            const xs = hideXAxis
+                ? []
+                : computeVisibleValueTicks(scales.yTicks(), scales.y, resolvedYFormatter).map((t) => t.x)
+            return { xs, ys }
+        }
+        const xs = hideXAxis
+            ? []
+            : computeVisibleXLabels(labels, scales.x, xTickFormatter, maxCategoryLabelWidth).map((l) => l.x)
+        const ys = yGutters.flatMap((gutter) =>
+            computeVisibleYTicks(gutter.ticks, gutter.scale)
+                .map((tick) => gutter.scale(tick))
+                .filter((y) => isFinite(y))
+                .map((y) => ({ y, side: gutter.side, offset: gutter.offset }))
+        )
+        return { xs, ys }
+    }, [
+        showTickMarks,
+        scales,
+        dimensions,
+        axisOrientation,
+        labels,
+        xTickFormatter,
+        maxCategoryLabelWidth,
+        yGutters,
+        hideXAxis,
+        hideYAxis,
+        resolvedYFormatter,
+        labelToCoord,
+    ])
+
+    const drawStaticWithTicks = useMemo(() => {
+        if (!tickMarkCoords) {
+            return drawStatic
+        }
+        // Shared with the chart types' drawAxes calls, so ticks match their axis line.
+        const tickColor = resolveAxisLineColor(theme)
+        return (args: ChartDrawArgs): void => {
+            drawStatic(args)
+            drawTickMarks(args.ctx, args.dimensions, tickMarkCoords, tickColor)
+        }
+    }, [drawStatic, tickMarkCoords, theme])
+
+    const { hoverIndex, hoverPosition, tooltipCtx, dragRect, handlers } = useChartInteraction<Meta>({
         scales,
         dimensions,
         labels,
@@ -164,26 +319,37 @@ export function Chart<Meta = unknown>({
         wrapperRef,
         showTooltip,
         pinnable: pinnableTooltip,
+        resolveClickToNearestSeries,
         onPointClick,
+        onDateRangeZoom,
         resolveValue,
         resolvePositionValue,
+        resolveBottomValue,
         interactionAxis,
         labelToCoord,
         wrapClickData,
+        resolveHoverIndex,
     })
 
     // ref keeps composedDrawHover stable across drawHover identity changes
     const drawHoverRef = useLatest(drawHover)
-    const composedDrawHover = useMemo(
-        () =>
-            composeDrawHoverWithCrosshair(() => drawHoverRef.current, {
-                crosshairColor: theme.crosshairColor,
-                showCrosshair,
-                axisOrientation,
-                labelToCoord,
-            }),
-        [showCrosshair, theme.crosshairColor, axisOrientation, labelToCoord, drawHoverRef.current]
-    )
+    const composedDrawHover = useMemo(() => {
+        const withCrosshair = composeDrawHoverWithCrosshair(() => drawHoverRef.current, {
+            crosshairColor: theme.crosshairColor,
+            crosshairDash: theme.crosshairDashPattern,
+            showCrosshair,
+            axisOrientation,
+            labelToCoord,
+        })
+        return composeDrawHoverWithSelection(withCrosshair)
+    }, [
+        showCrosshair,
+        theme.crosshairColor,
+        theme.crosshairDashPattern,
+        axisOrientation,
+        labelToCoord,
+        drawHoverRef.current,
+    ])
 
     useChartDraw({
         ctx,
@@ -195,7 +361,8 @@ export function Chart<Meta = unknown>({
         hoverIndex,
         hoverPosition,
         theme,
-        drawStatic,
+        dragRect,
+        drawStatic: drawStaticWithTicks,
         drawHover: composedDrawHover,
         hoverAnimationMs,
     })
@@ -238,8 +405,9 @@ export function Chart<Meta = unknown>({
             resolvePositionValue: stablePositionValue,
             canvasBounds,
             axis: axisValue,
+            yGutters,
         }
-    }, [scales, dimensions, labels, coloredSeries, theme, stablePositionValue, canvasBounds, axisValue])
+    }, [scales, dimensions, labels, coloredSeries, theme, stablePositionValue, canvasBounds, axisValue, yGutters])
 
     const hoverValue = useMemo<ChartHoverContextValue>(() => ({ hoverIndex }), [hoverIndex])
 
@@ -253,6 +421,7 @@ export function Chart<Meta = unknown>({
                     className={className}
                     dataAttr={dataAttr}
                     pointer={hoverIndex >= 0 && !!onPointClick}
+                    crosshair={!!onDateRangeZoom}
                     ariaLabel={ariaLabel}
                     handlers={handlers}
                     showOverlay={!!(dimensions && scales)}
@@ -260,7 +429,6 @@ export function Chart<Meta = unknown>({
                     <AxisLabels
                         xTickFormatter={xTickFormatter}
                         yTickFormatter={resolvedYFormatter}
-                        userYTickFormatter={yTickFormatter}
                         hideXAxis={hideXAxis}
                         hideYAxis={hideYAxis}
                         axisColor={axisColor}
@@ -273,6 +441,7 @@ export function Chart<Meta = unknown>({
                         yAxisLabel={yAxisLabel}
                         hideXAxis={hideXAxis}
                         hideYAxis={hideYAxis}
+                        orientation={axisOrientation}
                         axisColor={axisColor}
                     />
 

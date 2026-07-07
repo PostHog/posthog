@@ -1,4 +1,4 @@
-import { hexToRGBA } from 'lib/utils'
+import { hexToRGBA } from 'lib/utils/colors'
 
 import type { CurrencyCode, GoalLine as SchemaGoalLine, TrendsFilter } from '~/queries/schema/schema-general'
 
@@ -41,7 +41,7 @@ describe('buildTrendsBarTimeSeries', () => {
         }
     )
 
-    // The inlined hex dimming must match lib/utils' hexToRGBA for valid hex (incl. 3-digit shorthand);
+    // The shared dimHexColor must match lib/utils' hexToRGBA for valid hex (incl. 3-digit shorthand);
     // a non-hex color is passed through unchanged (the one intentional divergence from hexToRGBA).
     it.each([
         { base: '#ff0000', expected: hexToRGBA('#ff0000', 0.5) },
@@ -384,21 +384,6 @@ describe('buildTrendsBarChartModel', () => {
         expect(model.series[0].data).toEqual([1, 2, 3])
         expect(model.series[0].color).toBe(RED)
         expect(model.config.barLayout).toBe('stacked')
-    })
-
-    it.each([
-        { isGrouped: false, isPercentStackView: false, expected: 'stacked' },
-        { isGrouped: true, isPercentStackView: false, expected: 'grouped' },
-        { isGrouped: false, isPercentStackView: true, expected: 'percent' },
-        { isGrouped: true, isPercentStackView: true, expected: 'percent' },
-    ])('maps layout flags to barLayout=$expected', ({ isGrouped, isPercentStackView, expected }) => {
-        const model = buildTrendsBarChartModel(results, {
-            getColor: () => RED,
-            labels: [],
-            isGrouped,
-            isPercentStackView,
-        })
-        expect(model.config.barLayout).toBe(expected)
     })
 
     it('forwards an x-axis tick formatter into the config', () => {

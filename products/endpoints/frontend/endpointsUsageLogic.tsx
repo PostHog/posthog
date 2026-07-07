@@ -3,7 +3,7 @@ import { router, urlToAction } from 'kea-router'
 
 import { dayjs } from 'lib/dayjs'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import { dateStringToDayJs } from 'lib/utils'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { urls } from 'scenes/urls'
 
 import {

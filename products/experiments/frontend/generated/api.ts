@@ -9,23 +9,28 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ArchiveExperimentApi,
     CopyExperimentToProjectApi,
     CreateFromPromptInputApi,
     EndExperimentApi,
     ExperimentApi,
     ExperimentHoldoutApi,
     ExperimentHoldoutsListParams,
+    ExperimentMetricsRecalculationApi,
     ExperimentSavedMetricApi,
     ExperimentSavedMetricsListParams,
     ExperimentsListParams,
     ExperimentsPromptTemplatesRetrieve200Item,
     ExperimentsTimeseriesResultsRetrieveParams,
+    PaginatedExperimentBasicListApi,
     PaginatedExperimentHoldoutListApi,
-    PaginatedExperimentListApi,
     PaginatedExperimentSavedMetricListApi,
     PatchedExperimentApi,
     PatchedExperimentHoldoutApi,
     PatchedExperimentSavedMetricApi,
+    RecalculateMetricsRequestApi,
+    RunningTimeCalculationInputApi,
+    RunningTimeCalculationResultApi,
     ShipVariantApi,
 } from './api.schemas'
 
@@ -289,8 +294,8 @@ export const experimentsList = async (
     projectId: string,
     params?: ExperimentsListParams,
     options?: RequestInit
-): Promise<PaginatedExperimentListApi> => {
-    return apiMutator<PaginatedExperimentListApi>(getExperimentsListUrl(projectId, params), {
+): Promise<PaginatedExperimentBasicListApi> => {
+    return apiMutator<PaginatedExperimentBasicListApi>(getExperimentsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -402,17 +407,22 @@ export const getExperimentsArchiveCreateUrl = (projectId: string, id: number) =>
  * Archive an ended experiment.
  *
  * Hides the experiment from the default list view. The experiment can be
- * restored at any time by updating archived=false. Returns 400 if the
- * experiment is already archived or has not ended yet.
+ * restored at any time by updating archived=false. When the linked feature
+ * flag is still enabled, pass disable_feature_flag=true to also disable and
+ * archive it. Returns 400 if the experiment is already archived or has not
+ * ended yet.
  */
 export const experimentsArchiveCreate = async (
     projectId: string,
     id: number,
+    archiveExperimentApi?: ArchiveExperimentApi,
     options?: RequestInit
 ): Promise<ExperimentApi> => {
     return apiMutator<ExperimentApi>(getExperimentsArchiveCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(archiveExperimentApi),
     })
 }
 
@@ -421,11 +431,7 @@ export const getExperimentsCopyToProjectCreateUrl = (projectId: string, id: numb
 }
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
- *
- * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
- * on serializer methods and converts them into proper HTTP 409 Conflict responses with
- * change request details.
+ * Copy an experiment into another project in the same organization as a new draft.
  */
 export const experimentsCopyToProjectCreate = async (
     projectId: string,
@@ -554,6 +560,88 @@ export const experimentsLaunchCreate = async (
         ...options,
         method: 'POST',
     })
+}
+
+export const getExperimentsMetricsRecalculationCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/metrics_recalculation/`
+}
+
+/**
+ * Trigger a batch recalculation of all metrics for this experiment.
+ *
+ * Returns 201 with the new pending recalculation, or 200 with the active one if a recalculation is
+ * already pending or in progress for this experiment. The response payload intentionally does not
+ * include the `results` array — at POST time the workflow has just been queued and no per-metric
+ * results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
+ * progresses.
+ */
+export const experimentsMetricsRecalculationCreate = async (
+    projectId: string,
+    id: number,
+    recalculateMetricsRequestApi?: RecalculateMetricsRequestApi,
+    options?: RequestInit
+): Promise<ExperimentMetricsRecalculationApi> => {
+    return apiMutator<ExperimentMetricsRecalculationApi>(getExperimentsMetricsRecalculationCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(recalculateMetricsRequestApi),
+    })
+}
+
+export const getExperimentsMetricsRecalculationRetrieveUrl = (
+    projectId: string,
+    id: number,
+    recalculationId: string
+) => {
+    return `/api/projects/${projectId}/experiments/${id}/metrics_recalculation/${recalculationId}/`
+}
+
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
+ */
+export const experimentsMetricsRecalculationRetrieve = async (
+    projectId: string,
+    id: number,
+    recalculationId: string,
+    options?: RequestInit
+): Promise<ExperimentMetricsRecalculationApi> => {
+    return apiMutator<ExperimentMetricsRecalculationApi>(
+        getExperimentsMetricsRecalculationRetrieveUrl(projectId, id, recalculationId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getExperimentsMetricsRecalculationLatestRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/metrics_recalculation/latest/`
+}
+
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
+ */
+export const experimentsMetricsRecalculationLatestRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentMetricsRecalculationApi> => {
+    return apiMutator<ExperimentMetricsRecalculationApi>(
+        getExperimentsMetricsRecalculationLatestRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getExperimentsPauseCreateUrl = (projectId: string, id: number) => {
@@ -751,6 +839,30 @@ export const experimentsUnarchiveCreate = async (
     return apiMutator<ExperimentApi>(getExperimentsUnarchiveCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getExperimentsCalculateRunningTimeCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/experiments/calculate_running_time/`
+}
+
+/**
+ * Estimate the recommended sample size and running time for an experiment.
+ *
+ * Pure statistical calculation — does not read or write any experiment. Pass the metric type, a
+ * minimum detectable effect, and either a baseline value or raw baseline statistics. When
+ * `exposure_rate_per_day` is provided, the response also includes the estimated running time in days.
+ */
+export const experimentsCalculateRunningTimeCreate = async (
+    projectId: string,
+    runningTimeCalculationInputApi: RunningTimeCalculationInputApi,
+    options?: RequestInit
+): Promise<RunningTimeCalculationResultApi> => {
+    return apiMutator<RunningTimeCalculationResultApi>(getExperimentsCalculateRunningTimeCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(runningTimeCalculationInputApi),
     })
 }
 

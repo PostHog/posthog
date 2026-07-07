@@ -10,8 +10,9 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.slack_app.backend.api import SLACK_USER_PROFILE_TTL, lookup_slack_user_id_by_email, resolve_slack_user
+from products.slack_app.backend.api import resolve_slack_user
 from products.slack_app.backend.models import SlackUserProfileCache
+from products.slack_app.backend.services.slack_user_info import SLACK_USER_PROFILE_TTL, lookup_slack_user_id_by_email
 
 
 class TestResolveSlackUser:

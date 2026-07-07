@@ -9,8 +9,8 @@ import api from 'lib/api'
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { isDomain } from 'lib/utils'
 import { apiHostOrigin } from 'lib/utils/apiHost'
+import { isDomain } from 'lib/utils/url'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -339,8 +339,12 @@ export const proxyLogic = kea<proxyLogicType>([
             },
         },
     })),
-    afterMount(({ actions, cache }) => {
-        actions.loadRecords()
+    afterMount(({ actions, values, cache }) => {
+        // Only fetch when authenticated and the org is loaded — otherwise the GET fires without a
+        // valid session and 401s, polluting error tracking.
+        if (values.user && values.currentOrganizationId) {
+            actions.loadRecords()
+        }
         cache.disposables.add(() => {
             const timerId = setInterval(() => actions.maybeRefreshRecords(), 5000)
             return () => clearInterval(timerId)

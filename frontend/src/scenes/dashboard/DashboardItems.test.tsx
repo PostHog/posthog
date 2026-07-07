@@ -161,6 +161,7 @@ describe('DashboardItems', () => {
                         sm: [{ i: '1', x: 0, y: 0, w: 6, h: 5 }],
                     },
                     dashboardMode: DashboardMode.Edit,
+                    layoutEditMode: true,
                     placement: DashboardPlacement.Dashboard,
                     isRefreshingQueued: () => false,
                     isRefreshing: () => false,

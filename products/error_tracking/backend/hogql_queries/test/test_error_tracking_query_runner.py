@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from freezegun import freeze_time
 from posthog.test.base import (
-    APIBaseTest,
     ClickhouseTestMixin,
+    NonAtomicBaseTestKeepIdentities,
     _create_event,
     _create_person,
     flush_persons_and_events,
@@ -32,9 +32,10 @@ from posthog.schema import (
     PropertyOperator,
 )
 
-from posthog.models import Organization, Team, User
+from posthog.clickhouse.client import sync_execute
 from posthog.models.utils import uuid7
 
+from products.error_tracking.backend.hogql_queries.error_tracking_query_builder import ErrorTrackingQueryBuilder
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import search_tokenizer
 from products.error_tracking.backend.models import (
@@ -42,27 +43,14 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
     override_error_tracking_issue_fingerprint,
+    sync_issues_to_clickhouse,
     update_error_tracking_issue_fingerprints,
 )
 
 from ee.models.rbac.role import Role
 
 
-class ErrorTrackingQueryRunnerTestsMixin:
-    __test__ = False
-
-    use_v2: bool = False
-    use_v3: bool = False
-
-    # will be provided by inheritance from PostHogTestCase
-    team: Team
-    user: User
-    organization: Organization
-
-    def assertEqual(
-        self, first: object, second: object, msg: object = None
-    ) -> None: ...  # will be provided by inheritance from TestCase
-
+class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIdentities):
     distinct_id_one = "user_1"
     distinct_id_two = "user_2"
 
@@ -83,11 +71,13 @@ class ErrorTrackingQueryRunnerTestsMixin:
         override_error_tracking_issue_fingerprint(
             team_id=self.team.pk, fingerprint=fingerprint, issue_id=issue_id, version=version
         )
+        # reflect the new fingerprint -> issue mapping in the denormalized ClickHouse table
+        sync_issues_to_clickhouse(issue_ids=[issue_id], team_id=self.team.pk)
 
     def create_issue(self, issue_id, fingerprint, name=None, status=ErrorTrackingIssue.Status.ACTIVE):
         issue = ErrorTrackingIssue.objects.create(id=issue_id, team=self.team, status=status, name=name)
         ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
-
+        sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=self.team.pk)
         return issue
 
     def create_events_and_issue(
@@ -121,6 +111,8 @@ class ErrorTrackingQueryRunnerTestsMixin:
                 person_id=person_id,
             )
 
+        sync_issues_to_clickhouse(issue_ids=[issue_id], team_id=self.team.pk)
+
     @classmethod
     def setUpClass(cls) -> None:
         from ee.clickhouse.materialized_columns.columns import get_materialized_columns, materialize
@@ -129,10 +121,10 @@ class ErrorTrackingQueryRunnerTestsMixin:
         for property_name in ("$exception_issue_id", "$exception_types", "$exception_values"):
             if (property_name, "properties") not in materialized_columns:
                 materialize("events", property_name, is_nullable=property_name == "$exception_issue_id")
-        super(ErrorTrackingQueryRunnerTestsMixin, cls).setUpClass()  # type: ignore[misc] # noqa: UP008
+        super().setUpClass()
 
     def setUp(self):
-        super(ErrorTrackingQueryRunnerTestsMixin, self).setUp()  # type: ignore[misc] # noqa: UP008
+        super().setUp()
 
         with freeze_time("2020-01-10 12:11:00"):
             _create_person(
@@ -172,6 +164,9 @@ class ErrorTrackingQueryRunnerTestsMixin:
             )
 
         flush_persons_and_events()
+        # test fixtures write each person row twice at the same version; collapse them so the
+        # person join (test-account filter, person-property search) doesn't fan out count()
+        sync_execute("OPTIMIZE TABLE person FINAL")
 
     def _calculate(
         self,
@@ -209,71 +204,98 @@ class ErrorTrackingQueryRunnerTestsMixin:
                     personId=personId,
                     groupKey=groupKey,
                     groupTypeIndex=groupTypeIndex,
-                    useQueryV2=self.use_v2,
-                    useQueryV3=self.use_v3,
                 ),
             )
             .calculate()
             .model_dump()
         )
 
+    @parameterized.expand(
+        [
+            (
+                "default",
+                {},
+                [
+                    "id",
+                    "status",
+                    "name",
+                    "description",
+                    "assignee_user_id",
+                    "assignee_role_id",
+                    "first_seen",
+                    "last_seen",
+                    "function",
+                    "source",
+                    "library",
+                ],
+            ),
+            (
+                "with_aggregations",
+                {"withAggregations": True},
+                [
+                    "id",
+                    "status",
+                    "name",
+                    "description",
+                    "assignee_user_id",
+                    "assignee_role_id",
+                    "first_seen",
+                    "last_seen",
+                    "function",
+                    "source",
+                    "occurrences",
+                    "sessions",
+                    "users",
+                    "volumeRange",
+                    "library",
+                ],
+            ),
+            (
+                "with_first_event",
+                {"withFirstEvent": True},
+                [
+                    "id",
+                    "status",
+                    "name",
+                    "description",
+                    "assignee_user_id",
+                    "assignee_role_id",
+                    "first_seen",
+                    "last_seen",
+                    "function",
+                    "source",
+                    "first_event",
+                    "library",
+                ],
+            ),
+            (
+                "with_aggregations_and_first_event",
+                {"withAggregations": True, "withFirstEvent": True},
+                [
+                    "id",
+                    "status",
+                    "name",
+                    "description",
+                    "assignee_user_id",
+                    "assignee_role_id",
+                    "first_seen",
+                    "last_seen",
+                    "function",
+                    "source",
+                    "occurrences",
+                    "sessions",
+                    "users",
+                    "volumeRange",
+                    "first_event",
+                    "library",
+                ],
+            ),
+        ]
+    )
     @freeze_time("2022-01-10T12:11:00")
-    @snapshot_clickhouse_queries
-    def test_column_names(self):
-        columns = self._calculate()["columns"]
-        self.assertEqual(
-            columns,
-            ["id", "last_seen", "first_seen", "function", "source", "library"],
-        )
-
-        columns = self._calculate(withAggregations=True)["columns"]
-        self.assertEqual(
-            columns,
-            [
-                "id",
-                "last_seen",
-                "first_seen",
-                "function",
-                "source",
-                "occurrences",
-                "sessions",
-                "users",
-                "volumeRange",
-                "library",
-            ],
-        )
-
-        columns = self._calculate(withFirstEvent=True)["columns"]
-        self.assertEqual(
-            columns,
-            [
-                "id",
-                "last_seen",
-                "first_seen",
-                "function",
-                "source",
-                "first_event",
-                "library",
-            ],
-        )
-
-        columns = self._calculate(issueId=self.issue_id_one, withAggregations=True, withFirstEvent=True)["columns"]
-        self.assertEqual(
-            columns,
-            [
-                "id",
-                "last_seen",
-                "first_seen",
-                "function",
-                "source",
-                "occurrences",
-                "sessions",
-                "users",
-                "volumeRange",
-                "first_event",
-                "library",
-            ],
-        )
+    def test_column_names(self, _name, kwargs, expected_columns):
+        columns = self._calculate(**kwargs)["columns"]
+        self.assertEqual(columns, expected_columns)
 
     @freeze_time("2022-01-10T12:11:00")
     def test_date_range_resolution(self):
@@ -281,6 +303,20 @@ class ErrorTrackingQueryRunnerTestsMixin:
         date_to = ErrorTrackingQueryRunner.parse_relative_date_to("+1d")
         self.assertEqual(date_from, datetime(2022, 1, 9, 12, 11, 0, tzinfo=ZoneInfo(key="UTC")))
         self.assertEqual(date_to, datetime(2022, 1, 11, 12, 11, 0, tzinfo=ZoneInfo(key="UTC")))
+
+    def test_event_fetching_defaults_off(self):
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(),
+                orderBy="last_seen",  # pyright: ignore[reportArgumentType]
+                volumeResolution=1,
+            ),
+        )
+        self.assertFalse(runner.query.withFirstEvent)
+        self.assertFalse(runner.query.withLastEvent)
+        self.assertTrue(runner.query.withAggregations)
 
     @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
@@ -420,24 +456,28 @@ class ErrorTrackingQueryRunnerTestsMixin:
     @freeze_time("2022-01-10 12:11:00")
     @snapshot_clickhouse_queries
     def test_correctly_counts_session_ids(self):
+        common_properties = {
+            "$exception_issue_id": self.issue_id_one,
+            "$exception_fingerprint": self.issue_one_fingerprint,
+        }
         _create_event(
             distinct_id=self.distinct_id_one,
             event="$exception",
             team=self.team,
-            properties={"$session_id": str(uuid7()), "$exception_issue_id": self.issue_id_one},
+            properties={"$session_id": str(uuid7()), **common_properties},
         )
         _create_event(
             distinct_id=self.distinct_id_one,
             event="$exception",
             team=self.team,
-            properties={"$session_id": str(uuid7()), "$exception_issue_id": self.issue_id_one},
+            properties={"$session_id": str(uuid7()), **common_properties},
         )
         # blank string
         _create_event(
             distinct_id=self.distinct_id_one,
             event="$exception",
             team=self.team,
-            properties={"$session_id": "", "$exception_issue_id": self.issue_id_one},
+            properties={"$session_id": "", **common_properties},
         )
         flush_persons_and_events()
 
@@ -484,11 +524,12 @@ class ErrorTrackingQueryRunnerTestsMixin:
         self.assertEqual([r["id"] for r in results], [self.issue_id_one, self.issue_id_two, self.issue_id_three])
 
     @freeze_time("2022-01-10T12:11:00")
-    @snapshot_clickhouse_queries
     def test_status(self):
         resolved_issue = ErrorTrackingIssue.objects.get(id=self.issue_id_one)
         resolved_issue.status = ErrorTrackingIssue.Status.RESOLVED
         resolved_issue.save()
+        # re-sync after status change
+        sync_issues_to_clickhouse(issue_ids=[self.issue_id_one], team_id=self.team.pk)
 
         results = self._calculate(status="active")["results"]
         self.assertEqual([r["id"] for r in results], [self.issue_id_three, self.issue_id_two])
@@ -517,7 +558,6 @@ class ErrorTrackingQueryRunnerTestsMixin:
         self.assertEqual(results[1]["aggregations"]["occurrences"], 1)
 
     @freeze_time("2022-01-10T12:11:00")
-    @snapshot_clickhouse_queries
     def test_user_assignee(self):
         issue_id = "e9ac529f-ac1c-4a96-bd3a-107034368d64"
         self.create_events_and_issue(
@@ -527,12 +567,14 @@ class ErrorTrackingQueryRunnerTestsMixin:
         )
         flush_persons_and_events()
         ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, user=self.user, team=self.team)
+        # re-sync with a newer version so the assignment wins argMax over the create-time row
+        with freeze_time("2022-01-10T12:11:05"):
+            sync_issues_to_clickhouse(issue_ids=[issue_id], team_id=self.team.pk)
 
         results = self._calculate(assignee={"type": "user", "id": self.user.pk})["results"]
         self.assertEqual([x["id"] for x in results], [issue_id])
 
     @freeze_time("2022-01-10T12:11:00")
-    @snapshot_clickhouse_queries
     def test_role_assignee(self):
         issue_id = "e9ac529f-ac1c-4a96-bd3a-107034368d64"
         self.create_events_and_issue(
@@ -543,9 +585,36 @@ class ErrorTrackingQueryRunnerTestsMixin:
         flush_persons_and_events()
         role = Role.objects.create(name="Test Team", organization=self.organization)
         ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, role=role, team=self.team)
+        # re-sync with a newer version so the assignment wins argMax over the create-time row
+        with freeze_time("2022-01-10T12:11:05"):
+            sync_issues_to_clickhouse(issue_ids=[issue_id], team_id=self.team.pk)
 
         results = self._calculate(assignee={"type": "role", "id": str(role.id)})["results"]
         self.assertEqual([x["id"] for x in results], [issue_id])
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_unassignment_clears_assignee(self):
+        # Reproduces argMax(field, version) NULL-skip behavior: writing a newer
+        # row with assigned_user_id=NULL must not let the query return the prior
+        # non-NULL user_id.
+        issue_id = "e9ac529f-ac1c-4a96-bd3a-107034368d64"
+        self.create_events_and_issue(
+            issue_id=issue_id, fingerprint="unassign_issue_fingerprint", distinct_ids=[self.distinct_id_one]
+        )
+        flush_persons_and_events()
+
+        assignment = ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, user=self.user, team=self.team)
+        with freeze_time("2022-01-10T12:11:01"):
+            sync_issues_to_clickhouse(issue_ids=[issue_id], team_id=self.team.pk)
+
+        assignment.delete()
+        with freeze_time("2022-01-10T12:11:02"):
+            sync_issues_to_clickhouse(issue_ids=[issue_id], team_id=self.team.pk)
+
+        results = self._calculate()["results"]
+        matching = [r for r in results if r["id"] == issue_id]
+        self.assertEqual(len(matching), 1)
+        self.assertIsNone(matching[0]["assignee"])
 
     @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
@@ -566,6 +635,145 @@ class ErrorTrackingQueryRunnerTestsMixin:
             )
         )["results"]
         self.assertEqual(len(results), 1)
+
+    @parameterized.expand(
+        [
+            (
+                "or_returns_union",
+                FilterLogicalOperator.OR_,
+                # issue_one (TypeError) and issue_two (ReferenceError) both match
+                [True, True, False],
+            ),
+            (
+                "and_returns_intersection",
+                FilterLogicalOperator.AND_,
+                # No issue has both names — AND yields empty
+                [False, False, False],
+            ),
+        ]
+    )
+    @freeze_time("2022-01-10T12:11:00")
+    def test_filter_group_operator(self, _name, operator: FilterLogicalOperator, expected_membership: list[bool]):
+        results = self._calculate(
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=operator,
+                        values=[
+                            ErrorTrackingIssueFilter(
+                                key="name", value=[self.issue_name_one], operator=PropertyOperator.EXACT
+                            ),
+                            ErrorTrackingIssueFilter(
+                                key="name", value=[self.issue_name_two], operator=PropertyOperator.EXACT
+                            ),
+                        ],
+                    )
+                ],
+            )
+        )["results"]
+        result_ids = {r["id"] for r in results}
+        expected_ids = {
+            issue_id
+            for issue_id, included in zip(
+                [self.issue_id_one, self.issue_id_two, self.issue_id_three], expected_membership
+            )
+            if included
+        }
+        self.assertEqual(result_ids, expected_ids)
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_nested_filter_group_routes_issue_filters_to_issue_fields(self):
+        filter_group = PropertyGroupFilter(
+            type=FilterLogicalOperator.AND_,
+            values=[
+                PropertyGroupFilterValue(
+                    type=FilterLogicalOperator.AND_,
+                    values=[
+                        PropertyGroupFilterValue(
+                            type=FilterLogicalOperator.OR_,
+                            values=[
+                                EventPropertyFilter(key="$browser", value=["Firefox"], operator=PropertyOperator.EXACT),
+                                EventPropertyFilter(key="$browser", value=["Chrome"], operator=PropertyOperator.EXACT),
+                                ErrorTrackingIssueFilter(
+                                    key="name", value=[self.issue_name_one], operator=PropertyOperator.EXACT
+                                ),
+                            ],
+                        ),
+                        EventPropertyFilter(
+                            key="$exception_issue_id", value=[self.issue_id_one], operator=PropertyOperator.EXACT
+                        ),
+                    ],
+                )
+            ],
+        )
+
+        builder = ErrorTrackingQueryBuilder(
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(date_from="-7d"),
+                filterGroup=filter_group,
+                orderBy="last_seen",
+                volumeResolution=1,
+            ),
+            team=self.team,
+            date_from=datetime(2022, 1, 3, tzinfo=UTC),
+            date_to=datetime(2022, 1, 10, tzinfo=UTC),
+        )
+        user_filter_expr = builder._user_filter_expr()
+        assert user_filter_expr is not None
+        user_filter_hogql = user_filter_expr.to_hogql()
+        self.assertIn("e.issue_name", user_filter_hogql)
+        self.assertNotIn("properties.name", user_filter_hogql)
+
+        results = self._calculate(filterGroup=filter_group)["results"]
+        self.assertEqual([r["id"] for r in results], [self.issue_id_one])
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_event_filter_group_operator(self):
+        firefox_issue_id = "01936e80-aa51-746f-aec4-cdf16a5c5333"
+        chrome_issue_id = "01936e80-aa51-746f-aec4-cdf16a5c5334"
+        safari_issue_id = "01936e80-aa51-746f-aec4-cdf16a5c5335"
+        self.create_events_and_issue(
+            issue_id=firefox_issue_id,
+            fingerprint="firefox_issue_fingerprint",
+            distinct_ids=[self.distinct_id_one],
+            additional_properties={"$browser": "Firefox"},
+        )
+        self.create_events_and_issue(
+            issue_id=chrome_issue_id,
+            fingerprint="chrome_issue_fingerprint",
+            distinct_ids=[self.distinct_id_one],
+            additional_properties={"$browser": "Chrome"},
+        )
+        self.create_events_and_issue(
+            issue_id=safari_issue_id,
+            fingerprint="safari_issue_fingerprint",
+            distinct_ids=[self.distinct_id_one],
+            additional_properties={"$browser": "Safari"},
+        )
+        flush_persons_and_events()
+
+        browser_filters = [
+            EventPropertyFilter(key="$browser", value=["Firefox"], operator=PropertyOperator.EXACT),
+            EventPropertyFilter(key="$browser", value=["Chrome"], operator=PropertyOperator.EXACT),
+        ]
+
+        or_results = self._calculate(
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[PropertyGroupFilterValue(type=FilterLogicalOperator.OR_, values=browser_filters)],
+            )
+        )["results"]
+        self.assertEqual({result["id"] for result in or_results}, {firefox_issue_id, chrome_issue_id})
+
+        and_results = self._calculate(
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=browser_filters)],
+            )
+        )["results"]
+        self.assertEqual([result["id"] for result in and_results], [])
 
     @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
@@ -737,12 +945,8 @@ class ErrorTrackingQueryRunnerTestsMixin:
         ## Make sure occurrences are correct
         first_aggregations = results[0]["aggregations"]
         self.assertEqual(sum(first_aggregations["volumeRange"]), 24 * 5)
-        self.assertEqual(first_aggregations["volumeRange"], [60, 60, 0, 0])
-
-
-class TestErrorTrackingQueryRunner(ErrorTrackingQueryRunnerTestsMixin, ClickhouseTestMixin, APIBaseTest):
-    __test__ = True
-    use_v2 = False
+        # bins are left-closed [start, end), so events on an exact bin boundary land in the next bin
+        self.assertEqual(first_aggregations["volumeRange"], [55, 60, 5, 0])
 
     @parameterized.expand(["issueId", "personId"])
     def test_rejects_malformed_uuid_params(self, field):
@@ -761,52 +965,6 @@ class TestErrorTrackingQueryRunner(ErrorTrackingQueryRunnerTestsMixin, Clickhous
             ),
         )
         self.assertEqual(runner.query.issueId, "01936e7f-d7ff-7314-b2d4-7627981e34f0")
-
-    @freeze_time("2022-01-10T12:11:00")
-    def test_event_filter_group_operator(self):
-        firefox_issue_id = "01936e80-aa51-746f-aec4-cdf16a5c5333"
-        chrome_issue_id = "01936e80-aa51-746f-aec4-cdf16a5c5334"
-        safari_issue_id = "01936e80-aa51-746f-aec4-cdf16a5c5335"
-        self.create_events_and_issue(
-            issue_id=firefox_issue_id,
-            fingerprint="firefox_issue_fingerprint",
-            distinct_ids=[self.distinct_id_one],
-            additional_properties={"$browser": "Firefox"},
-        )
-        self.create_events_and_issue(
-            issue_id=chrome_issue_id,
-            fingerprint="chrome_issue_fingerprint",
-            distinct_ids=[self.distinct_id_one],
-            additional_properties={"$browser": "Chrome"},
-        )
-        self.create_events_and_issue(
-            issue_id=safari_issue_id,
-            fingerprint="safari_issue_fingerprint",
-            distinct_ids=[self.distinct_id_one],
-            additional_properties={"$browser": "Safari"},
-        )
-        flush_persons_and_events()
-
-        browser_filters = [
-            EventPropertyFilter(key="$browser", value=["Firefox"], operator=PropertyOperator.EXACT),
-            EventPropertyFilter(key="$browser", value=["Chrome"], operator=PropertyOperator.EXACT),
-        ]
-
-        or_results = self._calculate(
-            filterGroup=PropertyGroupFilter(
-                type=FilterLogicalOperator.AND_,
-                values=[PropertyGroupFilterValue(type=FilterLogicalOperator.OR_, values=browser_filters)],
-            )
-        )["results"]
-        self.assertEqual({result["id"] for result in or_results}, {firefox_issue_id, chrome_issue_id})
-
-        and_results = self._calculate(
-            filterGroup=PropertyGroupFilter(
-                type=FilterLogicalOperator.AND_,
-                values=[PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=browser_filters)],
-            )
-        )["results"]
-        self.assertEqual([result["id"] for result in and_results], [])
 
 
 class TestSearchTokenizer(TestCase):

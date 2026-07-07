@@ -1,11 +1,14 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
+
+import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { initKeaTests } from '~/test/init'
+import type { UserType } from '~/types'
 
 import { ACCOUNTS_HOGQL_DATA_NODE_KEY } from '../../constants'
 import { accountsLogic } from './accountsLogic'
@@ -23,6 +26,9 @@ describe('AccountsTabFilters', () => {
             },
         })
         initKeaTests()
+        // The shared "my accounts" (mineOnly) toggle persists to localStorage; clear it so a
+        // value set by one test can't bleed into the next (which would pre-check the checkbox).
+        localStorage.clear()
         logic = accountsLogic()
         logic.mount()
     })
@@ -30,6 +36,7 @@ describe('AccountsTabFilters', () => {
     afterEach(() => {
         logic.unmount()
         cleanup()
+        localStorage.clear()
     })
 
     function renderFilters(): void {
@@ -45,27 +52,57 @@ describe('AccountsTabFilters', () => {
         )
     }
 
-    // Regression: the role pickers used to resolve the selected member's name from the
-    // lazily-loaded org members list, so a filter restored from the URL showed "Any CSM"
-    // until the dropdown was opened — the list was filtered but the control looked empty.
-    it('reflects a restored role filter without the members list being loaded', () => {
-        logic.actions.setCsmFilter([42])
+    function myAccountsCheckbox(): HTMLInputElement {
+        return screen.getByText('My accounts').closest('.LemonCheckbox')!.querySelector('input')!
+    }
+
+    it('renders the "My accounts" checkbox', () => {
         renderFilters()
 
-        expect(screen.getByText('1 CSM')).toBeInTheDocument()
-        expect(screen.queryByText('Any CSM')).not.toBeInTheDocument()
+        expect(screen.getByText('My accounts')).toBeInTheDocument()
+        expect(myAccountsCheckbox().checked).toBe(false)
     })
 
-    it('summarizes multiple selected members as a count', () => {
-        logic.actions.setAccountExecutiveFilter([1, 2, 3])
+    it('reflects a restored my-accounts filter as checked', () => {
+        userLogic.actions.loadUserSuccess({ id: 42 } as unknown as UserType)
+        logic.actions.setAssignedToCurrentUser(true)
         renderFilters()
 
-        expect(screen.getByText('3 AEs')).toBeInTheDocument()
+        expect(myAccountsCheckbox().checked).toBe(true)
     })
 
-    it('shows the default label when no role is selected', () => {
+    it('clicking it enables the my-accounts filter (resolved to the current user id)', () => {
+        userLogic.actions.loadUserSuccess({ id: 42 } as unknown as UserType)
         renderFilters()
 
-        expect(screen.getByText('Any Owner')).toBeInTheDocument()
+        fireEvent.click(myAccountsCheckbox())
+
+        expect(logic.values.assignedToFilter).toEqual([42])
+        expect(logic.values.assignedToCurrentUser).toBe(true)
+    })
+
+    it('renders the "Assigned to" picker with its default label', () => {
+        renderFilters()
+
+        expect(screen.getByText('Assigned to anyone')).toBeInTheDocument()
+    })
+
+    // Regression: the picker must summarize a URL-restored filter from the id count
+    // alone, without waiting on the lazily-loaded org members list — otherwise the
+    // control looks empty (the default label) until the dropdown is opened.
+    it('reflects a restored assigned-to filter as a count', () => {
+        logic.actions.setAssignedToFilter([1, 2])
+        renderFilters()
+
+        expect(screen.getByText('Assigned to 2 people')).toBeInTheDocument()
+        expect(screen.queryByText('Assigned to anyone')).not.toBeInTheDocument()
+    })
+
+    it('labels the assigned-to picker "Unassigned" when unassigned-only is active', () => {
+        logic.actions.setAllRolesUnassigned(true)
+        renderFilters()
+
+        expect(screen.getByText('Unassigned')).toBeInTheDocument()
+        expect(screen.queryByText('Assigned to anyone')).not.toBeInTheDocument()
     })
 })

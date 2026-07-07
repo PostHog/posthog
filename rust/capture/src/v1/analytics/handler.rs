@@ -1,22 +1,21 @@
 use axum::body::Body;
-use axum::extract::{MatchedPath, Query as AxumQuery, State};
+use axum::extract::{MatchedPath, RawQuery, State};
 use axum::http::{header, HeaderMap, Method};
 use axum::response::IntoResponse;
 use axum_client_ip::InsecureClientIp;
 
 use super::constants::{CAPTURE_V1_PATH, CAPTURE_V1_PATH_TRAILING};
-use super::query::Query;
+use super::context::Context;
 use super::types::Batch;
 use tracing::Level;
 
 use crate::v1::constants::*;
-use crate::v1::context::Context;
 use crate::{ctx_log, log_stat_error, router, v1};
 
 pub async fn handle_request(
     state: State<router::State>,
     headers: HeaderMap,
-    query: AxumQuery<Query>,
+    RawQuery(raw_query): RawQuery,
     ip: InsecureClientIp,
     method: Method,
     path: MatchedPath,
@@ -30,8 +29,16 @@ pub async fn handle_request(
             CAPTURE_V1_PATH
         }
     };
-    let mut context = Context::new(&headers, &ip, &query, method.clone(), static_path)
-        .map_err(|err| log_and_return_header_error(err, &headers, &ip, &query, &method, &path))?;
+    let mut context = Context::new(
+        &headers,
+        &ip,
+        raw_query.clone(),
+        method.clone(),
+        static_path,
+    )
+    .map_err(|err| {
+        log_and_return_header_error(err, &headers, &ip, raw_query.as_deref(), &method, &path)
+    })?;
 
     // TODO: purposely chatty, for now
     ctx_log!(Level::INFO, context, "handle_request called");
@@ -68,7 +75,7 @@ pub async fn handle_request(
         err
     })?;
 
-    metrics::histogram!(CAPTURE_V1_PAYLOAD_SIZE, "stage" => "compressed")
+    metrics::histogram!(CAPTURE_V1_PAYLOAD_SIZE, "stage" => "compressed", "encoding" => v1::util::encoding_tag(context.content_encoding.as_deref()))
         .record(raw_bytes.len() as f64);
 
     let payload = v1::util::decompress_payload(
@@ -83,7 +90,7 @@ pub async fn handle_request(
         err
     })?;
 
-    metrics::histogram!(CAPTURE_V1_PAYLOAD_SIZE, "stage" => "decompressed")
+    metrics::histogram!(CAPTURE_V1_PAYLOAD_SIZE, "stage" => "decompressed", "encoding" => v1::util::encoding_tag(context.content_encoding.as_deref()))
         .record(payload.len() as f64);
 
     let batch: Batch = serde_json::from_slice(&payload).map_err(|e| {
@@ -110,7 +117,7 @@ fn log_and_return_header_error(
     err: v1::Error,
     headers: &HeaderMap,
     ip: &InsecureClientIp,
-    query: &AxumQuery<Query>,
+    raw_query: Option<&str>,
     method: &Method,
     path: &MatchedPath,
 ) -> v1::Error {
@@ -136,7 +143,7 @@ fn log_and_return_header_error(
             content_encoding = %content_encoding,
             client_ip = %ip.0,
             method = %method,
-            query = ?query.0,
+            query = ?raw_query,
             path = %path.as_str(),
             "{}", msg
         ),
@@ -151,12 +158,12 @@ fn log_and_return_header_error(
             content_encoding = %content_encoding,
             client_ip = %ip.0,
             method = %method,
-            query = ?query.0,
+            query = ?raw_query,
             path = %path.as_str(),
             "{}", msg
         ),
     }
-    err.stat_error(None::<&Context>);
+    err.stat_error(None::<&crate::v1::context::RequestContext>);
     err
 }
 

@@ -3,13 +3,12 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { addProjectIdIfMissing } from 'lib/utils/router-utils'
+import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
-import { NodeKind, TracesQuery } from '~/queries/schema/schema-general'
+import { NodeKind, SessionQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { PropertyFilterType } from '~/types'
 
 import { aiObservabilitySessionLogic } from './aiObservabilitySessionLogic'
 
@@ -135,22 +134,17 @@ describe('aiObservabilitySessionLogic', () => {
     })
 
     describe('query selector', () => {
-        it('generates correct TracesQuery with session ID filter', async () => {
+        it('generates correct SessionQuery with session ID', async () => {
             logic.actions.setSessionId('test-session-123')
             await expectLogic(logic).toFinishAllListeners()
 
             const query = logic.values.query
-            const source = query.source as TracesQuery
+            const source = query.source as SessionQuery
 
             expect(query.kind).toBe(NodeKind.DataTableNode)
-            expect(source.kind).toBe(NodeKind.TracesQuery)
-            expect(source.properties).toHaveLength(1)
-            expect(source.properties![0]).toEqual({
-                type: PropertyFilterType.Event,
-                key: '$ai_session_id',
-                operator: 'exact',
-                value: 'test-session-123',
-            })
+            expect(source.kind).toBe(NodeKind.SessionQuery)
+            expect(source.sessionId).toBe('test-session-123')
+            expect(source.includeSentiment).toBe(true)
         })
 
         it('includes date range in query when dateRange is set', async () => {
@@ -159,7 +153,7 @@ describe('aiObservabilitySessionLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             const query = logic.values.query
-            const source = query.source as TracesQuery
+            const source = query.source as SessionQuery
 
             expect(source.dateRange).toEqual({
                 date_from: '2024-01-01T00:00:00Z',
@@ -173,7 +167,7 @@ describe('aiObservabilitySessionLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             const query = logic.values.query
-            const source = query.source as TracesQuery
+            const source = query.source as SessionQuery
 
             expect(source.dateRange?.date_from).toBe('2024-01-01T00:00:00Z')
             // date_to is optional when only date_from is provided
@@ -185,7 +179,7 @@ describe('aiObservabilitySessionLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             const query = logic.values.query
-            const source = query.source as TracesQuery
+            const source = query.source as SessionQuery
 
             // When no explicit dateRange is set, the query should not have a dateRange
             // (it will use the global dateFilter from parent logic when displayed)
@@ -197,15 +191,15 @@ describe('aiObservabilitySessionLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             let query = logic.values.query
-            let source = query.source as TracesQuery
-            expect(source.properties![0].value).toBe('session-1')
+            let source = query.source as SessionQuery
+            expect(source.sessionId).toBe('session-1')
 
             logic.actions.setSessionId('session-2')
             await expectLogic(logic).toFinishAllListeners()
 
             query = logic.values.query
-            source = query.source as TracesQuery
-            expect(source.properties![0].value).toBe('session-2')
+            source = query.source as SessionQuery
+            expect(source.sessionId).toBe('session-2')
         })
     })
 
@@ -279,8 +273,8 @@ describe('aiObservabilitySessionLogic', () => {
 
             // Query should reflect both values
             const query = logic.values.query
-            const source = query.source as TracesQuery
-            expect(source.properties![0].value).toBe(sessionId)
+            const source = query.source as SessionQuery
+            expect(source.sessionId).toBe(sessionId)
             expect(source.dateRange?.date_from).toBe(timestamp)
         })
 

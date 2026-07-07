@@ -4,21 +4,23 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
+import { MessageTemplate } from 'products/posthog_ai/frontend/api/primitives'
+
 import { maxWebAnalyticsNudgeLogic } from '../logics/maxWebAnalyticsNudgeLogic'
 import { maxLogic, ThreadMessage } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
-import { MessageTemplate } from '../messages/MessageTemplate'
 
 export interface MaxWebAnalyticsNudgeProps {
     message: ThreadMessage
+    messageId: string
 }
 
-export function MaxWebAnalyticsNudge({ message }: MaxWebAnalyticsNudgeProps): JSX.Element | null {
+export function MaxWebAnalyticsNudge({ message, messageId }: MaxWebAnalyticsNudgeProps): JSX.Element | null {
     const { threadGrouped, isSharedThread, threadLoading, conversation } = useValues(maxThreadLogic)
     const { conversationId } = useValues(maxLogic)
 
     const logic = maxWebAnalyticsNudgeLogic({
-        messageId: message.id ?? conversationId ?? 'nudge',
+        messageId,
         threadGrouped,
         isCompleted: message.status === 'completed' && !threadLoading,
         isSharedThread,

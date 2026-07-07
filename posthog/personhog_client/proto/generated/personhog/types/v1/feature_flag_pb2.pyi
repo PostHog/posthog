@@ -98,11 +98,13 @@ class UpsertHashKeyOverridesResponse(_message.Message):
     def __init__(self, inserted_count: _Optional[int] = ...) -> None: ...
 
 class DeleteHashKeyOverridesByTeamsRequest(_message.Message):
-    __slots__ = ("team_ids",)
+    __slots__ = ("team_ids", "batch_size")
     TEAM_IDS_FIELD_NUMBER: _ClassVar[int]
+    BATCH_SIZE_FIELD_NUMBER: _ClassVar[int]
     team_ids: _containers.RepeatedScalarFieldContainer[int]
+    batch_size: int
 
-    def __init__(self, team_ids: _Optional[_Iterable[int]] = ...) -> None: ...
+    def __init__(self, team_ids: _Optional[_Iterable[int]] = ..., batch_size: _Optional[int] = ...) -> None: ...
 
 class DeleteHashKeyOverridesByTeamsResponse(_message.Message):
     __slots__ = ("deleted_count",)

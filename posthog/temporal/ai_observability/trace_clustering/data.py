@@ -25,6 +25,9 @@ from posthog.temporal.ai_observability.trace_clustering.models import (
     ItemId,
     ItemSummaries,
 )
+from posthog.temporal.ai_observability.trace_summarization.constants import EMBEDDING_DOCUMENT_ID_JOB_DELIMITER
+
+from products.ai_observability.backend.summarization.models import SummarizationMode
 
 logger = structlog.get_logger(__name__)
 
@@ -45,8 +48,21 @@ def fetch_item_embeddings_for_clustering(
     """Query item IDs and embeddings from document_embeddings table.
 
     Two paths:
-    - job_id present: filter by rendering suffix (batch_run_id = {team}_{ts}_{job_id})
+    - job_id present: scope to one ClusteringJob via ``metadata.job_id``
     - no job_id: return all embeddings for the document type (legacy/unfiltered)
+
+    Each embedding's ``document_id`` is ``{item_id}::{job_id}`` (Stage A scopes it per job so
+    overlapping jobs don't collapse on the ReplacingMergeTree key — see
+    EMBEDDING_DOCUMENT_ID_JOB_DELIMITER). We strip it back to the bare ``item_id`` here and dedupe,
+    so a trace summarized by several jobs yields one clustering item. Pre-suffix rows carry a bare
+    id and pass through unchanged.
+
+    The ``batch_run_id`` used to pair each embedding with its summary event now lives in the
+    embedding's ``metadata`` JSON (read via JSONExtractString); ``rendering`` is just the
+    summary mode. Transitional fallbacks keep pre-migration rows working: the job filter also
+    suffix-matches the legacy ``rendering = {team}_{ts}_{job_id}`` form, and the batch_run_id
+    falls back to ``rendering`` when ``metadata.batch_run_id`` is absent. Both fallbacks can be
+    dropped once the table's 3-month TTL has cycled out all pre-migration rows.
     """
     document_type = (
         constants.LLMA_GENERATION_DOCUMENT_TYPE
@@ -57,14 +73,14 @@ def fetch_item_embeddings_for_clustering(
     if job_id:
         query = parse_select(
             """
-            SELECT document_id, embedding, rendering
+            SELECT document_id, embedding, rendering, JSONExtractString(metadata, 'batch_run_id') AS meta_batch_run_id
             FROM raw_document_embeddings
             WHERE timestamp >= {start_dt}
                 AND timestamp < {end_dt}
                 AND product = {product}
                 AND document_type = {document_type}
                 AND length(embedding) > 0
-                AND endsWith(rendering, {job_id_suffix})
+                AND (JSONExtractString(metadata, 'job_id') = {job_id} OR endsWith(rendering, {job_id_suffix}))
             ORDER BY rand()
             LIMIT {max_samples}
             """
@@ -72,7 +88,7 @@ def fetch_item_embeddings_for_clustering(
     else:
         query = parse_select(
             """
-            SELECT document_id, embedding, rendering
+            SELECT document_id, embedding, rendering, JSONExtractString(metadata, 'batch_run_id') AS meta_batch_run_id
             FROM raw_document_embeddings
             WHERE timestamp >= {start_dt}
                 AND timestamp < {end_dt}
@@ -96,6 +112,7 @@ def fetch_item_embeddings_for_clustering(
     }
 
     if job_id:
+        placeholders["job_id"] = ast.Constant(value=job_id)
         placeholders["job_id_suffix"] = ast.Constant(value=f"_{job_id}")
     else:
         placeholders["document_type_legacy"] = ast.Constant(value=constants.LLMA_TRACE_DOCUMENT_TYPE_LEGACY)
@@ -124,22 +141,32 @@ def fetch_item_embeddings_for_clustering(
     embeddings_map: ItemEmbeddings = {}
     batch_run_ids_map: ItemBatchRunIds = {}
 
-    # Legacy rendering values that are NOT batch_run_ids
-    legacy_rendering_values = {
+    # `rendering` values that are NOT batch_run_ids: the current summary-mode enum plus the older
+    # legacy render modes. A row whose rendering is one of these and whose metadata lacks a
+    # batch_run_id contributes no pairing key, so fetch_item_summaries accepts any matching summary.
+    non_batch_run_id_renderings = {
         constants.LLMA_TRACE_RENDERING_LEGACY,  # "llma_trace_detailed"
-        "llma_trace_minimal",  # Other legacy mode
+        "llma_trace_minimal",  # legacy minimal rendering
+        *(mode.value for mode in SummarizationMode),  # current rendering values
     }
 
     for row in rows:
-        item_id = row[0]
-        item_ids.append(item_id)
+        # document_id is `{item_id}::{job_id}` (or a bare id for pre-suffix rows). Strip back to the
+        # item id; ids contain no ":", so a single split recovers it. Dedupe so a trace summarized
+        # by multiple jobs (or a bare + suffixed row in transition) yields one clustering item.
+        item_id = row[0].split(EMBEDDING_DOCUMENT_ID_JOB_DELIMITER, 1)[0]
+        if item_id not in embeddings_map:
+            item_ids.append(item_id)
         embeddings_map[item_id] = row[1]
 
-        # Only store as batch_run_id if it's not a legacy rendering constant
-        # Legacy embeddings have rendering like "llma_trace_detailed"
-        # New embeddings have rendering = batch_run_id (e.g., "1_2025-12-13T...")
+        # batch_run_id now lives in metadata; prefer it. Pre-migration rows carry it in
+        # `rendering` instead (rendering = batch_run_id, e.g. "1_2025-12-13T..._job"), so fall
+        # back to rendering when it isn't one of the known mode values.
         rendering_value = row[2]
-        if rendering_value and rendering_value not in legacy_rendering_values:
+        meta_batch_run_id = row[3]
+        if meta_batch_run_id:
+            batch_run_ids_map[item_id] = meta_batch_run_id
+        elif rendering_value and rendering_value not in non_batch_run_id_renderings:
             batch_run_ids_map[item_id] = rendering_value
 
     return item_ids, embeddings_map, batch_run_ids_map

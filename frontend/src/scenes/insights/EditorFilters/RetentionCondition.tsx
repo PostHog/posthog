@@ -7,7 +7,7 @@ import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/le
 
 import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { getOrdinalSuffix } from 'lib/utils'
+import { getOrdinalSuffix } from 'lib/utils/strings'
 import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { getRetentionPropertyFilterGroupTypes } from 'scenes/insights/utils/propertyTaxonomicGroupTypes'

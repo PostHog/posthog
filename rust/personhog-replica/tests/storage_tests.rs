@@ -309,6 +309,141 @@ async fn test_check_cohort_membership() {
     ctx.cleanup().await.ok();
 }
 
+async fn cohort_row_count(pool: &sqlx::PgPool, cohort_id: i64, person_ids: &[i64]) -> i64 {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM posthog_cohortpeople WHERE cohort_id = $1 AND person_id = ANY($2)",
+    )
+    .bind(cohort_id)
+    .bind(person_ids)
+    .fetch_one(pool)
+    .await
+    .expect("count cohort rows")
+}
+
+// Idempotency across the concurrent chunked insert: a re-send of the full list (the retry /
+// partial-failure recovery case) must skip already-present members and never duplicate rows.
+#[rstest]
+#[case::all_new(0, 120)]
+#[case::retry_after_partial(70, 50)]
+#[case::full_retry(120, 0)]
+#[tokio::test]
+async fn test_insert_cohort_members_idempotent(
+    #[case] prior: usize,
+    #[case] expected_inserted: i64,
+) {
+    let ctx = TestContext::new().await;
+    let cohort_id: i64 = 7700;
+
+    // 120 persons exercises the concurrent chunk path (bulk_chunk_size = 50 → 3 chunks).
+    let mut person_ids = Vec::new();
+    for i in 0..120 {
+        let p = ctx
+            .insert_person(&format!("cohort_insert_{i}@example.com"), None)
+            .await
+            .expect("insert person");
+        person_ids.push(p.id);
+    }
+
+    // Seed `prior` members to simulate a prior partial commit that a retry re-sends in full.
+    for &pid in &person_ids[..prior] {
+        ctx.add_person_to_cohort(pid, cohort_id)
+            .await
+            .expect("seed prior members");
+    }
+
+    let inserted = ctx
+        .storage
+        .insert_cohort_members(cohort_id, &person_ids, Some(1))
+        .await
+        .expect("insert cohort members");
+
+    // Only the not-yet-present members are inserted; NOT EXISTS skips the rest.
+    assert_eq!(inserted, expected_inserted);
+    // Exactly one row per person — no duplicates, regardless of prior state or chunk fan-out.
+    assert_eq!(
+        cohort_row_count(&ctx.pool, cohort_id, &person_ids).await,
+        120
+    );
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_persons_clears_cohort_memberships() {
+    // posthog_cohortpeople has no FK to posthog_person (no DB cascade), so the
+    // per-person DeletePersons path must clear memberships itself.
+    let ctx = TestContext::new().await;
+    let cohort_id: i64 = 8800;
+    let person = ctx
+        .insert_person("cohort_delete@example.com", None)
+        .await
+        .expect("insert person");
+    ctx.add_person_to_cohort(person.id, cohort_id)
+        .await
+        .expect("add person to cohort");
+    assert_eq!(
+        cohort_row_count(&ctx.pool, cohort_id, &[person.id]).await,
+        1
+    );
+
+    let deleted = ctx
+        .storage
+        .delete_persons(ctx.team_id, &[person.uuid])
+        .await
+        .expect("delete persons");
+
+    assert_eq!(deleted, 1);
+    assert_eq!(
+        cohort_row_count(&ctx.pool, cohort_id, &[person.id]).await,
+        0
+    );
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_persons_batch_for_team_leaves_cohort_memberships() {
+    // The team-teardown path clears cohortpeople separately, by cohort, before
+    // deleting persons — so delete_persons_batch_for_team must NOT touch it.
+    let ctx = TestContext::new().await;
+    let cohort_id: i64 = 8801;
+    let person = ctx
+        .insert_person("cohort_batch_delete@example.com", None)
+        .await
+        .expect("insert person");
+    ctx.add_person_to_cohort(person.id, cohort_id)
+        .await
+        .expect("add person to cohort");
+    assert_eq!(
+        cohort_row_count(&ctx.pool, cohort_id, &[person.id]).await,
+        1
+    );
+
+    let deleted = ctx
+        .storage
+        .delete_persons_batch_for_team(ctx.team_id, 1000)
+        .await
+        .expect("delete persons batch for team");
+
+    assert_eq!(deleted, 1);
+    // Intentionally still present — the batch path leaves cohortpeople for the
+    // by-cohort sweep in the team-teardown orchestration.
+    assert_eq!(
+        cohort_row_count(&ctx.pool, cohort_id, &[person.id]).await,
+        1
+    );
+
+    // The person is gone, so the standard cleanup (which scopes by team's persons)
+    // won't reach this now-orphaned row; remove it explicitly.
+    sqlx::query("DELETE FROM posthog_cohortpeople WHERE cohort_id = $1 AND person_id = $2")
+        .bind(cohort_id)
+        .bind(person.id)
+        .execute(&ctx.pool)
+        .await
+        .ok();
+    ctx.cleanup().await.ok();
+}
+
 #[tokio::test]
 async fn test_person_properties() {
     let ctx = TestContext::new().await;
@@ -876,7 +1011,7 @@ async fn test_delete_hash_key_overrides_by_teams_single_team() {
     // Delete by team
     let deleted_count = ctx
         .storage
-        .delete_hash_key_overrides_by_teams(&[ctx.team_id])
+        .delete_hash_key_overrides_by_teams(&[ctx.team_id], 1000)
         .await
         .expect("Failed to delete hash key overrides");
 
@@ -906,7 +1041,7 @@ async fn test_delete_hash_key_overrides_by_teams_empty_returns_zero() {
 
     let deleted_count = ctx
         .storage
-        .delete_hash_key_overrides_by_teams(&[])
+        .delete_hash_key_overrides_by_teams(&[], 1000)
         .await
         .expect("Failed to delete hash key overrides");
 
@@ -921,11 +1056,79 @@ async fn test_delete_hash_key_overrides_by_teams_nonexistent_team() {
 
     let deleted_count = ctx
         .storage
-        .delete_hash_key_overrides_by_teams(&[999999999])
+        .delete_hash_key_overrides_by_teams(&[999999999], 1000)
         .await
         .expect("Failed to delete hash key overrides");
 
     assert_eq!(deleted_count, 0);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_hash_key_overrides_by_teams_bounded_by_batch_size() {
+    let ctx = TestContext::new().await;
+
+    let person = ctx
+        .insert_person("bounded_del_user", None)
+        .await
+        .expect("Failed to insert person");
+    for i in 0..5 {
+        ctx.insert_hash_key_override(person.id, &format!("flag-{i}"), "hash")
+            .await
+            .unwrap();
+    }
+
+    // batch_size=2 deletes 2 of the 5, then the loop drains the rest.
+    let deleted = ctx
+        .storage
+        .delete_hash_key_overrides_by_teams(&[ctx.team_id], 2)
+        .await
+        .expect("Failed to delete hash key overrides");
+    assert_eq!(deleted, 2);
+
+    let deleted = ctx
+        .storage
+        .delete_hash_key_overrides_by_teams(&[ctx.team_id], 2)
+        .await
+        .expect("Failed to delete hash key overrides");
+    assert_eq!(deleted, 2);
+
+    let deleted = ctx
+        .storage
+        .delete_hash_key_overrides_by_teams(&[ctx.team_id], 2)
+        .await
+        .expect("Failed to delete hash key overrides");
+    assert_eq!(deleted, 1);
+
+    let deleted = ctx
+        .storage
+        .delete_hash_key_overrides_by_teams(&[ctx.team_id], 2)
+        .await
+        .expect("Failed to delete hash key overrides");
+    assert_eq!(deleted, 0);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_hash_key_overrides_by_teams_zero_batch_size() {
+    let ctx = TestContext::new().await;
+
+    let person = ctx
+        .insert_person("zero_batch_user", None)
+        .await
+        .expect("Failed to insert person");
+    ctx.insert_hash_key_override(person.id, "flag-1", "hash")
+        .await
+        .unwrap();
+
+    let deleted = ctx
+        .storage
+        .delete_hash_key_overrides_by_teams(&[ctx.team_id], 0)
+        .await
+        .expect("Failed to delete hash key overrides");
+    assert_eq!(deleted, 0);
 
     ctx.cleanup().await.ok();
 }
@@ -1073,6 +1276,130 @@ async fn test_delete_persons_batch_for_team_cross_team_isolation() {
         .execute(&ctx.pool)
         .await
         .ok();
+    ctx.cleanup().await.ok();
+}
+
+// ============================================================
+// Delete personless distinct IDs batch for team tests
+// ============================================================
+
+#[tokio::test]
+async fn test_delete_personless_distinct_ids_batch_for_team() {
+    let ctx = TestContext::new().await;
+
+    ctx.insert_personless_distinct_id("personless_1")
+        .await
+        .unwrap();
+    ctx.insert_personless_distinct_id("personless_2")
+        .await
+        .unwrap();
+    ctx.insert_personless_distinct_id("personless_3")
+        .await
+        .unwrap();
+
+    // batch_size=2 deletes 2 of the 3 rows.
+    let deleted = ctx
+        .storage
+        .delete_personless_distinct_ids_batch_for_team(ctx.team_id, 2)
+        .await
+        .expect("Failed to delete personless distinct IDs batch");
+    assert_eq!(deleted, 2);
+
+    // The remaining row is deleted next.
+    let deleted = ctx
+        .storage
+        .delete_personless_distinct_ids_batch_for_team(ctx.team_id, 2)
+        .await
+        .expect("Failed to delete personless distinct IDs batch");
+    assert_eq!(deleted, 1);
+
+    // Nothing left.
+    let deleted = ctx
+        .storage
+        .delete_personless_distinct_ids_batch_for_team(ctx.team_id, 2)
+        .await
+        .expect("Failed to delete personless distinct IDs batch");
+    assert_eq!(deleted, 0);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_personless_distinct_ids_batch_for_team_empty() {
+    let ctx = TestContext::new().await;
+
+    let deleted = ctx
+        .storage
+        .delete_personless_distinct_ids_batch_for_team(ctx.team_id, 1000)
+        .await
+        .expect("Failed to delete personless distinct IDs batch");
+    assert_eq!(deleted, 0);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_personless_distinct_ids_batch_for_team_cross_team_isolation() {
+    let ctx = TestContext::new().await;
+
+    ctx.insert_personless_distinct_id("team_a_personless")
+        .await
+        .unwrap();
+
+    // Insert a personless distinct ID for a different team directly.
+    let other_team_id = ctx.team_id + 1;
+    sqlx::query(
+        r#"INSERT INTO posthog_personlessdistinctid
+        (distinct_id, team_id, is_merged, created_at)
+        VALUES ($1, $2, false, NOW())
+        ON CONFLICT DO NOTHING"#,
+    )
+    .bind("team_b_personless")
+    .bind(other_team_id)
+    .execute(&ctx.pool)
+    .await
+    .unwrap();
+
+    let deleted = ctx
+        .storage
+        .delete_personless_distinct_ids_batch_for_team(ctx.team_id, 1000)
+        .await
+        .expect("Failed to delete personless distinct IDs batch");
+    assert_eq!(deleted, 1);
+
+    // The other team's row should remain.
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM posthog_personlessdistinctid WHERE team_id = $1")
+            .bind(other_team_id)
+            .fetch_one(&ctx.pool)
+            .await
+            .unwrap();
+    assert_eq!(remaining, 1);
+
+    sqlx::query("DELETE FROM posthog_personlessdistinctid WHERE team_id = $1")
+        .bind(other_team_id)
+        .execute(&ctx.pool)
+        .await
+        .ok();
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_personless_distinct_ids_batch_for_team_zero_batch_size() {
+    let ctx = TestContext::new().await;
+
+    ctx.insert_personless_distinct_id("personless_zero")
+        .await
+        .unwrap();
+
+    // A non-positive batch size deletes nothing.
+    let deleted = ctx
+        .storage
+        .delete_personless_distinct_ids_batch_for_team(ctx.team_id, 0)
+        .await
+        .expect("Failed to delete personless distinct IDs batch");
+    assert_eq!(deleted, 0);
+
     ctx.cleanup().await.ok();
 }
 
@@ -1952,6 +2279,704 @@ async fn test_list_groups_without_properties() {
         assert!(g.properties_last_updated_at.is_none());
         assert!(g.properties_last_operation.is_none());
     }
+
+    ctx.cleanup().await.ok();
+}
+
+// ============================================================
+// split_person storage tests
+// ============================================================
+
+#[tokio::test]
+async fn test_split_person_empty_distinct_ids() {
+    let ctx = TestContext::new().await;
+    let person = ctx
+        .insert_person("original@example.com", None)
+        .await
+        .unwrap();
+
+    let results = ctx
+        .storage
+        .split_person(ctx.team_id, person.id, &[])
+        .await
+        .expect("Empty split should succeed");
+
+    assert!(results.is_empty());
+    ctx.cleanup().await.ok();
+}
+
+#[rstest]
+#[case::single_split(1)]
+#[case::two_splits(2)]
+#[case::five_splits(5)]
+#[tokio::test]
+async fn test_split_person_creates_new_persons(#[case] num_splits: usize) {
+    let ctx = TestContext::new().await;
+    let person = ctx.insert_person("keeper@example.com", None).await.unwrap();
+
+    let mut split_dids = Vec::new();
+    for i in 0..num_splits {
+        let did = format!("split_{i}@example.com");
+        ctx.add_distinct_id_to_person(person.id, &did)
+            .await
+            .unwrap();
+        split_dids.push(did);
+    }
+
+    let results = ctx
+        .storage
+        .split_person(ctx.team_id, person.id, &split_dids)
+        .await
+        .expect("Split should succeed");
+
+    assert_eq!(results.len(), num_splits);
+
+    for (i, result) in results.iter().enumerate() {
+        // Results come back in request order
+        assert_eq!(result.distinct_id, split_dids[i]);
+        assert_eq!(result.new_person_version, 101); // original version 0 + 101
+        assert_eq!(result.pdi_version, 101); // original PDI version 0 + 101
+
+        // New person should exist in DB
+        let new_person = ctx
+            .storage
+            .get_person_by_uuid(ctx.team_id, result.new_person_uuid)
+            .await
+            .expect("Lookup should succeed")
+            .expect("New person should exist");
+        assert_eq!(new_person.version, Some(101));
+        assert_eq!(new_person.created_at, result.new_person_created_at);
+
+        // PDI should now point to the new person
+        let looked_up = ctx
+            .storage
+            .get_person_by_distinct_id(ctx.team_id, &result.distinct_id)
+            .await
+            .expect("Lookup should succeed")
+            .expect("Person for distinct_id should exist");
+        assert_eq!(looked_up.uuid, result.new_person_uuid);
+    }
+
+    // Original person still exists with its keeper distinct_id
+    let original = ctx
+        .storage
+        .get_person_by_id(ctx.team_id, person.id)
+        .await
+        .expect("Lookup should succeed")
+        .expect("Original person should still exist");
+    assert_eq!(original.uuid, person.uuid);
+
+    let original_by_did = ctx
+        .storage
+        .get_person_by_distinct_id(ctx.team_id, "keeper@example.com")
+        .await
+        .expect("Lookup should succeed")
+        .expect("Keeper DID should still resolve to original");
+    assert_eq!(original_by_did.id, person.id);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_split_person_version_arithmetic() {
+    let ctx = TestContext::new().await;
+
+    // Insert a person with a non-zero version
+    let person_id = rand::thread_rng().gen_range(1_000_000i64..100_000_000);
+    let person_uuid = Uuid::now_v7();
+    let person_version: i64 = 42;
+
+    sqlx::query(
+        r#"INSERT INTO posthog_person
+        (id, uuid, team_id, properties, properties_last_updated_at,
+         properties_last_operation, created_at, version, is_identified, is_user_id)
+        VALUES ($1, $2, $3, '{}'::jsonb, '{}', '{}', NOW(), $4, false, NULL)"#,
+    )
+    .bind(person_id)
+    .bind(person_uuid)
+    .bind(ctx.team_id)
+    .bind(person_version)
+    .execute(&ctx.pool)
+    .await
+    .unwrap();
+
+    // Insert PDIs with non-zero versions
+    let pdi_version: i64 = 7;
+    for did in &["v_did_a", "v_did_b"] {
+        sqlx::query(
+            r#"INSERT INTO posthog_persondistinctid
+            (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4)"#,
+        )
+        .bind(*did)
+        .bind(person_id)
+        .bind(ctx.team_id)
+        .bind(pdi_version)
+        .execute(&ctx.pool)
+        .await
+        .unwrap();
+    }
+
+    let results = ctx
+        .storage
+        .split_person(
+            ctx.team_id,
+            person_id,
+            &["v_did_a".to_string(), "v_did_b".to_string()],
+        )
+        .await
+        .expect("Split should succeed");
+
+    for result in &results {
+        assert_eq!(
+            result.new_person_version,
+            person_version + 101,
+            "New person version should be original + 101"
+        );
+        assert_eq!(
+            result.pdi_version,
+            pdi_version + 101,
+            "PDI version should be original + 101"
+        );
+    }
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_split_person_deterministic_uuids() {
+    let ctx = TestContext::new().await;
+    let person = ctx
+        .insert_person("det_keeper@example.com", None)
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "det_split@example.com")
+        .await
+        .unwrap();
+
+    let results = ctx
+        .storage
+        .split_person(
+            ctx.team_id,
+            person.id,
+            &["det_split@example.com".to_string()],
+        )
+        .await
+        .expect("Split should succeed");
+
+    // Compute expected UUID the same way the implementation does
+    let namespace = Uuid::from_bytes([
+        0x93, 0x29, 0x79, 0xb4, 0x65, 0xc3, 0x44, 0x24, 0x84, 0x67, 0x0b, 0x66, 0xec, 0x27, 0xbc,
+        0x22,
+    ]);
+    let expected_uuid = Uuid::new_v5(
+        &namespace,
+        format!("{}:det_split@example.com", ctx.team_id).as_bytes(),
+    );
+
+    assert_eq!(results[0].new_person_uuid, expected_uuid);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_split_person_idempotent() {
+    let ctx = TestContext::new().await;
+    let person = ctx
+        .insert_person("idem_keeper@example.com", None)
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "idem_split@example.com")
+        .await
+        .unwrap();
+
+    let results1 = ctx
+        .storage
+        .split_person(
+            ctx.team_id,
+            person.id,
+            &["idem_split@example.com".to_string()],
+        )
+        .await
+        .expect("First split should succeed");
+
+    // After the first split, the PDI is reassigned to the new person.
+    // A second call with the same person_id should get NOT_FOUND because
+    // the distinct_id no longer belongs to that person.
+    let err = ctx
+        .storage
+        .split_person(
+            ctx.team_id,
+            person.id,
+            &["idem_split@example.com".to_string()],
+        )
+        .await
+        .expect_err("Second split should fail because DID moved");
+
+    let msg = err.to_string();
+    assert!(
+        msg.contains("Not found"),
+        "Expected NotFound error, got: {msg}"
+    );
+
+    // The new person should still exist with the correct UUID
+    let new_person = ctx
+        .storage
+        .get_person_by_uuid(ctx.team_id, results1[0].new_person_uuid)
+        .await
+        .expect("Lookup should succeed")
+        .expect("New person should still exist");
+    assert_eq!(new_person.version, Some(results1[0].new_person_version));
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_split_person_preserves_created_at_of_existing_person() {
+    let ctx = TestContext::new().await;
+    let person = ctx
+        .insert_person("preexist_keeper@example.com", None)
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "preexist_split@example.com")
+        .await
+        .unwrap();
+
+    // Pre-create the person the split will upsert into (same deterministic
+    // UUIDv5), with a created_at in the past.
+    let namespace = Uuid::from_bytes([
+        0x93, 0x29, 0x79, 0xb4, 0x65, 0xc3, 0x44, 0x24, 0x84, 0x67, 0x0b, 0x66, 0xec, 0x27, 0xbc,
+        0x22,
+    ]);
+    let split_uuid = Uuid::new_v5(
+        &namespace,
+        format!("{}:preexist_split@example.com", ctx.team_id).as_bytes(),
+    );
+    let old_created_at = chrono::DateTime::parse_from_rfc3339("2020-01-02T03:04:05Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    let existing_id = rand::thread_rng().gen_range(1_000_000i64..100_000_000);
+    sqlx::query(
+        r#"INSERT INTO posthog_person
+        (id, uuid, team_id, properties, properties_last_updated_at,
+         properties_last_operation, created_at, version, is_identified, is_user_id)
+        VALUES ($1, $2, $3, '{}'::jsonb, '{}', '{}', $4, 3, false, NULL)"#,
+    )
+    .bind(existing_id)
+    .bind(split_uuid)
+    .bind(ctx.team_id)
+    .bind(old_created_at)
+    .execute(&ctx.pool)
+    .await
+    .unwrap();
+
+    let results = ctx
+        .storage
+        .split_person(
+            ctx.team_id,
+            person.id,
+            &["preexist_split@example.com".to_string()],
+        )
+        .await
+        .expect("Split should succeed");
+
+    // The upsert keeps the existing person's created_at; the response must
+    // report it so callers publish the value that matches Postgres.
+    assert_eq!(results[0].new_person_uuid, split_uuid);
+    assert_eq!(results[0].new_person_created_at, old_created_at);
+    assert_eq!(results[0].new_person_version, 101); // source person version 0 + 101
+
+    let upserted = ctx
+        .storage
+        .get_person_by_uuid(ctx.team_id, split_uuid)
+        .await
+        .expect("Lookup should succeed")
+        .expect("Upserted person should exist");
+    assert_eq!(upserted.created_at, old_created_at);
+    assert_eq!(upserted.version, Some(101));
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_split_person_not_found_unknown_distinct_id() {
+    let ctx = TestContext::new().await;
+    let person = ctx
+        .insert_person("nf_keeper@example.com", None)
+        .await
+        .unwrap();
+
+    let err = ctx
+        .storage
+        .split_person(
+            ctx.team_id,
+            person.id,
+            &["nonexistent@example.com".to_string()],
+        )
+        .await
+        .expect_err("Should fail with NOT_FOUND");
+
+    let msg = err.to_string();
+    assert!(
+        msg.contains("Not found"),
+        "Expected NotFound error, got: {msg}"
+    );
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_split_person_not_found_wrong_person() {
+    let ctx = TestContext::new().await;
+    let person_a = ctx.insert_person("a@example.com", None).await.unwrap();
+    let _person_b = ctx.insert_person("b@example.com", None).await.unwrap();
+
+    // Try to split person_b's distinct_id from person_a
+    let err = ctx
+        .storage
+        .split_person(ctx.team_id, person_a.id, &["b@example.com".to_string()])
+        .await
+        .expect_err("Should fail with NOT_FOUND");
+
+    let msg = err.to_string();
+    assert!(
+        msg.contains("Not found"),
+        "Expected NotFound error, got: {msg}"
+    );
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_split_person_not_found_nonexistent_person() {
+    let ctx = TestContext::new().await;
+
+    let err = ctx
+        .storage
+        .split_person(
+            ctx.team_id,
+            999999999,
+            &["anything@example.com".to_string()],
+        )
+        .await
+        .expect_err("Should fail for nonexistent person");
+
+    let msg = err.to_string();
+    assert!(
+        msg.contains("Not found"),
+        "Expected NotFound error, got: {msg}"
+    );
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_split_person_cross_team_isolation() {
+    let ctx = TestContext::new().await;
+    let person = ctx
+        .insert_person("iso_keeper@example.com", None)
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "iso_split@example.com")
+        .await
+        .unwrap();
+
+    let other_team_id = ctx.team_id + 1;
+
+    // Splitting with wrong team_id should fail
+    let err = ctx
+        .storage
+        .split_person(
+            other_team_id,
+            person.id,
+            &["iso_split@example.com".to_string()],
+        )
+        .await
+        .expect_err("Should fail with wrong team_id");
+
+    let msg = err.to_string();
+    assert!(
+        msg.contains("Not found"),
+        "Expected NotFound error, got: {msg}"
+    );
+
+    // Original should be untouched
+    let original = ctx
+        .storage
+        .get_person_by_distinct_id(ctx.team_id, "iso_split@example.com")
+        .await
+        .expect("Lookup should succeed")
+        .expect("Original DID should still resolve");
+    assert_eq!(original.id, person.id);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_split_person_transaction_rollback_on_partial_failure() {
+    let ctx = TestContext::new().await;
+    let person = ctx
+        .insert_person("tx_keeper@example.com", None)
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "tx_split_a@example.com")
+        .await
+        .unwrap();
+
+    // Request includes one valid and one invalid distinct_id.
+    // Ownership validation under the lock should reject the whole request.
+    let err = ctx
+        .storage
+        .split_person(
+            ctx.team_id,
+            person.id,
+            &[
+                "tx_split_a@example.com".to_string(),
+                "tx_nonexistent@example.com".to_string(),
+            ],
+        )
+        .await
+        .expect_err("Should fail due to unknown distinct_id");
+
+    let msg = err.to_string();
+    assert!(
+        msg.contains("Not found"),
+        "Expected NotFound error, got: {msg}"
+    );
+
+    // Valid distinct_id should NOT have been reassigned (no partial commit)
+    let still_original = ctx
+        .storage
+        .get_person_by_distinct_id(ctx.team_id, "tx_split_a@example.com")
+        .await
+        .expect("Lookup should succeed")
+        .expect("DID should still resolve to original");
+    assert_eq!(
+        still_original.id, person.id,
+        "tx_split_a should still belong to original person after failed split"
+    );
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_split_person_new_persons_have_empty_properties() {
+    let ctx = TestContext::new().await;
+    let props = serde_json::json!({"email": "rich@example.com", "plan": "enterprise"});
+    let person = ctx
+        .insert_person("prop_keeper@example.com", Some(props))
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "prop_split@example.com")
+        .await
+        .unwrap();
+
+    let results = ctx
+        .storage
+        .split_person(
+            ctx.team_id,
+            person.id,
+            &["prop_split@example.com".to_string()],
+        )
+        .await
+        .expect("Split should succeed");
+
+    let new_person = ctx
+        .storage
+        .get_person_by_uuid(ctx.team_id, results[0].new_person_uuid)
+        .await
+        .expect("Lookup should succeed")
+        .expect("New person should exist");
+
+    // New persons from split get empty properties, not the original's
+    let props_str = new_person.properties.expect("properties should be set");
+    let props_val: serde_json::Value =
+        serde_json::from_str(&props_str).expect("properties should be valid JSON");
+    assert_eq!(props_val, serde_json::json!({}));
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_split_person_each_did_gets_unique_person() {
+    let ctx = TestContext::new().await;
+    let person = ctx
+        .insert_person("multi_keeper@example.com", None)
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "multi_a@example.com")
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "multi_b@example.com")
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "multi_c@example.com")
+        .await
+        .unwrap();
+
+    let results = ctx
+        .storage
+        .split_person(
+            ctx.team_id,
+            person.id,
+            &[
+                "multi_a@example.com".to_string(),
+                "multi_b@example.com".to_string(),
+                "multi_c@example.com".to_string(),
+            ],
+        )
+        .await
+        .expect("Split should succeed");
+
+    // Each split distinct_id should get a different new person UUID
+    let uuids: std::collections::HashSet<Uuid> =
+        results.iter().map(|r| r.new_person_uuid).collect();
+    assert_eq!(
+        uuids.len(),
+        3,
+        "Each split DID should produce a unique person"
+    );
+
+    // None of them should be the original person
+    for uuid in &uuids {
+        assert_ne!(
+            *uuid, person.uuid,
+            "New person UUID must differ from original"
+        );
+    }
+
+    ctx.cleanup().await.ok();
+}
+
+// ============================================================
+// Undelete repair: reset version tests
+// ============================================================
+
+#[tokio::test]
+async fn test_set_person_distinct_id_version_floor_updates_and_returns_person() {
+    let ctx = TestContext::new().await;
+    let person = ctx.insert_person("repair_did", None).await.unwrap();
+
+    let returned = ctx
+        .storage
+        .set_person_distinct_id_version_floor(ctx.team_id, "repair_did", 150)
+        .await
+        .expect("reset should succeed")
+        .expect("person should be returned");
+    assert_eq!(returned.id, person.id);
+    assert_eq!(returned.uuid, person.uuid);
+
+    let version: i64 = sqlx::query_scalar(
+        "SELECT version FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2",
+    )
+    .bind(ctx.team_id as i32)
+    .bind("repair_did")
+    .fetch_one(&ctx.pool)
+    .await
+    .unwrap();
+    assert_eq!(version, 150);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_set_person_distinct_id_version_floor_missing_returns_none() {
+    let ctx = TestContext::new().await;
+
+    let returned = ctx
+        .storage
+        .set_person_distinct_id_version_floor(ctx.team_id, "nonexistent_did", 10)
+        .await
+        .expect("reset should succeed");
+    assert!(returned.is_none());
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_set_person_distinct_id_version_floor_does_not_lower() {
+    let ctx = TestContext::new().await;
+    let person = ctx.insert_person("repair_high_did", None).await.unwrap();
+
+    // Put the PDI at a high version first.
+    sqlx::query(
+        "UPDATE posthog_persondistinctid SET version = 200 WHERE team_id = $1 AND distinct_id = $2",
+    )
+    .bind(ctx.team_id as i32)
+    .bind("repair_high_did")
+    .execute(&ctx.pool)
+    .await
+    .unwrap();
+
+    // A lower min_version must not lower it — but the person is still returned.
+    let returned = ctx
+        .storage
+        .set_person_distinct_id_version_floor(ctx.team_id, "repair_high_did", 150)
+        .await
+        .expect("reset should succeed")
+        .expect("person should still be returned when the distinct_id exists");
+    assert_eq!(returned.id, person.id);
+
+    let version: i64 = sqlx::query_scalar(
+        "SELECT version FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2",
+    )
+    .bind(ctx.team_id as i32)
+    .bind("repair_high_did")
+    .fetch_one(&ctx.pool)
+    .await
+    .unwrap();
+    assert_eq!(version, 200);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_set_person_version_floor_guarded_bump() {
+    let ctx = TestContext::new().await;
+    let person = ctx.insert_person("rv_did", None).await.unwrap();
+
+    // Bump above the current version (0).
+    let updated = ctx
+        .storage
+        .set_person_version_floor(ctx.team_id, person.id, 50)
+        .await
+        .unwrap();
+    assert!(updated);
+    let p = ctx
+        .storage
+        .get_person_by_id(ctx.team_id, person.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(p.version, Some(50));
+
+    // A lower min_version is a no-op — the guard never lowers a version.
+    let updated = ctx
+        .storage
+        .set_person_version_floor(ctx.team_id, person.id, 10)
+        .await
+        .unwrap();
+    assert!(!updated);
+    let p = ctx
+        .storage
+        .get_person_by_id(ctx.team_id, person.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(p.version, Some(50));
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_set_person_version_floor_missing_person() {
+    let ctx = TestContext::new().await;
+
+    let updated = ctx
+        .storage
+        .set_person_version_floor(ctx.team_id, 999_999_999, 5)
+        .await
+        .unwrap();
+    assert!(!updated);
 
     ctx.cleanup().await.ok();
 }

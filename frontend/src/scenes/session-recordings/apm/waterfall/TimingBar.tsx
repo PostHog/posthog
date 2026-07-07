@@ -1,6 +1,6 @@
 import { getSeriesColor } from 'lib/colors'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { humanFriendlyMilliseconds } from 'lib/utils'
+import { humanFriendlyMilliseconds } from 'lib/utils/durations'
 
 import { PerformanceEvent } from '~/types'
 

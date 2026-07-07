@@ -189,6 +189,24 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                         return
                     }
 
+                    // A 5xx or lost-response (undefined status) submit can still have committed the
+                    // account server-side. The invite is deleted in that same transaction, so probe the
+                    // email instead (it survives). Reaching this form means prevalidate found no account,
+                    // so one existing now was created by this submit — send them to login, not a
+                    // misleading signup error.
+                    const targetEmail = values.invite?.target_email
+                    if ((error.status === undefined || error.status >= 500) && targetEmail) {
+                        try {
+                            await api.create('api/signup/precheck', { email: targetEmail })
+                        } catch (probeError) {
+                            const probe = probeError as Record<string, any>
+                            if (probe.status === 409 || probe.code === 'account_exists') {
+                                location.href = '/login'
+                                return
+                            }
+                        }
+                    }
+
                     actions.resetChallenge()
                     posthog.captureException(e)
                     actions.setSignupManualErrors({

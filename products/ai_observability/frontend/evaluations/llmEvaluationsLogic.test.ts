@@ -1,11 +1,14 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
-import { EvaluationConfig } from './types'
+import { HogEvaluation, LLMJudgeEvaluation, SentimentEvaluation } from './types'
 
 const mockProviderKeys: LLMProviderKey[] = [
     {
@@ -49,18 +52,21 @@ const mockProviderKeys: LLMProviderKey[] = [
     },
 ]
 
-const evaluationWithKey = (id: string, providerKeyId: string | null): EvaluationConfig => ({
+const evaluationWithKey = (id: string, providerKeyId: string | null): LLMJudgeEvaluation => ({
     id,
     name: `Evaluation ${id}`,
     description: '',
     enabled: true,
     status: 'active',
     status_reason: null,
+    status_reason_detail: null,
     evaluation_type: 'llm_judge',
     evaluation_config: { prompt: 'Prompt' },
     output_type: 'boolean',
     output_config: {},
     conditions: [{ id: `cond-${id}`, rollout_percentage: 100, properties: [] }],
+    target: 'generation',
+    target_config: {},
     model_configuration: providerKeyId
         ? {
               provider: 'openai',
@@ -71,6 +77,22 @@ const evaluationWithKey = (id: string, providerKeyId: string | null): Evaluation
     total_runs: 0,
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',
+})
+
+const hogEvaluation = (id: string): HogEvaluation => ({
+    ...evaluationWithKey(id, null),
+    evaluation_type: 'hog',
+    evaluation_config: { source: 'return true' },
+    model_configuration: null,
+})
+
+const sentimentEvaluation = (id: string): SentimentEvaluation => ({
+    ...evaluationWithKey(id, null),
+    evaluation_type: 'sentiment',
+    evaluation_config: { source: 'user_messages' },
+    output_type: 'sentiment',
+    output_config: {},
+    model_configuration: null,
 })
 
 describe('llmEvaluationsLogic', () => {
@@ -115,6 +137,24 @@ describe('llmEvaluationsLogic', () => {
     })
 
     describe('unhealthyProviderKeysUsedByEvaluations', () => {
+        it('allows Hog and sentiment evaluations when trial limit is reached', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_SENTIMENT], {
+                [FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_SENTIMENT]: true,
+            })
+            keysLogic.actions.loadEvaluationConfigSuccess({
+                trial_eval_limit: 100,
+                trial_evals_used: 100,
+                trial_evals_remaining: 0,
+                active_provider_key: null,
+                created_at: '2024-01-01T00:00:00Z',
+                updated_at: '2024-01-01T00:00:00Z',
+            })
+
+            expect(logic.values.canEnableEvaluation(hogEvaluation('hog'))).toBe(true)
+            expect(logic.values.canEnableEvaluation(sentimentEvaluation('sentiment'))).toBe(true)
+            expect(logic.values.canEnableEvaluation(evaluationWithKey('llm-default', null))).toBe(false)
+        })
+
         it('returns unhealthy keys used by evaluations without duplicates', async () => {
             logic.actions.loadEvaluations()
             keysLogic.actions.loadProviderKeys()
@@ -136,18 +176,25 @@ describe('llmEvaluationsLogic', () => {
             logic.actions.toggleEvaluationEnabledSuccess('eval-errored')
 
             await expectLogic(logic).toMatchValues({
-                evaluations: [expect.objectContaining({ enabled: true, status: 'active', status_reason: null })],
+                evaluations: [
+                    expect.objectContaining({
+                        enabled: true,
+                        status: 'active',
+                        status_reason: null,
+                        status_reason_detail: null,
+                    }),
+                ],
             })
         })
 
         it('dispatches toggleEvaluationEnabledFailure when the API rejects the toggle', async () => {
             useMocks({
                 patch: {
-                    '/api/environments/:teamId/evaluations/:id/': (_, __, ctx) => [
-                        ctx.status(400),
-                        ctx.json({
+                    '/api/environments/:teamId/evaluations/:id/': () => [
+                        400,
+                        {
                             enabled: ['Trial evaluation limit reached. Add a provider API key to re-enable.'],
-                        }),
+                        },
                     ],
                 },
             })

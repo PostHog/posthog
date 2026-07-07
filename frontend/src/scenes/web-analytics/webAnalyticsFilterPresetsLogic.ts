@@ -4,7 +4,8 @@ import { router } from 'kea-router'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { objectsEqual, toParams } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
+import { toParams } from 'lib/utils/url'
 
 import { WebAnalyticsFilterPresetType } from '~/types'
 

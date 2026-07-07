@@ -12,7 +12,7 @@ import type {
     LLMSkillResolveResponseApi,
     LLMSkillVersionSummaryApi,
     UserBasicApi,
-} from 'products/ai_observability/frontend/generated/api.schemas'
+} from 'products/skills/frontend/generated/api.schemas'
 
 const MOCK_AUTHOR: UserBasicApi = {
     id: 178,
@@ -66,6 +66,7 @@ const SKILL: LLMSkillApi = {
     compatibility: 'Requires poppler-utils on the host',
     allowed_tools: ['read', 'shell'],
     metadata: {},
+    category: '',
     files: [
         { path: 'scripts/extract.sh', content_type: 'text/x-shellscript' },
         { path: 'references/pdf-spec.md', content_type: 'text/markdown' },
@@ -101,6 +102,7 @@ const SKILL_LIST_ENTRY: LLMSkillListApi = {
     compatibility: SKILL.compatibility,
     allowed_tools: SKILL.allowed_tools,
     metadata: {},
+    category: SKILL.category,
     outline: SKILL.outline,
     version: SKILL.version,
     created_by: SKILL.created_by,

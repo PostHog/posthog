@@ -4,8 +4,6 @@ import { cleanup, screen, waitFor } from '@testing-library/react'
 
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildTrendsQuery, personsModal, renderInsight } from '~/test/insight-testing'
 import { ChartDisplayType } from '~/types'
@@ -24,10 +22,6 @@ afterEach(() => {
     cleanupJsdom()
     cleanup()
 })
-
-const HOG_CHARTS_FLAG = {
-    [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_TRENDS]: true,
-}
 
 function sliceLabels(): string[] {
     return Array.from(document.querySelectorAll('[data-attr="hog-chart-pie-slice-label"]')).map(
@@ -58,8 +52,8 @@ describe('TrendsPieChart (ActionsPie)', () => {
             expectedLabels: ['57.9%', '21.1%', '10.5%', '10.5%'],
         },
     ])('$name', async ({ query, expectedLabels }) => {
-        renderInsight({ query, featureFlags: HOG_CHARTS_FLAG })
-        await screen.findByRole('img', { name: /pie chart with/i }, { timeout: 5000 })
+        renderInsight({ query })
+        await screen.findByLabelText(/pie chart with/i, undefined, { timeout: 5000 })
 
         await waitFor(
             () => {

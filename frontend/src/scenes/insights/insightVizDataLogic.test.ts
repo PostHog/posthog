@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { FunnelLayout } from 'lib/constants'
+import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { funnelInvalidExclusionError, funnelResult } from 'scenes/funnels/__mocks__/funnelDataLogicMocks'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -12,6 +12,7 @@ import { initKeaTests } from '~/test/init'
 import {
     BaseMathType,
     ChartDisplayType,
+    FunnelVizType,
     InsightModel,
     InsightShortId,
     InsightType,
@@ -497,6 +498,28 @@ describe('insightVizDataLogic', () => {
                 layout: FunnelLayout.horizontal,
             })
         })
+
+        it('clears the breakdown when switching to the Metric display', async () => {
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateBreakdownFilter({
+                    breakdown_type: 'event',
+                    breakdown: '$browser',
+                })
+            }).toFinishAllListeners()
+            expect((builtInsightVizDataLogic.values.querySource as TrendsQuery).breakdownFilter).toEqual({
+                breakdown_type: 'event',
+                breakdown: '$browser',
+            })
+
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateInsightFilter({ display: ChartDisplayType.Metric })
+            }).toFinishAllListeners()
+
+            expect(builtInsightVizDataLogic.values.querySource).toMatchObject({
+                trendsFilter: { display: ChartDisplayType.Metric },
+            })
+            expect((builtInsightVizDataLogic.values.querySource as TrendsQuery).breakdownFilter).toBeUndefined()
+        })
     })
 
     describe('activeUsersMath', () => {
@@ -902,6 +925,39 @@ describe('insightVizDataLogic', () => {
                     },
                 } as Partial<TrendsQuery>)
             }).toMatchValues({ isBreakdownSeries: true })
+        })
+    })
+
+    describe('supportsCompare', () => {
+        const setFunnelVizType = (funnelVizType: FunnelVizType): void => {
+            builtInsightVizDataLogic.actions.updateQuerySource({
+                ...funnelsQueryDefault,
+                funnelsFilter: { ...funnelsQueryDefault.funnelsFilter, funnelVizType },
+            } as FunnelsQuery)
+        }
+
+        it.each([
+            [FunnelVizType.Steps, true],
+            [FunnelVizType.Trends, true],
+            [FunnelVizType.TimeToConvert, true],
+            // FLOW is excluded — the backend ignores compare for it.
+            [FunnelVizType.Flow, false],
+        ] as [FunnelVizType, boolean][])('flag on, %s viz → %s', (funnelVizType, expected) => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE]: true,
+            })
+            setFunnelVizType(funnelVizType)
+
+            expect(builtInsightVizDataLogic.values.supportsCompare).toBe(expected)
+        })
+
+        it('flag off → compare unsupported even for steps viz', () => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE]: false,
+            })
+            setFunnelVizType(FunnelVizType.Steps)
+
+            expect(builtInsightVizDataLogic.values.supportsCompare).toBe(false)
         })
     })
 })

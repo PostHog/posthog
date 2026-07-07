@@ -2,7 +2,14 @@ from posthog.clickhouse.query_tagging import Product
 from posthog.dags.common.owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.detectors import CLICKHOUSE_BATCH_EXECUTION_POLICY
-from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation
+from posthog.temporal.health_checks.framework import (
+    _SEVERITY_WEIGHT,
+    AlertContent,
+    HealthCheck,
+    Remediation,
+    SignalContent,
+    build_signal_extra,
+)
 from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 
@@ -50,6 +57,21 @@ class NoPageleaveEventsCheck(HealthCheck):
             title="No $pageleave events",
             summary=issue.payload.get("reason", "$pageview events present but no $pageleave events"),
             link="/web/health",
+        )
+
+    @classmethod
+    def render_signal(cls, issue: HealthIssue) -> SignalContent | None:
+        title = "No $pageleave events"
+        summary = issue.payload.get("reason", "$pageview events present but no $pageleave events.")
+        return SignalContent(
+            description=(
+                f"This project is sending `$pageview` events but no `$pageleave` events over the last "
+                f"{NO_PAGELEAVE_LOOKBACK_DAYS} days. Missing `$pageleave` breaks bounce rate, session "
+                "duration, and scroll-depth metrics in web analytics — it usually means "
+                "`capture_pageleave` is disabled in the SDK config. Recommend enabling pageleave capture."
+            ),
+            weight=_SEVERITY_WEIGHT[issue.severity],
+            extra=build_signal_extra(issue, title=title, summary=summary, link="/web/health"),
         )
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:

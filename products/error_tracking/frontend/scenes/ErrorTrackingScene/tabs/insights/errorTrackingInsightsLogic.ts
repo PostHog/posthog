@@ -6,7 +6,14 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 
-import { HogQLQueryResponse, InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    DateRange,
+    HogQLQueryResponse,
+    InsightVizNode,
+    NodeKind,
+    ProductKey,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
     FilterLogicalOperator,
@@ -85,27 +92,42 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                 } as UniversalFiltersGroup
             },
         ],
+        // Flat property list shared by the HogQL summary query and the embedded TrendsQuery charts.
+        // Both paths must use the same shape — passing a wrapped group to one path and a flat list
+        // to the other can cause the summary stats and charts to disagree on which events match.
+        effectiveProperties: [
+            (s) => [s.insightsFilterGroup],
+            (insightsFilterGroup): AnyPropertyFilter[] => {
+                const inner = insightsFilterGroup.values[0] as UniversalFiltersGroup | undefined
+                return (inner?.values ?? []) as AnyPropertyFilter[]
+            },
+        ],
+        // Single source of truth for the date range used by both the summary stats query and the charts.
+        effectiveDateRange: [
+            (s) => [s.dateRange],
+            (dateRange): DateRange => ({
+                date_from: dateRange.date_from ?? '-7d',
+                date_to: dateRange.date_to ?? null,
+            }),
+        ],
         insightQueryFilters: [
-            (s) => [s.insightsFilterGroup, s.filterTestAccounts],
-            (insightsFilterGroup, filterTestAccounts): InsightQueryFilters => ({
-                filterGroup: insightsFilterGroup,
+            (s) => [s.effectiveProperties, s.filterTestAccounts],
+            (properties, filterTestAccounts): InsightQueryFilters => ({
+                properties,
                 filterTestAccounts,
             }),
         ],
         exceptionVolumeQuery: [
-            (s) => [s.dateRange, s.insightQueryFilters],
-            (dateRange, filters): InsightVizNode<TrendsQuery> =>
-                buildExceptionVolumeQuery(dateRange.date_from ?? '-7d', dateRange.date_to ?? null, filters),
+            (s) => [s.effectiveDateRange, s.insightQueryFilters],
+            (dateRange, filters): InsightVizNode<TrendsQuery> => buildExceptionVolumeQuery(dateRange, filters),
         ],
         affectedUsersQuery: [
-            (s) => [s.dateRange, s.insightQueryFilters],
-            (dateRange, filters): InsightVizNode<TrendsQuery> =>
-                buildAffectedUsersQuery(dateRange.date_from ?? '-7d', dateRange.date_to ?? null, filters),
+            (s) => [s.effectiveDateRange, s.insightQueryFilters],
+            (dateRange, filters): InsightVizNode<TrendsQuery> => buildAffectedUsersQuery(dateRange, filters),
         ],
         crashFreeSessionsQuery: [
-            (s) => [s.dateRange, s.insightQueryFilters],
-            (dateRange, filters): InsightVizNode<TrendsQuery> =>
-                buildCrashFreeSessionsQuery(dateRange.date_from ?? '-7d', dateRange.date_to ?? null, filters),
+            (s) => [s.effectiveDateRange, s.insightQueryFilters],
+            (dateRange, filters): InsightVizNode<TrendsQuery> => buildCrashFreeSessionsQuery(dateRange, filters),
         ],
     }),
 
@@ -127,10 +149,9 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                             WHERE {filters}
                         `,
                         filters: {
-                            dateRange: values.dateRange,
+                            dateRange: values.effectiveDateRange,
                             filterTestAccounts: values.filterTestAccounts,
-                            properties: (values.insightsFilterGroup.values[0] as UniversalFiltersGroup)
-                                .values as AnyPropertyFilter[],
+                            properties: values.effectiveProperties,
                         },
                         tags: { productKey: ProductKey.ERROR_TRACKING },
                     })

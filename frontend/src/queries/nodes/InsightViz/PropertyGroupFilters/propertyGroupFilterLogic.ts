@@ -1,8 +1,8 @@
 import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 
 import { convertPropertiesToPropertyGroup, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { objectsEqual } from 'lib/utils/objects'
 
 import { ProductAnalyticsInsightQueryNode } from '~/queries/schema/schema-general'
 import {

@@ -3,6 +3,7 @@ import { TextSerializer, getText } from '@tiptap/core'
 
 import { JSONContent, RichContentNode, TTEditor } from 'lib/components/RichContentEditor/types'
 
+import { buildMarkdownNotebookContent, convertNotebookContentToMarkdown } from './Notebook/markdownNotebookV2'
 import { CreatePostHogWidgetNodeOptions, NotebookNodeType } from './types'
 
 export const KNOWN_NODES: Record<string, CreatePostHogWidgetNodeOptions<any>> = {}
@@ -50,6 +51,7 @@ export const textContent = (node: RichContentNode): string => {
         [NotebookNodeType.Python]: customOrTitleSerializer,
         [NotebookNodeType.DuckSQL]: customOrTitleSerializer,
         [NotebookNodeType.HogQLSQL]: customOrTitleSerializer,
+        [NotebookNodeType.SQLV2]: customOrTitleSerializer,
         [NotebookNodeType.Recording]: customOrTitleSerializer,
         [NotebookNodeType.LLMTrace]: customOrTitleSerializer,
         [NotebookNodeType.Issues]: customOrTitleSerializer,
@@ -71,6 +73,7 @@ export const textContent = (node: RichContentNode): string => {
         [NotebookNodeType.RelatedGroups]: customOrTitleSerializer,
         [NotebookNodeType.CustomerJourney]: customOrTitleSerializer,
         [NotebookNodeType.SupportTickets]: customOrTitleSerializer,
+        [NotebookNodeType.MarkdownNotebook]: customOrTitleSerializer,
     }
 
     return getText(node, {
@@ -79,7 +82,15 @@ export const textContent = (node: RichContentNode): string => {
     })
 }
 
-export function defaultNotebookContent(title?: string, content?: JSONContent[]): JSONContent {
+type DefaultNotebookContentOptions = {
+    markdown?: boolean
+}
+
+export function defaultNotebookContent(
+    title?: string,
+    content?: JSONContent[],
+    options: DefaultNotebookContentOptions = {}
+): JSONContent {
     const initialContent = [
         {
             type: 'heading',
@@ -92,7 +103,13 @@ export function defaultNotebookContent(title?: string, content?: JSONContent[]):
         initialContent.push(...content)
     }
 
-    return { type: 'doc', content: initialContent }
+    const richContent: JSONContent = { type: 'doc', content: initialContent }
+
+    if (options.markdown) {
+        return buildMarkdownNotebookContent(convertNotebookContentToMarkdown(richContent))
+    }
+
+    return richContent
 }
 
 export function updateContentHeading(content: JSONContent, newTitle: string): JSONContent {

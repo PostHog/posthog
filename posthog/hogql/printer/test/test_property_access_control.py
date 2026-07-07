@@ -1,4 +1,4 @@
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, cleanup_materialized_columns, materialized
 
 from parameterized import parameterized
 
@@ -79,19 +79,20 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         assert "secret_field" in sql
 
     def test_denied_event_property_is_stripped_silently(self):
-        # Restricted properties are removed from the JSON blob via JSONDropKeys rather than
-        # raising an error, so explicit access (``properties.secret_field``) compiles to a
-        # JSON extract over the stripped blob and resolves to an empty string at runtime.
+        # A restricted property reads as NULL rather than raising. Explicit access (``properties.secret_field``)
+        # compiles to a constant NULL — the value is never extracted from the blob, and the key never appears, inline
+        # or as a parameter.
         PropertyAccessControl.objects.create(
             team=self.team,
             property_definition=self.event_prop,
             access_level=PropertyAccessLevel.NONE.value,
         )
         sql, values = self._compile_select_with_values("SELECT properties.secret_field FROM events")
-        assert "JSONDropKeys" in sql
-        # the restricted key only appears as a parameter placeholder — never as an inline literal
+        assert "NULL AS secret_field" in sql
+        assert "JSONExtract" not in sql  # the restricted value is never read from the blob
+        assert "JSONDropKeys" not in sql  # no redundant drop-then-extract
         assert "'secret_field'" not in sql
-        self._assert_value_present(values, "secret_field")
+        assert not any("secret_field" in str(v) for v in values.values())
 
     def test_allowed_property_not_affected(self):
         PropertyAccessControl.objects.create(
@@ -136,8 +137,9 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         assert "secret_field" in sql
 
     def test_denied_person_property_is_stripped_silently(self):
-        # Restricted person properties are removed from ``person.properties`` rather than
-        # raising — so the same query produces consistent (empty) output across PoE modes.
+        # A restricted person property reads as NULL rather than raising. Through the PoE join it resolves to
+        # ``argMax(tuple(NULL), ...)`` inside the subquery, so the value is never extracted and the same query produces
+        # consistent (NULL) output across PoE modes.
         person_prop = PropertyDefinition.objects.create(
             team=self.team,
             name="secret_person_field",
@@ -150,9 +152,10 @@ class TestRestrictPropertiesInHogQL(BaseTest):
             access_level=PropertyAccessLevel.NONE.value,
         )
         sql, values = self._compile_select_with_values("SELECT person.properties.secret_person_field FROM events")
-        assert "JSONDropKeys" in sql
+        assert "JSONExtract" not in sql  # the restricted value is never read from the blob
+        assert "JSONDropKeys" not in sql
         assert "'secret_person_field'" not in sql
-        self._assert_value_present(values, "secret_person_field")
+        assert not any("secret_person_field" in str(v) for v in values.values())
 
     def test_no_user_context_uses_default_rules(self):
         PropertyAccessControl.objects.create(
@@ -168,10 +171,11 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         )
         node = parse_select("SELECT properties.secret_field FROM events")
         sql, _ = prepare_and_print_ast(node, context=context, dialect="clickhouse")
-        # default rules still apply without a user — the restricted key is stripped
-        assert "JSONDropKeys" in sql
+        # default rules still apply without a user — the restricted property reads as NULL
+        assert "NULL AS secret_field" in sql
+        assert "JSONExtract" not in sql
         assert "'secret_field'" not in sql
-        assert "secret_field" in context.values.values()
+        assert not any("secret_field" in str(v) for v in context.values.values())
 
     def test_non_property_fields_not_affected(self):
         PropertyAccessControl.objects.create(
@@ -189,12 +193,14 @@ class TestRestrictPropertiesInHogQL(BaseTest):
             property_definition=self.event_prop,
             access_level=PropertyAccessLevel.NONE.value,
         )
-        # the WHERE clause compiles, but the restricted property is stripped from the JSON,
-        # so the comparison effectively runs against an empty string
+        # the WHERE clause compiles, but the restricted property reads as NULL, so the comparison is against NULL (never
+        # against the column or the blob) and matches no rows
         sql, values = self._compile_select_with_values("SELECT event FROM events WHERE properties.secret_field = 'foo'")
-        assert "JSONDropKeys" in sql
+        assert "equals(NULL," in sql
+        assert "JSONExtract" not in sql
+        assert "JSONDropKeys" not in sql
         assert "'secret_field'" not in sql
-        self._assert_value_present(values, "secret_field")
+        assert not any("secret_field" in str(v) for v in values.values())
 
     def test_select_star_works_with_restrictions(self):
         PropertyAccessControl.objects.create(
@@ -230,22 +236,19 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         assert "secret_field" in sql
 
     def test_silent_strip_does_not_leak_access_control_information(self):
-        # The compiled SQL must not embed the restricted property name as a literal,
-        # error message, or comment — anything an attacker could read off the wire to
-        # tell "this property exists but I can't see it" apart from "this property
-        # doesn't exist". Restricted keys are passed through ``add_sensitive_value`` so
-        # they appear only in the parameter dict, not the SQL string.
+        # The compiled SQL must not reveal that a property was hidden — an attacker must not be able to tell "this
+        # property exists but I can't see it" apart from "this property doesn't exist". The restricted read is a constant
+        # NULL, so the key name appears nowhere: not as an inline literal, not as a parameter.
         PropertyAccessControl.objects.create(
             team=self.team,
             property_definition=self.event_prop,
             access_level=PropertyAccessLevel.NONE.value,
         )
         sql, values = self._compile_select_with_values("SELECT properties.secret_field FROM events")
-        # restricted key never appears as an inline literal in SQL — only as a parameter
         assert "'secret_field'" not in sql
         for forbidden_word in ["restricted", "denied", "permission", "not allowed"]:
             assert forbidden_word not in sql.lower(), f"SQL leaks access control info: '{sql}'"
-        self._assert_value_present(values, "secret_field")
+        assert not any("secret_field" in str(v) for v in values.values())
 
     @parameterized.expand(
         [
@@ -378,17 +381,19 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         self._assert_value_present(values, "secret_field")
 
     def test_column_aliased_explicit_property_access_is_stripped(self):
-        # regression: explicit access ``e.c.secret_field`` (where ``c`` aliases ``properties``)
-        # must be stripped via JSONDropKeys, matching the unaliased case.
+        # regression: explicit access ``e.c.secret_field`` (where ``c`` aliases ``properties``) reads as NULL, matching
+        # the unaliased case.
         PropertyAccessControl.objects.create(
             team=self.team,
             property_definition=self.event_prop,
             access_level=PropertyAccessLevel.NONE.value,
         )
         sql, values = self._compile_select_with_values("SELECT e.c.secret_field FROM events AS e (a, b, c)")
-        assert "JSONDropKeys" in sql
+        assert "NULL AS secret_field" in sql
+        assert "JSONExtract" not in sql
+        assert "JSONDropKeys" not in sql
         assert "'secret_field'" not in sql
-        self._assert_value_present(values, "secret_field")
+        assert not any("secret_field" in str(v) for v in values.values())
 
     @parameterized.expand(
         [
@@ -401,10 +406,9 @@ class TestRestrictPropertiesInHogQL(BaseTest):
     def test_person_property_access_is_consistent_across_poe_modes(
         self, _case_name: str, persons_on_events_mode: PersonsOnEventsMode
     ):
-        # regression: previously, ``person.properties.email`` raised a ResolutionError in joined
-        # mode but silently returned an empty value in PoE mode. The intended behaviour is to
-        # strip restricted keys from the JSON blob (returning empty) in *all* modes, so the same
-        # query produces the same compiled output regardless of how person properties are sourced.
+        # regression: previously, ``person.properties.email`` raised a ResolutionError in joined mode but silently
+        # returned an empty value in PoE mode. The intended behaviour is consistent across modes — a restricted property
+        # reads as NULL regardless of how person properties are sourced.
         person_prop = PropertyDefinition.objects.create(
             team=self.team,
             name="email",
@@ -425,7 +429,54 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         )
         node = parse_select("SELECT uuid, event, person.properties.email FROM events")
         sql, _ = prepare_and_print_ast(node, context=context, dialect="clickhouse")
-        assert "JSONDropKeys" in sql
-        # the restricted key never leaks as an inline literal in any PoE mode
+        # the restricted value is never extracted, in any PoE mode, and the key never leaks
+        assert "JSONExtract" not in sql
+        assert "JSONDropKeys" not in sql
         assert "'email'" not in sql
-        assert "email" in context.values.values()
+        assert not any("email" in str(v) for v in context.values.values())
+
+
+class TestRestrictedPropertyWithMaterializedColumn(ClickhouseTestMixin, BaseTest):
+    """A restricted property that also has a materialized column must not be readable through that column.
+
+    The materialized column holds the raw value and bypasses the JSONDropKeys blob scrub, so reading or comparing it
+    directly is an information-disclosure leak. Every path (value read, comparison, key-existence) must decline the
+    materialized column for a restricted property and fall back to the scrubbed JSON blob.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.event_prop = PropertyDefinition.objects.create(
+            team=self.team,
+            name="secret_field",
+            property_type="String",
+            type=PropertyDefinition.Type.EVENT,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.event_prop,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
+    def _compile_select(self, query: str) -> str:
+        context = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True)
+        sql, _ = prepare_and_print_ast(parse_select(query), context=context, dialect="clickhouse")
+        return sql
+
+    def test_restricted_materialized_property_in_where_is_not_read_from_column(self):
+        self.addCleanup(cleanup_materialized_columns)
+        with materialized("events", "secret_field", is_nullable=False):
+            sql = self._compile_select("SELECT event FROM events WHERE properties.secret_field = 'foo'")
+        # The comparison must NOT read the bare materialized column — that bypasses the JSONDropKeys scrub and lets a
+        # user without access probe the value. It must go through the scrubbed blob (or a constant) instead.
+        assert "mat_secret_field" not in sql, f"restricted property leaked via materialized column: {sql}"
+
+    def test_restricted_materialized_property_read_is_not_read_from_column(self):
+        self.addCleanup(cleanup_materialized_columns)
+        with materialized("events", "secret_field", is_nullable=False):
+            sql = self._compile_select("SELECT properties.secret_field FROM events")
+        assert "mat_secret_field" not in sql, f"restricted property leaked via materialized column: {sql}"

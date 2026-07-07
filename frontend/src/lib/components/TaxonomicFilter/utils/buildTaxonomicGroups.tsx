@@ -20,10 +20,12 @@ import { withKeywordShortcuts } from 'lib/components/TaxonomicFilter/utils/keywo
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
-import { isString, pluralize } from 'lib/utils'
+import { isString } from 'lib/utils/guards'
+import { pluralize } from 'lib/utils/strings'
 import {
     getEventDefinitionIcon,
     getEventMetadataDefinitionIcon,
+    getPersonPropertyDefinitionIcon,
     getPropertyDefinitionIcon,
     getRevenueAnalyticsDefinitionIcon,
 } from 'scenes/data-management/events/DefinitionHeader'
@@ -147,6 +149,7 @@ export interface BuildTaxonomicGroupsContext {
         propertyAllowList?: Partial<Record<TaxonomicFilterGroupType, (string | number | null)[]>>
     }
     eventMetadataPropertyDefinitions: PropertyDefinition[]
+    personMetadataPropertyDefinitions: PropertyDefinition[]
     maxContextOptions: MaxContextTaxonomicFilterOption[]
     hideBehavioralCohorts: boolean
     endpointFilters: Record<string, any> | undefined
@@ -171,6 +174,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
         suggestedFiltersLabel,
         propertyFilters,
         eventMetadataPropertyDefinitions,
+        personMetadataPropertyDefinitions,
         maxContextOptions,
         hideBehavioralCohorts,
         endpointFilters,
@@ -497,10 +501,16 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                 { key: 'severity_level', name: 'severity_level', propertyFilterType: 'log' },
                 { key: 'trace_id', name: 'trace_id', propertyFilterType: 'log' },
                 { key: 'span_id', name: 'span_id', propertyFilterType: 'log' },
-            ],
+            ].filter((o) => !excludedProperties[TaxonomicFilterGroupType.Logs]?.includes(o.key)),
             localItemsSearch: (items: any[], q: string): any[] => {
                 if (!q) {
                     return items
+                }
+                const matches = items.filter((item) => item.name?.toLowerCase().includes(q.toLowerCase()))
+                // Mirrors the legacy Logs group in taxonomicFilterLogic: the free-text message-search
+                // item only makes sense where picking `message` does.
+                if (excludedProperties[TaxonomicFilterGroupType.Logs]?.includes('message')) {
+                    return matches
                 }
                 return [
                     {
@@ -509,7 +519,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                         value: q,
                         propertyFilterType: 'log',
                     },
-                ].concat(items.filter((item) => item.name?.toLowerCase().includes(q.toLowerCase())))
+                ].concat(matches)
             },
             getName: (option: { key: string; name: string }) => option.name,
             getValue: (option: { key: string; name: string }) => option.key,
@@ -596,6 +606,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             type: TaxonomicFilterGroupType.SpanAttributes,
             endpoint: combineUrl(`api/environments/${projectId}/tracing/spans/attributes`, {
                 attribute_type: 'span_attribute',
+                search_values: 'true',
                 ...endpointFilters,
             }).url,
             valuesEndpoint: (key) =>
@@ -614,6 +625,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             type: TaxonomicFilterGroupType.SpanResourceAttributes,
             endpoint: combineUrl(`api/environments/${projectId}/tracing/spans/attributes`, {
                 attribute_type: 'span_resource_attribute',
+                search_values: 'true',
                 ...endpointFilters,
             }).url,
             valuesEndpoint: (key) =>
@@ -653,6 +665,20 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             getValue: (personProperty: PersonProperty) => personProperty.name,
             propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties]?.filter(isString),
             ...propertyTaxonomicGroupProps(CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties),
+            getIcon: getPersonPropertyDefinitionIcon,
+        },
+        {
+            name: 'Person metadata',
+            searchPlaceholder: 'person metadata',
+            type: TaxonomicFilterGroupType.PersonMetadata,
+            options: personMetadataPropertyDefinitions,
+            getIcon: getPropertyDefinitionIcon,
+            getName: (option: PropertyDefinition) => {
+                const coreDefinition = getCoreFilterDefinition(option.id, TaxonomicFilterGroupType.PersonMetadata)
+                return coreDefinition ? coreDefinition.label : option.name
+            },
+            getValue: (option: PropertyDefinition) => option.id,
+            getPopoverHeader: () => 'Person metadata',
         },
         {
             name: 'Cohorts',
@@ -818,15 +844,18 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             endpoint: combineUrl(`api/projects/${projectId}/feature_flags/`).url,
             getName: (featureFlag: FeatureFlagType) => {
                 const name = featureFlag.key || featureFlag.name
-                const isInactive = !featureFlag.active
+                const isInactive = featureFlag.active === false
                 return isInactive ? `${name} (disabled)` : name
             },
             getValue: (featureFlag: FeatureFlagType) => featureFlag.id || '',
             getPopoverHeader: () => `Feature Flags`,
             getIcon: (featureFlag: FeatureFlagType) => (
-                <IconFlag className={clsx('size-4', !featureFlag.active && 'text-muted-alt opacity-50')} />
+                <IconFlag className={clsx('size-4', featureFlag.active === false && 'text-muted-alt opacity-50')} />
             ),
-            getIsDisabled: (featureFlag: FeatureFlagType) => !featureFlag.active,
+            // Recently-used entries are stored stripped of `active`, so treat only an explicit
+            // `false` as disabled — otherwise recent flags are wrongly disabled and unselectable.
+            // Keep in sync with the Feature Flags group in taxonomicFilterLogic.tsx.
+            getIsDisabled: (featureFlag: FeatureFlagType) => featureFlag.active === false,
             localItemsSearch: (items: TaxonomicDefinitionTypes[], query: string): TaxonomicDefinitionTypes[] => {
                 // Note: This function doesn't have direct access to the current value
                 // The actual filtering logic needs to be implemented in the infinite list logic
@@ -942,6 +971,21 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                 {
                     key: 'comment_text',
                     name: getFilterLabel('comment_text', TaxonomicFilterGroupType.Replay),
+                    propertyFilterType: PropertyFilterType.Recording,
+                },
+                {
+                    key: 'click_count',
+                    name: getFilterLabel('click_count', TaxonomicFilterGroupType.Replay),
+                    propertyFilterType: PropertyFilterType.Recording,
+                },
+                {
+                    key: 'keypress_count',
+                    name: getFilterLabel('keypress_count', TaxonomicFilterGroupType.Replay),
+                    propertyFilterType: PropertyFilterType.Recording,
+                },
+                {
+                    key: 'mouse_activity_count',
+                    name: getFilterLabel('mouse_activity_count', TaxonomicFilterGroupType.Replay),
                     propertyFilterType: PropertyFilterType.Recording,
                 },
             ],

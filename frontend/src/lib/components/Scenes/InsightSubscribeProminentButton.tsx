@@ -3,9 +3,7 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { IconBell } from '@posthog/icons'
-import { useFeatureFlagVariantKey } from '@posthog/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { userLogic } from 'scenes/userLogic'
@@ -24,7 +22,7 @@ function SubscribeIcon({ insightShortId }: { insightShortId: InsightShortId }): 
     const { subscriptions } = useValues(subscriptionsLogic({ insightShortId }))
 
     // Mirror the side-panel SceneSubscribeButton: show the active-subscription count badge so
-    // the test arm carries the same "you're already subscribed" signal as the control arm.
+    // the header button carries the same "you're already subscribed" signal.
     if (!hasAvailableFeature(AvailableFeature.SUBSCRIPTIONS)) {
         return <IconBell />
     }
@@ -37,20 +35,10 @@ function SubscribeIcon({ insightShortId }: { insightShortId: InsightShortId }): 
 }
 
 /**
- * Experiment (insight-subscribe-prominent-button): promotes "Subscribe" from the buried
- * side-panel action to a visible header button. Reading the flag variant here is the
- * experiment exposure, so this is mounted only for subscribe-eligible insights to keep the
- * exposed population aligned with the control arm.
+ * Promotes "Subscribe" from the buried side-panel action to a visible header button.
  */
-export function InsightSubscribeProminentButton({
-    insightShortId,
-}: InsightSubscribeProminentButtonProps): JSX.Element | null {
+export function InsightSubscribeProminentButton({ insightShortId }: InsightSubscribeProminentButtonProps): JSX.Element {
     const { push } = useActions(router)
-    const variant = useFeatureFlagVariantKey(FEATURE_FLAGS.INSIGHT_SUBSCRIBE_PROMINENT_BUTTON)
-
-    if (variant !== 'test') {
-        return null
-    }
 
     return (
         <LemonButton

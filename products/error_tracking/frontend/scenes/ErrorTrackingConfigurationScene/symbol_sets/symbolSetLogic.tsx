@@ -5,7 +5,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { ErrorTrackingSymbolSet, SymbolSetStatusFilter } from 'lib/components/Errors/types'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 

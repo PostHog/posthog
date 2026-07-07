@@ -1,5 +1,10 @@
 import { mockProducer } from './mocks/producer.mock'
 
+import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+
 import { CdpConsumerBaseDeps } from '../../src/cdp/consumers/cdp-base.consumer'
 import {
     CdpProducerName,
@@ -8,12 +13,9 @@ import {
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
 } from '../../src/cdp/outputs/producers'
+import { createSesRateLimiterValkeyPool } from '../../src/cdp/services/rate-limiter/rate-limiter-valkey-pool'
 import { InternalCaptureService } from '../../src/common/services/internal-capture'
-import { KafkaProducerRegistry } from '../../src/ingestion/outputs/kafka-producer-registry'
-import { KafkaProducerWrapper } from '../../src/kafka/producer'
 import { Hub } from '../../src/types'
-import { GroupReadRepository } from '../../src/worker/ingestion/groups/repositories/group-repository.interface'
-import { PersonReadRepository } from '../../src/worker/ingestion/persons/repositories/person-repository'
 
 /**
  * Single shared kafkaProducer is enough for tests — point every CDP producer
@@ -62,5 +64,8 @@ export function createCdpConsumerDeps(hub: Hub, kafkaProducer?: KafkaProducerWra
         geoipService: hub.geoipService,
         groupRepository: noopGroupReadRepository,
         quotaLimiting: hub.quotaLimiting,
+        emailValidationValkey: hub.CDP_EMAIL_MX_VALIDATION_ENABLED
+            ? createSesRateLimiterValkeyPool(hub, 'email-mx-validation')
+            : null,
     }
 }

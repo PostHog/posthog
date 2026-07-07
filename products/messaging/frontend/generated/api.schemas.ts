@@ -80,26 +80,70 @@ export interface MessagePreferencesApi {
 }
 
 /**
- * * `hog` - hog
  * * `liquid` - liquid
  */
-export type HogFunctionTemplatingEnumApi =
-    (typeof HogFunctionTemplatingEnumApi)[keyof typeof HogFunctionTemplatingEnumApi]
+export type MessageTemplateContentTemplatingEnumApi =
+    (typeof MessageTemplateContentTemplatingEnumApi)[keyof typeof MessageTemplateContentTemplatingEnumApi]
 
-export const HogFunctionTemplatingEnumApi = {
-    Hog: 'hog',
+export const MessageTemplateContentTemplatingEnumApi = {
     Liquid: 'liquid',
 } as const
 
+/**
+ * Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}.
+ */
+export type EmailTemplateApiDesignCounters = { [key: string]: unknown }
+
+export type EmailTemplateApiDesignBodyRowsItem = { [key: string]: unknown }
+
+export type EmailTemplateApiDesignBodyHeadersItem = { [key: string]: unknown }
+
+export type EmailTemplateApiDesignBodyFootersItem = { [key: string]: unknown }
+
+/**
+ * Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor.
+ */
+export type EmailTemplateApiDesignBodyValues = { [key: string]: unknown }
+
+export type EmailTemplateApiDesignBody = {
+    /** Any unique string. */
+    id?: string
+    /** Rows of {id, cells, columns[{id, contents[{id, type, values}], values}], values}. */
+    rows: EmailTemplateApiDesignBodyRowsItem[]
+    headers?: EmailTemplateApiDesignBodyHeadersItem[]
+    footers?: EmailTemplateApiDesignBodyFootersItem[]
+    /** Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor. */
+    values?: EmailTemplateApiDesignBodyValues
+}
+
+/**
+ * Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill.
+ */
+export type EmailTemplateApiDesign = {
+    /** Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}. */
+    counters?: EmailTemplateApiDesignCounters
+    /** Design schema version, e.g. 16. */
+    schemaVersion: number
+    body: EmailTemplateApiDesignBody
+}
+
 export interface EmailTemplateApi {
+    /** Email subject line. Supports Liquid templating. Required for email-type templates. */
     subject?: string
+    /** Plain-text fallback body for clients that can't render the email. */
     text?: string
+    /** Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise. */
     html?: string
-    design?: unknown
+    /** Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill. */
+    design?: EmailTemplateApiDesign
 }
 
 export interface MessageTemplateContentApi {
-    templating?: HogFunctionTemplatingEnumApi
+    /** Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.
+     *
+     * * `liquid` - liquid */
+    templating?: MessageTemplateContentTemplatingEnumApi
+    /** Email message content. Replaced as a whole on update — send the complete object. */
     email?: EmailTemplateApi | null
 }
 
@@ -160,17 +204,29 @@ export interface UserBasicApi {
 
 export interface MessageTemplateApi {
     readonly id: string
-    /** @maxLength 400 */
+    /**
+     * Human-readable template name shown in the library.
+     * @maxLength 400
+     */
     name: string
+    /** What the template is for and when to use it. */
     description?: string
     readonly created_at: string
     readonly updated_at: string
+    /** Template content keyed by channel. Replaced as a whole on update, not merged. */
     content?: MessageTemplateContentApi
     readonly created_by: UserBasicApi
-    /** @maxLength 24 */
+    /**
+     * Message channel of the template. Currently 'email'.
+     * @maxLength 24
+     */
     type?: string
-    /** @nullable */
+    /**
+     * Message category ID to file the template under. Must belong to the same project.
+     * @nullable
+     */
     message_category?: string | null
+    /** Soft-delete flag. Set true to remove the template from the library. */
     deleted?: boolean
 }
 
@@ -185,18 +241,88 @@ export interface PaginatedMessageTemplateListApi {
 
 export interface PatchedMessageTemplateApi {
     readonly id?: string
-    /** @maxLength 400 */
+    /**
+     * Human-readable template name shown in the library.
+     * @maxLength 400
+     */
     name?: string
+    /** What the template is for and when to use it. */
     description?: string
     readonly created_at?: string
     readonly updated_at?: string
+    /** Template content keyed by channel. Replaced as a whole on update, not merged. */
     content?: MessageTemplateContentApi
     readonly created_by?: UserBasicApi
-    /** @maxLength 24 */
+    /**
+     * Message channel of the template. Currently 'email'.
+     * @maxLength 24
+     */
     type?: string
-    /** @nullable */
+    /**
+     * Message category ID to file the template under. Must belong to the same project.
+     * @nullable
+     */
     message_category?: string | null
+    /** Soft-delete flag. Set true to remove the template from the library. */
     deleted?: boolean
+}
+
+/**
+ * * `update_content` - update_content
+ * * `update_column` - update_column
+ * * `update_row` - update_row
+ * * `update_body` - update_body
+ * * `add_content` - add_content
+ * * `remove_content` - remove_content
+ * * `move_content` - move_content
+ * * `add_row` - add_row
+ * * `remove_row` - remove_row
+ */
+export type EmailTemplateDesignOperationEnumApi =
+    (typeof EmailTemplateDesignOperationEnumApi)[keyof typeof EmailTemplateDesignOperationEnumApi]
+
+export const EmailTemplateDesignOperationEnumApi = {
+    UpdateContent: 'update_content',
+    UpdateColumn: 'update_column',
+    UpdateRow: 'update_row',
+    UpdateBody: 'update_body',
+    AddContent: 'add_content',
+    RemoveContent: 'remove_content',
+    MoveContent: 'move_content',
+    AddRow: 'add_row',
+    RemoveRow: 'remove_row',
+} as const
+
+export interface DesignOperationApi {
+    /** Design edit. update_content {id, patch}: deep-merge patch into the content block's fields (a null leaf deletes that key) — the surgical path, e.g. change just values.text. update_row / update_column {id, patch} and update_body {patch}: same deep-merge for row/column/body-level settings. add_content {column_id, content, index?}: insert a content block into a column (id and Unlayer numbering are filled in for you). remove_content {id} / move_content {id, column_id, index?}: delete or relocate a block. add_row {row, index?} / remove_row {id}: add or delete a row.
+     *
+     * * `update_content` - update_content
+     * * `update_column` - update_column
+     * * `update_row` - update_row
+     * * `update_body` - update_body
+     * * `add_content` - add_content
+     * * `remove_content` - remove_content
+     * * `move_content` - move_content
+     * * `add_row` - add_row
+     * * `remove_row` - remove_row */
+    op: EmailTemplateDesignOperationEnumApi
+    /** Target node id. Required for update_content/column/row, remove_content, remove_row, move_content. */
+    id?: string
+    /** Target column id. Required for add_content and move_content. */
+    column_id?: string
+    /** update_* only. Partial fields deep-merged into the existing node; a null leaf deletes that key. e.g. {values: {text: '<p>Hi</p>'}} changes only the block's text. */
+    patch?: unknown
+    /** add_content only. A content block {type, values: {...}}; omit id and values._meta — they're assigned server-side. type is one of text, heading, button, image, divider, html, etc. */
+    content?: unknown
+    /** add_row only. A full row {cells, columns: [{contents: [...], values}], values}; ids and Unlayer numbering are assigned server-side for the row and everything nested in it. */
+    row?: unknown
+    /** add_*\/move_content only. 0-based insert position; omit to append to the end. */
+    index?: number
+}
+
+export interface PatchedDesignPatchApi {
+    /** Ordered edits applied atomically to a template's Unlayer design: the stored design is read, the ops are applied in order, the result is validated and re-rendered to HTML, and it's saved only if valid — otherwise the template is unchanged. Reference blocks by id so you never resend the whole design. */
+    operations?: DesignOperationApi[]
 }
 
 export type MessagingCategoriesListParams = {

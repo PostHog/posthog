@@ -1,0 +1,73 @@
+{
+    "models": { "mode": "manual", "models": [{ "model": "anthropic/claude-sonnet-4-6" }] },
+    "reasoning": "medium",
+    "triggers": [
+        {
+            "type": "slack",
+            "config": {
+                "mention_only": true,
+                "auto_resume_threads": true,
+                "ack_reaction": "raised_hands",
+                "allow_direct_messages": true,
+                "trusted_workspaces": ["T0XXXXXXX"]
+            }
+        },
+        {
+            "type": "cron",
+            "config": {
+                "name": "weekly-kudos-summary",
+                "schedule": "0 9 * * 1",
+                "timezone": "America/Los_Angeles",
+                "prompt": "Post the weekly kudos summary for the week that just ended (the ISO week BEFORE {fired_at:week}). Query the `kudos` table for that week, group by recipient, and post a single celebratory digest to the configured kudos channel. If nobody gave any kudos last week, post a short nudge instead of an empty digest.",
+                "external_key": "weekly-kudos:{fired_at:week}",
+                "catch_up": "most_recent",
+                "max_catch_up_age_seconds": 7200
+            }
+        },
+        {
+            "type": "chat",
+            "config": {},
+            "auth": { "modes": [{ "type": "posthog" }, { "type": "posthog_internal" }] }
+        }
+    ],
+    "tools": [
+        { "kind": "native", "id": "@posthog/slack-post-message" },
+        { "kind": "native", "id": "@posthog/slack-read-thread" },
+        { "kind": "native", "id": "@posthog/slack-read-channel" },
+        { "kind": "native", "id": "@posthog/slack-react" },
+        { "kind": "native", "id": "@posthog/table-append" },
+        { "kind": "native", "id": "@posthog/table-query" },
+        { "kind": "native", "id": "@posthog/table-count" },
+        { "kind": "native", "id": "@posthog/memory-search" },
+        { "kind": "native", "id": "@posthog/memory-read" },
+        { "kind": "native", "id": "@posthog/memory-write" },
+        { "kind": "native", "id": "@posthog/memory-update" }
+    ],
+    "secrets": ["SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET"],
+    "skills": [
+        {
+            "id": "capturing-kudos",
+            "path": "skills/capturing-kudos/SKILL.md",
+            "description": "How to read a kudos out of a message — pull the recipient handle(s), the praise, and any themes; decide when info is missing and ask ONE clarifying question in-thread vs record straight away. Load at the START of every capture (Slack mention or chat), before you touch the store."
+        },
+        {
+            "id": "kudos-storage",
+            "path": "skills/kudos-storage/SKILL.md",
+            "description": "The data model — the `kudos` table columns, the `kudos_id` dedupe/idempotency scheme, and the per-recipient `people/<handle>.md` profile memory. Load before any table-append / memory-write so the row shape and dedupe key stay consistent."
+        },
+        {
+            "id": "weekly-summary",
+            "path": "skills/weekly-summary/SKILL.md",
+            "description": "The Monday digest — how to query last week's kudos, group by recipient, format the celebratory mrkdwn post, and what to do on a quiet week. Load when the weekly cron fires (or when someone asks for a summary on demand)."
+        }
+    ],
+    "limits": {
+        "max_turns": 20,
+        "max_tool_calls": 60,
+        "max_wall_seconds": 300
+    },
+    "resume": {
+        "enabled": true,
+        "max_completed_age_ms": 604800000
+    }
+}

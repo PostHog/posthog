@@ -1,14 +1,18 @@
+import { scaleLinear } from 'd3-scale'
+
 import { dimensions, makeSeries } from '../testing'
 import {
+    applyOuterStackCaps,
     bandCenter,
     type ComputeSeriesBarsOptions,
     computeBarTrackRect,
     computeSeriesBars,
     cornersFor,
     groupedBarCenter,
+    roundOuterStackCaps,
 } from './bar-layout'
 import type { BarRect } from './canvas-renderer'
-import { computeStackData, createBarScales } from './scales'
+import { type BarScaleSet, computeStackData, createBarScales } from './scales'
 import type { ChartDimensions } from './types'
 
 // Compact plot area chosen so band/value scales produce round pixel values for snapshots.
@@ -102,6 +106,20 @@ describe('hog-charts bar-layout', () => {
             const excluded = makeSeries({ key: 'excluded', data: [10], visibility: { excluded: true } })
             const scales = createBarScales([visible, excluded], ['a'], dimensions, { barLayout: 'grouped' })
             expect(layoutOf({ series: excluded, scales })[0]).toBeNull()
+        })
+
+        it('clamps the bar baseline into the plot when a fixed valueDomain excludes 0', () => {
+            // valueScale(0) extrapolates below the plot for domain [50, 100]; the baseline must be
+            // clamped so the bar stops at the plot edge instead of bleeding through the bottom margin.
+            const s = makeSeries({ key: 's', data: [75] })
+            const scales = createBarScales([s], ['a'], dimensions, {
+                barLayout: 'grouped',
+                valueDomain: [50, 100],
+            })
+            const bar = layoutOf({ series: s, scales })[0]!
+            const plotBottom = dimensions.plotTop + dimensions.plotHeight
+            // bottom edge of a vertical bar is y + height; it must not exceed the plot bottom.
+            expect(bar.y + bar.height).toBeLessThanOrEqual(plotBottom + 0.001)
         })
     })
 
@@ -206,8 +224,18 @@ describe('hog-charts bar-layout', () => {
                 stackedSeries,
             })
             const opts = { labels, scales, layout: 'stacked' as const, isHorizontal: false }
-            const lower = computeSeriesBars({ ...opts, series: a, stackedBand: stacks.get('a'), isTopOfStack: false })[0]!
-            const upper = computeSeriesBars({ ...opts, series: b, stackedBand: stacks.get('b'), isTopOfStack: true })[0]!
+            const lower = computeSeriesBars({
+                ...opts,
+                series: a,
+                stackedBand: stacks.get('a'),
+                isTopOfStack: false,
+            })[0]!
+            const upper = computeSeriesBars({
+                ...opts,
+                series: b,
+                stackedBand: stacks.get('b'),
+                isTopOfStack: true,
+            })[0]!
             // Bottom segment sits exactly on the baseline — no 0.5px overpaint past the axis.
             expect(lower.y + lower.height).toBeCloseTo(PIXEL_TEST_DIMENSIONS.plotHeight, 5)
             // Interior (upper) segment extends its baseline edge 0.5px past the lower segment's top.
@@ -503,7 +531,6 @@ describe('hog-charts bar-layout', () => {
         })
     })
 
-
     describe('bandCenter', () => {
         it.each([
             { label: 'a', expected: 50 },
@@ -526,22 +553,24 @@ describe('hog-charts bar-layout', () => {
         })
     })
 
-
     describe('groupedBarCenter', () => {
         it.each([
             { seriesKey: 'a', expected: 25 },
             { seriesKey: 'b', expected: 75 },
-        ])("returns the center $expected for series $seriesKey's sub-band in a grouped layout", ({ seriesKey, expected }) => {
-            const a = makeSeries({ key: 'a', data: [10, 20] })
-            const b = makeSeries({ key: 'b', data: [20, 10] })
-            const scales = createBarScales([a, b], ['L1', 'L2'], PIXEL_TEST_DIMENSIONS, {
-                barLayout: 'grouped',
-                bandPadding: 0,
-                groupPadding: 0,
-            })
-            // a@L1 slot x:0 w:50 → center 25; b@L1 slot x:50 w:50 → center 75 (see grouped pixel case).
-            expect(groupedBarCenter(scales, 'L1', seriesKey)).toBeCloseTo(expected, 5)
-        })
+        ])(
+            "returns the center $expected for series $seriesKey's sub-band in a grouped layout",
+            ({ seriesKey, expected }) => {
+                const a = makeSeries({ key: 'a', data: [10, 20] })
+                const b = makeSeries({ key: 'b', data: [20, 10] })
+                const scales = createBarScales([a, b], ['L1', 'L2'], PIXEL_TEST_DIMENSIONS, {
+                    barLayout: 'grouped',
+                    bandPadding: 0,
+                    groupPadding: 0,
+                })
+                // a@L1 slot x:0 w:50 → center 25; b@L1 slot x:50 w:50 → center 75 (see grouped pixel case).
+                expect(groupedBarCenter(scales, 'L1', seriesKey)).toBeCloseTo(expected, 5)
+            }
+        )
 
         it('returns undefined when the series is not in the group scale', () => {
             const a = makeSeries({ key: 'a', data: [10] })
@@ -551,6 +580,143 @@ describe('hog-charts bar-layout', () => {
                 groupPadding: 0,
             })
             expect(groupedBarCenter(scales, 'L1', 'missing')).toBeUndefined()
+        })
+    })
+
+    describe('roundOuterStackCaps', () => {
+        // Vertical pixel space with the baseline at y=100: positive segments sit above (smaller y),
+        // negative segments extend below.
+        const rect = (dataIndex: number, y: number, height: number): BarRect => ({
+            x: 0,
+            y,
+            width: 10,
+            height,
+            corners: {},
+            dataIndex,
+        })
+
+        it('rounds whichever segment tops each band, not a fixed series (breakdown stacks)', () => {
+            const bandA = [rect(0, 60, 40), rect(0, 30, 30)] // second segment on top
+            const bandB = [rect(1, 40, 60)] // only segment
+            roundOuterStackCaps([...bandA, ...bandB], false, 100)
+            expect(bandA[0].corners.topLeft).toBeUndefined()
+            expect(bandA[1].corners).toMatchObject({ topLeft: true, topRight: true })
+            expect(bandB[0].corners).toMatchObject({ topLeft: true, topRight: true })
+        })
+
+        it('rounds both directions of a diverging stack — positive top and negative bottom', () => {
+            const bars = [rect(0, 50, 50), rect(0, 20, 30), rect(0, 100, 40)] // last extends below baseline
+            roundOuterStackCaps(bars, false, 100)
+            expect(bars[1].corners).toMatchObject({ topLeft: true, topRight: true })
+            expect(bars[2].corners).toMatchObject({ bottomLeft: true, bottomRight: true })
+            expect(bars[0].corners.topLeft).toBeUndefined()
+            expect(bars[0].corners.bottomLeft).toBeUndefined()
+        })
+
+        it('squares a previously-rounded cap when a higher segment exists in the band', () => {
+            const lower = { ...rect(0, 60, 40), corners: cornersFor(false, true, true) }
+            const upper = rect(0, 30, 30)
+            roundOuterStackCaps([lower, upper], false, 100)
+            expect(lower.corners.topLeft).toBeUndefined()
+            expect(lower.corners.topRight).toBeUndefined()
+            expect(upper.corners).toMatchObject({ topLeft: true, topRight: true })
+        })
+
+        it('preserves baseline-side corners a caller applied when re-resolving the cap side', () => {
+            // Bottom-of-stack segment with both ends rounded (funnel pill), overtaken by a higher segment.
+            const lower = { ...rect(0, 60, 40), corners: cornersFor(false, true, true, true) }
+            const upper = rect(0, 30, 30)
+            roundOuterStackCaps([lower, upper], false, 100)
+            expect(lower.corners.topLeft).toBeUndefined()
+            expect(lower.corners.topRight).toBeUndefined()
+            expect(lower.corners).toMatchObject({ bottomLeft: true, bottomRight: true })
+        })
+
+        it('rounds the bottom cap of a bar that straddles the baseline within tolerance', () => {
+            // Top edge inside the ±0.5 tolerance band, bottom edge clearing it: the bar is
+            // classified as extending downward, so its rounding must land on the bottom side.
+            const straddler = rect(0, 99.6, 1)
+            roundOuterStackCaps([straddler], false, 100)
+            expect(straddler.corners).toMatchObject({ bottomLeft: true, bottomRight: true })
+            expect(straddler.corners.topLeft).toBeUndefined()
+            expect(straddler.corners.topRight).toBeUndefined()
+        })
+
+        it('skips invisible slivers so a zero-height segment cannot steal the cap', () => {
+            const visible = rect(0, 60, 40)
+            const sliver = rect(0, 59.9, 0.2)
+            roundOuterStackCaps([visible, sliver], false, 100)
+            expect(visible.corners).toMatchObject({ topLeft: true, topRight: true })
+            expect(sliver.corners.topLeft).toBeUndefined()
+        })
+
+        it('rounds the outer right/left caps in horizontal orientation', () => {
+            const hrect = (dataIndex: number, x: number, width: number): BarRect => ({
+                x,
+                y: 0,
+                width,
+                height: 10,
+                corners: {},
+                dataIndex,
+            })
+            const bars = [hrect(0, 0, 60), hrect(0, 60, 30)]
+            roundOuterStackCaps(bars, true, 0)
+            expect(bars[1].corners).toMatchObject({ topRight: true, bottomRight: true })
+            expect(bars[0].corners.topRight).toBeUndefined()
+        })
+    })
+
+    describe('applyOuterStackCaps', () => {
+        const rect = (dataIndex: number, y: number, height: number): BarRect => ({
+            x: 0,
+            y,
+            width: 10,
+            height,
+            corners: {},
+            dataIndex,
+        })
+        // Only `value` and `yAxes` are read by the cap pass; primary zero at y=100, right-axis zero at y=80.
+        const dualAxisScales = {
+            value: scaleLinear().domain([0, 100]).range([100, 0]),
+            yAxes: {
+                left: { scale: scaleLinear().domain([0, 100]).range([100, 0]), position: 'left' },
+                right: { scale: scaleLinear().domain([0, 100]).range([80, 0]), position: 'right' },
+            },
+        } as unknown as BarScaleSet
+
+        it('resolves each axis group against its own zero pixel (dual-axis combo stacks)', () => {
+            // Negative on the right axis (below y=80) yet above the primary zero (y=100): judged
+            // against the shared baseline it would read as positive and lose its bottom cap.
+            const rightBar = rect(0, 80, 15)
+            const leftBar = rect(0, 60, 40)
+            applyOuterStackCaps(
+                [
+                    { bar: rightBar, yAxisId: 'right' },
+                    { bar: leftBar, yAxisId: 'left' },
+                ],
+                dualAxisScales,
+                false,
+                'stacked'
+            )
+            expect(leftBar.corners).toMatchObject({ topLeft: true, topRight: true })
+            expect(rightBar.corners).toMatchObject({ bottomLeft: true, bottomRight: true })
+        })
+
+        it('falls back to the primary value scale for entries without a yAxisId', () => {
+            const bar = rect(0, 60, 40)
+            applyOuterStackCaps([{ bar }], dualAxisScales, false, 'stacked')
+            expect(bar.corners).toMatchObject({ topLeft: true, topRight: true })
+        })
+
+        it.each([
+            { name: 'grouped layout', layout: 'grouped' as const, roundStackEnds: false },
+            { name: 'roundStackEnds', layout: 'stacked' as const, roundStackEnds: true },
+        ])('is a no-op under $name', ({ layout, roundStackEnds }) => {
+            const bar = { ...rect(0, 60, 40), corners: cornersFor(false, true, true) }
+            const other = rect(0, 30, 30)
+            applyOuterStackCaps([{ bar }, { bar: other }], dualAxisScales, false, layout, roundStackEnds)
+            expect(bar.corners).toMatchObject({ topLeft: true, topRight: true })
+            expect(other.corners).toEqual({})
         })
     })
 })

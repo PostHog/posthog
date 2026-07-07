@@ -18,10 +18,12 @@ from parameterized import parameterized
 from rest_framework import status
 
 from products.business_knowledge.backend import url_fetch
+from products.business_knowledge.backend.html_parse import _bs4_fallback, parse_html
 from products.business_knowledge.backend.logic import (
     InvalidUrlError,
     QuotaExceededError,
     SourceBusyError,
+    chunk_text,
     create_url_source,
     refresh_source,
     update_url_source,
@@ -142,6 +144,54 @@ _BASIC_HTML = b"""<!doctype html>
 <p>To request a refund, open a ticket with your order number.</p>
 </article>
 </body></html>"""
+
+
+class TestParseHtml(BaseTest):
+    def test_blocks_are_blank_line_separated_and_chunk_on_paragraphs(self) -> None:
+        # Regression: txt extraction separated blocks with single newlines, so
+        # the chunker (which splits on blank lines) saw one mega-paragraph and
+        # hard-split mid-sentence. Markdown output must keep blank lines.
+        paragraphs = "".join(
+            f"<h2>Section {i}</h2><p>Paragraph {i} with realistic prose content that runs long enough "
+            f"to matter for chunk packing and boundary checks in this regression test.</p>"
+            for i in range(30)
+        )
+        html = f"<html><head><title>Doc</title></head><body><article>{paragraphs}</article></body></html>".encode()
+
+        title, text = parse_html(html, "https://example.com/doc", content_type="text/html")
+        assert title
+        assert "\n\n" in text
+        chunks = chunk_text(text)
+        assert len(chunks) > 1
+        # Paragraph-aligned packing — every chunk ends on a block boundary
+        # (a full sentence or a heading line), never a mid-sentence hard split.
+        for chunk in chunks:
+            last_line = chunk.content.rstrip().splitlines()[-1]
+            assert last_line.startswith("#") or last_line.endswith((".", "?", "!"))
+
+    def test_fallback_strips_nav_and_footer(self) -> None:
+        html = (
+            "<html><body>"
+            '<nav><a href="/pricing">Pricing</a><a href="/docs">Docs</a></nav>'
+            "<main><p>Actual page content.</p></main>"
+            '<footer><a href="/privacy">Privacy</a> Copyright</footer>'
+            "</body></html>"
+        )
+        text = _bs4_fallback(html)
+        assert "Actual page content." in text
+        assert "Pricing" not in text
+        assert "Privacy" not in text
+
+    def test_non_utf8_page_decodes_correctly(self) -> None:
+        html_str = (
+            '<html><head><meta charset="windows-1251"><title>Тест</title></head>'
+            "<body><article><p>Первый абзац с настоящим содержимым, достаточно длинный для извлечения.</p>"
+            "<p>Второй абзац тоже с настоящим содержимым для проверки декодирования.</p></article></body></html>"
+        )
+        title, text = parse_html(html_str.encode("windows-1251"), "https://example.com/ru")
+        assert "Первый абзац" in text
+        assert "\ufffd" not in text
+        assert title == "Тест"
 
 
 class TestCreateUrlSource(BaseTest):

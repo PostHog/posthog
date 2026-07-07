@@ -1,4 +1,4 @@
-import { toParams } from 'lib/utils'
+import { toParams } from 'lib/utils/url'
 import { urls } from 'scenes/urls'
 
 import { ExperimentMetric, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'

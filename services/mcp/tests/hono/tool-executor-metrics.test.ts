@@ -21,6 +21,7 @@ vi.mock('@/hono/metrics', () => ({
 
 vi.mock('@/hono/analytics', () => ({
     trackToolCall: vi.fn(),
+    trackExecuteSqlGeneration: vi.fn(),
 }))
 
 vi.mock('@/resources/internals', () => ({
@@ -36,19 +37,30 @@ vi.mock('@/resources', () => ({
 
 import { z } from 'zod'
 
+import { trackToolCall } from '@/hono/analytics'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
+import { PostHogRateLimitError, wrapError } from '@/lib/errors'
+
+const mockTrackToolCall = vi.mocked(trackToolCall)
+
+/** Extra-properties bag passed to the 5th arg of `trackToolCall` for a given tool. */
+function trackToolCallExtras(tool: string): Record<string, unknown> | undefined {
+    const call = mockTrackToolCall.mock.calls.find((c) => c[0] === tool)
+    return call?.[4]
+}
 
 function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> = {}): ResolvedState {
     return {
         reqCtx: {
             cache: { get: vi.fn(), set: vi.fn() },
-            getAnalyticsContextSafe: vi.fn().mockResolvedValue(undefined),
+            safelyGetAnalyticsContext: vi.fn().mockResolvedValue(undefined),
             trackEvent: vi.fn(),
             trackContextSwitchEvent: vi.fn(),
             getSessionUuid: vi.fn().mockResolvedValue(undefined),
+            getEffectiveSessionUuid: vi.fn().mockResolvedValue(undefined),
         } as any,
         context: {
             api: {},
@@ -112,6 +124,7 @@ describe('ToolExecutor metrics', () => {
         mockToolDurationObserve.mockClear()
         mockToolDurationStartTimer.mockClear()
         mockToolErrorsInc.mockClear()
+        mockTrackToolCall.mockClear()
 
         catalog = new ToolCatalog()
         await catalog.warmup()
@@ -141,6 +154,75 @@ describe('ToolExecutor metrics', () => {
             expect(mockToolCallsInc).toHaveBeenCalledWith({ tool: 'fail-tool', status: 'error' })
             expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool: 'fail-tool', error_type: 'internal' })
             expect(mockToolDurationStartTimer.mock.results[0]!.value).toHaveBeenCalledWith({ status: 'error' })
+        })
+
+        it('stamps $mcp_error_type on the analytics event so the dashboard can slice failures by reason', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('fail-tool', async () => {
+                    throw new Error('boom')
+                }) as any
+            )
+
+            await executor.handleToolCall({ name: 'fail-tool', arguments: {} }, makeState([{ name: 'fail-tool' }]))
+
+            expect(trackToolCallExtras('fail-tool')).toMatchObject({ $mcp_error_type: 'internal' })
+        })
+
+        it('carries the upstream status alongside the error type for API failures', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('execute-sql', async () => {
+                    throw new PostHogRateLimitError({
+                        body: '{}',
+                        url: 'https://us.posthog.com/api/environments/2/mcp_tools/execute_sql/',
+                        method: 'POST',
+                        retryAfterSeconds: 5,
+                    })
+                }) as any
+            )
+
+            await executor.handleToolCall({ name: 'execute-sql', arguments: {} }, makeState([{ name: 'execute-sql' }]))
+
+            expect(trackToolCallExtras('execute-sql')).toMatchObject({
+                $mcp_error_type: 'rate_limited',
+                $mcp_error_status: 429,
+            })
+        })
+
+        it('classifies a downstream 429 as rate_limited, keeping it out of the error rate', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('execute-sql', async () => {
+                    throw new PostHogRateLimitError({
+                        body: '{}',
+                        url: 'https://us.posthog.com/api/environments/2/mcp_tools/execute_sql/',
+                        method: 'POST',
+                        retryAfterSeconds: 5,
+                    })
+                }) as any
+            )
+
+            await executor.handleToolCall({ name: 'execute-sql', arguments: {} }, makeState([{ name: 'execute-sql' }]))
+
+            expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool: 'execute-sql', error_type: 'rate_limited' })
+        })
+
+        it('classifies a 429 wrapped in a cause chain as rate_limited', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('execute-sql', async () => {
+                    throw wrapError(
+                        'Failed to run query',
+                        new PostHogRateLimitError({
+                            body: '{}',
+                            url: 'https://us.posthog.com/api/environments/2/mcp_tools/execute_sql/',
+                            method: 'POST',
+                            retryAfterSeconds: null,
+                        })
+                    )
+                }) as any
+            )
+
+            await executor.handleToolCall({ name: 'execute-sql', arguments: {} }, makeState([{ name: 'execute-sql' }]))
+
+            expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool: 'execute-sql', error_type: 'rate_limited' })
         })
 
         it('records validation_error without starting a timer', async () => {

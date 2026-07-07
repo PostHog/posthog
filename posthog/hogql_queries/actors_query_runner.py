@@ -1,4 +1,3 @@
-import re
 import itertools
 from collections.abc import Iterable, Iterator, Sequence
 from typing import TYPE_CHECKING, Any, Optional
@@ -32,6 +31,7 @@ from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQ
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode, QueryRunner, get_query_runner
+from posthog.hogql_queries.utils.person_display_name import person_display_name_property_exprs
 from posthog.models import User
 
 
@@ -559,13 +559,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
 
     def _get_person_display_name_column(self) -> ast.Expr:
         property_keys = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-        # Only use backticks for property names with spaces or special chars
-        props = []
-        for key in property_keys:
-            if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", key):
-                props.append(f"toString(properties.{key})")
-            else:
-                props.append(f"toString(properties.`{key}`)")
+        props = person_display_name_property_exprs(property_keys, "properties")
         # nosemgrep: hogql-fstring-audit (property_keys from team config is admin-only, not user input)
         return parse_expr(f"(coalesce({', '.join([*props, 'toString(id)'])}), toString(id))")
 

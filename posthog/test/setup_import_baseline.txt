@@ -32,4 +32,3 @@ redis
 rich
 trio
 # First-party modules with a known, structural import cost:
-posthog.schema  # the generated data model — splitting it is tracked as its own project

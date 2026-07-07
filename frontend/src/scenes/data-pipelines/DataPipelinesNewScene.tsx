@@ -1,7 +1,9 @@
-import { kea, path, props, selectors, useValues } from 'kea'
+import { BindLogic, kea, path, props, selectors, useValues } from 'kea'
+
+import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { humanizeHogFunctionType } from 'scenes/hog-functions/hog-function-utils'
 import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -12,6 +14,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Breadcrumb } from '~/types'
 
 import { availableSourcesLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/availableSourcesLogic'
+import { SourceCatalog } from 'products/data_warehouse/frontend/scenes/NewSourceScene/SourceCatalog'
+import { sourceWizardLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/sourceWizardLogic'
 
 import type { dataPipelinesNewSceneLogicType } from './DataPipelinesNewSceneType'
 import { nonHogFunctionTemplatesLogic } from './utils/nonHogFunctionTemplatesLogic'
@@ -70,7 +74,7 @@ export function DataPipelinesNewScene(): JSX.Element {
     const { kind } = logicProps
 
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
-    const { hogFunctionTemplatesDataWarehouseSources, hogFunctionTemplatesBatchExports } = useValues(
+    const { hogFunctionTemplatesBatchExports } = useValues(
         nonHogFunctionTemplatesLogic({
             availableSources: availableSources ?? {},
         })
@@ -94,11 +98,13 @@ export function DataPipelinesNewScene(): JSX.Element {
             ) : kind === 'site_app' ? (
                 <HogFunctionTemplateList type="site_app" />
             ) : kind === 'source' ? (
-                <HogFunctionTemplateList
-                    type="source_webhook"
-                    manualTemplates={hogFunctionTemplatesDataWarehouseSources}
-                    manualTemplatesLoading={availableSourcesLoading}
-                />
+                availableSourcesLoading || availableSources === null ? (
+                    <LemonSkeleton className="h-64" />
+                ) : (
+                    <BindLogic logic={sourceWizardLogic} props={{ availableSources }}>
+                        <SourceCatalog />
+                    </BindLogic>
+                )
             ) : (
                 <NotFound object="Data pipeline new options" />
             )}

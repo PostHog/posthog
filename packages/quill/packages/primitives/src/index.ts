@@ -2,6 +2,18 @@ import './styles/layers.css'
 
 export { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from './accordion'
 export {
+    AlertDialog,
+    AlertDialogClose,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogOverlay,
+    AlertDialogPortal,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from './alert-dialog'
+export {
     Autocomplete,
     AutocompleteClear,
     AutocompleteCollection,
@@ -18,14 +30,60 @@ export {
     AutocompleteValue,
     useAutocompleteAnchor,
 } from './autocomplete'
+export { Avatar, AvatarImage, AvatarFallback, AvatarGroup } from './avatar'
 export { Badge, badgeVariants } from './badge'
 export { Button, buttonVariants, type ButtonProps } from './button'
+export { ChatBubbleGroup, ChatBubble, ChatBubbleContent, ChatBubbleReactions, bubbleVariants } from './chat/chat-bubble'
+export { ChatMarker, ChatMarkerIcon, ChatMarkerContent, markerVariants } from './chat/chat-marker'
+export {
+    ChatMessageGroup,
+    ChatMessage,
+    ChatMessageAvatar,
+    ChatMessageContent,
+    ChatMessageFooter,
+    ChatMessageHeader,
+} from './chat/chat-message'
+export {
+    ChatMessageScrollerProvider,
+    ChatMessageScroller,
+    ChatMessageScrollerViewport,
+    ChatMessageScrollerContent,
+    ChatMessageScrollerItem,
+    ChatMessageScrollerButton,
+    useChatMessageScroller,
+    useChatMessageScrollerScrollable,
+    useChatMessageScrollerVisibility,
+} from './chat/chat-message-scroller'
+export {
+    ThreadItemGroup,
+    ThreadItem,
+    ThreadItemGutter,
+    ThreadItemContent,
+    ThreadItemHeader,
+    ThreadItemAuthor,
+    ThreadItemTimestamp,
+    ThreadItemBody,
+    ThreadItemMention,
+    ThreadItemLink,
+    ThreadItemAttachment,
+    ThreadItemAttachmentTrigger,
+    ThreadItemAttachmentContent,
+    ThreadItemAttachmentImage,
+    ThreadItemReactions,
+    ThreadItemReaction,
+    ThreadItemReactionEmoji,
+    ThreadItemActions,
+    ThreadItemAction,
+    ThreadItemReplies,
+    ThreadItemRepliesLabel,
+    ThreadItemRepliesMeta,
+} from './chat/thread-item'
 export { ButtonGroup, ButtonGroupSeparator, ButtonGroupText, buttonGroupVariants } from './button-group'
 export { Card, CardHeader, CardFooter, CardTitle, CardDescription, CardContent } from './card'
 export { CardGroup } from './card-group'
 export { Checkbox, CheckboxIndicator } from './checkbox'
 export { Chip, ChipClose, ChipGroup } from './chip'
-export { Collapsible, CollapsibleTrigger, CollapsibleContent } from './collapsible'
+export { Collapsible, CollapsibleHeader, CollapsibleTrigger, CollapsibleContent } from './collapsible'
 export { MenuLabel } from './menu-label'
 export {
     Combobox,
@@ -230,7 +288,17 @@ export {
 } from './toast'
 export { Spinner } from './spinner'
 export { Switch } from './switch'
-export { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell, TableCaption } from './table'
+export {
+    Table,
+    TableHeader,
+    TableBody,
+    TableFooter,
+    TableHead,
+    TableRow,
+    TableCell,
+    TableEmpty,
+    TableCaption,
+} from './table'
 export { Tabs, TabsContent, TabsList, TabsTrigger } from './tabs'
 export { Text, textVariants } from './text'
 export { Textarea } from './textarea'

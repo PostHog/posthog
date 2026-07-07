@@ -3,47 +3,75 @@ import { useActions, useValues } from 'kea'
 import { IconInfo, IconList } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
-import { AddMetricButton } from 'scenes/experiments/Metrics/AddMetricButton'
-import { METRIC_CONTEXTS } from 'scenes/experiments/Metrics/experimentMetricModalLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import type { CachedNewExperimentQueryResponse, ExperimentMetric } from '~/queries/schema/schema-general'
+import type { ExperimentMetric } from '~/queries/schema/schema-general'
+import { experimentLogic } from '~/scenes/experiments/experimentLogic'
+import { experimentMetricsLogic } from '~/scenes/experiments/experimentMetricsLogic'
+import { AddMetricButton } from '~/scenes/experiments/Metrics/AddMetricButton'
+import { METRIC_CONTEXTS } from '~/scenes/experiments/Metrics/experimentMetricModalLogic'
+import { MetricsReorderModal } from '~/scenes/experiments/MetricsView/MetricsReorderModal'
+import { modalsLogic } from '~/scenes/experiments/modalsLogic'
+import { isSavedExperiment, metricResults } from '~/scenes/experiments/utils'
+import { Experiment } from '~/types'
 
-import { experimentLogic } from '../../experimentLogic'
-import { modalsLogic } from '../../modalsLogic'
-import { MetricsReorderModal } from '../MetricsReorderModal'
 import { HowToReadTooltip } from './HowToReadTooltip'
 import { MetricsTable } from './MetricsTable'
 import { ResultDetails } from './ResultDetails'
 
 export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element | null {
+    const { experiment } = useValues(experimentLogic)
+
+    const variants = experiment?.feature_flag?.filters?.multivariate?.variants
+    // Guard here so the child can take a non-null, real experiment and mount keyed child logics safely.
+    if (!variants || !isSavedExperiment(experiment)) {
+        return null
+    }
+
+    return <MetricsContent experiment={experiment} isSecondary={isSecondary} />
+}
+
+function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; isSecondary?: boolean }): JSX.Element {
     const {
-        experiment,
         getInsightType,
         orderedPrimaryMetricsWithResults,
         orderedSecondaryMetricsWithResults,
         hasMinimumExposureForResults,
     } = useValues(experimentLogic)
+    const {
+        primaryMetricsResults,
+        primaryMetricsResultsErrors,
+        secondaryMetricsResults,
+        secondaryMetricsResultsErrors,
+    } = useValues(experimentMetricsLogic({ experiment }))
+    const { featureFlags } = useValues(featureFlagLogic)
+    const recalculationFlow = !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
 
     const { openPrimaryMetricsReorderModal, openSecondaryMetricsReorderModal } = useActions(modalsLogic)
 
-    const variants = experiment?.feature_flag?.filters?.multivariate?.variants
-    if (!variants) {
-        return null
-    }
+    const type = isSecondary ? 'secondary' : 'primary'
 
-    const metricsWithResults = isSecondary ? orderedSecondaryMetricsWithResults : orderedPrimaryMetricsWithResults
+    const metricsWithResults = recalculationFlow
+        ? metricResults(experiment)(
+              isSecondary ? secondaryMetricsResults : primaryMetricsResults,
+              isSecondary ? secondaryMetricsResultsErrors : primaryMetricsResultsErrors,
+              type
+          )
+        : isSecondary
+          ? orderedSecondaryMetricsWithResults
+          : orderedPrimaryMetricsWithResults
 
-    const metrics = metricsWithResults.map(({ metric }: { metric: ExperimentMetric }) => metric)
-    const results = metricsWithResults.map(({ result }: { result: CachedNewExperimentQueryResponse }) => result)
-    const errors = metricsWithResults.map(({ error }: { error: any }) => error)
-    const metricIndexes = metricsWithResults.map(({ metricIndex }: { metricIndex: number }) => metricIndex)
+    const metrics = metricsWithResults.map(({ metric }) => metric)
+    const results = metricsWithResults.map(({ result }) => result)
+    const errors = metricsWithResults.map(({ error }) => error)
+    const metricIndexes = metricsWithResults.map(({ metricIndex }) => metricIndex)
 
     const showResultDetails = metrics.length === 1 && results[0] && hasMinimumExposureForResults && !isSecondary
     const hasSomeResults =
-        results?.some(
-            (result: CachedNewExperimentQueryResponse) => result?.variant_results && result.variant_results.length > 0
-        ) && hasMinimumExposureForResults
+        results?.some((result) => result?.variant_results && result.variant_results.length > 0) &&
+        hasMinimumExposureForResults
 
     return (
         <div className="mb-4 -mt-2" data-attr="experiment-creation-goal-metric">

@@ -16,7 +16,8 @@ def proto_group_type_mapping_to_dict(mapping: group_pb2.GroupTypeMapping) -> dic
     """Convert a proto GroupTypeMapping to the same dict shape as
     Django's GroupTypeMapping.objects.values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS).
 
-    Django .values("detail_dashboard") on a ForeignKey produces key "detail_dashboard_id".
+    Django .values("detail_dashboard") aliases the FK column, so the key is
+    "detail_dashboard" (holding the dashboard id), not "detail_dashboard_id".
     """
     default_columns: list[str] | None = None
     if mapping.default_columns:
@@ -33,7 +34,7 @@ def proto_group_type_mapping_to_dict(mapping: group_pb2.GroupTypeMapping) -> dic
         "group_type_index": mapping.group_type_index,
         "name_singular": mapping.name_singular or None,
         "name_plural": mapping.name_plural or None,
-        "detail_dashboard_id": mapping.detail_dashboard_id or None,
+        "detail_dashboard": mapping.detail_dashboard_id or None,
         "default_columns": default_columns,
         "created_at": created_at,
     }

@@ -16,7 +16,10 @@ jobs:
     changes:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: github.repository == 'PostHog/posthog' && github.event_name != 'merge_group'
+        # Runs on merge_group too so the lint job below (a required check) can consume
+        # its changed-Dockerfile list there. should_build is ignored on merge_group —
+        # posthog_build forces a build regardless via its own `if`.
+        if: github.repository == 'PostHog/posthog'
         name: Determine need to run Docker checks
         permissions:
             contents: read
@@ -32,7 +35,15 @@ jobs:
                     || steps.filter.outputs.build_inputs == 'true'
                     || contains(github.event.pull_request.labels.*.name, 'hobby-preview')
                 }}
+            dockerignore_changed: ${{ steps.filter.outputs.dockerignore }}
+            # Drives the Dockerfile lint job: a boolean plus the shell-escaped, space-separated
+            # list of changed Dockerfiles to hand straight to hadolint.
+            dockerfiles_changed: ${{ steps.filter.outputs.dockerfiles }}
+            dockerfiles_files: ${{ steps.filter.outputs.dockerfiles_files }}
         steps:
+            # paths-filter uses the GitHub API on pull_request, but falls back to git for
+            # merge_group — so the repo must be checked out for the merge-queue run.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
@@ -43,6 +54,9 @@ jobs:
               id: filter
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  # Emit `<filter>_files` lists (shell-escaped, space-separated) so the
+                  # lint job can feed changed Dockerfiles straight to hadolint.
+                  list-files: shell
                   filters: |
                       # Keep `hobby:` in sync with the same-named filter in ci-hobby.yml —
                       # drift means hobby waits for an image we never build (or vice versa).
@@ -78,6 +92,34 @@ jobs:
                         - .github/actions/build-n-cache-image/**
                         - .dockerignore
                         - pnpm-lock.yaml
+                      # Drives the fast PR-time guard below (models `COPY . .`, so it only reacts
+                      # to .dockerignore — Dockerfile COPY changes are covered by the image boot check).
+                      dockerignore:
+                        - .dockerignore
+                      # Drives the hadolint lint job below — the matched paths are passed straight
+                      # to hadolint via the `dockerfiles_files` output.
+                      dockerfiles:
+                        - '**/Dockerfile'
+                        - '**/*.Dockerfile'
+                        - '**/Dockerfile.*'
+
+    dockerignore_guard:
+        needs: changes
+        name: Guard against dropped image files
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        # PR-time only (event == pull_request), so it's skipped on merge_group. Needs no secrets or
+        # docker login — unlike the image build below, it runs on fork PRs too.
+        if: github.event_name == 'pull_request' && needs.changes.outputs.dockerignore_changed == 'true'
+        permissions:
+            contents: read
+        steps:
+            - name: Check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - name: Fetch base ref for comparison
+              run: git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.sha }}"
+            - name: Check for non-test files dropped from the image
+              run: bin/dockerignore-drop-check "${{ github.event.pull_request.base.sha }}"
 
     posthog_build:
         needs: changes
@@ -126,28 +168,21 @@ jobs:
                   echo "- Digest: \`$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
 
     lint:
+        needs: changes
         name: Lint changed Dockerfiles
         runs-on: ubuntu-24.04
         timeout-minutes: 5
+        permissions:
+            contents: read
         steps:
             - name: Check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 0
-                  filter: blob:none
 
-            - name: Check if any Dockerfile has changed
-              id: changed-files
-              uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
-              with:
-                  files: |
-                      **/Dockerfile
-                      **/*.Dockerfile
-                      **/Dockerfile.*
-                  separator: ' '
-
+            # Changed-Dockerfile list comes from the shared paths-filter in `changes`, so no
+            # second changed-files action or full-history checkout. The job still always runs
+            # (only the hadolint step is gated) to keep its required-check status reporting.
             - name: Lint changed Dockerfile(s) with Hadolint
+              if: needs.changes.outputs.dockerfiles_changed == 'true'
               uses: jbergstroem/hadolint-gh-action@2b00b87f8a56783930b6a4749837d7c45c567ff2 # v1.13.0
-              if: steps.changed-files.outputs.any_changed == 'true'
               with:
-                  dockerfile: '${{ steps.changed-files.outputs.all_modified_files }}'
+                  dockerfile: '${{ needs.changes.outputs.dockerfiles_files }}'

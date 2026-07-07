@@ -32,6 +32,7 @@ from posthog.event_usage import AnalyticsProps
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode, QueryResponse, get_query_runner_or_none
 from posthog.models import Team, User
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.schema_migrations.upgrade import upgrade
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -50,6 +51,7 @@ def process_query_dict(
     limit_context: Optional[LimitContext] = None,
     execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
     user: Optional[User] = None,
+    user_access_control: Optional[UserAccessControl] = None,
     query_id: Optional[str] = None,
     insight_id: Optional[int] = None,
     dashboard_id: Optional[int] = None,
@@ -100,6 +102,7 @@ def process_query_dict(
         limit_context=limit_context,
         execution_mode=execution_mode,
         user=user,
+        user_access_control=user_access_control,
         query_id=query_id,
         insight_id=insight_id,
         dashboard_id=dashboard_id,
@@ -118,6 +121,7 @@ def process_query_model(
     limit_context: Optional[LimitContext] = None,
     execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
     user: Optional[User] = None,
+    user_access_control: Optional[UserAccessControl] = None,
     query_id: Optional[str] = None,
     insight_id: Optional[int] = None,
     dashboard_id: Optional[int] = None,
@@ -177,7 +181,9 @@ def process_query_model(
             joins=join_models,
         )
 
-    query_runner = get_query_runner_or_none(query, team, limit_context=limit_context, user=user)
+    query_runner = get_query_runner_or_none(
+        query, team, limit_context=limit_context, user=user, user_access_control=user_access_control
+    )
     if query_runner is None:  # This query doesn't run via query runner
         if hasattr(query, "source") and isinstance(query.source, BaseModel):
             result = process_query_model(
@@ -188,6 +194,7 @@ def process_query_model(
                 limit_context=limit_context,
                 execution_mode=execution_mode,
                 user=user,
+                user_access_control=user_access_control,
                 query_id=query_id,
                 insight_id=insight_id,
                 dashboard_id=dashboard_id,

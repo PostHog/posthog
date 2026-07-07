@@ -91,7 +91,9 @@ async def classify_pending_documents_activity() -> dict[str, Any]:
 def _produce_document_chunks(doc: logic.DocumentToEmbed) -> None:
     """Produce every chunk of one doc to the embedding pipeline (sync Kafka
     produce). ``doc.timestamp`` is the embedding row timestamp — the stable
-    ``created_at`` for first emission, or ``now()`` for a TTL refresh."""
+    ``created_at`` for young first emissions, ``now()`` for old first emissions
+    (docs whose ``created_at`` is past the TTL refresh window), or ``now()``
+    for TTL refreshes."""
     for chunk in doc.chunks:
         emit_embedding_request(
             content=chunk.content,
@@ -116,7 +118,7 @@ def _emit_one_document(doc: logic.DocumentToEmbed) -> int:
     If any chunk produce raises, the exception propagates BEFORE the stamp, so
     the doc stays unstamped and the next pass retries the whole doc. Re-emitting
     chunks that already landed is harmless — the shared table dedupes on
-    (chunk_id, stable timestamp) via ReplacingMergeTree.
+    (chunk_id, timestamp) via ReplacingMergeTree.
     """
     _produce_document_chunks(doc)
     logic.mark_document_embeddings_emitted(team_id=doc.team_id, document_id=doc.document_id)

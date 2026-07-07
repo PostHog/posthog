@@ -1,5 +1,91 @@
 # posthog-cli
 
+## 0.8.1 — 2026-07-06
+
+### Patch changes
+
+- [d57bdcce6d](https://github.com/PostHog/posthog/commit/d57bdcce6dc77adde629de5ffbbad10a6a99b850) Capture CLI errors with PostHog telemetry — Thanks @hpouillot!
+
+## 0.8.0 — 2026-07-03
+
+### Minor changes
+
+- [066d914497](https://github.com/PostHog/posthog/commit/066d9144970955eaf366ff2a8be818460c6ad759) `symbol-sets upload` now also accepts Apple `.dSYM` bundles, packaging them through the same path as `dsym upload` (uppercase UUID chunk_ids, `AppleDsym` container). A single `posthog-cli symbol-sets upload --directory <dir>` run uploads both Linux ELF debug symbols and macOS dSYMs, so native symbol uploads no longer need a different command per platform. The dSYM branch shells out to `dwarfdump` (Xcode, macOS-only); when it is unavailable the bundle is reported and skipped while ELF symbols in the same directory still upload. The standalone `dsym upload` command is unchanged. — Thanks @cat-ph!
+
+## 0.7.34 — 2026-06-30
+
+### Patch changes
+
+- [889dd51553](https://github.com/PostHog/posthog/commit/889dd5155315fa05b3cb369f3e461c6f51cc61c1) Strip sourceMappingURL comments when deleting uploaded source maps — Thanks @hpouillot!
+
+## 0.7.33 — 2026-06-25
+
+### Patch changes
+
+- [c334e9f9c3](https://github.com/PostHog/posthog/commit/c334e9f9c3c5f733de8b531c9854412ad253cc4d) Mention Go's `-ldflags=-B=gobuildid` when `symbol-sets upload` finds ELF files without a GNU build id, since Go binaries don't emit one by default. — Thanks @cat-ph!
+- [b9097541d4](https://github.com/PostHog/posthog/commit/b9097541d446587f1ad9374b77d2c3e78773f60c) Allow explicit sourcemap release uploads to continue when optional Git metadata cannot be read — Thanks @cat-ph!
+
+## 0.7.32 — 2026-06-24
+
+### Patch changes
+
+- [6fb4456e8f](https://github.com/PostHog/posthog/commit/6fb4456e8f9a5048b3db6ceb6d873241e14fe6b8) Fix the CLI release workflow so the Windows (`x86_64-pc-windows-msvc`) build succeeds and ships with each release. — Thanks @cat-ph!
+
+## 0.7.31 — 2026-06-24
+
+### Patch changes
+
+- [dfd1f66a9f](https://github.com/PostHog/posthog/commit/dfd1f66a9f0a5ae4e492887c79921b0692c97d51) Add `symbol-sets upload` for native (ELF) debug symbols: it scans a directory for executables, shared libraries, and `objcopy --only-keep-debug` companions that carry a GNU build id and uploads them to PostHog. — Thanks @cat-ph!
+
+## 0.7.30 — 2026-06-22
+
+### Patch changes
+
+- [d51a877525](https://github.com/PostHog/posthog/commit/d51a8775252d4fd4e35f389e4960a5f23726e429) Handle Git worktrees and packed refs when detecting repository info — Thanks @hpouillot!
+
+## 0.7.29 — 2026-06-19
+
+### Patch changes
+
+- [8c030733b1](https://github.com/PostHog/posthog/commit/8c030733b14ad4281505634ab7c1a21e4128ff51) Quiet agent API discovery commands — Thanks @cvolzer3!
+
+## 0.7.28 — 2026-06-18
+
+### Patch changes
+
+- [f0bb5426d5](https://github.com/PostHog/posthog/commit/f0bb5426d51601a7e39c4d3bcadbe592962ab980) Remove the `posthog-cli api` experimental opt-in and skip unavailable generated tools without warning noise. — Thanks @cvolzer3!
+
+## 0.7.27 — 2026-06-18
+
+### Patch changes
+
+- [7be64cbe1e](https://github.com/PostHog/posthog/commit/7be64cbe1e982e27c1d863146a6268986b7a3ca3) Fix the post-login hint so `posthog-cli login` suggests a valid next command based on the scopes authorized for the generated key. — Thanks @cvolzer3!
+
+## 0.7.26 — 2026-06-18
+
+### Patch changes
+
+- [801e9a763c](https://github.com/PostHog/posthog/commit/801e9a763c5247540106db6740fe71ba6798bd7f) Fix CLI login for agent workflows by adding the Agent CLI preset, using the supported agent scope set, and showing clearer messages about what the generated key can do. — Thanks @cvolzer3!
+
+## 0.7.25 — 2026-06-17
+
+### Patch changes
+
+- [36812957e0](https://github.com/PostHog/posthog/commit/36812957e0b6548a5586d9341f3bcf7450ad0839) Show default values in upload help — Thanks @marandaneto!
+
+## 0.7.24 — 2026-06-16
+
+### Patch changes
+
+- [10af01f66f](https://github.com/PostHog/posthog/commit/10af01f66fad9b230ca925fe4753f6361cd4ca4a) Refresh master before preparing CLI releases — Thanks @cat-ph!
+- [ace786f67b](https://github.com/PostHog/posthog/commit/ace786f67bd4d0360bd79e531cfce2d1f3af9bef) Fix API CLI bundle packaging and lookup — Thanks @cvolzer3!
+
+## 0.7.23 — 2026-06-15
+
+### Patch changes
+
+- [8addff91dd](https://github.com/PostHog/posthog/commit/8addff91ddecd46fe135f51403f6bd3c8b36b7b5) Add agentic API tools — Thanks @cvolzer3!
+
 ## 0.7.22 — 2026-06-09
 
 ### Patch changes

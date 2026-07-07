@@ -8,14 +8,21 @@ permissions:
     contents: read
     pull-requests: write
 
+# `edited` fires on title/body edits too; those runs skip every job but would
+# still cancel an in-flight review via the shared group. Give them a unique
+# throwaway group. Base-change edits (retarget) keep the shared group on
+# purpose: cancelling a review that's mid-flight against the old base is the
+# desired outcome.
 concurrency:
-    group: pr-approval-${{ github.event.pull_request.number }}
+    group: pr-approval-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && github.event.changes.base == null && format('-edit-{0}', github.run_id) || '' }}
     cancel-in-progress: true
 
 jobs:
     review:
         # Write access is required to apply the stamphog label, so no
-        # additional author_association check is needed.
+        # additional author_association check is needed. Bot-authored PRs are
+        # hard-excluded regardless of who applies the label — see the
+        # bot-author-skip job, which strips the label and explains why.
         # Triggers: explicit `stamphog` label, ready_for_review with the
         # label already present, or `synchronize` where decide-delta
         # asked for re-review (or itself failed — fail closed for safety).
@@ -23,6 +30,9 @@ jobs:
         if: >-
             always()
             && !github.event.pull_request.draft
+            && github.event.pull_request.user.type != 'Bot'
+            && !contains(github.event.pull_request.user.login, '[bot]')
+            && github.event.pull_request.user.login != 'posthog-bot'
             && (
               github.event.label.name == 'stamphog'
               || (github.event.action == 'ready_for_review' && contains(github.event.pull_request.labels.*.name, 'stamphog'))
@@ -31,7 +41,11 @@ jobs:
               || (github.event.action == 'edited' && github.event.changes.base != null && contains(github.event.pull_request.labels.*.name, 'stamphog'))
             )
         runs-on: ubuntu-latest
-        timeout-minutes: 10
+        # Budget for the in-flight-bot-review wait (5 min of sleeps plus the
+        # per-poll refetches, so wall-clock exceeds it) plus the LLM review —
+        # see BOT_REVIEW_WAIT_BUDGET_SECONDS in review_pr.py. The cap costs
+        # nothing unless a run hangs; runners bill actual minutes.
+        timeout-minutes: 20
 
         steps:
             - name: Get app token
@@ -82,11 +96,17 @@ jobs:
                   # unlike GitHub App bot approvals which show author_association NONE.
                   GH_TOKEN_APPROVE: ${{ github.token }}
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  # Derived from the token step so the sticky-comment author
+                  # filter tracks an app rename instead of failing silent.
+                  BOT_LOGIN: ${{ steps.app-token.outputs.app-slug }}[bot]
               run: |
                   PR=${{ github.event.pull_request.number }}
                   REPO=${{ github.repository }}
                   VERDICT=$(jq -r '.final_verdict // ""' /tmp/review.json 2>/dev/null || echo "")
-                  REASONING=$(jq -r '.reviewer.reasoning // ""' /tmp/review.json 2>/dev/null || echo "")
+                  # Prefer the structured comment body (reasoning + judgment
+                  # bullets + folded gate mechanics); fall back to the bare
+                  # reasoning when the script predates the field.
+                  REASONING=$(jq -r '.review_body // .reviewer.reasoning // ""' /tmp/review.json 2>/dev/null || echo "")
                   REVIEWED_SHA=$(jq -r '.head_sha // ""' /tmp/review.json 2>/dev/null || echo "")
 
                   # Lock the review to the sha the LLM actually saw — `gh pr
@@ -103,26 +123,103 @@ jobs:
                       "${SHA_ARGS[@]}" \
                       -f event=APPROVE \
                       -f body="$REASONING"
-                  elif [ -n "$REASONING" ]; then
-                    gh api \
-                      -X POST "repos/$REPO/pulls/$PR/reviews" \
-                      "${SHA_ARGS[@]}" \
-                      -f event=COMMENT \
-                      -f body="$REASONING"
                   else
-                    gh pr comment "$PR" \
-                      --body "Review agent failed — check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) and re-apply the label to retry." \
-                      --repo "$REPO"
+                    # Non-approve verdicts share ONE sticky comment, updated in
+                    # place, instead of a fresh COMMENT review per run. Review
+                    # bodies can't be minimized or deleted, so when an automation
+                    # loop keeps re-applying the label against a deterministic
+                    # denial (e.g. the size gate) the refusals pile up — one PR
+                    # collected 60+ near-identical stamphog reviews.
+                    MARKER='<!-- stamphog-sticky-review -->'
+                    RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+                    # Author + leading-marker filter: on a public repo anyone can
+                    # post a comment containing the marker; without the filter the
+                    # bot would PATCH (clobber) a third-party comment. Slurp so the
+                    # jq runs once over all pages — per-page --jq could emit one
+                    # object per page. The || guard keeps a transient lookup
+                    # failure from aborting the step before the label strip below
+                    # (it degrades to posting a fresh comment instead).
+                    EXISTING=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --slurp \
+                      --jq "[.[][] | select(.user.login == \"$BOT_LOGIN\" and (.body | startswith(\"$MARKER\")))][0] // empty" \
+                      || echo "")
+                    COMMENT_ID=""
+                    EXISTING_BODY=""
+                    PREV_COUNT=0
+                    if [ -n "$EXISTING" ]; then
+                      COMMENT_ID=$(jq -r '.id' <<<"$EXISTING")
+                      EXISTING_BODY=$(jq -r '.body' <<<"$EXISTING")
+                      PREV_COUNT=$(jq -r '.body | (match("stamphog-review-count:([0-9]+)").captures[0].string // "0")' <<<"$EXISTING")
+                    fi
+
+                    # The append path requires an actual verdict in the prior body —
+                    # a crash-only prior comment goes through the rebuild branch so
+                    # it can't end up claiming "the verdict above" over no verdict.
+                    if [ -z "$REASONING" ] && [ -n "$COMMENT_ID" ] \
+                      && grep -q 'verdict: \*\*' <<<"$EXISTING_BODY"; then
+                      # Verdictless crash with a prior verdict on record: append the
+                      # failure note below it rather than clobbering the reasoning
+                      # the author still needs to act on. The anchored grep dedups
+                      # only the note itself, never verdict reasoning that happens
+                      # to mention review failures.
+                      { grep -v '^> ⚠️ A later review run failed' <<<"$EXISTING_BODY" || true; } > /tmp/stamphog-comment.md
+                      {
+                        echo
+                        echo "> ⚠️ A later review run failed before producing a verdict — check the [workflow run]($RUN_URL). The verdict above is from an earlier run."
+                      } >> /tmp/stamphog-comment.md
+                    else
+                      # The counter tracks verdicts only — a crash rebuild keeps
+                      # the previous count so repeated failures don't inflate it.
+                      if [ -n "$REASONING" ]; then
+                        COUNT=$((PREV_COUNT + 1))
+                        HEADLINE="stamphog reviewed \`${REVIEWED_SHA:-unknown}\` — verdict: **${VERDICT:-unknown}**"
+                        DETAIL="$REASONING"
+                      else
+                        COUNT=$PREV_COUNT
+                        HEADLINE="stamphog review failed before producing a verdict"
+                        DETAIL="Check the [workflow run]($RUN_URL) and re-apply the label to retry."
+                      fi
+                      {
+                        echo "$MARKER"
+                        echo "<!-- stamphog-review-count:$COUNT -->"
+                        echo "> [!NOTE]"
+                        echo "> 🤖 $HEADLINE"
+                        echo
+                        echo "$DETAIL"
+                        if [ -n "$COMMENT_ID" ]; then
+                          echo
+                          [ "$PREV_COUNT" -gt 0 ] \
+                            && echo "_Updated in place — this replaces $PREV_COUNT earlier stamphog review(s) on this PR._" \
+                            || echo "_Updated in place from an earlier stamphog review._"
+                        fi
+                      } > /tmp/stamphog-comment.md
+                    fi
+
+                    # A failed PATCH (comment deleted, transient API error) falls
+                    # back to posting fresh, so the only unguarded API call left
+                    # ahead of the label strip is the same single POST the old
+                    # COMMENT-review path had.
+                    if [ -n "$COMMENT_ID" ]; then
+                      gh api -X PATCH "repos/$REPO/issues/comments/$COMMENT_ID" \
+                        -F "body=@/tmp/stamphog-comment.md" || COMMENT_ID=""
+                    fi
+                    if [ -z "$COMMENT_ID" ]; then
+                      gh api -X POST "repos/$REPO/issues/$PR/comments" \
+                        -F "body=@/tmp/stamphog-comment.md"
+                    fi
                   fi
 
-                  # A substantive non-APPROVED verdict (REFUSE/ESCALATE)
-                  # removes the label, breaking the auto-rerun loop until a
-                  # human re-applies it after addressing the feedback. ERROR
-                  # means the review agent couldn't reach its LLM backend
-                  # (auth/credit/outage) — that's not a verdict on the PR, so
-                  # keep the label and let it retry rather than silently
-                  # dropping it across every queued PR during an outage.
-                  if [ "$VERDICT" != "APPROVED" ] && [ "$VERDICT" != "ERROR" ]; then
+                  # Only the two substantive verdicts strip the label — a
+                  # REFUSE/ESCALATE means the author must address feedback and
+                  # re-apply. Everything else fails toward retention: ERROR
+                  # (LLM backend down), WAIT (reviewer bot mid-review), and an
+                  # empty verdict (script crash / job cancelled before
+                  # review.json was written) are not verdicts on the PR, and
+                  # retention just means the next push retries. An explicit
+                  # strip-list also means future verdicts keep the label by
+                  # default instead of everyone remembering to extend a
+                  # keep-list.
+                  if [ "$VERDICT" = "REFUSED" ] || [ "$VERDICT" = "ESCALATE" ]; then
                     gh pr edit "$PR" --remove-label stamphog \
                       --repo "$REPO"
                   fi
@@ -148,6 +245,9 @@ jobs:
         if: >-
             github.event.action == 'synchronize'
             && !github.event.pull_request.draft
+            && github.event.pull_request.user.type != 'Bot'
+            && !contains(github.event.pull_request.user.login, '[bot]')
+            && github.event.pull_request.user.login != 'posthog-bot'
             && contains(github.event.pull_request.labels.*.name, 'stamphog')
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -185,7 +285,10 @@ jobs:
               run: |
                   set -euo pipefail
                   git fetch --filter=blob:none origin "pull/${PR_NUMBER}/head"
-                  git fetch --filter=blob:none origin "$BASE_REF_NAME" || true
+                  # Explicit refspec: a bare `git fetch origin <branch>` only
+                  # writes FETCH_HEAD, and dismiss_check resolves origin/<branch>.
+                  git fetch --filter=blob:none origin \
+                    "+refs/heads/${BASE_REF_NAME}:refs/remotes/origin/${BASE_REF_NAME}" || true
 
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -236,6 +339,12 @@ jobs:
         # Explicit synchronize + draft gates stop spurious dismissal on
         # labeled / ready_for_review events where decide-delta's result is
         # also 'skipped'.
+        # Bot authors are deliberately NOT excluded here: a bot-authored PR may
+        # still carry a stale github-actions[bot] approval from before the
+        # bot-author gate landed, and it must get dismissed on push. decide-delta
+        # is skipped for bots, which routes here via the 'skipped' fail-closed
+        # path. This only ever touches github-actions[bot] approvals, so it's a
+        # no-op when there's nothing to dismiss.
         if: >-
             always()
             && github.event.action == 'synchronize'
@@ -318,3 +427,53 @@ jobs:
                         -f message="Base branch retargeted — stamphog approval dismissed; re-review runs automatically if the label is present." \
                         -f event=DISMISS
                   done
+
+    # stamphog never reviews bot-authored PRs (dependabot, mendral, other
+    # agents). A human applying the label can't override this — bot output
+    # isn't a trusted basis for an auto-approval. review / decide-delta are
+    # gated to skip bot authors; this job runs instead to strip the label so
+    # it never lingers. Same bot definition as those job gates, and as the
+    # review script's defense-in-depth REFUSE.
+    # Fires on labeled / ready_for_review (the apply paths — comment + strip)
+    # and on synchronize when the label is still present (a leftover from before
+    # this gate landed, or a failed earlier strip — clean it up, no comment).
+    bot-author-skip:
+        if: >-
+            !github.event.pull_request.draft
+            && (
+              github.event.pull_request.user.type == 'Bot'
+              || contains(github.event.pull_request.user.login, '[bot]')
+              || github.event.pull_request.user.login == 'posthog-bot'
+            )
+            && (
+              github.event.label.name == 'stamphog'
+              || (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'stamphog'))
+            )
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+
+        steps:
+            - name: Get app token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_PR_APPROVAL_AGENT_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_PR_APPROVAL_AGENT_PRIVATE_KEY }}
+
+            - name: Comment and strip label
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  PR: ${{ github.event.pull_request.number }}
+                  REPO: ${{ github.repository }}
+                  ACTION: ${{ github.event.action }}
+              run: |
+                  set -euo pipefail
+                  # Explain only on the apply paths (a human just labeled it, or
+                  # marked the PR ready). On synchronize/edited the note was
+                  # already posted — or the label predates this gate — so just
+                  # clean up.
+                  if [ "$ACTION" = "labeled" ] || [ "$ACTION" = "ready_for_review" ]; then
+                    gh pr comment "$PR" --repo "$REPO" \
+                      --body "stamphog does not review bot-authored PRs — removing the \`stamphog\` label. This change needs a human reviewer."
+                  fi
+                  gh pr edit "$PR" --repo "$REPO" --remove-label stamphog

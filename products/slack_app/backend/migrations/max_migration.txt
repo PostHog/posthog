@@ -1,1 +1,1 @@
-0006_slackthreadtaskmapping_latest_actor_slack_user_id
+0010_slacksettings_default_integration_nullable

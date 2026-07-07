@@ -44,8 +44,8 @@ describe('DistinctIdSelect', () => {
                 '/api/environments/:team/persons/': { results: MOCK_PERSONS, next: null },
             },
             post: {
-                '/api/environments/:team/persons/batch_by_distinct_ids/': async (req: any) => {
-                    const body = (await req.json()) as { distinct_ids?: string[] }
+                '/api/environments/:team/persons/batch_by_distinct_ids/': async ({ request }) => {
+                    const body = (await request.json()) as { distinct_ids?: string[] }
                     const distinctIds = body.distinct_ids ?? []
                     const results: Record<string, any> = {}
                     for (const person of MOCK_PERSONS) {

@@ -6,7 +6,7 @@ import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconAreaChart, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 import { FirstSurveyHelper } from 'scenes/surveys/components/empty-state/FirstSurveyHelper'
 import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { CopySurveyLink } from 'scenes/surveys/CopySurveyLink'

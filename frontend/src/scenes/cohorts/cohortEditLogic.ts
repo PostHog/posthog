@@ -19,13 +19,16 @@ import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { ENTITY_MATCH_TYPE } from 'lib/constants'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { isOperatorDate } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { objectsEqual } from 'lib/utils/objects'
+import { isOperatorDate } from 'lib/utils/operators'
 import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import {
@@ -38,6 +41,7 @@ import {
     validateGroup,
 } from 'scenes/cohorts/cohortUtils'
 import { personsLogic } from 'scenes/persons/personsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -59,6 +63,9 @@ import {
     PropertyType,
 } from '~/types'
 
+import { cohortsUsedInRetrieve } from 'products/cohorts/frontend/generated/api'
+import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
+
 import type { cohortEditLogicType } from './cohortEditLogicType'
 
 export type CohortLogicProps = {
@@ -72,7 +79,13 @@ export type CohortEditTab = 'overview' | 'history'
 const isCohortEditTab = (value: unknown): value is CohortEditTab => value === 'overview' || value === 'history'
 
 const checkIsPendingCalculation = (cohort: CohortType): boolean =>
-    cohort.pending_version != null && (cohort.version == null || cohort.pending_version !== cohort.version)
+    cohort.pending_version != null &&
+    (cohort.version == null || cohort.pending_version !== cohort.version) &&
+    // A pending version that never catches up because every attempt failed is not pending, it's
+    // failed. Without this, `version` stays stuck behind `pending_version` forever (it only advances
+    // on success), so the cohort would show "pending" indefinitely and mask the calculation error.
+    // A genuine in-progress retry still flips `is_calculating`, which keeps the calculating banner up.
+    !cohort.errors_calculating
 
 const hasFilterCriteria = (cohort: CohortType): boolean =>
     Array.isArray(cohort.filters?.properties?.values) && cohort.filters.properties.values.length > 0
@@ -89,6 +102,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
     key((props) => (props.id === 'new' || !props.id ? 'new' : props.id)),
     path(['scenes', 'cohorts', 'cohortLogicEdit']),
     connect(() => ({
+        values: [teamLogic, ['currentProjectId']],
         actions: [eventUsageLogic, ['reportExperimentExposureCohortEdited']],
         logic: [cohortsModel],
     })),
@@ -261,6 +275,30 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 },
             },
         ],
+        // User's column selection for this cohort's persons table, persisted per-cohort in
+        // localStorage. Lets a refresh restore the columns even when the user hasn't saved them
+        // as a team-wide default. This is a local-only fallback that sits alongside the
+        // server-side column persistence in `columnConfiguratorLogic` (the persons table sets
+        // `showPersistentColumnConfigurator` and `contextKey: cohort:<id>` in the query above) —
+        // if you're extending column persistence, prefer doing it there.
+        persistedColumns: [
+            null as string[] | null,
+            {
+                persist: true,
+                // Scope by team so columns don't leak across projects (e.g. after impersonation).
+                storageKey: `scenes.cohorts.cohortEditLogic.${getCurrentTeamId()}.${props.id}.persistedColumns`,
+            },
+            {
+                setQuery: (state, { query }) => {
+                    // Don't capture for unsaved drafts — every new cohort shares the 'new' logic
+                    // key, so persisting here would bleed columns from one draft into the next.
+                    if (!props.id || props.id === 'new' || !isDataTableNode(query)) {
+                        return state
+                    }
+                    return (query.source as ActorsQuery).select ?? state
+                },
+            },
+        ],
         creationPersonQuery: [
             {
                 kind: NodeKind.ActorsQuery,
@@ -302,6 +340,21 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
     })),
 
     selectors({
+        // The persons table query with the user's persisted column selection applied. Deriving
+        // this in a selector (instead of dispatching a corrective `setQuery` from a listener)
+        // avoids a render with default columns before the persisted ones kick in.
+        effectiveQuery: [
+            (s) => [s.query, s.persistedColumns],
+            (query: DataTableNode, persistedColumns: string[] | null): DataTableNode => {
+                if (persistedColumns && isDataTableNode(query)) {
+                    const source = query.source as ActorsQuery
+                    if (!objectsEqual(source.select, persistedColumns)) {
+                        return { ...query, source: { ...source, select: persistedColumns } }
+                    }
+                }
+                return query
+            },
+        ],
         canRemovePersonFromCohort: [
             (s) => [s.cohort],
             (cohort: CohortType) => {
@@ -369,7 +422,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         },
     })),
 
-    loaders(({ actions, values, key }) => ({
+    loaders(({ actions, values, key, props }) => ({
         cohort: [
             NEW_COHORT,
             {
@@ -584,6 +637,31 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 },
             },
         ],
+
+        usedIn: [
+            null as CohortUsedInResponseApi | null,
+            {
+                loadUsedIn: async () => {
+                    // On mount `values.cohort` is still NEW_COHORT (fetchCohort hasn't resolved),
+                    // so fall back to the id from props.
+                    const id = values.cohort.id !== 'new' ? values.cohort.id : props.id
+                    if (!id || id === 'new') {
+                        return null
+                    }
+                    try {
+                        return await cohortsUsedInRetrieve(String(values.currentProjectId), Number(id))
+                    } catch (error) {
+                        // A 404 just means the endpoint isn't deployed yet (deploy skew) or the
+                        // cohort is gone; neither is worth reporting.
+                        if (!(error instanceof ApiError) || error.status !== 404) {
+                            posthog.captureException(error, { feature: 'cohort-used-in' })
+                        }
+                        // Keep any previously loaded value so a failed refresh doesn't blank the banner.
+                        return values.usedIn
+                    }
+                },
+            },
+        ],
     })),
     listeners(({ actions, values }) => ({
         setCriteria: ({ newCriteria, groupIndex, criteriaIndex }) => {
@@ -603,14 +681,16 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 return
             }
 
-            if (criteria.type !== BehavioralFilterKey.Person) {
+            if (criteria.type !== BehavioralFilterKey.Person && criteria.type !== BehavioralFilterKey.PersonMetadata) {
                 return
             }
 
+            const definitionType =
+                criteria.type === BehavioralFilterKey.PersonMetadata
+                    ? PropertyDefinitionType.PersonMetadata
+                    : PropertyDefinitionType.Person
             const propDef = newCriteria.key
-                ? propertyDefinitionsModel
-                      .findMounted()
-                      ?.values.getPropertyDefinition(newCriteria.key, PropertyDefinitionType.Person)
+                ? propertyDefinitionsModel.findMounted()?.values.getPropertyDefinition(newCriteria.key, definitionType)
                 : null
             const isDateTime = propDef?.property_type === PropertyType.DateTime
             const currentOperator = criteria.operator as PropertyOperator | undefined
@@ -713,6 +793,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             }
         } else {
             actions.fetchCohort(props.id)
+            actions.loadUsedIn()
         }
     }),
     beforeUnmount(({ values }) => {

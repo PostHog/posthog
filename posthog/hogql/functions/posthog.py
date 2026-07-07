@@ -26,12 +26,20 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         signatures=[((StringType(),), ArrayType(item_type=IntegerType()))],
     ),
     "embedText": HogQLFunctionMeta("embedText", 1, 2),
+    # Temporary (June 2026 MaxMind incident: https://posthog.slack.com/archives/C0B9DDSCTF1): geoip lookups against the city_postal_ip_trie ClickHouse dictionary,
+    # used by posthog/hogql/transforms/geoip_dict_fallback.py and rendered in the ClickHouse printer. Remove with it.
+    "_lookupGeoipCityName": HogQLFunctionMeta("_lookupGeoipCityName", 1, 1),
+    "_lookupGeoipPostalCode": HogQLFunctionMeta("_lookupGeoipPostalCode", 1, 1),
     # posthog/models/channel_type/sql.py and posthog/hogql/database/schema/channel_type.py
     "lookupDomainType": HogQLFunctionMeta("lookupDomainType", 1, 1),
     "lookupPaidSourceType": HogQLFunctionMeta("lookupPaidSourceType", 1, 1),
     "lookupPaidMediumType": HogQLFunctionMeta("lookupPaidMediumType", 1, 1),
     "lookupOrganicSourceType": HogQLFunctionMeta("lookupOrganicSourceType", 1, 1),
     "lookupOrganicMediumType": HogQLFunctionMeta("lookupOrganicMediumType", 1, 1),
+    # Expanded to SQL in the resolver's visit_call; these never map to a real CH function. (The
+    # bot/traffic-type functions are registered further down; the resolver expands them too.)
+    "_defaultChannelType": HogQLFunctionMeta("_defaultChannelType", 7, 7),
+    "_domainType": HogQLFunctionMeta("_domainType", 1, 1),
     # posthog/models/exchange_rate/sql.py
     # convertCurrency(from_currency, to_currency, amount, timestamp?)
     "convertCurrency": HogQLFunctionMeta(
@@ -85,7 +93,45 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ((StringType(), DateTimeType(), DateTimeType()), StringType()),
         ],
     ),
-    # traffic type classification functions (experimental)
+    # Bot / traffic-type classification functions. The optional second argument is the
+    # client IP, matched against operator-published bot IP ranges.
+    "getTrafficType": HogQLFunctionMeta(
+        "getTrafficType",
+        1,
+        2,
+        signatures=[((StringType(),), StringType()), ((StringType(), StringType()), StringType())],
+    ),
+    "getTrafficCategory": HogQLFunctionMeta(
+        "getTrafficCategory",
+        1,
+        2,
+        signatures=[((StringType(),), StringType()), ((StringType(), StringType()), StringType())],
+    ),
+    "isLikelyBot": HogQLFunctionMeta(
+        "isLikelyBot",
+        1,
+        2,
+        signatures=[((StringType(),), BooleanType()), ((StringType(), StringType()), BooleanType())],
+    ),
+    "getBotType": HogQLFunctionMeta(
+        "getBotType",
+        1,
+        2,
+        signatures=[((StringType(),), StringType()), ((StringType(), StringType()), StringType())],
+    ),
+    "getBotName": HogQLFunctionMeta(
+        "getBotName",
+        1,
+        2,
+        signatures=[((StringType(),), StringType()), ((StringType(), StringType()), StringType())],
+    ),
+    "getBotOperator": HogQLFunctionMeta(
+        "getBotOperator",
+        1,
+        2,
+        signatures=[((StringType(),), StringType()), ((StringType(), StringType()), StringType())],
+    ),
+    # Deprecated __preview_* aliases — kept so ad-hoc queries written against the preview names keep working.
     "__preview_getTrafficType": HogQLFunctionMeta(
         "__preview_getTrafficType", 1, 1, signatures=[((StringType(),), StringType())]
     ),

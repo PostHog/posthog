@@ -1,5 +1,6 @@
-import { defineWorkersProject } from '@cloudflare/vitest-pool-workers/config'
+import { cloudflareTest } from '@cloudflare/vitest-pool-workers'
 import tsconfigPaths from 'vite-tsconfig-paths'
+import { defineConfig } from 'vitest/config'
 
 import { dispatchHandlers } from './tests/workers/fixtures/handlers'
 
@@ -12,8 +13,31 @@ import { dispatchHandlers } from './tests/workers/fixtures/handlers'
 // `http.*` DSL (see tests/workers/fixtures/handlers.ts) match and respond.
 // Fixtures are real PostHog API responses captured from a local dev server.
 
-export default defineWorkersProject({
-    plugins: [tsconfigPaths({ root: '.' })],
+export default defineConfig({
+    plugins: [
+        cloudflareTest({
+            wrangler: { configPath: './wrangler.jsonc' },
+            miniflare: {
+                bindings: {
+                    // Override secrets loaded from .dev.vars. Empty values
+                    // make init()'s analytics / observability paths short-
+                    // circuit cleanly.
+                    POSTHOG_API_BASE_URL: '',
+                    POSTHOG_PUBLIC_URL: '',
+                    POSTHOG_ANALYTICS_API_KEY: '',
+                    POSTHOG_ANALYTICS_HOST: '',
+                    POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: '',
+                    POSTHOG_UI_APPS_TOKEN: '',
+                    // Generic test marker. Code can short-circuit features
+                    // that need real network (e.g. context-mill GitHub
+                    // fetch in src/resources/index.ts).
+                    TEST: '1',
+                },
+                outboundService: dispatchHandlers,
+            },
+        }),
+        tsconfigPaths({ root: '.' }),
+    ],
     test: {
         name: 'workers',
         include: ['tests/workers/**/*.test.ts'],
@@ -21,29 +45,5 @@ export default defineWorkersProject({
         // overhead that can push it past the 5s default. Bump the ceiling so
         // these tests don't flake on slower CI runners.
         testTimeout: 15000,
-        poolOptions: {
-            workers: {
-                singleWorker: true,
-                wrangler: { configPath: './wrangler.jsonc' },
-                miniflare: {
-                    bindings: {
-                        // Override secrets loaded from .dev.vars. Empty values
-                        // make init()'s analytics / observability paths short-
-                        // circuit cleanly.
-                        POSTHOG_API_BASE_URL: '',
-                        POSTHOG_PUBLIC_URL: '',
-                        POSTHOG_ANALYTICS_API_KEY: '',
-                        POSTHOG_ANALYTICS_HOST: '',
-                        POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: '',
-                        POSTHOG_UI_APPS_TOKEN: '',
-                        // Generic test marker. Code can short-circuit features
-                        // that need real network (e.g. context-mill GitHub
-                        // fetch in src/resources/index.ts).
-                        TEST: '1',
-                    },
-                    outboundService: dispatchHandlers,
-                },
-            },
-        },
     },
 })

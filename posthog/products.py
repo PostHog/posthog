@@ -1,18 +1,23 @@
 import json
 from collections import defaultdict
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
 
-from posthog.schema import ProductItem, ProductItemCategory, ProductKey, ProductsData
+from posthog.schema_enums import ProductItemCategory, ProductKey
+
+# This module loads at django.setup() via the file-system product list; posthog.schema
+# (the pydantic models) is runtime-imported only when products.json is actually loaded.
+if TYPE_CHECKING:
+    from posthog.schema import ProductItem, ProductsData
 
 
 class Products:
     """Singleton class to access products.json data with automatic reloading."""
 
     _instance: Optional["Products"] = None
-    _data: Optional[ProductsData] = None
+    _data: Optional["ProductsData"] = None
     _file_path: Optional[Path] = None
 
     def __new__(cls) -> "Products":
@@ -30,6 +35,8 @@ class Products:
 
     def _load_data(self) -> None:
         """Load products.json data from disk and validate with Pydantic."""
+        from posthog.schema import ProductsData  # noqa: PLC0415
+
         if self._file_path is None or not self._file_path.exists():
             raise FileNotFoundError(
                 f"products.json not found at {self._file_path}. Generate it by running: hogli build:products"
@@ -46,7 +53,7 @@ class Products:
         instance._load_data()
 
     @staticmethod
-    def _get_data() -> ProductsData:
+    def _get_data() -> "ProductsData":
         """Get the loaded data, loading if necessary."""
         instance = Products()
         if instance._data is None:
@@ -56,17 +63,17 @@ class Products:
         return instance._data
 
     @staticmethod
-    def products() -> list[ProductItem]:
+    def products() -> list["ProductItem"]:
         """Get the list of products."""
         return Products._get_data().products
 
     @staticmethod
-    def games() -> list[ProductItem]:
+    def games() -> list["ProductItem"]:
         """Get the list of games."""
         return Products._get_data().games
 
     @staticmethod
-    def metadata() -> list[ProductItem]:
+    def metadata() -> list["ProductItem"]:
         """Get the list of metadata items."""
         return Products._get_data().metadata
 
@@ -76,7 +83,7 @@ class Products:
         return [product.path for product in Products.products()]
 
     @staticmethod
-    def get_products_by_intent(intent: ProductKey) -> list[ProductItem]:
+    def get_products_by_intent(intent: ProductKey) -> list["ProductItem"]:
         """Get all products that the intent is associated with."""
         return [product for product in Products.products() if intent in product.intents]
 

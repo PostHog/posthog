@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSelect } from '@posthog/lemon-ui'
 
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { zendeskTicketsFiltersLogic } from './zendeskTicketsFiltersLogic'
 

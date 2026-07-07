@@ -1,6 +1,6 @@
 """DRF views for business_knowledge."""
 
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -27,15 +27,21 @@ from posthog.temporal.common.client import sync_connect
 from .. import logic
 from ..constants import BK_DRILLDOWN_DEFAULT_RADIUS, BK_DRILLDOWN_MAX_RADIUS
 from ..file_parse import FileParseError
-from ..models import KnowledgeDocument, KnowledgeSource, SourceType
+from ..models import GapStatus, KnowledgeDocument, KnowledgeGapSuggestion, KnowledgeSource, SourceType
 from ..models.constants import CrawlMode
 from ..temporal.coordinator import IngestSourceInputs, RefreshSourceInputs
 from .serializers import (
+    AggregatedGapSerializer,
     CreateCrawlSourceSerializer,
     CreateFileSourceSerializer,
     CreateTextSourceSerializer,
     CreateUrlSourceSerializer,
+    GapActionSerializer,
+    GapTopicActionResultSerializer,
+    GapTopicActionSerializer,
     KnowledgeDocumentWindowSerializer,
+    KnowledgeGapSuggestionSerializer,
+    KnowledgeSearchResultSerializer,
     KnowledgeSourceSerializer,
     UpdateTextSourceSerializer,
     UpdateUrlSourceSerializer,
@@ -98,6 +104,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 created_by_id=user.id,
                 name=serializer.validated_data["name"],
                 text=serializer.validated_data["text"],
+                always_include=serializer.validated_data.get("always_include", False),
             )
         except logic.TextTooLargeError:
             raise exceptions.ValidationError({"text": "Text exceeds the maximum allowed size."})
@@ -116,6 +123,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 name=serializer.validated_data["name"],
                 url=serializer.validated_data["url"],
                 refresh_interval=serializer.validated_data.get("refresh_interval"),
+                always_include=serializer.validated_data.get("always_include", False),
             )
         except logic.SourceBusyError:
             raise _ConflictError("Another source is already being processed. Please wait and try again.")
@@ -138,6 +146,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 crawl_mode=serializer.validated_data["crawl_mode"],
                 crawl_config=serializer.validated_data["crawl_config"],
                 refresh_interval=serializer.validated_data.get("refresh_interval"),
+                always_include=serializer.validated_data.get("always_include", False),
             )
         except logic.SourceBusyError:
             raise _ConflictError("Another source is already being processed. Please wait and try again.")
@@ -192,6 +201,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 name=serializer.validated_data["name"],
                 file_data=file_data,
                 original_filename=uploaded.name or "unnamed",
+                always_include=serializer.validated_data.get("always_include", False),
             )
         except FileParseError as exc:
             raise exceptions.ValidationError({"file": str(exc) or "Unable to parse the uploaded file."})
@@ -245,6 +255,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 team_id=self.team_id,
                 name=serializer.validated_data.get("name"),
                 text=None,
+                always_include=serializer.validated_data.get("always_include"),
             )
         except logic.QuotaExceededError:
             raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")
@@ -261,6 +272,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 team_id=self.team_id,
                 name=serializer.validated_data.get("name"),
                 text=serializer.validated_data.get("text"),
+                always_include=serializer.validated_data.get("always_include"),
             )
         except logic.TextTooLargeError:
             raise exceptions.ValidationError({"text": "Text exceeds the maximum allowed size."})
@@ -282,6 +294,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 crawl_mode=serializer.validated_data.get("crawl_mode"),
                 crawl_config=serializer.validated_data.get("crawl_config"),
                 refresh_interval=serializer.validated_data.get("refresh_interval"),
+                always_include=serializer.validated_data.get("always_include"),
             )
         except logic.InvalidUrlError:
             raise exceptions.ValidationError({"url": "URL is not reachable."})
@@ -359,9 +372,9 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
-    Read-only access to parsed knowledge documents. Currently exposes only the
-    `window` drill-down so an agent (PHAI or MCP) can pull a wider context span
-    around a chunk it found via search.
+    Read-only access to parsed knowledge documents. Exposes hybrid search
+    (``search``) and a drill-down window (``window``) so an agent (PHAI or
+    MCP) can find and explore business knowledge chunks.
     """
 
     scope_object = "business_knowledge"
@@ -425,6 +438,60 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         results = logic.get_document_window(self.team_id, document_id, around_ordinal, radius=radius)
         return Response(KnowledgeDocumentWindowSerializer(instance=results, many=True).data)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "query",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project.",
+            ),
+            OpenApiParameter(
+                "limit",
+                OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Maximum number of ranked chunks to return. Defaults to 10, capped at 20.",
+            ),
+            OpenApiParameter(
+                "rerank",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "When true, rerank search results with a listwise LLM pass for better relevance. "
+                    "Defaults to false (RRF order only). Falls back to RRF order on rerank failure."
+                ),
+            ),
+        ],
+        responses={200: KnowledgeSearchResultSerializer(many=True)},
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="search",
+        pagination_class=None,
+        required_scopes=["business_knowledge:read"],
+    )
+    def search(self, request: Request, **kwargs) -> Response:
+        query = request.query_params.get("query")
+        if not query or not query.strip():
+            raise exceptions.ValidationError({"query": "This query parameter is required."})
+        limit = self._parse_int_param(request, "limit", required=False, default=10)
+        rerank = self._parse_bool_param(request, "rerank", default=False)
+        search_limit = limit * 2 if rerank else limit
+        results = logic.search_knowledge_for_team(self.team, query.strip(), limit=search_limit)
+        if rerank:
+            results = logic.rerank_chunks(self.team, query.strip(), results, top_k=limit)
+        return Response(KnowledgeSearchResultSerializer(instance=results, many=True).data)
+
+    def _parse_bool_param(self, request: Request, name: str, *, default: bool) -> bool:
+        raw = request.query_params.get(name)
+        if raw is None:
+            return default
+        return raw.lower() in ("true", "1", "yes")
+
     def _parse_int_param(self, request: Request, name: str, *, required: bool, default: int | None = None) -> int:
         raw = request.query_params.get(name)
         if raw is None:
@@ -437,3 +504,141 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return int(raw)
         except (TypeError, ValueError):
             raise exceptions.ValidationError({name: "Must be an integer."})
+
+
+class KnowledgeGapSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Surfaces topics the support AI couldn't answer from the knowledge base.
+
+    Two list shapes controlled by the ``ticket_id`` query param:
+    - **per-ticket** (``?ticket_id=<uuid>``): individual gap rows for that ticket.
+    - **aggregated** (no ``ticket_id``): gaps grouped by normalized topic with counts,
+      for the Business knowledge suggestions panel.
+    """
+
+    scope_object = "business_knowledge"
+    queryset = KnowledgeGapSuggestion.objects.unscoped()
+    serializer_class = KnowledgeGapSuggestionSerializer
+    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
+    posthog_feature_flag = "product-business-knowledge"
+    throttle_classes = [BurstRateThrottle, SustainedRateThrottle]
+
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        return queryset.filter(team_id=self.team_id)
+
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        # Any path that exposes data derived from a specific support ticket (topic, status,
+        # outcome, ticket type, ticket id) must also require `ticket:read` — `business_knowledge`
+        # alone must not be a backdoor to ticket data. This covers the per-ticket list path
+        # (`?ticket_id=`) and the single-row `accept`/`dismiss` actions, whose responses serialize
+        # the ticket-linked fields. Only applies to token auth; session users are gated by team
+        # membership (and already have ticket access via the ticket API). The topic-level
+        # `accept_topic`/`dismiss_topic` actions and the aggregated list expose no ticket data, so
+        # they fall through to the default `business_knowledge` scope.
+        if self.action == "list" and request.query_params.get("ticket_id"):
+            return ["business_knowledge:read", "ticket:read"]
+        if self.action in ("accept", "dismiss"):
+            return ["business_knowledge:write", "ticket:read"]
+        return None
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="ticket_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="When provided, returns per-ticket gap rows instead of aggregated view. "
+                "Requires `ticket:read` scope in addition to `business_knowledge:read`.",
+            ),
+        ],
+        responses={200: KnowledgeGapSuggestionSerializer(many=True)},
+    )
+    def list(self, request: Request, **kwargs) -> Response:
+        ticket_id = request.query_params.get("ticket_id")
+        if ticket_id:
+            try:
+                UUID(ticket_id)
+            except ValueError:
+                raise exceptions.ValidationError({"ticket_id": "Must be a valid UUID."})
+            suggestions = logic.list_gap_suggestions_for_ticket(self.team_id, ticket_id)
+            page = self.paginate_queryset(suggestions)
+            if page is not None:
+                return self.get_paginated_response(KnowledgeGapSuggestionSerializer(instance=page, many=True).data)
+            return Response(KnowledgeGapSuggestionSerializer(instance=suggestions, many=True).data)
+
+        aggregated = logic.aggregate_gap_suggestions(self.team_id)
+        return Response(AggregatedGapSerializer(instance=aggregated, many=True).data)
+
+    @extend_schema(
+        request=GapActionSerializer,
+        responses={200: KnowledgeGapSuggestionSerializer},
+    )
+    @action(detail=True, methods=["post"], url_path="accept")
+    def accept(self, request: Request, **kwargs) -> Response:
+        suggestion = self.get_object()
+        ser = GapActionSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        logic.set_gap_status(
+            self.team_id,
+            suggestion_id=suggestion.id,
+            status=GapStatus.ACCEPTED,
+            resolved_source_id=ser.validated_data.get("resolved_source_id"),
+        )
+        suggestion.refresh_from_db()
+        return Response(KnowledgeGapSuggestionSerializer(instance=suggestion).data)
+
+    @extend_schema(
+        request=None,
+        responses={200: KnowledgeGapSuggestionSerializer},
+    )
+    @action(detail=True, methods=["post"], url_path="dismiss")
+    def dismiss(self, request: Request, **kwargs) -> Response:
+        suggestion = self.get_object()
+        logic.set_gap_status(
+            self.team_id,
+            suggestion_id=suggestion.id,
+            status=GapStatus.DISMISSED,
+        )
+        suggestion.refresh_from_db()
+        return Response(KnowledgeGapSuggestionSerializer(instance=suggestion).data)
+
+    @extend_schema(
+        request=GapTopicActionSerializer,
+        responses={200: GapTopicActionResultSerializer},
+    )
+    @action(detail=False, methods=["post"], url_path="accept_topic")
+    def accept_topic(self, request: Request, **kwargs) -> Response:
+        """Accept all pending suggestions for a normalized topic cluster."""
+        ser = GapTopicActionSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        normalized_topic = ser.validated_data["normalized_topic"]
+        updated = logic.set_gap_status(
+            self.team_id,
+            normalized_topic=normalized_topic,
+            status=GapStatus.ACCEPTED,
+            resolved_source_id=ser.validated_data.get("resolved_source_id"),
+            only_pending=True,
+        )
+        if updated == 0:
+            raise exceptions.NotFound("No actionable suggestions found for this topic.")
+        return Response({"normalized_topic": normalized_topic, "updated": updated})
+
+    @extend_schema(
+        request=GapTopicActionSerializer,
+        responses={200: GapTopicActionResultSerializer},
+    )
+    @action(detail=False, methods=["post"], url_path="dismiss_topic")
+    def dismiss_topic(self, request: Request, **kwargs) -> Response:
+        """Dismiss all pending suggestions for a normalized topic cluster."""
+        ser = GapTopicActionSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        normalized_topic = ser.validated_data["normalized_topic"]
+        updated = logic.set_gap_status(
+            self.team_id,
+            normalized_topic=normalized_topic,
+            status=GapStatus.DISMISSED,
+            only_pending=True,
+        )
+        if updated == 0:
+            raise exceptions.NotFound("No actionable suggestions found for this topic.")
+        return Response({"normalized_topic": normalized_topic, "updated": updated})

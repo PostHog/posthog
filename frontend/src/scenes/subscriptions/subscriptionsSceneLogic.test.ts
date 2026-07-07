@@ -32,17 +32,14 @@ describe('subscriptionsSceneLogic', () => {
         subscriptionRequestUrls = []
         useMocks({
             get: {
-                '/api/projects/:team_id/subscriptions/': (req) => {
-                    subscriptionRequestUrls.push(req.url.toString())
+                '/api/projects/:team_id/subscriptions/': ({ request }) => {
+                    subscriptionRequestUrls.push(request.url)
                     return [200, EMPTY_SUBSCRIPTIONS]
                 },
             },
         })
         initKeaTests()
         sceneLogic({ scenes }).mount()
-        sceneLogic.actions.setTabs([
-            { id: '1', title: '...', pathname: '/', search: '', hash: '', active: true, iconType: 'blank' },
-        ])
         userLogic.mount()
         userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
         router.actions.push(urls.subscriptions())

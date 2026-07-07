@@ -9,15 +9,13 @@ describe('mergeRecipes', () => {
         expect(ids(mergeRecipes([]))).toEqual(builtinIds())
     })
 
-    it('identifies customs by their database id, not any id in the source, before the catch-all', () => {
+    it('identifies customs by their database id, not any id in the source, and runs them last', () => {
         const customs: StoredRecipe[] = [
             { id: 'db-first', source: 'rules: []\n' },
             { id: 'db-second', source: 'id: ignored\nrules: []\n' },
         ]
         const merged = ids(mergeRecipes(customs))
-        const cajoleIndex = merged.indexOf('cajole')
-        expect(merged.slice(cajoleIndex - 2, cajoleIndex)).toEqual(['db-first', 'db-second'])
-        expect(merged[merged.length - 1]).toBe('cajole')
+        expect(merged.slice(-2)).toEqual(['db-first', 'db-second'])
     })
 
     it('keeps every builtin present alongside the customs', () => {

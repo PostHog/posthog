@@ -44,10 +44,28 @@ type AllowedExperimentFields = Pick<
     | 'metrics_secondary'
     | 'exposure_criteria'
     | 'parameters'
+    | 'running_time_calculation'
+    | 'excluded_variants'
     | 'primary_metrics_ordered_uuids'
     | 'secondary_metrics_ordered_uuids'
 > & {
     deleted: boolean
+}
+
+const RUNNING_TIME_CALCULATION_KEYS = [
+    'minimum_detectable_effect',
+    'recommended_running_time',
+    'recommended_sample_size',
+    'exposure_estimate_config',
+]
+
+/** Strip the running-time calculator keys, which are mirrored into `parameters` while that field is deprecated. */
+function withoutRunningTimeCalculationKeys(value: unknown): Record<string, unknown> {
+    return Object.fromEntries(
+        Object.entries((value as Record<string, unknown> | null) ?? {}).filter(
+            ([key]) => !RUNNING_TIME_CALCULATION_KEYS.includes(key)
+        )
+    )
 }
 
 function describeExcludedVariantsChange(before: string[] | undefined, after: string[] | undefined): string | null {
@@ -238,7 +256,19 @@ export const getExperimentChangeDescription = (
             if (summary) {
                 return summary
             }
+            // A pure calculator-key sync is already described by the running_time_calculation change
+            if (equal(withoutRunningTimeCalculationKeys(before), withoutRunningTimeCalculationKeys(after))) {
+                return null
+            }
             return 'updated parameters'
+        })
+        .with({ field: 'running_time_calculation' }, () => {
+            return 'updated the running time calculation'
+        })
+        .with({ field: 'excluded_variants' }, () => {
+            // The change is described by the `parameters` matcher, which the backend keeps
+            // mirrored while `parameters` is deprecated — avoid a duplicate line.
+            return null
         })
         .otherwise(({ field, action }) => {
             // Fallback for unhandled fields - ensures all activity is visible

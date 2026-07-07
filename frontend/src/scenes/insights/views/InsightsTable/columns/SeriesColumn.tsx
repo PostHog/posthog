@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { InsightLabel } from 'lib/components/InsightLabel'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { TrendResult } from '~/types'

@@ -3,7 +3,7 @@ import { useActions } from 'kea'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyLargeNumber } from 'lib/utils'
+import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import { RecommendationCard } from './RecommendationCard'

@@ -14,7 +14,6 @@ dependencies = [
     "aiohttp==3.13.5",
     "aiokafka~=0.12.0",
     "anthropic==0.80.0",
-    "antlr4-python3-runtime==4.13.1",
     "asyncstdlib==3.13.1",
     "beautifulsoup4==4.12.3",
     "boto3==1.40.49",
@@ -64,11 +63,12 @@ dependencies = [
     "google-cloud-bigquery-storage==2.32.0",
     "google-cloud-iam==2.21",
     "google-genai==1.46.0",
+    "granian[uvloop,reload,pname]==2.7.6",
     "grimp~=3.14",
     "grpcio~=1.71.0",
     "gspread==6.2.1",
-    "hogql-parser==1.3.69",
-    "hogql-parser-rs==1.3.84",  # built from rust/hogql/parser via the build-hogql-parser-rs workflow + published to PyPI; rebuild locally with `uv pip install -e rust/hogql/parser` when iterating
+    "hogql-parser==1.3.77",
+    "hogql-parser-rs==1.3.106",  # built from rust/hogql/parser via the build-hogql-parser-rs workflow + published to PyPI; rebuild locally with `uv pip install -e rust/hogql/parser` when iterating
     "humanize~=4.12.3",
     "infi-clickhouse-orm",
     "jsonref==1.1.0",
@@ -80,6 +80,7 @@ dependencies = [
     "langchain-openai~=0.3.35",
     "langchain-anthropic~=0.3.22",
     "langgraph==0.4.10",
+    "langgraph-checkpoint==4.1.1",
     "lxml==6.0.2",
     "lzstring==1.0.4",
     "markdown-it-py~=3.0.0",
@@ -94,11 +95,12 @@ dependencies = [
     "openai==1.109.1",
     "openpyxl==3.1.5",
     "orjson==3.11.9",
+    "ormsgpack~=1.12",
     "pandas~=2.2.2",
     "paramiko~=3.5.0",
     "pillow==12.2.0",
     "protobuf~=5.29.6",
-    "posthoganalytics==7.13.0",
+    "posthoganalytics==7.20.4",
     "polars==1.37.1",
     "psycopg2-binary==2.9.10",
     "psycopg[binary]==3.2.4",
@@ -123,7 +125,6 @@ dependencies = [
     "retry==0.9.2",
     "s3fs==2025.9.0",
     "scikit-learn~=1.7.0",
-    "selenium==4.28.1",
     "semantic-version==2.8.5",
     "simple-salesforce~=1.12.9",
     "slack-sdk==3.42.0",
@@ -146,8 +147,8 @@ dependencies = [
     "click~=8.0",
     "umap-learn~=0.5.0",
     "tbb==2022.3.1; sys_platform == 'linux' and platform_machine == 'x86_64'",
-    "webdriver-manager==4.0.2",
     "whitenoise~=6.10.0",
+    "xgboost==3.2.0",
     "xmlsec==1.3.17",
     "zstd==1.5.7.2",
     "zxcvbn==4.5.0",
@@ -162,6 +163,7 @@ dependencies = [
     "opentelemetry-instrumentation-aiokafka==0.54b1",
     "opentelemetry-instrumentation-aiohttp-client==0.54b1",
     "opentelemetry-instrumentation-asgi==0.54b1",
+    "opentelemetry-instrumentation-celery==0.54b1",
     "opentelemetry-instrumentation-django==0.54b1",
     "opentelemetry-instrumentation-kafka-python==0.54b1",
     "opentelemetry-instrumentation-psycopg==0.54b1",
@@ -177,8 +179,8 @@ dependencies = [
     "linkedin-api-client~=0.3.0",
     "glom~=24.11.0",
     "modal~=1.5.0",
-    "databricks-sql-connector~=4.2.5",
-    "databricks-sdk~=0.102.0",
+    "databricks-sql-connector~=4.3.0",
+    "databricks-sdk~=0.118.0",
     "free-email-domains~=1.0.1",
     "disposable-email-domains~=0.0.140",
     "pymediainfo~=7.0.1",
@@ -196,6 +198,8 @@ dependencies = [
     "google-re2>=1.1.20251105,<2",
     "scrubadub~=2.0.1",
     "braintrust-core>=0.0.59,<1",
+    "wrapt==1.17.3",
+    "limits==5.8.0",
 ]
 
 [dependency-groups]
@@ -207,7 +211,6 @@ dev = [
     "braintrust==0.2.4",
     "braintrust-langchain==0.0.4",
     "dagster-dg-cli~=1.10.18",
-    "granian[uvloop,reload,pname]==2.5.5",
     "datamodel-code-generator~=0.36.0",
     "debugpy~=1.8.0",
     "import-linter~=2.11",
@@ -243,19 +246,19 @@ dev = [
     "pytest-env~=1.2.0",
     "pytest-icdiff~=0.9",
     "pytest-mock~=3.15.1",
-    "pytest-split~=0.10.0",
+    "pytest-split~=0.11.0",  # EXPERIMENT: git-pinned below to the optimal_chunks fork
     "pytest-timeout~=2.4.0",
     "pytest-xdist~=3.8.0",
     "python-dateutil~=2.9.0",
     "requests-mock~=1.12.1",
     "responses==0.23.1",
-    "ruff~=0.14.11",
+    "ruff~=0.15.16",
     "stpyv8==13.1.201.22; sys_platform != 'linux' or (platform_machine != 'aarch64' and platform_machine != 'arm64')",
     "syrupy~=4.9.1",
     "tach~=0.34",
     "types-aioboto3[s3]~=14.3.0",
     "types-aiobotocore~=2.22.0",
-    "types-boto3[essential]==1.37.6",
+    "types-boto3[essential,ses,sesv2]==1.40.49",
     "types-croniter~=6.0.0",
     "types-markdown==3.3.9",
     "types-paramiko==3.4.0.20240423",
@@ -273,10 +276,14 @@ dev = [
     "testcontainers[mysql]~=4.14",
     # Developer CLI
     "hogli",
+    "libcst>=1.8.6,<2.0.0",
 ]
 sentiment = [
     "optimum[onnxruntime]~=1.25.0",
     "torch~=2.8.0",
+]
+hogql-parser-parity = [
+    "shrinkray==26.4.14.0",
 ]
 
 [tool.uv]
@@ -284,9 +291,6 @@ required-version = ">=0.10.2"
 add-bounds = "major"
 exclude-newer = "7 days"
 exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, posthoganalytics = false, pixelhog = false, django = false, modal = false }
-constraint-dependencies = [
-    "langgraph-checkpoint<3",
-]
 
 [tool.uv.workspace]
 members = ["tools/hogli"]
@@ -294,6 +298,11 @@ members = ["tools/hogli"]
 [tool.uv.sources]
 hogli = { workspace = true }
 infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "4e3996becf66bf5c26580aff12a80425d9d56fe5" }
+# pytest-split: pinned to PostHog's fork (immutable tag) for the order-preserving
+# optimal_chunks split. Fork: PostHog/pytest-split (of jerry-git/pytest-split).
+# To pull upstream fixes: rebase the fork's feat branch onto upstream, cut the next
+# v0.11.0-posthog.N tag, and bump this pin.
+pytest-split = { git = "https://github.com/PostHog/pytest-split", tag = "v0.11.0-posthog.6" }
 
 
 [tool.isort]
@@ -327,6 +336,7 @@ ignore = [
     "UP045",  # ~3064: Optional[X] → X | None (auto-fixable)
     "UP046",  # ~39: generic class → PEP 695 (unsafe)
     "UP047",  # ~37: generic func → PEP 695 (unsafe)
+    "UP042",  # ~28: str+Enum → StrEnum (unsafe: changes str()/format() output)
 ]
 select = [
     "B",
@@ -467,7 +477,9 @@ exclude = [
     "bin/**",
     "manage.py",
     "posthog/hogql/grammar/**",
+    "posthog/personhog_client/proto/generated/**",
     "posthog/schema.py",
+    "posthog/schema_enums.py",
     "posthog/temporal/proxy_service/proto/**",
 ]
 
@@ -498,6 +510,16 @@ ignore_imports = [
     "products.**.backend.presentation.** -> products.**.backend.facade.**",
     "products.**.backend.presentation.** -> products.**.backend.presentation.**",
     # TODO: existing violations — fix by routing through facade
+    "products.agent_platform.backend.presentation.serializers -> products.agent_platform.backend.models",
+    "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.db",
+    "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.internal_jwt",
+    "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.janitor_client",
+    "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.kernel_skills",
+    "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.posthog_identity_app",
+    "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.skill_editing",
+    "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.skill_resolution",
+    "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.spec_schema",
+    "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.models",
     "products.mcp_analytics.backend.presentation.views -> products.mcp_analytics.backend.logic",
     "products.mcp_analytics.backend.presentation.views -> products.mcp_analytics.backend.models",
     "products.mcp_analytics.backend.presentation.serializers -> products.mcp_analytics.backend.models",
@@ -511,9 +533,59 @@ ignore_imports = [
     "products.tracing.backend.presentation.views -> products.tracing.backend.logic",
     "products.tracing.backend.presentation.views -> products.tracing.backend.sparkline_query_runner",
     "products.tracing.backend.presentation.views -> products.tracing.backend.has_spans_query_runner",
+    # Saved-views ModelViewSet needs the model class for its serializer; same accepted pattern as
+    # logs' views_api. TODO: route through facade with the broader presentation cleanup.
+    "products.tracing.backend.presentation.views_api -> products.tracing.backend.models",
     "products.user_interviews.backend.presentation.views -> products.user_interviews.backend.models",
     "products.user_interviews.backend.presentation.views -> products.user_interviews.backend.invite_email",
     "products.user_interviews.backend.presentation.webhooks -> products.user_interviews.backend.models",
+    # logs presentation isolation (temporary): the moved viewsets still reach in-product
+    # internals directly. Removed by the follow-up that thins each viewset to go through
+    # the facade.
+    "products.logs.backend.presentation.views.api -> products.logs.backend.count_query_runner",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.count_ranges_query_runner",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.has_logs_query_runner",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.log_attributes_query_runner",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.log_facet_values_query_runner",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.log_values_query_runner",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.logs_query_runner",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.patterns_query_runner",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.services_query_runner",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.sparkline_query_runner",
+    "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.alert_check_query",
+    "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.alert_destinations",
+    "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.alert_state_machine",
+    "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.models",
+    "products.logs.backend.presentation.views.sampling_api -> products.logs.backend.models",
+    "products.logs.backend.presentation.views.views_api -> products.logs.backend.models",
+    # logs presentation isolation (temporary): cross-product imports the moved viewsets
+    # still make directly. These resolve once cdp/exports expose the needed facades, so
+    # they outlive the in-product cleanup above.
+    "products.logs.backend.presentation.views.api -> products.exports.backend.models.exported_asset",
+    "products.logs.backend.presentation.views.alerts_api -> products.cdp.backend.api.hog_function",
+    "products.logs.backend.presentation.views.alerts_api -> products.cdp.backend.models.hog_functions.hog_function",
+    # TODO: notebooks presentation wave — the moved NotebookViewSet still reaches in-product
+    # internals (collab, kernel runtime, query validation, models) and the tasks sandbox
+    # directly. Thin it to parse -> facade -> serialize and delete each entry.
+    # backend:contract-check stays off until this list is empty.
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.activity_logging",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.collab",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.collab_stream",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.kernel_runtime",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.markdown_collab",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.models",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.presence",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.python_analysis",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.query_validation",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_serializers",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.client",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.sql_v2",
+    # TODO: data_warehouse presentation wave — the structural move landed the viewsets under
+    # presentation/views/ but they still reach in-product internals and sibling products
+    # (warehouse_sources, data_modeling, data_tools, cdp, revenue_analytics, batch_exports)
+    # directly. Thin each viewset to parse -> facade -> serialize and delete each entry.
+    # backend:contract-check stays off until this list is empty.
 ]
 
 [tool.ty.rules]

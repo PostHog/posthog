@@ -11,8 +11,8 @@ from products.tasks.backend.exceptions import (
     SnapshotNotReadyError,
     TaskNotFoundError,
 )
+from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.models import SandboxSnapshot, Task
-from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
@@ -120,6 +120,7 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
             environment_variables=environment_variables,
             snapshot_id=str(snapshot.id),
             metadata={"task_id": ctx.task_id},
+            **ctx.sandbox_resource_overrides(),
         )
 
         sandbox = Sandbox.create(config)

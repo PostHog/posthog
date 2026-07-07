@@ -9,14 +9,34 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RenameIndex(
-            model_name="link",
-            new_name="domain_short_code_idx",
-            old_name="posthog_lin_short_l_33b439_idx",
-        ),
-        migrations.RenameIndex(
-            model_name="link",
-            new_name="team_id_idx",
-            old_name="posthog_lin_team_id_d47d3a_idx",
+        # The legacy auto-generated index names only exist on databases bootstrapped from the
+        # original 0734 state. The Link model was later relocated to products/links/backend, whose
+        # CreateModel declares the renamed indexes directly, so a database created from that newer
+        # state never had the legacy names. Keep the RenameIndex in state_operations so the migration
+        # graph still resolves to the renamed indexes, but run the rename idempotently so replaying
+        # this migration against a freshly bootstrapped database doesn't fail on a missing source index.
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.RenameIndex(
+                    model_name="link",
+                    new_name="domain_short_code_idx",
+                    old_name="posthog_lin_short_l_33b439_idx",
+                ),
+                migrations.RenameIndex(
+                    model_name="link",
+                    new_name="team_id_idx",
+                    old_name="posthog_lin_team_id_d47d3a_idx",
+                ),
+            ],
+            database_operations=[
+                migrations.RunSQL(
+                    sql="ALTER INDEX IF EXISTS posthog_lin_short_l_33b439_idx RENAME TO domain_short_code_idx;",
+                    reverse_sql="ALTER INDEX IF EXISTS domain_short_code_idx RENAME TO posthog_lin_short_l_33b439_idx;",
+                ),
+                migrations.RunSQL(
+                    sql="ALTER INDEX IF EXISTS posthog_lin_team_id_d47d3a_idx RENAME TO team_id_idx;",
+                    reverse_sql="ALTER INDEX IF EXISTS team_id_idx RENAME TO posthog_lin_team_id_d47d3a_idx;",
+                ),
+            ],
         ),
     ]
