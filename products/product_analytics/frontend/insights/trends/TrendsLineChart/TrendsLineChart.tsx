@@ -224,6 +224,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 isStickiness,
                 strokePattern: chartStyleStrokePattern(chartStyle),
                 pointRadius: chartStylePointRadius(chartStyle),
+                fillGradient: chartStyle?.gradientFill,
                 getColor: getTrendsColor,
                 // With the quill legend on, hidden series are listed (dimmed) and excluded via
                 // config.legend.hiddenKeys instead of being dropped here, so the legend can restore them.

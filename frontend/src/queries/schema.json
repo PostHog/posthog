@@ -12846,6 +12846,11 @@
                     "enum": ["linear", "smooth"],
                     "type": "string"
                 },
+                "gradientFill": {
+                    "default": false,
+                    "description": "Fill the area under line series with a vertical gradient of the series color.",
+                    "type": "boolean"
+                },
                 "lineStyle": {
                     "default": "solid",
                     "description": "Dash style applied to all line series.",

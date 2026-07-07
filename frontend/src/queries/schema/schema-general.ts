@@ -1464,6 +1464,9 @@ export interface ChartStyle {
     /** Draw a marker at each data point on line charts.
      * @default false */
     showPoints?: boolean
+    /** Fill the area under line series with a vertical gradient of the series color.
+     * @default false */
+    gradientFill?: boolean
     /** Show horizontal gridlines. */
     showGrid?: boolean
 }

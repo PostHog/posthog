@@ -38,6 +38,8 @@ export interface BuildTrendsSeriesOpts<R extends TrendsResultLike, M = unknown> 
     strokePattern?: number[]
     /** Marker radius drawn at each data point (per-insight chart style). Omit for no markers. */
     pointRadius?: number
+    /** Fill under each series with a vertical gradient of the series color (per-insight chart style). */
+    fillGradient?: boolean
     getColor: (r: R, index: number) => string
     getHidden?: (r: R, index: number) => boolean
     buildMeta?: (r: R, index: number) => M
@@ -84,7 +86,7 @@ export function buildMainTrendsSeries<R extends TrendsResultLike, M = unknown>(
         color: opts.getColor(r, index),
         yAxisId,
         meta,
-        fill: opts.isArea ? {} : undefined,
+        fill: opts.fillGradient ? { gradient: true } : opts.isArea ? {} : undefined,
         stroke,
         points: opts.pointRadius !== undefined ? { radius: opts.pointRadius } : undefined,
         visibility: excluded ? { excluded: true } : undefined,

@@ -829,6 +829,10 @@ class ChartStyle(BaseModel):
         default=None,
         description=("Line interpolation: straight segments or a smoothed curve through the points."),
     )
+    gradientFill: bool | None = Field(
+        default=False,
+        description=("Fill the area under line series with a vertical gradient of the series color."),
+    )
     lineStyle: LineStyle | None = Field(default=LineStyle.SOLID, description="Dash style applied to all line series.")
     showGrid: bool | None = Field(default=None, description="Show horizontal gridlines.")
     showPoints: bool | None = Field(default=False, description="Draw a marker at each data point on line charts.")

@@ -78,6 +78,20 @@ export function ShowPointsFilter(): JSX.Element {
     )
 }
 
+export function GradientFillFilter(): JSX.Element {
+    const { chartStyle, updateChartStyle } = useChartStyle()
+
+    return (
+        <LemonCheckbox
+            className="p-1 px-2"
+            checked={!!chartStyle.gradientFill}
+            onChange={(checked) => updateChartStyle({ gradientFill: checked })}
+            label={<span className="font-normal">Gradient fill</span>}
+            size="small"
+        />
+    )
+}
+
 export function ShowGridLinesFilter(): JSX.Element {
     const { chartStyle, updateChartStyle } = useChartStyle()
 

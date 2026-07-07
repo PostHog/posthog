@@ -116,6 +116,15 @@ describe('trendsChartTransforms', () => {
             })
         })
 
+        it('applies a gradient fill when fillGradient is set, on line and area charts alike', () => {
+            expect(buildMainTrendsSeries(makeResult(), 0, { getColor: () => RED, fillGradient: true }).fill).toEqual({
+                gradient: true,
+            })
+            expect(
+                buildMainTrendsSeries(makeResult(), 0, { getColor: () => RED, isArea: true, fillGradient: true }).fill
+            ).toEqual({ gradient: true })
+        })
+
         it('marks a series excluded when getHidden returns true', () => {
             const series = buildMainTrendsSeries(makeResult(), 0, {
                 getColor: () => RED,

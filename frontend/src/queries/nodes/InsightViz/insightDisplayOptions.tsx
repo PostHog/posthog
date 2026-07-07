@@ -11,6 +11,7 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { AxisLabelsFilter } from 'scenes/insights/EditorFilters/AxisLabelsFilter'
 import {
+    GradientFillFilter,
     LineShapePicker,
     LineStylePicker,
     ShowGridLinesFilter,
@@ -270,6 +271,7 @@ function LineStyleOptionsAccordion(): JSX.Element {
             <LineShapePicker />
             <LineStylePicker />
             <ShowPointsFilter />
+            <GradientFillFilter />
             <ShowGridLinesFilter />
         </CollapsibleOptionsSection>
     )
@@ -459,6 +461,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         (showLineStyleConfig && chartStyle?.curve && chartStyle.curve !== defaultCurve ? 1 : 0) +
         (showLineStyleConfig && chartStyle?.lineStyle && chartStyle.lineStyle !== 'solid' ? 1 : 0) +
         (showLineStyleConfig && chartStyle?.showPoints ? 1 : 0) +
+        (showLineStyleConfig && chartStyle?.gradientFill ? 1 : 0) +
         (showLineStyleConfig && chartStyle?.showGrid === false ? 1 : 0)
 
     const optionsCount: number =
