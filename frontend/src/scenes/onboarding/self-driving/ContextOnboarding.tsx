@@ -19,16 +19,15 @@ import type { TeamType } from '~/types'
 
 import selfDrivingHog from 'public/hedgehog/self-driving-hog.png'
 
+// Deliberate self-driving → legacy import: onboardingLogic owns the completion flow (marking the
+// team onboarded, redirecting out) for both variants.
 import { onboardingLogic } from '../legacy/onboardingLogic'
-import {
-    useWizardTakeoverActive,
-    WizardProgressTracker,
-} from '../legacy/sdks/OnboardingInstallStep/WizardProgressTracker'
 import { type ContextOnboardingStepId, onboardingEventUsageLogic } from '../onboardingEventUsageLogic'
 import { useWizardCommand } from '../shared/SetupWizardBanner'
 import { availableOnboardingProducts, getProductIcon, toSentenceCase } from '../shared/utils'
 import { activeCloudRunLogic, type CloudRunHandle } from '../shared/wizard-sync/activeCloudRunLogic'
 import { installationProgressLogic } from '../shared/wizard-sync/installationProgressLogic'
+import { InstallationProgressView, useLocalWizardRunActive } from '../shared/wizard-sync/InstallationProgressView'
 import { wizardCloudRunLogic } from '../shared/wizard-sync/wizardCloudRunLogic'
 import { WizardCommandBlock } from '../shared/wizard-sync/WizardCommandBlock'
 import { WizardInstallOptions } from '../shared/wizard-sync/WizardInstallOptions'
@@ -117,14 +116,14 @@ function InstallOptions({ onContinue }: { onContinue: () => void }): JSX.Element
 
 // When wizard sync is on and a LOCAL run is in flight, swap the options for the live tracker. A cloud
 // run is already surfaced by the unified Installation layer (WizardCloudRunBlock → InstallationProgressView),
-// and the cloud wizard posts to the same session — so suppress the legacy tracker when a cloud run is
+// and the cloud wizard posts to the same session — so suppress the local run view when a cloud run is
 // active to avoid showing two progress components.
 function InstallStepWithSync({ onContinue }: { onContinue: () => void }): JSX.Element {
-    const isTakeoverActive = useWizardTakeoverActive()
+    const isLocalRunActive = useLocalWizardRunActive()
     const { activeCloudRun } = useValues(activeCloudRunLogic)
-    // The tracker claims the shared inline-panel flag itself, so no coordination is needed here.
-    const showLegacyTracker = isTakeoverActive && !activeCloudRun
-    return showLegacyTracker ? <WizardProgressTracker /> : <InstallOptions onContinue={onContinue} />
+    // The view claims the shared inline-panel flag itself, so no FAB coordination is needed here.
+    const showLocalRun = isLocalRunActive && !activeCloudRun
+    return showLocalRun ? <InstallationProgressView mode="local" /> : <InstallOptions onContinue={onContinue} />
 }
 
 function InstallStep({ onContinue }: { onContinue: () => void }): JSX.Element {

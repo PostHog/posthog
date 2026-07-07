@@ -8,7 +8,7 @@ import { WizardSyncCard, WizardSyncMode } from './WizardSyncCard'
  * reviewable in isolation. The component is pure, so no streams or mocks are needed.
  */
 const meta: Meta<typeof WizardSyncCard> = {
-    title: 'Scenes-Other/Onboarding/Wizard Sync Card',
+    title: 'Scenes-Other/Onboarding/Shared/Wizard Sync Card',
     component: WizardSyncCard,
     argTypes: {
         onExpand: { action: 'expand' },
@@ -111,6 +111,25 @@ export const Completed: Story = {
     },
 }
 
+// A finished local run: no PR to review, so the dashboard the wizard built is the footer payoff,
+// and the X reads as a real dismissal.
+export const CompletedLocal: Story = {
+    args: {
+        mode: 'local',
+        elapsedSeconds: 421,
+        progress: progress({
+            phase: 'completed',
+            steps: [
+                { id: 'a', label: 'Detected Next.js', status: 'completed', detail: null },
+                { id: 'b', label: 'Installed the PostHog SDK', status: 'completed', detail: null },
+                { id: 'c', label: 'Wired up event capture', status: 'completed', detail: null },
+            ],
+        }),
+        dashboard: { id: 1, name: 'My app analytics' },
+        dismissTooltip: 'Dismiss',
+    },
+}
+
 export const Failed: Story = {
     args: {
         mode: 'cloud',
@@ -134,6 +153,7 @@ export const AllStates: Story = {
             { label: 'Cloud, keeping CI green', args: CloudKeepingCiGreen.args },
             { label: 'Local, running', args: LocalRunning.args },
             { label: 'Completed', args: Completed.args },
+            { label: 'Completed, local (dashboard payoff)', args: CompletedLocal.args },
             { label: 'Failed', args: Failed.args },
         ]
         return (
@@ -145,6 +165,7 @@ export const AllStates: Story = {
                             progress={args!.progress!}
                             elapsedSeconds={args!.elapsedSeconds!}
                             mode={args!.mode!}
+                            dashboard={args!.dashboard}
                             onExpand={() => {}}
                             onDismiss={() => {}}
                         />
