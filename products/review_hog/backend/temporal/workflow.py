@@ -72,9 +72,10 @@ from products.review_hog.backend.temporal.activities import (
 )
 from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_LABEL, ReviewPRWorkflowInputs
 
-# Timeouts: a sandbox turn can over-investigate (measured up to ~6m), so 30m start-to-close with a
-# 5m heartbeat; local (non-sandbox) activities are quick.
-_SANDBOX_TIMEOUT = timedelta(minutes=30)
+# Timeouts: sandbox turns can legitimately run long (a heavy validation chunk measured 34m — one
+# opus verdict per issue), so 60m start-to-close; the 5m heartbeat still catches dead sandboxes
+# fast, start-to-close is only the ceiling for live work. Local (non-sandbox) activities are quick.
+_SANDBOX_TIMEOUT = timedelta(minutes=60)
 _SANDBOX_HEARTBEAT = timedelta(minutes=5)
 _QUICK_TIMEOUT = timedelta(minutes=2)
 _FETCH_TIMEOUT = timedelta(minutes=5)
