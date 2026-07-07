@@ -32,7 +32,6 @@ import { installationProgressLogic } from '../shared/wizard-sync/installationPro
 import { wizardCloudRunLogic } from '../shared/wizard-sync/wizardCloudRunLogic'
 import { WizardCommandBlock } from '../shared/wizard-sync/WizardCommandBlock'
 import { WizardInstallOptions } from '../shared/wizard-sync/WizardInstallOptions'
-import { WizardFrameworkBadges } from '../shared/wizard-sync/WizardModeShell'
 import { ContextBillingStep } from './ContextBillingStep'
 import { ContextInviteStep } from './ContextInviteStep'
 import { ContextWarehouseStep } from './ContextWarehouseStep'
@@ -61,8 +60,8 @@ function WelcomeStep(): JSX.Element {
     )
 }
 
-// One wizard, two ways to run it — the shared WizardInstallOptions owns the cloud/local switching;
-// this wraps it in the self-driving copy, framework badges, and manual-docs fallback.
+// One wizard, two ways to run it — the shared WizardInstallOptions owns the cloud/local switching
+// and framework badges; this wraps it in the self-driving copy and manual-docs fallback.
 function InstallOptions({ onContinue }: { onContinue: () => void }): JSX.Element {
     const cloudRunEnabled = useFeatureFlag('ONBOARDING_WIZARD_CLOUD_RUN', 'test')
     const { isCloudOrDev } = useWizardCommand()
@@ -99,10 +98,6 @@ function InstallOptions({ onContinue }: { onContinue: () => void }): JSX.Element
                     Run the wizard to get your product's context flowing so agents can start finding and fixing things.
                 </p>
             )}
-            {/* Frameworks are the same whichever way the wizard runs, so the badges sit above the selector. */}
-            <div className="pb-2">
-                <WizardFrameworkBadges />
-            </div>
             {/* GROW-96: kicking off the cloud run is the step's "next" action, so onQueued advances the flow. */}
             <WizardInstallOptions
                 hideHog

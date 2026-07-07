@@ -553,6 +553,47 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert not Tag.objects.filter(name="orphan_a", team=self.demo_team).exists()
         assert not Tag.objects.filter(name="orphan_b", team=other_env).exists()
 
+    def test_bulk_update_tags_logs_activity_per_event_definition(self):
+        # The single-object update path leaves a tags audit trail; the bulk path must too, or tagging
+        # 50 definitions is silent while tagging one is logged. Guards that the override threads an
+        # activity context through to apply_bulk_tag_changes.
+        ed1 = EventDefinition.objects.create(team=self.demo_team, name="logged_a")
+        ed2 = EventDefinition.objects.create(team=self.demo_team, name="logged_b")
+
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_tags/",
+            {"ids": [str(ed1.id), str(ed2.id)], "action": "add", "tags": ["pii"]},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        logs = ActivityLog.objects.filter(
+            scope="EventDefinition", activity="changed", item_id__in=[str(ed1.id), str(ed2.id)]
+        )
+        assert {log.item_id for log in logs} == {str(ed1.id), str(ed2.id)}
+        log = logs.get(item_id=str(ed1.id))
+        assert log.detail is not None
+        assert log.detail["changes"] == [
+            {"type": "EventDefinition", "action": "changed", "field": "tags", "before": [], "after": ["pii"]}
+        ]
+
+    def test_bulk_update_tags_noop_does_not_log_activity(self):
+        # Adding a tag a definition already has changes nothing; it must not write an empty activity
+        # entry. Guards the current_tags != new_tags skip in apply_bulk_tag_changes.
+        ed = EventDefinition.objects.create(team=self.demo_team, name="noop_event")
+        self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_tags/",
+            {"ids": [str(ed.id)], "action": "set", "tags": ["kept"]},
+        )
+        ActivityLog.objects.filter(scope="EventDefinition").delete()
+
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_tags/",
+            {"ids": [str(ed.id)], "action": "add", "tags": ["kept"]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert not ActivityLog.objects.filter(scope="EventDefinition", item_id=str(ed.id)).exists()
+
 
 class TestEventDefinitionExcludeStale(APIBaseTest):
     """Stale filter tests need real wall-clock times so the Postgres NOW() comparison

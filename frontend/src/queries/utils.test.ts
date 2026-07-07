@@ -21,8 +21,12 @@ import {
 window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
 
 describe('hogql tag', () => {
-    initKeaTests()
-    teamLogic.mount()
+    // In beforeEach (not describe scope): mounting at collection time fires the preflight
+    // load before the MSW harness's beforeAll has installed its fetch stub
+    beforeEach(() => {
+        initKeaTests()
+        teamLogic.mount()
+    })
 
     it('properly returns query with no substitutions', () => {
         expect(hogql`SELECT * FROM events`).toEqual('SELECT * FROM events')

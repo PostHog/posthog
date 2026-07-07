@@ -329,6 +329,10 @@ describe('sessionRecordingPlayerLogic', () => {
         })
 
         it('load snapshot errors and triggers error state', async () => {
+            silenceKeaLoadersErrors()
+            // the player deliberately reports the missing snapshots via console.error
+            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+
             logic.unmount()
             overrideSessionRecordingMocks({
                 getMocks: {
@@ -363,6 +367,10 @@ describe('sessionRecordingPlayerLogic', () => {
                 },
                 playerError: 'loadSnapshotSourcesFailure',
             })
+            expect(consoleErrorSpy).toHaveBeenCalledWith('PostHog Recording Playback Error: No snapshots loaded')
+
+            consoleErrorSpy.mockRestore()
+            resumeKeaLoadersErrors()
         })
 
         it('ensures the cache initialization is reset after the player is unmounted', async () => {
