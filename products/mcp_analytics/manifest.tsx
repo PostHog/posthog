@@ -43,8 +43,10 @@ export const manifest: ProductManifest = {
         '/mcp-analytics/intent-clustering': ['MCPAnalytics', 'mcpAnalyticsIntentClustering'],
     },
     redirects: {
+        // `landing=auto` marks "arrived via the bare URL": the scene resolves it to the
+        // volume-appropriate default tab, and deep links to /dashboard stay untouched.
         '/mcp-analytics': (_params, searchParams, hashParams) =>
-            combineUrl(urls.mcpAnalyticsDashboard(), searchParams, hashParams).url,
+            combineUrl(urls.mcpAnalyticsDashboard(), { ...searchParams, landing: 'auto' }, hashParams).url,
     },
     urls: {
         // Define URL helpers here

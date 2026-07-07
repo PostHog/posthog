@@ -75,19 +75,18 @@ export const mcpAnalyticsSceneLogic = kea<mcpAnalyticsSceneLogicType>([
                 )
                 return
             }
-            // Volume decides the default landing tab, once per mount: low-volume projects
-            // land on the live activity view, higher-volume ones on the metrics dashboard.
-            // Both stay reachable as plain tabs — this never overrides an explicit choice
-            // (only the bare dashboard URL redirects) and never flip-flops mid-session.
-            if (
-                !cache.landingResolved &&
-                values.activeTab === 'dashboard' &&
-                mcpAnalyticsOnboardingLogic.values.dashboardStage === 'activity'
-            ) {
+            // Volume decides the default landing tab. Only fires when the manifest's
+            // bare-URL redirect tagged the navigation with `landing=auto` — a deep link
+            // to /dashboard never re-routes, and an explicit tab click is never overridden.
+            const { landing, ...restParams } = router.values.searchParams
+            if (landing === 'auto' && values.activeTab === 'dashboard' && !cache.landingResolved) {
                 cache.landingResolved = true
-                router.actions.replace(combineUrl(urls.mcpAnalyticsActivity(), router.values.searchParams).url)
+                const target =
+                    mcpAnalyticsOnboardingLogic.values.dashboardStage === 'activity'
+                        ? urls.mcpAnalyticsActivity()
+                        : urls.mcpAnalyticsDashboard()
+                router.actions.replace(combineUrl(target, restParams).url)
             }
-            cache.landingResolved = true
         },
     })),
 ])
