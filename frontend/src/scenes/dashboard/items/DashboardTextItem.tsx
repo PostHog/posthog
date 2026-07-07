@@ -1,9 +1,11 @@
 import { useValues } from 'kea'
-import React from 'react'
+import React, { useState } from 'react'
 
 import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
 import { DashboardWidgetPlacementMenus } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
 import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
+import { TextCardInlineEditor } from 'lib/components/Cards/TextCard/TextCardInlineEditor'
+import { isTextCardMarkdownRoundTripSafe } from 'lib/components/Cards/TextCard/textCardMarkdown'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
@@ -14,6 +16,7 @@ type BaseTextCardProps = React.ComponentProps<typeof TextCard>
 interface DashboardTextItemProps extends Omit<BaseTextCardProps, 'textTile' | 'placement' | 'moreButtonOverlay'> {
     tile: DashboardTile<QueryBasedInsightModel>
     placement: DashboardPlacement
+    dashboard?: DashboardType<QueryBasedInsightModel> | null
     dashboardId?: number | null
     onEdit: () => void
     onMoveToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
@@ -26,6 +29,7 @@ function DashboardTextItemInternal(
     {
         tile,
         placement,
+        dashboard,
         dashboardId,
         onEdit,
         onMoveToDashboard,
@@ -45,12 +49,29 @@ function DashboardTextItemInternal(
             dashboard_tiles: tile.text?.dashboard_tiles,
         })
     )
+    const [isEditingInline, setIsEditingInline] = useState(false)
+
+    // Legacy markdown that can't round-trip through the rich editor still edits via the modal
+    const canEditInline = !!dashboard && isTextCardMarkdownRoundTripSafe(tile.text?.body)
+    const startEditing = (): void => {
+        if (canEditInline) {
+            setIsEditingInline(true)
+        } else {
+            onEdit()
+        }
+    }
 
     return (
         <TextCard
             ref={ref}
             textTile={tile}
             placement={placement}
+            onStartInlineEdit={startEditing}
+            editingContent={
+                isEditingInline && dashboard ? (
+                    <TextCardInlineEditor dashboard={dashboard} tile={tile} onClose={() => setIsEditingInline(false)} />
+                ) : undefined
+            }
             moreButtonOverlay={
                 <>
                     <LemonButton fullWidth onClick={onEdit} data-attr="edit-text">

@@ -30,6 +30,10 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
     /** Whether editing controls (three-dots menu) should be shown. False hides them on template dashboards in view mode. */
     showEditingControls?: boolean
+    /** When set, rendered in place of the card body — used for inline markdown editing. */
+    editingContent?: JSX.Element
+    /** Called when the user double-clicks the card body to edit the markdown inline. */
+    onStartInlineEdit?: () => void
 }
 
 interface TextCardBodyProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'className'> {
@@ -82,6 +86,8 @@ function TextCardInternal(
         onEnterEditModeFromEdge,
         onDragHandleMouseDown,
         showEditingControls,
+        editingContent,
+        onStartInlineEdit,
         ...divProps
     }: TextCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -108,18 +114,24 @@ function TextCardInternal(
             {...divProps}
             ref={ref}
         >
-            {moreButtonOverlay && !shouldHideMoreButton && (
+            {moreButtonOverlay && !shouldHideMoreButton && !editingContent && (
                 <div className="absolute right-4 top-4">
                     <More overlay={moreButtonOverlay} />
                 </div>
             )}
 
-            <div
-                className={clsx('TextCard__body w-full', onDragHandleMouseDown && 'cursor-grab')}
-                onMouseDown={onDragHandleMouseDown}
-            >
-                <TextContent text={text.body} className={shouldHideMoreButton ? 'p-4' : 'p-4 pr-14'} />
-            </div>
+            {editingContent ? (
+                // Intentionally not TextCard__body — that class is the grid drag handle
+                <div className="TextCard__editing flex min-h-0 w-full flex-1 flex-col">{editingContent}</div>
+            ) : (
+                <div
+                    className={clsx('TextCard__body w-full', onDragHandleMouseDown && 'cursor-grab')}
+                    onMouseDown={onDragHandleMouseDown}
+                    onDoubleClick={!shouldHideMoreButton ? onStartInlineEdit : undefined}
+                >
+                    <TextContent text={text.body} className={shouldHideMoreButton ? 'p-4' : 'p-4 pr-14'} />
+                </div>
+            )}
 
             {canEnterEditModeFromEdge && !showResizeHandles && onEnterEditModeFromEdge && (
                 <EditModeEdgeOverlay onEnterEditMode={onEnterEditModeFromEdge} />

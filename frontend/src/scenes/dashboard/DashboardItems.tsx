@@ -568,6 +568,7 @@ export function DashboardItems(): JSX.Element {
                                         key={tile.id}
                                         tile={tile}
                                         placement={placement}
+                                        dashboard={dashboard}
                                         dashboardId={dashboard?.id}
                                         onEdit={() => {
                                             if (dashboard?.id) {
