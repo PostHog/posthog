@@ -447,40 +447,41 @@
                 cursor: text;
             }
         }
+    }
 
-        .NotebookLatex {
-            font-size: 1.1em;
-            line-height: 1.5;
-            text-align: center;
+    // Kept at .Notebook level so LaTeX renders the same in the classic editor and markdown v2
+    .NotebookLatex {
+        font-size: 1.1em;
+        line-height: 1.5;
+        text-align: center;
 
-            &[data-display='true'] {
-                display: block;
-                margin: 1.5em 0;
-                font-size: 1.2em;
-                text-align: center;
-            }
-
-            &[data-display='false'] {
-                display: inline;
-                vertical-align: middle;
-            }
-
-            // Style for the MathJax rendered content
-            .MathJax {
-                font-size: 1.1em;
-            }
-        }
-
-        .NotebookLatex mjx-container {
-            padding: 1em 0;
-        }
-
-        .NotebookLatex mjx-container,
-        .NotebookLatex svg {
+        &[data-display='true'] {
             display: block;
-            margin-right: auto;
-            margin-left: auto;
+            margin: 1.5em 0;
+            font-size: 1.2em;
+            text-align: center;
         }
+
+        &[data-display='false'] {
+            display: inline;
+            vertical-align: middle;
+        }
+
+        // Style for the MathJax rendered content
+        .MathJax {
+            font-size: 1.1em;
+        }
+    }
+
+    .NotebookLatex mjx-container {
+        padding: 1em 0;
+    }
+
+    .NotebookLatex mjx-container,
+    .NotebookLatex svg {
+        display: block;
+        margin-right: auto;
+        margin-left: auto;
     }
 
     &--compact:not(.Notebook--canvas) {

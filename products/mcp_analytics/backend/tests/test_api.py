@@ -551,6 +551,21 @@ class TestListMCPToolCalls(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
         assert [c.tool_name for c in second.results] == ["third"]
         assert second.has_next is False
 
+    def test_pagination_is_stable_across_tied_timestamps(self) -> None:
+        session_id = str(uuid7())
+        ts = datetime.now(tz=UTC) - timedelta(minutes=5)
+        # All four calls share a timestamp (a burst), so only the event_id tiebreaker gives a total
+        # order — without it, the two offset pages could overlap or skip a boundary row.
+        for tool in ["a", "b", "c", "d"]:
+            self._seed_tool_call(session_id, timestamp=ts, tool=tool)
+
+        first = api.list_mcp_tool_calls(self.team, session_id=session_id, limit=2, offset=0, date_from=ts)
+        second = api.list_mcp_tool_calls(self.team, session_id=session_id, limit=2, offset=2, date_from=ts)
+        event_ids = [c.event_id for c in first.results] + [c.event_id for c in second.results]
+
+        # The two pages cover all four calls with no duplicates and no skips.
+        assert len(set(event_ids)) == 4
+
 
 class TestSessionEventsLookbackBound(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
     """The session-detail queries (tool calls and intents alike) bound their scan to

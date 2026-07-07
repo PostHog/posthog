@@ -52,6 +52,18 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
     CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: string
 
+    // Master switch for pre-send email MX validation, off by default. When true,
+    // every email send is validated (syntax + MX lookup, cached per domain) and
+    // would-skip outcomes are recorded in Prometheus — shadow mode unless the team
+    // is also matched by CDP_EMAIL_MX_VALIDATION_ENFORCE_TEAMS, which controls
+    // actual skipping.
+    CDP_EMAIL_MX_VALIDATION_ENABLED: boolean
+    // Teams whose predicted hard bounces are actually skipped (same string format as
+    // the other team matchers: '' = none, '*' = all, '2,7' = exact set). Teams not
+    // matched here are observe-only: validation runs and metrics are recorded, but
+    // the send always proceeds.
+    CDP_EMAIL_MX_VALIDATION_ENFORCE_TEAMS: string
+
     CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: string
     CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
     CDP_LEGACY_EVENT_CONSUMER_INCLUDE_WEBHOOKS: boolean
@@ -178,6 +190,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: 'hog',
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
         CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
+        CDP_EMAIL_MX_VALIDATION_ENABLED: false,
+        CDP_EMAIL_MX_VALIDATION_ENFORCE_TEAMS: '',
 
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
@@ -274,7 +288,11 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Destination migration diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,
 
-        CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: 5000,
+        // Fallback cap used only when a batch-resolve API caller does not pass max_audience_size.
+        // Django's batch-job model always passes get_hogflow_batch_trigger_limit(team_id), so
+        // production batches use the per-team value from settings; this is only a safety net for
+        // direct callers (tests, admin tools). Match the fleet-wide default in settings.web.py.
+        CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: 50000,
 
         // Cyclotron Node
         CYCLOTRON_NODE_MAX_CONNECTIONS: 10,

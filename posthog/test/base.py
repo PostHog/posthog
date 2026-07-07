@@ -5,7 +5,6 @@ import uuid
 import inspect
 import datetime as dt
 import resource
-import functools
 from collections.abc import Callable, Generator, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import ExitStack, contextmanager
@@ -23,13 +22,7 @@ from django.core.cache import cache
 from django.core.management import call_command
 from django.db import connection, connections
 from django.db.migrations.executor import MigrationExecutor
-from django.test import (
-    Client as DjangoTestClient,
-    SimpleTestCase,
-    TestCase,
-    TransactionTestCase,
-    override_settings,
-)
+from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
 # we have to import pendulum for the side effect of importing it
@@ -37,10 +30,7 @@ from django.test.utils import CaptureQueriesContext
 import pendulum  # noqa F401
 import sqlparse
 from clickhouse_pool.pool import TooManyConnections
-from rest_framework.test import (
-    APIClient,
-    APITestCase as DRFTestCase,
-)
+from rest_framework.test import APITestCase as DRFTestCase
 from syrupy.extensions.amber import AmberSnapshotExtension
 
 from posthog.hogql import (
@@ -923,43 +913,6 @@ class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, Tran
                 tables = [row[0] for row in cursor.fetchall()]
                 if tables:
                     cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} CASCADE")
-
-
-def _follow_environments_redirect(original_generic):
-    """Make a test client's `generic` follow the /api/environments → /api/projects 307.
-
-    EnvironmentsRedirectMiddleware 307-redirects /api/environments/* requests when the
-    `api-environments-redirect` flag evaluates true — which in tests happens whenever a
-    test mocks posthoganalytics.feature_enabled for its own flag. Real clients re-send
-    the same method and body to the projects path, so test clients do too: tests receive
-    the end response, not the redirect hop. Set `client.follow_environments_redirect =
-    False` to observe the raw 307 (see posthog/api/test/test_environments_redirect.py).
-    """
-
-    @functools.wraps(original_generic)
-    def generic(self, method, path, data="", content_type="application/octet-stream", secure=False, **extra):
-        response = original_generic(self, method, path, data, content_type, secure, **extra)
-        if (
-            getattr(self, "follow_environments_redirect", True)
-            # RequestFactory shares this method but returns requests, not responses
-            and getattr(response, "status_code", None) in (307, 308)
-            and isinstance(path, str)
-            and path.startswith("/api/environments")
-            and response.headers.get("Location", "").startswith("/api/projects")
-        ):
-            response = original_generic(self, method, response.headers["Location"], data, content_type, secure, **extra)
-        return response
-
-    generic._follows_environments_redirect = True  # type: ignore[attr-defined]
-    return generic
-
-
-# Cover every test client, including ones instantiated by hand in product suites —
-# Django's Client inherits `generic` from RequestFactory, so shadow it on the class.
-if not getattr(APIClient.generic, "_follows_environments_redirect", False):
-    APIClient.generic = _follow_environments_redirect(APIClient.generic)  # type: ignore[method-assign]
-if not getattr(DjangoTestClient.generic, "_follows_environments_redirect", False):
-    DjangoTestClient.generic = _follow_environments_redirect(DjangoTestClient.generic)  # type: ignore[method-assign]
 
 
 class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):

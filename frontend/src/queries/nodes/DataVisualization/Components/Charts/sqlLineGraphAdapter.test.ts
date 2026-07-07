@@ -575,6 +575,27 @@ describe('sqlLineGraphAdapter', () => {
             expect(Array.isArray(config.yAxis)).toBe(false)
         })
 
+        it.each([
+            ['leaves showAxisLines unset when both borders are on (app style default applies)', {}, undefined],
+            [
+                'turns off the x axis line when showXAxisBorder is off',
+                { showXAxisBorder: false },
+                { x: false, y: true },
+            ],
+            [
+                'turns off the y axis line when showYAxisBorder is off',
+                { showYAxisBorder: false },
+                { x: true, y: false },
+            ],
+        ])('%s', (_name, chartSettings, expected) => {
+            const config = buildLineChartConfig({
+                xData: dateXData,
+                chartSettings: chartSettings as ChartSettings,
+                timezone: 'UTC',
+            })
+            expect(config.showAxisLines).toEqual(expected)
+        })
+
         it('emits a per-axis array honoring each column settings when a series targets the right axis', () => {
             const ySeriesData = [ySeries('a', [1, 2]), ySeries('b', [3, 4], { display: { yAxisPosition: 'right' } })]
             const chartSettings: ChartSettings = {
@@ -770,6 +791,28 @@ describe('sqlLineGraphAdapter', () => {
             expect(config.trendLines).toEqual([])
         })
 
+        it('maps the axis-border toggles to per-edge showAxisLines for bars', () => {
+            const config = buildBarChartConfig({
+                xData: dateXData,
+                chartSettings: { showXAxisBorder: false },
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsBar,
+            })
+            expect(config.showAxisLines).toEqual({ x: false, y: true })
+        })
+
+        it('builds the shared SQL tooltip so bars honor showTotalRow and per-column formatting', () => {
+            const config = buildBarChartConfig({
+                xData: dateXData,
+                chartSettings: { showTotalRow: false },
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsBar,
+                ySeriesData: [ySeries('a', [1]), ySeries('b', [2])],
+            })
+            expect(config.tooltip).toMatchObject({ showTotal: false })
+            expect(config.tooltip!.valueFormatter).toBeInstanceOf(Function)
+        })
+
         it('emits a per-axis array with forceLinear threaded through both gutters when a series targets the right axis', () => {
             const ySeriesData = [ySeries('a', [1, 2]), ySeries('b', [3, 4], { display: { yAxisPosition: 'right' } })]
             const config = buildBarChartConfig({
@@ -805,6 +848,16 @@ describe('sqlLineGraphAdapter', () => {
                 visualizationType,
             })
             expect(config.barLayout).toBe(expected)
+        })
+
+        it('maps the axis-border toggles to per-edge showAxisLines for combo', () => {
+            const config = buildComboChartConfig({
+                xData: dateXData,
+                chartSettings: { showYAxisBorder: false },
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsBar,
+            })
+            expect(config.showAxisLines).toEqual({ x: true, y: false })
         })
 
         it('wires goal lines, legend, and a date x-axis formatter', () => {

@@ -32,6 +32,7 @@ const RESPONSE: _LogsPatternsResponseApi = {
             examples: [],
             services: ['auth'],
             sparkline: [1, 2],
+            severity_counts: { error: 3 },
         },
     ],
     scanned_count: 3,
