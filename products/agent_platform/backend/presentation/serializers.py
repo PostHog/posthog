@@ -456,6 +456,25 @@ class WriteToolRequestSerializer(serializers.Serializer):
     source = serializers.CharField(allow_blank=False, trim_whitespace=False)  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
 
 
+class DryRunToolRequestSerializer(serializers.Serializer):
+    """Body shape for POST /revisions/<id>/tools/<tool_id>/dry_run/.
+
+    Executes the persisted compiled.js once in the janitor's single-shot
+    sandbox with caller-supplied args + a stubbed ctx. No real secrets
+    leave Django — `mock_secrets` is a `{name → opaque nonce}` map the
+    sandbox plumbs into `ctx.secrets.ref(name)` so the tool body returns
+    something deterministic to the author."""
+
+    args = serializers.JSONField(
+        help_text="Synthetic args the tool's `actions.default` is called with. Free-form JSON; the sandbox doesn't validate against the tool's `args_schema` — that's the author's responsibility to keep in sync."
+    )
+    mock_secrets = serializers.DictField(
+        child=serializers.CharField(allow_blank=True),
+        required=False,
+        help_text="Optional `{secret_name → placeholder_string}` map. The string is returned verbatim by `ctx.secrets.ref(name)` inside the tool. The real secret value never enters the sandbox.",
+    )
+
+
 class WriteTypedBundleRequestSerializer(serializers.Serializer):
     """Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed
     payload. Skills are not authored here: they come from the llma-skill store

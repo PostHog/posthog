@@ -48,6 +48,7 @@ import type {
     AgentRevisionApi,
     AgentRevisionCronFireRequestApi,
     AgentRevisionCronFireResponseApi,
+    AgentRevisionDryRunToolResponseApi,
     AgentRevisionEnvKeyStatusApi,
     AgentRevisionEnvKeysResponseApi,
     AgentRevisionSlackManifestResponseApi,
@@ -58,6 +59,7 @@ import type {
     AgentUsersListApi,
     CloneFromRequestApi,
     DecideApprovalRequestApi,
+    DryRunToolRequestApi,
     NewDraftRevisionRequestApi,
     PaginatedAgentApplicationListApi,
     PaginatedAgentRevisionListApi,
@@ -1315,6 +1317,42 @@ export const agentApplicationsRevisionsToolsDestroy = async (
         ...options,
         method: 'DELETE',
     })
+}
+
+export const getAgentApplicationsRevisionsToolsDryRunCreateUrl = (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    toolId: string
+) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/tools/${toolId}/dry_run/`
+}
+
+/**
+ * Execute one persisted custom tool in a single-shot sandbox.
+ *
+ * Authoring loop's "test this tool" button. The tool's source must
+ * already be PUT (compiled.js is what runs); this just invokes it
+ * with the caller-supplied args and a stubbed ctx. No real secrets
+ * leave Django — `mock_secrets` is a `{name → placeholder}` map.
+ */
+export const agentApplicationsRevisionsToolsDryRunCreate = async (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    toolId: string,
+    dryRunToolRequestApi: DryRunToolRequestApi,
+    options?: RequestInit
+): Promise<AgentRevisionDryRunToolResponseApi> => {
+    return apiMutator<AgentRevisionDryRunToolResponseApi>(
+        getAgentApplicationsRevisionsToolsDryRunCreateUrl(projectId, applicationId, id, toolId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(dryRunToolRequestApi),
+        }
+    )
 }
 
 export const getAgentApplicationsRevisionsValidateCreateUrl = (

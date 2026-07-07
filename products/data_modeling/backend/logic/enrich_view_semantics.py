@@ -18,6 +18,7 @@ from typing import Any
 from django.conf import settings
 
 import structlog
+from temporalio.client import Client
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
@@ -444,6 +445,19 @@ def _upsert(saved_query: DataWarehouseSavedQuery, team_id: int, column_name: str
     )
 
 
+def enrichment_gates_pass(saved_query: DataWarehouseSavedQuery) -> bool:
+    """Feature-flag + AI-processing-approval gate shared by the save- and materialization-dispatch paths.
+
+    Both paths use this so a team where enrichment is off (or AI processing isn't approved) never enqueues
+    a workflow. The activity re-checks the same gates as the source of truth.
+    """
+    team = saved_query.team
+    return (
+        enrichment_enabled(team, VIEW_ENRICHMENT_FEATURE_FLAG)
+        and team.organization.is_ai_data_processing_approved is True
+    )
+
+
 def maybe_dispatch_enrichment(saved_query: DataWarehouseSavedQuery) -> None:
     """Dispatch view enrichment for a just-saved view, if it plausibly needs it.
 
@@ -460,6 +474,8 @@ def maybe_dispatch_enrichment(saved_query: DataWarehouseSavedQuery) -> None:
         return
     if compute_enrichment_hash(saved_query) == saved_query.semantic_enrichment_hash:
         return
+    if not enrichment_gates_pass(saved_query):
+        return
 
     # The serializer saves inside transaction.atomic(), so dispatch must wait for commit; on_commit runs
     # immediately when no transaction is open.
@@ -472,12 +488,16 @@ def maybe_dispatch_enrichment(saved_query: DataWarehouseSavedQuery) -> None:
 
 def _start_enrichment_workflow(team_id: int, saved_query_id: str) -> None:
     """Start the enrichment workflow on the metadata queue. Never breaks the caller's save."""
+    # Deferred: the activities module imports the facade, which imports this module — a module-level
+    # import would be circular.
+    from posthog.temporal.data_modeling.activities import EnrichViewSemanticsInputs  # noqa: PLC0415
+
     try:
-        temporal = sync_connect()
+        temporal: Client = sync_connect()
         asyncio.run(
             temporal.start_workflow(
                 ENRICH_VIEW_WORKFLOW_NAME,
-                {"team_id": team_id, "saved_query_id": saved_query_id},
+                EnrichViewSemanticsInputs(team_id=team_id, saved_query_id=saved_query_id),
                 id=f"enrich-view-semantics-{saved_query_id}",
                 task_queue=str(settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,

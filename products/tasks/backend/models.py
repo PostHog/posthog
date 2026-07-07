@@ -102,6 +102,9 @@ class Channel(TeamScopedRootMixin):
         return f"#{self.name}"
 
 
+SLACK_NOTIFIED_PR_URL_STATE_KEY = "slack_notified_pr_url"
+
+
 class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
     class OriginProduct(models.TextChoices):
         ONBOARDING = "onboarding", "Onboarding"
@@ -211,6 +214,10 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         null=True,
         help_text="Custom prompt for CI fixes. If blank, a default prompt will be used.",
     )
+
+    # Conversation-level state shared across the task's runs (each resume/follow-up
+    # is a fresh TaskRun), e.g. which PRs have been announced to the Slack thread.
+    state = models.JSONField(default=dict, null=True, blank=True)
 
     class Meta:
         db_table = "posthog_task"
@@ -369,6 +376,22 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             },
         )
         return task_run
+
+    @property
+    def slack_notified_pr_url(self) -> str | None:
+        """PR URL last announced to this task's Slack thread, if any."""
+        return (self.state or {}).get(SLACK_NOTIFIED_PR_URL_STATE_KEY)
+
+    def mark_slack_pr_notified(self, pr_url: str) -> None:
+        """Record ``pr_url`` as the PR announced to the task's Slack thread. Row-locked
+        merge so it doesn't clobber other keys in the shared state bag."""
+        with transaction.atomic():
+            task = Task.objects.select_for_update().only("id", "state").get(id=self.id)
+            state = dict(task.state or {})
+            state[SLACK_NOTIFIED_PR_URL_STATE_KEY] = pr_url
+            task.state = state
+            task.save(update_fields=["state", "updated_at"])
+        self.state = state
 
     def soft_delete(self):
         self.deleted = True
@@ -748,6 +771,34 @@ class TaskThreadMessage(TeamScopedRootMixin):
 
     def __str__(self):
         return f"Thread message {self.id} on task {self.task_id}"
+
+
+class TaskThreadMessageMention(TeamScopedRootMixin):
+    """One @-mention of a user inside a thread message, indexed at write time so the
+    mentions feed is a single indexed query instead of a client-side scan of every
+    channel's threads. ``created_at`` is copied from the message so listing never
+    joins for ordering."""
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # db_constraint=False on the team/user FKs: adding an FK constraint to those hot tables
+    # locks them and stalls deploys; Django still enforces the relation and on_delete at the
+    # app level (see safe-django-migrations.md).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    message = models.ForeignKey(TaskThreadMessage, on_delete=models.CASCADE, related_name="mentions")
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+")
+    mentioned_user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    created_at = models.DateTimeField(default=django_timezone.now)
+
+    class Meta:
+        db_table = "posthog_task_thread_message_mention"
+        constraints = [
+            models.UniqueConstraint(fields=["message", "mentioned_user"], name="task_mention_message_user_unique")
+        ]
+        indexes = [models.Index(fields=["team", "mentioned_user", "created_at"], name="task_mention_team_user_created")]
+
+    def __str__(self):
+        return f"Mention of user {self.mentioned_user_id} in message {self.message_id}"
 
 
 class TaskAutomationManager(models.Manager):
