@@ -1,16 +1,14 @@
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { emptySceneParams } from '~/scenes/scenes'
 import { Scene, SceneTab } from '~/scenes/sceneTypes'
 import { urls } from '~/scenes/urls'
-
-import { homeViewToggleLogic } from './homeViewToggleLogic'
 
 export type HomeView = 'launchpad' | 'search' | 'apps' | 'files'
 
@@ -51,66 +49,58 @@ const homeViewTabs: Record<Exclude<HomeView, 'launchpad'>, SceneTab> = {
     },
 }
 
-/** Gear button in the top-left of the home views that expands into the homepage picker. */
+/** Homepage picker in the top-left of the home views. */
 export function HomeViewToggle({ current }: { current: HomeView }): JSX.Element {
-    const { expanded } = useValues(homeViewToggleLogic)
-    const { setExpanded } = useActions(homeViewToggleLogic)
     const { setHomepage } = useActions(sceneLogic)
 
     return (
         <div className="absolute top-2 left-2 z-20 flex items-center gap-1">
-            <LemonButton
+            <LemonSegmentedButton
                 size="small"
-                icon={<IconGear />}
-                active={expanded}
-                tooltip="Configure home"
-                onClick={() => setExpanded(!expanded)}
-                data-attr="home-view-toggle-gear"
-                aria-label="Configure home"
+                value={current}
+                onChange={(view: HomeView) => {
+                    if (view === current) {
+                        return
+                    }
+                    posthog.capture('homepage configure set homepage', {
+                        'homepage choice': view,
+                        source: 'home view toggle',
+                    })
+                    setHomepage(view === 'launchpad' ? null : homeViewTabs[view])
+                    router.actions.push(view === 'launchpad' ? urls.projectHomepage() : homeViewTabs[view].pathname)
+                }}
+                options={[
+                    {
+                        value: 'launchpad' as const,
+                        label: 'Launchpad',
+                        'data-attr': 'home-view-toggle-launchpad',
+                        tooltip: 'An AI-powered home with quick actions and recent items',
+                    },
+                    {
+                        value: 'search' as const,
+                        label: (
+                            <span className="flex items-center gap-1">
+                                Search
+                                <KeyboardShortcut command k />
+                            </span>
+                        ),
+                        'data-attr': 'home-view-toggle-search',
+                        tooltip: 'A search page to quickly find anything in your project',
+                    },
+                    {
+                        value: 'apps' as const,
+                        label: 'Apps',
+                        'data-attr': 'home-view-toggle-apps',
+                        tooltip: 'A grid of all the apps and data tools in PostHog',
+                    },
+                    {
+                        value: 'files' as const,
+                        label: 'Files',
+                        'data-attr': 'home-view-toggle-files',
+                        tooltip: 'All the files in your project',
+                    },
+                ]}
             />
-            {expanded && (
-                <LemonSegmentedButton
-                    size="small"
-                    value={current}
-                    onChange={(view: HomeView) => {
-                        if (view === current) {
-                            return
-                        }
-                        posthog.capture('homepage configure set homepage', {
-                            'homepage choice': view,
-                            source: 'home view toggle',
-                        })
-                        setHomepage(view === 'launchpad' ? null : homeViewTabs[view])
-                        router.actions.push(view === 'launchpad' ? urls.projectHomepage() : homeViewTabs[view].pathname)
-                    }}
-                    options={[
-                        {
-                            value: 'launchpad' as const,
-                            label: 'Launchpad',
-                            'data-attr': 'home-view-toggle-launchpad',
-                            tooltip: 'An AI-powered home with quick actions and recent items',
-                        },
-                        {
-                            value: 'search' as const,
-                            label: 'Search',
-                            'data-attr': 'home-view-toggle-search',
-                            tooltip: 'A search page to quickly find anything in your project',
-                        },
-                        {
-                            value: 'apps' as const,
-                            label: 'Apps',
-                            'data-attr': 'home-view-toggle-apps',
-                            tooltip: 'A grid of all the apps and data tools in PostHog',
-                        },
-                        {
-                            value: 'files' as const,
-                            label: 'Files',
-                            'data-attr': 'home-view-toggle-files',
-                            tooltip: 'All the files in your project',
-                        },
-                    ]}
-                />
-            )}
         </div>
     )
 }

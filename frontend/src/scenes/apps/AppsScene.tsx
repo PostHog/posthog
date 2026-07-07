@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useRef } from 'react'
 
 import { LemonInput, LemonTag } from '@posthog/lemon-ui'
 
@@ -23,6 +24,53 @@ export function AppsScene(): JSX.Element {
     const { searchTerm, filteredAppItems } = useValues(appsSceneLogic)
     const { setSearchTerm } = useActions(appsSceneLogic)
     const hasSearch = searchTerm.trim().length > 0
+    const searchRef = useRef<HTMLInputElement>(null)
+    const gridRef = useRef<HTMLDivElement>(null)
+
+    function getGridLinks(): HTMLAnchorElement[] {
+        return Array.from(gridRef.current?.querySelectorAll<HTMLAnchorElement>('[data-attr="apps-grid-item"]') ?? [])
+    }
+
+    // The grid is responsive (auto-fill), so the column count comes from the rendered layout
+    function getColumnCount(links: HTMLAnchorElement[]): number {
+        const firstTop = links[0]?.offsetTop
+        let columns = 0
+        for (const link of links) {
+            if (link.offsetTop !== firstTop) {
+                break
+            }
+            columns += 1
+        }
+        return Math.max(columns, 1)
+    }
+
+    function handleGridKeyDown(e: React.KeyboardEvent, index: number): void {
+        const links = getGridLinks()
+        const columns = getColumnCount(links)
+        let next: number
+        switch (e.key) {
+            case 'ArrowRight':
+                next = index + 1
+                break
+            case 'ArrowLeft':
+                next = index - 1
+                break
+            case 'ArrowDown':
+                next = index + columns
+                break
+            case 'ArrowUp':
+                next = index - columns
+                break
+            default:
+                return
+        }
+        e.preventDefault()
+        if (next < 0) {
+            searchRef.current?.focus()
+        } else if (next < links.length) {
+            links[next].focus()
+        }
+    }
 
     return (
         <div className="relative h-full overflow-y-auto">
@@ -41,12 +89,19 @@ export function AppsScene(): JSX.Element {
                             router.actions.push(first.href)
                         }
                     }}
+                    onKeyDown={(e) => {
+                        if (e.key === 'ArrowDown') {
+                            e.preventDefault()
+                            getGridLinks()[0]?.focus()
+                        }
+                    }}
+                    inputRef={searchRef}
                     autoFocus
                     data-attr="apps-scene-search"
                 />
             </div>
             <div className="max-w-[1280px] mx-auto px-8 pt-14 pb-8 group/colorful-product-icons colorful-product-icons-true">
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-2">
+                <div ref={gridRef} className="grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-2">
                     {filteredAppItems.map((item, index) => (
                         <Link
                             key={getAppItemName(item)}
@@ -56,6 +111,7 @@ export function AppsScene(): JSX.Element {
                                 // Enter opens the first match, so point it out while searching
                                 hasSearch && index === 0 && 'ring-1 ring-accent'
                             )}
+                            onKeyDown={(e) => handleGridKeyDown(e, index)}
                             data-attr="apps-grid-item"
                         >
                             <span className="text-2xl [&_svg]:size-8">
