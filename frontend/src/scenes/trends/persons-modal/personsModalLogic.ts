@@ -158,9 +158,9 @@ export const personsModalLogic = kea<personsModalLogicType>([
             offset,
         }),
         loadNextActors: true,
-        updateQuery: (query: InsightActorsQuery) => ({ query }),
-        updateActorsQuery: (query: Partial<InsightActorsQuery>) => ({ query }),
-        loadActorsQueryOptions: (query: InsightActorsQuery) => ({ query }),
+        updateQuery: (query: InsightActorsQuery | FunnelsActorsQuery) => ({ query }),
+        updateActorsQuery: (query: Partial<InsightActorsQuery> | Partial<FunnelsActorsQuery>) => ({ query }),
+        loadActorsQueryOptions: (query: InsightActorsQuery | FunnelsActorsQuery) => ({ query }),
     }),
     connect(() => ({
         values: [groupsModel, ['groupTypes', 'aggregationLabel'], teamLogic, ['currentTeamId']],
@@ -300,7 +300,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
 
     reducers(({ props }) => ({
         query: [
-            props.query as InsightActorsQuery | null,
+            props.query as InsightActorsQuery | FunnelsActorsQuery | null,
             {
                 updateQuery: (_, { query }) => query,
             },
@@ -394,7 +394,8 @@ export const personsModalLogic = kea<personsModalLogicType>([
         },
         updateActorsQuery: ({ query: q }) => {
             if (q && values.query) {
-                actions.updateQuery({ ...values.query, ...q })
+                // The partial always targets the current query's kind; the spread can't express that.
+                actions.updateQuery({ ...values.query, ...q } as InsightActorsQuery | FunnelsActorsQuery)
                 actions.loadActors({ offset: 0, clear: true })
             }
         },
