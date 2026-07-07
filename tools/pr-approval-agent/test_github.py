@@ -5,7 +5,13 @@ import re
 import pytest
 
 import github
-from github import _normalize_reviews_for_prompt, _reaction_emoji, _trusted_reactor_predicate, is_bot_author
+from github import (
+    _normalize_discussion_for_prompt,
+    _normalize_reviews_for_prompt,
+    _reaction_emoji,
+    _trusted_reactor_predicate,
+    is_bot_author,
+)
 
 
 def test_normalize_reviews_marks_current_head_and_preserves_stale_reviews() -> None:
@@ -104,6 +110,26 @@ def test_normalize_reviews_excludes_stamphogs_own_prior_reviews(login: str, expe
             }
         ],
         "abc123",
+    )
+
+    assert len(normalized) == expected_count
+
+
+@pytest.mark.parametrize(
+    "login,expected_count",
+    [
+        pytest.param("stamphog[bot]", 0, id="own-refuse-comment-excluded"),
+        pytest.param("github-actions[bot]", 0, id="own-approve-identity-excluded"),
+        pytest.param("greptile-apps[bot]", 1, id="other-bot-kept"),
+        pytest.param("alice", 1, id="human-kept"),
+    ],
+)
+def test_normalize_discussion_excludes_stamphogs_own_comments(login: str, expected_count: int) -> None:
+    # Same exclusion as reviews/inline: stamphog's own discussion comments
+    # describe an earlier snapshot; feeding them back makes the next run read
+    # its own verdict as a third-party claim about stale state.
+    normalized = _normalize_discussion_for_prompt(
+        [{"user": {"login": login}, "body": "a comment", "created_at": "2026-04-07T20:14:03Z"}]
     )
 
     assert len(normalized) == expected_count

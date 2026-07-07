@@ -32,6 +32,8 @@ class PRData:
     check_runs: list[dict]
     author_is_bot: bool = False
     pr_reactions: list[dict] = field(default_factory=list)
+    body: str = ""
+    discussion: list[dict] = field(default_factory=list)
 
     @property
     def file_paths(self) -> list[str]:
@@ -128,6 +130,28 @@ def _normalize_reviews_for_prompt(reviews_raw: list[dict], head_sha: str) -> lis
         )
 
     return normalized_reviews
+
+
+def _normalize_discussion_for_prompt(comments_raw: list[dict]) -> list[dict]:
+    """Normalize the PR's issue-comment timeline for the reviewer prompt.
+
+    These are the general discussion comments (not inline review comments).
+    Stamphog's own bot comments are excluded via the same identities the
+    review normalization drops, so each run judges the PR's fresh state
+    rather than re-reading its own earlier verdict.
+    """
+    normalized = []
+    for comment in comments_raw:
+        if (comment.get("user") or {}).get("login") in _SELF_REVIEW_LOGINS:
+            continue
+        normalized.append(
+            {
+                "user": (comment.get("user") or {}).get("login", "ghost"),
+                "body": comment.get("body", ""),
+                "created_at": comment.get("created_at"),
+            }
+        )
+    return normalized
 
 
 # GitHub spells reaction contents two ways: REST returns "+1"/"-1", GraphQL
@@ -435,6 +459,7 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
     """Fetch PR data: metadata from API, file stats from local git."""
     pr = _gh_api(f"repos/{repo}/pulls/{pr_number}")
     reviews_raw = _gh_api(f"repos/{repo}/pulls/{pr_number}/reviews", paginate=True)
+    discussion_raw = _gh_api(f"repos/{repo}/issues/{pr_number}/comments", paginate=True)
 
     base_sha = pr["base"]["sha"]
     head_sha = pr["head"]["sha"]
@@ -463,6 +488,8 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
         check_runs=check_runs_resp.get("check_runs", []),
         author_is_bot=is_bot_author(pr.get("user", {})),
         pr_reactions=pr_reactions,
+        body=pr.get("body") or "",
+        discussion=_normalize_discussion_for_prompt(discussion_raw),
     )
 
 

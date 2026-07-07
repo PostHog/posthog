@@ -153,10 +153,15 @@ _REVIEWER_SCAFFOLD_TAIL = "\n" + textwrap.dedent(
     - "Gates denied: touches CI workflows and migration files."
 
     When you REFUSE or ESCALATE, tell the author what to do next so they
-    can address the concern and re-request. Be specific and practical.
+    can address the concern and re-request. Be specific and practical: name a
+    concrete route. When the Ownership block lists an owning team, point at it
+    (e.g. "request review from @PostHog/team-x"); when the prompt lists who is
+    most familiar with the modified lines, name them as suggested reviewers.
+    When a specific comment blocks approval, reference it by file and commenter.
     Examples:
     - "Get a review from a team member on [team] before re-requesting."
-    - "Address the unresolved comment on line X of file Y."
+    - "Request review from @PostHog/team-x (owns the changed files)."
+    - "Address @reviewer's unresolved comment on file Y before re-requesting."
     - "This PR touches billing code — request a human review instead."
     - "Request a review from Codex, Claude, or a teammate first."
     Do NOT suggest splitting PRs or restructuring to avoid gates.
@@ -304,12 +309,14 @@ class Reviewer:
         safe_title = _sanitize_untrusted(pr.title, max_len=200)
         safe_author = _sanitize_untrusted(pr.author, max_len=50)
 
+        safe_body_pr = _sanitize_untrusted(pr.body, max_len=6000) if pr.body else "(none)"
+
         reviews_text = ""
         if pr.reviews:
             lines = []
             for r in pr.reviews:
                 safe_user = _sanitize_untrusted(r["user"], max_len=50)
-                safe_body = _sanitize_untrusted(r.get("body", ""), max_len=500)
+                safe_body = _sanitize_untrusted(r.get("body", ""), max_len=2500)
                 if r.get("is_current_head"):
                     review_scope = "current head"
                 elif r.get("commit_id"):
@@ -323,9 +330,14 @@ class Reviewer:
         review_comments = ""
         if pr.review_comments:
             lines = []
-            for c in pr.review_comments:
+            # Cap inline comments so a pathological thread count can't blow up
+            # the prompt; the newest are the ones most likely still relevant.
+            shown, omitted = self._newest_with_omitted(pr.review_comments, 60)
+            if omitted:
+                lines.append(f"  ({omitted} older comments omitted)")
+            for c in shown:
                 reply = " (reply)" if c.get("in_reply_to_id") else ""
-                safe_body = _sanitize_untrusted(c["body"], max_len=500)
+                safe_body = _sanitize_untrusted(c["body"], max_len=1500)
                 safe_user = _sanitize_untrusted(c["user"], max_len=50)
                 status = ""
                 if c.get("is_resolved"):
@@ -337,9 +349,22 @@ class Reviewer:
                 lines.append(f"  - @{safe_user}{reply}{status} on {safe_path}: {safe_body}{reactions}")
             review_comments = "\n".join(lines)
 
+        discussion_text = ""
+        if pr.discussion:
+            lines = []
+            shown, omitted = self._newest_with_omitted(pr.discussion, 30)
+            if omitted:
+                lines.append(f"  ({omitted} older comments omitted)")
+            for c in shown:
+                safe_user = _sanitize_untrusted(c["user"], max_len=50)
+                safe_body = _sanitize_untrusted(c.get("body", ""), max_len=1500)
+                lines.append(f"  - @{safe_user}: {safe_body}")
+            discussion_text = "\n".join(lines)
+
         pr_reactions = "\n".join(f"  - {_reaction_token(r)}" for r in pr.pr_reactions)
 
         ownership = self._format_ownership(cl)
+        assurance_block = self._format_assurance(cl)
         familiarity_block = self._format_familiarity(cl)
 
         gate_lines = []
@@ -397,6 +422,7 @@ class Reviewer:
             Reviews: {len(pr.reviews)} top-level, {len(pr.review_comments)} inline, {len(pr.pr_reactions)} PR reactions
 
             {ownership}
+            {assurance_block}
 
             Gate results:
             {chr(10).join(gate_lines)}
@@ -410,6 +436,9 @@ class Reviewer:
             PR #{pr.number}: {safe_title}
             Author: {safe_author}
 
+            PR description:
+            {safe_body_pr}
+
             Changed files:
             {file_list}
 
@@ -419,10 +448,50 @@ class Reviewer:
             Inline comments:
             {review_comments}
 
+            Discussion comments:
+            {discussion_text}
+
             Reactions on the PR:
             {pr_reactions}{folder_guidance}
             --- END UNTRUSTED CONTENT ---
         """)
+
+    def _newest_with_omitted(self, items: list[dict], keep: int) -> tuple[list[dict], int]:
+        """Keep the newest `keep` items (chronological order preserved), report the rest.
+
+        The source lists arrive oldest-first, so the tail is the newest slice;
+        the count of dropped older items feeds the "(N older comments omitted)"
+        line so a truncated section reads as truncated rather than silently short.
+        """
+        omitted = max(0, len(items) - keep)
+        return (items[-keep:] if omitted else items), omitted
+
+    def _format_assurance(self, cl: dict) -> str:
+        """Render the TRUSTED one-line assurance digest of review state.
+
+        Computed from GitHub review metadata (states, head-ness), not from
+        author-controlled text, so it sits with the other trusted gate facts.
+        """
+        a = cl.get("assurance") or {}
+        approvers = [_sanitize_untrusted(u, max_len=50) for u in a.get("head_approvals", [])]
+        commented = a.get("head_commented", 0)
+        unresolved = a.get("unresolved_inline", 0)
+        discussion = a.get("discussion", 0)
+
+        parts = []
+        if approvers:
+            names = ", ".join(f"@{u}" for u in approvers)
+            parts.append(f"{len(approvers)} current-head approval{'s' if len(approvers) != 1 else ''} ({names})")
+        if commented:
+            parts.append(f"{commented} current-head comment-only review{'s' if commented != 1 else ''}")
+        if unresolved:
+            parts.append(f"{unresolved} unresolved inline comment{'s' if unresolved != 1 else ''}")
+        if discussion:
+            parts.append(f"{discussion} discussion comment{'s' if discussion != 1 else ''}")
+
+        if not parts:
+            return "Assurance: no reviews or comments yet"
+        return "Assurance: " + "; ".join(parts)
 
     def _format_reactions(self, reactions: list[dict] | None) -> str:
         """Render a compact reaction annotation like `  {👍 @greptile-apps}`."""

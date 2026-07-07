@@ -98,6 +98,12 @@ LLM Review
   - Claude Agent SDK with Read/Grep/Glob tools
   - Explores the repo via git diff, reads source files if needed
   - Looks for showstoppers: production breakage, security, missed deps
+  - Receives the PR description (untrusted) and verifies the diff matches the
+    author's stated intent — undisclosed sensitive behavior gets extra scrutiny
+  - Reads the discussion-comment timeline (untrusted, newest first, capped)
+    alongside inline comments; an un-withdrawn maintainer hold blocks approval
+  - Gets a trusted one-line `Assurance:` digest (current-head approvals,
+    unresolved inline comments, discussion count) so review state is at a glance
   - Reads other reviewers' signals as context (not a gate): top-level review
     states (annotated current-head vs older-commit), inline comments (tagged
     resolved/outdated), and reactions (👍/👎/👀) on the PR and comments —

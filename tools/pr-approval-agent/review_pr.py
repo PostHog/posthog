@@ -432,10 +432,33 @@ class Pipeline:
             "has_ci_changes": has_ci_workflow_changes(file_paths),
             "ownership": ownership,
             "folder_policy_prose": self.effective_policy.folder_prose,
+            "assurance": self._summarize_assurance(),
             # Judgment-layer signal, filled in later only for the T1-agent path
             # (see _maybe_compute_familiarity). None here keeps every other path
             # - and the reviewer prompt - byte-identical to before.
             "familiarity": None,
+        }
+
+    def _summarize_assurance(self) -> dict:
+        """Deterministic pre-digest of review state for the TRUSTED prompt block.
+
+        Derived only from GitHub review metadata (states, head-ness) — never
+        author-controlled text — so the reviewer gets a trustworthy at-a-glance
+        summary of who has actually vouched for the current head.
+        """
+        pr = self.pr
+        head_approvals = sorted(
+            {r["user"] for r in pr.reviews if r.get("is_current_head") and r.get("state") == "APPROVED"}
+        )
+        head_commented = len(
+            {r["user"] for r in pr.reviews if r.get("is_current_head") and r.get("state") == "COMMENTED"}
+        )
+        unresolved_inline = sum(1 for c in pr.review_comments if not c.get("is_resolved") and not c.get("is_outdated"))
+        return {
+            "head_approvals": head_approvals,
+            "head_commented": head_commented,
+            "unresolved_inline": unresolved_inline,
+            "discussion": len(pr.discussion),
         }
 
     def _maybe_compute_familiarity(self) -> None:
