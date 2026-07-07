@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
@@ -51,6 +52,7 @@ const RESPONSE: _LogsPatternsResponseApi = {
 }
 
 describe('logsPatternsLogic', () => {
+    afterEach(resumeKeaLoadersErrors)
     let logic: ReturnType<typeof logsPatternsLogic.build>
     let filtersLogic: ReturnType<typeof logsViewerFiltersLogic.build>
 
@@ -136,6 +138,7 @@ describe('logsPatternsLogic', () => {
     })
 
     it('surfaces a load failure as patternsError and clears it on the next success', async () => {
+        silenceKeaLoadersErrors()
         // A failed mine (e.g. sampling query over budget) must not render as "no patterns".
         mockCreate.mockRejectedValueOnce(new Error('estimated query execution time is too long'))
         logic.mount()
