@@ -31,6 +31,7 @@ from products.engineering_analytics.backend.logic.queries._buckets import (
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    DURATION_PERCENTILE_CONDITION,
     branch_filter_clause,
     date_to_filter_clause,
     run_scope_filter_clause,
@@ -41,11 +42,6 @@ _LIMIT = 100
 # Generous bound: _LIMIT workflows x at most ~366 daily buckets.
 _BUCKET_LIMIT = 40000
 
-# Duration percentiles read successful runs only: cancelled/skipped/failed runs end
-# early, so including them answers "how long until CI stopped", not "how long does CI
-# take to pass".
-_DURATION_CONDITION = "status = 'completed' AND conclusion = 'success'"
-
 _SELECT = f"""
     SELECT
         repo_owner,
@@ -53,8 +49,8 @@ _SELECT = f"""
         workflow_name,
         count() AS run_count,
         countIf(status = 'completed' AND conclusion = 'success') / nullIf(countIf(status = 'completed'), 0) AS success_rate,
-        quantileIf(0.5)(duration_seconds, {_DURATION_CONDITION}) AS p50_seconds,
-        quantileIf(0.95)(duration_seconds, {_DURATION_CONDITION}) AS p95_seconds,
+        quantileIf(0.5)(duration_seconds, {DURATION_PERCENTILE_CONDITION}) AS p50_seconds,
+        quantileIf(0.95)(duration_seconds, {DURATION_PERCENTILE_CONDITION}) AS p95_seconds,
         max(if(conclusion IN ('failure', 'timed_out'), run_started_at, NULL)) AS last_failure_at,
         countIf(status = 'completed') AS completed_count,
         argMaxIf(conclusion IN ('failure', 'timed_out'), run_started_at, status = 'completed') AS latest_failed,

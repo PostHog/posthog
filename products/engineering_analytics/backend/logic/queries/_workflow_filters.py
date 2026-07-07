@@ -10,6 +10,11 @@ from posthog.hogql import ast
 
 from products.engineering_analytics.backend.facade.contracts import WorkflowHealthRunScope
 
+# The one duration-percentile population, for runs and jobs alike: successful instances
+# only. Cancelled/skipped (superseded) and failed instances end early, so including them
+# answers "how long until CI stopped", not "how long does CI take to pass".
+DURATION_PERCENTILE_CONDITION = "status = 'completed' AND conclusion = 'success'"
+
 
 def branch_filter_clause(branch: str | None, placeholders: dict[str, ast.Expr]) -> str:
     """Exact ``head_branch`` filter; registers its ``{branch}`` placeholder.
@@ -36,6 +41,7 @@ def run_scope_filter_clause(run_scope: WorkflowHealthRunScope) -> str:
         # A default-branch run can still carry a PR association (its SHA matches an open PR),
         # so attribution (pr_number > 0 — see the workflow_runs builder docstring) alone doesn't
         # keep trunk runs out. The source doesn't record which branch is the repo's default, so
-        # exclude the common default-branch names instead.
+        # exclude the common default-branch names — the same approximation repo_overview's
+        # query_default_branch resolves per-repo, not reused here because it costs an extra query.
         return "AND r.head_branch NOT IN ('master', 'main') AND r.pr_number > 0"
     return ""
