@@ -1369,6 +1369,147 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
     # NON-MATERIALIZED INSIGHT ENDPOINTS WITH BREAKDOWN
     # =========================================================================
 
+    def test_inline_insight_endpoint_rejects_missing_required_breakdown_variable(self):
+        """PR 3: close the asymmetry. Inline insight endpoints with a breakdown property
+        must reject /run calls that omit it — same security wall as the materialized path.
+        Pre-PR 3 this returned 200 with rows for every breakdown value (silent data leak)."""
+        from posthog.schema import Breakdown, BreakdownFilter, BreakdownType
+
+        endpoint = create_endpoint_with_version(
+            name="inline_trends_required_breakdown",
+            team=self.team,
+            query=TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser", type=BreakdownType.EVENT)]),
+            ).model_dump(),
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+            {},  # No variables provided
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        detail = response.json().get("detail", "")
+        self.assertIn("$browser", detail)
+        self.assertIn("not provided", detail.lower())
+
+    def test_inline_insight_endpoint_accepts_missing_optional_breakdown(self):
+        """Optional flag is the safety valve: with `$browser` marked optional, the inline
+        path lets the call through and the breakdown contributes nothing — the query runs
+        without filtering on it. Mirrors the materialized behavior added in PR 2."""
+        from posthog.schema import Breakdown, BreakdownFilter, BreakdownType
+
+        endpoint = create_endpoint_with_version(
+            name="inline_trends_optional_breakdown",
+            team=self.team,
+            query=TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser", type=BreakdownType.EVENT)]),
+            ).model_dump(),
+            created_by=self.user,
+            is_active=True,
+        )
+        version = endpoint.versions.first()
+        version.optional_breakdown_properties = ["$browser"]
+        version.save(update_fields=["optional_breakdown_properties"])
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+            {},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+    def test_inline_insight_endpoint_filters_override_satisfies_required_breakdown(self):
+        """Backwards compat: callers using the deprecated `filters_override` to pass the
+        equivalent filter shouldn't trip the new enforcement. The exception that already
+        protected materialized endpoints applies on the inline path too."""
+        from posthog.schema import Breakdown, BreakdownFilter, BreakdownType
+
+        endpoint = create_endpoint_with_version(
+            name="inline_trends_filters_override",
+            team=self.team,
+            query=TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser", type=BreakdownType.EVENT)]),
+            ).model_dump(),
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+            {"filters_override": {"properties": [{"key": "$browser", "value": "Chrome", "type": "event"}]}},
+            format="json",
+        )
+        # 200 — filters_override carries the breakdown filter, no required-vars error raised.
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+    def test_inline_insight_endpoint_multi_breakdown_one_optional_only_required_provided(self):
+        """Mirrors the materialized multi-breakdown test from PR 2 on the inline path:
+        2 breakdowns, $os required and $browser optional, caller passes only $os → 200."""
+        from posthog.schema import Breakdown, BreakdownFilter, BreakdownType
+
+        endpoint = create_endpoint_with_version(
+            name="inline_trends_multi_one_optional",
+            team=self.team,
+            query=TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                breakdownFilter=BreakdownFilter(
+                    breakdowns=[
+                        Breakdown(property="$os", type=BreakdownType.EVENT),
+                        Breakdown(property="$browser", type=BreakdownType.EVENT),
+                    ]
+                ),
+            ).model_dump(),
+            created_by=self.user,
+            is_active=True,
+        )
+        version = endpoint.versions.first()
+        version.optional_breakdown_properties = ["$browser"]
+        version.save(update_fields=["optional_breakdown_properties"])
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+            {"variables": {"$os": "Mac"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+    def test_inline_hogql_endpoint_with_missing_variable_passes_validation(self):
+        """Regression check: PR 3 only tightens the insight path. Inline HogQL endpoints
+        continue to accept missing variables (substituting defaults / NULLs is the
+        contract). We assert the request reaches execution rather than being rejected by
+        the new required-vars check — what happens inside ClickHouse is out of scope."""
+        endpoint = create_endpoint_with_version(
+            name="inline_hogql_missing_var",
+            team=self.team,
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events WHERE event = {variables.event_name}",
+                "variables": {
+                    "var-evt-1": {"variableId": "var-evt-1", "code_name": "event_name", "value": "$pageview"},
+                },
+            },
+            created_by=self.user,
+            is_active=True,
+        )
+
+        with mock.patch.object(
+            EndpointExecutionService, "_execute_query_and_respond", return_value=Response({})
+        ) as mock_exec:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+                {},  # No variables — should use the default value
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        mock_exec.assert_called()
+
     def test_non_materialized_insight_endpoint_accepts_breakdown_variable(self):
         from posthog.schema import Breakdown, BreakdownFilter, BreakdownType
 
@@ -1902,6 +2043,12 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             created_by=self.user,
             is_active=True,
         )
+        # PR 3 requires breakdown variables on inline insight runs. This test specifically
+        # exercises the "all breakdown values returned, then Other-bucket cleanup" path,
+        # which only makes sense without a value filter — mark the breakdown optional.
+        version = endpoint.versions.first()
+        version.optional_breakdown_properties = ["unique_prop"]
+        version.save(update_fields=["optional_breakdown_properties"])
 
         # Patch the limit to a low value so the 30 distinct breakdown values exceed it
         with (
@@ -2352,6 +2499,10 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             created_by=self.user,
             is_active=True,
         )
+        # The signal only fires on an unfiltered all-values read, so the breakdown must be optional.
+        version = endpoint.versions.first()
+        version.optional_breakdown_properties = ["unique_prop"]
+        version.save(update_fields=["optional_breakdown_properties"])
 
         with (
             mock.patch("products.endpoints.backend.materialization_transforms.ENDPOINT_BREAKDOWN_LIMIT", 5),

@@ -72,7 +72,11 @@ from products.data_warehouse.backend.facade.api import trigger_saved_query_sched
 from products.endpoints.backend.exceptions import EndpointAtCapacity, EndpointQueryTooExpensive
 from products.endpoints.backend.insight_transformers import MaterializedSeriesMismatchError
 from products.endpoints.backend.logic.pagination import EndpointPagination
-from products.endpoints.backend.logic.strategies import EndpointQueryStrategy, strategy_for
+from products.endpoints.backend.logic.strategies import (
+    BREAKDOWN_SUPPORTED_QUERY_TYPES,
+    EndpointQueryStrategy,
+    strategy_for,
+)
 from products.endpoints.backend.logs import build_execution_message, log_endpoint_execution
 from products.endpoints.backend.metrics import (
     ENDPOINT_CACHE_RESULT_TOTAL,
@@ -323,12 +327,17 @@ class EndpointExecutionService(PydanticModelMixin):
                 ENDPOINT_VALIDATION_ERROR_TOTAL.labels(reason="unknown_variable").inc()
                 raise ValidationError({"variables": f"Unknown variable(s): {', '.join(sorted(unknown_vars))}"})
 
-        # SECURITY: For materialized endpoints with required variables, ALL must be provided.
-        # Without this check, omitting variables would return ALL data instead of filtered data.
+        # SECURITY: required variables must be provided on /run. Missing them would return
+        # data aggregated across every value of that dimension — the exact leak shape the
+        # optional_breakdown_properties opt-in exists for. Enforced on:
+        #   - all insight endpoints (inline + materialized) — breakdowns are the slicer
+        #   - HogQL endpoints only on the materialized path — inline HogQL substitutes
+        #     defaults/NULLs for missing variables, which is a coherent contract
         # filters_override (deprecated) only counts when it actually applies the breakdown filter —
         # a property with no usable value adds no WHERE clause and must not bypass this check.
-        if is_materialized and not strategy.materialized_filters_override_satisfies_required(data):
-            required_vars = strategy.required_materialized_variables()
+        enforce_required = is_materialized or strategy.query_kind in BREAKDOWN_SUPPORTED_QUERY_TYPES
+        if enforce_required and not strategy.filters_override_satisfies_required(data):
+            required_vars = strategy.required_run_variables()
             if required_vars:
                 provided = {key for key, value in (data.variables or {}).items() if value is not None}
                 missing = sorted(required_vars - provided)
