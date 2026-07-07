@@ -99,7 +99,8 @@ class ZendeskImportCoordinatorWorkflow:
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
             )
         except WorkflowAlreadyStartedError:
-            workflow.logger.info("zendesk_import_batch_already_running", child_id=child_id)
+            # workflow.logger is a stdlib LoggerAdapter — structlog-style kwargs raise TypeError.
+            workflow.logger.info("zendesk_import_batch_already_running", extra={"child_id": child_id})
             return ZendeskImportCoordinatorOutput(imported=0, skipped=0, failed=0)
 
     @workflow.run
@@ -238,7 +239,10 @@ class ZendeskImportCoordinatorWorkflow:
             # settings UI polls "Syncing" indefinitely (the migrate_zendesk_tickets --force flag
             # exists to clean up exactly this). Scheduling a cleanup activity after cancel is the
             # supported Temporal pattern; the request is state-once so this await isn't re-cancelled.
-            workflow.logger.warning("zendesk_import_coordinator_cancelled", job_id=input.job_id, team_id=input.team_id)
+            workflow.logger.warning(
+                "zendesk_import_coordinator_cancelled",
+                extra={"job_id": input.job_id, "team_id": input.team_id},
+            )
             await workflow.execute_activity(
                 zendesk_import_update_job_status_activity,
                 UpdateJobStatusInput(
@@ -254,7 +258,10 @@ class ZendeskImportCoordinatorWorkflow:
             # Raw exception strings can carry internal hostnames, query details, or
             # secrets from failing requests. Log the full error server-side and persist
             # only a generic message for the admin-facing UI.
-            workflow.logger.exception("zendesk_import_coordinator_failed", job_id=input.job_id, team_id=input.team_id)
+            workflow.logger.exception(
+                "zendesk_import_coordinator_failed",
+                extra={"job_id": input.job_id, "team_id": input.team_id},
+            )
             await workflow.execute_activity(
                 zendesk_import_update_job_status_activity,
                 UpdateJobStatusInput(

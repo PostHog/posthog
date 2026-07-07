@@ -95,7 +95,8 @@ export const zendeskImportLogic = kea<zendeskImportLogicType>([
             actions.startPolling()
         },
         submitImportFailure: ({ error }) => {
-            lemonToast.error(error ?? 'Failed to start Zendesk import')
+            // kea-loaders passes error.message (the DRF `detail` string for ApiErrors); it can be ''.
+            lemonToast.error(error || 'Failed to start Zendesk import')
         },
         startPolling: () => {
             actions.stopPolling()

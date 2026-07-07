@@ -109,7 +109,12 @@ class ZendeskImportClient:
         Raising (instead of sleeping indefinitely) hands the backoff to Temporal so a
         long Retry-After can't pin a thread-pool slot for minutes.
         """
-        retry_after = int(response.headers.get("Retry-After", "5"))
+        try:
+            # Retry-After may be an HTTP-date (or garbage) rather than delta-seconds; fall back to a
+            # short default instead of letting a ValueError escape mid-backoff.
+            retry_after = int(response.headers.get("Retry-After", "5"))
+        except ValueError:
+            retry_after = 5
         if attempt >= MAX_RATE_LIMIT_RETRIES or retry_after > MAX_RATE_LIMIT_SLEEP_SECONDS:
             logger.warning("zendesk_import_rate_limited_giving_up", retry_after=retry_after, path=path, attempt=attempt)
             raise ZendeskRateLimitError(

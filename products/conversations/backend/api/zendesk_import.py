@@ -148,13 +148,16 @@ class ZendeskImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        credentials = ZendeskCredentials(
-            subdomain=data["subdomain"],
-            email_address=data["email_address"],
-            api_token=data["api_token"],
-        )
-        if not validate_zendesk_credentials(credentials):
-            return Response({"detail": "Zendesk rejected the credentials"}, status=drf_status.HTTP_400_BAD_REQUEST)
+        # Cheap local checks first — don't probe Zendesk with the submitted credentials when the
+        # request would be rejected anyway.
+        running = ZendeskImportJob.objects.filter(
+            status__in=[ZendeskImportJob.Status.PENDING, ZendeskImportJob.Status.RUNNING],
+        ).exists()
+        if running:
+            return Response(
+                {"detail": "A Zendesk import is already running for this team"},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
 
         default_email_channel_id = data.get("default_email_channel_id")
         if (
@@ -166,14 +169,13 @@ class ZendeskImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
 
-        running = ZendeskImportJob.objects.filter(
-            status__in=[ZendeskImportJob.Status.PENDING, ZendeskImportJob.Status.RUNNING],
-        ).exists()
-        if running:
-            return Response(
-                {"detail": "A Zendesk import is already running for this team"},
-                status=drf_status.HTTP_400_BAD_REQUEST,
-            )
+        credentials = ZendeskCredentials(
+            subdomain=data["subdomain"],
+            email_address=data["email_address"],
+            api_token=data["api_token"],
+        )
+        if not validate_zendesk_credentials(credentials):
+            return Response({"detail": "Zendesk rejected the credentials"}, status=drf_status.HTTP_400_BAD_REQUEST)
 
         job = ZendeskImportJob.objects.create(
             team_id=team_id,
