@@ -163,10 +163,44 @@ class TestRelationshipFacade(BaseTest):
         created = facade.create_account_relationship_definition(
             team_id=self.team.id, name="Onboarding manager", description="Runs onboarding", created_by=self.user
         )
-        listed = facade.list_account_relationship_definitions(self.team.id)
+        listed, total = facade.list_account_relationship_definitions(self.team.id)
+        assert total == 1
         assert [d.id for d in listed] == [created.id]
         assert listed[0].description == "Runs onboarding"
         assert listed[0].is_single_holder is True
+
+    def test_update_definition_renames_and_toggles_cardinality(self):
+        definition = facade.create_account_relationship_definition(
+            team_id=self.team.id, name="FDE", created_by=self.user
+        )
+        assert definition.id is not None
+        updated = facade.update_account_relationship_definition(
+            team_id=self.team.id,
+            definition_id=definition.id,
+            fields={"name": "Field engineer", "is_single_holder": False},
+        )
+        assert updated is not None
+        assert updated.name == "Field engineer"
+        assert updated.is_single_holder is False
+
+    def test_update_definition_name_collision_raises_conflict(self):
+        facade.create_account_relationship_definition(team_id=self.team.id, name="CSM", created_by=self.user)
+        definition = facade.create_account_relationship_definition(
+            team_id=self.team.id, name="FDE", created_by=self.user
+        )
+        assert definition.id is not None
+        with self.assertRaises(facade.AccountRelationshipDefinitionConflictError):
+            facade.update_account_relationship_definition(
+                team_id=self.team.id, definition_id=definition.id, fields={"name": "CSM"}
+            )
+
+    def test_update_definition_unknown_id_returns_none(self):
+        assert (
+            facade.update_account_relationship_definition(
+                team_id=self.team.id, definition_id="00000000-0000-0000-0000-000000000000", fields={"name": "X"}
+            )
+            is None
+        )
 
     def test_create_duplicate_definition_name_raises_conflict(self):
         facade.create_account_relationship_definition(team_id=self.team.id, name="CSM", created_by=self.user)
@@ -177,6 +211,7 @@ class TestRelationshipFacade(BaseTest):
         definition = facade.create_account_relationship_definition(
             team_id=self.team.id, name="CSM", created_by=self.user
         )
+        assert definition.id is not None
         model_definition = AccountRelationshipDefinition.objects.for_team(self.team.id).get(id=definition.id)
         relationships.assign(
             team_id=self.team.id,
@@ -192,6 +227,7 @@ class TestRelationshipFacade(BaseTest):
         definition = facade.create_account_relationship_definition(
             team_id=self.team.id, name="CSM", created_by=self.user
         )
+        assert definition.id is not None
         model_definition = AccountRelationshipDefinition.objects.for_team(self.team.id).get(id=definition.id)
         rel = relationships.assign(
             team_id=self.team.id,
@@ -215,7 +251,8 @@ class TestRelationshipFacade(BaseTest):
         definition = facade.create_account_relationship_definition(
             team_id=self.team.id, name="CSM", created_by=self.user
         )
-        assert facade.list_account_relationship_definitions(other_team.id) == []
+        assert definition.id is not None
+        assert facade.list_account_relationship_definitions(other_team.id) == ([], 0)
         assert facade.list_account_relationships(team_id=other_team.id, account_id=self.account.id) == []
         assert not facade.delete_account_relationship_definition(team_id=other_team.id, definition_id=definition.id)
 

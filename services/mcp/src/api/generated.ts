@@ -31,6 +31,25 @@ export namespace Schemas {
       AiGenerationClusters: '$ai_generation_clusters',
     } as const;
 
+    export interface AIReportQueryDiagnostic {
+      /** What this query step was meant to compute. */
+      description: string;
+      /** The HogQL the assistant generated for this step. */
+      hogql: string;
+      /** Whether the query ran successfully. */
+      ok: boolean;
+      /**
+         * Exception class name when the query failed; null on success.
+         * @nullable
+         */
+      error_type: string | null;
+      /**
+         * Human-readable failure reason, present only for query errors safe to surface to the subscription owner (e.g. an unresolved field name); null on success and for internal errors, which expose error_type only.
+         * @nullable
+         */
+      human_readable_error?: string | null;
+    }
+
     export type AccessControlLevel = typeof AccessControlLevel[keyof typeof AccessControlLevel];
 
 
@@ -237,6 +256,26 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly last_modified_at: string;
       readonly last_modified_by: UserBasic;
+    }
+
+    /**
+     * A team-defined account relationship type (CSM, Onboarding manager, ...).
+     */
+    export interface AccountRelationshipDefinition {
+      /** Relationship definition UUID. */
+      readonly id: string;
+      /**
+         * Human-readable name of the relationship. Unique within the team.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * What this relationship means, e.g. 'The customer success manager responsible for this account'.
+         * @nullable
+         */
+      description?: string | null;
+      /** Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account. */
+      is_single_holder?: boolean;
     }
 
     export type BounceRatePageViewMode = typeof BounceRatePageViewMode[keyof typeof BounceRatePageViewMode];
@@ -17682,6 +17721,13 @@ export namespace Schemas {
       tile_id: number;
     }
 
+    export interface DeleteWarehouseOrgResponse {
+      /** Deletion lifecycle message from the provisioner */
+      status?: string;
+      /** duckgres org identifier (the PostHog organization id) */
+      org?: string;
+    }
+
     /**
      * * `pending` - Pending
      * * `delivered` - Delivered
@@ -31683,6 +31729,15 @@ export namespace Schemas {
       results: AccountNotebook[];
     }
 
+    export interface PaginatedAccountRelationshipDefinitionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AccountRelationshipDefinition[];
+    }
+
     export interface PaginatedActionList {
       count: number;
       /** @nullable */
@@ -34294,6 +34349,21 @@ export namespace Schemas {
          * @nullable
          */
       readonly change_summary: string | null;
+      /**
+         * AI-generated report markdown delivered by this run. Null for non-AI deliveries or runs without a persisted report.
+         * @nullable
+         */
+      readonly ai_report: string | null;
+      /**
+         * Per-step query diagnostics (generated HogQL + failure type) for this report. Null for non-AI deliveries or runs without persisted diagnostics.
+         * @nullable
+         */
+      readonly ai_report_diagnostics: readonly AIReportQueryDiagnostic[] | null;
+      /**
+         * The subscription's prompt as it was when this report was generated. Null for older deliveries and non-AI deliveries.
+         * @nullable
+         */
+      readonly ai_report_prompt: string | null;
     }
 
     export interface PaginatedSubscriptionDeliveryList {
@@ -34946,6 +35016,32 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: TaskDetailDTO[];
+    }
+
+    /**
+     * Response shape for one @-mention of the requester in a task's thread.
+     */
+    export interface TaskMentionDTO {
+      id: string;
+      message_id: string;
+      task_id: string;
+      task_title: string;
+      /** @nullable */
+      channel_id: string | null;
+      /** @nullable */
+      channel_name: string | null;
+      author?: TaskUserBasicInfo | null;
+      content: string;
+      created_at: string;
+    }
+
+    export interface PaginatedTaskMentionDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TaskMentionDTO[];
     }
 
     /**
@@ -36430,6 +36526,26 @@ export namespace Schemas {
       readonly created_by?: number | null;
       /** @nullable */
       readonly updated_at?: string | null;
+    }
+
+    /**
+     * A team-defined account relationship type (CSM, Onboarding manager, ...).
+     */
+    export interface PatchedAccountRelationshipDefinition {
+      /** Relationship definition UUID. */
+      readonly id?: string;
+      /**
+         * Human-readable name of the relationship. Unique within the team.
+         * @maxLength 400
+         */
+      name?: string;
+      /**
+         * What this relationship means, e.g. 'The customer success manager responsible for this account'.
+         * @nullable
+         */
+      description?: string | null;
+      /** Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account. */
+      is_single_holder?: boolean;
     }
 
     /**
@@ -61486,6 +61602,17 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type AccountRelationshipDefinitionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type AccountsListParams = {
     /**
      * Filter by account executive. Use 'unassigned' or an integer user id.
@@ -68326,6 +68453,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type TaskMentionsListParams = {
+    /**
+     * Maximum number of mentions to return (newest first).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Only return mentions created after this ISO 8601 timestamp.
+     */
+    since?: string;
     };
 
     export type TasksListParams = {

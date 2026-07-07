@@ -1729,12 +1729,6 @@ describe('Workflows E2E (email queue)', () => {
 
         hub = await createHub()
         hub.CDP_CYCLOTRON_BATCH_DELAY_MS = 50
-        // Default in non-dev envs is `false`, so the message-assets capture path stays
-        // dormant in CI. The asset-capture tests below assert the row lands in the
-        // dedicated Kafka topic, so we flip the kill-switch on for this describe block.
-        // Set before `createCdpConsumerDeps` / worker construction so the value is
-        // captured in `MessageAssetsService` at instantiation.
-        hub.MESSAGE_ASSETS_CAPTURE_ENABLED = true
 
         // Enforce mode for the whole block: existing tests prove deliverable recipients
         // pass validation untouched; the skip test proves dead domains never reach the queue.
@@ -2893,8 +2887,7 @@ describe('Workflows E2E (email queue)', () => {
     // boundary and bulk-produces, gated on broker ack before the consumer commits
     // offsets. These tests pin the end-to-end behavior: one workflow → one asset row in
     // the `message_assets` Kafka topic with the right metadata, and a single batch with
-    // multiple emails produces all rows. The kill-switch is flipped on in this block's
-    // `beforeEach` so the asset Kafka topic actually receives writes.
+    // multiple emails produces all rows.
     describe('message_assets bulk capture', () => {
         const buildEmailWorkflow = (subject: string) =>
             new FixtureHogFlowBuilder()
@@ -3016,39 +3009,6 @@ describe('Workflows E2E (email queue)', () => {
                     expect(row.key).toBe(value.invocation_id)
                 }
             }, 20000)
-        })
-
-        it('emits no message_assets rows when the kill-switch is disabled', async () => {
-            // Restart the email worker with capture disabled — `MessageAssetsService` reads
-            // the config at construction time, so we have to recreate the deps + worker.
-            await emailWorker.stop()
-            hub.MESSAGE_ASSETS_CAPTURE_ENABLED = false
-            deps = createCdpConsumerDeps(hub, kafkaProducer)
-            const restartedQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
-            emailWorker = new CdpCyclotronWorkerEmail(hub, deps, restartedQueue)
-            await emailWorker.start()
-
-            mockProducerObserver.resetKafkaProducer()
-
-            const hogFlow = buildEmailWorkflow('Capture disabled')
-            await insertHogFlow(hub.postgres, hogFlow)
-
-            const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
-            await backgroundTask
-
-            await waitForExpect(async () => {
-                const jobs = await queryCyclotronJobs()
-                const terminal = jobs.filter(
-                    (j: any) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
-                )
-                expect(terminal.length).toBeGreaterThanOrEqual(1)
-            }, 15000)
-
-            // Give the asset producer a chance to run — if anything is going to fire it
-            // happens within the same flush window. Re-check after a short delay so we
-            // don't accept a false negative from races.
-            await new Promise((resolve) => setTimeout(resolve, 500))
-            expect(assetMessages()).toHaveLength(0)
         })
     })
 })
