@@ -122,6 +122,16 @@ team: team-ingestion
 
 This keeps all 68 products at zero migration cost and preserves `hogli product:lint:owners` unchanged.
 
+### Slack derivation: measured, not assumed
+
+Checked all 31 team slugs in use (CODEOWNERS + soft + product.yaml) against live Slack channels (2026-07):
+
+- 24/31: `#<slug>` exists verbatim — every well-formed `team-*` slug.
+- 3/31 (`clickhouse`, `conversations`, `batch-exports`): slug lacks the `team-` prefix but `#team-<slug>` exists — slug hygiene to fix during migration, not an override case.
+- 4/31 need an explicit value: `team-posthog-code` → `#team-code`, `team-wizard` → `#team-wizard-and-docs`, `team-data-stack` → `#group-data-stack`, and `hogql`/`logs` have no team channel at all (`slack: false`).
+
+So the derived default is right for ~87% of teams and the rest write one line. Guarding against a derived channel that doesn't exist is lint's job, not a per-file flag: `owners:lint` gets an opt-in Slack-API check mirroring the existing opt-in live GitHub-team validation.
+
 ### Individuals, no alias layer
 
 There is no `OWNERS_ALIASES` file. `team:` and `reviewers:` take GitHub team slugs or `@handles` directly — the same convention `product.yaml` already uses for `user_interviews`. Lint validates handles against org membership the same way it validates team slugs. The auto-assigner requests individual reviewers through the API's `reviewers` field (it currently skips `@`-entries entirely, so individuals only work via `CODEOWNERS-soft` today — this closes that gap and lets the soft-file wiring die with the file).
