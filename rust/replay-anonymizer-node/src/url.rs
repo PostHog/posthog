@@ -10,13 +10,16 @@
 
 use crate::allow_lists::AllowLists;
 
+// Spec-defined, entropy-free literals (rrweb's blank/srcdoc iframe placeholders): redacting them
+// only costs replay fidelity. Exact matches only.
+pub const PASSTHROUGH_URLS: &[&str] = &["about:blank", "about:srcdoc"];
+
 pub fn scrub_url(allow: &AllowLists, input: &str) -> Option<String> {
     scrub_url_opts(allow, input, false)
 }
 
 pub fn scrub_url_opts(allow: &AllowLists, input: &str, scrub_authority: bool) -> Option<String> {
-    // rrweb's standard blank-iframe placeholder: entropy-free, so redacting it only costs replay fidelity.
-    if input == "about:blank" {
+    if PASSTHROUGH_URLS.contains(&input) {
         return None;
     }
     let tail_idx = input.find(['?', '#']);

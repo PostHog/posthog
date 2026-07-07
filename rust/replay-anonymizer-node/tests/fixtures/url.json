@@ -129,7 +129,7 @@
     "expected": "https://example.com/?a=x&b=y"
   },
   {
-    "name": "about:blank passes through even with authority scrubbing",
+    "name": "passthrough url literals survive even with authority scrubbing: about:blank",
     "allow": {
       "text": [],
       "url": []
@@ -137,5 +137,15 @@
     "input": "about:blank",
     "scrubAuthority": true,
     "expected": "about:blank"
+  },
+  {
+    "name": "passthrough url literals survive even with authority scrubbing: about:srcdoc",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "input": "about:srcdoc",
+    "scrubAuthority": true,
+    "expected": "about:srcdoc"
   }
 ]

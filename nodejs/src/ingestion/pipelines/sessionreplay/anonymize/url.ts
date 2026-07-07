@@ -18,6 +18,10 @@ export interface UrlScrubOptions {
     scrubAuthority?: boolean
 }
 
+// Spec-defined, entropy-free literals (rrweb's blank/srcdoc iframe placeholders): redacting them
+// only costs replay fidelity. Exact matches only.
+export const PASSTHROUGH_URLS = ['about:blank', 'about:srcdoc']
+
 const SIMPLE = /^[A-Za-z0-9]*$/ // 100% alphanumeric (empty allowed)
 const NUMERIC = /^[0-9]+$/ // a bare number
 
@@ -35,8 +39,7 @@ function renderToken(ctx: ScrubContext, t: string): string | null {
 }
 
 export function scrubUrl(ctx: ScrubContext, input: string, opts?: UrlScrubOptions): ScrubResult {
-    // rrweb's standard blank-iframe placeholder: entropy-free, so redacting it only costs replay fidelity.
-    if (input === 'about:blank') {
+    if (PASSTHROUGH_URLS.includes(input)) {
         return { value: input, changed: false }
     }
     const tailIdx = input.search(/[?#]/)
