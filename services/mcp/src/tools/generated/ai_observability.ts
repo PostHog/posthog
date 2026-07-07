@@ -481,6 +481,7 @@ const llmaEvaluationReportList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_reports/`,
             query: {
+                evaluation: params.evaluation,
                 limit: params.limit,
                 offset: params.offset,
             },
@@ -517,15 +518,15 @@ const LlmaEvaluationReportUpdateSchema = LlmAnalyticsEvaluationReportsPartialUpd
     project_id: true,
 }).extend(LlmAnalyticsEvaluationReportsPartialUpdateBody.shape)
 
-const llmaEvaluationReportUpdate = (): ToolBase<typeof LlmaEvaluationReportUpdateSchema, Schemas.EvaluationReport> => ({
+const llmaEvaluationReportUpdate = (): ToolBase<
+    typeof LlmaEvaluationReportUpdateSchema,
+    Schemas.EvaluationReportUpdate
+> => ({
     name: 'llma-evaluation-report-update',
     schema: LlmaEvaluationReportUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof LlmaEvaluationReportUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.evaluation !== undefined) {
-            body['evaluation'] = params.evaluation
-        }
         if (params.frequency !== undefined) {
             body['frequency'] = params.frequency
         }
@@ -553,7 +554,7 @@ const llmaEvaluationReportUpdate = (): ToolBase<typeof LlmaEvaluationReportUpdat
         if (params.daily_run_cap !== undefined) {
             body['daily_run_cap'] = params.daily_run_cap
         }
-        const result = await context.api.request<Schemas.EvaluationReport>({
+        const result = await context.api.request<Schemas.EvaluationReportUpdate>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_reports/${encodeURIComponent(String(params.id))}/`,
             body,

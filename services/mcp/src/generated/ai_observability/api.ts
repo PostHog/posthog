@@ -654,6 +654,7 @@ export const LlmAnalyticsEvaluationReportsListParams = /* @__PURE__ */ zod.objec
 })
 
 export const LlmAnalyticsEvaluationReportsListQueryParams = /* @__PURE__ */ zod.object({
+    evaluation: zod.string().optional().describe('Only return report configs for this evaluation UUID.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
@@ -776,7 +777,6 @@ export const llmAnalyticsEvaluationReportsPartialUpdateBodyCooldownMinutesMax = 
 export const llmAnalyticsEvaluationReportsPartialUpdateBodyDailyRunCapMax = 24
 
 export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    evaluation: zod.string().optional().describe('UUID of the evaluation this report config belongs to.'),
     frequency: zod
         .enum(['scheduled', 'every_n'])
         .describe('* `scheduled` - Scheduled\n* `every_n` - Every N')

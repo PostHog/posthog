@@ -38,6 +38,13 @@ SCHEDULE_RRULE_ERROR = (
 VALID_WEEKDAYS = {"MO", "TU", "WE", "TH", "FR", "SA", "SU"}
 
 
+class EvaluationReportListQuerySerializer(serializers.Serializer):
+    evaluation = serializers.UUIDField(
+        required=False,
+        help_text="Only return report configs for this evaluation UUID.",
+    )
+
+
 def validate_report_schedule_rrule(rrule_string: str) -> None:
     parts: dict[str, str] = {}
     for part in rrule_string.split(";"):
@@ -201,6 +208,8 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
+        if self.instance is not None and isinstance(self.initial_data, dict) and "evaluation" in self.initial_data:
+            raise serializers.ValidationError({"evaluation": "Report configs cannot be moved to another evaluation."})
         if isinstance(self.initial_data, dict) and "deleted" in self.initial_data:
             raise serializers.ValidationError(
                 {
@@ -290,6 +299,11 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
         return report
 
 
+class EvaluationReportUpdateSerializer(EvaluationReportSerializer):
+    class Meta(EvaluationReportSerializer.Meta):
+        read_only_fields = [*EvaluationReportSerializer.Meta.read_only_fields, "evaluation"]
+
+
 class EvaluationReportListSerializer(EvaluationReportSerializer):
     """Slim list serializer for MCP callers — drops heavy per-item fields to save tokens.
 
@@ -361,6 +375,8 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
     def get_serializer_class(self):
         if self.action == "list" and self._is_mcp_request(self.request):
             return EvaluationReportListSerializer
+        if self.action in ("update", "partial_update"):
+            return EvaluationReportUpdateSerializer
         return super().get_serializer_class()
 
     def safely_get_queryset(self, queryset: QuerySet[EvaluationReport]) -> QuerySet[EvaluationReport]:
@@ -372,11 +388,14 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
 
         evaluation_id = self.request.query_params.get("evaluation")
         if evaluation_id:
-            queryset = queryset.filter(evaluation_id=evaluation_id)
+            query_serializer = EvaluationReportListQuerySerializer(data={"evaluation": evaluation_id})
+            query_serializer.is_valid(raise_exception=True)
+            queryset = queryset.filter(evaluation_id=query_serializer.validated_data["evaluation"])
 
         return queryset
 
     @llma_track_latency("llma_evaluation_reports_list")
+    @extend_schema(parameters=[EvaluationReportListQuerySerializer])
     def list(self, request: Request, *args, **kwargs) -> Response:
         return super().list(request, *args, **kwargs)
 

@@ -112,6 +112,17 @@ class TestEvaluationReportApi(APIBaseTest):
         for field in ("delivery_targets", "rrule", "starts_at", "timezone_name", "report_prompt_guidance"):
             self.assertIn(field, first)
 
+    def test_list_filters_by_evaluation(self) -> None:
+        report = self._create_report()
+        self._create_report(evaluation=self._create_boolean_evaluation())
+
+        response = self.client.get(self.base_url, {"evaluation": str(self.evaluation.id)})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], str(report.id))
+
     def test_mcp_list_returns_slim_payload(self):
         self._create_report(rrule="FREQ=DAILY", timezone_name="UTC")
         response = self.client.get(self.base_url, HTTP_X_POSTHOG_CLIENT="mcp")
@@ -467,6 +478,21 @@ class TestEvaluationReportApi(APIBaseTest):
         report.refresh_from_db()
         self.assertEqual(report.frequency, "scheduled")
         self.assertEqual(report.rrule, "FREQ=WEEKLY;BYDAY=MO")
+
+    def test_update_rejects_evaluation_reparent(self) -> None:
+        report = self._create_report()
+        other_evaluation = self._create_boolean_evaluation()
+
+        response = self.client.patch(
+            f"{self.base_url}{report.id}/",
+            {"evaluation": str(other_evaluation.id)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "evaluation")
+        report.refresh_from_db()
+        self.assertEqual(report.evaluation_id, self.evaluation.id)
 
     def test_delete_returns_405(self):
         report = self._create_report()

@@ -514,6 +514,9 @@ SPECTACULAR_SETTINGS = {
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
         "CustomPropertyDisplayTypeEnum": ["text", "number", "currency", "percent", "date", "datetime", "boolean"],
+        "EvaluationReportFrequencyEnum": (
+            "products.ai_observability.backend.models.evaluation_reports.EvaluationReport.Frequency"
+        ),
         # Experiment now has two serializers (full ExperimentSerializer + ExperimentBasicSerializer
         # for the list endpoint) that both expose `type`/`status`. Pin both to their pre-existing
         # generated names so the shared enums don't get component-prefixed auto-names on collision.

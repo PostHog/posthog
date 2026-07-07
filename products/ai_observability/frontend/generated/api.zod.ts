@@ -874,7 +874,6 @@ export const llmAnalyticsEvaluationReportsUpdateBodyCooldownMinutesMax = 1440
 export const llmAnalyticsEvaluationReportsUpdateBodyDailyRunCapMax = 24
 
 export const LlmAnalyticsEvaluationReportsUpdateBody = /* @__PURE__ */ zod.object({
-    evaluation: zod.uuid().describe('UUID of the evaluation this report config belongs to.'),
     frequency: zod
         .enum(['scheduled', 'every_n'])
         .describe('\* `scheduled` - Scheduled\n\* `every_n` - Every N')
@@ -948,7 +947,6 @@ export const llmAnalyticsEvaluationReportsPartialUpdateBodyCooldownMinutesMax = 
 export const llmAnalyticsEvaluationReportsPartialUpdateBodyDailyRunCapMax = 24
 
 export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    evaluation: zod.uuid().optional().describe('UUID of the evaluation this report config belongs to.'),
     frequency: zod
         .enum(['scheduled', 'every_n'])
         .describe('\* `scheduled` - Scheduled\n\* `every_n` - Every N')

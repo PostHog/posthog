@@ -201,6 +201,13 @@ async function loadReportsForEvaluation(teamId: number, evaluationId: string): P
     return (response.results || []) as EvaluationReport[]
 }
 
+function requireCurrentTeamId(teamId: number | null): number {
+    if (teamId === null) {
+        throw new Error('Current team is not loaded')
+    }
+    return teamId
+}
+
 /** Inline persistor used by the parent evaluation save flow so the single
  * "Save changes" button at the top of the page commits both the evaluation
  * and the (optional) scheduled report. Mirrors the saveDraft listener but
@@ -328,7 +335,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     if (props.evaluationId === 'new') {
                         return []
                     }
-                    return loadReportsForEvaluation(values.currentTeamId, props.evaluationId)
+                    return loadReportsForEvaluation(requireCurrentTeamId(values.currentTeamId), props.evaluationId)
                 },
                 createReport: async (params: {
                     evaluationId: string
@@ -356,8 +363,9 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     if (params.frequency === 'every_n' && params.cooldown_minutes != null) {
                         body.cooldown_minutes = params.cooldown_minutes
                     }
+                    const teamId = requireCurrentTeamId(values.currentTeamId)
                     const report = await llmAnalyticsEvaluationReportsCreate(
-                        values.currentTeamId.toString(),
+                        teamId.toString(),
                         body as EvaluationReportCreateBody
                     )
                     return [
@@ -366,8 +374,9 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     ]
                 },
                 updateReport: async ({ reportId, data }: { reportId: string; data: Partial<EvaluationReport> }) => {
+                    const teamId = requireCurrentTeamId(values.currentTeamId)
                     const updated = await llmAnalyticsEvaluationReportsPartialUpdate(
-                        values.currentTeamId.toString(),
+                        teamId.toString(),
                         reportId,
                         data as EvaluationReportPatchBody
                     )
@@ -379,10 +388,8 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
             [] as EvaluationReportRun[],
             {
                 loadReportRuns: async (reportId: string) => {
-                    const response = await llmAnalyticsEvaluationReportsRunsList(
-                        values.currentTeamId.toString(),
-                        reportId
-                    )
+                    const teamId = requireCurrentTeamId(values.currentTeamId)
+                    const response = await llmAnalyticsEvaluationReportsRunsList(teamId.toString(), reportId)
                     // The runs endpoint is paginated (DRF envelope); unwrap results so the
                     // reducer gets an array rather than the {count, next, previous, results} object.
                     return (response?.results || []) as unknown as EvaluationReportRun[]
@@ -393,7 +400,8 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
             null as null,
             {
                 generateReport: async (reportId: string) => {
-                    await llmAnalyticsEvaluationReportsGenerateCreate(values.currentTeamId.toString(), reportId)
+                    const teamId = requireCurrentTeamId(values.currentTeamId)
+                    await llmAnalyticsEvaluationReportsGenerateCreate(teamId.toString(), reportId)
                     return null
                 },
             },

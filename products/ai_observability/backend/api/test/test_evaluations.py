@@ -216,10 +216,10 @@ class TestEvaluationConfigsApi(APIBaseTest):
     def test_evaluation_rollback_when_auto_report_fails(self):
         """
         perform_create wraps the Evaluation save and the EvaluationReport auto-create in
-        transaction.atomic(). If the report insert raises, the evaluation must not persist.
+        transaction.atomic(). If the report create raises, the evaluation must not persist.
         """
         with patch(
-            "products.ai_observability.backend.api.evaluations.EvaluationReport.objects.create",
+            "products.ai_observability.backend.api.evaluations.EvaluationReport.objects.get_or_create",
             side_effect=RuntimeError("boom"),
         ):
             response = self.client.post(
