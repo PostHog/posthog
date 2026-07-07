@@ -17,12 +17,12 @@ rules:
             • `getByLabelText(...)` when the element is identified by aria-label
             • scope with `within(<small container>)` if a role query is genuinely needed
 
-          This rule is informational, not blocking: role+name queries on small
-          DOMs (a single button, a dialog) are fine, and are sometimes chosen
-          deliberately for resilience to markup changes. If yours is one of
-          those, add `// nosemgrep: jest-no-byrole-name-queries` with a short
-          reason — but check the suite's runtime first.
-      severity: WARNING
+          Role+name queries on small DOMs (a single button, a dialog) are
+          sometimes chosen deliberately, e.g. to assert a component's
+          accessibility contract or to survive a markup swap. If yours is one
+          of those, add `// nosemgrep: jest-no-byrole-name-queries` with a
+          short reason — but check the suite's runtime first.
+      severity: ERROR
       languages: [typescript, javascript]
       paths:
           include:
