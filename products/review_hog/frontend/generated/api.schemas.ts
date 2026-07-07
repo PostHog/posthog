@@ -39,6 +39,41 @@ export interface PatchedReviewPerspectiveConfigUpdateApi {
     enabled?: boolean
 }
 
+/**
+ * * `fetching` - fetching
+ * * `chunking` - chunking
+ * * `reviewing` - reviewing
+ * * `validating` - validating
+ */
+export type ReviewStageEnumApi = (typeof ReviewStageEnumApi)[keyof typeof ReviewStageEnumApi]
+
+export const ReviewStageEnumApi = {
+    Fetching: 'fetching',
+    Chunking: 'chunking',
+    Reviewing: 'reviewing',
+    Validating: 'validating',
+} as const
+
+export interface ReviewProgressApi {
+    /** How far the in-flight review turn has come: fetching the diff, chunking, reviewing chunks, or validating findings.
+     *
+     * * `fetching` - fetching
+     * * `chunking` - chunking
+     * * `reviewing` - reviewing
+     * * `validating` - validating */
+    review_stage: ReviewStageEnumApi
+    /**
+     * Work units finished within the stage; null when the stage has no counter.
+     * @nullable
+     */
+    done: number | null
+    /**
+     * Work units the stage expects in total; null when unknown.
+     * @nullable
+     */
+    total: number | null
+}
+
 export interface ReviewRecentReviewApi {
     /** The review report's id, for fetching the review's detail. */
     id: string
@@ -80,10 +115,17 @@ export interface ReviewRecentReviewApi {
     github_url: string
     /** How many review turns have completed on this report. */
     run_count: number
-    /** When the latest review turn completed. */
-    last_run_at: string
+    /**
+     * When the latest review turn completed; null while the first is in flight.
+     * @nullable
+     */
+    last_run_at: string | null
     /** Whether a review has been published back to GitHub. */
     published: boolean
+    /** Whether a review turn is running on this report right now (activity within the last 30 minutes). */
+    in_progress: boolean
+    /** The in-flight turn's stage and counters; null unless `in_progress`. */
+    progress: ReviewProgressApi | null
     /** The latest turn's valid findings at must_fix effective priority. */
     must_fix_count: number
     /** The latest turn's valid findings at should_fix effective priority. */
@@ -254,10 +296,17 @@ export interface ReviewDetailApi {
     github_url: string
     /** How many review turns have completed on this report. */
     run_count: number
-    /** When the latest review turn completed. */
-    last_run_at: string
+    /**
+     * When the latest review turn completed; null while the first is in flight.
+     * @nullable
+     */
+    last_run_at: string | null
     /** Whether a review has been published back to GitHub. */
     published: boolean
+    /** Whether a review turn is running on this report right now (activity within the last 30 minutes). */
+    in_progress: boolean
+    /** The in-flight turn's stage and counters; null unless `in_progress`. */
+    progress: ReviewProgressApi | null
     /** The latest turn's valid findings at must_fix effective priority. */
     must_fix_count: number
     /** The latest turn's valid findings at should_fix effective priority. */
@@ -293,12 +342,35 @@ export interface ReviewDetailApi {
      * @nullable
      */
     blind_spot_issue_count: number | null
+    /**
+     * The PR head commit the latest turn reviewed — anchors GitHub links to the exact code.
+     * @nullable
+     */
+    head_sha: string | null
     /** The rendered review body published to GitHub, as markdown. */
     report_markdown: string
     /** The latest turn's validated findings, most urgent first. */
     findings: ReviewFindingApi[]
     /** The latest turn's findings the validator dismissed, with its reasoning. */
     dismissed_findings: ReviewFindingApi[]
+}
+
+export interface ReviewPerspectiveStatItemApi {
+    /** The review skill (perspective or blind-spot sweep) that raised the findings. */
+    skill_name: string
+    /** Findings this skill raised across the aggregated reviews (post-dedupe candidates). */
+    raised: number
+    /** Of those, findings the validator kept. */
+    kept: number
+    /** Of those, findings the validator dismissed. */
+    dismissed: number
+}
+
+export interface ReviewPerspectiveStatsApi {
+    /** How many recent completed reviews the stats aggregate over. */
+    report_count: number
+    /** Per-skill effectiveness across those reviews, most kept findings first. */
+    perspectives: ReviewPerspectiveStatItemApi[]
 }
 
 /**

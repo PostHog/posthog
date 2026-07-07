@@ -16,6 +16,7 @@ import type {
     ReviewBlindSpotsConfigApi,
     ReviewDetailApi,
     ReviewPerspectiveConfigApi,
+    ReviewPerspectiveStatsApi,
     ReviewRecentReviewApi,
     ReviewUserSettingsApi,
     ReviewValidatorConfigApi,
@@ -106,7 +107,7 @@ export const getReviewHogReviewsListUrl = (projectId: string) => {
 }
 
 /**
- * The most recent completed ReviewHog reviews of the requesting user's pull requests on this project, newest first (at most 10).
+ * The requesting user's ReviewHog reviews on this project: actively running reviews first (with the in-flight turn's stage), then the most recent completed ones (at most 10 rows).
  * @summary List the user's recent reviews
  */
 export const reviewHogReviewsList = async (
@@ -133,6 +134,24 @@ export const reviewHogReviewsRetrieve = async (
     options?: RequestInit
 ): Promise<ReviewDetailApi> => {
     return apiMutator<ReviewDetailApi>(getReviewHogReviewsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getReviewHogReviewsPerspectiveStatsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/review_hog/reviews/perspective_stats/`
+}
+
+/**
+ * How many findings each review skill (perspective or blind-spot sweep) raised across the requesting user's recent completed reviews, and how many of those the validator kept vs dismissed.
+ * @summary Perspective effectiveness stats
+ */
+export const reviewHogReviewsPerspectiveStatsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ReviewPerspectiveStatsApi> => {
+    return apiMutator<ReviewPerspectiveStatsApi>(getReviewHogReviewsPerspectiveStatsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

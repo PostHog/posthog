@@ -1,6 +1,9 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
+
+from django.utils import timezone
 
 from posthog.models import User
 
@@ -69,6 +72,8 @@ class TestRecentReviewsAPI(APIBaseTest):
             acting_user=acting_user,
             run_count=kwargs.pop("run_count", 1),
             last_run_at=datetime(2026, 7, 1, tzinfo=UTC) if completed else None,
+            # Mirror the pipeline: finalize flips a completed report to IDLE; a run in flight is ACTIVE.
+            status=kwargs.pop("status", ReviewReport.Status.IDLE if completed else ReviewReport.Status.ACTIVE),
             **kwargs,
         )
 
@@ -82,6 +87,7 @@ class TestRecentReviewsAPI(APIBaseTest):
         is_valid: bool = True,
         adjusted: IssuePriority | None = None,
         judged: bool = True,
+        perspective: str | None = None,
     ) -> None:
         ReviewReportArtefact.append_finding(
             team_id=self.team.id,
@@ -95,6 +101,7 @@ class TestRecentReviewsAPI(APIBaseTest):
                 body="b",
                 suggestion="s",
                 priority=priority,
+                source_perspective=perspective,
             ),
             attribution=ArtefactAttribution.system(),
         )
@@ -108,10 +115,12 @@ class TestRecentReviewsAPI(APIBaseTest):
         )
 
     def test_lists_only_my_completed_reviews(self) -> None:
-        # The block is "your recent reviews": a teammate's report and a report with no completed turn
-        # must not appear — a filter regression would leak other users' review activity into the list.
+        # The block is "your recent reviews": a teammate's report and an abandoned (stale, never
+        # completed) run must not appear — a filter regression would leak other users' review
+        # activity or show a dead run as forever in progress.
         mine = self._report(pr_number=1, acting_user=self.user)
-        self._report(pr_number=2, acting_user=self.user, completed=False)
+        with freeze_time(timezone.now() - timedelta(hours=2)):
+            self._report(pr_number=2, acting_user=self.user, completed=False)
         other = User.objects.create_and_join(self.organization, "other-reviews@posthog.com", None)
         self._report(pr_number=3, acting_user=other)
 
@@ -232,6 +241,81 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert high["lines"] == [{"start": 10, "end": 20}]
         assert high["validator_note"] == "a"
         assert [f["title"] for f in detail["dismissed_findings"]] == ["title 1-noise"]
+
+    def test_in_progress_review_surfaces_with_stage_progress(self) -> None:
+        # A visibly running first-turn review must appear first with a stage inferred from the
+        # working state (fetching → chunking → reviewing n/m → validating n/m); completed rows
+        # never carry progress.
+        self._report(pr_number=1, acting_user=self.user)
+        running = self._report(pr_number=2, acting_user=self.user, completed=False, run_count=0, head_sha="sha1")
+        running_id = str(running.id)
+
+        rows = self.client.get(self.url).json()
+        assert [r["pr_number"] for r in rows] == [2, 1]
+        assert rows[0]["in_progress"] is True
+        assert rows[0]["progress"] == {"review_stage": "fetching", "done": None, "total": None}
+        assert rows[1]["in_progress"] is False
+        assert rows[1]["progress"] is None
+
+        persist_pr_snapshot(
+            team_id=self.team.id,
+            report_id=running_id,
+            head_sha="sha1",
+            pr_metadata=_pr_metadata("sha1", "in flight"),
+            pr_comments=[],
+            pr_files=[],
+        )
+        assert self.client.get(self.url).json()[0]["progress"]["review_stage"] == "chunking"
+
+        persist_chunk_set(
+            team_id=self.team.id,
+            report_id=running_id,
+            head_sha="sha1",
+            chunks=ChunksList(chunks=[Chunk(chunk_id=i, files=[FileInfo(filename="a.py")]) for i in range(2)]),
+        )
+        # 2 chunks × (3 canonical perspectives + the blind-spot sweep) = 8 expected reads.
+        assert self.client.get(self.url).json()[0]["progress"] == {"review_stage": "reviewing", "done": 0, "total": 8}
+
+        persist_perspective_results(
+            team_id=self.team.id,
+            report_id=running_id,
+            head_sha="sha1",
+            results={(1, 1): _issues_review(1), (2, 1): _issues_review(0)},
+        )
+        assert self.client.get(self.url).json()[0]["progress"] == {"review_stage": "reviewing", "done": 2, "total": 8}
+
+        self._finding(running, "1-a", priority=IssuePriority.MUST_FIX)
+        self._finding(running, "1-b", priority=IssuePriority.CONSIDER, judged=False)
+        assert self.client.get(self.url).json()[0]["progress"] == {
+            "review_stage": "validating",
+            "done": 1,
+            "total": 2,
+        }
+
+    def test_perspective_stats_aggregate_latest_turns_of_my_reviews(self) -> None:
+        # Effectiveness must aggregate each report's LATEST turn only and never mix in a teammate's
+        # reviews — stale turns or foreign reports would inflate a perspective's record.
+        logic = "review-hog-perspective-logic-correctness"
+        blind = "review-hog-blind-spots-general"
+        first = self._report(pr_number=1, acting_user=self.user, run_count=2)
+        self._finding(first, "2-a", priority=IssuePriority.MUST_FIX, run_index=2, perspective=logic)
+        self._finding(first, "2-b", priority=IssuePriority.CONSIDER, run_index=2, is_valid=False, perspective=logic)
+        self._finding(first, "1-stale", priority=IssuePriority.MUST_FIX, run_index=1, perspective=logic)
+        second = self._report(pr_number=2, acting_user=self.user)
+        self._finding(second, "1-c", priority=IssuePriority.SHOULD_FIX, perspective=blind)
+        other = User.objects.create_and_join(self.organization, "other-stats@posthog.com", None)
+        theirs = self._report(pr_number=3, acting_user=other)
+        self._finding(theirs, "1-x", priority=IssuePriority.MUST_FIX, perspective=blind)
+
+        res = self.client.get(f"{self.url}perspective_stats/")
+
+        assert res.status_code == 200
+        data = res.json()
+        assert data["report_count"] == 2
+        assert data["perspectives"] == [
+            {"skill_name": logic, "raised": 2, "kept": 1, "dismissed": 1},
+            {"skill_name": blind, "raised": 1, "kept": 1, "dismissed": 0},
+        ]
 
     def test_retrieve_scopes_to_the_acting_user(self) -> None:
         # A teammate's report id must 404, not leak their PR's findings; garbage ids must not 500.

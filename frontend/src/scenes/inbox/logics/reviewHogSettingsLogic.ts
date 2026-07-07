@@ -15,6 +15,7 @@ import {
     reviewHogPerspectivesList,
     reviewHogPerspectivesPartialUpdate,
     reviewHogReviewsList,
+    reviewHogReviewsPerspectiveStatsRetrieve,
     reviewHogReviewsRetrieve,
     reviewHogSettingsPartialUpdate,
     reviewHogSettingsRetrieve,
@@ -28,6 +29,7 @@ import type {
     ReviewFindingApi,
     ReviewIssuePriorityEnumApi,
     ReviewPerspectiveConfigApi,
+    ReviewPerspectiveStatsApi,
     ReviewRecentReviewApi,
     ReviewUserSettingsApi,
     ReviewValidatorConfigApi,
@@ -45,10 +47,19 @@ export const REVIEW_PRIORITY_RANK: Record<ReviewIssuePriorityEnumApi, number> = 
     must_fix: 2,
 }
 
+// While a review is running, the list refreshes on this cadence so the stage/progress row is live.
+const IN_PROGRESS_POLL_INTERVAL_MS = 10_000
+
 /** The detail's valid findings split by the user's urgency threshold: on the PR vs. kept back. */
 export interface ReviewFindingsSplit {
     published: ReviewFindingApi[]
     belowThreshold: ReviewFindingApi[]
+}
+
+/** How many surviving findings each review skill contributed, largest contributor first. */
+export interface PerspectiveScore {
+    skillName: string
+    count: number
 }
 
 /** The skill a "View skill" click opens in the read-only drawer. */
@@ -175,6 +186,12 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                     await reviewHogReviewsRetrieve(currentProjectId(), reviewId),
             },
         ],
+        perspectiveStats: [
+            null as ReviewPerspectiveStatsApi | null,
+            {
+                loadPerspectiveStats: async () => await reviewHogReviewsPerspectiveStatsRetrieve(currentProjectId()),
+            },
+        ],
     })),
 
     reducers({
@@ -289,15 +306,47 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 }
             },
         ],
+        perspectiveScoreboard: [
+            (s) => [s.reviewDetail],
+            (reviewDetail): PerspectiveScore[] | null => {
+                if (!reviewDetail?.findings.length) {
+                    return null
+                }
+                const counts = new Map<string, number>()
+                for (const finding of reviewDetail.findings) {
+                    const skillName = finding.source_perspective ?? 'unknown'
+                    counts.set(skillName, (counts.get(skillName) ?? 0) + 1)
+                }
+                return Array.from(counts, ([skillName, count]) => ({ skillName, count })).sort(
+                    (a, b) => b.count - a.count
+                )
+            },
+        ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
+        // Poll while any review is running so the stage row moves; the disposable auto-pauses on
+        // hidden tabs and is torn down on unmount.
+        loadRecentReviewsSuccess: () => {
+            if (values.recentReviews?.some((review) => review.in_progress)) {
+                cache.disposables.add(() => {
+                    const pollTimer = window.setInterval(
+                        () => actions.loadRecentReviews(),
+                        IN_PROGRESS_POLL_INTERVAL_MS
+                    )
+                    return () => clearInterval(pollTimer)
+                }, 'inProgressPoll')
+            } else {
+                cache.disposables.dispose('inProgressPoll')
+            }
+        },
         loadAll: () => {
             actions.loadSettings()
             actions.loadPerspectives()
             actions.loadBlindSpots()
             actions.loadValidators()
             actions.loadRecentReviews()
+            actions.loadPerspectiveStats()
         },
         updateSettingsFailure: () => {
             // The global loaders toast already surfaced the error; just reconcile the optimistic state.

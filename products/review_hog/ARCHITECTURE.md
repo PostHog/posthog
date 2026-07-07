@@ -444,6 +444,32 @@ payload into Python) from the turn's working-state artefacts, preferring the sna
 - Tests (`test_reviews_api.py`): jsonb enrichment + head-matching, retrieve findings split +
   scoping/garbage-id 404s. Verified live: #67451 = 19 files → 15 kept → 4 chunks → 3 perspectives ×
   30 issues + 6 blind-spot → 33 candidates → 10 valid / 20 dismissed, md 3.5KB. 392 backend green.
+- **Third iteration (same day): live in-progress rows + perspective scoreboard + GitHub deep links.**
+  The list now surfaces **running reviews**: `in_progress` + nested `progress`
+  (`review_stage` ∈ fetching/chunking/reviewing/validating + done/total), derived from which
+  working-state artefacts exist at the report's head — findings-at-`run_count+1` → validating
+  (judged/total), chunk_set → reviewing (units done / chunks × (enabled perspectives + blind spot,
+  canonical-3 fallback)), head-matched snapshot → chunking, else fetching. ACTIVE-but-quiet runs age
+  out via `IN_PROGRESS_STALE_AFTER` (30 min since newest artefact / report update) so a crashed run
+  never shows a stuck spinner; first-turn runs appear only while fresh, ordered before completed
+  rows. FE: first-turn running reviews render a spinner row with the stage label ("Reviewing chunks
+  · 7 of 12"), re-reviews get a warning pill on their normal row; the logic polls the list every 10s
+  via `cache.disposables` while anything is in progress (auto-pauses on hidden tabs). Drawer adds a
+  **"Found by" scoreboard** (surviving findings per source perspective, blind-spot skills collapsed
+  to one "Blind spots" label) and each finding's `file:lines` deep-links to
+  `github.com/<repo>/blob/<head_sha>/<file>#L…` (detail now returns `head_sha`). Test-helper note:
+  `_report` stamps status IDLE for completed reports (model default ACTIVE reads as "running").
+- **Reviewer effectiveness chart (same day, iterated):** `GET review_hog/reviews/perspective_stats/`
+  (`@action`, `ReviewPerspectiveStatsSerializer`) aggregates the user's last 50 completed reviews'
+  latest turns: per `source_perspective` → raised / kept / dismissed. UI: THREE "Effectiveness"
+  cards, one per section via `SingleActiveSection.preamble` — Perspectives (per-perspective bars),
+  Blind-spot check (per-sweep bars, each custom sweep its own row), Validation criteria (single
+  "Your quality bar" bar, flipped headline "N of M dismissed" — the validator's job is filtering).
+  Bars: green `bg-success` = kept, muted = dismissed, 2px gap, widths share one scale (global max
+  raised); tooltip with exact counts; legend. Card headers are an uppercase `text-xxs` OVERLINE
+  ("EFFECTIVENESS"), deliberately distinct from skill-card titles — user feedback: the stats block
+  must not masquerade as another skill card. Hidden until data exists. In-progress row label format:
+  "Step k/4 · <stage> · NN%" (stages fetching/chunking/reviewing/validating numbered 1-4).
 
 #### ✅ BUILT 2026-07-02 — authoring guide moved to a canonical skill (`review-hog-authoring`)
 

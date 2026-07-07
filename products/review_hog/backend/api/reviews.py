@@ -1,15 +1,18 @@
 import uuid
 import logging
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any, get_args
 
-from django.db.models import Func, IntegerField, JSONField, QuerySet
+from django.db.models import Func, IntegerField, JSONField, Max, QuerySet
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
+from django.utils import timezone
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from pydantic import ValidationError
 from rest_framework import serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -17,7 +20,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.scoping.manager import resolve_effective_team_id
 
-from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
+from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact, ReviewSkillConfig
 from products.review_hog.backend.reviewer.artefact_content import (
     ReviewIssueCategory,
     ReviewIssueFinding,
@@ -27,14 +30,41 @@ from products.review_hog.backend.reviewer.constants import BLIND_SPOT_PASS_NUMBE
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.persistence import load_turn_findings
+from products.review_hog.backend.reviewer.skill_loader import (
+    CANONICAL_PERSPECTIVE_SKILL_NAMES,
+    REVIEW_HOG_PERSPECTIVE_PREFIX,
+)
 
 logger = logging.getLogger(__name__)
 
 RECENT_REVIEWS_LIMIT = 10
 
+# Effectiveness stats aggregate deeper than the list — enough history for survival rates to mean something.
+PERSPECTIVE_STATS_REPORT_LIMIT = 50
+
+# An ACTIVE report only counts as "in progress" while its run is visibly moving (artefacts stream in
+# throughout a run); past this an abandoned/crashed run stops rendering as a live row.
+IN_PROGRESS_STALE_AFTER = timedelta(minutes=30)
+
 _PRIORITY_CHOICES = [priority.value for priority in IssuePriority]
 # Display order for the detail view: most urgent first.
 _PRIORITY_DISPLAY_RANK = {IssuePriority.MUST_FIX: 0, IssuePriority.SHOULD_FIX: 1, IssuePriority.CONSIDER: 2}
+
+_REVIEW_STAGES = ["fetching", "chunking", "reviewing", "validating"]
+
+
+class ReviewProgressSerializer(serializers.Serializer):
+    review_stage = serializers.ChoiceField(
+        choices=_REVIEW_STAGES,
+        help_text="How far the in-flight review turn has come: fetching the diff, chunking, "
+        "reviewing chunks, or validating findings.",
+    )
+    done = serializers.IntegerField(
+        allow_null=True, help_text="Work units finished within the stage; null when the stage has no counter."
+    )
+    total = serializers.IntegerField(
+        allow_null=True, help_text="Work units the stage expects in total; null when unknown."
+    )
 
 
 class ReviewRecentReviewSerializer(serializers.Serializer):
@@ -58,8 +88,16 @@ class ReviewRecentReviewSerializer(serializers.Serializer):
         "otherwise the head branch."
     )
     run_count = serializers.IntegerField(help_text="How many review turns have completed on this report.")
-    last_run_at = serializers.DateTimeField(help_text="When the latest review turn completed.")
+    last_run_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the latest review turn completed; null while the first is in flight."
+    )
     published = serializers.BooleanField(help_text="Whether a review has been published back to GitHub.")
+    in_progress = serializers.BooleanField(
+        help_text="Whether a review turn is running on this report right now (activity within the last 30 minutes)."
+    )
+    progress = ReviewProgressSerializer(
+        allow_null=True, help_text="The in-flight turn's stage and counters; null unless `in_progress`."
+    )
     must_fix_count = serializers.IntegerField(
         help_text="The latest turn's valid findings at must_fix effective priority."
     )
@@ -128,6 +166,10 @@ class ReviewFindingSerializer(serializers.Serializer):
 
 
 class ReviewDetailSerializer(ReviewRecentReviewSerializer):
+    head_sha = serializers.CharField(
+        allow_null=True,
+        help_text="The PR head commit the latest turn reviewed — anchors GitHub links to the exact code.",
+    )
     report_markdown = serializers.CharField(
         allow_blank=True, help_text="The rendered review body published to GitHub, as markdown."
     )
@@ -137,12 +179,33 @@ class ReviewDetailSerializer(ReviewRecentReviewSerializer):
     )
 
 
+class ReviewPerspectiveStatItemSerializer(serializers.Serializer):
+    skill_name = serializers.CharField(
+        help_text="The review skill (perspective or blind-spot sweep) that raised the findings."
+    )
+    raised = serializers.IntegerField(
+        help_text="Findings this skill raised across the aggregated reviews (post-dedupe candidates)."
+    )
+    kept = serializers.IntegerField(help_text="Of those, findings the validator kept.")
+    dismissed = serializers.IntegerField(help_text="Of those, findings the validator dismissed.")
+
+
+class ReviewPerspectiveStatsSerializer(serializers.Serializer):
+    report_count = serializers.IntegerField(help_text="How many recent completed reviews the stats aggregate over.")
+    perspectives = ReviewPerspectiveStatItemSerializer(
+        many=True, help_text="Per-skill effectiveness across those reviews, most kept findings first."
+    )
+
+
 @dataclass
 class _SnapshotStats:
     """PR facts from the report's latest `pr_snapshot` artefact (metadata only, never `pr_files`)."""
 
     meta: PRMetadata | None = None
     files_reviewed: int | None = None
+    # Whether a snapshot exists for the report's CURRENT head (vs. a stale-turn fallback) — the
+    # in-flight stage detection needs "has this turn fetched yet", not "was anything ever fetched".
+    head_matched: bool = False
 
 
 @dataclass
@@ -153,6 +216,8 @@ class _TurnStats:
     perspective_count: int | None = None
     perspective_issue_count: int | None = None
     blind_spot_issue_count: int | None = None
+    # (pass, chunk) review units completed this turn — the in-flight "reviewing" progress counter.
+    perspective_reads: int | None = None
 
 
 def _content_json() -> Cast:
@@ -204,7 +269,7 @@ def _snapshot_stats(team_id: int, reports: list[ReviewReport]) -> dict[str, _Sna
         except ValidationError as e:
             logger.warning("Skipping unparseable pr_snapshot metadata for report %s: %s", report_id, e)
             meta = None
-        stats[report_id] = _SnapshotStats(meta=meta, files_reviewed=row["files_reviewed"])
+        stats[report_id] = _SnapshotStats(meta=meta, files_reviewed=row["files_reviewed"], head_matched=is_match)
     return stats
 
 
@@ -255,12 +320,74 @@ def _turn_stats(team_id: int, reports: list[ReviewReport]) -> dict[str, _TurnSta
     for report_id, units in issues_by_unit.items():
         wave_units = {unit: count for unit, count in units.items() if unit[0] != BLIND_SPOT_PASS_NUMBER}
         blind_units = {unit: count for unit, count in units.items() if unit[0] == BLIND_SPOT_PASS_NUMBER}
+        if units:
+            stats[report_id].perspective_reads = len(units)
         if wave_units:
             stats[report_id].perspective_count = len({pass_number for pass_number, _ in wave_units})
             stats[report_id].perspective_issue_count = sum(wave_units.values())
         if blind_units:
             stats[report_id].blind_spot_issue_count = sum(blind_units.values())
     return stats
+
+
+def _in_progress_report_ids(team_id: int, reports: list[ReviewReport]) -> set[str]:
+    """Which ACTIVE reports are visibly running: artefact or report activity within the staleness window.
+
+    Artefacts stream in throughout a run (snapshot, chunk set, per-chunk results, verdicts), so the
+    newest artefact is the liveness signal; a crashed run goes quiet and ages out instead of showing
+    a stuck spinner forever.
+    """
+    candidates = [report for report in reports if report.status == ReviewReport.Status.ACTIVE]
+    if not candidates:
+        return set()
+    latest_artefact = dict(
+        ReviewReportArtefact.objects.for_team(team_id)
+        .filter(report_id__in=[report.id for report in candidates])
+        .values_list("report_id")
+        .annotate(latest=Max("created_at"))
+        .values_list("report_id", "latest")
+    )
+    cutoff = timezone.now() - IN_PROGRESS_STALE_AFTER
+    fresh: set[str] = set()
+    for report in candidates:
+        last_activity = max(filter(None, [report.updated_at, latest_artefact.get(report.id)]), default=None)
+        if last_activity is not None and last_activity >= cutoff:
+            fresh.add(str(report.id))
+    return fresh
+
+
+def _expected_reads(team_id: int, acting_user_id: int | None, chunk_count: int) -> int | None:
+    """How many (pass, chunk) reviews this turn should produce: chunks × (enabled perspectives + blind spot)."""
+    if acting_user_id is None:
+        return None
+    enabled = (
+        ReviewSkillConfig.objects.for_team(team_id)
+        .filter(user_id=acting_user_id, enabled=True, skill_name__startswith=REVIEW_HOG_PERSPECTIVE_PREFIX)
+        .count()
+    )
+    # No configs yet means the run will seed and use the canonical set.
+    perspectives = enabled or len(CANONICAL_PERSPECTIVE_SKILL_NAMES)
+    return chunk_count * (perspectives + 1)
+
+
+def _progress_payload(
+    team_id: int,
+    report: ReviewReport,
+    snapshot: _SnapshotStats,
+    turn: _TurnStats,
+    current_pairs: list[tuple[ReviewIssueFinding, ValidationVerdict | None]],
+) -> dict[str, Any]:
+    """Stage + counters for the in-flight turn, inferred from which working state exists at the head."""
+    if current_pairs:
+        judged = sum(1 for _, verdict in current_pairs if verdict is not None)
+        return {"review_stage": "validating", "done": judged, "total": len(current_pairs)}
+    if turn.chunk_count is not None:
+        done = turn.perspective_reads or 0
+        expected = _expected_reads(team_id, report.acting_user_id, turn.chunk_count)
+        return {"review_stage": "reviewing", "done": done, "total": max(expected, done) if expected else None}
+    if snapshot.head_matched:
+        return {"review_stage": "chunking", "done": None, "total": None}
+    return {"review_stage": "fetching", "done": None, "total": None}
 
 
 def _finding_payload(finding: ReviewIssueFinding, verdict: ValidationVerdict) -> dict[str, Any]:
@@ -283,6 +410,7 @@ def _review_payload(
     snapshot: _SnapshotStats,
     turn: _TurnStats,
     pairs: list[tuple[ReviewIssueFinding, ValidationVerdict | None]],
+    progress: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The list-row payload for one report; the detail endpoint layers findings on top."""
     counts = dict.fromkeys(IssuePriority, 0)
@@ -309,6 +437,8 @@ def _review_payload(
         "run_count": report.run_count,
         "last_run_at": report.last_run_at,
         "published": report.published_head_sha is not None,
+        "in_progress": progress is not None,
+        "progress": progress,
         "must_fix_count": counts[IssuePriority.MUST_FIX],
         "should_fix_count": counts[IssuePriority.SHOULD_FIX],
         "consider_count": counts[IssuePriority.CONSIDER],
@@ -339,36 +469,81 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
 
     def _reports(self, request: Request) -> tuple[int, QuerySet[ReviewReport]]:
         team_id = resolve_effective_team_id(self.team_id)
-        return team_id, ReviewReport.objects.for_team(team_id, canonical=True).filter(
-            acting_user_id=request.user.id, last_run_at__isnull=False
-        )
+        return team_id, ReviewReport.objects.for_team(team_id, canonical=True).filter(acting_user_id=request.user.id)
 
     @extend_schema(
         responses={
             200: OpenApiResponse(
                 response=ReviewRecentReviewSerializer(many=True),
-                description="The user's recent completed reviews, newest first.",
+                description="The user's reviews: in-progress runs first, then completed newest first.",
             ),
         },
         summary="List the user's recent reviews",
-        description="The most recent completed ReviewHog reviews of the requesting user's pull requests "
-        "on this project, newest first (at most 10).",
+        description="The requesting user's ReviewHog reviews on this project: actively running reviews "
+        "first (with the in-flight turn's stage), then the most recent completed ones (at most 10 rows).",
     )
     def list(self, request: Request, **kwargs) -> Response:
         team_id, queryset = self._reports(request)
-        reports = list(queryset.order_by("-last_run_at")[:RECENT_REVIEWS_LIMIT])
+        completed = list(queryset.filter(last_run_at__isnull=False).order_by("-last_run_at")[:RECENT_REVIEWS_LIMIT])
+        # First-turn runs have no completed turn yet; they only surface while visibly running.
+        running_first_turn = list(
+            queryset.filter(status=ReviewReport.Status.ACTIVE, last_run_at__isnull=True).order_by("-created_at")[
+                :RECENT_REVIEWS_LIMIT
+            ]
+        )
+        in_progress_ids = _in_progress_report_ids(team_id, running_first_turn + completed)
+        reports = [
+            *[report for report in running_first_turn if str(report.id) in in_progress_ids],
+            *completed,
+        ][:RECENT_REVIEWS_LIMIT]
+
         snapshots = _snapshot_stats(team_id, reports)
         turns = _turn_stats(team_id, reports)
         items = []
         for report in reports:
             report_id = str(report.id)
+            snapshot = snapshots.get(report_id, _SnapshotStats())
+            turn = turns.get(report_id, _TurnStats())
             pairs = load_turn_findings(team_id=team_id, report_id=report_id, run_index=report.run_count)
-            items.append(
-                _review_payload(
-                    report, snapshots.get(report_id, _SnapshotStats()), turns.get(report_id, _TurnStats()), pairs
-                )
-            )
+            progress = None
+            if report_id in in_progress_ids:
+                # The in-flight turn's findings live one run_index ahead of the completed watermark.
+                current_pairs = load_turn_findings(team_id=team_id, report_id=report_id, run_index=report.run_count + 1)
+                progress = _progress_payload(team_id, report, snapshot, turn, current_pairs)
+            items.append(_review_payload(report, snapshot, turn, pairs, progress))
         return Response(ReviewRecentReviewSerializer(items, many=True).data)
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=ReviewPerspectiveStatsSerializer,
+                description="Per-skill effectiveness across the user's recent completed reviews.",
+            ),
+        },
+        summary="Perspective effectiveness stats",
+        description="How many findings each review skill (perspective or blind-spot sweep) raised across the "
+        "requesting user's recent completed reviews, and how many of those the validator kept vs dismissed.",
+    )
+    @action(methods=["GET"], detail=False)
+    def perspective_stats(self, request: Request, **kwargs) -> Response:
+        team_id, queryset = self._reports(request)
+        reports = list(
+            queryset.filter(last_run_at__isnull=False).order_by("-last_run_at")[:PERSPECTIVE_STATS_REPORT_LIMIT]
+        )
+        stats: dict[str, dict[str, int]] = {}
+        for report in reports:
+            pairs = load_turn_findings(team_id=team_id, report_id=str(report.id), run_index=report.run_count)
+            for finding, verdict in pairs:
+                entry = stats.setdefault(
+                    finding.source_perspective or "unknown", {"raised": 0, "kept": 0, "dismissed": 0}
+                )
+                entry["raised"] += 1
+                if verdict is not None:
+                    entry["kept" if verdict.is_valid else "dismissed"] += 1
+        items = [{"skill_name": skill_name, **counts} for skill_name, counts in stats.items()]
+        items.sort(key=lambda item: (-item["kept"], -item["raised"], item["skill_name"]))
+        payload = {"report_count": len(reports), "perspectives": items}
+        return Response(ReviewPerspectiveStatsSerializer(payload).data)
 
     @extend_schema(
         responses={
@@ -389,7 +564,8 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         except ValueError:
             raise NotFound("Review not found.")
         team_id, queryset = self._reports(request)
-        report = queryset.filter(id=report_uuid).first()
+        # Detail describes a completed turn — a first run still in flight has nothing to show yet.
+        report = queryset.filter(id=report_uuid, last_run_at__isnull=False).first()
         if report is None:
             raise NotFound("Review not found.")
 
@@ -407,6 +583,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             **_review_payload(
                 report, snapshots.get(report_id, _SnapshotStats()), turns.get(report_id, _TurnStats()), pairs
             ),
+            "head_sha": report.head_sha,
             "report_markdown": report.report_markdown,
             "findings": sorted(valid, key=sort_key),
             "dismissed_findings": sorted(dismissed, key=sort_key),

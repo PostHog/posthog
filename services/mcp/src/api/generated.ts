@@ -47862,6 +47862,42 @@ export namespace Schemas {
       body: string;
     }
 
+    /**
+     * * `fetching` - fetching
+     * * `chunking` - chunking
+     * * `reviewing` - reviewing
+     * * `validating` - validating
+     */
+    export type ReviewStageEnum = typeof ReviewStageEnum[keyof typeof ReviewStageEnum];
+
+
+    export const ReviewStageEnum = {
+      Fetching: 'fetching',
+      Chunking: 'chunking',
+      Reviewing: 'reviewing',
+      Validating: 'validating',
+    } as const;
+
+    export interface ReviewProgress {
+      /** How far the in-flight review turn has come: fetching the diff, chunking, reviewing chunks, or validating findings.
+       *
+       * * `fetching` - fetching
+       * * `chunking` - chunking
+       * * `reviewing` - reviewing
+       * * `validating` - validating */
+      review_stage: ReviewStageEnum;
+      /**
+         * Work units finished within the stage; null when the stage has no counter.
+         * @nullable
+         */
+      done: number | null;
+      /**
+         * Work units the stage expects in total; null when unknown.
+         * @nullable
+         */
+      total: number | null;
+    }
+
     export interface ReviewFindingLineRange {
       /** First affected line. */
       start: number;
@@ -47997,10 +48033,17 @@ export namespace Schemas {
       github_url: string;
       /** How many review turns have completed on this report. */
       run_count: number;
-      /** When the latest review turn completed. */
-      last_run_at: string;
+      /**
+         * When the latest review turn completed; null while the first is in flight.
+         * @nullable
+         */
+      last_run_at: string | null;
       /** Whether a review has been published back to GitHub. */
       published: boolean;
+      /** Whether a review turn is running on this report right now (activity within the last 30 minutes). */
+      in_progress: boolean;
+      /** The in-flight turn's stage and counters; null unless `in_progress`. */
+      progress: ReviewProgress | null;
       /** The latest turn's valid findings at must_fix effective priority. */
       must_fix_count: number;
       /** The latest turn's valid findings at should_fix effective priority. */
@@ -48036,6 +48079,11 @@ export namespace Schemas {
          * @nullable
          */
       blind_spot_issue_count: number | null;
+      /**
+         * The PR head commit the latest turn reviewed — anchors GitHub links to the exact code.
+         * @nullable
+         */
+      head_sha: string | null;
       /** The rendered review body published to GitHub, as markdown. */
       report_markdown: string;
       /** The latest turn's validated findings, most urgent first. */
@@ -48053,6 +48101,24 @@ export namespace Schemas {
       description: string;
       /** The perspective skill's SKILL.md body, for the read-only skill viewer. */
       body: string;
+    }
+
+    export interface ReviewPerspectiveStatItem {
+      /** The review skill (perspective or blind-spot sweep) that raised the findings. */
+      skill_name: string;
+      /** Findings this skill raised across the aggregated reviews (post-dedupe candidates). */
+      raised: number;
+      /** Of those, findings the validator kept. */
+      kept: number;
+      /** Of those, findings the validator dismissed. */
+      dismissed: number;
+    }
+
+    export interface ReviewPerspectiveStats {
+      /** How many recent completed reviews the stats aggregate over. */
+      report_count: number;
+      /** Per-skill effectiveness across those reviews, most kept findings first. */
+      perspectives: ReviewPerspectiveStatItem[];
     }
 
     export interface ReviewQueueCreate {
@@ -48114,10 +48180,17 @@ export namespace Schemas {
       github_url: string;
       /** How many review turns have completed on this report. */
       run_count: number;
-      /** When the latest review turn completed. */
-      last_run_at: string;
+      /**
+         * When the latest review turn completed; null while the first is in flight.
+         * @nullable
+         */
+      last_run_at: string | null;
       /** Whether a review has been published back to GitHub. */
       published: boolean;
+      /** Whether a review turn is running on this report right now (activity within the last 30 minutes). */
+      in_progress: boolean;
+      /** The in-flight turn's stage and counters; null unless `in_progress`. */
+      progress: ReviewProgress | null;
       /** The latest turn's valid findings at must_fix effective priority. */
       must_fix_count: number;
       /** The latest turn's valid findings at should_fix effective priority. */
