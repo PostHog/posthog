@@ -148,6 +148,15 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         return {}
 
+    def get_retryable_error_overrides(self) -> tuple[str, ...]:
+        """Substrings that force an error to stay retryable even when a `get_non_retryable_errors`
+        key also substring-matches it. Use for a transient failure whose message unavoidably
+        contains a broad non-retryable phrase, so the narrow, more specific override wins and the
+        activity keeps retrying instead of permanently disabling the sync.
+        """
+
+        return ()
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         """Curated, documentation-sourced descriptions for this source's well-known tables/endpoints.
 

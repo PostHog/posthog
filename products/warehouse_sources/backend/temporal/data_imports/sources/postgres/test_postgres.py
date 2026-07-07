@@ -21,6 +21,7 @@ import structlog
 from psycopg import sql
 
 import products.warehouse_sources.backend.temporal.data_imports.sources.postgres.partitioned_tables as partitioned_tables_pkg
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import classify_non_retryable_error
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_SCALE,
@@ -795,6 +796,34 @@ class TestPostgresSourceNonRetryableErrors:
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "Missing FDW user mapping error should surface an actionable message"
         assert "CREATE USER MAPPING" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg,expected_non_retryable",
+        [
+            # postgres_fdw wraps a foreign server that's briefly unreachable during query execution
+            # (deploy, restart, failover) as SQLSTATE 08001: `could not connect to server "<server>"`
+            # with libpq's bare "Connection refused" in the DETAIL (newlines normalized to spaces
+            # upstream). The bare phrase matches the non-retryable "Connection refused" key, so without
+            # the FDW override this transient blip permanently disables the sync. It must stay retryable.
+            (
+                'SqlclientUnableToEstablishSqlconnection: could not connect to server "posthog_fdw_provisioning" DETAIL:  connection to server at "10.0.0.1", port 5432 failed: Connection refused Is the server running on that host and accepting TCP/IP connections?',
+                False,
+            ),
+            ('could not connect to server "remote_analytics" DETAIL:  Connection refused', False),
+            # libpq's bare connect-time refusal (wrong host/port) has no quoted server name after
+            # "could not connect to server", so the FDW override must not rescue it — it stays a
+            # permanent, non-retryable misconfiguration.
+            (
+                'could not connect to server: Connection refused Is the server running on host "10.0.0.1" and accepting TCP/IP connections on port 5432?',
+                True,
+            ),
+        ],
+    )
+    def test_fdw_connection_refused_override_beats_bare_connection_refused(
+        self, source, error_msg, expected_non_retryable
+    ):
+        is_non_retryable, _ = classify_non_retryable_error(source, error_msg)
+        assert is_non_retryable is expected_non_retryable
 
     @pytest.mark.parametrize(
         "error_msg",

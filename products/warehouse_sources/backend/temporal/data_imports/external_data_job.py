@@ -39,7 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
 from products.warehouse_sources.backend.temporal.data_imports.metrics import get_data_import_finished_metric
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import AnySource, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
     AcquireV3LockActivityInputs,
     CheckPipelineVersionActivityInputs,
@@ -109,6 +109,31 @@ Any_Source_Errors: dict[str, str | None] = {
 }
 
 
+def classify_non_retryable_error(source: AnySource, internal_error_normalized: str) -> tuple[bool, str | None]:
+    """Classify a normalized internal error string against a source's retry rules.
+
+    Returns ``(is_non_retryable, friendly_message)``. A source's retryable overrides win over its
+    non-retryable keys, so a transient failure whose message unavoidably contains a broad
+    non-retryable phrase (e.g. a postgres_fdw foreign server briefly unreachable surfacing libpq's
+    bare "Connection refused") stays retryable instead of permanently disabling the sync.
+    """
+    if any(override in internal_error_normalized for override in source.get_retryable_error_overrides()):
+        return False, None
+
+    non_retryable_errors = source.get_non_retryable_errors()
+    if len(non_retryable_errors) == 0:
+        non_retryable_errors = Any_Source_Errors
+    else:
+        non_retryable_errors = {**Any_Source_Errors, **non_retryable_errors}
+
+    friendly_errors = [
+        friendly_error for error, friendly_error in non_retryable_errors.items() if error in internal_error_normalized
+    ]
+    if not friendly_errors:
+        return False, None
+    return True, friendly_errors[0]
+
+
 @dataclasses.dataclass
 class UpdateExternalDataJobStatusInputs:
     team_id: int
@@ -170,14 +195,8 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
             pk=inputs.source_id
         )
         source_cls = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
-        non_retryable_errors = source_cls.get_non_retryable_errors()
 
-        if len(non_retryable_errors) == 0:
-            non_retryable_errors = Any_Source_Errors
-        else:
-            non_retryable_errors = {**Any_Source_Errors, **non_retryable_errors}
-
-        has_non_retryable_error = any(error in internal_error_normalized for error in non_retryable_errors.keys())
+        has_non_retryable_error, friendly_error = classify_non_retryable_error(source_cls, internal_error_normalized)
         if has_non_retryable_error:
             posthoganalytics.capture(
                 distinct_id=get_machine_id(),
@@ -195,15 +214,9 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                 schema_id=inputs.schema_id, team_id=inputs.team_id, should_sync=False
             )
 
-            friendly_errors = [
-                friendly_error
-                for error, friendly_error in non_retryable_errors.items()
-                if error in internal_error_normalized
-            ]
-
-            if friendly_errors and friendly_errors[0] is not None:
-                logger.exception(friendly_errors[0])
-                inputs.latest_error = friendly_errors[0]
+            if friendly_error is not None:
+                logger.exception(friendly_error)
+                inputs.latest_error = friendly_error
 
     await database_sync_to_async_pool(update_external_job_status)(
         job_id=job_id,

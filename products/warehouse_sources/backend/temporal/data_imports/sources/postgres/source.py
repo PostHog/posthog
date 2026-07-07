@@ -566,6 +566,22 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             ),
         }
 
+    def get_retryable_error_overrides(self) -> tuple[str, ...]:
+        return (
+            # A postgres_fdw foreign server that's briefly unreachable during query execution (deploy,
+            # restart, failover) surfaces as SQLSTATE 08001 SqlclientUnableToEstablishSqlconnection:
+            # `could not connect to server "<foreign server>"` with libpq's bare "Connection refused"
+            # in the DETAIL. That bare phrase substring-matches the non-retryable "Connection refused"
+            # key above, which would permanently disable the sync on a transient blip. But this is the
+            # foreign-server twin of Supavisor's "{:error, :econnrefused}" (see postgres.py) — the
+            # source itself was reachable moments earlier in the same sync, so a fresh attempt recovers.
+            # The quoted server name directly after "could not connect to server" only appears for the
+            # FDW wrapper; libpq's own bare connect refusal is "could not connect to server:" (colon) or
+            # "connection to server at \"<host>\"", neither of which matches this, so the permanent
+            # wrong-host/port case stays non-retryable. Keep the FDW blip retryable.
+            'could not connect to server "',
+        )
+
     def reconcile_schema_metadata(
         self,
         source: "ExternalDataSource",
