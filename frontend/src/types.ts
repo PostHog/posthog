@@ -209,6 +209,7 @@ export enum AvailableFeature {
     MANAGED_REVERSE_PROXY = 'managed_reverse_proxy',
     ALERTS = 'alerts',
     HIGH_FREQUENCY_ALERTS = 'high_frequency_alerts',
+    REAL_TIME_ALERTS = 'real_time_alerts',
     DATA_COLOR_THEMES = 'data_color_themes',
     ORGANIZATION_INVITE_SETTINGS = 'organization_invite_settings',
     ORGANIZATION_SECURITY_SETTINGS = 'organization_security_settings',
@@ -6305,6 +6306,7 @@ export interface ExternalDataSchemaSourceSummary {
     id: string
     source_type: ExternalDataSourceType
     supports_column_selection?: boolean
+    supports_row_filters?: boolean
     user_access_level: AccessControlLevel | null
 }
 

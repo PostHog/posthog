@@ -52,6 +52,12 @@ export const EndpointsCreateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .nullish()
             .describe('List of tag names to associate with this endpoint. Replaces any existing tags.'),
+        optional_breakdown_properties: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Breakdown property names that may be omitted on \/run. Omitted ones return data aggregated across all values of that breakdown. Defaults to [] — every breakdown variable is required.'
+            ),
     })
     .describe('Schema for creating\/updating endpoints. OpenAPI docs only — validation uses Pydantic.')
 
@@ -98,6 +104,12 @@ export const EndpointsUpdateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .nullish()
             .describe('List of tag names to associate with this endpoint. Replaces any existing tags.'),
+        optional_breakdown_properties: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Breakdown property names that may be omitted on \/run. Omitted ones return data aggregated across all values of that breakdown. Defaults to [] — every breakdown variable is required.'
+            ),
     })
     .describe('Schema for creating\/updating endpoints. OpenAPI docs only — validation uses Pydantic.')
 
@@ -144,6 +156,12 @@ export const EndpointsPartialUpdateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .nullish()
             .describe('List of tag names to associate with this endpoint. Replaces any existing tags.'),
+        optional_breakdown_properties: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Breakdown property names that may be omitted on \/run. Omitted ones return data aggregated across all values of that breakdown. Defaults to [] — every breakdown variable is required.'
+            ),
     })
     .describe('Schema for creating\/updating endpoints. OpenAPI docs only — validation uses Pydantic.')
 
@@ -157,6 +175,18 @@ export const EndpointsMaterializationPreviewCreateBody = /* @__PURE__ */ zod.obj
         .nullish()
         .describe('Per-column bucket function overrides, e.g. {\"timestamp\": \"hour\"}'),
 })
+
+/**
+ * Ask AI to rewrite the endpoint's query into a semantically equivalent form that can be materialized. Only applicable to SQL (HogQL) endpoints that currently fail the materialization checks. The suggestion is validated against the live checks before being returned; nothing is saved. Requires the organization's AI data processing approval.
+ */
+export const EndpointsMaterializationSuggestionCreateBody = /* @__PURE__ */ zod
+    .object({
+        version: zod
+            .number()
+            .nullish()
+            .describe('Endpoint version to suggest a fix for. Defaults to the latest version.'),
+    })
+    .describe('Request body for the AI materialization-fix suggestion action.')
 
 /**
  * Execute endpoint with optional materialization. Supports version parameter, runs latest version if not set.
