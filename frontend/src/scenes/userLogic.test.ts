@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -189,6 +190,9 @@ describe('userLogic', () => {
     })
 
     describe('updateUser failure handling', () => {
+        beforeEach(silenceKeaLoadersErrors)
+        afterEach(resumeKeaLoadersErrors)
+
         afterEach(() => {
             jest.restoreAllMocks()
         })

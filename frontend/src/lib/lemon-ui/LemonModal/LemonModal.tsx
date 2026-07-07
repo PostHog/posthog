@@ -205,7 +205,7 @@ export function LemonModal({
                     maxWidth,
                 },
             }}
-            appElement={document.getElementById('root') as HTMLElement}
+            appElement={document.getElementById('root') ?? document.body}
             contentRef={contentRef}
             overlayRef={overlayRef}
             parentSelector={floatingContainer ? () => floatingContainer : undefined}

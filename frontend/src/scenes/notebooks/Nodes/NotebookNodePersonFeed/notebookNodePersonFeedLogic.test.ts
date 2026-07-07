@@ -5,6 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SessionSummaryContent } from 'scenes/session-recordings/player/player-meta/types'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -132,6 +133,11 @@ const mockFailingSessions = [
 const failingSessionIds = ['session-4', 'session-5']
 
 describe('notebookNodePersonFeedLogic', () => {
+    // The suite deliberately mixes failing sessions (session-4/5 return 500s) into
+    // most tests to exercise summarization failure handling — skip the loader logging.
+    beforeAll(silenceKeaLoadersErrors)
+    afterAll(resumeKeaLoadersErrors)
+
     let logic: ReturnType<typeof notebookNodePersonFeedLogic.build>
 
     const mountLogic = async (): Promise<void> => {
