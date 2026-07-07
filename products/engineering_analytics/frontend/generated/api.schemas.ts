@@ -90,8 +90,10 @@ export interface CIFailureLogsApi {
 }
 
 export interface FlakyTestItemApi {
-    /** Reconstructed pytest nodeid (the CI span name), e.g. 'posthog/api/test/test_event/TestEvents::test_x'. Best-effort: the file/class boundary and the '.py' suffix are not recoverable from JUnit, so it is not a runnable selector as-is. */
+    /** Reconstructed pytest nodeid (the CI span name), e.g. 'posthog/api/test/test_event/TestEvents::test_x'. A stable grouping key, not a runnable selector — use `selector` to run or quarantine the test. */
     nodeid: string
+    /** Runnable pytest selector, e.g. 'posthog/api/test/test_event.py::TestEvents::test_x'. Exact when the CI reporter emitted it; otherwise reconstructed from the nodeid, where the file/class boundary is a best-effort guess. */
+    selector: string
     /** Times the test failed, then passed on an automatic retry — the strongest flaky signal. Only CI lanes running with reruns enabled emit it; a flake in a no-rerun lane shows up in failed_count instead. */
     rerun_passed_count: number
     /** Spans whose final outcome was 'failed' or 'error' in the window. An absolute count, not a rate — fast passing runs are not emitted, so denominators are biased. */

@@ -23,6 +23,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import (
+    FLAKY_TEST_SIGNAL_CAVEAT,
     GitHubSourceNotConnectedError,
     QuarantineRequest,
     QuarantineWriteError,
@@ -800,10 +801,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         description=(
             "The flaky-test leaderboard: backend tests ranked by flakiness signal from the per-test CI spans, "
             "over a window (default -7d, maximum 30 days). A test qualifies by passing on retry at least "
-            "min_rerun_passes times OR failing on at least min_failed_prs distinct PRs. All figures are "
-            "absolute counts, never rates: fast passing runs are not emitted, so denominators are biased. "
-            "Pass-on-retry counts only flow from CI lanes running with reruns enabled; in other lanes a "
-            "flake surfaces as a plain failure, which the distinct-PR count catches."
+            "min_rerun_passes times OR failing on at least min_failed_prs distinct PRs. " + FLAKY_TEST_SIGNAL_CAVEAT
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)

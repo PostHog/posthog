@@ -371,8 +371,13 @@ class FlakyTestItemSerializer(DataclassSerializer):
         extra_kwargs = {
             "nodeid": {
                 "help_text": "Reconstructed pytest nodeid (the CI span name), e.g. "
-                "'posthog/api/test/test_event/TestEvents::test_x'. Best-effort: the file/class boundary "
-                "and the '.py' suffix are not recoverable from JUnit, so it is not a runnable selector as-is.",
+                "'posthog/api/test/test_event/TestEvents::test_x'. A stable grouping key, not a runnable "
+                "selector — use `selector` to run or quarantine the test.",
+            },
+            "selector": {
+                "help_text": "Runnable pytest selector, e.g. "
+                "'posthog/api/test/test_event.py::TestEvents::test_x'. Exact when the CI reporter emitted it; "
+                "otherwise reconstructed from the nodeid, where the file/class boundary is a best-effort guess.",
             },
             "rerun_passed_count": {
                 "help_text": "Times the test failed, then passed on an automatic retry — the strongest flaky "

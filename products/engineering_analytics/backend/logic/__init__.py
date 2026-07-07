@@ -250,11 +250,9 @@ def build_flaky_tests(
     min_failed_prs: int | None = None,
     limit: int | None = None,
 ) -> FlakyTestList:
-    parsed_from = _parse_date(curated.team, date_from or _DEFAULT_FLAKY_WINDOW)
-    parsed_to = _parse_date(curated.team, date_to) if date_to else None
-    span_days = ((parsed_to or datetime.now(tz=parsed_from.tzinfo)) - parsed_from).days
-    if span_days > _MAX_FLAKY_WINDOW_DAYS:
-        raise ValueError(f"date window spans {span_days} days; the maximum is {_MAX_FLAKY_WINDOW_DAYS}")
+    parsed_from, parsed_to = _parse_window(
+        curated.team, date_from, date_to, default=_DEFAULT_FLAKY_WINDOW, max_days=_MAX_FLAKY_WINDOW_DAYS
+    )
     min_rerun_passes = min_rerun_passes if min_rerun_passes is not None else _DEFAULT_FLAKY_MIN_RERUN_PASSES
     min_failed_prs = min_failed_prs if min_failed_prs is not None else _DEFAULT_FLAKY_MIN_FAILED_PRS
     # A zero threshold would make its HAVING arm trivially true and silently qualify every
@@ -279,14 +277,16 @@ def _parse_date(team: Team, value: str) -> datetime:
 
 
 def _parse_window(
-    team: Team, date_from: str | None, date_to: str | None, *, default: str
+    team: Team, date_from: str | None, date_to: str | None, *, default: str, max_days: int = _MAX_WINDOW_DAYS
 ) -> tuple[datetime, datetime | None]:
-    """Resolve a caller's date window against the team timezone, capping the span at _MAX_WINDOW_DAYS."""
+    """Resolve a caller's date window against the team timezone, capping the span at max_days."""
     parsed_from = _parse_date(team, date_from or default)
     parsed_to = _parse_date(team, date_to) if date_to else None
     span_days = ((parsed_to or datetime.now(tz=parsed_from.tzinfo)) - parsed_from).days
-    if span_days > _MAX_WINDOW_DAYS:
-        raise ValueError(f"date window spans {span_days} days; the maximum is {_MAX_WINDOW_DAYS}")
+    if span_days < 0:
+        raise ValueError("date_to must be on or after date_from")
+    if span_days > max_days:
+        raise ValueError(f"date window spans {span_days} days; the maximum is {max_days}")
     return parsed_from, parsed_to
 
 

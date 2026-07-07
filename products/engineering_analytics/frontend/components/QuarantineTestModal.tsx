@@ -104,6 +104,22 @@ export function QuarantineTestModal({
         })
     }
 
+    // Owner is the one field editable in both presentations (a leaderboard row can't always infer it).
+    const ownerField = (
+        <div>
+            <label className="mb-1 block text-sm font-medium">Owner</label>
+            <LemonInputSelect
+                mode="single"
+                allowCustomValues
+                value={owner ? [owner] : []}
+                onChange={(values) => setOwner(values[0] ?? '')}
+                options={ownerOptions.map((option) => ({ key: option, label: option }))}
+                placeholder="Select the owning team"
+                data-attr="eng-analytics-quarantine-owner"
+            />
+        </div>
+    )
+
     return (
         <LemonModal
             isOpen={!!modal}
@@ -141,8 +157,7 @@ export function QuarantineTestModal({
             }
         >
             {isConfirm ? (
-                // Glanceable confirmation for prefilled openers: everything is review-only except the
-                // owner, the one field a leaderboard row can't always infer.
+                // Glanceable confirmation for prefilled openers: selector/reason/expiry are review-only.
                 <div className="flex flex-col gap-4">
                     <div>
                         <div className="mb-1 text-sm font-medium">Test selector</div>
@@ -163,18 +178,7 @@ export function QuarantineTestModal({
                             </span>
                         </div>
                     </div>
-                    <div>
-                        <label className="mb-1 block text-sm font-medium">Owner</label>
-                        <LemonInputSelect
-                            mode="single"
-                            allowCustomValues
-                            value={owner ? [owner] : []}
-                            onChange={(values) => setOwner(values[0] ?? '')}
-                            options={ownerOptions.map((option) => ({ key: option, label: option }))}
-                            placeholder="Select the owning team"
-                            data-attr="eng-analytics-quarantine-owner"
-                        />
-                    </div>
+                    {ownerField}
                 </div>
             ) : (
                 <div className="flex flex-col gap-4">
@@ -218,18 +222,7 @@ export function QuarantineTestModal({
                         )}
                     </div>
 
-                    <div>
-                        <label className="mb-1 block text-sm font-medium">Owner</label>
-                        <LemonInputSelect
-                            mode="single"
-                            allowCustomValues
-                            value={owner ? [owner] : []}
-                            onChange={(values) => setOwner(values[0] ?? '')}
-                            options={ownerOptions.map((option) => ({ key: option, label: option }))}
-                            placeholder="Select a team"
-                            data-attr="eng-analytics-quarantine-owner"
-                        />
-                    </div>
+                    {ownerField}
 
                     <div>
                         <label className="mb-1 block text-sm font-medium">Expires</label>

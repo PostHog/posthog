@@ -34,9 +34,14 @@ from products.engineering_analytics.backend.logic.queries._curated import Curate
 # outcomes are flaky signal — plain 'passed'/'skipped' spans never reach the aggregation.
 _SIGNAL_OUTCOMES = ["failed", "error", "rerun_passed", "xfailed"]
 
+# Scope the aggregation to the CI test-timing emitter (report_test_timings.py sets this as
+# service.name); without it any team span carrying a test.outcome attribute would pollute.
+_CI_SERVICE_NAME = "ci-backend"
+
 _SELECT = """
     SELECT
         nodeid,
+        anyIf(selector, selector != '') AS selector,
         countIf(outcome = 'rerun_passed') AS rerun_passed_count,
         countIf(outcome IN ('failed', 'error')) AS failed_count,
         uniqIf(pr_number, outcome IN ('failed', 'error') AND pr_number != '') AS failed_pr_count,
@@ -46,12 +51,14 @@ _SELECT = """
     FROM (
         SELECT
             name AS nodeid,
+            attributes['test.selector'] AS selector,
             attributes['test.outcome'] AS outcome,
             resource_attributes['ci.pr_number'] AS pr_number,
             resource_attributes['ci.branch'] AS branch,
             timestamp AS span_timestamp
         FROM posthog.trace_spans
-        WHERE attributes['test.outcome'] IN {signal_outcomes}
+        WHERE service_name = {service_name}
+            AND attributes['test.outcome'] IN {signal_outcomes}
             AND timestamp >= {date_from} __DATE_TO__
     )
     GROUP BY nodeid
@@ -59,6 +66,26 @@ _SELECT = """
     ORDER BY (rerun_passed_count + failed_pr_count) DESC, failed_count DESC, last_seen_at DESC
     LIMIT {limit_plus_one}
 """
+
+
+def _selector_from_nodeid(nodeid: str) -> str:
+    """Best-effort runnable pytest selector for a span the CI reporter emitted before it stamped
+    ``test.selector``. The nodeid folds the file/class boundary into '/' and drops '.py'
+    ('posthog/api/test/test_x/TestX::test_y'); re-split on the convention that class segments are
+    CamelCase and everything before them is the module file. Newer spans skip this — they carry the
+    exact selector, built from JUnit's ``file`` where the boundary isn't guessed. Removable once every
+    in-retention span carries ``test.selector`` (i.e. the emitter has been live longer than Traces
+    retention).
+    """
+    class_path, sep, test_part = nodeid.partition("::")
+    if not sep or "/" not in class_path:
+        return nodeid
+    segments = class_path.split("/")
+    module_end = len(segments)
+    while module_end > 1 and segments[module_end - 1][:1].isupper():
+        module_end -= 1
+    module = "/".join(segments[:module_end]) + ".py"
+    return "::".join([module, *segments[module_end:], test_part])
 
 
 def query_flaky_tests(
@@ -72,6 +99,7 @@ def query_flaky_tests(
 ) -> FlakyTestList:
     date_to_clause = "AND timestamp <= {date_to}" if date_to is not None else ""
     placeholders: dict[str, ast.Expr] = {
+        "service_name": ast.Constant(value=_CI_SERVICE_NAME),
         "signal_outcomes": ast.Constant(value=_SIGNAL_OUTCOMES),
         "date_from": ast.Constant(value=date_from),
         "min_rerun_passes": ast.Constant(value=min_rerun_passes),
@@ -94,6 +122,8 @@ def query_flaky_tests(
         items=[
             FlakyTestItem(
                 nodeid=nodeid,
+                # Prefer the emitter's exact selector; reconstruct from the nodeid for older spans.
+                selector=selector or _selector_from_nodeid(nodeid),
                 rerun_passed_count=rerun_passed_count,
                 failed_count=failed_count,
                 failed_pr_count=failed_pr_count,
@@ -101,7 +131,7 @@ def query_flaky_tests(
                 xfailed_count=xfailed_count,
                 last_seen_at=last_seen_at,
             )
-            for nodeid, rerun_passed_count, failed_count, failed_pr_count, branch_count, xfailed_count, last_seen_at in rows[
+            for nodeid, selector, rerun_passed_count, failed_count, failed_pr_count, branch_count, xfailed_count, last_seen_at in rows[
                 :limit
             ]
         ],
