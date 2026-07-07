@@ -82,6 +82,11 @@ class TestTemplateClose(BaseHogFunctionTemplateTest):
             ],
         }
 
+    def test_does_not_create_lead_when_email_empty(self):
+        self.mock_fetch_response = lambda *args: {"status": 200, "body": {"ok": True}}  # type: ignore
+        self.run_function(inputs=create_inputs(email=""))
+        assert self.get_mock_fetch_calls() == []
+
     def test_raises_on_error_status(self):
         self.mock_fetch_response = lambda *args: {"status": 400, "body": {"error": "bad request"}}  # type: ignore
         with self.assertRaises(Exception) as e:

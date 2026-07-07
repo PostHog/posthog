@@ -15,6 +15,11 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     category=["CRM", "Customer Success"],
     code_language="hog",
     code="""
+if (empty(inputs.email)) {
+    print('`email` input is empty. Not creating a lead.')
+    return
+}
+
 let contact := {
     'emails': [
         {
@@ -88,7 +93,9 @@ if (res.status >= 400) {
         },
     ],
     filters={
-        "events": [],
+        # Close has no upsert-by-email, so each firing creates a new lead. Default to $identify to
+        # bound how often this non-idempotent action runs, mirroring the Salesforce/HubSpot create templates.
+        "events": [{"id": "$identify", "name": "$identify", "type": "events", "order": 0}],
         "actions": [],
         "filter_test_accounts": True,
     },
