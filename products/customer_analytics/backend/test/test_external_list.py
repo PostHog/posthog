@@ -87,9 +87,28 @@ class TestExternalAccountListAPI(APIBaseTest):
         row = response.json()["results"][0]
         self.assertEqual(row["account_executive"], {"id": ghost_id, "email": "ghost@x.com", "name": None})
 
+    def test_assignment_name_must_resolve_through_team_organization_membership(self):
+        other_org = Organization.objects.create(name="Other Org")
+        other_user = User.objects.create_and_join(
+            organization=other_org,
+            email="other@x.com",
+            password=None,
+            first_name="Other",
+            last_name="User",
+        )
+        account = create_account(team_id=self.team.id, name="Acme", external_id="org-1")
+        self._assign(account, account_executive=other_user)
+
+        response = self._get()
+
+        row = response.json()["results"][0]
+        self.assertEqual(row["account_executive"], {"id": other_user.id, "email": "other@x.com", "name": None})
+
     def test_excludes_accounts_without_external_id(self):
         no_external = create_account(team_id=self.team.id, name="No external id")
         self._assign(no_external, csm=self.user)
+        blank_external = create_account(team_id=self.team.id, name="Blank external id", external_id="")
+        self._assign(blank_external, csm=self.user)
         create_account(team_id=self.team.id, name="Listed", external_id="org-1")
 
         response = self._get()
@@ -149,6 +168,10 @@ class TestExternalAccountListAPI(APIBaseTest):
 
     def test_rejects_non_integer_limit(self):
         response = self._get({"limit": "abc"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_rejects_invalid_assigned_only(self):
+        response = self._get({"assigned_only": "banana"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_clamps_limit(self):

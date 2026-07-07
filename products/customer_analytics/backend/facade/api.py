@@ -332,11 +332,16 @@ def list_external_accounts(
     it. With ``assigned_only``, only accounts holding at least one role
     assignment are returned; a consumer reconciling by absence still sees the
     complete assigned set. Each assignment carries the user's current display
-    name, resolved in bulk (None when the user no longer exists).
+    name, resolved in bulk (None when the user no longer exists or no
+    longer belongs to the team's organization).
     """
-    from posthog.models.user import User
-
-    queryset = Account.objects.for_team(team_id).filter(external_id__isnull=False).order_by("id")
+    queryset = (
+        Account.objects.for_team(team_id)
+        .select_related("team")
+        .filter(external_id__isnull=False)
+        .exclude(external_id="")
+        .order_by("id")
+    )
     if assigned_only:
         # The nested ``__id`` path extracts SQL NULL for both a JSON null role
         # and a missing key, so this matches exactly "some role is assigned".
@@ -348,7 +353,8 @@ def list_external_accounts(
     if cursor:
         queryset = queryset.filter(id__gt=cursor)
 
-    accounts = list(queryset[:limit])
+    page_accounts = list(queryset[: limit + 1])
+    accounts = page_accounts[:limit]
 
     user_ids = {
         assignment.id
@@ -357,8 +363,15 @@ def list_external_accounts(
         if (assignment := getattr(account.properties, field)) is not None
     }
     names_by_user_id: dict[int, str | None] = {}
-    for user in User.objects.filter(id__in=user_ids):
-        names_by_user_id[user.id] = f"{user.first_name} {user.last_name}".strip() or None
+    if user_ids and accounts:
+        memberships = OrganizationMembership.objects.filter(
+            organization_id=accounts[0].team.organization_id,
+            user_id__in=user_ids,
+        ).select_related("user")
+        for membership in memberships:
+            names_by_user_id[membership.user_id] = (
+                f"{membership.user.first_name} {membership.user.last_name}".strip() or None
+            )
 
     def _to_list_assignment(assignment) -> contracts.ExternalAccountAssignment | None:
         if assignment is None:
@@ -377,7 +390,7 @@ def list_external_accounts(
         )
         for account in accounts
     ]
-    next_cursor = str(accounts[-1].id) if len(accounts) == limit else None
+    next_cursor = str(accounts[-1].id) if accounts and len(page_accounts) > limit else None
     return contracts.ExternalAccountListPage(results=results, next_cursor=next_cursor)
 
 

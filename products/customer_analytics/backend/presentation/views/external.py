@@ -20,7 +20,7 @@ from django.db.models import Q
 import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import serializers, status
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
@@ -37,6 +37,8 @@ from products.customer_analytics.backend.facade import (
 from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYTICS_CSP_FLAG
 
 logger = structlog.get_logger(__name__)
+
+EXTERNAL_ACCOUNT_LIST_MAX_LIMIT = 100
 
 
 class _ExternalAccountThrottle(SimpleRateThrottle):
@@ -276,6 +278,80 @@ def _external_account_list_item_body(item: contracts.ExternalAccountListItem) ->
     }
 
 
+class ExternalAccountListQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=EXTERNAL_ACCOUNT_LIST_MAX_LIMIT,
+        help_text=(
+            "Maximum number of accounts to return. Values below 1 are clamped to 1; values above 100 are clamped to 100."
+        ),
+    )
+    cursor = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        trim_whitespace=True,
+        help_text="Account UUID from `next_cursor` to continue listing from. Omit for the first page.",
+    )
+    assigned_only = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, return only accounts with at least one assigned owner role.",
+    )
+
+    def validate_limit(self, value: int) -> int:
+        return max(1, min(value, EXTERNAL_ACCOUNT_LIST_MAX_LIMIT))
+
+    def validate_cursor(self, value: str) -> str | None:
+        if not value:
+            return None
+        try:
+            UUID(value)
+        except ValueError:
+            raise serializers.ValidationError("Must be a valid account id.")
+        return value
+
+
+class ExternalAccountListAssignmentSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="PostHog user id stored for this account role.")
+    email = serializers.CharField(help_text="Email address stored for this account role.")
+    name = serializers.CharField(
+        allow_null=True,
+        help_text="Current display name for the assigned user, or null when the user is unavailable.",
+    )
+
+
+class ExternalAccountListItemSerializer(serializers.Serializer):
+    external_id = serializers.CharField(help_text="External account key used by downstream systems.")
+    name = serializers.CharField(help_text="Human-readable account name.")
+    csm = ExternalAccountListAssignmentSerializer(
+        allow_null=True,
+        help_text="Assigned customer success manager, or null when unassigned.",
+    )
+    account_executive = ExternalAccountListAssignmentSerializer(
+        allow_null=True,
+        help_text="Assigned account executive, or null when unassigned.",
+    )
+    account_owner = ExternalAccountListAssignmentSerializer(
+        allow_null=True,
+        help_text="Assigned account owner, or null when unassigned.",
+    )
+
+
+class ExternalAccountListPageSerializer(serializers.Serializer):
+    results = ExternalAccountListItemSerializer(
+        many=True,
+        help_text="Accounts in this page, ordered by account id.",
+    )
+    next_cursor = serializers.CharField(
+        allow_null=True,
+        help_text="Account UUID to pass as `cursor` for the next page, or null when the list is exhausted.",
+    )
+
+
+class ExternalAccountErrorSerializer(serializers.Serializer):
+    error = serializers.CharField(help_text="Human-readable error message.")
+
+
 class ExternalAccountListView(APIView):
     """
     GET /api/customer_analytics/external/accounts — List accounts with their role assignments
@@ -291,8 +367,16 @@ class ExternalAccountListView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = [ExternalAccountBurstThrottle, ExternalAccountSustainedThrottle]
 
-    MAX_LIMIT = 100
-
+    @extend_schema(
+        parameters=[ExternalAccountListQuerySerializer],
+        responses={
+            200: OpenApiResponse(response=ExternalAccountListPageSerializer, description="Page of external accounts."),
+            400: OpenApiResponse(description="Invalid query parameters."),
+            401: OpenApiResponse(response=ExternalAccountErrorSerializer, description="Authentication failed."),
+        },
+        summary="List external customer analytics accounts",
+        description="List accounts with external IDs and their account ownership assignments.",
+    )
     def get(self, request: Request) -> Response:
         team, error = _authenticate_team(request)
         if error:
@@ -300,22 +384,16 @@ class ExternalAccountListView(APIView):
 
         assert team is not None
 
-        try:
-            limit = int(request.query_params.get("limit", str(self.MAX_LIMIT)))
-        except ValueError:
-            return Response({"error": "limit must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
-        limit = max(1, min(limit, self.MAX_LIMIT))
+        query_serializer = ExternalAccountListQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        query_data = query_serializer.validated_data
 
-        cursor = request.query_params.get("cursor", "").strip() or None
-        if cursor:
-            try:
-                UUID(cursor)
-            except ValueError:
-                return Response({"error": "cursor must be a valid account id"}, status=status.HTTP_400_BAD_REQUEST)
-
-        assigned_only = request.query_params.get("assigned_only", "").strip().lower() in ("1", "true", "yes")
-
-        page = facade.list_external_accounts(team.id, cursor=cursor, limit=limit, assigned_only=assigned_only)
+        page = facade.list_external_accounts(
+            team.id,
+            cursor=query_data.get("cursor"),
+            limit=query_data["limit"],
+            assigned_only=query_data["assigned_only"],
+        )
         return Response(
             {
                 "results": [_external_account_list_item_body(item) for item in page.results],
