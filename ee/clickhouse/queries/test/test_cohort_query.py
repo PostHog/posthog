@@ -2152,8 +2152,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         sync_execute("OPTIMIZE TABLE cohortpeople FINAL")
 
         res = execute(filter, self.team)
-        # Membership as a set: UNION DISTINCT can dupe a person matched by both branches (benign; cohortpeople is read DISTINCT).
-        assert {p2.uuid} == {r[0] for r in res}
+        assert sorted([p2.uuid]) == sorted([r[0] for r in res])
 
         filter = Filter(
             data={
@@ -2179,7 +2178,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         sync_execute("OPTIMIZE TABLE cohortpeople FINAL")
 
         res = execute(filter, self.team)
-        assert {p1.uuid, p2.uuid} == {r[0] for r in res}
+        assert sorted([p1.uuid, p2.uuid]) == sorted([r[0] for r in res])
 
     def test_cohort_filter_with_another_cohort_with_event_sequence(self):
         # passes filters for cohortCeption, but not main cohort

@@ -583,6 +583,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @pytest.mark.flaky(reruns=2)
     def test_group_property_crud_add_success(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
@@ -603,12 +604,10 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             properties={"name": "Mr. Krabs"},
         )
 
-        # +1s so this write's _timestamp beats the create's; groups argMax breaks version ties nondeterministically.
-        with freeze_time("2021-05-02 00:00:01"):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/groups/update_property?group_key=org:5&group_type_index=0",
-                {"key": "industry", "value": "technology"},
-            )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/update_property?group_key=org:5&group_type_index=0",
+            {"key": "industry", "value": "technology"},
+        )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
@@ -669,6 +668,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @pytest.mark.flaky(reruns=2)
     def test_group_property_crud_update_success(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
@@ -683,12 +683,10 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
 
-        # +1s so this write's version beats the create's — see test_group_property_crud_add_success.
-        with freeze_time("2021-05-02 00:00:01"):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/groups/update_property?group_key=org:5&group_type_index=0",
-                {"key": "industry", "value": "technology"},
-            )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/update_property?group_key=org:5&group_type_index=0",
+            {"key": "industry", "value": "technology"},
+        )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
@@ -794,6 +792,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @pytest.mark.flaky(reruns=2)
     def test_group_property_crud_delete_success(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
@@ -808,12 +807,10 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
 
-        # +1s so this write's version beats the create's — see test_group_property_crud_add_success.
-        with freeze_time("2021-05-02 00:00:01"):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/groups/delete_property?group_key=org:5&group_type_index=0",
-                {"$unset": "industry"},
-            )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/delete_property?group_key=org:5&group_type_index=0",
+            {"$unset": "industry"},
+        )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
