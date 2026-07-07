@@ -661,6 +661,18 @@ class _LogsPatternsRequestSerializer(serializers.Serializer):
     query = _LogsPatternsBodySerializer(help_text="The patterns query to execute.")
 
 
+class _LogPatternExampleSerializer(serializers.Serializer):
+    body = serializers.CharField(
+        help_text=(
+            "Log body as the miner saw it: whitespace-collapsed and truncated to the mining "
+            "length cap, not the raw stored line."
+        ),
+    )
+    severity_text = serializers.CharField(help_text='Severity of the sampled line, e.g. "info", "error".')
+    service_name = serializers.CharField(help_text="Service that emitted the sampled line.")
+    timestamp = serializers.CharField(help_text="ISO 8601 timestamp of the sampled line.")
+
+
 class _LogPatternSerializer(serializers.Serializer):
     pattern = serializers.CharField(
         help_text=(
@@ -694,14 +706,53 @@ class _LogPatternSerializer(serializers.Serializer):
     )
     first_seen = serializers.CharField(help_text="ISO 8601 timestamp of the earliest sampled occurrence.")
     last_seen = serializers.CharField(help_text="ISO 8601 timestamp of the latest sampled occurrence.")
-    examples = serializers.ListField(
-        child=serializers.CharField(),
-        help_text="Up to 3 distinct raw log bodies (truncated) that produced this pattern.",
+    examples = _LogPatternExampleSerializer(
+        many=True,
+        help_text=(
+            "Up to 10 distinct sampled log lines that produced this pattern, with severity, "
+            "service, and timestamp for display."
+        ),
     )
     services = serializers.ListField(
         child=serializers.CharField(),
         help_text="Up to 4 distinct service names this pattern was observed in.",
     )
+    sparkline = serializers.ListField(
+        child=serializers.IntegerField(),
+        help_text=(
+            "Estimated occurrences per time bucket, aligned index-for-index with the response's "
+            "`sparkline_buckets`. Extrapolated from the sample like `estimated_count`, so it shows "
+            "the volume shape over the window, not exact per-bucket tallies."
+        ),
+    )
+    severity_counts = serializers.DictField(
+        child=serializers.IntegerField(),
+        help_text=(
+            'Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample '
+            "counts, not extrapolated — severity dominance is a proportion, so scaling would not change it."
+        ),
+    )
+    match_regex = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "RE2-safe regex over raw log bodies that matches lines of this pattern, compiled from "
+            "the template and validated against the pattern's own examples before being offered. "
+            "Null when the template lacks literal content or validation failed — never trust an "
+            "unvalidated predicate. Use with the message/regex log property filter."
+        ),
+    )
+    match_literal = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Longest literal run in the template, for plain-text (icontains) filtering when "
+            "`match_regex` is null. Null when the template has no usable literal content."
+        ),
+    )
+
+
+class _LogsPatternsSparklineBucketSerializer(serializers.Serializer):
+    start = serializers.CharField(help_text="Bucket start (ISO 8601, inclusive).")
+    end = serializers.CharField(help_text="Bucket end (ISO 8601, exclusive).")
 
 
 class _LogsPatternsResponseSerializer(serializers.Serializer):
@@ -729,6 +780,14 @@ class _LogsPatternsResponseSerializer(serializers.Serializer):
             "Share of the window's log rows that were eligible for sampling (0–100). Below 100, "
             "the scan was bounded to evenly-spaced time slices across the window to keep the "
             "query within its execution budget; rows outside the slices could not appear in the sample."
+        ),
+    )
+    sparkline_buckets = _LogsPatternsSparklineBucketSerializer(
+        many=True,
+        help_text=(
+            "Time buckets that every pattern's `sparkline` aligns to. When the scan was bounded to "
+            "time slices, the buckets are the slices themselves (evenly spaced, gaps between them "
+            "were never eligible for sampling); otherwise they divide the window uniformly."
         ),
     )
 

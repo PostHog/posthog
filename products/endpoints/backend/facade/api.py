@@ -34,6 +34,12 @@ from products.endpoints.backend.models import Endpoint, EndpointVersion
 from . import contracts
 
 if TYPE_CHECKING:
+    from products.endpoints.backend.logic.ai_materialization_fix import (
+        REWRITE_CONTRACT,
+        live_materialization_conditions_source,
+        materialization_fix_enabled,
+        suggest_materialization_fix,
+    )
     from products.endpoints.backend.logic.crud import EndpointCrudService
     from products.endpoints.backend.logic.execution import EndpointExecutionService
     from products.endpoints.backend.logic.materialization import (
@@ -51,6 +57,10 @@ if TYPE_CHECKING:
 _LAZY = {
     "EndpointCrudService": "logic.crud",
     "EndpointExecutionService": "logic.execution",
+    "REWRITE_CONTRACT": "logic.ai_materialization_fix",
+    "live_materialization_conditions_source": "logic.ai_materialization_fix",
+    "materialization_fix_enabled": "logic.ai_materialization_fix",
+    "suggest_materialization_fix": "logic.ai_materialization_fix",
     "EndpointMaterializationService": "logic.materialization",
     "build_materialization_info": "logic.materialization",
     "validate_bucket_overrides": "logic.validation",
@@ -134,6 +144,7 @@ def is_materialization_ready(team_id: int, endpoint_name: str, version: int | No
 
 
 __all__ = [
+    "REWRITE_CONTRACT",
     "EndpointCrudService",
     "EndpointExecutionService",
     "EndpointMaterializationService",
@@ -144,6 +155,9 @@ __all__ = [
     "get_last_execution_times",
     "is_materialization_ready",
     "list_endpoints",
+    "live_materialization_conditions_source",
+    "materialization_fix_enabled",
+    "suggest_materialization_fix",
     "validate_bucket_overrides",
     "validate_endpoint_request",
     "validate_update_request",

@@ -19,9 +19,10 @@ import { AccessControlLevel, AccessControlResourceType, FilterLogicalOperator } 
 
 import { BooleanTag } from '../../components/BooleanTag'
 import { CardHeader } from '../../components/CardHeader'
+import { LabeledRow } from '../../components/LabeledRow'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { replayScannerLogic } from '../replayScannerLogic'
-import { MODEL_OPTIONS, ReplayScanner, ScannerType } from '../types'
+import { MODEL_OPTIONS, ReplayScanner, SAMPLING_MODE_OPTIONS, ScannerType } from '../types'
 
 const SUMMARY_LENGTHS = [
     { value: 'short', label: 'Short' },
@@ -30,15 +31,6 @@ const SUMMARY_LENGTHS = [
 ] as const
 
 const SCANNER_TYPES: ScannerType[] = ['monitor', 'classifier', 'scorer', 'summarizer']
-
-function Row({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
-    return (
-        <div>
-            <div className="text-xs text-muted mb-0.5">{label}</div>
-            <div className="text-sm">{children}</div>
-        </div>
-    )
-}
 
 function Multiline({ value }: { value: string | null | undefined }): JSX.Element {
     return <div className="whitespace-pre-wrap text-sm">{value || <span className="text-muted">—</span>}</div>
@@ -74,7 +66,7 @@ function OptionTags({
 function BehaviorCardContent({ scanner }: { scanner: ReplayScanner }): JSX.Element {
     return (
         <>
-            <Row label="Prompt">
+            <LabeledRow label="Prompt">
                 {scanner.scanner_config.prompt ? (
                     <div className="whitespace-pre-wrap text-sm bg-surface-secondary border rounded p-2">
                         {scanner.scanner_config.prompt}
@@ -82,20 +74,20 @@ function BehaviorCardContent({ scanner }: { scanner: ReplayScanner }): JSX.Eleme
                 ) : (
                     <span className="text-muted">—</span>
                 )}
-            </Row>
+            </LabeledRow>
             {scanner.scanner_type === 'summarizer' && (
-                <Row label="Summary length">
+                <LabeledRow label="Summary length">
                     <OptionTags options={SUMMARY_LENGTHS} selected={scanner.scanner_config.length} />
-                </Row>
+                </LabeledRow>
             )}
             {scanner.scanner_type === 'monitor' && (
-                <Row label="Allow inconclusive verdicts">
+                <LabeledRow label="Allow inconclusive verdicts">
                     <BooleanTag value={!!scanner.scanner_config.allow_inconclusive} />
-                </Row>
+                </LabeledRow>
             )}
             {scanner.scanner_type === 'classifier' && (
                 <>
-                    <Row label="Tag vocabulary">
+                    <LabeledRow label="Tag vocabulary">
                         {scanner.scanner_config.tags.length ? (
                             <div className="flex flex-wrap gap-1">
                                 {scanner.scanner_config.tags.map((tag) => (
@@ -107,24 +99,24 @@ function BehaviorCardContent({ scanner }: { scanner: ReplayScanner }): JSX.Eleme
                         ) : (
                             <span className="text-muted">—</span>
                         )}
-                    </Row>
-                    <Row label="Multiple tags per session">
+                    </LabeledRow>
+                    <LabeledRow label="Multiple tags per session">
                         <BooleanTag value={!!scanner.scanner_config.multi_label} />
-                    </Row>
-                    <Row label="Freeform tags">
+                    </LabeledRow>
+                    <LabeledRow label="Freeform tags">
                         <BooleanTag value={!!scanner.scanner_config.allow_freeform_tags} />
-                    </Row>
+                    </LabeledRow>
                 </>
             )}
             {scanner.scanner_type === 'scorer' && (
-                <Row label="Scale">
+                <LabeledRow label="Scale">
                     {scanner.scanner_config.scale.min} – {scanner.scanner_config.scale.max}
                     {scanner.scanner_config.scale.label ? ` (${scanner.scanner_config.scale.label})` : ''}
-                </Row>
+                </LabeledRow>
             )}
-            <Row label="Emit signals">
+            <LabeledRow label="Emit signals">
                 <BooleanTag value={scanner.emits_signals} />
-            </Row>
+            </LabeledRow>
         </>
     )
 }
@@ -145,7 +137,7 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                 <LemonCard className="p-4" hoverEffect={false}>
                     <CardHeader icon={<IconInfo />} title="Overview" />
                     <div className="flex flex-col gap-3">
-                        <Row label="Type">
+                        <LabeledRow label="Type">
                             <div className="flex flex-wrap gap-1">
                                 {SCANNER_TYPES.map((scannerType) => (
                                     <ScannerTypeBadge
@@ -155,14 +147,14 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                                     />
                                 ))}
                             </div>
-                        </Row>
-                        <Row label="Description">
+                        </LabeledRow>
+                        <LabeledRow label="Description">
                             <Multiline value={scanner.description} />
-                        </Row>
-                        <Row label="Model">
+                        </LabeledRow>
+                        <LabeledRow label="Model">
                             <OptionTags options={MODEL_OPTIONS} selected={scanner.model} />
-                        </Row>
-                        <Row label="Status">
+                        </LabeledRow>
+                        <LabeledRow label="Status">
                             <div className="flex items-center gap-2">
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.SessionRecording}
@@ -181,7 +173,7 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                                     {scanner.enabled ? 'Runs automatically on a schedule' : 'Runs on-demand only'}
                                 </span>
                             </div>
-                        </Row>
+                        </LabeledRow>
                     </div>
                 </LemonCard>
 
@@ -195,10 +187,14 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <LemonCard className="p-4" hoverEffect={false}>
-                    <CardHeader icon={<IconBolt />} title="Triggers" />
+                    <CardHeader icon={<IconBolt />} title="Scan conditions" />
                     <div className="flex flex-col gap-3">
-                        <Row label="Sampling">{samplingPercent}%</Row>
-                        <Row label="Recording filters">
+                        <LabeledRow label="Session coverage">
+                            {SAMPLING_MODE_OPTIONS.find((o) => o.value === scanner.sampling_mode)?.label ??
+                                scanner.sampling_mode}
+                        </LabeledRow>
+                        <LabeledRow label="Sampling">{samplingPercent}%</LabeledRow>
+                        <LabeledRow label="Recording filters">
                             {!hasTriggers ? (
                                 <span className="text-muted">No filters</span>
                             ) : (
@@ -229,14 +225,14 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                                     )}
                                 </div>
                             )}
-                        </Row>
+                        </LabeledRow>
                     </div>
                 </LemonCard>
 
                 <LemonCard className="p-4" hoverEffect={false}>
                     <CardHeader icon={<IconClock />} title="Lifecycle" />
                     <div className="flex flex-col gap-3">
-                        <Row label="Created by">
+                        <LabeledRow label="Created by">
                             {scanner.created_by ? (
                                 <ProfilePicture
                                     user={{
@@ -250,27 +246,27 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                             ) : (
                                 <span className="text-muted">—</span>
                             )}
-                        </Row>
-                        <Row label="Created">
+                        </LabeledRow>
+                        <LabeledRow label="Created">
                             <TZLabel time={scanner.created_at} />
-                        </Row>
-                        <Row label="Last updated">
+                        </LabeledRow>
+                        <LabeledRow label="Last updated">
                             <TZLabel time={scanner.updated_at} />
-                        </Row>
-                        <Row label="Last scheduled scan">
+                        </LabeledRow>
+                        <LabeledRow label="Last scheduled scan">
                             {scanner.last_swept_at ? (
                                 <TZLabel time={scanner.last_swept_at} />
                             ) : (
                                 <span className="text-muted">Never</span>
                             )}
-                        </Row>
+                        </LabeledRow>
                     </div>
                 </LemonCard>
 
                 <LemonCard className="p-4" hoverEffect={false}>
                     <CardHeader icon={<IconGraph />} title="Usage" />
                     <div className="flex flex-col gap-3">
-                        <Row label="Estimated monthly observations">
+                        <LabeledRow label="Estimated monthly observations">
                             {scanner.estimated_monthly_observations != null ? (
                                 <span className="tabular-nums">
                                     {scanner.estimated_monthly_observations.toLocaleString()}
@@ -278,24 +274,24 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                             ) : (
                                 <span className="text-muted">—</span>
                             )}
-                        </Row>
-                        <Row label="Total observations">
+                        </LabeledRow>
+                        <LabeledRow label="Total observations">
                             <span className="tabular-nums">{observationStats.total.toLocaleString()}</span>
-                        </Row>
-                        <Row label="Success rate">
+                        </LabeledRow>
+                        <LabeledRow label="Success rate">
                             {observationStats.successRate != null ? (
                                 <span className="tabular-nums">{observationStats.successRate}%</span>
                             ) : (
                                 <span className="text-muted">—</span>
                             )}
-                        </Row>
-                        <Row label="Outcomes">
+                        </LabeledRow>
+                        <LabeledRow label="Outcomes">
                             <span className="text-sm">
                                 {observationStats.succeeded.toLocaleString()} succeeded ·{' '}
                                 {observationStats.failed.toLocaleString()} failed ·{' '}
                                 {observationStats.ineligible.toLocaleString()} ineligible
                             </span>
-                        </Row>
+                        </LabeledRow>
                     </div>
                 </LemonCard>
             </div>

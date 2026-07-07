@@ -169,6 +169,7 @@ export enum Scene {
     EventFiltering = 'EventFiltering',
     Unsubscribe = 'Unsubscribe',
     CodeCanvasLink = 'CodeCanvasLink',
+    CodeChannelLink = 'CodeChannelLink',
     UserInterview = 'UserInterview',
     UserInterviewResponse = 'UserInterviewResponse',
     UserInterviews = 'UserInterviews',

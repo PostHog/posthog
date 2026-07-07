@@ -34,6 +34,7 @@ import {
     LogPropertyFilter,
     PersonMetadataPropertyFilter,
     PersonPropertyFilter,
+    PropertyDefinition,
     PropertyDefinitionType,
     PropertyFilterType,
     PropertyFilterValue,
@@ -565,6 +566,33 @@ export function taxonomicFilterTypeToPropertyFilterType(
     return Object.entries(propertyFilterMapping).find(([, v]) => v === filterType)?.[0] as
         | PropertyFilterType
         | undefined
+}
+
+/**
+ * Recover a property definition's id. Pinned/default taxonomic items are stored as
+ * `{ name }` with no saved id, so fall back to the canonical `propertyDefinitionsModel`
+ * (keyed by name + type) instead of building a link with an `undefined` id. Returns
+ * `undefined` when the id can't be resolved so callers can hide the link. Shared by the
+ * legacy DefinitionPopover and the quill rebuild's PreviewPane to keep them in lockstep.
+ */
+export function resolvePropertyDefinitionId(
+    definition: Pick<PropertyDefinition, 'id' | 'name'>,
+    taxonomicGroupType: TaxonomicFilterGroupType,
+    getPropertyDefinition: propertyDefinitionsModelType['values']['getPropertyDefinition']
+): PropertyDefinition['id'] | undefined {
+    if (definition.id) {
+        return definition.id
+    }
+    if (!definition.name) {
+        return undefined
+    }
+    const propertyFilterType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroupType)
+    // `null` only when the taxonomic type has no property-filter equivalent;
+    // propertyFilterTypeToPropertyDefinitionType itself is total (defaults to Event).
+    const propertyDefinitionType = propertyFilterType
+        ? propertyFilterTypeToPropertyDefinitionType(propertyFilterType)
+        : null
+    return propertyDefinitionType ? getPropertyDefinition(definition.name, propertyDefinitionType)?.id : undefined
 }
 
 export function isEmptyProperty(property: AnyPropertyFilter): boolean {

@@ -21,9 +21,15 @@ from products.data_modeling.backend.facade.models import (
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
 )
-from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
-from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
-from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSchema,
+    ExternalDataSource,
+    WarehouseColumnAnnotation,
+    WarehouseColumnStatistics,
+)
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 def _field(name: str) -> ast.Field:
@@ -350,6 +356,25 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
             or []
         )
         assert columns[0][0] == "Stripe charge identifier (ch_...)."
+
+    def test_warehouse_source_native_table_description_appears(self):
+        table = self._create_warehouse_table()
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            source=source,
+            name=table.name,
+            table=table,
+            description="Charges imported from Stripe via the Postgres sync.",
+        )
+        tables = (
+            execute_hogql_query(
+                "SELECT description FROM system.information_schema.tables WHERE table_name = 'stripe_charges'",
+                team=self.team,
+            ).results
+            or []
+        )
+        assert tables[0][0] == "Charges imported from Stripe via the Postgres sync."
 
     def test_warehouse_column_statistics_are_merged(self):
         # Per-column profiling stats are surfaced on information_schema.columns for warehouse tables,

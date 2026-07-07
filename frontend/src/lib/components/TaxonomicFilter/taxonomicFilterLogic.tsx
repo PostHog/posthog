@@ -62,6 +62,7 @@ import { toParams } from 'lib/utils/url'
 import {
     getEventDefinitionIcon,
     getEventMetadataDefinitionIcon,
+    getPersonPropertyDefinitionIcon,
     getPropertyDefinitionIcon,
     getRevenueAnalyticsDefinitionIcon,
 } from 'scenes/data-management/events/DefinitionHeader'
@@ -968,10 +969,16 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             { key: 'severity_level', name: 'severity_level', propertyFilterType: 'log' },
                             { key: 'trace_id', name: 'trace_id', propertyFilterType: 'log' },
                             { key: 'span_id', name: 'span_id', propertyFilterType: 'log' },
-                        ],
+                        ].filter((o) => !excludedProperties[TaxonomicFilterGroupType.Logs]?.includes(o.key)),
                         localItemsSearch: (items: any[], q: string): any[] => {
                             if (!q) {
                                 return items
+                            }
+                            const matches = items.filter((item) => item.name?.toLowerCase().includes(q.toLowerCase()))
+                            // The free-text message-search item only makes sense where picking
+                            // `message` does — consumers that exclude it get plain key search.
+                            if (excludedProperties[TaxonomicFilterGroupType.Logs]?.includes('message')) {
+                                return matches
                             }
                             return [
                                 {
@@ -980,7 +987,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                     value: q,
                                     propertyFilterType: 'log',
                                 },
-                            ].concat(items.filter((item) => item.name?.toLowerCase().includes(q.toLowerCase())))
+                            ].concat(matches)
                         },
                         getName: (option: { key: string; name: string }) => option.name,
                         getValue: (option: { key: string; name: string }) => option.key,
@@ -1128,6 +1135,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         propertyAllowList:
                             propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties]?.filter(isString),
                         ...propertyTaxonomicGroupProps(CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties),
+                        getIcon: getPersonPropertyDefinitionIcon,
                     },
                     {
                         name: 'Person metadata',
@@ -1572,7 +1580,24 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 // because it has no per-variant arm to protect.
                 const pillVariant = featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN] === 'pill'
                 const substantiveGroupCount = filtered.filter((t) => !META_GROUP_TYPES.has(t)).length
-                if (
+                const singleSubstantiveGroup = substantiveGroupCount === 1
+
+                const metaGroupOrder = [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.RecentFilters,
+                    TaxonomicFilterGroupType.PinnedFilters,
+                ]
+
+                if (singleSubstantiveGroup) {
+                    // With one real group there's nothing for "All" to aggregate, so drop it
+                    // (a call site may have prepended SuggestedFilters — see TaxonomicPropertyFilter).
+                    // Recent/Pinned then follow the group instead of leading, and the group's own
+                    // list floats recent/pinned items to the top (see infiniteListLogic `items`).
+                    const suggestedIdx = filtered.indexOf(TaxonomicFilterGroupType.SuggestedFilters)
+                    if (suggestedIdx !== -1) {
+                        filtered.splice(suggestedIdx, 1)
+                    }
+                } else if (
                     pillVariant &&
                     availableGroupTypes.has(TaxonomicFilterGroupType.SuggestedFilters) &&
                     !filtered.includes(TaxonomicFilterGroupType.SuggestedFilters) &&
@@ -1581,42 +1606,45 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     filtered.unshift(TaxonomicFilterGroupType.SuggestedFilters)
                 }
 
-                // RecentFilters and PinnedFilters are auto-injected after existing
-                // meta groups (including SuggestedFilters when present).
-                const metaGroupOrder = [
-                    TaxonomicFilterGroupType.SuggestedFilters,
-                    TaxonomicFilterGroupType.RecentFilters,
-                    TaxonomicFilterGroupType.PinnedFilters,
-                ]
+                // RecentFilters and PinnedFilters are auto-injected after existing meta groups
+                // (including SuggestedFilters when present) for multi-group filters, but after the
+                // sole group when there's only one — so the group itself leads.
                 const autoInjectGroups = [
                     TaxonomicFilterGroupType.RecentFilters,
                     TaxonomicFilterGroupType.PinnedFilters,
                 ]
                 for (const metaType of autoInjectGroups) {
                     if (availableGroupTypes.has(metaType) && !filtered.includes(metaType)) {
-                        filtered.splice(indexAfterLastMetaGroup(filtered, metaGroupOrder), 0, metaType)
+                        const insertAt = singleSubstantiveGroup
+                            ? filtered.length
+                            : indexAfterLastMetaGroup(filtered, metaGroupOrder)
+                        filtered.splice(insertAt, 0, metaType)
                     }
                 }
 
-                // Promote shortcut groups to top positions (after meta groups)
-                const shortcutGroups: TaxonomicFilterGroupType[] = [
-                    TaxonomicFilterGroupType.PageviewUrls,
-                    TaxonomicFilterGroupType.Screens,
-                    TaxonomicFilterGroupType.EmailAddresses,
-                    ...(eventNames.includes('$autocapture') ? [TaxonomicFilterGroupType.Elements] : []),
-                ]
+                // Promote shortcut groups to top positions (after meta groups). With a single
+                // substantive group there's nothing to reorder above it, and doing so would push
+                // the group below its own Recent/Pinned tabs, so skip it.
+                if (!singleSubstantiveGroup) {
+                    const shortcutGroups: TaxonomicFilterGroupType[] = [
+                        TaxonomicFilterGroupType.PageviewUrls,
+                        TaxonomicFilterGroupType.Screens,
+                        TaxonomicFilterGroupType.EmailAddresses,
+                        ...(eventNames.includes('$autocapture') ? [TaxonomicFilterGroupType.Elements] : []),
+                    ]
 
-                const toInsert: TaxonomicFilterGroupType[] = []
-                for (const groupType of shortcutGroups) {
-                    const idx = filtered.indexOf(groupType)
-                    if (idx !== -1) {
-                        filtered.splice(idx, 1)
-                        toInsert.push(groupType)
+                    const toInsert: TaxonomicFilterGroupType[] = []
+                    for (const groupType of shortcutGroups) {
+                        const idx = filtered.indexOf(groupType)
+                        if (idx !== -1) {
+                            filtered.splice(idx, 1)
+                            toInsert.push(groupType)
+                        }
                     }
-                }
 
-                if (toInsert.length > 0) {
-                    filtered.splice(indexAfterLastMetaGroup(filtered, metaGroupOrder), 0, ...toInsert)
+                    if (toInsert.length > 0) {
+                        filtered.splice(indexAfterLastMetaGroup(filtered, metaGroupOrder), 0, ...toInsert)
+                    }
                 }
 
                 return filtered

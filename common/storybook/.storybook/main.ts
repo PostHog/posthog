@@ -2,7 +2,7 @@ import type { StorybookConfig } from '@storybook/react-vite'
 import tailwindcss from '@tailwindcss/vite'
 import { fileURLToPath } from 'node:url'
 import * as path from 'path'
-import { mergeConfig } from 'vite'
+import { mergeConfig, type Rollup } from 'vite'
 
 import { frontendResolvePlugin } from './plugins/vite-frontend-resolve-plugin.ts'
 import { moduleGraphPlugin } from './plugins/vite-module-graph-plugin.ts'
@@ -99,6 +99,20 @@ const config: StorybookConfig = {
             },
             optimizeDeps: {
                 include: ['buffer'],
+            },
+            build: {
+                rollupOptions: {
+                    onwarn(warning: Rollup.RollupLog, defaultHandler: (warning: Rollup.RollupLog) => void) {
+                        // "use client" directives from RSC-oriented deps (framer-motion, radix)
+                        // are meaningless here, and barrel-file re-export cycles are endemic to
+                        // the app's index.ts files. Together they bury real warnings in ~1000
+                        // lines of noise per CI build.
+                        if (warning.code === 'MODULE_LEVEL_DIRECTIVE' || warning.code === 'CYCLIC_CROSS_CHUNK_REEXPORT') {
+                            return
+                        }
+                        defaultHandler(warning)
+                    },
+                },
             },
         }),
 

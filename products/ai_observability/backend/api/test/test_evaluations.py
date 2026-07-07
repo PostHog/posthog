@@ -3,6 +3,8 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import IntegrityError, transaction
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -377,6 +379,51 @@ class TestEvaluationConfigsApi(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data["attr"], "model_configuration")
+
+    def test_clearing_model_configuration_with_explicit_null(self):
+        mc = LLMModelConfiguration.objects.create(team=self.team, provider="openai", model="gpt-5-mini")
+        eval_obj = Evaluation.objects.create(
+            team=self.team,
+            name="Judge",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Test"},
+            output_type="boolean",
+            model_configuration=mc,
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {"name": "Renamed"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        eval_obj.refresh_from_db()
+        self.assertEqual(eval_obj.model_configuration_id, mc.id)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {"model_configuration": None},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        eval_obj.refresh_from_db()
+        self.assertIsNone(eval_obj.model_configuration)
+        self.assertFalse(LLMModelConfiguration.objects.filter(id=mc.id).exists())
+
+    def test_db_constraint_blocks_model_config_on_non_judge_eval(self):
+        # QuerySet.update() bypasses Evaluation.save(), so this exercises the DB constraint itself.
+        mc = LLMModelConfiguration.objects.create(team=self.team, provider="openai", model="gpt-5-mini")
+        hog_eval = Evaluation.objects.create(
+            team=self.team,
+            name="Hog",
+            evaluation_type="hog",
+            output_type="boolean",
+            model_configuration=None,
+        )
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Evaluation.objects.filter(id=hog_eval.id).update(model_configuration=mc)
 
     @parameterized.expand(
         [

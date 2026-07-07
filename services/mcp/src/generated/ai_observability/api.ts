@@ -9,7 +9,7 @@
 import * as zod from 'zod'
 
 /**
- * Return a structured personal LLM spend analysis for the requesting user. Pass `date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound the window — defaults to the last 30 days, max 90 days. The `product=<ai_product>` query param is required and scopes the tool / model / trace breakdowns to a single product; supported values: posthog_code. `by_product` is always returned for cross-product visibility. Use `refresh=true` to bypass the 5-minute response cache.
+ * Return a structured personal LLM spend analysis for the requesting user. Pass `date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound the window — defaults to the last 30 days, max 90 days. The `product=<ai_product>` query param is required and scopes the tool / model / day / trace breakdowns to a single product; supported values: posthog_code. `by_product` is always returned for cross-product visibility. `by_day` returns a day-ascending spend series for the scoped product. Use `refresh=true` to bypass the 5-minute response cache.
  */
 export const llmAnalyticsPersonalSpendListQueryDateFromDefault = `-30d`
 export const llmAnalyticsPersonalSpendListQueryDateFromMax = 32
@@ -261,7 +261,7 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
                         ),
                     model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
                     provider_key_id: zod
-                        .uuid()
+                        .string()
                         .nullish()
                         .describe(
                             'Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.'
@@ -433,7 +433,7 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         ),
                     model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
                     provider_key_id: zod
-                        .uuid()
+                        .string()
                         .nullish()
                         .describe(
                             'Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.'
@@ -1431,7 +1431,7 @@ export const LlmAnalyticsTraceReviewsCreateBody = /* @__PURE__ */ zod.object({
             zod.object({
                 definition_id: zod.string().describe('Stable scorer definition ID.'),
                 definition_version_id: zod
-                    .uuid()
+                    .string()
                     .nullish()
                     .describe("Optional immutable scorer version ID. Defaults to the scorer's current version."),
                 categorical_values: zod
@@ -1449,7 +1449,7 @@ export const LlmAnalyticsTraceReviewsCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Full desired score set for this review. Omit scorers you want to leave blank.'),
     queue_id: zod
-        .uuid()
+        .string()
         .nullish()
         .describe(
             'Optional review queue ID for queue-context saves. When provided, the matching pending queue item is cleared after the review is saved. If omitted, any pending queue item for the same trace is cleared.'
@@ -1494,7 +1494,7 @@ export const LlmAnalyticsTraceReviewsPartialUpdateBody = /* @__PURE__ */ zod.obj
             zod.object({
                 definition_id: zod.string().describe('Stable scorer definition ID.'),
                 definition_version_id: zod
-                    .uuid()
+                    .string()
                     .nullish()
                     .describe("Optional immutable scorer version ID. Defaults to the scorer's current version."),
                 categorical_values: zod
@@ -1514,7 +1514,7 @@ export const LlmAnalyticsTraceReviewsPartialUpdateBody = /* @__PURE__ */ zod.obj
         .optional()
         .describe('Full desired score set for this review. Omit scorers you want to leave blank.'),
     queue_id: zod
-        .uuid()
+        .string()
         .nullish()
         .describe(
             'Optional review queue ID for queue-context saves. When provided, the matching pending queue item is cleared after the review is saved. If omitted, any pending queue item for the same trace is cleared.'
@@ -1811,7 +1811,7 @@ export const TaggersCreateBody = /* @__PURE__ */ zod.object({
                     .max(taggersCreateBodyModelConfigurationOneModelMax)
                     .describe('Provider model identifier to use for this tagger.'),
                 provider_key_id: zod
-                    .uuid()
+                    .string()
                     .nullish()
                     .describe(
                         'Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned.'

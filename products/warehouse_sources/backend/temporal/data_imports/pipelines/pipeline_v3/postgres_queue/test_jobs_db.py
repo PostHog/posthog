@@ -493,6 +493,21 @@ class TestBatchQueueLeaseRenewal:
 
 
 @pytest.mark.django_db(transaction=True)
+class TestQueueFreshnessProbe:
+    @pytest.mark.asyncio
+    async def test_reports_only_batches_never_picked_up(self, conn):
+        assert await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn) is None
+
+        bid = await _insert_batch(conn)
+        age = await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn)
+        assert age is not None and age >= 0
+
+        # Any status row means the batch was picked up — it must stop counting.
+        await BatchQueue.update_status(conn, batch_id=bid, job_state="executing", attempt=1)
+        assert await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn) is None
+
+
+@pytest.mark.django_db(transaction=True)
 class TestGroupLeaseRecovery:
     @pytest.mark.asyncio
     async def test_absent_lease_orphan_is_recovered(self, conn):
@@ -710,6 +725,54 @@ class TestGetRunActivitySummary:
         assert summary.has_non_terminal is False
         assert summary.is_stale is True
 
+    @pytest.mark.asyncio
+    async def test_recent_producer_inserts_do_not_reset_staleness(self, conn, sync_conn):
+        # A streaming producer kept dead-loader runs "active" for a whole outage:
+        # only loader progress may reset the staleness clock.
+        old = await _insert_batch(conn, batch_index=0, metadata={"workflow_run_id": self.WF_RUN_ID})
+        await conn.execute(
+            f"UPDATE {BATCH_TABLE} SET created_at = now() - interval '7 hours' WHERE id = %s",
+            (old,),
+        )
+        await _insert_batch(conn, batch_index=1, metadata={"workflow_run_id": self.WF_RUN_ID})
+
+        summary = self._summary(sync_conn)
+
+        assert summary.has_non_terminal is True
+        assert summary.is_stale is True
+
+    @pytest.mark.asyncio
+    async def test_old_status_write_is_stale_despite_new_batches(self, conn, sync_conn):
+        # The loader last made progress hours ago; fresh producer inserts must not hide that.
+        claimed = await _insert_batch(conn, batch_index=0, metadata={"workflow_run_id": self.WF_RUN_ID})
+        await BatchQueue.update_status(conn, batch_id=claimed, job_state="executing", attempt=1)
+        await conn.execute(
+            f"UPDATE {STATUS_TABLE} SET created_at = now() - interval '7 hours' WHERE batch_id = %s",
+            (claimed,),
+        )
+        await _insert_batch(conn, batch_index=1, metadata={"workflow_run_id": self.WF_RUN_ID})
+
+        summary = self._summary(sync_conn)
+
+        assert summary.has_non_terminal is True
+        assert summary.is_stale is True
+
+    @pytest.mark.asyncio
+    async def test_recent_status_write_keeps_old_backlog_active(self, conn, sync_conn):
+        # A slow-but-alive loader (old unclaimed backlog, fresh status writes) must not be stolen from.
+        old = await _insert_batch(conn, batch_index=0, metadata={"workflow_run_id": self.WF_RUN_ID})
+        await conn.execute(
+            f"UPDATE {BATCH_TABLE} SET created_at = now() - interval '7 hours' WHERE id = %s",
+            (old,),
+        )
+        claimed = await _insert_batch(conn, batch_index=1, metadata={"workflow_run_id": self.WF_RUN_ID})
+        await BatchQueue.update_status(conn, batch_id=claimed, job_state="executing", attempt=1)
+
+        summary = self._summary(sync_conn)
+
+        assert summary.has_non_terminal is True
+        assert summary.is_stale is False
+
 
 @pytest.mark.django_db(transaction=True)
 class TestClaimWindowSkipsForeignLeasedGroups:
@@ -737,3 +800,21 @@ class TestClaimWindowSkipsForeignLeasedGroups:
         await conn.execute(f"UPDATE {LEASE_TABLE} SET expires_at = now() - interval '1 second'")
         got_a_after_expiry = await _claim(conn, owner=OWNER_A, limit=2)
         assert "schema-A" in {b.schema_id for b in got_a_after_expiry}
+
+
+@pytest.mark.django_db(transaction=True)
+class TestCountBatchesForRun:
+    @pytest.mark.asyncio
+    async def test_counts_unclaimed_batches_and_zero_when_none(self, conn, _db_url):
+        # Freshly inserted batches have no status row until the loader claims them. The count
+        # must still see them: it exists so the CDC orphan reconciler can tell a run that
+        # enqueued nothing (safe to fail) from one whose batches are merely unclaimed (a
+        # status-view JOIN would report the latter as zero and strand a late load).
+        await _insert_batch(conn, job_id="job-A", batch_index=0)
+        await _insert_batch(conn, job_id="job-A", batch_index=1)
+        await _insert_batch(conn, job_id="job-B", batch_index=0)
+
+        with psycopg.Connection.connect(_db_url, autocommit=True) as sync_conn:
+            assert BatchQueue.count_batches_for_run(sync_conn, job_id="job-A") == 2
+            assert BatchQueue.count_batches_for_run(sync_conn, job_id="job-B") == 1
+            assert BatchQueue.count_batches_for_run(sync_conn, job_id="job-missing") == 0

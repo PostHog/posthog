@@ -13,6 +13,7 @@ import { getTableCellAtPosition, getTableEdgeCellPosition } from './tableModel'
 import { getTextChanges, mapTextIndex } from './textChanges'
 import {
     NotebookBlockNode,
+    NotebookCodeBlockNode,
     NotebookComponentBlockNode,
     NotebookDocument,
     NotebookInlineNode,
@@ -267,17 +268,45 @@ export function removeNotebookNodesWithRefCleanup(document: NotebookDocument, no
     return { ...document, nodes: stripNotebookRefMarksFromNodes(remainingNodes, removedRefIds) }
 }
 
-/** Unwraps `<ref>` tags with the given ids across every text-bearing block, keeping the text. */
+/** Unwraps `<ref>` tags (and code block anchors) with the given ids across every block, keeping the text. */
 export function stripNotebookRefMarksFromNodes(nodes: NotebookBlockNode[], refIds: Set<string>): NotebookBlockNode[] {
     if (!refIds.size) {
         return nodes
     }
 
-    return nodes.map((node) =>
-        mapNodeInlineChildren(node, (children) =>
+    return nodes.map((node) => {
+        if (node.type === 'code') {
+            if (!node.refs?.some((ref) => refIds.has(ref.id))) {
+                return node
+            }
+            const refs = node.refs.filter((ref) => !refIds.has(ref.id))
+            return { ...node, refs: refs.length ? refs : undefined }
+        }
+        return mapNodeInlineChildren(node, (children) =>
             [...refIds].reduce((current, refId) => removeInlineRefMark(current, refId), children)
         )
-    )
+    })
+}
+
+/** Replaces a code block's text, remapping its comment anchors through the edit and dropping
+ * anchors whose range the edit deleted. Insertions at an anchor's edges stay outside it. */
+export function updateNotebookCodeBlockText(node: NotebookCodeBlockNode, nextText: string): NotebookCodeBlockNode {
+    if (node.text === nextText) {
+        return node
+    }
+    if (!node.refs?.length) {
+        return { ...node, text: nextText }
+    }
+
+    const changes = getTextChanges(node.text, nextText)
+    const refs = node.refs
+        .map((ref) => ({
+            ...ref,
+            start: mapTextIndex(ref.start, changes, 'right'),
+            end: mapTextIndex(ref.end, changes, 'left'),
+        }))
+        .filter((ref) => ref.end > ref.start)
+    return { ...node, text: nextText, refs: refs.length ? refs : undefined }
 }
 
 export function isCommentComponentNode(node: NotebookBlockNode): node is NotebookComponentBlockNode {

@@ -49,6 +49,8 @@ interface UseChartMarginsOptions {
      *  reservation in step with the scales' config-driven positions. Multi-axis charts only. */
     yAxisPositions?: Record<string, 'left' | 'right'>
     yAxisTitles?: Record<string, string>
+    /** Axis ids whose gutters are hidden — no margin reserved. Mirrors `computeYAxisGutters`. */
+    yAxisHidden?: Record<string, boolean>
 }
 
 function widestCategoryLabelWidth(
@@ -100,6 +102,7 @@ export function useChartMargins({
     yAxisFormatters,
     yAxisPositions,
     yAxisTitles,
+    yAxisHidden,
 }: UseChartMarginsOptions): ChartMargins {
     const isHorizontal = axisOrientation === 'horizontal'
     const valueSeries = valueRangeSeries ?? series
@@ -131,7 +134,7 @@ export function useChartMargins({
         let left = 0
         let right = 0
         for (const { axisId, position } of orderedAxisPositions(valueSeries)) {
-            if (!yAxisTitles[axisId]) {
+            if (!yAxisTitles[axisId] || yAxisHidden?.[axisId]) {
                 continue
             }
             if ((yAxisPositions?.[axisId] ?? position) === 'left') {
@@ -141,7 +144,7 @@ export function useChartMargins({
             }
         }
         return { left, right }
-    }, [hideYAxis, isHorizontal, usesPerSideGutters, valueSeries, yAxisPositions, yAxisTitles])
+    }, [hideYAxis, isHorizontal, usesPerSideGutters, valueSeries, yAxisPositions, yAxisTitles, yAxisHidden])
 
     const yLabelWidth = useMemo<number>(() => {
         if (hideYAxis) {
@@ -189,6 +192,9 @@ export function useChartMargins({
         let left = 0
         let right = 0
         for (const { axisId, position } of orderedAxisPositions(valueSeries)) {
+            if (yAxisHidden?.[axisId]) {
+                continue
+            }
             const formatter = yAxisFormatters?.[axisId] ?? yTickFormatter
             const side = yAxisPositions?.[axisId] ?? position
             const width = Math.ceil(widestValueLabelWidth(byAxis.get(axisId) ?? [], formatter)) + Y_LABEL_RIGHT_PADDING
@@ -199,7 +205,16 @@ export function useChartMargins({
             }
         }
         return { left, right }
-    }, [hideYAxis, isHorizontal, usesPerSideGutters, valueSeries, yTickFormatter, yAxisFormatters, yAxisPositions])
+    }, [
+        hideYAxis,
+        isHorizontal,
+        usesPerSideGutters,
+        valueSeries,
+        yTickFormatter,
+        yAxisFormatters,
+        yAxisPositions,
+        yAxisHidden,
+    ])
 
     return useMemo<ChartMargins>(() => {
         const bottom = hideXAxis
