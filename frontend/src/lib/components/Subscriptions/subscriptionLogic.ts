@@ -34,6 +34,44 @@ function validatePrompt(
     return undefined
 }
 
+const AI_WINDOW_MAX_DAYS = 365
+
+// Values are typed `any` for the same reason as the `as any` on dashboard_export_insights below:
+// kea-forms' DeepPartialMap collapses nullable scalar fields to `{}`, rejecting string errors.
+function validateAiWindow(subscription: Partial<SubscriptionType>): {
+    ai_window_start_days_ago?: any
+    ai_window_end_days_ago?: any
+} {
+    if (subscription.resource_type !== SubscriptionResourceTypes.AiPrompt) {
+        return {}
+    }
+    const mode = subscription.ai_window_mode ?? 'since_last_sent'
+    if (mode === 'since_last_sent') {
+        return {}
+    }
+    const start = subscription.ai_window_start_days_ago
+    if (!start) {
+        return { ai_window_start_days_ago: 'Set how many days back the report should look' }
+    }
+    if (start < 1 || start > AI_WINDOW_MAX_DAYS) {
+        return { ai_window_start_days_ago: `Must be between 1 and ${AI_WINDOW_MAX_DAYS} days` }
+    }
+    if (mode === 'last_n_days') {
+        return {}
+    }
+    const end = subscription.ai_window_end_days_ago
+    if (end === null || end === undefined) {
+        return { ai_window_end_days_ago: 'Set where the analyzed range should end' }
+    }
+    if (end < 0 || end > AI_WINDOW_MAX_DAYS) {
+        return { ai_window_end_days_ago: `Must be between 0 and ${AI_WINDOW_MAX_DAYS} days` }
+    }
+    if (end >= start) {
+        return { ai_window_end_days_ago: 'Must be closer to now than the start of the range' }
+    }
+    return {}
+}
+
 function subscriptionSaveErrorMessage(error: unknown): string {
     if (error instanceof ApiError) {
         const msg = (error.detail || error.message || '').trim()
@@ -58,6 +96,9 @@ const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     enabled: true,
     summary_enabled: false,
     summary_prompt_guide: '',
+    ai_window_mode: 'since_last_sent',
+    ai_window_start_days_ago: null,
+    ai_window_end_days_ago: null,
 }
 
 export interface SubscriptionLogicProps extends SubscriptionBaseProps {
@@ -125,40 +166,33 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
     forms(({ props, actions }) => ({
         subscription: {
             defaults: { enabled: NEW_SUBSCRIPTION.enabled } as unknown as SubscriptionType,
-            errors: ({
-                frequency,
-                interval,
-                target_value,
-                target_type,
-                title,
-                start_date,
-                dashboard_export_insights,
-                resource_type,
-                prompt,
-            }) => ({
-                frequency: !frequency ? 'You need to set a schedule frequency' : undefined,
-                title: !title ? 'You need to give your subscription a name' : undefined,
-                interval: !interval ? 'You need to set an interval' : undefined,
-                start_date: !start_date ? 'You need to set a delivery time' : undefined,
-                target_type: !['slack', 'email'].includes(target_type) ? 'Unsupported target type' : undefined,
-                prompt: validatePrompt(resource_type, prompt),
-                target_value: !target_value
+            errors: (subscription) => ({
+                frequency: !subscription.frequency ? 'You need to set a schedule frequency' : undefined,
+                title: !subscription.title ? 'You need to give your subscription a name' : undefined,
+                interval: !subscription.interval ? 'You need to set an interval' : undefined,
+                start_date: !subscription.start_date ? 'You need to set a delivery time' : undefined,
+                target_type: !['slack', 'email'].includes(subscription.target_type)
+                    ? 'Unsupported target type'
+                    : undefined,
+                prompt: validatePrompt(subscription.resource_type, subscription.prompt),
+                ...validateAiWindow(subscription),
+                target_value: !subscription.target_value
                     ? 'This field is required.'
-                    : target_type == 'email'
-                      ? !target_value
+                    : subscription.target_type == 'email'
+                      ? !subscription.target_value
                           ? 'At least one email is required'
-                          : !target_value.split(',').every((email) => isEmail(email))
+                          : !subscription.target_value.split(',').every((email) => isEmail(email))
                             ? 'All emails must be valid'
                             : undefined
-                      : target_type == 'slack'
-                        ? !target_value
+                      : subscription.target_type == 'slack'
+                        ? !subscription.target_value
                             ? 'A channel is required'
                             : undefined
                         : undefined,
                 dashboard_export_insights:
-                    resource_type !== SubscriptionResourceTypes.AiPrompt &&
+                    subscription.resource_type !== SubscriptionResourceTypes.AiPrompt &&
                     props.dashboardId &&
-                    (!dashboard_export_insights || dashboard_export_insights.length === 0)
+                    (!subscription.dashboard_export_insights || subscription.dashboard_export_insights.length === 0)
                         ? ('Select at least one insight' as any)
                         : undefined,
             }),
@@ -176,6 +210,10 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     // Only AI subscriptions carry a prompt; a stale one on a non-AI sub (e.g. after
                     // toggling resource_type back) would be rejected by the backend, so drop it.
                     prompt: isAi ? subscription.prompt?.trim() : undefined,
+                    // Same for the analysis window config — the backend rejects it on non-AI subs.
+                    ai_window_mode: isAi ? subscription.ai_window_mode : undefined,
+                    ai_window_start_days_ago: isAi ? subscription.ai_window_start_days_ago : undefined,
+                    ai_window_end_days_ago: isAi ? subscription.ai_window_end_days_ago : undefined,
                 }
 
                 breakpoint()
@@ -247,6 +285,14 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 actions.setSubscriptionValues({
                     target_value: '',
                     integration_id: null,
+                })
+            }
+
+            if (key === 'ai_window_mode') {
+                // Stale day bounds from the previous mode would confuse validation and the backend.
+                actions.setSubscriptionValues({
+                    ai_window_start_days_ago: null,
+                    ai_window_end_days_ago: null,
                 })
             }
         },

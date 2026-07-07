@@ -126,6 +126,11 @@ class Subscription(ModelActivityMixin, models.Model):
         DASHBOARD = "dashboard"
         AI_PROMPT = "ai_prompt", "AI prompt"
 
+    class AIWindowMode(models.TextChoices):
+        SINCE_LAST_SENT = "since_last_sent", "Since last report"
+        LAST_N_DAYS = "last_n_days", "Last N days"
+        DAYS_AGO_RANGE = "days_ago_range", "Between X and Y days ago"
+
     RRULE_FIELDS = {"frequency", "count", "interval", "start_date", "until_date", "bysetpos", "byweekday"}
 
     _FREQ_MAP: dict[str, int] = {
@@ -163,6 +168,14 @@ class Subscription(ModelActivityMixin, models.Model):
     )
 
     prompt = models.TextField(null=True, blank=True)
+
+    # Analysis window for AI reports. The default keeps the gap-free "since last report" behavior;
+    # the day-based modes pin an explicit range so the window no longer depends on send timing.
+    # `start_days_ago` is the lower bound for both day-based modes; `end_days_ago` only applies to
+    # DAYS_AGO_RANGE (LAST_N_DAYS always ends at "now").
+    ai_window_mode = models.CharField(max_length=20, choices=AIWindowMode, default=AIWindowMode.SINCE_LAST_SENT)
+    ai_window_start_days_ago = models.PositiveSmallIntegerField(null=True, blank=True)
+    ai_window_end_days_ago = models.PositiveSmallIntegerField(null=True, blank=True)
 
     # Subscription type (email, slack etc.)
     title = models.CharField(max_length=100, null=True, blank=True)

@@ -116,11 +116,20 @@ def _resolve_subscription_context(subscription: Subscription) -> tuple[Team, Use
     # team/created_by are FK relations and the last-delivery lookup hits the DB; resolving the window
     # here keeps all ORM access (and the timezone math) off the event loop in one sync hop.
     team = subscription.team
+    # Day-based window modes don't anchor to delivery history — skip the lookup for them.
+    last_successful_delivery_at = (
+        _last_successful_delivery_finished_at(subscription)
+        if subscription.ai_window_mode == Subscription.AIWindowMode.SINCE_LAST_SENT
+        else None
+    )
     window = compute_report_window(
         team=team,
-        last_successful_delivery_at=_last_successful_delivery_finished_at(subscription),
+        last_successful_delivery_at=last_successful_delivery_at,
         now=datetime.now(tz=UTC),
         window_days=subscription.ai_report_window_days,
+        mode=subscription.ai_window_mode,
+        start_days_ago=subscription.ai_window_start_days_ago,
+        end_days_ago=subscription.ai_window_end_days_ago,
     )
     return team, subscription.created_by, window
 

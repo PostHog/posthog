@@ -9,6 +9,7 @@ from parameterized import parameterized
 
 from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team
 
+from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
     QueryPlan,
     QueryPlanStep,
@@ -255,6 +256,70 @@ class TestComputeReportWindow:
 
         assert window.end == now
         assert window.start == now - timedelta(days=7)
+
+    def test_last_n_days_is_a_fixed_trailing_window(self) -> None:
+        # The day-based mode must ignore the delivery anchor entirely: a recent send must not shrink
+        # the window (that send-timing dependence is what the mode exists to opt out of).
+        now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+        recent_send = datetime(2026, 6, 29, 15, 0, tzinfo=UTC)
+
+        window = compute_report_window(
+            self._team(),
+            last_successful_delivery_at=recent_send,
+            now=now,
+            window_days=7,
+            mode=Subscription.AIWindowMode.LAST_N_DAYS,
+            start_days_ago=3,
+        )
+
+        assert window.start == now - timedelta(days=3)
+        assert window.end == now
+
+    def test_days_ago_range_is_an_explicit_historical_range(self) -> None:
+        now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+
+        window = compute_report_window(
+            self._team(),
+            last_successful_delivery_at=None,
+            now=now,
+            window_days=7,
+            mode=Subscription.AIWindowMode.DAYS_AGO_RANGE,
+            start_days_ago=10,
+            end_days_ago=3,
+        )
+
+        assert window.start == now - timedelta(days=10)
+        assert window.end == now - timedelta(days=3)
+        # compare_start stays the equal-length prior period, so period-over-period works here too.
+        assert window.compare_start == now - timedelta(days=17)
+
+    @parameterized.expand(
+        [
+            ("last_n_days_missing_start", Subscription.AIWindowMode.LAST_N_DAYS, None, None),
+            ("range_missing_start", Subscription.AIWindowMode.DAYS_AGO_RANGE, None, 3),
+            ("range_inverted", Subscription.AIWindowMode.DAYS_AGO_RANGE, 3, 5),
+        ]
+    )
+    def test_bad_day_mode_config_falls_back_to_since_last_sent(
+        self, _name: str, mode: str, start_days_ago: int | None, end_days_ago: int | None
+    ) -> None:
+        # The serializer prevents these rows, but a bad row must degrade to the default window
+        # rather than fail the run or hand the planner an inverted range.
+        now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+        last = datetime(2026, 6, 28, 16, 0, tzinfo=UTC)
+
+        window = compute_report_window(
+            self._team(),
+            last_successful_delivery_at=last,
+            now=now,
+            window_days=7,
+            mode=mode,
+            start_days_ago=start_days_ago,
+            end_days_ago=end_days_ago,
+        )
+
+        assert window.start == last
+        assert window.end == now
 
     @parameterized.expand(
         [

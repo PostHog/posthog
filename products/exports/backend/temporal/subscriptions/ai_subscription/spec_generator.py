@@ -15,6 +15,7 @@ from posthog.models import EventDefinition, EventProperty, PropertyDefinition, T
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.security.llm_prompt_sanitization import sanitize_user_text
 
+from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import (
     EVENT_SELECTION_PROMPT,
     EVENT_SELECTION_PROMPT_NAME,
@@ -118,19 +119,39 @@ def compute_report_window(
     last_successful_delivery_at: Optional[datetime],
     now: datetime,
     window_days: int,
+    mode: str = Subscription.AIWindowMode.SINCE_LAST_SENT,
+    start_days_ago: Optional[int] = None,
+    end_days_ago: Optional[int] = None,
 ) -> ReportWindow:
     """Compute the `[start, end)` analysis window for a report run, timezone-aware in the team's tz.
 
-    `end` is the run's "now"; `start` is the last SUCCESSFUL delivery's `finished_at` ("since last
-    send"), falling back to `end - window_days` when there's no prior successful delivery. This is
-    gap-free modulo the prior run's own generation+send latency (its `finished_at` trails its window
-    `end` by that much), which is seconds to low minutes and errs toward re-covering rather than
-    dropping data. Both bounds are returned in the team timezone. Pure (no DB / no `datetime.now`) so
-    it's unit-testable — callers resolve `last_successful_delivery_at` and `now` and pass them in.
+    The subscription's `ai_window_mode` picks the shape:
+    - SINCE_LAST_SENT (default): `end` is the run's "now"; `start` is the last SUCCESSFUL delivery's
+      `finished_at`, falling back to `end - window_days` when there's no prior successful delivery.
+      This is gap-free modulo the prior run's own generation+send latency (its `finished_at` trails
+      its window `end` by that much), which is seconds to low minutes and errs toward re-covering
+      rather than dropping data.
+    - LAST_N_DAYS: `[now - start_days_ago, now)` — a fixed trailing window independent of send timing.
+    - DAYS_AGO_RANGE: `[now - start_days_ago, now - end_days_ago)` — an explicit historical range.
+
+    A day-based mode missing its day values (bad config) falls back to SINCE_LAST_SENT semantics
+    rather than failing the run. Both bounds are returned in the team timezone. Pure (no DB / no
+    `datetime.now`) so it's unit-testable — callers resolve the anchor and `now` and pass them in.
     """
     tz = team.timezone_info
-    end = _in_tz(now, tz)
+    run_now = _in_tz(now, tz)
 
+    if mode == Subscription.AIWindowMode.LAST_N_DAYS and start_days_ago:
+        return ReportWindow(start=run_now - timedelta(days=start_days_ago), end=run_now)
+
+    if mode == Subscription.AIWindowMode.DAYS_AGO_RANGE and start_days_ago:
+        end = run_now - timedelta(days=end_days_ago or 0)
+        start = run_now - timedelta(days=start_days_ago)
+        # The serializer enforces start > end; clamp anyway so a bad row can't invert the range.
+        if start < end:
+            return ReportWindow(start=start, end=end)
+
+    end = run_now
     if last_successful_delivery_at is not None:
         # "Since last send": a re-fire shortly after a successful delivery yields a small window (and
         # a short report) because there's genuinely little new data — we don't pad it back to

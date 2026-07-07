@@ -159,12 +159,50 @@ function FreeTierCreateGate(props: EditSubscriptionProps): JSX.Element {
     return <EditSubscriptionForm {...props} />
 }
 
+// What the report analyzes each run. "Since last report" is gap-free (each run picks up exactly
+// where the previous successful one ended); the day-based options pin an explicit range so the
+// window doesn't depend on send timing.
+const AI_WINDOW_MODE_OPTIONS = [
+    {
+        value: 'since_last_sent' as const,
+        label: 'Since last report',
+        labelInMenu: (
+            <div className="flex flex-col">
+                <span>Since last report</span>
+                <span className="text-xs text-secondary">Everything new since the previous delivery (no gaps)</span>
+            </div>
+        ),
+    },
+    {
+        value: 'last_n_days' as const,
+        label: 'Last N days',
+        labelInMenu: (
+            <div className="flex flex-col">
+                <span>Last N days</span>
+                <span className="text-xs text-secondary">A fixed trailing window, e.g. always the last 7 days</span>
+            </div>
+        ),
+    },
+    {
+        value: 'days_ago_range' as const,
+        label: 'Between X and Y days ago',
+        labelInMenu: (
+            <div className="flex flex-col">
+                <span>Between X and Y days ago</span>
+                <span className="text-xs text-secondary">An explicit historical range, e.g. 14 to 7 days ago</span>
+            </div>
+        ),
+    },
+]
+
 function AiPromptFields({
     prompt,
+    windowMode,
     showConsentBanner,
     onSelectExample,
 }: {
     prompt?: string | null
+    windowMode?: SubscriptionType['ai_window_mode']
     showConsentBanner: boolean
     onSelectExample: (prompt: string, label: string) => void
 }): JSX.Element {
@@ -207,6 +245,58 @@ function AiPromptFields({
                             </LemonButton>
                         ))}
                     </div>
+                </div>
+            )}
+            <LemonField
+                name="ai_window_mode"
+                label="Analysis window"
+                help="The exact time range is computed each run in your project's timezone and handed to the AI, so relative dates in the prompt can't drift."
+            >
+                <LemonSelect options={AI_WINDOW_MODE_OPTIONS} />
+            </LemonField>
+            {windowMode === 'last_n_days' && (
+                <LemonField name="ai_window_start_days_ago" label="Number of days to analyze">
+                    {({ value, onChange }) => (
+                        <div className="flex items-center gap-2">
+                            <LemonInput
+                                type="number"
+                                min={1}
+                                max={365}
+                                value={value ?? undefined}
+                                onChange={(newValue) => onChange(newValue ?? null)}
+                                className="w-24"
+                            />
+                            <span>days back from each run</span>
+                        </div>
+                    )}
+                </LemonField>
+            )}
+            {windowMode === 'days_ago_range' && (
+                <div className="flex items-start gap-2">
+                    <LemonField name="ai_window_start_days_ago" label="From (days ago)">
+                        {({ value, onChange }) => (
+                            <LemonInput
+                                type="number"
+                                min={1}
+                                max={365}
+                                value={value ?? undefined}
+                                onChange={(newValue) => onChange(newValue ?? null)}
+                                className="w-24"
+                            />
+                        )}
+                    </LemonField>
+                    <LemonField name="ai_window_end_days_ago" label="To (days ago)">
+                        {({ value, onChange }) => (
+                            <LemonInput
+                                type="number"
+                                min={0}
+                                max={365}
+                                value={value ?? undefined}
+                                onChange={(newValue) => onChange(newValue ?? null)}
+                                className="w-24"
+                            />
+                        )}
+                    </LemonField>
                 </div>
             )}
         </>
@@ -436,6 +526,7 @@ function EditSubscriptionForm({
                         {isAiPrompt ? (
                             <AiPromptFields
                                 prompt={subscription.prompt}
+                                windowMode={subscription.ai_window_mode}
                                 showConsentBanner={aiGate.showAiFormConsentBanner}
                                 onSelectExample={logic.actions.selectAiExamplePrompt}
                             />
