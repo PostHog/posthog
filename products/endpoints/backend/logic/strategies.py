@@ -14,7 +14,6 @@ stay kind-agnostic.
 
 import abc
 import dataclasses
-from collections.abc import Iterator
 from functools import cached_property
 from typing import TYPE_CHECKING, ClassVar, Optional
 
@@ -45,7 +44,7 @@ from products.endpoints.backend.materialization_transforms import (
     prepare_insight_query_for_endpoint,
     transform_select_for_materialized_table,
 )
-from products.endpoints.backend.models import Endpoint, EndpointVersion
+from products.endpoints.backend.models import Endpoint, EndpointVersion, iter_breakdowns
 
 if TYPE_CHECKING:
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -107,22 +106,6 @@ class PlaceholderPreservingPrinter(HogQLPrinter):
 # ---------------------------------------------------------------------------
 # Breakdown helpers (insight queries)
 # ---------------------------------------------------------------------------
-
-
-def iter_breakdowns(breakdown_filter: dict) -> Iterator[tuple[str, str]]:
-    """Yield (property_name, property_type) from legacy or new breakdown format.
-
-    Legacy: {"breakdown": "$browser", "breakdown_type": "event"}
-    New:    {"breakdowns": [{"property": "$browser", "type": "event"}]}
-    """
-    breakdown = breakdown_filter.get("breakdown")
-    if breakdown:
-        yield (breakdown, breakdown_filter.get("breakdown_type", "event"))
-        return
-    for b in breakdown_filter.get("breakdowns") or []:
-        prop = b.get("property")
-        if prop:
-            yield (prop, b.get("type", "event"))
 
 
 def get_breakdown_properties(breakdown_filter: dict) -> list[str]:
@@ -342,7 +325,10 @@ class EndpointQueryStrategy(abc.ABC):
         """Variables that MUST be provided when running against the materialized table.
 
         SECURITY: materialized tables contain rows for every variable value; omitting
-        a variable would return unfiltered data.
+        a variable would return unfiltered data. Endpoint owners can opt individual
+        breakdown properties out via ``EndpointVersion.optional_breakdown_properties``;
+        omitting an optional breakdown returns data aggregated across all values of
+        that dimension.
         """
 
     @abc.abstractmethod
@@ -628,8 +614,11 @@ class InsightEndpointStrategy(EndpointQueryStrategy):
         return allowed
 
     def required_materialized_variables(self) -> set[str]:
+        # Breakdown properties are required unless explicitly marked optional.
         if self.query_kind in self.BREAKDOWN_SUPPORTED_QUERY_TYPES:
-            return set(get_breakdown_properties(self._breakdown_filter))
+            all_breakdowns = set(get_breakdown_properties(self._breakdown_filter))
+            optional = set(self.version.optional_breakdown_properties or [])
+            return all_breakdowns - optional
         return set()
 
     def can_serve_variables_from_materialized(self, requested: set[str]) -> bool:
@@ -639,10 +628,12 @@ class InsightEndpointStrategy(EndpointQueryStrategy):
         return requested.issubset(allowed_props)
 
     def materialized_filters_override_satisfies_required(self, data: EndpointRunRequest) -> bool:
-        # apply_materialized_filters applies only the first property's value as a single breakdown
-        # filter, so filters_override can only satisfy a single-breakdown endpoint. A multi-breakdown
-        # endpoint would leave the other breakdowns unfiltered — require variables (one per breakdown).
-        if len(self.required_materialized_variables()) != 1:
+        # apply_materialized_filters applies only the first property's value as a single positionless
+        # breakdown filter, so filters_override can only satisfy an endpoint with exactly ONE breakdown
+        # overall. Gate on the total breakdown count, not the required count: with optional breakdowns
+        # subtracted, a multi-breakdown endpoint can have one required variable left, but a single
+        # has(breakdown_value, ...) predicate would leave the required dimension unconstrained.
+        if len(get_breakdown_properties(self._breakdown_filter)) != 1:
             return False
         fo = data.filters_override
         if not (fo and fo.properties):

@@ -185,6 +185,7 @@ describe('notebookNodePersonFeedLogic', () => {
         })
 
         it('handles sessions loading failure', async () => {
+            silenceKeaLoadersErrors()
             useMocks({
                 post: {
                     [`/api/environments/${MOCK_TEAM_ID}/query/:kind/`]: () => [
@@ -203,6 +204,7 @@ describe('notebookNodePersonFeedLogic', () => {
                     sessions: null,
                     sessionsLoading: false,
                 })
+            resumeKeaLoadersErrors()
         })
     })
 
@@ -408,6 +410,9 @@ describe('notebookNodePersonFeedLogic', () => {
     })
 
     describe('error handling', () => {
+        beforeEach(silenceKeaLoadersErrors)
+        afterEach(resumeKeaLoadersErrors)
+
         it('tracks failed summarizations in summaryErrors', async () => {
             await mountLogic()
             logic.actions.summarizeSession('session-4')
