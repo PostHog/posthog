@@ -333,7 +333,7 @@ async def test_run_steps_bounds_concurrent_query_execution(mock_executor_cls: Ma
 
     mock_executor_cls.return_value.arun_and_format_query = AsyncMock(side_effect=_track)
 
-    await _run_steps(_spec(steps=_MAX_CONCURRENT_STEPS * 2), MagicMock(), MagicMock(), None)
+    await _run_steps(_spec(steps=_MAX_CONCURRENT_STEPS * 2), MagicMock(), MagicMock(), _test_window(), None)
 
     assert max_concurrent == _MAX_CONCURRENT_STEPS
 
