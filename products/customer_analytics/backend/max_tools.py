@@ -312,28 +312,32 @@ class UpsertAccountTool(MaxTool):
                 name__in=assignments.keys()
             )
         }
+        unknown = next((name for name in assignments if name not in definitions), None)
+        if unknown is not None:
+            available = AccountRelationshipDefinition.objects.for_team(self._team.id).values_list("name", flat=True)
+            raise RelationshipAssignmentError(
+                f"Unknown relationship definition '{unknown}'. Available: {', '.join(sorted(available)) or 'none'}."
+            )
+        user_ids = {user_id for user_id in assignments.values() if user_id is not None}
+        memberships = {
+            membership.user_id: membership
+            for membership in OrganizationMembership.objects.select_related("user").filter(
+                organization_id=self._team.organization_id, user_id__in=user_ids
+            )
+        }
+        missing = sorted(user_ids - memberships.keys())
+        if missing:
+            raise RelationshipAssignmentError(f"User {missing[0]} is not a member of this organization.")
         for name, user_id in assignments.items():
-            definition = definitions.get(name)
-            if definition is None:
-                available = AccountRelationshipDefinition.objects.for_team(self._team.id).values_list("name", flat=True)
-                raise RelationshipAssignmentError(
-                    f"Unknown relationship definition '{name}'. Available: {', '.join(sorted(available)) or 'none'}."
-                )
+            definition = definitions[name]
             if user_id is None:
                 relationships_logic.end_active(team_id=self._team.id, account=account, definition=definition)
                 continue
-            membership = (
-                OrganizationMembership.objects.select_related("user")
-                .filter(organization_id=self._team.organization_id, user_id=user_id)
-                .first()
-            )
-            if membership is None:
-                raise RelationshipAssignmentError(f"User {user_id} is not a member of this organization.")
             relationships_logic.assign(
                 team_id=self._team.id,
                 account=account,
                 definition=definition,
-                user=membership.user,
+                user=memberships[user_id].user,
                 created_by=self._user,
             )
 
