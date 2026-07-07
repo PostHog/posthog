@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { ReactNode, useState } from 'react'
+import { ReactNode, useEffect, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { IconChevronDown, IconChevronRight, IconInfo } from '@posthog/icons'
@@ -228,6 +228,8 @@ export function DecimalPrecision(): JSX.Element {
 
 /** A menu row that expands its options inline, accordion-style. Nested popovers are awkward to
  * use inside a menu, so collapsed option groups expand within the same overlay instead. */
+const COLLAPSIBLE_TRANSITION_MS = 200
+
 export function CollapsibleOptionsSection({
     label,
     dataAttr,
@@ -240,11 +242,23 @@ export function CollapsibleOptionsSection({
     children: ReactNode
 }): JSX.Element {
     const [expanded, setExpanded] = useState(defaultExpanded)
+    // The content is only in the DOM while the section is (at least partially) open: it mounts as
+    // the expand transition starts and unmounts once the collapse transition ends. Keeping it
+    // permanently mounted-but-hidden made the popover prone to stale paints (controls not
+    // rendering until hovered).
+    const [showContent, setShowContent] = useState(defaultExpanded)
+
+    useEffect(() => {
+        if (expanded) {
+            setShowContent(true)
+        } else {
+            const timeout = setTimeout(() => setShowContent(false), COLLAPSIBLE_TRANSITION_MS)
+            return () => clearTimeout(timeout)
+        }
+    }, [expanded])
 
     return (
-        // The min-width keeps the menu width stable when a section expands. The collapsed content
-        // is not kept mounted: hidden-but-mounted controls inside the popover were prone to stale
-        // paints (not rendering until hovered).
+        // The min-width keeps the menu width stable when a section expands
         <div className="flex flex-col w-full min-w-[18rem]" data-attr={dataAttr}>
             <LemonButton
                 fullWidth
@@ -255,7 +269,14 @@ export function CollapsibleOptionsSection({
             >
                 {label}
             </LemonButton>
-            {expanded && <div className="flex flex-col pl-2 w-full">{children}</div>}
+            <div
+                className="grid transition-all duration-200 ease-in-out"
+                style={{ gridTemplateRows: expanded && showContent ? '1fr' : '0fr' }}
+            >
+                <div className="overflow-hidden">
+                    {showContent && <div className="flex flex-col pt-2 pb-1 pl-2 w-full">{children}</div>}
+                </div>
+            </div>
         </div>
     )
 }
