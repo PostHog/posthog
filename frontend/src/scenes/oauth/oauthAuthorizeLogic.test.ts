@@ -88,6 +88,14 @@ describe('oauthAuthorizeLogic', () => {
         expect(row?.writeDisabledReason).toBeTruthy()
     })
 
+    it('drops an optional read-only request for a resource whose read action is disabled', () => {
+        // agent_approvals disables the read action, so a read-only request has nothing grantable —
+        // it must not surface as a row (nor a raw "agent_approvals:none" description) or leak into the grant.
+        logic.actions.setScopes(['openid', 'agent_approvals:read', 'insight:read'])
+        expect(logic.values.scopeRows.map((r) => r.key)).toEqual(['insight'])
+        expect(logic.values.effectiveScopes).toEqual(['openid', 'insight:read'])
+    })
+
     it('offers the read-only bulk action for wildcard requests', () => {
         logic.actions.setScopes(['*'])
         expect(logic.values.canSetReadOnly).toBe(true)

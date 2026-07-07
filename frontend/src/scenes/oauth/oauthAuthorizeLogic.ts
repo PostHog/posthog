@@ -627,29 +627,34 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 consentResourceScopes: string[],
                 requiredScopeLevels: Map<string, RequiredLevel>
             ): ScopeObjectDescriptor[] =>
-                consentResourceScopes.map((scope) => {
-                    const isWildcard = scope === '*'
-                    const key = scopeObjectKey(scope)
-                    const requiredLevel = requiredScopeLevels.get(key)
-                    const floor: ScopeAction = requiredLevel ?? 'none'
-                    const ceiling: ScopeAction = isWildcard || scope.endsWith(':write') ? 'write' : 'read'
-                    const disabled = DISABLED_ACTIONS_BY_OBJECT.get(key)
-                    const scopeObject = isWildcard ? undefined : API_SCOPES.find((sc) => sc.key === key)
-                    return {
-                        key,
-                        isWildcard,
-                        floor,
-                        ceiling,
-                        noneAvailable: floor === 'none',
-                        // Read is offered whenever it isn't below a required-write floor and the object
-                        // actually supports a read action.
-                        readAvailable: floor !== 'write' && !disabled?.has('read'),
-                        writeAvailable: ceiling === 'write' && !disabled?.has('write'),
-                        label: scopeObjectLabel(key),
-                        info: scopeObject?.info,
-                        warnings: scopeObject?.warnings,
-                    }
-                }),
+                consentResourceScopes
+                    .map((scope) => {
+                        const isWildcard = scope === '*'
+                        const key = scopeObjectKey(scope)
+                        const requiredLevel = requiredScopeLevels.get(key)
+                        const floor: ScopeAction = requiredLevel ?? 'none'
+                        const ceiling: ScopeAction = isWildcard || scope.endsWith(':write') ? 'write' : 'read'
+                        const disabled = DISABLED_ACTIONS_BY_OBJECT.get(key)
+                        const scopeObject = isWildcard ? undefined : API_SCOPES.find((sc) => sc.key === key)
+                        return {
+                            key,
+                            isWildcard,
+                            floor,
+                            ceiling,
+                            noneAvailable: floor === 'none',
+                            // Read is offered whenever it isn't below a required-write floor and the object
+                            // actually supports a read action.
+                            readAvailable: floor !== 'write' && !disabled?.has('read'),
+                            writeAvailable: ceiling === 'write' && !disabled?.has('write'),
+                            label: scopeObjectLabel(key),
+                            info: scopeObject?.info,
+                            warnings: scopeObject?.warnings,
+                        }
+                    })
+                    // Drop optional objects with no grantable action (e.g. a read-only request for a
+                    // resource whose read action is disabled): there is nothing to consent to, the grant
+                    // already omits them, and rendering them would show a nonsensical "no access" row.
+                    .filter((obj) => obj.floor !== 'none' || obj.readAvailable || obj.writeAvailable),
         ],
         // The action currently granted per object, applying the user's overrides on top of the
         // requested defaults (clamped so a required floor can never be dropped below).
