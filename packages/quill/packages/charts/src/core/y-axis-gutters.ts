@@ -27,6 +27,8 @@ export interface YAxisGutterOptions {
     userYTickFormatter?: (value: number) => string
     yAxisFormatters?: Record<string, (value: number) => string>
     titles?: Record<string, string>
+    /** Axis ids to skip entirely — no ticks, no title, no gutter step. Multi-axis path only. */
+    hiddenAxes?: Record<string, boolean>
 }
 
 /** Gap from the plot edge to a gutter's tick labels — shared by AxisLabels and AxisTitles. */
@@ -41,7 +43,7 @@ function widestTickWidth(ticks: number[], formatter: (value: number) => string):
  *  `AxisTitles` (titles) so the two can't drift. */
 export function computeYAxisGutters(
     scales: ChartScales,
-    { yTicks, yTickFormatter, userYTickFormatter, yAxisFormatters, titles }: YAxisGutterOptions
+    { yTicks, yTickFormatter, userYTickFormatter, yAxisFormatters, titles, hiddenAxes }: YAxisGutterOptions
 ): Gutter[] {
     if (!scales.yAxes) {
         const formatter = yTickFormatter ?? autoFormatterFor(yTicks)
@@ -63,6 +65,9 @@ export function computeYAxisGutters(
     let rightCum = 0
     const gutters: Gutter[] = []
     for (const [axisId, axis] of Object.entries(scales.yAxes)) {
+        if (hiddenAxes?.[axisId]) {
+            continue
+        }
         const ticks = axis.ticks()
         const formatter = yAxisFormatters?.[axisId] ?? userYTickFormatter ?? autoFormatterFor(ticks)
         const offset = axis.position === 'left' ? leftCum : rightCum

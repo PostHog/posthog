@@ -1,6 +1,7 @@
 import sharp from 'sharp'
 
-import { blurImageDataUri, isImageDataUri, runBlurJobs } from './blur'
+import { blurImageDataUri, isImageDataUri, memoizedBlur, runBlurJobs } from './blur'
+import { BlurCache } from './config'
 
 // A small patterned PNG (portable across libvips/libpng builds; a bare 1x1 is rejected by some,
 // and a solid color blurs to identical bytes, so we use a checkerboard the blur visibly changes).
@@ -58,6 +59,36 @@ describe('anonymize/blur', () => {
         }
         await runBlurJobs([bump, bump])
         expect(ran).toBe(2)
+    })
+
+    it('memoizedBlur runs compute once per key and shares the result (the in-batch dedup)', async () => {
+        const cache: BlurCache = new Map()
+        let calls = 0
+        const compute = () => {
+            calls++
+            return Promise.resolve('blurred')
+        }
+        // The regression this guards: without dedup, one image repeated N times in a message
+        // blurs N times. Same key must collapse to a single compute.
+        const [a, b] = await Promise.all([memoizedBlur(cache, 'img', compute), memoizedBlur(cache, 'img', compute)])
+        expect(calls).toBe(1)
+        expect(a).toBe('blurred')
+        expect(b).toBe('blurred')
+
+        // A distinct key is a distinct image — it recomputes.
+        await memoizedBlur(cache, 'other', compute)
+        expect(calls).toBe(2)
+    })
+
+    it('memoizedBlur without a cache always computes (dedup is opt-in via the cache)', async () => {
+        let calls = 0
+        const compute = () => {
+            calls++
+            return Promise.resolve('blurred')
+        }
+        await memoizedBlur(undefined, 'img', compute)
+        await memoizedBlur(undefined, 'img', compute)
+        expect(calls).toBe(2)
     })
 
     it('runBlurJobs swallows a job that throws (already-blanked image is left as-is)', async () => {

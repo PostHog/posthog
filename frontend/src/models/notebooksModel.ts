@@ -128,6 +128,7 @@ export const notebooksModel = kea<notebooksModelType>([
 
                     posthog.capture(`notebook created`, {
                         short_id: notebook.short_id,
+                        is_markdown: useMarkdownNotebook,
                     })
 
                     void addProductIntent({

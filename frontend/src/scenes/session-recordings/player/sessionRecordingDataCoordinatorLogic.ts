@@ -32,7 +32,6 @@ import type { sessionRecordingDataCoordinatorLogicType } from './sessionRecordin
 import { sessionRecordingMetaLogic } from './sessionRecordingMetaLogic'
 import { posthogTelemetry } from './snapshot-processing/process-all-snapshots'
 import { snapshotDataLogic } from './snapshotDataLogic'
-import { convertSegmentKinds } from './utils/segment-kind-conversion'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 
 export interface SessionRecordingDataCoordinatorLogicProps {
@@ -218,10 +217,15 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
             const sources = values.snapshotSources
             const snapshotsBySource = {} as Record<string, { snapshots: RecordingSnapshot[] }>
+            // fetched sources this pass will cover — promoted to loaded on completion, including empty ones that contribute no snapshots
+            const coveredIndexes: number[] = []
             if (sources) {
                 for (let i = 0; i < sources.length; i++) {
                     const entry = values.snapshotStore.getEntry(i)
-                    if (entry?.state === 'loaded' && entry.processedSnapshots?.length) {
+                    if (entry?.state === 'fetched') {
+                        coveredIndexes.push(i)
+                    }
+                    if (entry?.state !== 'unloaded' && entry?.processedSnapshots?.length) {
                         snapshotsBySource[keyForSource(sources[i])] = {
                             snapshots: entry.processedSnapshots,
                         }
@@ -229,27 +233,42 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 }
             }
 
-            const result = await processAllSnapshots(
-                sources,
-                snapshotsBySource,
-                cache.processingCache,
-                values.viewportForTimestamp,
-                props.sessionRecordingId,
-                posthogTelemetry
-            )
+            let result: RecordingSnapshot[]
+            try {
+                result = await processAllSnapshots(
+                    sources,
+                    snapshotsBySource,
+                    cache.processingCache,
+                    values.viewportForTimestamp,
+                    props.sessionRecordingId,
+                    posthogTelemetry
+                )
+            } catch (error) {
+                // A processing throw on the final batch would otherwise leave fetched sources unplayable forever (nothing re-triggers processing), so retry with backoff.
+                posthog.captureException(error)
+                cache.processingFailureCount = (cache.processingFailureCount ?? 0) + 1
+                if (cache.processingFailureCount <= 3) {
+                    await breakpoint(cache.processingFailureCount * 1000)
+                    actions.processSnapshotsAsync()
+                }
+                return
+            }
+            cache.processingFailureCount = 0
 
             breakpoint()
 
+            // Promotion is what makes these sources count as playable — the oracle, segments, and planner all key on it, so it must land with the processed snapshots.
+            const promoted = values.snapshotStore.markProcessed(coveredIndexes)
             // processAllSnapshots may synthesize full snapshots (e.g. for mobile recordings).
-            // Sync them back to the store so canPlayAt() and LoadingScheduler work correctly.
-            if (values.snapshotStore.syncFullSnapshotTimestamps(result)) {
-                actions.storeUpdated()
-            }
+            // Sync them back to the store so canPlayAt() and the load planner work correctly.
+            const synced = values.snapshotStore.syncFullSnapshotTimestamps(result)
 
-            // Release raw snapshot arrays from the store — only the metadata
-            // (fullSnapshots, metaTimestamps, state) is still needed.
+            // Release raw snapshot arrays from the store — only the metadata (fullSnapshots, state) is still needed.
             values.snapshotStore.clearSnapshotData()
 
+            if (promoted || synced) {
+                actions.storeUpdated()
+            }
             actions.setProcessedSnapshots(result)
         },
 
@@ -261,7 +280,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             }
         },
     })),
-    selectors(({ cache }) => ({
+    selectors(() => ({
         snapshots: [
             (s) => [s.processedSnapshots],
             (processedSnapshots: RecordingSnapshot[]): RecordingSnapshot[] => {
@@ -318,7 +337,6 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 s.end,
                 s.trackedWindow,
                 s.snapshotsByWindowId,
-                s.isLoadingSnapshots,
                 s.snapshotStore,
                 s.storeVersion,
             ],
@@ -328,11 +346,11 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 end: Dayjs | null,
                 trackedWindow: number | null,
                 snapshotsByWindowId: Record<number, eventWithTime[]>,
-                isLoadingSnapshots: boolean,
                 snapshotStore: SnapshotStore
             ): RecordingSegment[] => {
-                const segments = createSegments(snapshots || [], start, end, trackedWindow, snapshotsByWindowId)
-                return convertSegmentKinds(segments, snapshotStore, isLoadingSnapshots)
+                return createSegments(snapshots || [], start, end, trackedWindow, snapshotsByWindowId, (s, e) =>
+                    snapshotStore.isRangeLoaded(s, e)
+                )
             },
         ],
 
@@ -363,19 +381,21 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
         windowIdForTimestamp: [
             (s) => [s.segments],
-            (segments) =>
-                (timestamp: number): number | undefined => {
-                    cache.windowIdForTimestamp = cache.windowIdForTimestamp || {}
-                    if (cache.windowIdForTimestamp[timestamp] !== undefined) {
-                        return cache.windowIdForTimestamp[timestamp]
+            (segments) => {
+                // memoized per segments recompute — segments reshape as data loads, so a logic-lifetime cache would pin stale window attributions
+                const memo: Record<number, number | undefined> = {}
+                return (timestamp: number): number | undefined => {
+                    if (timestamp in memo) {
+                        return memo[timestamp]
                     }
                     const matchingWindowId = segments.find(
                         (segment) => segment.startTimestamp <= timestamp && segment.endTimestamp >= timestamp
                     )?.windowId
 
-                    cache.windowIdForTimestamp[timestamp] = matchingWindowId
+                    memo[timestamp] = matchingWindowId
                     return matchingWindowId
-                },
+                }
+            },
         ],
 
         urls: [
@@ -498,7 +518,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         effectiveSourceLoadingStates: [
             (s) => [s.sourceLoadingStates, s.segments],
             (states: SourceLoadingState[], segments: RecordingSegment[]): SourceLoadingState[] => {
-                let lastNonGapState: 'loaded' | 'unloaded' = 'unloaded'
+                let lastNonGapState: SourceLoadingState['state'] = 'unloaded'
                 return states.map((s) => {
                     const inGap = !segments.some(
                         (seg) => seg.kind !== 'gap' && seg.startTimestamp < s.endMs && seg.endTimestamp > s.startMs
@@ -583,7 +603,6 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         ],
     })),
     beforeUnmount(({ cache, actions, values }) => {
-        cache.windowIdForTimestamp = undefined
         cache.processingCache = undefined
         // Force clear processedSnapshots to release memory immediately
         // This breaks the reference chain in selector memoization cache

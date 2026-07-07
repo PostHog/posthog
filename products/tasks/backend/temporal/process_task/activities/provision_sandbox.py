@@ -83,6 +83,17 @@ class CreateSandboxForRepositoryOutput:
     sandbox_url: str
     connect_token: str | None
     used_snapshot: bool | None = None
+    create_ms: int | None = None
+
+
+@dataclass
+class CloneRepositoryInSandboxOutput:
+    clone_ms: int | None = None
+
+
+@dataclass
+class CheckoutBranchInSandboxOutput:
+    checkout_ms: int | None = None
 
 
 @dataclass
@@ -110,6 +121,12 @@ class InjectFreshTokensOnResumeInput:
     context: TaskProcessingContext
     sandbox_id: str
     repository: str | None
+
+
+@dataclass
+class InvalidateResumeSnapshotInput:
+    run_id: str
+    snapshot_external_id: str | None = None
 
 
 def _is_covered_by_wildcard(host: str, wildcard_bases: set[str]) -> bool:
@@ -305,10 +322,14 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                 used_snapshot = snapshot is not None
                 snapshot_lookup_timer.set_used_snapshot(used_snapshot)
             if snapshot is not None:
-                snapshot_source = "repository"
                 snapshot_metadata = get_sandbox_snapshot_metadata(snapshot)
-                snapshot_kind = snapshot_metadata.kind
-                snapshot_mount_path = snapshot_metadata.mount_path
+                if not snapshot_metadata.is_usable:
+                    snapshot = None
+                    used_snapshot = False
+                else:
+                    snapshot_source = "repository"
+                    snapshot_kind = snapshot_metadata.kind
+                    snapshot_mount_path = snapshot_metadata.mount_path
         elif not has_repo:
             emit_agent_log(ctx.run_id, "debug", "Creating environment without repository")
 
@@ -356,10 +377,18 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         # kind of new snapshot created after this run.
         resume_snapshot_external_id = run_state.snapshot_external_id
         if resume_snapshot_external_id:
-            used_snapshot = True
-            snapshot_source = "resume"
-            snapshot_kind = run_state.resume_snapshot_kind()
-            snapshot_mount_path = run_state.resume_snapshot_mount_path()
+            if not run_state.resume_snapshot_is_usable():
+                emit_agent_log(
+                    ctx.run_id,
+                    "debug",
+                    "Previous session snapshot is unusable; resuming with a fresh sandbox",
+                )
+                resume_snapshot_external_id = None
+            else:
+                used_snapshot = True
+                snapshot_source = "resume"
+                snapshot_kind = run_state.resume_snapshot_kind()
+                snapshot_mount_path = run_state.resume_snapshot_mount_path()
 
         activity.logger.info(
             "resume_decision",
@@ -476,6 +505,7 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
                 (prepared.snapshot_external_id or prepared.snapshot_id) and sandbox.config.snapshot_restored
             )
             sandbox_creation_timer.set_used_snapshot(actual_used_snapshot)
+        create_ms = sandbox_creation_timer.elapsed_ms
         snapshot_outcome = (
             "used" if actual_used_snapshot else "fresh" if prepared.snapshot_source == "none" else "fallback"
         )
@@ -512,12 +542,13 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
             sandbox_url=credentials.url,
             connect_token=credentials.token,
             used_snapshot=actual_used_snapshot,
+            create_ms=create_ms,
         )
 
 
 @activity.defn
 @asyncify
-def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> None:
+def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRepositoryInSandboxOutput:
     ctx = input.context
 
     with log_activity_execution(
@@ -528,7 +559,7 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> None:
         emit_agent_log(ctx.run_id, "debug", f"Cloning {input.repository} into sandbox")
         sandbox = Sandbox.get_by_id(input.sandbox_id)
 
-        with StepTimer("repository_clone", used_snapshot=False):
+        with StepTimer("repository_clone", used_snapshot=False) as clone_timer:
             clone_result = sandbox.clone_repository(
                 input.repository,
                 github_token=input.github_token,
@@ -538,10 +569,12 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> None:
         if clone_result.exit_code != 0:
             raise RuntimeError(f"Failed to clone repository {input.repository}: {clone_result.stderr}")
 
+        return CloneRepositoryInSandboxOutput(clone_ms=clone_timer.elapsed_ms)
+
 
 @activity.defn
 @asyncify
-def checkout_branch_in_sandbox(input: CheckoutBranchInSandboxInput) -> None:
+def checkout_branch_in_sandbox(input: CheckoutBranchInSandboxInput) -> CheckoutBranchInSandboxOutput:
     ctx = input.context
 
     with log_activity_execution(
@@ -575,12 +608,14 @@ def checkout_branch_in_sandbox(input: CheckoutBranchInSandboxInput) -> None:
             f"git checkout -B {shlex.quote(input.branch)} FETCH_HEAD"
         )
 
-        with StepTimer("branch_checkout", used_snapshot=input.used_snapshot):
+        with StepTimer("branch_checkout", used_snapshot=input.used_snapshot) as checkout_timer:
             result = sandbox.execute(fetch_and_checkout, timeout_seconds=5 * 60)
 
         if result.exit_code != 0:
             logger.warning("Branch checkout failed", extra={"branch": input.branch, "stderr": result.stderr})
             raise RuntimeError(f"Failed to checkout branch {input.branch}")
+
+        return CheckoutBranchInSandboxOutput(checkout_ms=checkout_timer.elapsed_ms)
 
 
 @activity.defn
@@ -673,3 +708,20 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
                 )
 
         emit_agent_log(ctx.run_id, "debug", "Refreshed sandbox credentials after resume")
+
+
+@activity.defn
+@asyncify
+def invalidate_resume_snapshot(input: InvalidateResumeSnapshotInput) -> None:
+    """Drop the resume snapshot from the run state after a failed restore, so retries and
+    future runs of the task (which carry the previous run's snapshot) stop resuming from it."""
+    with log_activity_execution(
+        "invalidate_resume_snapshot",
+        run_id=input.run_id,
+        snapshot_external_id=input.snapshot_external_id,
+    ):
+        TaskRun.update_state_atomic(
+            input.run_id,
+            remove_keys=["snapshot_external_id", "snapshot_kind", "snapshot_mount_path"],
+        )
+        emit_agent_log(input.run_id, "debug", "Previous session snapshot could not be restored; discarded it")

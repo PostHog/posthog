@@ -11,7 +11,8 @@ from products.data_warehouse.backend.tasks import (
     send_external_data_failure_digest_task,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema
-from products.warehouse_sources.backend.temporal.data_imports.metrics import (
+from products.warehouse_sources.backend.facade.pipelines import (
+    LOCK_TAKEOVER_LATEST_ERROR,
     TERMINAL_JOB_STATUSES,
     emit_data_import_app_metrics,
 )
@@ -29,8 +30,16 @@ def update_external_job_status(
     with transaction.atomic():
         model = ExternalDataJob.objects.select_for_update().get(id=job_id, team_id=team_id)
 
+        # The loader may finish a run after lock takeover force-failed its job; only the
+        # exact takeover sentinel unseals Failed -> Completed — genuine failures stay absorbing.
+        is_takeover_recovery = (
+            model.status == ExternalDataJob.Status.FAILED
+            and status == ExternalDataJob.Status.COMPLETED
+            and model.latest_error == LOCK_TAKEOVER_LATEST_ERROR
+        )
+
         # Terminal states are absorbing: same-status retries pass, different statuses are rejected.
-        if model.status in TERMINAL_JOB_STATUSES and model.status != status:
+        if model.status in TERMINAL_JOB_STATUSES and model.status != status and not is_takeover_recovery:
             logger.warning(
                 "dwh_job_status_transition_rejected",
                 job_id=job_id,
@@ -40,11 +49,20 @@ def update_external_job_status(
             JOB_STATUS_TRANSITION_REJECTED.inc()
             return model
 
+        if is_takeover_recovery:
+            logger.info(
+                "dwh_job_completed_after_lock_takeover",
+                job_id=job_id,
+            )
+
         model.status = status
         model.latest_error = latest_error
 
-        # Only stamp finished_at and emit metrics on the first terminal transition.
-        is_first_terminal_transition = status in TERMINAL_JOB_STATUSES and model.finished_at is None
+        # Only stamp finished_at and emit metrics on the first terminal transition. Takeover
+        # recovery re-stamps: the Failed stamp predates the load and never emitted success metrics.
+        is_first_terminal_transition = status in TERMINAL_JOB_STATUSES and (
+            model.finished_at is None or is_takeover_recovery
+        )
         update_fields = ["status", "latest_error", "updated_at"]
         if is_first_terminal_transition:
             model.finished_at = dt.datetime.now(dt.UTC)

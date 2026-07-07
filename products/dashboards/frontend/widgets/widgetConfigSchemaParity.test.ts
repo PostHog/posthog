@@ -7,6 +7,7 @@ import {
     experimentsWidgetConfigSchema,
     logsWidgetConfigSchema,
     sessionReplayWidgetConfigSchema,
+    surveyResultsWidgetConfigSchema,
     widgetFilterEntrySchema,
 } from '../generated/widget-configs.zod'
 
@@ -17,6 +18,7 @@ const WIDGET_CONFIG_SCHEMAS = {
     experiments_list: experimentsWidgetConfigSchema,
     experiment_results: experimentResultsWidgetConfigSchema,
     logs_list: logsWidgetConfigSchema,
+    survey_results: surveyResultsWidgetConfigSchema,
 } as const
 
 type SchemaNode = { _zod?: { def?: ZodDef } }

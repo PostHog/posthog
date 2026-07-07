@@ -31,6 +31,27 @@ class AccountAssignment:
 
 
 @dataclass(frozen=True)
+class AccountRelationshipDefinition:
+    """A team-defined account relationship type (CSM, Onboarding manager, ...)."""
+
+    id: UUID
+    name: str
+    description: str | None
+    is_single_holder: bool
+
+
+@dataclass(frozen=True)
+class AccountRelationship:
+    """One assignment of a user to an account relationship, with its effective range."""
+
+    id: UUID
+    definition: AccountRelationshipDefinition
+    user: AccountAssignment | None
+    started_at: datetime
+    ended_at: datetime | None
+
+
+@dataclass(frozen=True)
 class AccountProperties:
     """Typed account properties — assignment roles and external-system identifiers.
 
@@ -250,6 +271,16 @@ class CustomPropertyReference:
 
 
 @stdlib_dataclass(frozen=True)
+class CustomPropertyOption:
+    """One allowed value of a select custom property. ``id`` is server-assigned and stable across
+    renames so option edits can be diffed; ``color`` is a preset data-color token."""
+
+    label: str = ""
+    color: str = ""
+    id: str | None = None
+
+
+@stdlib_dataclass(frozen=True)
 class CustomPropertyDefinitionView:
     """A team-scoped custom account-property definition as returned by the
     custom-property-definitions endpoints.
@@ -257,7 +288,8 @@ class CustomPropertyDefinitionView:
     Defaults exist so the wrapping serializer can parse partial request bodies (see
     :class:`AccountView`). ``created_by`` is the creator's user id (or ``None``), matching
     the old model serializer's ``PrimaryKeyRelatedField`` output. ``references`` lists where the
-    property is used (workflows), resolved by definition id.
+    property is used (workflows), resolved by definition id. ``source`` is the read-only
+    view-sync binding when one is configured for this definition, else ``None``.
     """
 
     id: UUID | None = None
@@ -269,6 +301,33 @@ class CustomPropertyDefinitionView:
     created_by: int | None = None
     updated_at: datetime | None = None
     references: list[CustomPropertyReference] = field(default_factory=list)
+    source: "CustomPropertySourceView | None" = None
+    options: list[CustomPropertyOption] | None = None
+
+
+@stdlib_dataclass(frozen=True)
+class CustomPropertySourceView:
+    """A custom-property source: binds a materialized view's column to a definition, feeding its
+    values on each materialization.
+
+    ``definition`` / ``saved_query`` are ids (the definition this feeds, and the data-warehouse
+    saved query read from). ``last_sync_error`` is null when the last run succeeded or hasn't run.
+    Defaults exist so the wrapping serializer can parse partial request bodies (see
+    :class:`AccountView`).
+    """
+
+    id: UUID | None = None
+    definition: UUID | None = None
+    saved_query: UUID | None = None
+    source_column: str = ""
+    key_column: str = ""
+    is_enabled: bool = True
+    consecutive_failures: int = 0
+    last_synced_at: datetime | None = None
+    last_sync_error: str | None = None
+    created_at: datetime | None = None
+    created_by: int | None = None
+    updated_at: datetime | None = None
 
 
 @stdlib_dataclass(frozen=True)
@@ -288,6 +347,21 @@ class AccountNotebookView:
     created_by: UserBasicInfo | None = None
     last_modified_at: datetime | None = None
     last_modified_by: UserBasicInfo | None = None
+
+
+@dataclass(frozen=True)
+class AccountNoteView:
+    """A row of the team-wide account-notes list: an internal notebook plus the account it's
+    linked to. Read-only (the wrapping serializer never parses request bodies), so fields are
+    strict — no serializer-instantiation defaults like :class:`AccountView` needs."""
+
+    short_id: str
+    title: str | None
+    created_at: datetime
+    last_modified_at: datetime
+    account_id: UUID
+    account_name: str
+    created_by: UserBasicInfo | None = None
 
 
 # --- Presentation wave: input contracts for the CRUD write paths ---
@@ -363,6 +437,7 @@ class ExternalAccountCustomPropertiesError(Enum):
     INVALID_VALUE = "invalid_value"
     CONFLICT = "conflict"
     UPDATE_FAILED = "update_failed"
+    SOURCE_MANAGED = "source_managed"
 
 
 @dataclass(frozen=True)
@@ -371,7 +446,8 @@ class ExternalAccountCustomPropertiesResult:
     case to its exact HTTP status and error string without holding write logic.
 
     Exactly one of ``values`` / ``error`` is set. ``error_field`` carries the offending
-    property name for ``DEFINITION_NOT_FOUND`` / ``INVALID_VALUE`` failures; it is None otherwise.
+    property name for ``DEFINITION_NOT_FOUND`` / ``INVALID_VALUE`` / ``SOURCE_MANAGED`` failures;
+    it is None otherwise.
     """
 
     values: list[CustomPropertyValue] | None = None

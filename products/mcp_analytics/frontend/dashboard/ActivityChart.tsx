@@ -9,6 +9,8 @@ import {
 } from '@posthog/quill-charts'
 import { Skeleton } from '@posthog/quill-primitives'
 
+import { useChartConfig } from 'lib/charts/hooks'
+
 import { type DailyActivity } from '../mcpDashboardOverviewLogic'
 import { Card, CardState } from './Card'
 
@@ -41,12 +43,14 @@ export function ActivityChart({
         ]
     }, [daily, theme, incompleteTail])
     // quill's built-in date tick formatter only kicks in when both interval and timezone are set.
-    const config = useMemo<TimeSeriesLineChartConfig>(
+    const config = useChartConfig<TimeSeriesLineChartConfig>(
         () => ({
-            yAxis: { showGrid: false },
+            curve: 'monotone',
             showAxisLines: true,
-            xAxis: { interval, timezone },
+            showTickMarks: true,
             showCrosshair: true,
+            showGrid: true,
+            xAxis: { interval, timezone },
             tooltip: { placement: 'cursor' },
         }),
         [timezone, interval]

@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 use crate::filters::reverse_index::TeamFilters;
 use crate::filters::{CohortId, TeamId};
-use crate::merge::apply_handler::apply_leaves;
+use crate::merge::apply_handler::{apply_leaves, QueueEffects};
 use crate::merge::tombstone_redirect::{resolve, Resolution};
 use crate::merge::transfer::{
     DrainStamp, MergeStateTransfer, PendingTransfer, PersonMergeEvent, Tombstone, TransferLeaf,
@@ -32,15 +32,22 @@ use crate::store::{
     CohortStore, IndexOp, MergeDrainKey, PendingTransferKey, PersonIndexKey, Stage2Key, StoreError,
     TombstoneKey,
 };
-use crate::sweep::EvictionQueue;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DrainOutcome {
-    /// Same-partition fast path: P_old merged into P_new inline.
-    FastPath { transitions: Vec<LeafTransition> },
+    /// Same-partition fast path: P_old merged into P_new inline. `effects` cancels P_old's keys and
+    /// schedules P_new's new deadlines.
+    FastPath {
+        transitions: Vec<LeafTransition>,
+        effects: QueueEffects,
+    },
     /// Cross-partition slow path: state drained into `transfer`, staged in `cf_pending_transfers`.
     /// An empty transfer (no leaves) is not staged; the caller skips the produce and commits directly.
-    Drained { transfer: MergeStateTransfer },
+    /// `effects` cancels P_old's now-deleted keys (no schedules — the state left this partition).
+    Drained {
+        transfer: MergeStateTransfer,
+        effects: QueueEffects,
+    },
     /// Idempotence hit — already drained. The caller re-produces any still-staged pending transfer.
     AlreadyDrained,
     /// Skipped before any state change (validation failure).
@@ -57,13 +64,15 @@ pub enum DrainSkip {
 /// `partition_count` is the live co-partitioned topic count (production 64; test lanes lower it):
 /// the fast-path-vs-slow-path decision turns on whether P_new hashes onto `partition_id` under this
 /// count, so it must match the deploy's topology.
+// Sync drain core; runs on the blocking pool inside `StoreHandle::run_section`, so its direct
+// `CohortStore` I/O (and that of `fast_path`/`slow_path`) is already off the runtime threads.
+#[allow(clippy::disallowed_methods)]
 pub fn handle_merge_event(
     partition_id: u16,
     store: &CohortStore,
     filters: &TeamFilters,
     event: &PersonMergeEvent,
     msg_coords: (i32, i64),
-    queue: &mut EvictionQueue<Stage1Key>,
     partition_count: u32,
 ) -> Result<DrainOutcome, StoreError> {
     let team_id = event.team_id;
@@ -175,7 +184,6 @@ pub fn handle_merge_event(
             &old_index,
             &old_stage2_keys,
             &present_leaves,
-            queue,
         );
     }
 
@@ -193,12 +201,11 @@ pub fn handle_merge_event(
         &old_index,
         &old_stage2_keys,
         &present_leaves,
-        queue,
     )
 }
 
 /// Same-partition fast path: drain P_old and apply into P_new in one atomic batch.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::disallowed_methods)]
 fn fast_path(
     partition_id: u16,
     store: &CohortStore,
@@ -213,7 +220,6 @@ fn fast_path(
     old_index: &PersonIndexKey,
     old_stage2_keys: &[Stage2Key],
     present_leaves: &[(LeafStateKey, StatefulRecord)],
-    queue: &mut EvictionQueue<Stage1Key>,
 ) -> Result<DrainOutcome, StoreError> {
     counter!(MERGE_HANDLED_TOTAL, "path" => "same_partition").increment(1);
 
@@ -251,20 +257,17 @@ fn fast_path(
         }
     })?;
 
-    for key in old_keys {
-        queue.cancel(key);
-    }
-    for (key, deadline) in &apply.schedules {
-        queue.schedule(*key, *deadline);
-    }
-
     Ok(DrainOutcome::FastPath {
         transitions: apply.transitions,
+        effects: QueueEffects {
+            cancels: old_keys.to_vec(),
+            schedules: apply.schedules,
+        },
     })
 }
 
 /// Cross-partition slow path: drain P_old, stage the transfer for the caller to produce.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::disallowed_methods)]
 fn slow_path(
     partition_id: u16,
     store: &CohortStore,
@@ -279,7 +282,6 @@ fn slow_path(
     old_index: &PersonIndexKey,
     old_stage2_keys: &[Stage2Key],
     present_leaves: &[(LeafStateKey, StatefulRecord)],
-    queue: &mut EvictionQueue<Stage1Key>,
 ) -> Result<DrainOutcome, StoreError> {
     counter!(MERGE_HANDLED_TOTAL, "path" => "cross_partition").increment(1);
 
@@ -325,11 +327,13 @@ fn slow_path(
         batch.put_tombstone(tombstone_key, &tombstone.encode());
     })?;
 
-    for key in old_keys {
-        queue.cancel(key);
-    }
-
-    Ok(DrainOutcome::Drained { transfer })
+    Ok(DrainOutcome::Drained {
+        transfer,
+        effects: QueueEffects {
+            cancels: old_keys.to_vec(),
+            schedules: Vec::new(),
+        },
+    })
 }
 
 /// The team's cohort ids that write `cf_stage2` rows (both composable classes). See
