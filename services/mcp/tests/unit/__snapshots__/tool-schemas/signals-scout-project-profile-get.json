@@ -5,6 +5,17 @@
             "default": false,
             "description": "When true, skip the cache and rebuild the profile from authoritative sources before responding. Use after seeding events, importing data, or any other change the caller knows just landed but hasn't surfaced through natural cache expiry yet. Honored only for the internal scout token — public read callers get the cached profile regardless. Concurrent forced rebuilds are serialized by the team-keyed advisory lock — at most one extra `build_inventory` per simultaneous request.",
             "type": "boolean"
+        },
+        "run_id": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The calling scout's `run_id`. Pass it so `emit_eligibility` reflects this scout's own dry-run `emit` toggle, not just the team-wide gates: a dry-run scout then reads `can_emit=false` / `scout_dry_run=true` at cold start and can close out during Orient instead of discovering at emit time that its findings are dropped. Honored only for the internal scout token; ignored for public read callers."
         }
     },
     "type": "object"
