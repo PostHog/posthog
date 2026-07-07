@@ -573,3 +573,12 @@ class AccountRelationshipSerializer(DataclassSerializer):
         dataclass = AccountRelationship
         ref_name = "AccountRelationship"
         fields = ["id", "definition", "user", "started_at", "ended_at"]
+
+
+class AccountRelationshipWriteSerializer(serializers.Serializer):
+    """Input for assigning a user to an account relationship."""
+
+    definition = serializers.UUIDField(help_text="Id of the relationship definition to assign.")
+    user = serializers.IntegerField(
+        help_text="PostHog user id of the assignee. Must be a member of the account's organization."
+    )

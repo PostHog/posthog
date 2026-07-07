@@ -1809,3 +1809,52 @@ def list_account_relationships(
     if not include_history:
         queryset = queryset.filter(ended_at__isnull=True)
     return [_to_account_relationship(relationship) for relationship in queryset]
+
+
+class AccountRelationshipDefinitionNotFound(Exception):
+    pass
+
+
+class AccountRelationshipAssigneeNotInOrganization(Exception):
+    pass
+
+
+def assign_account_relationship(
+    *, team_id: int, account_id: str | UUID, definition_id: str | UUID, user_id: int, created_by: "User"
+) -> contracts.AccountRelationship:
+    """Assign a user to an account relationship. Single-holder definitions hand off — the
+    previous active assignment is ended in the same transaction. Idempotent when the user
+    already actively holds the relationship.
+
+    Raises ``Account_DoesNotExist`` (→ 404), ``AccountRelationshipDefinitionNotFound`` and
+    ``AccountRelationshipAssigneeNotInOrganization`` (→ 400).
+    """
+    account = Account.objects.for_team(team_id).select_related("team").get(id=account_id)
+    definition = AccountRelationshipDefinition.objects.for_team(team_id).filter(id=definition_id).first()
+    if definition is None:
+        raise AccountRelationshipDefinitionNotFound(str(definition_id))
+    membership = (
+        OrganizationMembership.objects.select_related("user")
+        .filter(organization_id=account.team.organization_id, user_id=user_id)
+        .first()
+    )
+    if membership is None:
+        raise AccountRelationshipAssigneeNotInOrganization(str(user_id))
+    relationship = _relationships_logic.assign(
+        team_id=team_id, account=account, definition=definition, user=membership.user, created_by=created_by
+    )
+    return _to_account_relationship(relationship)
+
+
+def end_account_relationship(
+    *, team_id: int, account_id: str | UUID, relationship_id: str | UUID
+) -> contracts.AccountRelationship | None:
+    """End an active assignment. Returns None when no active assignment matches this account
+    (missing, another account's, or already ended) — mapped to 404."""
+    try:
+        relationship = _relationships_logic.end_relationship(
+            team_id=team_id, account_id=account_id, relationship_id=str(relationship_id)
+        )
+    except _relationships_logic.AccountRelationshipNotFound:
+        return None
+    return _to_account_relationship(relationship)
