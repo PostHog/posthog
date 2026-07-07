@@ -24,7 +24,7 @@ from posthog.settings.temporal import DATA_MODELING_TASK_QUEUE
 from posthog.sync import database_sync_to_async
 
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.data_warehouse.backend.facade.api import get_saved_query_schedule
 from products.endpoints.backend.logic.execution import EndpointExecutionService
 from products.endpoints.backend.logic.materialization import (
@@ -783,7 +783,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             is_materialized=True,
             status=DataWarehouseSavedQuery.Status.COMPLETED,
             sync_frequency_interval=timedelta(hours=1),
-            last_run_at=now - timedelta(hours=2),  # Last run 2 hours ago, sync every 1 hour = stale
+            last_run_at=now - timedelta(hours=2),  # Last run 2 hours ago, freshness target 1 hour = stale
         )
         saved_query.table = DataWarehouseTable.objects.create(
             team=self.team,
@@ -799,6 +799,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             query=self.sample_hogql_query,
             created_by=self.user,
             is_active=True,
+            data_freshness_seconds=3600,
         )
         # Link saved_query to version
         version = endpoint.versions.first()
@@ -877,6 +878,104 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             # Should use materialized table because data is fresh
             mock_materialized.assert_called_once()
             mock_inline.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("stale_serves_inline", timedelta(hours=2), "inline"),
+            ("fresh_serves_materialized", timedelta(minutes=10), "materialized"),
+        ]
+    )
+    def test_v2_migrated_staleness_keys_on_data_freshness(self, _name, materialized_age, expected_path):
+        """Migration to v2 DAG schedules nulls sync_frequency_interval; the serve-time staleness
+        guard must key on the version's data_freshness_seconds or stale data is served forever."""
+        now = timezone.now()
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="v2_staleness_endpoint",
+            query=self.sample_hogql_query,
+            is_materialized=True,
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+            sync_frequency_interval=None,
+            last_run_at=now - materialized_age,
+        )
+        saved_query.table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="v2_staleness_endpoint",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://test-bucket/path",
+        )
+        saved_query.save()
+
+        endpoint = create_endpoint_with_version(
+            name="v2_staleness_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+            data_freshness_seconds=3600,
+        )
+        version = endpoint.versions.first()
+        version.saved_query = saved_query
+        version.save()
+
+        with (
+            mock.patch.object(
+                EndpointExecutionService, "_execute_materialized_endpoint", return_value=Response({})
+            ) as mock_materialized,
+            mock.patch.object(
+                EndpointExecutionService, "_execute_inline_endpoint", return_value=Response({})
+            ) as mock_inline,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
+                {},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        if expected_path == "inline":
+            mock_inline.assert_called_once()
+            mock_materialized.assert_not_called()
+        else:
+            mock_materialized.assert_called_once()
+            mock_inline.assert_not_called()
+
+    def test_materialization_status_derives_last_materialized_at_from_jobs(self):
+        """v2 DAG runs record success on DataModelingJob without touching saved_query.last_run_at;
+        the status payload must report the real materialization time, not the frozen v1 field."""
+        job_time = timezone.now() - timedelta(minutes=5)
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="status_freshness_endpoint",
+            query=self.sample_hogql_query,
+            is_materialized=True,
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+            last_run_at=timezone.now() - timedelta(days=3),
+        )
+        endpoint = create_endpoint_with_version(
+            name="status_freshness_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+        version = endpoint.versions.first()
+        version.saved_query = saved_query
+        version.save()
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=saved_query,
+            status=DataModelingJob.Status.COMPLETED,
+            engine=DataModelingJob.Engine.CLICKHOUSE,
+            last_run_at=job_time,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/materialization_status/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["last_materialized_at"], job_time.isoformat())
 
     def test_force_mode_uses_materialized_table(self):
         """Test that 'force' mode on a materialized endpoint still uses the materialized table (not inline)."""
