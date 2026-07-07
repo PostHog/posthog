@@ -730,6 +730,34 @@ class TestKickoffSingleFlight(_FlowTestBase):
         assert self._row().onboarding_state is None
 
 
+class TestActionSingleFlight(_FlowTestBase):
+    @patch(WEBCLIENT)
+    def test_held_claim_blocks_duplicate_action(self, mock_webclient):
+        # Slack sends each click as its own request, so a concurrent duplicate must not double-run
+        # the state-mutating handler (double completion post, followup re-write). A held per-user
+        # claim skips the handler; clearing it lets the next run complete.
+        client = self._client(mock_webclient)
+        row = self._seed_state(persona_onboarding.STEP_AWAITING_PERSONA)
+        action = {"action_id": f"{persona_onboarding.PERSONA_SELECT_ACTION_ID}:engineer", "value": "engineer"}
+        claim_key = f"slack_onboarding_action_claim:{WORKSPACE}:{SLACK_USER}"
+
+        cache.add(claim_key, 1, timeout=60)
+        persona_onboarding.handle_block_action(self._payload(action), action)
+
+        client.chat_postMessage.assert_not_called()
+        row.refresh_from_db()
+        assert row.onboarded_at is None
+        assert row.onboarding_state is not None
+
+        cache.delete(claim_key)
+        persona_onboarding.handle_block_action(self._payload(action), action)
+
+        row.refresh_from_db()
+        assert row.persona == "engineer"
+        assert row.onboarded_at is not None
+        assert row.onboarding_state is None
+
+
 class TestOnboardingHomeView(_FlowTestBase):
     @patch(FLAG, return_value=True)
     @patch(WEBCLIENT)

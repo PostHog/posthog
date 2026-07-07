@@ -664,10 +664,12 @@ class TestUserIntegrationEndpoints(APIBaseTest):
 
     @parameterized.expand(
         [
-            # Installation uninstalled on GitHub (e.g. missed webhook): purge rows, restart install.
-            ("installation_gone", 404, True),
-            # Installation alive: the user genuinely lacks access — keep the row, surface the error.
-            ("user_lacks_access", 200, False),
+            # Uninstalled on GitHub (e.g. missed webhook): both probes 404 → purge rows, restart install.
+            ("installation_gone", [404, 404], True),
+            # Alive on the first probe: the user genuinely lacks access — one probe, keep the row.
+            ("user_lacks_access", [200], False),
+            # A transient 404 (GitHub incident): the confirmatory re-probe disagrees → keep the rows.
+            ("flapping_404", [404, 200], False),
         ]
     )
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
@@ -682,12 +684,12 @@ class TestUserIntegrationEndpoints(APIBaseTest):
     )
     @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
     def test_github_link_personal_oauth_heals_stale_installation(
-        self, _name, probe_status, expect_heal, mock_user_from_code, _mock_verify, mock_client_request, _mock_settings
+        self, _name, probe_statuses, expect_heal, mock_user_from_code, _mock_verify, mock_client_request, _mock_settings
     ):
         mock_user_from_code.return_value = _authorization()
-        mock_client_request.return_value = MagicMock(status_code=probe_status)
+        mock_client_request.side_effect = [MagicMock(status_code=status) for status in probe_statuses]
         Integration.objects.create(team=self.team, kind="github", integration_id="145", config={})
-        state = f"heal_state_{probe_status}"
+        state = f"heal_state_{_name}"
         store_unified_authorize_state(
             GitHubAuthorizeState(
                 token=state,
@@ -703,6 +705,8 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         response = self.client.get("/complete/github-link/", {"code": "test_code", "state": state})
 
         self.assertEqual(response.status_code, 302)
+        # A 404 must be confirmed by a re-probe before purging; a lone 200 short-circuits.
+        self.assertEqual(mock_client_request.call_count, len(probe_statuses))
         if expect_heal:
             self.assertIn("github.com/apps/posthog-dev/installations/new", response["Location"])
             self.assertFalse(Integration.objects.filter(kind="github", integration_id="145").exists())

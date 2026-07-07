@@ -70,6 +70,9 @@ SCOUTS_DOC_URL = "https://posthog.com/docs/self-driving/scouts"
 
 # Single-flight window for the kickoff post (see `start_onboarding_dm`).
 _START_CLAIM_TTL_SECONDS = 60
+# Single-flight window for block-action handling (see `_run_action`). Slack delivers each click as
+# its own request, so a double-click lands two handler threads racing the same state write.
+_ACTION_CLAIM_TTL_SECONDS = 30
 
 EVENT_STARTED = "slack_persona_onboarding_started"
 EVENT_PERSONA_SELECTED = "slack_persona_onboarding_persona_selected"
@@ -951,6 +954,11 @@ def _post_kickoff(
             logger.warning("persona_onboarding_dm_open_failed", slack_user_id=slack_user_id)
             return
     blocks = build_kickoff_blocks(display_name, candidate)
+    # Post before saving state: the state row keys off this message's ts + resolved channel, so it
+    # can only be written after the post lands. The reverse (save first) is worse — a failed post
+    # would strand the user with onboarding_state set and no DM to act on. The single-flight claim in
+    # `start_onboarding_dm` bounds the duplicate-post window; a save failure after a successful post
+    # (then a redelivery) is the narrow residual and re-posts an idempotent, user-retryable kickoff.
     posted = slack.client.chat_postMessage(
         channel=channel_id, thread_ts=thread_ts, text="Quick setup — which best describes what you do?", blocks=blocks
     )
@@ -1112,6 +1120,18 @@ def handle_block_action(payload: dict, action: dict) -> HttpResponse:
 
 
 def _run_action(handler: Callable[[], None], payload: dict, action_id: str) -> None:
+    # A double-click lands two handler threads that both clear the `step ==` guard before either
+    # writes state (double-posting a completion, re-writing the github-connect followup). A per-user
+    # claim makes handling single-flight: only the first thread runs the handler; the duplicate
+    # skips. The first thread's `_freeze_buttons` (a chat_update on the shared message) is what the
+    # user sees, so a skipped duplicate never strands frozen buttons.
+    workspace_id = str((payload.get("team") or {}).get("id") or "")
+    slack_user_id = str((payload.get("user") or {}).get("id") or "")
+    claim_key = (
+        f"slack_onboarding_action_claim:{workspace_id}:{slack_user_id}" if workspace_id and slack_user_id else None
+    )
+    if claim_key is not None and not cache.add(claim_key, 1, timeout=_ACTION_CLAIM_TTL_SECONDS):
+        return
     try:
         handler()
     except Exception:
@@ -1122,6 +1142,9 @@ def _run_action(handler: Callable[[], None], payload: dict, action_id: str) -> N
                 _post(ctx, [_section(ERROR_TEXT)], ERROR_TEXT)
             except Exception:
                 logger.warning("persona_onboarding_error_post_failed", exc_info=True)
+    finally:
+        if claim_key is not None:
+            cache.delete(claim_key)
 
 
 def _post_nudge(ctx: _FlowContext) -> None:
