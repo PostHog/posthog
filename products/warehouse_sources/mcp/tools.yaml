@@ -436,6 +436,9 @@ tools:
             - prefix
             - description
             - job_inputs
+    external-data-sources-repair-cdc-create:
+        operation: external_data_sources_repair_cdc_create
+        enabled: false
     external-data-sources-retrieve:
         operation: external_data_sources_retrieve
         enabled: true
