@@ -60,8 +60,8 @@ export const RunningProvisioning: Story = {
     args: { progress: progress({ steps: steps(['in_progress', 'pending', 'pending', 'pending']) }) },
 }
 
-// The wizard's own sub-steps (session tasks) expand into the timeline under the wizard stage,
-// indented with smaller markers so the two sources read distinctly.
+// The wizard's own sub-steps (session tasks) replace the pipeline's aggregate wizard stage in the
+// flat timeline; a small tag marks them as wizard-reported.
 const wizardSubSteps: InstallationProgress['steps'] = [
     { id: 'wizard-task:a', label: 'Detected Next.js', status: 'completed', detail: null, source: 'wizard' },
     { id: 'wizard-task:b', label: 'Installing the PostHog SDK', status: 'in_progress', detail: null, source: 'wizard' },
@@ -73,7 +73,7 @@ export const RunningWizard: Story = {
         progress: progress({
             steps: (() => {
                 const stages = steps(['completed', 'completed', 'in_progress', 'pending'])
-                return [...stages.slice(0, 3), ...wizardSubSteps, ...stages.slice(3)]
+                return [...stages.slice(0, 2), ...wizardSubSteps, ...stages.slice(3)]
             })(),
         }),
     },

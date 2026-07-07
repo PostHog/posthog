@@ -152,10 +152,12 @@ export function cloudProgress(
     // unrelated session can still slip in (the cloud wizard posts to the same workflow by design).
     const session = latestSession && isSessionFresh(latestSession, now) ? latestSession : null
 
-    // The cloud wizard reports its own sub-steps on the session stream — expand them into the
-    // timeline right after the pipeline's wizard stage. When that stage hasn't been announced
-    // (e.g. polling mode where step notifications are stream-borne), slot them before the first
-    // not-yet-completed pipeline step so in-flight wizard work never renders after the PR stage.
+    // The cloud wizard reports its own sub-steps on the session stream — once they exist they
+    // REPLACE the pipeline's aggregate "wizard" stage in the timeline (the tasks are that stage,
+    // told in more detail). Until then the stage row stands in. When the stage hasn't been
+    // announced at all (e.g. polling mode where step notifications are stream-borne), slot the
+    // tasks before the first not-yet-completed pipeline step so in-flight wizard work never
+    // renders after the PR stage.
     const wizardSteps: InstallationStep[] = (session?.tasks ?? []).map((t) => ({
         id: `wizard-task:${t.id}`,
         label: t.title,
@@ -164,14 +166,20 @@ export function cloudProgress(
         source: 'wizard',
     }))
     const wizardStageIndex = pipelineSteps.findIndex((s) => s.id.endsWith(':wizard'))
-    let insertIndex: number
-    if (wizardStageIndex !== -1) {
-        insertIndex = wizardStageIndex + 1
-    } else {
+    let steps: InstallationStep[]
+    if (wizardStageIndex !== -1 && wizardSteps.length > 0) {
+        steps = [
+            ...pipelineSteps.slice(0, wizardStageIndex),
+            ...wizardSteps,
+            ...pipelineSteps.slice(wizardStageIndex + 1),
+        ]
+    } else if (wizardSteps.length > 0) {
         const firstUnfinished = pipelineSteps.findIndex((s) => s.status !== 'completed')
-        insertIndex = firstUnfinished === -1 ? pipelineSteps.length : firstUnfinished
+        const insertIndex = firstUnfinished === -1 ? pipelineSteps.length : firstUnfinished
+        steps = [...pipelineSteps.slice(0, insertIndex), ...wizardSteps, ...pipelineSteps.slice(insertIndex)]
+    } else {
+        steps = pipelineSteps
     }
-    const steps = [...pipelineSteps.slice(0, insertIndex), ...wizardSteps, ...pipelineSteps.slice(insertIndex)]
 
     const error =
         phase === 'error'

@@ -109,7 +109,7 @@ describe('installationProgressLogic merge', () => {
             })
         })
 
-        it('expands session tasks as wizard-sourced steps right after the wizard stage', () => {
+        it('replaces the wizard stage with the session tasks once they exist', () => {
             const result = cloudProgress(
                 taskState(),
                 [
@@ -129,7 +129,6 @@ describe('installationProgressLogic merge', () => {
             )
             expect(result.steps.map((s) => [s.label, s.status, s.source ?? null])).toEqual([
                 ['Cloned repository', 'completed', null],
-                ['Running setup wizard', 'in_progress', null],
                 ['Detect framework', 'completed', 'wizard'],
                 ['Install SDK', 'in_progress', 'wizard'],
                 ['Opening pull request', 'pending', null],
@@ -176,7 +175,8 @@ describe('installationProgressLogic merge', () => {
                 false,
                 NOW
             )
-            expect(result.steps[1]).toMatchObject({ label: 'Install SDK', status: 'completed', source: 'wizard' })
+            expect(result.steps).toHaveLength(1)
+            expect(result.steps[0]).toMatchObject({ label: 'Install SDK', status: 'completed', source: 'wizard' })
         })
 
         it('uses the task run error message on failure', () => {

@@ -1,18 +1,9 @@
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
-import {
-    createPollLoop,
-    isPermanentPollError,
-    resolvePollingIntervalMs,
-    resolveWizardSyncMode,
-    type WizardSyncMode,
-} from 'lib/wizard-sync/pollLoop'
 import { logSyncDebug } from 'lib/wizard-sync/wizardSyncDebugLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
-import { getTasksRunsStreamRetrieveUrl, tasksRunsRetrieve } from 'products/tasks/frontend/generated/api'
+import { getTasksRunsStreamRetrieveUrl } from 'products/tasks/frontend/generated/api'
 import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { onboardingEventUsageLogic } from '../../onboardingEventUsageLogic'
@@ -197,14 +188,7 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
     key((props) => props.runId),
     path((key) => ['scenes', 'onboarding', 'taskRunStreamLogic', key]),
     connect(() => ({
-        values: [
-            projectLogic,
-            ['currentProjectId'],
-            activeCloudRunLogic,
-            ['activeCloudRun'],
-            featureFlagLogic,
-            ['featureFlags'],
-        ],
+        values: [projectLogic, ['currentProjectId'], activeCloudRunLogic, ['activeCloudRun']],
         actions: [onboardingEventUsageLogic, ['reportContextOnboardingCloudRunCompleted']],
     })),
     actions({
@@ -322,65 +306,13 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
                 return
             }
 
-            // Mode is re-sampled on every connect, and the setFeatureFlags listener below reconnects
-            // when the resolved mode changes — so a flag flip (or flags arriving after a cold-cache
-            // connect) swaps the transport live instead of waiting for a remount.
-            const syncMode: WizardSyncMode = resolveWizardSyncMode(
-                values.featureFlags[FEATURE_FLAGS.ONBOARDING_WIZARD_SYNC_MODE]
-            )
-            cache.syncMode = syncMode
+            // SSE only, deliberately NOT governed by the onboarding-wizard-sync-mode flag: that flag
+            // controls the WIZARD SESSION transport (whose infra can't take SSE fan-out yet, see
+            // wizardSessionStreamLogic), while the per-run TaskRun stream is low-cardinality — one
+            // connection per active cloud run — and its REST detail carries no progress steps, so a
+            // polled fallback would render an empty pipeline. Cloud runs must work with the session
+            // transport in either mode, so the two transports stay independent.
             const debugSource = `run ${props.runId.slice(0, 8)}`
-
-            if (syncMode === 'polling') {
-                const intervalMs = resolvePollingIntervalMs(
-                    getFeatureFlagPayload(FEATURE_FLAGS.ONBOARDING_WIZARD_SYNC_MODE)
-                )
-                logSyncDebug(debugSource, 'connect', `polling every ~${intervalMs / 1000}s (±20% jitter)`, {
-                    mode: 'polling',
-                    intervalMs,
-                })
-                cache.disposables.add(
-                    createPollLoop({
-                        intervalMs,
-                        // Re-checked each tick: tab-visibility resume re-runs this setup, so a run
-                        // dismissed or superseded while hidden must not revive a stale loop.
-                        shouldStop: () => values.activeCloudRun?.runId !== props.runId,
-                        tick: async () => {
-                            const dto = await tasksRunsRetrieve(String(projectId), props.taskId, props.runId)
-                            logSyncDebug(
-                                debugSource,
-                                'poll',
-                                `poll ok: ${dto.status}${dto.stage ? `/${dto.stage}` : ''}`,
-                                {
-                                    mode: 'polling',
-                                    intervalMs,
-                                }
-                            )
-                            // Only on first open / recovery from error — not every tick.
-                            if (values.connectionStatus !== 'open') {
-                                actions.connectionOpened()
-                            }
-                            actions.taskRunStateUpdated(taskRunDetailToStreamState(dto))
-                            if (isTerminalStatus(dto.status)) {
-                                logSyncDebug(debugSource, 'complete', `terminal status ${dto.status}, polling stopped`)
-                                actions.streamCompleted()
-                                return 'terminal'
-                            }
-                            return 'ok'
-                        },
-                        onError: (err) => {
-                            logSyncDebug(debugSource, 'error', `poll failed: ${String(err)}`)
-                            actions.connectionErrored(`Failed to poll task run: ${String(err)}`)
-                            return isPermanentPollError(err) ? 'stop' : 'retry'
-                        },
-                        // Dispose the key so a later tab-visibility resume doesn't restart a loop
-                        // that ended itself.
-                        onLoopEnd: () => cache.disposables.dispose('task-run-sync'),
-                    }),
-                    'task-run-sync'
-                )
-                return
-            }
 
             logSyncDebug(debugSource, 'connect', 'opening EventSource', { mode: 'sse' })
             cache.disposables.add((): (() => void) => {
@@ -446,21 +378,6 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
             logSyncDebug(`run ${String(props.runId ?? '').slice(0, 8)}`, 'disconnect', 'disconnected')
             cache.disposables.dispose('task-run-sync')
             cache.disposables.dispose('queued-stall')
-        },
-        // Flags can resolve after a cold-cache connect (posthog-js loads them async), and ops can flip
-        // the mode mid-incident. Reconnect when the resolved mode differs from the running transport —
-        // the keyed disposable makes the swap idempotent.
-        [featureFlagLogic.actionTypes.setFeatureFlags]: () => {
-            if (cache.syncMode === undefined || values.isComplete) {
-                return
-            }
-            if (values.connectionStatus === 'idle' || values.connectionStatus === 'closed') {
-                return
-            }
-            const mode = resolveWizardSyncMode(values.featureFlags[FEATURE_FLAGS.ONBOARDING_WIZARD_SYNC_MODE])
-            if (mode !== cache.syncMode) {
-                actions.connect()
-            }
         },
     })),
 ])

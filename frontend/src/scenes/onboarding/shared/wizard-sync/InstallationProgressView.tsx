@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconCheckCircle, IconPullRequest, IconTerminal, IconX } from '@posthog/icons'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -15,19 +15,18 @@ import {
     InstallationStepStatus,
 } from './installationProgressLogic'
 
-// Timeline dot for a single step. `small` is the wizard sub-step size.
-function StepIcon({ status, small = false }: { status: InstallationStepStatus; small?: boolean }): JSX.Element {
-    const iconSize = small ? 'text-sm' : 'text-base'
+// Timeline dot for a single step.
+function StepIcon({ status }: { status: InstallationStepStatus }): JSX.Element {
     if (status === 'completed') {
-        return <IconCheckCircle className={cn('text-success', iconSize)} />
+        return <IconCheckCircle className="text-success text-base" />
     }
     if (status === 'failed') {
-        return <IconX className={cn('text-danger', iconSize)} />
+        return <IconX className="text-danger text-base" />
     }
     if (status === 'in_progress') {
-        return <Spinner className={iconSize} textColored />
+        return <Spinner className="text-base" textColored />
     }
-    return <span className={cn('rounded-full border-2 border-border', small ? 'w-3 h-3' : 'w-4 h-4')} />
+    return <span className="w-4 h-4 rounded-full border-2 border-border" />
 }
 
 // What's about to happen, shown as pending timeline rows while the stream connects. Same geometry
@@ -130,26 +129,30 @@ export function InstallationProgressContent({
             {steps.length > 0 ? (
                 <ol className="flex flex-col m-0 p-0 list-none">
                     {steps.map((step, i) => (
-                        // Wizard-reported sub-steps nest a level under the pipeline stage that spawned
-                        // them: indented, smaller marker, no rail — read as detail, not more stages.
-                        <li key={step.id} className={cn('flex', step.source === 'wizard' ? 'gap-2 pl-7' : 'gap-3')}>
+                        // One flat rail for pipeline and wizard-reported steps alike — a small tag is
+                        // the only cue that a row came from the wizard rather than the run pipeline.
+                        <li key={step.id} className="flex gap-3">
                             <div className="flex flex-col items-center pt-0.5">
-                                <StepIcon status={step.status} small={step.source === 'wizard'} />
-                                {i < steps.length - 1 && step.source !== 'wizard' && (
-                                    <div className="w-px flex-1 bg-border my-1 min-h-[0.75rem]" />
-                                )}
+                                <StepIcon status={step.status} />
+                                {i < steps.length - 1 && <div className="w-px flex-1 bg-border my-1 min-h-[0.75rem]" />}
                             </div>
-                            <div className={cn('flex-1 min-w-0', step.source === 'wizard' ? 'pb-1.5' : 'pb-3')}>
-                                <div
-                                    className={cn(
-                                        step.source === 'wizard' ? 'text-xs' : 'text-sm',
-                                        step.status === 'pending' && 'text-muted',
-                                        step.status === 'failed' && 'text-danger font-medium',
-                                        step.status === 'in_progress' && 'font-medium',
-                                        step.source === 'wizard' && step.status === 'completed' && 'text-muted'
+                            <div className="flex-1 min-w-0 pb-3">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                    <span
+                                        className={cn(
+                                            'text-sm truncate',
+                                            step.status === 'pending' && 'text-muted',
+                                            step.status === 'failed' && 'text-danger font-medium',
+                                            step.status === 'in_progress' && 'font-medium'
+                                        )}
+                                    >
+                                        {step.label}
+                                    </span>
+                                    {step.source === 'wizard' && (
+                                        <LemonTag size="small" type="muted">
+                                            wizard
+                                        </LemonTag>
                                     )}
-                                >
-                                    {step.label}
                                 </div>
                                 {step.detail && <div className="text-xs text-muted truncate">{step.detail}</div>}
                             </div>
