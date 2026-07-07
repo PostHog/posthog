@@ -20,6 +20,51 @@ Before writing any SQL, read the PostHog `querying-posthog-data` skill. It is th
 
 {schema_discovery}
 
+### Get attribution right: order events per entity, not globally
+
+Two recurring mistakes make AI-written HogQL produce defensible-looking but wrong attribution, funnel, and "first touch" numbers.
+Both are about temporal ordering *within each entity*, and the query runs successfully either way, so the error is silent.
+Watch for them whenever a question involves channels, conversions, "arrived via", "then did", or an "initial"/"first"/"last" value.
+
+**Cohort / funnel "did X then Y" questions: constrain the follow-up event relative to each user's own entry event, not a shared global window.**
+For a question like "users who arrived via an affiliate link and then converted" or "opened a link, then played", the naive query pins every event to one global start (e.g. `timestamp >= now() - INTERVAL 30 DAY`).
+That wrongly attributes events which happened *before* a person's entry point to that channel.
+Instead, compute each person's entry timestamp, then require the follow-up event to occur at or after it, correlated on `person_id`.
+Note HogQL forbids relational operators (`>=`, `<`) in `JOIN ... ON`, so keep the per-user time constraint in the `WHERE` clause:
+
+```sql
+WITH entry AS (
+    -- each person's own landing time via the affiliate channel (pre-aggregated, so the join stays small)
+    SELECT person_id, min(timestamp) AS entered_at
+    FROM events
+    WHERE event = '$pageview'
+      AND properties.$referring_domain = 'affiliate.example.com'
+      AND timestamp >= now() - INTERVAL 30 DAY
+    GROUP BY person_id
+)
+SELECT count(DISTINCT e.person_id) AS converted
+FROM events AS e
+INNER JOIN entry ON e.person_id = entry.person_id
+WHERE e.event = 'conversion'
+  AND e.timestamp >= entry.entered_at   -- per-user landing time, NOT a shared global window
+  AND e.timestamp >= now() - INTERVAL 30 DAY
+```
+
+**"Initial / first / last value per entity" questions: use `argMin` / `argMax` on `timestamp`, never `any()`.**
+`any(x)` returns an arbitrary row's value, so "the initial referring domain per visitor" written as `any(properties.$referring_domain)` is non-deterministic and usually not the first touch.
+For the *first* value ordered by time use `argMin(value, timestamp)`; for the *latest* use `argMax(value, timestamp)`:
+
+```sql
+SELECT
+    person_id,
+    argMin(properties.$referring_domain, timestamp) AS initial_referring_domain,  -- deterministic first touch, NOT any(...)
+    argMax(properties.$referring_domain, timestamp) AS latest_referring_domain
+FROM events
+WHERE event = '$pageview'
+  AND timestamp >= now() - INTERVAL 30 DAY
+GROUP BY person_id
+```
+
 ### Format SQL for readability
 
 Write SQL a human can scan: multi-line with indentation, one column/CTE per line, and inline `--` comments for non-obvious logic. This matters most for queries you save via `view-create` / `view-update` — the SQL editor stores and renders the string verbatim, so a minified one-liner stays unreadable for whoever opens the view later.
