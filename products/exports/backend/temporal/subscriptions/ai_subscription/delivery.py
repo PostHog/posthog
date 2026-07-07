@@ -8,6 +8,7 @@ from markdown_it import MarkdownIt
 from markdown_to_mrkdwn import SlackMarkdownConverter
 
 from posthog.email import EmailMessage
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.helpers.slack_subscription_explore import build_explore_hint
 from posthog.models import Team, User
@@ -109,10 +110,11 @@ def _last_successful_delivery_finished_at(subscription: Subscription) -> datetim
             .values_list("finished_at", flat=True)
             .first()
         )
-    except Exception:
+    except Exception as exc:
         # A transient DB error on this one lookup shouldn't fail the whole delivery — None falls
         # back to the cadence window (which may re-cover already-sent data, never drop any).
         logger.warning("ai_report.last_delivery_lookup_failed", subscription_id=subscription.id, exc_info=True)
+        capture_exception(exc, {"subscription_id": subscription.id, "feature": "ai_subscription"})
         return None
 
 

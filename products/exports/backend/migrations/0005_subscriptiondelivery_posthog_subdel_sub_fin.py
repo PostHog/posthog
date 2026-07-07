@@ -8,7 +8,6 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("exports", "0004_subscription_ai_prompt_config"),
-        ("posthog", "1247_oauthaccesstoken_token_idx"),
     ]
 
     operations = [

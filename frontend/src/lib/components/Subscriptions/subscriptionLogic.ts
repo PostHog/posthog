@@ -74,12 +74,27 @@ function validateAiWindow(subscription: Partial<SubscriptionType>): {
 
 function validateTargetValue(target_type: string, target_value: string | undefined): string | undefined {
     if (!target_value) {
-        return 'This field is required.'
+        return target_type === 'email'
+            ? 'At least one email is required'
+            : target_type === 'slack'
+              ? 'A channel is required'
+              : 'This field is required.'
     }
     if (target_type === 'email' && !target_value.split(',').every((email) => isEmail(email))) {
         return 'All emails must be valid'
     }
     return undefined
+}
+
+// Typed `any` for the same DeepPartialMap reason as the ai window errors above.
+function validateDashboardExportInsights(
+    subscription: Partial<SubscriptionType>,
+    dashboardId: number | undefined
+): any {
+    if (subscription.resource_type === SubscriptionResourceTypes.AiPrompt || !dashboardId) {
+        return undefined
+    }
+    return subscription.dashboard_export_insights?.length ? undefined : 'Select at least one insight'
 }
 
 function subscriptionSaveErrorMessage(error: unknown): string {
@@ -201,12 +216,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 prompt: validatePrompt(subscription.resource_type, subscription.prompt),
                 ...validateAiWindow(subscription),
                 target_value: validateTargetValue(subscription.target_type, subscription.target_value),
-                dashboard_export_insights:
-                    subscription.resource_type !== SubscriptionResourceTypes.AiPrompt &&
-                    props.dashboardId &&
-                    (!subscription.dashboard_export_insights || subscription.dashboard_export_insights.length === 0)
-                        ? ('Select at least one insight' as any)
-                        : undefined,
+                dashboard_export_insights: validateDashboardExportInsights(subscription, props.dashboardId),
             }),
             submit: async (subscription, breakpoint) => {
                 const isAi = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
