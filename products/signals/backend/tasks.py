@@ -81,6 +81,7 @@ def sync_signals_refund_credit(self, refund_id: str) -> None:
     )
 
     refund = (
+        # nosemgrep: idor-lookup-without-team (system Celery task keyed by refund id from our own enqueue/sweeper, no user input; unscoped is the sanctioned cross-team access)
         SignalReportRefund.objects.unscoped()
         .select_related("team__organization")
         .filter(id=refund_id, billing_path=SignalReportRefund.BillingPath.CREDITED)

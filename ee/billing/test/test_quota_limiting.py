@@ -2808,8 +2808,10 @@ class TestSignalsRefundQuotaOffset(BaseTest):
         # The corruption regression: the offset lives only in the boolean decision — the stored
         # usage summary (what billing syncs and the UI reads) must stay untouched.
         self.organization.refresh_from_db()
-        assert self.organization.usage["signals_credits"]["usage"] == 4500
-        assert self.organization.usage["signals_credits"]["todays_usage"] == 0
+        stored_usage = self.organization.usage
+        assert stored_usage is not None
+        assert stored_usage["signals_credits"]["usage"] == 4500
+        assert stored_usage["signals_credits"]["todays_usage"] == 0
 
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=False)

@@ -364,6 +364,23 @@ class TestSignalsBilling(BaseTest):
         self._pr_run(report, created_at=_at(3), pr_url=None)
         self.assertIsNone(first_billable_pr_run(report.id))
 
+    def test_aggregates_across_teams_and_reports(self) -> None:
+        team_b = Team.objects.create(organization=self.organization, name="team-b")
+        for _ in range(3):
+            self._pr_run(self._report(), created_at=_at(10))
+        self._pr_run(self._report(team=team_b), created_at=_at(11), team=team_b)
+        self._pr_run(self._report(team=team_b), created_at=_at(13), team=team_b)
+        self.assertEqual(self._credits(), {self.team.id: 4500, team_b.id: 3000})
+
+    def test_deterministic_across_runs(self) -> None:
+        report = self._report()
+        self._pr_run(report, created_at=_at(5))
+        self._pr_run(report, created_at=_at(22))
+        self.assertEqual(self._credits(), self._credits())
+
+    def test_no_billable_reports_returns_empty(self) -> None:
+        self.assertEqual(get_signals_billing_credits_by_team(PERIOD_START, PERIOD_END), [])
+
 
 class TestBillingExemptions(BaseTest):
     def test_mark_report_billing_exempt_sets_reason_before_billable_run(self) -> None:
@@ -416,20 +433,3 @@ class TestBillingExemptions(BaseTest):
         )
         self.assertIsNone(system_billing_exempt_reason(self.team.id, other_scout_report.id))
         self.assertIsNone(system_billing_exempt_reason(self.team.id, pipeline_report.id))
-
-    def test_aggregates_across_teams_and_reports(self) -> None:
-        team_b = Team.objects.create(organization=self.organization, name="team-b")
-        for _ in range(3):
-            self._pr_run(self._report(), created_at=_at(10))
-        self._pr_run(self._report(team=team_b), created_at=_at(11), team=team_b)
-        self._pr_run(self._report(team=team_b), created_at=_at(13), team=team_b)
-        self.assertEqual(self._credits(), {self.team.id: 4500, team_b.id: 3000})
-
-    def test_deterministic_across_runs(self) -> None:
-        report = self._report()
-        self._pr_run(report, created_at=_at(5))
-        self._pr_run(report, created_at=_at(22))
-        self.assertEqual(self._credits(), self._credits())
-
-    def test_no_billable_reports_returns_empty(self) -> None:
-        self.assertEqual(get_signals_billing_credits_by_team(PERIOD_START, PERIOD_END), [])

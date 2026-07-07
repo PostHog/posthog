@@ -225,6 +225,7 @@ rules:
                               |SignalEmissionRecord
                               |SignalReport
                               |SignalReportArtefact
+                              |SignalReportRefund
                               |SignalReportTask
                               |SignalTeamConfig
                               |SignalSourceConfig
@@ -502,6 +503,7 @@ rules:
                         |SignalEmissionRecord
                         |SignalReport
                         |SignalReportArtefact
+                        |SignalReportRefund
                         |SignalReportTask
                         |SignalTeamConfig
                         |SignalSourceConfig

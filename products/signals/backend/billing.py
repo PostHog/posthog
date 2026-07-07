@@ -178,7 +178,7 @@ def first_billable_pr_run_at(report_id: str | uuid.UUID) -> datetime | None:
     return run.created_at if run else None
 
 
-def credited_refund_credits_for_org(organization_id: object, begin: datetime, end: datetime) -> int:
+def credited_refund_credits_for_org(organization_id: str | uuid.UUID, begin: datetime, end: datetime) -> int:
     """Sum of `credits` over the org's credited-path refunds whose refunded PR run falls in
     `[begin, end)` — the amount the quota check offsets so a credited refund frees the free-tier
     slot, not just the money. Keyed on `pr_run_created_at` (not refund creation) so the offset
@@ -257,6 +257,7 @@ def get_signals_billing_credits_by_team(begin: datetime, end: datetime) -> list[
     # Billing-exempt reports (PostHog-system origins) never bill; the reason is frozen before the
     # billable moment exists, so this is deterministic across re-sends too.
     billing_exempt = set(
+        # nosemgrep: idor-lookup-without-team (ids come from the team-grouped billing bridge query above; usage aggregation is deliberately cross-team)
         SignalReport.objects.filter(id__in=report_ids, billing_exempt_reason__isnull=False).values_list("id", flat=True)
     )
 
