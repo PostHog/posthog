@@ -54,6 +54,23 @@ describe('anonymize/cv', () => {
         expect(outTexts[0].value).toBe('Hello **********')
     })
 
+    it('round-trips a cv-compressed Mutation and media-scrubs an rr_src attribute sub-field', () => {
+        const leakUrl =
+            'https://widget.example-vendor.co/v2/app/?widgetToken=eyJ0eXAiOiJKV1QifQ.eyJzdWIiOiJ1c2VyX2Zha2UxMjMifQ.fakesignature&refreshToken=FakeRefreshTok3nValue000&user=%7B%22email%22%3A%22john.fakename%40example.com%22%7D'
+        const event: any = {
+            type: 3,
+            timestamp: 1,
+            cv: 'v2',
+            data: { source: 0, attributes: compress([{ id: 7, attributes: { rr_src: leakUrl } }]) },
+        }
+        expect(anonymizeEvent(ctx, event)).toBe(true)
+        const outAttrs = decompress(event.data.attributes)[0].attributes
+        expect(outAttrs.rr_src).toMatch(/^data:image\/svg\+xml/)
+        for (const secret of ['fakesignature', 'FakeRefreshTok3nValue000', 'john.fakename']) {
+            expect(JSON.stringify(outAttrs)).not.toContain(secret)
+        }
+    })
+
     it('scrubs a cv Mutation whose sub-fields are already decompressed arrays', () => {
         // Some producers/exporters emit cv events with plain-array sub-fields.
         // These must still be scrubbed (in place), not skipped as "absent".
