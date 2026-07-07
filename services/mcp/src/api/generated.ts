@@ -61557,6 +61557,7 @@ export namespace Schemas {
      * * `ExternalDataSchema` - ExternalDataSchema
      * * `Evaluation` - Evaluation
      * * `LLMTrace` - LLMTrace
+     * * `AIGatewayCredit` - AIGatewayCredit
      * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
      * * `CustomerProfileConfig` - CustomerProfileConfig
      * * `Log` - Log
@@ -61639,6 +61640,7 @@ export namespace Schemas {
       ExternalDataSchema: 'ExternalDataSchema',
       Evaluation: 'Evaluation',
       LLMTrace: 'LLMTrace',
+      AIGatewayCredit: 'AIGatewayCredit',
       WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
       CustomerProfileConfig: 'CustomerProfileConfig',
       Log: 'Log',
@@ -61707,6 +61709,7 @@ export namespace Schemas {
      * * `ExternalDataSchema` - ExternalDataSchema
      * * `Evaluation` - Evaluation
      * * `LLMTrace` - LLMTrace
+     * * `AIGatewayCredit` - AIGatewayCredit
      * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
      * * `CustomerProfileConfig` - CustomerProfileConfig
      * * `Log` - Log
@@ -61777,6 +61780,7 @@ export namespace Schemas {
       ExternalDataSchema: 'ExternalDataSchema',
       Evaluation: 'Evaluation',
       LLMTrace: 'LLMTrace',
+      AIGatewayCredit: 'AIGatewayCredit',
       WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
       CustomerProfileConfig: 'CustomerProfileConfig',
       Log: 'Log',
