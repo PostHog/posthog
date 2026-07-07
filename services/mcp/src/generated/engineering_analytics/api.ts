@@ -31,7 +31,7 @@ export const EngineeringAnalyticsCiFailureLogsQueryParams = /* @__PURE__ */ zod.
 })
 
 /**
- * Estimated CI cost for a pull request, summed over the jobs of all its workflow runs. Billable self-hosted Linux runners only — provider-hosted (free GitHub-hosted) and non-Linux jobs are excluded. Every figure is zero/null with `jobs_available` false when the job-level source isn't synced yet.
+ * Estimated CI cost for a pull request, summed over the jobs of all its workflow runs. Billable self-hosted Linux runners only — provider-hosted (free GitHub-hosted) and non-Linux jobs are excluded. Every figure is zero/null with `jobs_available` false when the job-level source isn't synced yet. `llm_spend` carries the agent LLM token spend attributed to the PR by git branch, or null when no `$ai_generation` event matched.
  */
 export const EngineeringAnalyticsPrCostParams = /* @__PURE__ */ zod.object({
     project_id: zod

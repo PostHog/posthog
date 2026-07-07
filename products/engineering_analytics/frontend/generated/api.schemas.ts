@@ -168,11 +168,24 @@ export interface RunCostApi {
     estimated_cost_usd: number | null
 }
 
+export interface PRLLMSpendApi {
+    /** Total agent LLM token cost in USD attributed to this PR (sum of $ai_total_cost_usd over the matched $ai_generation events). */
+    cost_usd: number
+    /** Total input (prompt) tokens across the attributed generations. */
+    input_tokens: number
+    /** Total output (completion) tokens across the attributed generations. */
+    output_tokens: number
+    /** Number of $ai_generation events attributed to this PR by git branch ($ai_git_branch). */
+    generations: number
+}
+
 export interface PRCostSummaryApi {
     /** Same spend broken down per workflow. */
     by_workflow: WorkflowCostApi[]
     /** Same spend broken down per workflow run, keyed by (run_id, run_attempt). */
     by_run: RunCostApi[]
+    /** Agent LLM token spend attributed to this PR by git branch ($ai_git_branch), or null when no generation matched — independent of the CI cost figures, so it can be present even when jobs_available is false. The UI hides the row when null. */
+    llm_spend?: PRLLMSpendApi | null
     /** False when the job-level source (github_workflow_jobs) isn't synced — every figure is then zero/null and the cost cards should be hidden. */
     jobs_available: boolean
     /** Billable CI minutes: each costed (self-hosted) job's elapsed time, summed. Parallel jobs add up, so this is compute time spent, not wall-clock run duration. */

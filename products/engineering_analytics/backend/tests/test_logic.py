@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest import mock
 
 from django.utils import timezone
@@ -1430,3 +1430,84 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         by_repo = {(item.repo.owner, item.repo.name): item for item in result.items}
         assert (by_repo[("PostHog", "posthog")].pushes, by_repo[("PostHog", "posthog")].rerun_cycles) == (1, 0)
         assert (by_repo[("PostHog", "posthog.com")].pushes, by_repo[("PostHog", "posthog.com")].rerun_cycles) == (2, 1)
+
+
+class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
+    """LLM token spend attributed to a PR by git branch, over a real warehouse PR row plus
+    $ai_generation events. Skips when object storage is unreachable."""
+
+    def _generation(
+        self,
+        *,
+        branch: str,
+        days_ago: float,
+        cost: float,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        repo: str | None = None,
+        event: str = "$ai_generation",
+    ) -> None:
+        props: dict[str, Any] = {
+            "$ai_git_branch": branch,
+            "$ai_total_cost_usd": cost,
+            "$ai_input_tokens": input_tokens,
+            "$ai_output_tokens": output_tokens,
+        }
+        if repo is not None:
+            props["$ai_git_repo"] = repo
+        _create_event(
+            event=event,
+            team=self.team,
+            distinct_id="agent-1",
+            properties=props,
+            timestamp=timezone.now() - timedelta(days=days_ago),
+        )
+
+    def test_llm_spend_attributes_by_branch_within_window(self) -> None:
+        branch = "feat/tokens"
+        # Merged PR: window = [created_at - 14d, merged_at] = [_ago(19), _ago(1)].
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(80, "alice", "closed", 0, _ago(5), merged_at=_ago(1), head_sha="sha80", head_ref=branch)],
+        )
+        # A workflow_runs table must exist for the source to resolve, even though LLM spend never reads it.
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [_run_row(8000, "CI", "sha80", "completed", "success", _ago(4), _ago(4), pr_number=80)],
+        )
+        # Matches: on-branch, in-window; one with no repo stamped, one with the repo stamped equal.
+        self._generation(branch=branch, days_ago=4, cost=1.0, input_tokens=100, output_tokens=50)
+        self._generation(
+            branch=branch, days_ago=10, cost=2.0, input_tokens=200, output_tokens=80, repo="PostHog/posthog"
+        )
+        # Excluded: wrong repo, wrong branch, before the lead window, after merge, wrong event type.
+        self._generation(branch=branch, days_ago=4, cost=99.0, repo="other/repo")
+        self._generation(branch="other-branch", days_ago=4, cost=99.0)
+        self._generation(branch=branch, days_ago=25, cost=99.0)
+        self._generation(branch=branch, days_ago=0, cost=99.0)
+        self._generation(branch=branch, days_ago=4, cost=99.0, event="$ai_embedding")
+        flush_persons_and_events()
+
+        cost = api.get_pr_cost(team=self.team, pr_number=80, repo="PostHog/posthog")
+        assert cost.llm_spend is not None
+        assert cost.llm_spend.generations == 2
+        assert cost.llm_spend.cost_usd == pytest.approx(3.0)
+        assert cost.llm_spend.input_tokens == 300
+        assert cost.llm_spend.output_tokens == 130
+
+    def test_llm_spend_none_when_no_generations(self) -> None:
+        # Open PR whose branch no event carries — spend stays null so the UI hides the row.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(81, "alice", "open", 0, _ago(2), head_sha="sha81", head_ref="feat/empty")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [_run_row(8100, "CI", "sha81", "completed", "success", _ago(1), _ago(1), pr_number=81)],
+        )
+        cost = api.get_pr_cost(team=self.team, pr_number=81, repo="PostHog/posthog")
+        assert cost.llm_spend is None

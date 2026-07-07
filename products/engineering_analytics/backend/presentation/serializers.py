@@ -23,6 +23,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     PRCostSummary,
     PRLifecycle,
     PRLifecycleEvent,
+    PRLLMSpend,
     PullRequest,
     PullRequestList,
     PullRequestListItem,
@@ -332,10 +333,33 @@ class RunCostSerializer(DataclassSerializer):
         }
 
 
+class PRLLMSpendSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PRLLMSpend
+        extra_kwargs = {
+            "cost_usd": {
+                "help_text": "Total agent LLM token cost in USD attributed to this PR "
+                "(sum of $ai_total_cost_usd over the matched $ai_generation events).",
+            },
+            "input_tokens": {"help_text": "Total input (prompt) tokens across the attributed generations."},
+            "output_tokens": {"help_text": "Total output (completion) tokens across the attributed generations."},
+            "generations": {
+                "help_text": "Number of $ai_generation events attributed to this PR by git branch ($ai_git_branch).",
+            },
+        }
+
+
 class PRCostSummarySerializer(DataclassSerializer):
     by_workflow = WorkflowCostSerializer(many=True, help_text="Same spend broken down per workflow.")
     by_run = RunCostSerializer(
         many=True, help_text="Same spend broken down per workflow run, keyed by (run_id, run_attempt)."
+    )
+    llm_spend = PRLLMSpendSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Agent LLM token spend attributed to this PR by git branch ($ai_git_branch), or null when "
+        "no generation matched — independent of the CI cost figures, so it can be present even when "
+        "jobs_available is false. The UI hides the row when null.",
     )
 
     class Meta:

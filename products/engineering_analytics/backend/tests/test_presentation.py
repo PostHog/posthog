@@ -365,6 +365,7 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
             by_run=[
                 contracts.RunCost(run_id=9100, run_attempt=1, billable_minutes=2510.0, estimated_cost_usd=61.2),
             ],
+            llm_spend=contracts.PRLLMSpend(cost_usd=1.5, input_tokens=1200, output_tokens=340, generations=4),
         )
         with mock.patch(f"{_VIEWS}.get_pr_cost", return_value=summary) as getter:
             response = self.client.get(self._url("pr_cost"), {"pr_number": "10", "repo": "PostHog/posthog"})
@@ -373,6 +374,12 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         body = response.json()
         assert body["billable_minutes"] == 2510.0 and body["unsettled_jobs"] == 2
         assert body["by_run"][0]["run_id"] == 9100 and body["by_run"][0]["estimated_cost_usd"] == 61.2
+        assert body["llm_spend"] == {
+            "cost_usd": 1.5,
+            "input_tokens": 1200,
+            "output_tokens": 340,
+            "generations": 4,
+        }
         assert getter.call_args.kwargs["pr_number"] == 10
         assert getter.call_args.kwargs["repo"] == "PostHog/posthog"
 

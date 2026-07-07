@@ -7,6 +7,7 @@ table names), then returns canonical contract types. The curated query builders
 only in canonical types.
 """
 
+from dataclasses import replace
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -43,6 +44,7 @@ from products.engineering_analytics.backend.logic.queries.ci_failure_logs import
     query_run_failure_logs,
 )
 from products.engineering_analytics.backend.logic.queries.job_aggregates import query_job_aggregates
+from products.engineering_analytics.backend.logic.queries.llm_spend import query_pr_llm_spend
 from products.engineering_analytics.backend.logic.queries.master_failures import query_master_failures
 from products.engineering_analytics.backend.logic.queries.pr_cost import (
     query_author_workflow_costs,
@@ -127,7 +129,12 @@ def build_pr_cost(*, curated: CuratedGitHubSource, pr_number: int, repo: str | N
     owner, name = _split_repo(repo)
     if not (owner and name):
         raise ValueError("repo must be in 'owner/name' format")
-    return query_pr_cost(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
+    # LLM token spend is an additive component joined by branch from the events table; it is independent
+    # of the CI job cost (which reads the warehouse), so both are computed and merged here rather than
+    # threaded through the CI-cost query.
+    summary = query_pr_cost(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
+    llm_spend = query_pr_llm_spend(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
+    return replace(summary, llm_spend=llm_spend)
 
 
 def build_workflow_run(*, curated: CuratedGitHubSource, run_id: int) -> WorkflowRunDetail | None:

@@ -321,6 +321,23 @@ class RunCost:
 
 
 @dataclass(frozen=True)
+class PRLLMSpend:
+    """Agent LLM token spend attributed to one PR, summed over the ``$ai_generation`` events stamped
+    with the PR's git branch (``$ai_git_branch``).
+
+    Attribution is by branch, not head SHA: a coding agent stamps the branch at capture time — before
+    the PR exists — and the ``github_pull_requests`` snapshot keeps only the latest head, so a SHA join
+    would drop every push but the last. Surfaced as ``PRCostSummary.llm_spend``, and None there when no
+    generation matched (so the UI hides the row rather than showing a $0 line).
+    """
+
+    cost_usd: float
+    input_tokens: int
+    output_tokens: int
+    generations: int
+
+
+@dataclass(frozen=True)
 class PRCostSummary:
     """Estimated CI spend for one PR, summed over the jobs of all its workflow runs.
 
@@ -350,6 +367,10 @@ class PRCostSummary:
     # Same spend broken down per workflow run, keyed by (run_id, run_attempt), so the expanded runs
     # table under a workflow can show a per-run cost column (rolling up to the per-workflow figure).
     by_run: list[RunCost]
+    # Agent LLM token spend attributed to this PR by git branch ($ai_git_branch), or None when no
+    # $ai_generation matched — independent of the CI cost figures above, so it can be present even when
+    # jobs_available is False (the two spend sources sync separately).
+    llm_spend: PRLLMSpend | None = None
 
 
 @dataclass(frozen=True)
