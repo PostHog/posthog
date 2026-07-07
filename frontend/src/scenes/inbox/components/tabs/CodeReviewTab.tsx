@@ -1,6 +1,18 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconExternal, IconGithub, IconPlus } from '@posthog/icons'
+import {
+    IconBalance,
+    IconChevronDown,
+    IconDirectedGraph,
+    IconExternal,
+    IconFilter,
+    IconGithub,
+    IconPlus,
+    IconPullRequest,
+    IconSearch,
+    IconShield,
+    IconStack,
+} from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -94,29 +106,80 @@ const URGENCY_STOPS: { key: UrgencyThresholdEnumApi; label: string; description:
 ]
 
 function SectionHeader({
+    icon,
     title,
     pill,
     children,
 }: {
+    icon: JSX.Element
     title: string
     pill?: JSX.Element
     children: string
 }): JSX.Element {
     return (
-        <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2.5">
+        <div className="flex flex-col gap-1.5">
+            <div className="flex items-center gap-2">
+                <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-primary bg-surface-primary text-secondary *:size-4">
+                    {icon}
+                </span>
                 <h3 className="m-0 text-base font-semibold">{title}</h3>
                 {pill}
             </div>
-            <p className="m-0 max-w-160 text-xs text-secondary">{children}</p>
+            {/* Indented so the copy aligns under the title, not the icon tile */}
+            <p className="m-0 ml-9 max-w-160 text-xs text-secondary">{children}</p>
         </div>
+    )
+}
+
+/**
+ * Hero proof block: the validation funnel across the user's recent reviews, summed from the same
+ * stats the effectiveness cards use. Hidden for users with no reviewed findings yet.
+ */
+function ProofCard(): JSX.Element | null {
+    const { perspectiveStats } = useValues(reviewHogSettingsLogic)
+
+    if (perspectiveStats === null) {
+        return <LemonSkeleton className="h-24 w-full" />
+    }
+    const raised = perspectiveStats.perspectives.reduce((sum, p) => sum + p.raised, 0)
+    const kept = perspectiveStats.perspectives.reduce((sum, p) => sum + p.kept, 0)
+    const dismissed = perspectiveStats.perspectives.reduce((sum, p) => sum + p.dismissed, 0)
+    if (raised === 0) {
+        return null
+    }
+
+    return (
+        <LemonCard hoverEffect={false} className="mt-2 flex flex-col gap-3 p-5">
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                <span className="text-3xl font-bold tabular-nums text-warning">{kept}</span>
+                <span className="text-sm font-semibold">findings worth your time</span>
+                <span className="text-xs text-secondary">
+                    from <span className="font-semibold text-default">{raised}</span> raised ·{' '}
+                    <span className="font-semibold text-default">{dismissed}</span> filtered as noise
+                </span>
+                <span className="ml-auto text-xxs text-tertiary">
+                    Your last {perspectiveStats.report_count} review{perspectiveStats.report_count === 1 ? '' : 's'}
+                </span>
+            </div>
+            <div className="h-2.5 w-full overflow-hidden rounded-full bg-fill-highlight-100">
+                <div className="h-full rounded-full bg-warning" style={{ width: `${(kept / raised) * 100}%` }} />
+            </div>
+            <div className="flex items-center gap-4 text-xs text-tertiary">
+                <span className="flex items-center gap-1.5">
+                    <span className="inline-block size-2 rounded-full bg-warning" /> Worth your time
+                </span>
+                <span className="flex items-center gap-1.5">
+                    <span className="inline-block size-2 rounded-full bg-border-bold" /> Filtered as noise
+                </span>
+            </div>
+        </LemonCard>
     )
 }
 
 function PipelineSection(): JSX.Element {
     return (
         <section className="flex flex-col gap-4 border-t border-primary pt-8">
-            <SectionHeader title="How we review your PRs">
+            <SectionHeader icon={<IconDirectedGraph />} title="How we review your PRs">
                 Every review runs through the same steps before it's published.
             </SectionHeader>
             <div className="flex flex-wrap items-stretch gap-2.5">
@@ -170,20 +233,42 @@ function perspectiveLabel(skillName: string): string {
     return prettifySkillName(skillName)
 }
 
+const COUNT_CHIPS: {
+    key: 'must_fix_count' | 'should_fix_count' | 'consider_count'
+    label: string
+    dot: string
+    text: string
+}[] = [
+    { key: 'must_fix_count', label: 'must fix', dot: 'bg-danger', text: 'text-danger' },
+    { key: 'should_fix_count', label: 'should fix', dot: 'bg-warning', text: 'text-warning' },
+    { key: 'consider_count', label: 'consider', dot: 'bg-border-bold', text: 'text-secondary' },
+]
+
 function FindingCounts({ review }: { review: ReviewRecentReviewApi }): JSX.Element {
     const total = review.must_fix_count + review.should_fix_count + review.consider_count
     if (total === 0) {
         return <span>No findings</span>
     }
     return (
-        <span className="flex items-center gap-2">
-            {review.must_fix_count > 0 && (
-                <span className="font-medium text-danger">{review.must_fix_count} must fix</span>
-            )}
-            {review.should_fix_count > 0 && (
-                <span className="font-medium text-warning">{review.should_fix_count} should fix</span>
-            )}
-            {review.consider_count > 0 && <span>{review.consider_count} consider</span>}
+        <span className="flex items-center gap-2.5">
+            {COUNT_CHIPS.filter((chip) => review[chip.key] > 0).map((chip) => (
+                <span key={chip.key} className="flex items-center gap-1 whitespace-nowrap">
+                    <span className={`size-1.5 rounded-full ${chip.dot}`} />
+                    <span className={`font-semibold tabular-nums ${chip.text}`}>{review[chip.key]}</span>
+                    <span>{chip.label}</span>
+                </span>
+            ))}
+        </span>
+    )
+}
+
+/** Leading status dot: red when the review found a blocker, gold for other findings, green for a clean pass. */
+function ReviewStatusDot({ review }: { review: ReviewRecentReviewApi }): JSX.Element {
+    const total = review.must_fix_count + review.should_fix_count + review.consider_count
+    const color = review.must_fix_count > 0 ? 'bg-danger' : total > 0 ? 'bg-warning' : 'bg-success'
+    return (
+        <span className="flex w-6 shrink-0 justify-center">
+            <span className={`size-2 rounded-full ${color}`} />
         </span>
     )
 }
@@ -219,11 +304,13 @@ function progressLabel(review: ReviewRecentReviewApi): string {
 function RunningReviewRow({ review }: { review: ReviewRecentReviewApi }): JSX.Element {
     return (
         <div className="flex items-center gap-3 px-4 py-3">
-            <Spinner className="shrink-0 text-lg" />
+            <span className="flex w-6 shrink-0 justify-center">
+                <Spinner className="text-lg" />
+            </span>
             <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-semibold">{reviewTitle(review)}</div>
                 <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-secondary">
-                    <span className="whitespace-nowrap">
+                    <span className="whitespace-nowrap font-mono text-tertiary">
                         {review.repository}#{review.pr_number ?? review.head_branch}
                     </span>
                     <span className="text-tertiary">·</span>
@@ -259,6 +346,7 @@ function RecentReviewRow({ review }: { review: ReviewRecentReviewApi }): JSX.Ele
                 onKeyDown={(e) => e.key === 'Enter' && toggleReviewRowExpanded(review.id)}
                 className="flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:bg-fill-highlight-50"
             >
+                <ReviewStatusDot review={review} />
                 <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                         <span className="truncate text-sm font-semibold">{reviewTitle(review)}</span>
@@ -274,7 +362,7 @@ function RecentReviewRow({ review }: { review: ReviewRecentReviewApi }): JSX.Ele
                         )}
                     </div>
                     <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-secondary">
-                        <span className="whitespace-nowrap">
+                        <span className="whitespace-nowrap font-mono text-tertiary">
                             {review.repository}#{review.pr_number ?? review.head_branch}
                         </span>
                         <span className="text-tertiary">·</span>
@@ -308,7 +396,7 @@ function RecentReviewRow({ review }: { review: ReviewRecentReviewApi }): JSX.Ele
                 </div>
             </div>
             {expanded && (
-                <div className="flex flex-col gap-2 border-t border-primary bg-fill-highlight-50 px-4 py-3">
+                <div className="flex flex-col gap-2 border-t border-primary bg-fill-highlight-50 py-3 pl-13 pr-4">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-secondary">
                         {review.pr_author && <span className="whitespace-nowrap">by {review.pr_author}</span>}
                         {review.additions !== null && review.deletions !== null && (
@@ -373,14 +461,18 @@ function RecentReviewsSection(): JSX.Element | null {
     }
 
     return (
-        <section className="flex flex-col gap-4 border-t border-primary pt-8">
-            <SectionHeader title="Your recent reviews">
+        // The one section without a top hairline — it reads as a continuation of the hero.
+        <section className="flex flex-col gap-4">
+            <SectionHeader icon={<IconPullRequest />} title="Your recent reviews">
                 The latest ReviewHog runs on pull requests you authored. Expand a review for its details and findings.
             </SectionHeader>
             <LemonCard hoverEffect={false} className="divide-y divide-primary p-0">
                 {recentReviews === null
                     ? [0, 1, 2].map((i) => (
                           <div key={i} className="flex items-center gap-3 px-4 py-3">
+                              <span className="flex w-6 shrink-0 justify-center">
+                                  <LemonSkeleton.Circle className="size-2" />
+                              </span>
                               <div className="flex min-w-0 flex-1 flex-col gap-1.5">
                                   <LemonSkeleton className="h-4 w-80 max-w-full" />
                                   <LemonSkeleton className="h-3 w-56 max-w-full" />
@@ -661,7 +753,7 @@ function TriggersSection(): JSX.Element {
 
     return (
         <section className="flex flex-col gap-4 border-t border-primary pt-8">
-            <SectionHeader title="What gets reviewed">
+            <SectionHeader icon={<IconFilter />} title="What gets reviewed">
                 Choose which pull requests ReviewHog picks up automatically.
             </SectionHeader>
             <LemonCard hoverEffect={false} className="divide-y divide-primary p-0">
@@ -694,7 +786,7 @@ function TriggersSection(): JSX.Element {
                                 explicitValue="reviewhog"
                                 description="label"
                                 iconSize="xsmall"
-                                className="font-mono text-xs text-warning"
+                                className="rounded border border-warning bg-warning-highlight px-1.5 py-0.5 font-mono text-xs text-warning"
                             >
                                 reviewhog
                             </CopyToClipboardInline>{' '}
@@ -728,7 +820,7 @@ function UrgencySection(): JSX.Element {
 
     return (
         <section className="flex flex-col gap-4 border-t border-primary pt-8">
-            <SectionHeader title="Urgency threshold">
+            <SectionHeader icon={<IconBalance />} title="Urgency threshold">
                 Set how strict ReviewHog is. The further right, the fewer findings reach the pull request — but the
                 higher their priority.
             </SectionHeader>
@@ -978,16 +1070,20 @@ function ValidatorEffectivenessCard(): JSX.Element | null {
                 </p>
             </div>
             <Tooltip title={`${judged} judged · ${kept} kept · ${dismissed} dismissed by validation`}>
+                {/* Unlike the reviewer cards, green here is the DISMISSED share — this card celebrates noise removed. */}
                 <div className="flex items-center gap-3">
                     <span className="w-44 shrink-0 truncate text-xs">Your quality bar</span>
                     <div className="flex h-2 flex-1 items-center">
-                        {kept > 0 && (
-                            <div className="h-2 rounded-sm bg-success" style={{ width: `${(kept / judged) * 100}%` }} />
-                        )}
                         {dismissed > 0 && (
                             <div
-                                className="ml-0.5 h-2 rounded-sm bg-fill-highlight-100"
+                                className="h-2 rounded-sm bg-success"
                                 style={{ width: `${(dismissed / judged) * 100}%` }}
+                            />
+                        )}
+                        {kept > 0 && (
+                            <div
+                                className="ml-0.5 h-2 rounded-sm bg-fill-highlight-100"
+                                style={{ width: `${(kept / judged) * 100}%` }}
                             />
                         )}
                     </div>
@@ -998,10 +1094,10 @@ function ValidatorEffectivenessCard(): JSX.Element | null {
             </Tooltip>
             <div className="flex items-center gap-4 text-xs text-tertiary">
                 <span className="flex items-center gap-1.5">
-                    <span className="inline-block h-2 w-2 rounded-sm bg-success" /> Kept
+                    <span className="inline-block h-2 w-2 rounded-sm bg-success" /> Dismissed by your bar
                 </span>
                 <span className="flex items-center gap-1.5">
-                    <span className="inline-block h-2 w-2 rounded-sm bg-fill-highlight-100" /> Dismissed by validation
+                    <span className="inline-block h-2 w-2 rounded-sm bg-fill-highlight-100" /> Kept
                 </span>
             </div>
         </LemonCard>
@@ -1015,6 +1111,7 @@ function PerspectivesSection(): JSX.Element {
     return (
         <section className="flex flex-col gap-4 border-t border-primary pt-8">
             <SectionHeader
+                icon={<IconStack />}
                 title="Perspectives"
                 pill={
                     <LemonTag type="muted" size="small">
@@ -1047,6 +1144,7 @@ function PerspectivesSection(): JSX.Element {
 }
 
 function SingleActiveSection({
+    icon,
     title,
     intro,
     kind,
@@ -1056,6 +1154,7 @@ function SingleActiveSection({
     onSelect,
     preamble,
 }: {
+    icon: JSX.Element
     title: string
     intro: string
     kind: ReviewSkillKind
@@ -1070,6 +1169,7 @@ function SingleActiveSection({
     return (
         <section className="flex flex-col gap-4 border-t border-primary pt-8">
             <SectionHeader
+                icon={icon}
                 title={title}
                 pill={
                     <LemonTag type="warning" size="small">
@@ -1143,13 +1243,20 @@ export function CodeReviewTab(): JSX.Element {
     return (
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-6 pb-30 pt-11">
             <section className="flex flex-col gap-3">
-                <h2 className="m-0 text-2xl font-bold" style={{ textWrap: 'balance' }}>
+                <div className="flex items-center gap-2">
+                    <span className="size-1.5 rounded-full bg-warning" />
+                    <span className="text-xxs font-semibold uppercase tracking-widest text-tertiary">
+                        Automated pull request review
+                    </span>
+                </div>
+                <h2 className="m-0 text-3xl font-bold" style={{ textWrap: 'balance' }}>
                     ReviewHog reviews pull requests before humans do
                 </h2>
                 <p className="m-0 max-w-155 text-sm text-secondary">
                     Specialist review perspectives read your changed code in parallel, a blind-spot sweep catches what
                     they missed, and only validated findings get published back to the pull request.
                 </p>
+                <ProofCard />
             </section>
 
             {initialLoadFailed && (
@@ -1164,6 +1271,7 @@ export function CodeReviewTab(): JSX.Element {
             <UrgencySection />
             <PerspectivesSection />
             <SingleActiveSection
+                icon={<IconSearch />}
                 title="Blind-spot check"
                 intro="After the enabled perspectives finish, ReviewHog runs one more sweep over each chunk — it sees what they found and hunts for real issues they all missed. Add as many sweeps as you like, but only one runs."
                 kind="blind_spots"
@@ -1174,6 +1282,7 @@ export function CodeReviewTab(): JSX.Element {
                 onSelect={selectBlindSpots}
             />
             <SingleActiveSection
+                icon={<IconShield />}
                 title="Validation criteria"
                 intro="Every candidate finding is checked against your quality bar before publishing, so noisy, speculative, or low-value issues never reach the pull request. Keep several bars on hand, but only one is applied."
                 kind="validator"
