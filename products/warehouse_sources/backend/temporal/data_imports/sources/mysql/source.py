@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     MySQLImplementation,
     get_connection_metadata as get_mysql_connection_metadata,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataSourceType, IndexMechanism
 
 _MYSQL_IMPLEMENTATION = MySQLImplementation()
 
@@ -81,6 +81,10 @@ _HOST_IS_URL_ERROR = (
 
 @SourceRegistry.register
 class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+    # Declared explicitly (not inherited) because this source detects indexed columns:
+    # test_index_mechanism.py requires detection and mechanism to be paired consciously.
+    index_mechanism = IndexMechanism.INDEX
+
     @property
     def get_implementation(self) -> MySQLImplementation:
         return _MYSQL_IMPLEMENTATION

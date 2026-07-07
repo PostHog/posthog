@@ -161,6 +161,8 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # Which fast-lookup structure this engine's `is_indexed` detection checks. Sources whose
     # engine has no secondary indexes (sort keys, clustering, partitioning) override this so
     # the sync-form warning for unindexed fields names a structure the user can create there.
+    # Any source that detects indexed columns must declare this explicitly rather than
+    # inherit it — test_index_mechanism.py enforces the pairing for SQL sources.
     index_mechanism: IndexMechanism = IndexMechanism.INDEX
 
     @property

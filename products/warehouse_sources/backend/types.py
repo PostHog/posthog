@@ -26,6 +26,8 @@ class IncrementalField(typing.TypedDict, total=False):
     # structure for the engine: clustering key, sortkey, partition column, etc.).
     # Used to warn users picking an incremental field that would force a full scan
     # on every sync. Defaults to True when omitted so missing detection never warns.
+    # Sources that can emit False must declare `index_mechanism` on their source class
+    # so the warning names the structure the detection actually checked.
     is_indexed: bool
 
 

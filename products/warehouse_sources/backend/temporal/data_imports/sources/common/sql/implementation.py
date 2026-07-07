@@ -203,6 +203,10 @@ class SQLSourceImplementation(Generic[ConfigT, ConnT, CursorT], ABC):
         empty set mean "we looked, no indexes here — warn for every
         candidate". Drivers opt in by overriding; the default skips the
         feature (every field reported as indexed).
+
+        Overriding drivers must pair the override with an explicit
+        `index_mechanism` on the source class, so the warning names the
+        structure this method checks (test_index_mechanism.py enforces it).
         """
         return None
 

@@ -28,7 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssq
     MSSQLImplementation,
     retry_on_transient_connection_error,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataSourceType, IndexMechanism
 
 MSSQLErrors = {
     # SQL Server error 18456 is an authentication failure (wrong username/password, or the login is
@@ -44,6 +44,10 @@ _MSSQL_IMPLEMENTATION = MSSQLImplementation()
 
 @SourceRegistry.register
 class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+    # Declared explicitly (not inherited) because this source detects indexed columns:
+    # test_index_mechanism.py requires detection and mechanism to be paired consciously.
+    index_mechanism = IndexMechanism.INDEX
+
     @property
     def get_implementation(self) -> MSSQLImplementation:
         return _MSSQL_IMPLEMENTATION
