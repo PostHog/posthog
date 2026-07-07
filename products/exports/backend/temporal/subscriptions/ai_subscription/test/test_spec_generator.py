@@ -247,8 +247,6 @@ class TestExtractQuotedEventTokens:
 
 
 class TestPinnedEventNames:
-    # Pure: matching against a given name list. Quote-style parsing is covered by
-    # TestExtractQuotedEventTokens; the single quoted case here covers the quoted->pin wiring.
     @parameterized.expand(
         [
             ("quoted_name_pinned", "how is `export created`?", ["export created"]),

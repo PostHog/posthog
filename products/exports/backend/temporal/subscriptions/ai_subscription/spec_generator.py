@@ -266,7 +266,6 @@ def _pinned_event_names(prompt: str, event_names: Sequence[str]) -> list[str]:
 
 
 def _recent_event_names(team: Team, limit: int) -> list[str]:
-    # One most-recently-seen-first fetch serves both the LLM candidate set and the pin scan.
     return list(
         EventDefinition.objects.filter(team_id=team.pk)
         .order_by(F("last_seen_at").desc(nulls_last=True), "name")
