@@ -740,11 +740,9 @@ describe('clustersLogic', () => {
                         runId: 'test-run',
                         // Without window bounds the success listeners interpolate undefined
                         // into hogql templates and log load failures.
-                        windowStart: '2026-04-19T00:00:00Z',
-                        windowEnd: '2026-04-21T00:00:00Z',
-                        clusters: sampleClusters,
                         windowStart: '2026-04-13T00:00:00Z',
                         windowEnd: '2026-04-20T00:00:00Z',
+                        clusters: sampleClusters,
                         level: level ?? logic.values.clusteringLevel,
                     } as ClusteringRun)
                 }
