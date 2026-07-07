@@ -27805,6 +27805,46 @@ export namespace Schemas {
       id_jag_allowed_clients?: string[];
     }
 
+    export interface InsightBulkDeleteRequest {
+      /**
+         * Insight IDs to soft-delete (or restore). At most 1000 ids per request. Soft-deleted insights can be brought back via the bulk_restore endpoint.
+         * @maxItems 1000
+         * @items.minimum 1
+         */
+      ids: number[];
+    }
+
+    export interface InsightBulkOperationResult {
+      /** ID of the insight that was soft-deleted or restored. */
+      id: number;
+      /**
+         * The insight's name (or derived name) at the time of the operation; null when it has neither.
+         * @nullable
+         */
+      name: string | null;
+    }
+
+    export interface InsightBulkOperationSkipped {
+      /** ID of the insight that was skipped. */
+      id: number;
+      /** Human-readable reason the insight was skipped (for example, not found or no edit permission). */
+      reason: string;
+    }
+
+    export interface InsightBulkDeleteResponse {
+      /** Insights that were successfully soft-deleted. */
+      deleted: InsightBulkOperationResult[];
+      /** Insights that were not deleted, with the reason for each. */
+      skipped: InsightBulkOperationSkipped[];
+    }
+
+    export interface InsightBulkRestoreResponse {
+      /** Insights that were successfully restored. */
+      restored: InsightBulkOperationResult[];
+      /** Insights that were not restored, with the reason for each. */
+      skipped: InsightBulkOperationSkipped[];
+    }
+
     /**
      * * `trends` - trends
      * * `funnel` - funnel
@@ -58920,6 +58960,30 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
+    export type EnvironmentsInsightsBulkDeleteCreateParams = {
+    format?: EnvironmentsInsightsBulkDeleteCreateFormat;
+    };
+
+    export type EnvironmentsInsightsBulkDeleteCreateFormat = typeof EnvironmentsInsightsBulkDeleteCreateFormat[keyof typeof EnvironmentsInsightsBulkDeleteCreateFormat];
+
+
+    export const EnvironmentsInsightsBulkDeleteCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type EnvironmentsInsightsBulkRestoreCreateParams = {
+    format?: EnvironmentsInsightsBulkRestoreCreateFormat;
+    };
+
+    export type EnvironmentsInsightsBulkRestoreCreateFormat = typeof EnvironmentsInsightsBulkRestoreCreateFormat[keyof typeof EnvironmentsInsightsBulkRestoreCreateFormat];
+
+
+    export const EnvironmentsInsightsBulkRestoreCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
     export type EnvironmentsInsightsBulkUpdateTagsCreateParams = {
     format?: EnvironmentsInsightsBulkUpdateTagsCreateFormat;
     };
@@ -65798,6 +65862,30 @@ export namespace Schemas {
 
 
     export const InsightsAllActivityRetrieveFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type InsightsBulkDeleteCreateParams = {
+    format?: InsightsBulkDeleteCreateFormat;
+    };
+
+    export type InsightsBulkDeleteCreateFormat = typeof InsightsBulkDeleteCreateFormat[keyof typeof InsightsBulkDeleteCreateFormat];
+
+
+    export const InsightsBulkDeleteCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type InsightsBulkRestoreCreateParams = {
+    format?: InsightsBulkRestoreCreateFormat;
+    };
+
+    export type InsightsBulkRestoreCreateFormat = typeof InsightsBulkRestoreCreateFormat[keyof typeof InsightsBulkRestoreCreateFormat];
+
+
+    export const InsightsBulkRestoreCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
