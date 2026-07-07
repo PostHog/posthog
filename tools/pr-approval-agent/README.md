@@ -203,11 +203,22 @@ reviewer auto-assigner builds. Cross-team typo/test/comment fixes are fine, as
 are small well-tested behavioral fixes (T1a/T1b) with no outstanding reviewer
 concerns; API contract, data model, and larger behavioral changes get escalated.
 
+## Versioning
+
+`version.py` holds `STAMPHOG_VERSION` (semver, pre-releases like `2.0.0b1`).
+It is stamped onto the `stamphog_review_completed` event (alongside the
+checkout commit sha), the LLM trace properties, the evidence bundle, and the
+verdict comment's mechanics table — so verdict quality and reviewer behavior
+can be segmented by version in LLM analytics. Bump it in the same PR as any
+behavior-affecting change to the engine, the prompt scaffold, or the review
+guidance. Policy data edits don't need a bump; they're tracked by the policy
+sha shown next to the version.
+
 ## Evidence bundle
 
 Every run produces a JSON evidence bundle (`--output-json` locally, uploaded as artifact in CI) containing:
 
-- PR metadata (number, author, title)
+- Stamphog version and PR metadata (number, author, title)
 - Classification (tier, sub-tier, breadth, commit type, deny categories, ownership)
 - Gate results (each gate's pass/fail status and message)
 - Reviewer output (verdict, reasoning, risk, issues)

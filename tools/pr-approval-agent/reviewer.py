@@ -14,6 +14,7 @@ from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 from claude_agent_sdk.types import AssistantMessage, ToolUseBlock
 from github import PRData, write_pr_diff
 from policy import _sanitize_untrusted, review_guidance_path
+from version import STAMPHOG_VERSION
 
 try:
     import os
@@ -288,6 +289,7 @@ class Reviewer:
                 "posthog_properties": {
                     "$ai_trace_name": trace_name,
                     "ai_product": "stamphog",
+                    "stamphog_version": STAMPHOG_VERSION,
                     "stamphog_pr_number": pr.number,
                     "stamphog_pr_title": _sanitize_untrusted(pr.title, max_len=200),
                     "stamphog_repo": pr.repo,

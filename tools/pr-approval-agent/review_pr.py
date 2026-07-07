@@ -57,6 +57,7 @@ from manifest_risk import manifest_script_changes
 from migration_risk import migration_check_pending, safe_migration_files
 from policy import EffectivePolicy, ScopeBudget, _sanitize_untrusted, repo_root, resolve
 from reviewer import Reviewer
+from version import STAMPHOG_VERSION
 
 try:
     import posthoganalytics
@@ -751,6 +752,8 @@ class Pipeline:
             event="stamphog_review_completed",
             properties={
                 "ai_product": "stamphog",
+                "stamphog_version": STAMPHOG_VERSION,
+                "stamphog_commit": _head_commit_sha(),
                 "stamphog_pr_number": pr.number,
                 "stamphog_repo": pr.repo,
                 "stamphog_author": pr.author,
@@ -817,7 +820,7 @@ class Pipeline:
 
         rows = [f"| {g.gate} | {'✓' if g.passed else '✗'} | {g.message} |" for g in self.gate_results if g]
         rows.append(
-            f"| policy |  | `.stamphog/policy.yml` @ `{_head_commit_sha()[:7]}`"
+            f"| stamphog {STAMPHOG_VERSION} |  | `.stamphog/policy.yml` @ `{_head_commit_sha()[:7]}`"
             f" · reviewed head `{self.pr.head_sha[:7]}` |"
         )
         details = (
@@ -831,6 +834,7 @@ class Pipeline:
 
     def to_dict(self) -> dict:
         return {
+            "stamphog_version": STAMPHOG_VERSION,
             "pr_number": self.pr.number,
             "repo": self.pr.repo,
             "title": self.pr.title,
