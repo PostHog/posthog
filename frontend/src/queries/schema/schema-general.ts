@@ -157,6 +157,7 @@ export enum NodeKind {
     // Marketing analytics queries
     MarketingAnalyticsTableQuery = 'MarketingAnalyticsTableQuery',
     MarketingAnalyticsAggregatedQuery = 'MarketingAnalyticsAggregatedQuery',
+    MarketingAnalyticsTrendsQuery = 'MarketingAnalyticsTrendsQuery',
     NonIntegratedConversionsTableQuery = 'NonIntegratedConversionsTableQuery',
 
     // Experiment queries
@@ -228,6 +229,7 @@ export type AnyDataNode =
     | RevenueAnalyticsTopCustomersQuery
     | MarketingAnalyticsTableQuery
     | MarketingAnalyticsAggregatedQuery
+    | MarketingAnalyticsTrendsQuery
     | NonIntegratedConversionsTableQuery
     | WebOverviewQuery
     | WebStatsTableQuery
@@ -330,6 +332,7 @@ export type QuerySchema =
     // Marketing analytics
     | MarketingAnalyticsTableQuery
     | MarketingAnalyticsAggregatedQuery
+    | MarketingAnalyticsTrendsQuery
     | NonIntegratedConversionsTableQuery
 
     // Interface nodes
@@ -6022,6 +6025,42 @@ export interface MarketingAnalyticsAggregatedQuery extends Omit<
     integrationFilter?: IntegrationFilter
     /** Drill-down hierarchy level: channel, source, or campaign (default) */
     drillDownLevel?: MarketingAnalyticsDrillDownLevel
+}
+
+/** A single cost metric the trends chart can plot over time, broken down by source. */
+export enum MarketingAnalyticsTrendsMetric {
+    Cost = 'cost',
+    Clicks = 'clicks',
+    Impressions = 'impressions',
+    ReportedConversion = 'reported_conversion',
+    ReportedConversionValue = 'reported_conversion_value',
+    Roas = 'roas',
+    CostPerReportedConversion = 'cost_per_reported_conversion',
+}
+
+export interface MarketingAnalyticsTrendsQueryResponse extends AnalyticsQueryResponseBase {
+    /** Insights-style time series: one GraphDataset per source_name breakdown. */
+    results: unknown[]
+    hogql?: string
+}
+
+export type CachedMarketingAnalyticsTrendsQueryResponse = CachedQueryResponse<MarketingAnalyticsTrendsQueryResponse>
+
+/**
+ * Time series of a single cost metric, de-duplicated per (source, campaign, day) via the same
+ * argMax(computed_at) + job_id read the aggregated tile uses, then bucketed by interval and broken
+ * down by source_name. Unlike a raw TrendsQuery over marketing_costs_preaggregated, this does not
+ * double-count re-materialized cost cells, so the chart total reconciles with the overview tile.
+ */
+export interface MarketingAnalyticsTrendsQuery extends Omit<
+    WebAnalyticsQueryBase<MarketingAnalyticsTrendsQueryResponse>,
+    'orderBy' | 'limit' | 'offset'
+> {
+    kind: NodeKind.MarketingAnalyticsTrendsQuery
+    /** Which cost metric to plot over time */
+    metric: MarketingAnalyticsTrendsMetric
+    /** Filter by integration IDs */
+    integrationFilter?: IntegrationFilter
 }
 
 /** Columns for non-integrated conversions table */

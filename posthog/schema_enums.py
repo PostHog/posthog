@@ -2362,6 +2362,16 @@ class MarketingAnalyticsSchemaFieldTypes(StrEnum):
     BOOLEAN = "boolean"
 
 
+class MarketingAnalyticsTrendsMetric(StrEnum):
+    COST = "cost"
+    CLICKS = "clicks"
+    IMPRESSIONS = "impressions"
+    REPORTED_CONVERSION = "reported_conversion"
+    REPORTED_CONVERSION_VALUE = "reported_conversion_value"
+    ROAS = "roas"
+    COST_PER_REPORTED_CONVERSION = "cost_per_reported_conversion"
+
+
 class MatchField(StrEnum):
     CAMPAIGN_NAME = "campaign_name"
     CAMPAIGN_ID = "campaign_id"
@@ -2537,6 +2547,7 @@ class NodeKind(StrEnum):
     REVENUE_ANALYTICS_TOP_CUSTOMERS_QUERY = "RevenueAnalyticsTopCustomersQuery"
     MARKETING_ANALYTICS_TABLE_QUERY = "MarketingAnalyticsTableQuery"
     MARKETING_ANALYTICS_AGGREGATED_QUERY = "MarketingAnalyticsAggregatedQuery"
+    MARKETING_ANALYTICS_TRENDS_QUERY = "MarketingAnalyticsTrendsQuery"
     NON_INTEGRATED_CONVERSIONS_TABLE_QUERY = "NonIntegratedConversionsTableQuery"
     EXPERIMENT_METRIC = "ExperimentMetric"
     EXPERIMENT_QUERY = "ExperimentQuery"
