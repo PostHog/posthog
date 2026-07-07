@@ -8,6 +8,7 @@ from django.db import models
 import requests
 import structlog
 
+from posthog.egress.limiter.policies import Priority
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import invalidate_github_repository_caches_for_installation
@@ -132,12 +133,16 @@ class UserGitHubIntegration(GitHubIntegrationBase):
 
     integration: UserIntegration
 
-    def __init__(self, integration: UserIntegration, *, source: str | None = None) -> None:
+    def __init__(
+        self, integration: UserIntegration, *, source: str | None = None, priority: Priority | None = None
+    ) -> None:
         if integration.kind != "github":
             raise Exception("UserGitHubIntegration initialized with non-github integration")
         self.integration = integration
         if source is not None:
             self.source = source
+        if priority is not None:
+            self.priority = priority
 
     # --- Token refresh hooks ---
 
@@ -147,6 +152,8 @@ class UserGitHubIntegration(GitHubIntegrationBase):
             user_id=self.integration.user_id,
             status_code=response.status_code,
         )
+        if self._disarm_proactive_refresh_if_installation_gone(response):
+            self.integration.save(update_fields=["config"])
 
     def _on_token_refreshed(self) -> None:
         logger.info(

@@ -9,6 +9,9 @@ feature: engineering_analytics
 url_prefix: /engineering-analytics
 ui_apps: {}
 tools:
+    engineering-analytics-author-workflow-costs:
+        operation: engineering_analytics_author_workflow_costs
+        enabled: false
     engineering-analytics-ci-cards:
         operation: engineering_analytics_ci_cards
         enabled: false
@@ -31,6 +34,27 @@ tools:
             pushes' failures are included too. logs_available is false when CI hasn't failed, the logs aged out of the
             short Logs retention, or a fork PR has no run association to resolve. Use pr-runs or workflow-jobs for the
             run/job metadata behind these logs.
+    engineering-analytics-flaky-tests:
+        operation: engineering_analytics_flaky_tests
+        enabled: true
+        scopes:
+            - engineering_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: Flaky test leaderboard
+        description: >
+            Backend tests ranked by flakiness signal over a window (date_from default -7d, maximum 30 days), from the
+            per-test CI spans. A test qualifies by passing on an automatic retry at least min_rerun_passes times
+            (default 1) OR failing on at least min_failed_prs distinct pull requests (default 3). Use this for "which
+            tests are flaky right now" and to pick quarantine candidates. Read the counts as absolute signal, never
+            rates — fast passing runs are not emitted, so there is no honest denominator. rerun_passed_count only flows
+            from CI lanes running with retries enabled; in other lanes a flake surfaces as a plain failure, which
+            failed_pr_count catches. xfailed_count > 0 means the test is already quarantined but still failing. nodeid
+            is a best-effort reconstruction (no '.py' suffix, the file/class boundary folded into '/'), so convert
+            before using it as a pytest selector.
     engineering-analytics-job-aggregates:
         operation: engineering_analytics_job_aggregates
         enabled: false
@@ -66,6 +90,9 @@ tools:
         enabled: false
     engineering-analytics-repo-overview:
         operation: engineering_analytics_repo_overview
+        enabled: false
+    engineering-analytics-repo-run-activity:
+        operation: engineering_analytics_repo_run_activity
         enabled: false
     engineering-analytics-run-failure-logs:
         operation: engineering_analytics_run_failure_logs

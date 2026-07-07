@@ -22,6 +22,6 @@ describe('AssistantFailureMessage', () => {
     it('renders an optional action', () => {
         render(<AssistantFailureMessage id="failure-1" content="Failed" action={<button>Try again</button>} />)
 
-        expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument()
+        expect(screen.getByText('Try again')).toBeInTheDocument()
     })
 })

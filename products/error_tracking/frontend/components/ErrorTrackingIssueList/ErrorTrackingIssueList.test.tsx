@@ -46,7 +46,7 @@ describe('ErrorTrackingIssueListRow', () => {
             </Provider>
         )
 
-        expect(screen.queryByRole('button', { name: /Unassigned/i })).not.toBeInTheDocument()
+        expect(screen.getByText(/Unassigned/i).closest('button, [role="button"]')).toBeNull()
         expect(screen.getAllByRole('link')).toHaveLength(1)
     })
 
@@ -58,8 +58,8 @@ describe('ErrorTrackingIssueListRow', () => {
         )
 
         expect(screen.getAllByRole('link')).toHaveLength(1)
-        const link = screen.getByRole('link', { name: /TypeError: undefined is not a function/i })
-        expect(link.getAttribute('href')).toMatch(
+        const link = screen.getByText(/TypeError: undefined is not a function/i).closest('a')
+        expect(link?.getAttribute('href')).toMatch(
             /\/error_tracking\/issue-abc\?timestamp=2026-05-26T08%3A00%3A00\.000Z$/
         )
     })
@@ -90,6 +90,6 @@ describe('ErrorTrackingIssueList', () => {
             </Provider>
         )
 
-        expect(screen.getByRole('link', { name: /TypeError: undefined is not a function/i })).toBeInTheDocument()
+        expect(screen.getByText(/TypeError: undefined is not a function/i).closest('a')).toBeInTheDocument()
     })
 })

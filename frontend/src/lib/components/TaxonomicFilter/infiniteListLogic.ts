@@ -19,6 +19,7 @@ import { legacyTaxonomicSurface } from 'lib/components/TaxonomicFilter/taxonomic
 import {
     ExcludedOperators,
     InfiniteListLogicProps,
+    META_GROUP_TYPES,
     QuickFilterItem,
     SkeletonItem,
     isQuickFilterItem,
@@ -35,6 +36,12 @@ import {
     COLLAPSED_TO_CONTAINS_ROW,
     partitionContainsShortcuts,
 } from 'lib/components/TaxonomicFilter/utils/collapsedContainsRow'
+import {
+    floatRecentAndPinnedToTop,
+    groupItemKey,
+    pinnedSourceKey,
+    recentSourceKey,
+} from 'lib/components/TaxonomicFilter/utils/floatRecentPinned'
 import { promoteMatchingProperties } from 'lib/components/TaxonomicFilter/utils/promoteProperties'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { createFuse } from 'lib/utils/fuseSearch'
@@ -85,20 +92,6 @@ function recentItemMatchesSearch(
         }
     }
     return false
-}
-
-// The two key builders must stay format-aligned: recent and pinned rows dedupe
-// against each other only because both produce `sourceGroupType::value`.
-function recentSourceKey(item: TaxonomicDefinitionTypes): string | null {
-    return hasRecentContext(item) && item._recentContext.sourceValue != null
-        ? `${item._recentContext.sourceGroupType}::${item._recentContext.sourceValue}`
-        : null
-}
-
-function pinnedSourceKey(item: TaxonomicDefinitionTypes): string | null {
-    return hasPinnedContext(item) && item._pinnedContext.value != null
-        ? `${item._pinnedContext.sourceGroupType}::${item._pinnedContext.value}`
-        : null
 }
 
 function withoutPinnedDuplicatesOfRecents(
@@ -531,6 +524,33 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 return pinnedFilterItems.filter(
                     (item) => hasPinnedContext(item) && availableTypes.has(item._pinnedContext.sourceGroupType)
                 )
+            },
+        ],
+        // This list is the filter's only substantive (non-meta) group. There are no separate
+        // Recent/Pinned tabs leading the filter, so this list floats recent/pinned items to
+        // the top of its own results instead (see `items`).
+        isSoleSubstantiveGroup: [
+            (s) => [s.listGroupType, s.taxonomicGroupTypes],
+            (listGroupType, taxonomicGroupTypes: TaxonomicFilterGroupType[]): boolean => {
+                const substantive = taxonomicGroupTypes.filter((t) => !META_GROUP_TYPES.has(t))
+                return substantive.length === 1 && substantive[0] === listGroupType
+            },
+        ],
+        // Whether the sole substantive group has a usable getValue function for
+        // floating recent/pinned items. The `items` selector reads this boolean
+        // (stable reference) rather than a function (unstable closure that would
+        // defeat kea's reference-equality memoisation and cause infinite re-renders).
+        soleGroupHasGetValue: [
+            (s) => [s.isSoleSubstantiveGroup, s.listGroupType, s.taxonomicGroups],
+            (
+                isSoleSubstantiveGroup: boolean,
+                listGroupType: TaxonomicFilterGroupType,
+                taxonomicGroups: TaxonomicFilterGroup[]
+            ): boolean => {
+                if (!isSoleSubstantiveGroup) {
+                    return false
+                }
+                return !!taxonomicGroups.find((g) => g.type === listGroupType)?.getValue
             },
         ],
         allowNonCapturedEvents: [
@@ -979,6 +999,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.suggestedPinnedMatches,
                 s.suggestedRecentMatches,
                 s.keywordShortcutItems,
+                s.isSoleSubstantiveGroup,
+                s.soleGroupHasGetValue,
+                s.taxonomicGroups,
                 (_, props: InfiniteListLogicProps) => props.collapseUrlsToContainsRow,
             ],
             (
@@ -992,6 +1015,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 suggestedPinnedMatches,
                 suggestedRecentMatches,
                 keywordShortcutItems,
+                isSoleSubstantiveGroup,
+                soleGroupHasGetValue,
+                taxonomicGroups,
                 collapseUrlsToContainsRow
             ) => {
                 // Collapse URL groups to a single "URL contains <query>" shortcut row
@@ -1041,9 +1067,39 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     ...remoteItems.results,
                     ...topMatches,
                 ]
-                const orderedBase = searchQuery
-                    ? promoteMatchingProperties(combinedResults, searchQuery)
-                    : combinedResults
+                // Reordering a windowed list would break onRowsRendered's display-index ->
+                // remote-offset mapping (and sparse holes would crash the keyer), so only float
+                // the sole group's recents/pinned once its list is fully loaded and dense.
+                // Local-only groups (count 0, no remote) are always fully loaded.
+                const soleGroupFullyLoaded =
+                    remoteItems.results.length >= remoteItems.count && !combinedResults.includes(undefined as any)
+                // Build the keyer inline (instead of a separate selector returning a
+                // function) so kea's reference-equality memoisation isn't defeated by a
+                // fresh closure on every evaluation.
+                const shouldFloat =
+                    !searchQuery && isSoleSubstantiveGroup && soleGroupHasGetValue && soleGroupFullyLoaded
+                let orderedBase: typeof combinedResults
+                if (searchQuery) {
+                    orderedBase = promoteMatchingProperties(combinedResults, searchQuery)
+                } else if (shouldFloat) {
+                    const getValue = taxonomicGroups.find(
+                        (g: TaxonomicFilterGroup) => g.type === listGroupType
+                    )?.getValue
+                    if (getValue) {
+                        const keyOf = (item: TaxonomicDefinitionTypes): string | null =>
+                            groupItemKey(listGroupType, getValue(item))
+                        orderedBase = floatRecentAndPinnedToTop(
+                            combinedResults,
+                            keyOf,
+                            contextFilteredRecentItems || [],
+                            contextFilteredPinnedItems || []
+                        )
+                    } else {
+                        orderedBase = combinedResults
+                    }
+                } else {
+                    orderedBase = combinedResults
+                }
                 // The "URL contains <query>" shortcut leads the aggregated SuggestedFilters list —
                 // ahead of recents/pinned/top-matches — so a URL search surfaces the contains
                 // suggestion first. Everything else keeps its existing order.
@@ -1167,6 +1223,21 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             cache.lastActiveTab = activeTab
             actions.resetPinnedRowState()
             actions.reconcilePinnedRowState()
+
+            // A tab switch can cut short this list's in-flight (debounced) remote search before
+            // it lands, leaving the cached results stale for the current query. Nothing else
+            // re-fires the load, so the stale list surfaces as a false "No results" until a later
+            // render or re-type. Reconcile here: if the cached remote query no longer matches the
+            // active search, re-dispatch so switching to (or back to) a tab always reloads against
+            // the current query. Skip when a load is already in flight — it reads the current
+            // query at fetch time and settles correctly on its own.
+            if (
+                values.hasRemoteDataSource &&
+                !values.remoteItemsLoading &&
+                (values.remoteItems.searchQuery ?? '') !== values.searchQuery
+            ) {
+                actions.loadRemoteItems({ offset: 0, limit: values.limit })
+            }
         },
         setSearchQuery: async () => {
             const searchQueryChanged = cache.lastSearchQuery !== values.searchQuery

@@ -10,15 +10,12 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { buildTheme } from './utils/theme'
 
-/** Rendering options the refreshed style turns on. Applied as config *defaults* — a chart's own
- *  config always wins. All four are stable quill-charts config keys, so removing the flag later
- *  means inlining these at the call sites (or flipping the library defaults), not deleting an API. */
 const REFRESHED_CONFIG_DEFAULTS = {
     curve: 'monotone',
     showAxisLines: true,
     showTickMarks: true,
     showCrosshair: true,
-    // Stacked bars round only the outermost segment, so this reads as "curved bar tops".
+    showGrid: true,
     barCornerRadius: 4,
 } as const
 
@@ -27,8 +24,6 @@ function refreshedThemeOverrides(isDarkModeOn: boolean): Partial<ChartTheme> {
         gridColor: isDarkModeOn ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
         gridDashPattern: [3, 3],
         axisLineColor: isDarkModeOn ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)',
-        // Dashed like the grid so the hover guide reads as a temporary sibling of the grid
-        // lines, slightly stronger than them so it stays findable.
         crosshairColor: isDarkModeOn ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)',
         crosshairDashPattern: [3, 3],
     }
@@ -55,7 +50,7 @@ export function useChartTheme(overrides?: Partial<ChartTheme>): ChartTheme {
 
 /** Drop-in replacement for the `useMemo` that builds a chart's config object. On top of memoizing,
  *  it applies app-level rendering defaults — currently the refreshed style (monotone curve, axis
- *  lines, tick marks, crosshair) behind `QUILL_CHART_STYLE_REFRESH`. Keys the config sets
+ *  lines, tick marks, crosshair, grid) behind `QUILL_CHART_STYLE_REFRESH`. Keys the config sets
  *  explicitly (non-undefined) always win over the defaults. */
 export function useChartConfig<T extends object>(factory: () => T, deps: DependencyList): T
 export function useChartConfig<T extends object>(factory: () => T | undefined, deps: DependencyList): T | undefined
