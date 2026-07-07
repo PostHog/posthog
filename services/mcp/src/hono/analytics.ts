@@ -173,10 +173,6 @@ export async function trackExecuteSqlGeneration(
         return
     }
     try {
-        const aiConsentGiven = await state.context.stateManager.getAiConsentGiven()
-        if (!aiConsentGiven) {
-            return
-        }
 
         const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
         const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
