@@ -81,6 +81,9 @@ class BatchConsumerConfig:
     # has been executing longer than this, so a wedged sink connection turns into
     # a liveness-probe restart instead of an indefinite, invisible stall.
     stuck_batch_timeout_seconds: float | None = None
+    # Withhold liveness after this many consecutive failed polls: a pod that
+    # cannot poll does no work but would otherwise pass liveness forever.
+    poll_failure_liveness_threshold: int | None = 10
 
     def __post_init__(self) -> None:
         if self.recovery_grace_seconds is None:
@@ -235,6 +238,9 @@ class BatchConsumer:
         # batch_id -> monotonic start, for the stuck-batch watchdog.
         self._inflight_started: dict[str, float] = {}
         self._last_stuck_log_monotonic = 0.0
+        # Consecutive failed polls, for the poll-failure liveness trip.
+        self._consecutive_poll_failures = 0
+        self._last_poll_failure_log_monotonic = 0.0
 
     @property
     def _lease_ttl_seconds(self) -> int:
@@ -337,15 +343,19 @@ class BatchConsumer:
                     logger.error(  # noqa: TRY400
                         self._event("poll_timed_out"),
                         timeout_seconds=self._config.poll_timeout_seconds,
+                        consecutive_failures=self._consecutive_poll_failures + 1,
                     )
+                    self._note_poll_failure("timeout", duration=time.monotonic() - poll_start)
                     await self._drop_conn("_poll_conn")
                     await self._wait_or_shutdown(self._config.poll_interval_seconds)
                     continue
                 except psycopg.OperationalError as e:
                     logger.exception(self._event("poll_failed_queue_db_unreachable"))
                     capture_exception(e)
+                    self._note_poll_failure("db_unreachable", duration=time.monotonic() - poll_start)
                     await self._wait_or_shutdown(self._config.poll_interval_seconds)
                     continue
+                self._consecutive_poll_failures = 0
                 poll_duration = time.monotonic() - poll_start
                 self._metrics.poll_duration_seconds.observe(poll_duration)
                 self._metrics.poll_batches_fetched.observe(len(batches))
@@ -859,15 +869,35 @@ class BatchConsumer:
             limit=self._config.reconcile_limit,
         )
 
+    def _note_poll_failure(self, reason: str, *, duration: float) -> None:
+        """Record a failed poll: the success path never reaches the poll histograms,
+        so without this a fleet whose polls all fail looks healthier than a slow one."""
+        self._consecutive_poll_failures += 1
+        self._metrics.poll_failures_total.labels(reason=reason).inc()
+        self._metrics.poll_duration_seconds.observe(duration)
+
     def _report_health(self) -> None:
-        """Report liveness, unless the stuck-batch watchdog has tripped.
+        """Report liveness, unless the stuck-batch watchdog or the poll-failure trip fired.
 
         Withholding the report makes the health server's timeout fail the liveness
         probe, so Kubernetes restarts the pod and the recovery sweep reassigns the
         wedged batch -- a sync thread blocked on a dead sink connection cannot be
         cancelled from the event loop, so a restart is the only real remedy.
+        Likewise for polling: a pod whose polls all fail does no work but would
+        otherwise report healthy forever.
         """
         if self._health_reporter is None:
+            return
+        threshold = self._config.poll_failure_liveness_threshold
+        if threshold is not None and self._consecutive_poll_failures >= threshold:
+            now = time.monotonic()
+            if now - self._last_poll_failure_log_monotonic > 60:
+                self._last_poll_failure_log_monotonic = now
+                logger.error(
+                    self._event("poll_failure_liveness_tripped"),
+                    consecutive_failures=self._consecutive_poll_failures,
+                    threshold=threshold,
+                )
             return
         timeout = self._config.stuck_batch_timeout_seconds
         if timeout is not None and self._inflight_started:

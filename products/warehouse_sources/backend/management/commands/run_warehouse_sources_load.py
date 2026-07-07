@@ -47,6 +47,8 @@ def build_consumer_config(options: dict) -> ConsumerConfig:
         kwargs["lease_ttl_seconds"] = options["lease_ttl"]
     if options.get("recovery_grace") is not None:
         kwargs["recovery_grace_seconds"] = options["recovery_grace"]
+    if options.get("poll_failure_liveness_threshold") is not None:
+        kwargs["poll_failure_liveness_threshold"] = options["poll_failure_liveness_threshold"] or None
     return ConsumerConfig(**kwargs)
 
 
@@ -145,6 +147,16 @@ class Command(BaseCommand):
             type=int,
             default=None,
             help="Seconds an executing batch may go without a heartbeat before the recovery sweep re-queues it",
+        )
+        parser.add_argument(
+            "--poll-failure-liveness-threshold",
+            type=int,
+            default=None,
+            help=(
+                "Stop reporting liveness after this many consecutive failed polls, so a pod that can no "
+                "longer claim work becomes a visible restart instead of a silent zero-throughput loop. "
+                "0 disables the trip"
+            ),
         )
 
     def handle(self, *args, **options):
