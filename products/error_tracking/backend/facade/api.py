@@ -512,8 +512,14 @@ def get_issue_id_for_fingerprint(team_id: int, fingerprint: str) -> UUID | None:
     return logic.get_issue_id_for_fingerprint(team_id=team_id, fingerprint=fingerprint)
 
 
-def list_fingerprints(team_id: int, issue_ids: list[UUID] | None = None) -> list[contracts.ErrorTrackingFingerprint]:
-    fingerprints = logic.list_fingerprints(team_id=team_id, issue_ids=issue_ids)
+def list_fingerprints(team_id: int, issue_id: UUID | None = None) -> list[contracts.ErrorTrackingFingerprint]:
+    fingerprints = logic.list_fingerprints(team_id=team_id, issue_id=issue_id)
+    return [_to_fingerprint(fingerprint) for fingerprint in fingerprints]
+
+
+def list_first_fingerprints(team_id: int, issue_ids: list[UUID]) -> list[contracts.ErrorTrackingFingerprint]:
+    """Earliest-created fingerprint per issue, one entry per issue."""
+    fingerprints = logic.list_first_fingerprints(team_id=team_id, issue_ids=issue_ids)
     return [_to_fingerprint(fingerprint) for fingerprint in fingerprints]
 
 

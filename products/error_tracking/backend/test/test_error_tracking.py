@@ -299,30 +299,22 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
         previews = api.list_issues_created_since(team_id=self.team.id, since=datetime(2026, 1, 1, tzinfo=UTC), limit=2)
         assert len(previews) == 2
 
-    def test_list_fingerprints_by_issue_ids(self):
+    def test_list_first_fingerprints_returns_earliest_per_issue(self):
         from products.error_tracking.backend.facade import api
 
-        issue_one = self.create_issue(["fp_one", "fp_two"])
-        issue_two = self.create_issue(["fp_three"])
+        with freeze_time("2026-01-02T00:00:00Z"):
+            issue_one = self.create_issue(["fp_one_later"])
+        with freeze_time("2026-01-01T00:00:00Z"):
+            ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue_one, fingerprint="fp_one_early")
+        issue_two = self.create_issue(["fp_two"])
         self.create_issue(["fp_other"])
 
-        fingerprints = api.list_fingerprints(team_id=self.team.id, issue_ids=[issue_one.id, issue_two.id])
+        fingerprints = api.list_first_fingerprints(team_id=self.team.id, issue_ids=[issue_one.id, issue_two.id])
 
-        assert {f.fingerprint for f in fingerprints} == {"fp_one", "fp_two", "fp_three"}
-
-    def test_list_fingerprints_orders_by_created_at(self):
-        from products.error_tracking.backend.facade import api
-
-        # The signals backfill keeps the first fingerprint per issue via setdefault,
-        # so it relies on this created_at ASC ordering to pick the earliest one.
-        with freeze_time("2026-01-02T00:00:00Z"):
-            issue = self.create_issue(["fp_later"])
-        with freeze_time("2026-01-01T00:00:00Z"):
-            ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint="fp_earlier")
-
-        fingerprints = api.list_fingerprints(team_id=self.team.id, issue_ids=[issue.id])
-
-        assert [f.fingerprint for f in fingerprints] == ["fp_earlier", "fp_later"]
+        assert {f.issue_id: f.fingerprint for f in fingerprints} == {
+            issue_one.id: "fp_one_early",
+            issue_two.id: "fp_two",
+        }
 
     def test_symbol_set_delete_calls_object_storage_delete(self):
         # Create a symbol set with a storage pointer

@@ -191,11 +191,20 @@ def get_issue_id_for_fingerprint(team_id: int, fingerprint: str) -> UUID | None:
     )
 
 
-def list_fingerprints(team_id: int, issue_ids: list[UUID] | None = None) -> QuerySet[ErrorTrackingIssueFingerprintV2]:
+def list_fingerprints(team_id: int, issue_id: UUID | None = None) -> QuerySet[ErrorTrackingIssueFingerprintV2]:
     queryset = ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id).order_by("created_at")
-    if issue_ids is not None:
-        queryset = queryset.filter(issue_id__in=issue_ids)
+    if issue_id is not None:
+        queryset = queryset.filter(issue_id=issue_id)
     return queryset
+
+
+def list_first_fingerprints(team_id: int, issue_ids: list[UUID]) -> list[ErrorTrackingIssueFingerprintV2]:
+    """Earliest-created fingerprint per issue (one row per issue), via Postgres DISTINCT ON."""
+    return list(
+        ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, issue_id__in=issue_ids)
+        .order_by("issue_id", "created_at")
+        .distinct("issue_id")
+    )
 
 
 def get_fingerprint(team_id: int, fingerprint_id: UUID) -> ErrorTrackingIssueFingerprintV2 | None:

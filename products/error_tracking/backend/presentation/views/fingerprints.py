@@ -33,7 +33,7 @@ class ErrorTrackingFingerprintViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
             except ValueError as error:
                 raise ValidationError("issue_id must be a valid UUID") from error
 
-        fingerprints = list_fingerprints(team_id=self.team.id, issue_ids=[issue_id] if issue_id else None)
+        fingerprints = list_fingerprints(team_id=self.team.id, issue_id=issue_id)
 
         page = self.paginate_queryset(fingerprints)
         if page is not None:

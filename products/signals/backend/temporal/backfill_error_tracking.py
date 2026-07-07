@@ -56,12 +56,12 @@ async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput
         if not previews:
             return []
 
-        # Bulk-fetch fingerprints and keep the earliest per issue (queryset is created_at-ordered).
-        first_fingerprints: dict[UUID, str] = {}
-        for fingerprint in error_tracking_api.list_fingerprints(
-            team_id=input.team_id, issue_ids=[preview.id for preview in previews]
-        ):
-            first_fingerprints.setdefault(fingerprint.issue_id, fingerprint.fingerprint)
+        first_fingerprints: dict[UUID, str] = {
+            fingerprint.issue_id: fingerprint.fingerprint
+            for fingerprint in error_tracking_api.list_first_fingerprints(
+                team_id=input.team_id, issue_ids=[preview.id for preview in previews]
+            )
+        }
 
         return [
             ErrorTrackingIssueData(
