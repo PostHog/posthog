@@ -208,17 +208,28 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
-        if self.instance is not None and isinstance(self.initial_data, dict) and "evaluation" in self.initial_data:
+        if (
+            self.instance is not None
+            and isinstance(self.initial_data, dict)
+            and "evaluation" in self.initial_data
+            and str(self.initial_data["evaluation"]) != str(self.instance.evaluation_id)
+        ):
             raise serializers.ValidationError({"evaluation": "Report configs cannot be moved to another evaluation."})
         if isinstance(self.initial_data, dict) and "deleted" in self.initial_data:
-            raise serializers.ValidationError(
-                {
-                    "deleted": (
-                        "Report configs are deleted only when their evaluation is deleted. "
-                        "Disable delivery with enabled=false."
-                    )
-                }
-            )
+            try:
+                submitted_deleted = serializers.BooleanField().to_internal_value(self.initial_data["deleted"])
+            except serializers.ValidationError as exc:
+                raise serializers.ValidationError({"deleted": exc.detail}) from exc
+            current_deleted = self.instance.deleted if self.instance is not None else False
+            if submitted_deleted != current_deleted:
+                raise serializers.ValidationError(
+                    {
+                        "deleted": (
+                            "Report configs are deleted only when their evaluation is deleted. "
+                            "Disable delivery with enabled=false."
+                        )
+                    }
+                )
         # Numeric bounds for trigger_threshold / cooldown_minutes / daily_run_cap are enforced
         # by the field-level min_value / max_value validators. This block only handles the
         # cross-field "required" rules that the field validators can't express on their own.

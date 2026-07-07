@@ -479,6 +479,21 @@ class TestEvaluationReportApi(APIBaseTest):
         self.assertEqual(report.frequency, "scheduled")
         self.assertEqual(report.rrule, "FREQ=WEEKLY;BYDAY=MO")
 
+    def test_update_allows_full_resource_echo_for_unchanged_read_only_fields(self) -> None:
+        report = self._create_report()
+        retrieve_response = self.client.get(f"{self.base_url}{report.id}/")
+        self.assertEqual(retrieve_response.status_code, status.HTTP_200_OK)
+        payload = retrieve_response.json()
+        payload["enabled"] = False
+
+        response = self.client.patch(f"{self.base_url}{report.id}/", payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        report.refresh_from_db()
+        self.assertEqual(report.evaluation_id, self.evaluation.id)
+        self.assertFalse(report.deleted)
+        self.assertFalse(report.enabled)
+
     def test_update_rejects_evaluation_reparent(self) -> None:
         report = self._create_report()
         other_evaluation = self._create_boolean_evaluation()
