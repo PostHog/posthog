@@ -115,8 +115,11 @@ def health(request):
     plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
     status = 503 if plan else 200
     if status == 503:
-        err = Exception("Migrations are not up to date. If this continues migrations have failed")
-        capture_exception(err)
+        # Pending migrations are expected during rolling deploys (a pod can serve traffic before
+        # migrations finish). The 503 already tells the orchestrator what it needs, so log rather
+        # than capturing an exception, which floods error tracking with tens of thousands of
+        # deploy-time false alarms.
+        logger.warning("migrations_not_up_to_date", pending_migration_count=len(plan))
         return HttpResponse("Migrations are not up to date", status=status, content_type="text/plain")
     if status == 200:
         return HttpResponse("ok", status=status, content_type="text/plain")

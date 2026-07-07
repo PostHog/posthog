@@ -246,6 +246,29 @@ def test_readyz_complains_if_role_does_not_exist(client: Client):
     assert data["error"] == "InvalidRole"
 
 
+@pytest.mark.django_db
+def test_health_returns_200_when_migrations_up_to_date(client: Client):
+    with patch("posthog.views.capture_exception") as capture_mock:
+        resp = client.get("/_health/")
+
+    assert resp.status_code == 200, resp.content
+    capture_mock.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_health_returns_503_without_capturing_exception_on_pending_migrations(client: Client):
+    with (
+        patch("posthog.views.MigrationExecutor") as executor_mock,
+        patch("posthog.views.capture_exception") as capture_mock,
+    ):
+        executor_mock.return_value.migration_plan.return_value = [("some_app.0001_initial", False)]
+        resp = client.get("/_health/")
+
+    assert resp.status_code == 503, resp.content
+    # Pending migrations during a rolling deploy are expected, so we must not flood error tracking
+    capture_mock.assert_not_called()
+
+
 def get_readyz(client: Client, exclude: Optional[list[str]] = None, role: Optional[str] = None) -> Any:
     return client.get("/_readyz", data={"exclude": exclude or [], "role": role or ""})
 
