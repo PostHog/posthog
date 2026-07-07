@@ -13,6 +13,8 @@ use sqlx::postgres::PgPool;
 use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
 
+use personhog_common::partitioning::partition_for_person;
+
 use crate::cache::{CacheLookup, CachedPerson, PartitionedCache, PersonCacheKey};
 use crate::inflight::InflightTracker;
 use crate::kafka::produce_person_changelog;
@@ -31,6 +33,10 @@ pub struct PersonHogLeaderService {
     fallback_pool: Option<PgPool>,
     /// Per-partition inflight counter used to drive the handoff drain phase.
     inflight: Arc<InflightTracker>,
+    /// Total changelog partition count, read from etcd at startup (the same
+    /// source the router uses). Used to validate the router's routing
+    /// decision against each request's key.
+    num_partitions: u32,
 }
 
 impl PersonHogLeaderService {
@@ -41,6 +47,7 @@ impl PersonHogLeaderService {
         fallback_pool: Option<PgPool>,
         locks: Arc<DashMap<PersonCacheKey, Arc<Mutex<()>>>>,
         inflight: Arc<InflightTracker>,
+        num_partitions: u32,
     ) -> Self {
         Self {
             cache,
@@ -49,7 +56,32 @@ impl PersonHogLeaderService {
             changelog_topic,
             fallback_pool,
             inflight,
+            num_partitions,
         }
+    }
+
+    /// Verify the router's routing decision against the request body: the
+    /// partition a request arrived on must equal the partition derived from
+    /// the key it carries. A mismatch means a client stamped wrong
+    /// routing-key headers or the hash implementations diverged; serving it
+    /// would read or write through the wrong partition's cache, so fail
+    /// closed.
+    #[allow(clippy::result_large_err)]
+    fn validate_partition(
+        &self,
+        partition: u32,
+        team_id: i64,
+        person_id: i64,
+    ) -> Result<(), Status> {
+        let expected = partition_for_person(team_id, person_id, self.num_partitions);
+        if partition != expected {
+            counter!("personhog_leader_partition_mismatch_total").increment(1);
+            return Err(Status::invalid_argument(format!(
+                "x-partition {partition} does not match partition {expected} \
+                 derived from team_id={team_id} person_id={person_id}"
+            )));
+        }
+        Ok(())
     }
 
     /// Load a person from PG and populate the cache. Assumes the caller
@@ -181,6 +213,7 @@ impl PersonHogLeader for PersonHogLeaderService {
     ) -> Result<Response<GetPersonResponse>, Status> {
         let partition = partition_from_metadata(&request)?;
         let req = request.into_inner();
+        self.validate_partition(partition, req.team_id, req.person_id)?;
         let cache_key = PersonCacheKey {
             team_id: req.team_id,
             person_id: req.person_id,
@@ -199,6 +232,7 @@ impl PersonHogLeader for PersonHogLeaderService {
     ) -> Result<Response<UpdatePersonPropertiesResponse>, Status> {
         let partition = partition_from_metadata(&request)?;
         let req = request.into_inner();
+        self.validate_partition(partition, req.team_id, req.person_id)?;
 
         // Track this write as inflight for its partition. The handoff protocol
         // waits for the per-partition inflight count to drop to zero before

@@ -9,6 +9,7 @@ use metrics_exporter_prometheus::PrometheusBuilder;
 use personhog_common::async_gzip::{AsyncGzipConfig, AsyncGzipLayer};
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetricsLayer};
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplicaServer;
+use tonic::codec::CompressionEncoding;
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::fmt;
@@ -357,17 +358,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(age) = max_connection_age {
             server = server.max_connection_age(age);
         }
-        // No tonic codec compression: the zstd request/response codec served
-        // the old typed router's client hop, which no longer exists. No
-        // production client speaks zstd (grpcio and grpc-js cannot), so
-        // response compression is exclusively the gzip layer above and
-        // requests always arrive uncompressed.
+        // accept_compressed only decodes gzip request frames from opted-in
+        // clients; response compression is exclusively the gzip layer above
+        // (never send_compressed — see the tonic entry in Cargo.toml). Note
+        // max_decoding_message_size bounds the wire (compressed) size, so a
+        // compressed request can decode larger than the limit.
         if let Err(e) = server
             .layer(AsyncGzipLayer::new(gzip_config))
             .layer(GrpcMetricsLayer::default().with_processing_time_header())
             .layer(GrpcLoadShedLayer::new(max_concurrent_requests))
             .add_service(
                 PersonHogReplicaServer::new(service)
+                    .accept_compressed(CompressionEncoding::Gzip)
                     .max_encoding_message_size(max_send)
                     .max_decoding_message_size(max_recv),
             )

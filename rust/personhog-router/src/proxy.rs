@@ -20,7 +20,6 @@ use tower::{Service, ServiceExt};
 use crate::backend::{LeaderBackend, ReplicaBackend};
 use crate::config::RetryConfig;
 use crate::grpc_http::{grpc_error_response, is_grpc_error_response};
-use crate::wire::scan_person_key;
 
 const SERVICE_PREFIX: &str = "/personhog.service.v1.PersonHogService/";
 const REPLICA_PREFIX: &str = "/personhog.replica.v1.PersonHogReplica/";
@@ -384,12 +383,13 @@ impl RawProxyInner {
 
     /// Raw-forward a leader request — a strong `GetPerson` or an
     /// `UpdatePersonProperties` — to the owning leader pod. The routing key
-    /// is read straight off the wire (no full decode), hashed to a
-    /// partition, and the request bytes are forwarded verbatim with the
-    /// partition in the `x-partition` header. Writes (`use_stash`) go
-    /// through the per-partition stash so they buffer correctly during a
-    /// handoff; reads forward directly and surface the channel round-trip
-    /// time for the network-overhead metric.
+    /// arrives in the `x-team-id`/`x-person-id` headers stamped by the
+    /// client, is hashed to a partition, and the request bytes are forwarded
+    /// verbatim with the partition in the `x-partition` header. The body is
+    /// never inspected, so client-compressed request frames transit
+    /// untouched. Writes (`use_stash`) go through the per-partition stash so
+    /// they buffer correctly during a handoff; reads forward directly and
+    /// surface the channel round-trip time for the network-overhead metric.
     async fn raw_proxy_to_leader(
         &self,
         req: http::Request<BoxBody>,
@@ -409,6 +409,13 @@ impl RawProxyInner {
             }
         };
 
+        // Reject requests without a routing key before paying for body
+        // collection.
+        let (team_id, person_id) = match person_key_from_headers(req.headers()) {
+            Ok(key) => key,
+            Err(resp) => return (resp, None),
+        };
+
         let (parts, body) = req.into_parts();
         let collect_start = Instant::now();
         let body_bytes = match collect_body_limited(body, self.max_recv_message_size).await {
@@ -422,23 +429,7 @@ impl RawProxyInner {
         )
         .record(collect_start.elapsed().as_secs_f64() * 1000.0);
 
-        let message = match strip_grpc_frame(&body_bytes) {
-            Ok(m) => m,
-            Err(resp) => return (resp, None),
-        };
-        let key = match scan_person_key(message) {
-            Ok(k) => k,
-            Err(e) => {
-                return (
-                    grpc_error_response(
-                        Code::Internal,
-                        &format!("failed to extract routing key: {e:?}"),
-                    ),
-                    None,
-                )
-            }
-        };
-        let partition = leader.partition_for_person(key.team_id, key.person_id);
+        let partition = leader.partition_for_person(team_id, person_id);
 
         let _in_flight = ClientInFlightGuard::new("leader");
         if use_stash {
@@ -446,7 +437,7 @@ impl RawProxyInner {
                 .forward_or_stash(
                     method,
                     partition,
-                    (key.team_id, key.person_id),
+                    (team_id, person_id),
                     parts.headers,
                     body_bytes,
                 )
@@ -532,25 +523,49 @@ async fn retry_backoff(
     *delay_ms = (*delay_ms * 2).min(retry_config.max_backoff_ms);
 }
 
-/// Validate the gRPC length-prefix framing and return the bare protobuf
-/// message slice. Rejects compressed frames: the leader path scans the
-/// message bytes for the routing key, which requires them uncompressed.
+/// Routing-key headers stamped by clients on every leader-path request.
+/// The router hashes these to a partition instead of inspecting the request
+/// body; the leader independently validates them against the decoded body.
+const TEAM_ID_HEADER: &str = "x-team-id";
+const PERSON_ID_HEADER: &str = "x-person-id";
+
+/// Extract the `(team_id, person_id)` routing key from request headers.
+/// A missing or malformed header means the client predates the header
+/// contract or the request is malformed, so we fail closed rather than
+/// guess a partition.
+// `http::Response` is the error type every helper on this path returns; the
+// large variant trips `result_large_err`, but boxing here would diverge from
+// `collect_body_limited` and friends.
 #[allow(clippy::result_large_err)]
-fn strip_grpc_frame(body: &Bytes) -> Result<&[u8], http::Response<BoxBody>> {
-    if body.len() < 5 {
-        return Err(grpc_error_response(Code::Internal, "gRPC frame too short"));
-    }
-    if body[0] != 0 {
-        return Err(grpc_error_response(
-            Code::Unimplemented,
-            "compressed requests not supported on the leader path",
-        ));
-    }
-    let len = u32::from_be_bytes([body[1], body[2], body[3], body[4]]) as usize;
-    if body.len() < 5 + len {
-        return Err(grpc_error_response(Code::Internal, "gRPC frame truncated"));
-    }
-    Ok(&body[5..5 + len])
+fn person_key_from_headers(
+    headers: &http::HeaderMap,
+) -> Result<(i64, i64), http::Response<BoxBody>> {
+    let team_id = i64_header(headers, TEAM_ID_HEADER)?;
+    let person_id = i64_header(headers, PERSON_ID_HEADER)?;
+    Ok((team_id, person_id))
+}
+
+#[allow(clippy::result_large_err)]
+fn i64_header(
+    headers: &http::HeaderMap,
+    name: &'static str,
+) -> Result<i64, http::Response<BoxBody>> {
+    let value = headers.get(name).ok_or_else(|| {
+        grpc_error_response(
+            Code::InvalidArgument,
+            &format!("missing {name} header required for leader routing"),
+        )
+    })?;
+    value
+        .to_str()
+        .ok()
+        .and_then(|v| v.parse::<i64>().ok())
+        .ok_or_else(|| {
+            grpc_error_response(
+                Code::InvalidArgument,
+                &format!("{name} header is not a valid integer"),
+            )
+        })
 }
 
 /// Response body wrapper that counts bytes from DATA frames and records
@@ -635,8 +650,6 @@ mod tests {
     use super::*;
     use futures::stream;
     use http_body_util::{Empty, StreamBody};
-    use personhog_proto::personhog::types::v1::GetPersonRequest;
-    use prost::Message;
 
     #[test]
     fn known_method_lookup() {
@@ -686,52 +699,42 @@ mod tests {
         );
     }
 
-    /// A well-formed frame yields exactly the message bytes, decodable as
-    /// the original proto.
+    /// Well-formed routing-key headers yield the `(team_id, person_id)`
+    /// pair the router hashes for partition placement.
     #[test]
-    fn strip_grpc_frame_returns_message_slice() {
-        let msg = GetPersonRequest {
-            team_id: 1,
-            person_id: 42,
-            read_options: None,
-        };
-        let encoded = msg.encode_to_vec();
-        let mut buf = Vec::with_capacity(5 + encoded.len());
-        buf.push(0); // not compressed
-        buf.extend_from_slice(&(encoded.len() as u32).to_be_bytes());
-        buf.extend_from_slice(&encoded);
+    fn person_key_from_headers_extracts_key() {
+        let mut headers = http::HeaderMap::new();
+        headers.insert(TEAM_ID_HEADER, "1".parse().unwrap());
+        headers.insert(PERSON_ID_HEADER, "42".parse().unwrap());
 
-        let body = Bytes::from(buf);
-        let message = strip_grpc_frame(&body).expect("valid frame");
-        assert_eq!(message, &encoded[..]);
-
-        let decoded = GetPersonRequest::decode(message).expect("decodable");
-        assert_eq!(decoded.team_id, 1);
-        assert_eq!(decoded.person_id, 42);
+        let (team_id, person_id) = person_key_from_headers(&headers).expect("valid headers");
+        assert_eq!(team_id, 1);
+        assert_eq!(person_id, 42);
     }
 
-    /// Each malformed-frame branch fails closed with its own status:
-    /// too short and truncated are Internal (the frame never left the
-    /// router intact), compressed is Unimplemented (a client capability
-    /// the leader path deliberately rejects).
+    /// Missing or malformed routing-key headers fail closed with
+    /// InvalidArgument — the router must never guess a partition.
     #[test]
-    fn strip_grpc_frame_rejects_malformed_frames() {
-        let cases: [(&[u8], Code, &str); 3] = [
-            (&[0, 0, 0, 0], Code::Internal, "frame shorter than 5 bytes"),
-            (&[1, 0, 0, 0, 0], Code::Unimplemented, "compressed flag set"),
-            (
-                &[0, 0, 0, 0, 10],
-                Code::Internal,
-                "declared length exceeds remaining bytes",
-            ),
+    fn person_key_from_headers_rejects_missing_or_malformed() {
+        let cases: [(Option<&str>, Option<&str>, &str); 4] = [
+            (None, Some("42"), "missing x-team-id"),
+            (Some("1"), None, "missing x-person-id"),
+            (Some("abc"), Some("42"), "non-numeric x-team-id"),
+            (Some("1"), Some("12.5"), "non-integer x-person-id"),
         ];
 
-        for (bytes, expected, why) in cases {
-            let resp = strip_grpc_frame(&Bytes::from_static(bytes))
-                .expect_err(&format!("must reject: {why}"));
+        for (team, person, why) in cases {
+            let mut headers = http::HeaderMap::new();
+            if let Some(v) = team {
+                headers.insert(TEAM_ID_HEADER, v.parse().unwrap());
+            }
+            if let Some(v) = person {
+                headers.insert(PERSON_ID_HEADER, v.parse().unwrap());
+            }
+            let resp = person_key_from_headers(&headers).expect_err(&format!("must reject: {why}"));
             assert_eq!(
                 resp.headers().get("grpc-status").unwrap(),
-                &format!("{}", expected as i32),
+                &format!("{}", Code::InvalidArgument as i32),
                 "wrong status for: {why}"
             );
         }

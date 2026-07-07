@@ -13,6 +13,7 @@ use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetric
 use personhog_coordination::pod::{PodConfig, PodHandle};
 use personhog_coordination::store::PersonhogStore;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
+use tonic::codec::CompressionEncoding;
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::fmt;
@@ -138,6 +139,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?)
     };
 
+    // Connect to etcd for coordination and the partition count
+    let etcd_config = StoreConfig {
+        endpoints: config.etcd_endpoint_list(),
+        prefix: config.etcd_prefix.clone(),
+    };
+    let etcd_store = EtcdStore::connect(etcd_config)
+        .await
+        .expect("Failed to connect to etcd");
+    let store = Arc::new(PersonhogStore::new(etcd_store));
+
+    // Read total_partitions from etcd (set by kafka-assigner) — the same
+    // source the router hashes against, so partition validation can never
+    // drift between the two.
+    let num_partitions = store
+        .get_total_partitions()
+        .await
+        .expect("Failed to read total_partitions from etcd");
+    tracing::info!(num_partitions, "loaded partition count from etcd");
+
     let locks = Arc::new(DashMap::new());
     let inflight = Arc::new(personhog_leader::inflight::InflightTracker::new());
     let service = PersonHogLeaderService::new(
@@ -147,17 +167,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         fallback_pool,
         Arc::clone(&locks),
         Arc::clone(&inflight),
+        num_partitions,
     );
-
-    // Connect to etcd and start coordination
-    let etcd_config = StoreConfig {
-        endpoints: config.etcd_endpoint_list(),
-        prefix: config.etcd_prefix.clone(),
-    };
-    let etcd_store = EtcdStore::connect(etcd_config)
-        .await
-        .expect("Failed to connect to etcd");
-    let store = Arc::new(PersonhogStore::new(etcd_store));
 
     let handler = LeaderHandoffHandler::new(
         Arc::clone(&cache),
@@ -273,7 +284,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .layer(GrpcMetricsLayer::default().with_processing_time_header())
             .layer(GrpcLoadShedLayer::new(max_concurrent_requests))
             .add_service(
+                // accept_compressed only decodes gzip request frames from
+                // opted-in clients; responses stay with the AsyncGzipLayer
+                // (never send_compressed — see the tonic entry in Cargo.toml).
                 PersonHogLeaderServer::new(service)
+                    .accept_compressed(CompressionEncoding::Gzip)
                     .max_encoding_message_size(max_send)
                     .max_decoding_message_size(max_recv),
             )

@@ -195,7 +195,13 @@ fancy-regex = "0.17"
 lz-str = "0.2.1"
 lz4 = "1.28"
 opentelemetry-proto = { version = "0.29.0", features = ["with-serde"] }
-tonic = { version = "0.12.3", features = ["zstd"] }
+# gzip enables request decompression via accept_compressed. Response
+# compression stays with personhog-common's AsyncGzipLayer — never call
+# send_compressed: tonic's response-encoding negotiation matches any
+# compiled-in feature once the send set is non-empty, so a single
+# send_compressed(x) server would silently compress with whatever encoding
+# feature unification drags in.
+tonic = { version = "0.12.3", features = ["gzip"] }
 tonic-build = "0.12"
 clickhouse = { version = "0.13.2", features = [
   "uuid",

@@ -488,7 +488,9 @@ pub async fn start_test_replica(service: TestReplicaService) -> SocketAddr {
 
     tokio::spawn(async move {
         Server::builder()
-            .add_service(PersonHogReplicaServer::new(service))
+            .add_service(
+                PersonHogReplicaServer::new(service).accept_compressed(CompressionEncoding::Gzip),
+            )
             .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
             .await
             .unwrap();
@@ -514,7 +516,9 @@ pub async fn start_test_replica_with_async_gzip(service: TestReplicaService) -> 
                 min_payload_size: 0,
                 ..AsyncGzipConfig::default()
             }))
-            .add_service(PersonHogReplicaServer::new(service))
+            .add_service(
+                PersonHogReplicaServer::new(service).accept_compressed(CompressionEncoding::Gzip),
+            )
             .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
             .await
             .unwrap();
@@ -536,7 +540,9 @@ pub async fn start_test_replica_with_async_gzip_disabled(
     tokio::spawn(async move {
         Server::builder()
             .layer(AsyncGzipLayer::new(AsyncGzipConfig::default()))
-            .add_service(PersonHogReplicaServer::new(service))
+            .add_service(
+                PersonHogReplicaServer::new(service).accept_compressed(CompressionEncoding::Gzip),
+            )
             .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
             .await
             .unwrap();
@@ -553,13 +559,12 @@ pub async fn create_client(router_addr: SocketAddr) -> PersonHogServiceClient<Ch
     PersonHogServiceClient::connect(url).await.unwrap()
 }
 
-/// Create a client that sends Zstd-compressed requests.
+/// Create a client that sends gzip-compressed requests, matching a
+/// production client with request compression opted in.
 pub async fn create_compressed_client(router_addr: SocketAddr) -> PersonHogServiceClient<Channel> {
     let url = format!("http://{}", router_addr);
     let channel = Channel::from_shared(url).unwrap().connect().await.unwrap();
-    PersonHogServiceClient::new(channel)
-        .send_compressed(CompressionEncoding::Zstd)
-        .accept_compressed(CompressionEncoding::Zstd)
+    PersonHogServiceClient::new(channel).send_compressed(CompressionEncoding::Gzip)
 }
 
 /// Send a raw gRPC unary request with `grpc-accept-encoding: gzip` and return
@@ -743,7 +748,9 @@ pub async fn start_test_leader(service: TestLeaderService) -> SocketAddr {
 
     tokio::spawn(async move {
         Server::builder()
-            .add_service(PersonHogLeaderServer::new(service))
+            .add_service(
+                PersonHogLeaderServer::new(service).accept_compressed(CompressionEncoding::Gzip),
+            )
             .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
             .await
             .unwrap();
