@@ -21,6 +21,50 @@ export const ResourceTypeEnumApi = {
 } as const
 
 /**
+ * * `since_last_sent` - Since last report
+ * * `last_n_days` - Last N days
+ * * `days_ago_range` - Between X and Y days ago
+ */
+export type AIWindowConfigModeEnumApi = (typeof AIWindowConfigModeEnumApi)[keyof typeof AIWindowConfigModeEnumApi]
+
+export const AIWindowConfigModeEnumApi = {
+    SinceLastSent: 'since_last_sent',
+    LastNDays: 'last_n_days',
+    DaysAgoRange: 'days_ago_range',
+} as const
+
+export interface AIWindowConfigApi {
+    /** What the report analyzes each run:
+     * * `since_last_sent` (default) — everything since the previous successful delivery (gap-free)
+     * * `last_n_days` — a fixed trailing window of start_days_ago days
+     * * `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago
+     *
+     * * `since_last_sent` - Since last report
+     * * `last_n_days` - Last N days
+     * * `days_ago_range` - Between X and Y days ago */
+    mode?: AIWindowConfigModeEnumApi
+    /**
+     * Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365.
+     * @minimum 1
+     * @maximum 365
+     * @nullable
+     */
+    start_days_ago?: number | null
+    /**
+     * Upper bound of the analysis window, in days before the run (0 = now). Required for 'days_ago_range' and must be less than start_days_ago; ignored for other modes. 0-365.
+     * @minimum 0
+     * @maximum 365
+     * @nullable
+     */
+    end_days_ago?: number | null
+}
+
+export interface AIPromptConfigApi {
+    /** Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous delivery). */
+    window?: AIWindowConfigApi
+}
+
+/**
  * * `email` - Email
  * * `slack` - Slack
  */
@@ -155,6 +199,8 @@ export interface SubscriptionApi {
      * @nullable
      */
     prompt?: string | null
+    /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
+    ai_prompt_config?: AIPromptConfigApi
     /** Delivery channel: email or slack.
      *
      * * `email` - Email
@@ -299,6 +345,8 @@ export interface PatchedSubscriptionApi {
      * @nullable
      */
     prompt?: string | null
+    /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
+    ai_prompt_config?: AIPromptConfigApi
     /** Delivery channel: email or slack.
      *
      * * `email` - Email
@@ -408,6 +456,11 @@ export interface AIReportQueryDiagnosticApi {
      * @nullable
      */
     error_type: string | null
+    /**
+     * Human-readable failure reason, present only for query errors safe to surface to the subscription owner (e.g. an unresolved field name); null on success and for internal errors, which expose error_type only.
+     * @nullable
+     */
+    human_readable_error?: string | null
 }
 
 export interface SubscriptionDeliveryApi {

@@ -609,12 +609,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 insightNumericId === undefined,
                 'save'
             )
-            // A brand-new insight created with a dashboard attached is a tile added to that dashboard
-            // (the "create new" path of the add-to-dashboard flow). The existing-insight path fires this
-            // separately in addSavedInsightsModalLogic, so this won't double-count.
-            if (insightNumericId === undefined && (dashboards?.length ?? 0) > 0) {
-                eventUsageLogic.actions.reportDashboardTileAdded('insight')
-            }
             lemonToast.success(`Insight saved${dashboards?.length === 1 ? ' & added to dashboard' : ''}`, {
                 button: {
                     label: 'View Insights list',

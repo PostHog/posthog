@@ -72,15 +72,27 @@ async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(te
     snapshot = await _snapshot(delivery.id)
     assert snapshot[AI_REPORT_SNAPSHOT_KEY] == "# Weekly report"
     assert snapshot[AI_REPORT_DIAGNOSTICS_KEY] == [
-        {"description": "adoption", "hogql": "SELECT count()", "ok": True, "error_type": None},
-        {"description": "reliability", "hogql": "SELECT bad", "ok": False, "error_type": "ResolutionError"},
+        {
+            "description": "adoption",
+            "hogql": "SELECT count()",
+            "ok": True,
+            "error_type": None,
+            "human_readable_error": None,
+        },
+        {
+            "description": "reliability",
+            "hogql": "SELECT bad",
+            "ok": False,
+            "error_type": "ResolutionError",
+            "human_readable_error": None,
+        },
     ]
     # The generating prompt is captured so the delivery is reproducible and the viewer can show it.
     assert snapshot[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "weekly adoption + reliability report"
 
 
-@parameterized.expand([("none", None), ("empty", "")])
-async def test_persist_ai_report_omits_blank_prompt(team, user, _name, prompt) -> None:
+@pytest.mark.parametrize("prompt", [None, ""])
+async def test_persist_ai_report_omits_blank_prompt(team, user, prompt) -> None:
     # A non-AI sub passes prompt=None and a cleared prompt passes ""; neither should write the key
     # (so the viewer doesn't render an empty "prompt at time of generation" block).
     delivery = await _create_delivery(team, user)
@@ -95,8 +107,6 @@ async def test_persist_ai_report_omits_blank_prompt(team, user, _name, prompt) -
     assert AI_REPORT_PROMPT_SNAPSHOT_KEY not in snapshot
 
 
-# These counts drive the workflow's FAILED-vs-COMPLETED decision: every query failing must report
-# failed == total so the delivery is recorded FAILED rather than a misleading "completed".
 class TestReportDiagnosticCounts:
     @parameterized.expand(
         [

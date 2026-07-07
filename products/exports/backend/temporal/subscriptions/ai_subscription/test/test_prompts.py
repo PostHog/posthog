@@ -2,34 +2,9 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import (
-    HOGQL_FIX_PROMPT,
-    PLAN_GENERATION_PROMPT,
-    resolve_prompt,
-)
+from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import resolve_prompt
 
 _P = "products.exports.backend.temporal.subscriptions.ai_subscription.prompts"
-
-
-class TestPlannerWindowInstruction:
-    """The window-determinism fix lives in the prompt's example patterns — the planner copies them.
-    These guard against re-introducing the `now()`-relative date math that caused timezone query
-    errors and run-to-run drift."""
-
-    @parameterized.expand(
-        [
-            ("planner", PLAN_GENERATION_PROMPT),
-            ("hogql_fix", HOGQL_FIX_PROMPT),
-        ]
-    )
-    def test_instructs_explicit_window_and_forbids_now_interval(self, _name: str, prompt: str) -> None:
-        # The half-open `toDateTime(...)` filter is the template the model must copy/preserve.
-        assert "toDateTime(" in prompt
-        # The relative window date-math the fix removes must not appear as a usable example. The
-        # prohibition text says "Never now() - INTERVAL …" with an ellipsis, so a concrete
-        # `now() - INTERVAL <n> DAY` example (the thing models copy) is what we're guarding against.
-        assert "now() - INTERVAL 7 DAY" not in prompt
-        assert "now() - INTERVAL 14 DAY" not in prompt
 
 
 @patch(f"{_P}.ph_scoped_capture")

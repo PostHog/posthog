@@ -771,6 +771,7 @@ const config = {
             fontFamily: {
                 sans: [
                     'Emoji Flags Polyfill',
+                    'RoundHog',
                     '-apple-system',
                     'BlinkMacSystemFont',
                     'Inter',
@@ -786,7 +787,7 @@ const config = {
                 ],
                 title: [
                     'Emoji Flags Polyfill',
-                    'MatterSQ',
+                    'RoundHog',
                     '-apple-system',
                     'BlinkMacSystemFont',
                     'Inter',

@@ -128,8 +128,84 @@ class DashboardExportInsightsField(serializers.Field):
         return data
 
 
+class AIWindowConfigSerializer(serializers.Serializer):
+    mode = serializers.ChoiceField(
+        choices=Subscription.AIWindowMode.choices,
+        default=Subscription.AIWindowMode.SINCE_LAST_SENT,
+        help_text=(
+            "What the report analyzes each run:\n"
+            "* `since_last_sent` (default) — everything since the previous successful delivery (gap-free)\n"
+            "* `last_n_days` — a fixed trailing window of start_days_ago days\n"
+            "* `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago"
+        ),
+    )
+    start_days_ago = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=365,
+        help_text=(
+            "Lower bound of the analysis window, in days before the run. Required for 'last_n_days' "
+            "(the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365."
+        ),
+    )
+    end_days_ago = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=365,
+        help_text=(
+            "Upper bound of the analysis window, in days before the run (0 = now). Required for "
+            "'days_ago_range' and must be less than start_days_ago; ignored for other modes. 0-365."
+        ),
+    )
+
+    def to_representation(self, instance: Any) -> dict:
+        return Subscription.normalize_ai_window(instance)
+
+    def validate(self, attrs: dict) -> dict:
+        mode = attrs.get("mode") or Subscription.AIWindowMode.SINCE_LAST_SENT
+        start = attrs.get("start_days_ago")
+        end = attrs.get("end_days_ago")
+
+        if mode == Subscription.AIWindowMode.SINCE_LAST_SENT:
+            # Day bounds are meaningless here; normalise them away so a later mode switch starts clean.
+            attrs["start_days_ago"] = None
+            attrs["end_days_ago"] = None
+            return attrs
+        if not start:
+            raise ValidationError({"start_days_ago": [f"Required when mode is '{mode}'."]})
+        if mode == Subscription.AIWindowMode.LAST_N_DAYS:
+            attrs["end_days_ago"] = None
+            return attrs
+        # DAYS_AGO_RANGE
+        if end is None:
+            raise ValidationError({"end_days_ago": [f"Required when mode is '{mode}'."]})
+        if end >= start:
+            raise ValidationError(
+                {"end_days_ago": ["Must be less than start_days_ago (the window must end after it starts)."]}
+            )
+        return attrs
+
+
+class AIPromptConfigSerializer(serializers.Serializer):
+    window = AIWindowConfigSerializer(
+        required=False,
+        help_text="Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous delivery).",
+    )
+
+
 class SubscriptionSerializer(serializers.ModelSerializer):
     """Standard Subscription serializer."""
+
+    FIELDS_THAT_TRIGGER_REDELIVERY: ClassVar[tuple[str, ...]] = (
+        "target_value",
+        "target_type",
+        "integration_id",
+        "prompt",
+        "insight_id",
+        "dashboard_id",
+    )
 
     created_by = UserBasicSerializer(read_only=True)
     summary = serializers.CharField(read_only=True, help_text="Human-readable schedule summary, e.g. 'sent daily'.")
@@ -147,6 +223,13 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     dashboard_export_insights = DashboardExportInsightsField(
         required=False,
         help_text="List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.",
+    )
+    ai_prompt_config = AIPromptConfigSerializer(
+        required=False,
+        help_text=(
+            "Configuration for AI report subscriptions (analysis window, future knobs). Only valid "
+            "when resource_type is 'ai_prompt'. Replaced wholesale on writes."
+        ),
     )
     insight_short_id = serializers.SerializerMethodField()
     resource_name = serializers.SerializerMethodField()
@@ -172,6 +255,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "resource_name",
             "dashboard_export_insights",
             "prompt",
+            "ai_prompt_config",
             "target_type",
             "target_value",
             "frequency",
@@ -348,6 +432,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # diagnosable, an unhandled KeyError surfaces as a 500.
         if validate_for_resource_type is None:
             raise ValidationError({"resource_type": [f"Unsupported resource_type: {resource_type}."]})
+        if resource_type != Subscription.ResourceType.AI_PROMPT and attrs.get("ai_prompt_config"):
+            raise ValidationError({"ai_prompt_config": ["AI report settings only apply to AI subscriptions."]})
         validate_for_resource_type(attrs, existing)
 
         self._validate_dashboard_export_subscription(attrs)
@@ -518,6 +604,29 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             # Telemetry must never poison the validation path.
             pass
 
+    def _capture_update_delivery_decision(
+        self, instance: Subscription, *, delivery_triggered: bool, re_enabled: bool
+    ) -> None:
+        try:
+            posthoganalytics.capture(
+                distinct_id=self._caller_distinct_id(),
+                event="subscription_update_delivery_decision",
+                properties={
+                    "subscription_id": instance.id,
+                    "team_id": instance.team_id,
+                    "resource_type": instance.resource_type,
+                    "target_type": instance.target_type,
+                    "delivery_triggered": delivery_triggered,
+                    "reason": "re_enabled"
+                    if re_enabled
+                    else ("delivery_field_changed" if delivery_triggered else "no_delivery_relevant_change"),
+                },
+                groups=groups(None, instance.team),
+            )
+        except Exception as e:
+            # Telemetry must never block the update.
+            capture_exception(e)
+
     def _evaluate_feature_flag(self, flag_key: str) -> bool:
         """Evaluate a feature flag for the caller's organization.
 
@@ -683,8 +792,20 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         was_disabled = instance.enabled is False
         is_delete = not instance.deleted and validated_data.get("deleted") is True
         invite_message = validated_data.pop("invite_message", "")
+        # Track payload PRESENCE, not truthiness: an empty list (clearing all exports) is delivery-relevant
+        # too, so `bool(ids)` would miss it. Pop loses presence, so capture it first.
+        export_insights_in_payload = "dashboard_export_insights" in validated_data
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
         analytics_props = get_request_analytics_properties(request)
+
+        # Snapshot delivery-relevant scalar values before the write so we can tell, after,
+        # whether the edit actually changed what gets delivered. Only snapshot the
+        # dashboard_export_insights M2M when the payload carries it — that's the only case
+        # `.set()` can mutate the relation, so a schedule/meta-only edit pays no M2M query.
+        old_delivery_values = {field: getattr(instance, field) for field in self.FIELDS_THAT_TRIGGER_REDELIVERY}
+        old_export_insight_ids = (
+            set(instance.dashboard_export_insights.values_list("id", flat=True)) if export_insights_in_payload else None
+        )
 
         if is_delete:
             with slo_operation(
@@ -711,22 +832,43 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             instance = super().update(instance, validated_data)
         _invalidate_summary_quota_cache(instance.team.organization_id)
 
-        if dashboard_export_insight_ids:
+        # Apply the M2M whenever the field is in the payload — including an empty list, which clears it.
+        if export_insights_in_payload:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
+
+        is_re_enabling = was_disabled and instance.enabled
 
         # Re-enabling clears the stale next_delivery_date that was frozen while
         # disabled. Without this, the scheduler picks the sub up on its next tick
         # (the past date matches `next_delivery_date__lte=now`) and fires a second
         # SCHEDULED delivery right after the immediate TARGET_CHANGE confirmation.
-        if was_disabled and instance.enabled:
+        if is_re_enabling:
             instance.set_next_delivery_date()
             instance.save(update_fields=["next_delivery_date"])
 
         # Skip the workflow trigger when the resulting state is disabled. No delivery
         # should fire for a disabled subscription regardless of whether it was just
-        # disabled or already disabled. Re-enabling (`enabled: false → true`) DOES
-        # trigger the workflow so the user gets immediate confirmation delivery.
+        # disabled or already disabled.
         if not instance.enabled:
+            return instance
+
+        # Only fire the immediate confirmation delivery when the edit changed *what*
+        # gets delivered, or when re-enabling (`enabled: false → true`) — the user
+        # expects a confirmation delivery in both cases. A schedule/meta-only edit
+        # (frequency, interval, title, summary_*, …) re-saves next_delivery_date via
+        # the model's save() but must not push a fresh delivery.
+        delivery_target_changed = any(
+            getattr(instance, field) != old_value for field, old_value in old_delivery_values.items()
+        ) or (old_export_insight_ids is not None and set(dashboard_export_insight_ids) != old_export_insight_ids)
+
+        # The "<kind> subscription updated" event fires from the post_save signal before this decision is
+        # made, so it can't tell an edit that fired a confirmation from one that intentionally skipped.
+        # Emit the decision explicitly so a regression that silently suppressed deliveries stays observable.
+        delivery_triggered = is_re_enabling or delivery_target_changed
+        self._capture_update_delivery_decision(
+            instance, delivery_triggered=delivery_triggered, re_enabled=is_re_enabling
+        )
+        if not delivery_triggered:
             return instance
 
         temporal = sync_connect()
@@ -1035,6 +1177,13 @@ class AIReportQueryDiagnosticSerializer(serializers.Serializer):
     ok = serializers.BooleanField(help_text="Whether the query ran successfully.")
     error_type = serializers.CharField(
         allow_null=True, help_text="Exception class name when the query failed; null on success."
+    )
+    human_readable_error = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Human-readable failure reason, present only for query errors safe to surface to the "
+        "subscription owner (e.g. an unresolved field name); null on success and for internal errors, "
+        "which expose error_type only.",
     )
 
 

@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-06-29 11:38:33 UTC
+// Generated at: 2026-07-07 11:00:38 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -15,11 +15,13 @@ export type CanonicalProvider =
     | 'amazon-bedrock-global'
     | 'amazon-bedrock-us'
     | 'amazon-bedrock-us-east-1'
+    | 'ambient-fp8'
     | 'ambient-int4'
     | 'anthropic'
     | 'anthropic-2'
     | 'anthropic-claude-on-aws'
     | 'arcee-ai'
+    | 'atlas-cloud-fp4'
     | 'atlas-cloud-fp8'
     | 'atlas-cloud-int4'
     | 'azure'
@@ -47,6 +49,7 @@ export type CanonicalProvider =
     | 'deepinfra-fp8'
     | 'deepinfra-turbo'
     | 'deepseek'
+    | 'dekallm'
     | 'dekallm-bf16'
     | 'dekallm-fp8'
     | 'digitalocean'
@@ -90,6 +93,7 @@ export type CanonicalProvider =
     | 'nebius-base'
     | 'nebius-fp4'
     | 'nebius-fp8'
+    | 'nebius-int4'
     | 'nex-agi-fp8'
     | 'nextbit-bf16'
     | 'nextbit-fp8'
@@ -121,7 +125,6 @@ export type CanonicalProvider =
     | 'relace-fp8'
     | 'sakana'
     | 'sambanova'
-    | 'sambanova-bf16'
     | 'sambanova-fp8'
     | 'sambanova-minimax-m2-7-dedicated'
     | 'sambanova-turbo'
@@ -129,7 +132,6 @@ export type CanonicalProvider =
     | 'siliconflow'
     | 'siliconflow-fp8'
     | 'siliconflow-int4'
-    | 'stealth-int8'
     | 'stepfun-fp8'
     | 'streamlake'
     | 'streamlake-fp8'
@@ -148,6 +150,7 @@ export type CanonicalProvider =
     | 'venice-int4'
     | 'wafer-fast'
     | 'wafer-fp4'
+    | 'wafer-fp8'
     | 'wandb-bf16'
     | 'wandb-fp16'
     | 'wandb-fp4'

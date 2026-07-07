@@ -2,6 +2,50 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "description": "Standard Subscription serializer.",
     "properties": {
+        "ai_prompt_config": {
+            "description": "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes.",
+            "properties": {
+                "window": {
+                    "description": "Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous delivery).",
+                    "properties": {
+                        "end_days_ago": {
+                            "anyOf": [
+                                {
+                                    "maximum": 365,
+                                    "minimum": 0,
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Upper bound of the analysis window, in days before the run (0 = now). Required for 'days_ago_range' and must be less than start_days_ago; ignored for other modes. 0-365."
+                        },
+                        "mode": {
+                            "default": "since_last_sent",
+                            "description": "What the report analyzes each run:\n* `since_last_sent` (default) — everything since the previous successful delivery (gap-free)\n* `last_n_days` — a fixed trailing window of start_days_ago days\n* `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago\n\n* `since_last_sent` - Since last report\n* `last_n_days` - Last N days\n* `days_ago_range` - Between X and Y days ago",
+                            "enum": ["since_last_sent", "last_n_days", "days_ago_range"],
+                            "type": "string"
+                        },
+                        "start_days_ago": {
+                            "anyOf": [
+                                {
+                                    "maximum": 365,
+                                    "minimum": 1,
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365."
+                        }
+                    },
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
         "bysetpos": {
             "anyOf": [
                 {

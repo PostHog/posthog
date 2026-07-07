@@ -2,6 +2,7 @@ import equal from 'fast-deep-equal'
 import { actions, afterMount, kea, key, listeners, path, propsChanged, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
+import { zoomDateRange } from 'lib/components/DateFilter/DateRangePicker'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { dayjs } from 'lib/dayjs'
 
@@ -15,7 +16,6 @@ import {
 } from '~/types'
 
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
-import { zoomDateRange } from 'products/logs/frontend/components/LogsViewer/Filters/zoom-utils'
 
 import type { logsViewerFiltersLogicType } from './logsViewerFiltersLogicType'
 
@@ -86,9 +86,9 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
             pushToHistory,
         }),
 
-        // Mirror of the `pinnedFilters` prop into state so consumers (LogsFilterBar)
-        // can read it via useValues without going through the kea selector input-prop
-        // machinery (which doesn't accept optional props).
+        // Mirror of the `pinnedFilters` prop into state so consumers can read it via
+        // useValues without going through the kea selector input-prop machinery
+        // (which doesn't accept optional props).
         setPinnedFilters: (pinnedFilters: UniversalFiltersGroup | undefined) => ({ pinnedFilters }),
 
         zoomDateRange: (multiplier: number) => ({ multiplier }),

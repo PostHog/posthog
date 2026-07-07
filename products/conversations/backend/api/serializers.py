@@ -160,6 +160,9 @@ class WidgetMessagesQuerySerializer(WidgetAuthSerializer):
     limit = serializers.IntegerField(required=False, default=500, min_value=1, max_value=500)
 
 
+WIDGET_TICKETS_DEFAULT_LIMIT = 100
+
+
 class WidgetTicketsQuerySerializer(WidgetAuthSerializer):
     """Serializer for fetching tickets for a widget session."""
 
@@ -169,7 +172,7 @@ class WidgetTicketsQuerySerializer(WidgetAuthSerializer):
         allow_null=True,
         help_text="Filter by ticket status",
     )
-    limit = serializers.IntegerField(required=False, default=100, min_value=1, max_value=500)
+    limit = serializers.IntegerField(required=False, default=WIDGET_TICKETS_DEFAULT_LIMIT, min_value=1, max_value=500)
     offset = serializers.IntegerField(required=False, default=0, min_value=0)
 
 

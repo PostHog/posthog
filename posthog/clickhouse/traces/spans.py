@@ -55,6 +55,10 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
     `_bytes_compressed` UInt64 CODEC(DoubleDelta, ZSTD(1)),
     `_record_count` UInt64 CODEC(DoubleDelta, ZSTD(1)),
 
+    -- Powers the Spans-view sparkline (count of spans per minute). The Traces-view sparkline instead
+    -- counts distinct traces per minute (uniqExactIf(trace_id, is_root_span = 1)) and currently
+    -- raw-scans, since this count() projection can't serve a distinct-trace aggregate; a sibling
+    -- uniqExactState(trace_id) projection would let it use a projection too. Tracked as a follow-up.
     PROJECTION projection_aggregate_counts
     (
         SELECT

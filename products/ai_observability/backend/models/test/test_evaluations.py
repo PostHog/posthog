@@ -200,6 +200,34 @@ class TestEvaluationModel(BaseTest):
         self.assertIsInstance(evaluation.evaluation_config["bytecode"], list)
         self.assertTrue(len(evaluation.evaluation_config["bytecode"]) > 0)
 
+    def test_hog_evaluation_compiles_null_safe_comparisons(self):
+        from posthog.temporal.ai_observability.run_evaluation import run_hog_eval
+
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Hog Eval",
+            evaluation_type="hog",
+            evaluation_config={"source": "return properties.missing <= 1.0"},
+            output_type="boolean",
+            output_config={},
+            enabled=True,
+            created_by=self.user,
+            conditions=[{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
+        )
+
+        result = run_hog_eval(
+            evaluation.evaluation_config["bytecode"],
+            {
+                "uuid": "event-id",
+                "event": "$ai_generation",
+                "properties": {},
+                "distinct_id": "user-1",
+            },
+        )
+
+        self.assertFalse(result["verdict"])
+        self.assertIsNone(result["error"])
+
     def test_hog_evaluation_invalid_source_raises_validation_error(self):
         with self.assertRaises(ValidationError):
             Evaluation.objects.create(

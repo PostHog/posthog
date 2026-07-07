@@ -1,7 +1,6 @@
 import { IconSend, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import {
     LemonButton,
-    LemonCollapse,
     LemonDivider,
     LemonSelect,
     LemonTable,
@@ -10,7 +9,6 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 import type {
-    AIReportQueryDiagnosticApi,
     PaginatedSubscriptionDeliveryListApi,
     SubscriptionApi,
     SubscriptionDeliveryApi,
@@ -20,11 +18,14 @@ import {
     SubscriptionsDeliveriesListStatus as SubscriptionDeliveriesListStatusByValue,
 } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import type { DeliveryFeedback } from '../subscriptionSceneLogic'
+import {
+    deliveryRowHasExpandableContent,
+    ExpandedDeliveryRow,
+    partialDeliveryTag,
+} from './SubscriptionAiReportDelivery'
 import { SubscriptionDeliveryDestinationCell } from './SubscriptionDestinationCell'
 import { TARGET_TYPE_LABEL } from './subscriptionLabels'
 
@@ -70,7 +71,8 @@ function deliveryStatusTag(row: SubscriptionDeliveryApi): JSX.Element {
             </Tooltip>
         )
     }
-    return <LemonTag type={tagType}>{label}</LemonTag>
+    // A completed-but-degraded delivery reads as "Partial" rather than a clean "Completed".
+    return partialDeliveryTag(row) ?? <LemonTag type={tagType}>{label}</LemonTag>
 }
 
 /** Matches `SubscriptionTriggerType` in Temporal (`scheduled`, `manual`, `target_change`). */
@@ -95,131 +97,10 @@ function deliveryTriggerLabel(triggerType: string): string {
 /** LemonTag and text cells share a row height; middle-align `td` so badges line up with copy. */
 const DELIVERY_TABLE_CELL_CLASS = 'align-middle'
 
-/**
- * All per-query diagnostics for an AI-prompt delivery (succeeded and failed). The backend scrubs
- * this to `null` for callers without `query:viewer` access, so it is empty unless the viewer may see
- * query content. Surfacing the successful queries — not just the failed ones — lets a subscription
- * owner see exactly what the prompt generated and self-recover by tightening it.
- */
-function reportDiagnostics(row: SubscriptionDeliveryApi): readonly AIReportQueryDiagnosticApi[] {
-    return row.ai_report_diagnostics ?? []
-}
-
-function queryStatusTag(d: AIReportQueryDiagnosticApi): JSX.Element {
-    return d.ok === false ? (
-        <LemonTag type="danger">{d.error_type || 'Failed'}</LemonTag>
-    ) : (
-        <LemonTag type="success">OK</LemonTag>
-    )
-}
-
-function diagnosticsSummary(diagnostics: readonly AIReportQueryDiagnosticApi[]): string {
-    const total = diagnostics.length
-    const failed = diagnostics.filter((d) => d.ok === false).length
-    const noun = total === 1 ? 'query' : 'queries'
-    return failed === 0 ? `${total} ${noun} · all succeeded` : `${total} ${noun} · ${failed} failed`
-}
-
-const failedIndexes = (diagnostics: readonly AIReportQueryDiagnosticApi[]): number[] =>
-    diagnostics.map((d, i) => (d.ok === false ? i : -1)).filter((i) => i >= 0)
-
-/** The delivered report markdown, when present. Scrubbed to `null` for callers without
- * `query:viewer` access just like the diagnostics. */
-function reportMarkdown(row: SubscriptionDeliveryApi): string | null {
-    const report = row.ai_report
-    return typeof report === 'string' && report ? report : null
-}
-
-/** The subscription prompt captured when this report was generated. User-authored (not query-derived),
- * so it stays readable even for callers without query access. */
-function reportPrompt(row: SubscriptionDeliveryApi): string | null {
-    const prompt = row.ai_report_prompt
-    return typeof prompt === 'string' && prompt ? prompt : null
-}
-
-/**
- * Per-query accordion: one compact header per generated query (status + description); expand a query for its
- * SQL. Failed queries are open by default so a degraded report stays loud and debuggable.
- */
-function GeneratedQueries({ diagnostics }: { diagnostics: readonly AIReportQueryDiagnosticApi[] }): JSX.Element {
-    return (
-        <div className="flex flex-col gap-1">
-            <div className="text-secondary">{diagnosticsSummary(diagnostics)}</div>
-            <LemonCollapse
-                size="small"
-                multiple
-                defaultActiveKeys={failedIndexes(diagnostics)}
-                panels={diagnostics.map((d, index) => ({
-                    key: index,
-                    header: (
-                        <div className="flex items-center gap-2">
-                            {queryStatusTag(d)}
-                            <span>{d.description || 'Query'}</span>
-                        </div>
-                    ),
-                    content: d.hogql ? (
-                        <CodeSnippet language={Language.SQL} compact>
-                            {d.hogql}
-                        </CodeSnippet>
-                    ) : (
-                        <span className="text-secondary">No query captured.</span>
-                    ),
-                }))}
-            />
-        </div>
-    )
-}
-
-function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): JSX.Element | null {
-    const diagnostics = reportDiagnostics(row)
-    const report = reportMarkdown(row)
-    const prompt = reportPrompt(row)
-    if (!row.change_summary && !report && !prompt && diagnostics.length === 0) {
-        return null
-    }
-    return (
-        <div className="px-4 py-3 text-sm flex flex-col gap-4">
-            {row.change_summary ? (
-                <div className="whitespace-pre-wrap">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1">AI summary</div>
-                    {row.change_summary}
-                </div>
-            ) : null}
-            {prompt ? (
-                <div className="whitespace-pre-wrap">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1">
-                        Prompt at time of generation
-                    </div>
-                    {prompt}
-                </div>
-            ) : null}
-            {report ? (
-                <div className="flex flex-col gap-1">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary">Delivered report</div>
-                    <div className="max-h-96 overflow-auto rounded border bg-bg-light p-3">
-                        <LemonMarkdown>{report}</LemonMarkdown>
-                    </div>
-                </div>
-            ) : null}
-            {diagnostics.length > 0 ? (
-                <div className="flex flex-col gap-2">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary">
-                        Generated queries
-                    </div>
-                    <GeneratedQueries diagnostics={diagnostics} />
-                </div>
-            ) : null}
-        </div>
-    )
-}
-
-// Module-scope const keeps the reference stable across parent re-renders.
+// Module-scope const keeps the reference stable across parent re-renders. The expanded-row view and its
+// per-query helpers live in SubscriptionAiReportDelivery — this table just wires them into the row.
 const DELIVERY_TABLE_EXPANDABLE = {
-    rowExpandable: (row: SubscriptionDeliveryApi) =>
-        Boolean(row.change_summary) ||
-        Boolean(reportMarkdown(row)) ||
-        Boolean(reportPrompt(row)) ||
-        reportDiagnostics(row).length > 0,
+    rowExpandable: deliveryRowHasExpandableContent,
     expandedRowRender: (row: SubscriptionDeliveryApi) => <ExpandedDeliveryRow row={row} />,
 }
 
@@ -478,32 +359,18 @@ export function SubscriptionDeliveryHistory({
             <div className="flex flex-col gap-2">
                 <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
                     <h2 className="text-lg font-semibold">Delivery history</h2>
-                    {showTable && (showStatusFilter || onTestDelivery) ? (
+                    {showTable && showStatusFilter ? (
                         <div className="flex flex-wrap items-center gap-3 shrink-0">
-                            {onTestDelivery ? (
-                                <LemonButton
-                                    type="tertiary"
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm text-secondary">Status</span>
+                                <LemonSelect<DeliveryListStatusFilter | null>
                                     size="small"
-                                    onClick={onTestDelivery}
-                                    loading={testDeliveryLoading}
-                                    disabledReason={testDeliveryLoading ? 'Sending test delivery…' : null}
-                                    data-attr="subscription-detail-manual-deliver"
-                                >
-                                    Test delivery
-                                </LemonButton>
-                            ) : null}
-                            {showStatusFilter ? (
-                                <div className="flex items-center gap-2">
-                                    <span className="text-sm text-secondary">Status</span>
-                                    <LemonSelect<DeliveryListStatusFilter | null>
-                                        size="small"
-                                        options={DELIVERY_STATUS_FILTER_OPTIONS}
-                                        value={deliveryStatusFilter}
-                                        onChange={onDeliveryStatusFilterChange}
-                                        data-attr="subscription-deliveries-status-filter"
-                                    />
-                                </div>
-                            ) : null}
+                                    options={DELIVERY_STATUS_FILTER_OPTIONS}
+                                    value={deliveryStatusFilter}
+                                    onChange={onDeliveryStatusFilterChange}
+                                    data-attr="subscription-deliveries-status-filter"
+                                />
+                            </div>
                         </div>
                     ) : null}
                 </div>

@@ -145,12 +145,14 @@ export function stripAnsi(text: string): string {
 }
 
 const SYSTEM_REMINDER_RE = /<system-reminder>[\s\S]*?<\/system-reminder>/g
-// `cat -n`-style gutter the Read tool prepends to each line: optional indent, line number, U+2192 arrow.
-const READ_LINE_MARKER_RE = /^\s*\d+→/gm
+// `cat -n`-style gutter the Read tool prepends to each line: optional indent, line number, then either a
+// U+2192 arrow (`NNN→`) or a tab (`NNN⇥`). Anchored per line so only the leading marker is stripped.
+const READ_LINE_MARKER_RE = /^\s*\d+[→\t]/gm
 
 /**
  * Cleans the Read tool's output for display: drops injected `<system-reminder>` blocks, the code
- * fences the agent wraps file contents in, and the per-line `NNN→` gutter — leaving the raw file text.
+ * fences the agent wraps file contents in, and the per-line line-number gutter (`NNN→` or tab form) —
+ * leaving the raw file text.
  */
 export function getReadToolContent(content: unknown[]): string {
     return stripCodeFences(getContentText(content).replace(SYSTEM_REMINDER_RE, ''))

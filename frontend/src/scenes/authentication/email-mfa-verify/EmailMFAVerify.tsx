@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
+import { HedgehogShocked } from '@posthog/brand/hoggies'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { HeartHog, SurprisedHog } from 'lib/components/hedgehogs'
+import { HeartHog } from 'lib/components/hedgehogs'
 
 import { emailMFAVerifyLogic } from './emailMFAVerifyLogic'
 
@@ -37,7 +38,7 @@ export function EmailMFAVerify(): JSX.Element {
                     <>
                         <h1 className="text-3xl font-bold">Whoops!</h1>
                         <div className="max-w-60 mb-12">
-                            <SurprisedHog className="w-full h-full" />
+                            <HedgehogShocked className="w-full h-full" />
                         </div>
                         <LemonButton type="primary" to="/login" fullWidth center>
                             Back to login

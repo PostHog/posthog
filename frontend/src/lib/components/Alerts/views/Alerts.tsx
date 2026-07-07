@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
+import { HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { DetectiveHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -12,6 +12,8 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
+
+import { alertIntervalDisplayLabel } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 
 import { AlertState } from '../../../../queries/schema/schema-general'
 import { alertLogic } from '../alertLogic'
@@ -63,6 +65,14 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
             dataIndex: 'state',
             render: function renderStateIndicator(_, alert: AlertType) {
                 return alert.enabled ? <AlertStateIndicator alert={alert} /> : null
+            },
+        },
+        {
+            title: 'Interval',
+            dataIndex: 'calculation_interval',
+            key: 'calculation_interval',
+            render: function renderInterval(_, alert: AlertType) {
+                return <div className="whitespace-nowrap">{alertIntervalDisplayLabel(alert.calculation_interval)}</div>
             },
         },
         {
@@ -137,7 +147,7 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
                     thingName="alert"
                     description="Alerts enable you to monitor your insight and notify you when certain conditions are met."
                     isEmpty
-                    customHog={DetectiveHog}
+                    customHog={HedgehogMagnifyingGlass}
                     actionElementOverride={
                         <span className="italic">
                             To get started, visit a <Link to={urls.insights()}>trends insight</Link>, visit the

@@ -504,6 +504,27 @@ tools:
             Removes source.ts, compiled.js, schema.json from the bundle. Returns 404 if the tool doesn't exist.
             Draft-only. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch
             → validate → freeze → promote workflow.
+    agent-applications-revisions-tools-dry-run-create:
+        operation: agent_applications_revisions_tools_dry_run_create
+        enabled: true
+        scopes:
+            - agents:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Dry-run a custom tool
+        description: >
+            Execute the persisted `compiled.js` for one tool in a single-shot sandbox with caller-supplied args and a
+            stubbed ctx — the authoring loop's "test this tool" button. Body `{ args, mock_secrets? }`: `args` is
+            free-form JSON (NOT validated against the tool's `args_schema`); `mock_secrets` is an optional `{name →
+            placeholder}` map the sandbox plumbs into `ctx.secrets.ref(name)` so the tool body can run without "secret
+            not provisioned". The real secret value never enters the sandbox. Returns `{ ok, tool_id, result?, error?,
+            duration_ms }`: `ok:true` + `result` when the tool returned cleanly, `ok:false` + `error` when the tool
+            threw or the sandbox rejected. Requires the tool to have been PUT first (it runs the persisted bytes, not a
+            fresh source). Draft-only. Per-call lifecycle — no warm pool today. Playbook: read the
+            `editing-agents-safely` playbook via `agent-resolve-resource` for the broader branch → validate → freeze →
+            promote workflow.
     agent-applications-revisions-tools-update:
         operation: agent_applications_revisions_tools_update
         enabled: true
@@ -597,6 +618,22 @@ tools:
             `conversation_total_turns` tells you how much was hidden, and `usage_total` is still computed over the full
             untrimmed conversation so cost reporting stays accurate. Playbook: read the `debugging-sessions` playbook
             via `agent-resolve-resource` for the failure taxonomy and how to read the logs.
+    agent-applications-spec-schema:
+        operation: agent_applications_spec_schema
+        enabled: true
+        scopes:
+            - agents:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get the agent spec JSON schema
+        description: >
+            The canonical JSON Schema for an agent `spec` — every field, type, enum, default, and the discriminated
+            unions for `models` / `triggers[]` / `tools[]`, each with an inline description. Emitted from the same
+            source the runner validates against, so fields with a default are optional on write. Read this BEFORE
+            composing a spec for `agent-applications-revisions-spec-update` (or create) instead of guessing the shape.
+            Pass `section` (e.g. `models`, `triggers`, `tools`, `limits`) to fetch just one slice and save tokens.
     agent-applications-stats:
         operation: agent_applications_stats
         enabled: false

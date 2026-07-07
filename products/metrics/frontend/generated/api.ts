@@ -18,6 +18,8 @@ import type {
     _MetricNamesResponseApi,
     _MetricQueryRequestApi,
     _MetricQueryResponseApi,
+    _MetricSamplesRequestApi,
+    _MetricSamplesResponseApi,
 } from './api.schemas'
 
 export const getEventFilterMetricsRetrieveUrl = (projectId: string) => {
@@ -111,6 +113,27 @@ export const metricsQueryCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_metricQueryRequestApi),
+    })
+}
+
+export const getMetricsSamplesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/samples/`
+}
+
+/**
+ * Raw individual emissions for a metric (the events model), newest
+ * first — backs the Samples view and the metric->trace pivot.
+ */
+export const metricsSamplesCreate = async (
+    projectId: string,
+    _metricSamplesRequestApi: _MetricSamplesRequestApi,
+    options?: RequestInit
+): Promise<_MetricSamplesResponseApi> => {
+    return apiMutator<_MetricSamplesResponseApi>(getMetricsSamplesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_metricSamplesRequestApi),
     })
 }
 

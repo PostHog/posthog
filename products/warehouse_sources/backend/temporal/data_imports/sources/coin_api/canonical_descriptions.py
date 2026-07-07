@@ -1,0 +1,102 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+# Descriptions sourced from the public CoinAPI v1 REST docs (https://docs.coinapi.io/market-data/rest-api).
+# Partial coverage is fine — anything not described here falls back to LLM enrichment.
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "assets": {
+        "description": "Every asset CoinAPI tracks (cryptocurrencies and fiat), with volume and price metadata.",
+        "docs_url": "https://docs.coinapi.io/market-data/rest-api/metadata#list-all-assets-get",
+        "columns": {
+            "asset_id": "CoinAPI identifier of the asset (e.g. BTC, USD).",
+            "name": "Display name of the asset.",
+            "type_is_crypto": "1 if the asset is a cryptocurrency, 0 if it is fiat.",
+            "data_quote_start": "First date CoinAPI has quote data for this asset.",
+            "data_quote_end": "Last date CoinAPI has quote data for this asset.",
+            "data_trade_start": "First date CoinAPI has trade data for this asset.",
+            "data_trade_end": "Last date CoinAPI has trade data for this asset.",
+            "data_symbols_count": "Number of symbols referencing this asset.",
+            "volume_1hrs_usd": "Trading volume over the last hour, in USD.",
+            "volume_1day_usd": "Trading volume over the last day, in USD.",
+            "volume_1mth_usd": "Trading volume over the last month, in USD.",
+            "price_usd": "Latest price of the asset in USD.",
+        },
+    },
+    "exchanges": {
+        "description": "Every exchange CoinAPI tracks, with coverage dates and volume metadata.",
+        "docs_url": "https://docs.coinapi.io/market-data/rest-api/metadata#list-all-exchanges-get",
+        "columns": {
+            "exchange_id": "CoinAPI identifier of the exchange.",
+            "website": "Exchange website URL.",
+            "name": "Display name of the exchange.",
+            "data_start": "First date CoinAPI has any data for this exchange.",
+            "data_end": "Last date CoinAPI has any data for this exchange.",
+            "data_quote_start": "First date CoinAPI has quote data for this exchange.",
+            "data_quote_end": "Last date CoinAPI has quote data for this exchange.",
+            "data_trade_start": "First date CoinAPI has trade data for this exchange.",
+            "data_trade_end": "Last date CoinAPI has trade data for this exchange.",
+            "data_symbols_count": "Number of symbols on this exchange.",
+            "volume_1hrs_usd": "Trading volume over the last hour, in USD.",
+            "volume_1day_usd": "Trading volume over the last day, in USD.",
+            "volume_1mth_usd": "Trading volume over the last month, in USD.",
+        },
+    },
+    "symbols": {
+        "description": "Every symbol (market) CoinAPI tracks across all exchanges, with its component assets.",
+        "docs_url": "https://docs.coinapi.io/market-data/rest-api/metadata#list-all-symbols-get",
+        "columns": {
+            "symbol_id": "CoinAPI identifier of the symbol (e.g. BITSTAMP_SPOT_BTC_USD).",
+            "exchange_id": "Exchange this symbol trades on.",
+            "symbol_type": "Type of the symbol: SPOT, FUTURES, OPTION, PERPETUAL, or INDEX.",
+            "asset_id_base": "Base asset of the market.",
+            "asset_id_quote": "Quote asset of the market.",
+            "data_start": "First date CoinAPI has data for this symbol.",
+            "data_end": "Last date CoinAPI has data for this symbol.",
+            "volume_1hrs_usd": "Trading volume over the last hour, in USD.",
+            "volume_1day_usd": "Trading volume over the last day, in USD.",
+            "volume_1mth_usd": "Trading volume over the last month, in USD.",
+        },
+    },
+    "exchange_rates": {
+        "description": "Current exchange rate from the configured base asset to every other asset, one row per quote asset.",
+        "docs_url": "https://docs.coinapi.io/market-data/rest-api/exchange-rates",
+        "columns": {
+            "asset_id_base": "Base asset of the rate (the source's configured base asset).",
+            "asset_id_quote": "Quote asset of the rate.",
+            "rate": "Exchange rate from the base asset to the quote asset.",
+            "time": "Timestamp the rate was calculated.",
+        },
+    },
+    "ohlcv_history": {
+        "description": "Historical OHLCV (open/high/low/close/volume) candles for the configured symbol and period.",
+        "docs_url": "https://docs.coinapi.io/market-data/rest-api/ohlcv#historical-data-get",
+        "columns": {
+            "symbol_id": "Symbol the candle belongs to (injected from the source configuration).",
+            "period_id": "Aggregation period of the candle (injected from the source configuration), e.g. 1DAY.",
+            "time_period_start": "Start time of the candle period (inclusive).",
+            "time_period_end": "End time of the candle period (exclusive).",
+            "time_open": "Timestamp of the first trade in the period.",
+            "time_close": "Timestamp of the last trade in the period.",
+            "price_open": "Price of the first trade in the period.",
+            "price_high": "Highest trade price in the period.",
+            "price_low": "Lowest trade price in the period.",
+            "price_close": "Price of the last trade in the period.",
+            "volume_traded": "Cumulative base-asset volume traded in the period.",
+            "trades_count": "Number of trades in the period.",
+        },
+    },
+    "trades_history": {
+        "description": "Historical individual trades (executions) for the configured symbol.",
+        "docs_url": "https://docs.coinapi.io/market-data/rest-api/trades#historical-data-get",
+        "columns": {
+            "symbol_id": "Symbol the trade belongs to (injected from the source configuration).",
+            "uuid": "Globally-unique CoinAPI identifier of the trade.",
+            "time_exchange": "Timestamp the exchange reported for the trade.",
+            "time_coinapi": "Timestamp CoinAPI received the trade.",
+            "price": "Execution price of the trade.",
+            "size": "Base-asset quantity traded.",
+            "taker_side": "Aggressor side of the trade: BUY, SELL, or UNKNOWN.",
+        },
+    },
+}
