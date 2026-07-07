@@ -37,8 +37,9 @@ Every write to an alert model's `state` / `consecutive_failures` must go through
 Pattern (from `products/logs/backend/alert_state_machine.py`):
 
 ```python
-outcome = evaluate_alert_check(alert.to_snapshot(), check_input, LOGS_ALERT_POLICY)
-update_fields = apply_outcome(alert, outcome)   # the ONLY function that writes state / consecutive_failures
+# The product adapter bakes its policy in; the shared machine takes it as a kwarg.
+outcome = evaluate_alert_check(alert.to_snapshot(recent_events_breached=recent_breaches), check_result, now)
+update_fields = apply_outcome(alert, outcome)  # the ONLY function that writes state / consecutive_failures
 alert.save(update_fields=update_fields)
 ```
 
@@ -49,7 +50,7 @@ The adapter owns the product-shaped translation (model → `AlertSnapshot`, and 
 Pure builders for alert notification destinations, delivered as HogFunctions.
 
 - `EventKindSpec` — describes an alert-event kind (labels, message text) so Slack/Teams/webhook bodies render consistently.
-- `build_slack_destination_config` / `build_webhook_destination_config` / `build_teams_destination_config` — return HogFunction config dicts.
+- `build_slack_destination_config` / `build_webhook_destination_config` / `build_teams_destination_config` — return an `AlertDestinationConfig` (the serializer payload plus the team it belongs to, carried alongside so it never enters serializer input).
 - `destination_filter(alert_id, event_id)`, `slack_blocks`, `teams_text`, `clip_hog_function_name` — helpers.
 
 ## Layer 1 — `common/alerting/scheduling.py`
@@ -66,7 +67,7 @@ Grid-cadence scheduling math (used by logs; billing will use it too):
 
 Django-aware glue that the pure layer can't hold:
 
-- `destinations.py`: `create_alert_destination_hog_functions`, `soft_delete_alert_destinations`, `soft_delete_all_alert_destinations`, `find_alert_destination_hog_functions`, `destination_types_for_alerts`, `produce_alert_internal_event`. This is where HogFunctions are actually created/deleted (via serializer) and where the internal alert event is produced onto the bus.
+- `destinations.py`: `create_alert_destination_hog_functions` (takes `AlertDestinationConfig`s), `soft_delete_alert_destinations`, `soft_delete_all_alert_destinations`, `produce_alert_internal_event`. This is where HogFunctions are actually created/deleted (via serializer) and where the internal alert event is produced onto the bus.
 - `scheduling.py`: `due_alerts_q(now, *, broken_state, snoozed_state=None)` — builds the `Q` predicate for "which alerts are due for a check now," parameterized by the product's state field names (products differ: `snoozed_until` vs `snooze_until`). Tested directly in `products/logs/backend/test/test_due_alerts_q.py`.
 
 ## Adopting today (the logs pattern)
