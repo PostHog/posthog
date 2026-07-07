@@ -99,6 +99,7 @@ jobs:
         secrets:
             POSTHOG_API_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
             POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+            POSTHOG_UPLOAD_SYMBOLS_CLI_API_KEY: ${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
         permissions:
             id-token: write
             contents: read

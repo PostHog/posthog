@@ -60,6 +60,46 @@ RUN --mount=type=secret,id=SCCACHE_WEBDAV_ENDPOINT,required=false \
     cargo build --release --bin $BIN ${BUILD_FEATURES:+--features $BUILD_FEATURES} && \
     sccache --show-stats
 
+# Upload native debug symbols (with source context) to PostHog error tracking,
+# so panics and exceptions captured by common-posthog symbolicate server-side.
+# Runs only when CI mounts the upload token (master builds on the canonical
+# deploy repo — see _rust-build-images.yml); PR and local builds skip it.
+# Upload failures warn instead of failing the build: symbols must never block
+# shipping an image. The cargo registry cache mounts make dependency sources
+# visible to --include-source at the paths DWARF records for them.
+#
+# The CLI installer is pinned to an immutable release tag and checksum-verified
+# before execution. To upgrade, change POSTHOG_CLI_VERSION and recompute:
+#   curl -LsSf "https://github.com/PostHog/posthog/releases/download/posthog-cli%2Fv<X.Y.Z>/posthog-cli-installer.sh" | sha256sum
+ARG POSTHOG_CLI_VERSION=0.8.1
+ARG POSTHOG_CLI_INSTALLER_SHA256=b1f1781a78a37930884db3ad412d9508a9ac015b01339455a7357cd0b23d9c92
+ARG COMMIT_HASH=""
+RUN --mount=type=secret,id=posthog_upload_symbols_cli_api_key \
+    --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    if [ ! -s /run/secrets/posthog_upload_symbols_cli_api_key ]; then \
+        echo "No symbol upload token mounted; skipping native symbol upload"; \
+    elif ( \
+        curl --proto '=https' --tlsv1.2 -LsSf -o /tmp/posthog-cli-installer.sh \
+            "https://github.com/PostHog/posthog/releases/download/posthog-cli%2Fv${POSTHOG_CLI_VERSION}/posthog-cli-installer.sh" && \
+        echo "${POSTHOG_CLI_INSTALLER_SHA256}  /tmp/posthog-cli-installer.sh" | sha256sum -c - && \
+        sh /tmp/posthog-cli-installer.sh && \
+        export PATH="/root/.posthog:$PATH" && \
+        export POSTHOG_CLI_TOKEN="$(cat /run/secrets/posthog_upload_symbols_cli_api_key)" && \
+        export POSTHOG_CLI_ENV_ID=2 && \
+        mkdir -p /tmp/posthog-symbols && \
+        cp "target/release/$BIN" /tmp/posthog-symbols/ && \
+        posthog-cli symbol-sets upload \
+            --directory /tmp/posthog-symbols \
+            --include-source \
+            --release-name "$BIN" \
+            --release-version "${COMMIT_HASH:-unknown}" \
+    ); then \
+        echo "Native debug symbols uploaded for $BIN"; \
+    else \
+        echo "WARNING: native symbol upload failed for $BIN; panics from this build may not symbolicate" >&2; \
+    fi
+
 FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update && \
