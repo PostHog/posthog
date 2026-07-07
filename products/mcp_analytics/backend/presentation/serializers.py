@@ -303,19 +303,42 @@ class MCPSessionIntentSerializer(serializers.Serializer):
     )
 
 
+class MCPIntentThemeSerializer(serializers.Serializer):
+    name = serializers.CharField(read_only=True, help_text="Short sentence-case name for this group of intents.")
+    description = serializers.CharField(
+        read_only=True, help_text="One concrete sentence describing what agents in this theme are doing."
+    )
+    intent_count = serializers.IntegerField(
+        read_only=True, help_text="How many of the analysed intents belong to this theme."
+    )
+    example_intent = serializers.CharField(
+        read_only=True, help_text="One of the recorded intents, verbatim, representative of the theme."
+    )
+    tools = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text="MCP tool names that appear alongside this theme's intents.",
+    )
+
+
 class MCPIntentDigestSerializer(serializers.Serializer):
     digest = serializers.CharField(
         read_only=True,
         allow_null=True,
         help_text=(
-            "LLM-generated digest (at most three sentences) of what agents are trying to do with this MCP "
-            "server, derived from the most recent recorded $mcp_intents across all sessions. Null when the "
+            "LLM-generated one-sentence summary of what agents are trying to do with this MCP server, "
+            "derived from the most recent recorded $mcp_intents across all sessions. Null when the "
             "project has no recorded intents yet."
         ),
     )
     intent_count = serializers.IntegerField(
         read_only=True,
         help_text="How many recorded intents (the most recent, capped at 100) the digest was derived from.",
+    )
+    themes = MCPIntentThemeSerializer(
+        many=True,
+        read_only=True,
+        help_text="2-5 semantic groupings of the analysed intents, largest first. Empty when digest is null.",
     )
 
 

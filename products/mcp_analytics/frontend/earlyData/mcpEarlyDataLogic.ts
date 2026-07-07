@@ -23,14 +23,25 @@ export interface EarlyRecentCall {
     clientName: string | null
 }
 
-export interface IntentTheme {
+// Frequency-grouped verbatim intents — the fallback shown when no AI digest is available.
+export interface IntentFrequency {
     intent: string
     count: number
+}
+
+// One AI-generated semantic theme, mirrors MCPIntentThemeApi.
+export interface DigestTheme {
+    name: string
+    description: string
+    intentCount: number
+    exampleIntent: string
+    tools: string[]
 }
 
 export interface IntentDigest {
     digest: string | null
     intentCount: number
+    themes: DigestTheme[]
 }
 
 export interface EarlyToolRow {
@@ -67,7 +78,7 @@ export interface mcpEarlyDataLogicValues {
     clients: EarlyClientRow[]
     intentDigest: IntentDigest | null
     intentDigestLoading: boolean
-    intentThemes: IntentTheme[]
+    intentFrequencies: IntentFrequency[]
     isRefreshing: boolean
     overview: MCPActivityOverviewApi | null
     overviewLoading: boolean
@@ -125,7 +136,7 @@ export interface mcpEarlyDataLogicMeta {
         recentCalls: (overview: MCPActivityOverviewApi | null) => EarlyRecentCall[]
         totalCalls: (signals: MCPOnboardingSignals | null, stats: EarlyStats) => number
         summary: (totalCalls: number, stats: EarlyStats, topTools: EarlyToolRow[]) => string
-        intentThemes: (recentCalls: EarlyRecentCall[]) => IntentTheme[]
+        intentFrequencies: (recentCalls: EarlyRecentCall[]) => IntentFrequency[]
         checklist: (stats: EarlyStats) => ChecklistItem[]
         isRefreshing: (overviewLoading: boolean, intentDigestLoading: boolean) => boolean
     }
@@ -159,7 +170,17 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
                 try {
                     const response = await mcpAnalyticsSessionsIntentDigest(String(values.currentProjectId))
                     breakpoint()
-                    return { digest: response.digest, intentCount: response.intent_count }
+                    return {
+                        digest: response.digest,
+                        intentCount: response.intent_count,
+                        themes: (response.themes ?? []).map((theme) => ({
+                            name: theme.name,
+                            description: theme.description,
+                            intentCount: theme.intent_count,
+                            exampleIntent: theme.example_intent,
+                            tools: [...theme.tools],
+                        })),
+                    }
                 } catch {
                     // LLM unconfigured (503) or transient failure — the card falls back
                     // to the verbatim intent list.
@@ -241,9 +262,9 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
         // Verbatim agent intents grouped by frequency — the fallback when no AI
         // digest is available. At low volume, reading what agents actually tried
         // beats any lossy aggregation of it.
-        intentThemes: [
+        intentFrequencies: [
             (s) => [s.recentCalls],
-            (recentCalls: EarlyRecentCall[]): IntentTheme[] => {
+            (recentCalls: EarlyRecentCall[]): IntentFrequency[] => {
                 const counts = new Map<string, number>()
                 for (const call of recentCalls) {
                     if (call.intent) {
