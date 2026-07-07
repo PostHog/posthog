@@ -119,12 +119,7 @@ describe('OpportunitiesPanel', () => {
         ['an open row', baseOpportunity, true, false],
         ['an acted row', { ...baseOpportunity, status: 'acted' }, true, false],
         ['a dismissed row', { ...baseOpportunity, status: 'dismissed' }, false, false],
-        [
-            'a row with a research notebook',
-            { ...baseOpportunity, research_notebook_short_id: 'nb1' },
-            false,
-            true,
-        ],
+        ['a row with a research notebook', { ...baseOpportunity, research_notebook_short_id: 'nb1' }, false, true],
     ])('gates the research control for %s', (_name, opportunity, buttonVisible, chipVisible) => {
         logic.actions.loadOpportunitiesSuccess([opportunity])
         render(

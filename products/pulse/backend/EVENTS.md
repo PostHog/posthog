@@ -83,15 +83,15 @@ Emitted from `api/opportunity.py` when a research run is successfully started (a
 
 Emitted from `temporal/research_workflow.py` via `ph_scoped_capture` (Temporal worker context) when a research run finishes and its notebook is persisted.
 
-| Property               | Type       | Meaning                                                                    |
-| ---------------------- | ---------- | -------------------------------------------------------------------------- |
-| `opportunity_id`       | str (UUID) | The researched opportunity.                                                |
-| `kind`                 | str        | `build`, `fix`, or `instrument`.                                           |
-| `goal_relevant`        | bool       | Whether the opportunity was marked as advancing the config's goal.         |
-| `duration_s`           | float      | Wall-clock seconds the researcher agent ran.                               |
-| `web_call_count`       | int        | Web searches the agent made (capped at 8).                                 |
-| `internal_query_count` | int        | HogQL queries over the team's own data the agent ran (capped at 6).        |
-| `proposal_count`       | int        | Ranked solution proposals in the produced notebook.                        |
+| Property               | Type       | Meaning                                                                                            |
+| ---------------------- | ---------- | -------------------------------------------------------------------------------------------------- |
+| `opportunity_id`       | str (UUID) | The researched opportunity.                                                                        |
+| `kind`                 | str        | `build`, `fix`, or `instrument`.                                                                   |
+| `goal_relevant`        | bool       | Whether the opportunity was marked as advancing the config's goal.                                 |
+| `duration_s`           | float      | Wall-clock seconds the researcher agent ran.                                                       |
+| `web_call_count`       | int        | Web searches the agent made (capped at 8).                                                         |
+| `internal_query_count` | int        | HogQL queries over the team's own data the agent ran (capped at 6).                                |
+| `proposal_count`       | int        | Ranked solution proposals in the produced notebook.                                                |
 | `fallback`             | bool       | True when the notebook carries a degraded placeholder report (LLM failure / invalid final output). |
 
 ### `opportunity_research_failed`
@@ -99,11 +99,11 @@ Emitted from `temporal/research_workflow.py` via `ph_scoped_capture` (Temporal w
 Emitted from `temporal/research_workflow.py` via `ph_scoped_capture` when a research run raises past the researcher's own best-effort handling (notebook create/persist failure, consent revoked mid-run).
 There is no research status field on the row, so this event (plus the `pulse_research_failed` log) is the failure-diagnosis surface; requested minus (completed + failed) should be ~0.
 
-| Property         | Type       | Meaning                                                                 |
-| ---------------- | ---------- | ------------------------------------------------------------------------ |
-| `opportunity_id` | str (UUID) | The opportunity whose research run failed.                               |
-| `kind`           | str        | `build`, `fix`, or `instrument`.                                         |
-| `error_type`     | str        | Exception class name only — messages can echo team-scoped identifiers.   |
+| Property         | Type       | Meaning                                                                |
+| ---------------- | ---------- | ---------------------------------------------------------------------- |
+| `opportunity_id` | str (UUID) | The opportunity whose research run failed.                             |
+| `kind`           | str        | `build`, `fix`, or `instrument`.                                       |
+| `error_type`     | str        | Exception class name only — messages can echo team-scoped identifiers. |
 
 Dashboard panels: future — research adoption (requested vs completed vs failed), proposal volume, degraded-run rate (`fallback`), cost bounds (`web_call_count`, `internal_query_count`, `duration_s`). Not yet charted.
 
