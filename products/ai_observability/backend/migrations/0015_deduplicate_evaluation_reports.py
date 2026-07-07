@@ -1,6 +1,7 @@
 from django.db import migrations
 
 DEDUPLICATE_REPORT_RUNS_SQL = """
+-- migration-analyzer: safe reason=ai observability evaluation reports are limited-use; UPDATE only rewires runs linked to duplicate evaluation configs
 WITH ranked_reports AS (
     SELECT
         id,
@@ -21,22 +22,6 @@ WHERE ranked_reports.row_number > 1
   AND run.report_id = ranked_reports.id;
 """
 
-DELETE_DUPLICATE_REPORTS_SQL = """
-WITH ranked_reports AS (
-    SELECT
-        id,
-        ROW_NUMBER() OVER (
-            PARTITION BY evaluation_id
-            ORDER BY deleted ASC, enabled DESC, created_at DESC NULLS LAST, id DESC
-        ) AS row_number
-    FROM llm_analytics_evaluationreport
-)
-DELETE FROM llm_analytics_evaluationreport AS report
-USING ranked_reports
-WHERE ranked_reports.row_number > 1
-  AND report.id = ranked_reports.id;
-"""
-
 
 class Migration(migrations.Migration):
     dependencies = [
@@ -46,5 +31,4 @@ class Migration(migrations.Migration):
     operations = [
         # Preserve generated report history before enforcing the one-config-per-evaluation invariant.
         migrations.RunSQL(DEDUPLICATE_REPORT_RUNS_SQL, reverse_sql=migrations.RunSQL.noop),
-        migrations.RunSQL(DELETE_DUPLICATE_REPORTS_SQL, reverse_sql=migrations.RunSQL.noop),
     ]

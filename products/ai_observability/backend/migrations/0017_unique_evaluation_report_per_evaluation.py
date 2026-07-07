@@ -7,7 +7,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("ai_observability", "0015_deduplicate_evaluation_reports"),
+        ("ai_observability", "0016_delete_duplicate_evaluation_reports"),
     ]
 
     operations = [
