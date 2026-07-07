@@ -441,6 +441,81 @@ class WriteAgentMdRequestSerializer(serializers.Serializer):
     content = serializers.CharField(allow_blank=True, trim_whitespace=False)
 
 
+class UpdateBundleFileRequestSerializer(serializers.Serializer):
+    """Body shape for PUT /revisions/<id>/bundle/file/.
+
+    Edits one `.md` file on a draft revision. `path` is restricted to the
+    canonical author surface — `agent.md` or `skills/<id>/SKILL.md` for a
+    skill id that already exists in the bundle. Tool source / schema editing
+    is out of scope here; use the per-tool endpoint for that.
+    """
+
+    path = serializers.CharField(
+        allow_blank=False,
+        trim_whitespace=False,
+        help_text=(
+            "Canonical bundle path. Must be `agent.md` or `skills/<id>/SKILL.md` "
+            "where `<id>` matches an existing skill in the draft's bundle."
+        ),
+    )
+    content = serializers.CharField(
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="The new file contents, written verbatim to the bundle store.",
+    )
+
+
+class ImportBundleSkillSerializer(serializers.Serializer):
+    """One skill entry in a bulk-import payload.
+
+    The optional `description` is honoured when adding a new skill (or
+    overwriting an existing one); when omitted on an existing skill, the
+    current description is preserved. Skill `id` must match the canonical
+    resource-id regex used by the janitor.
+    """
+
+    id = serializers.CharField(
+        allow_blank=False,
+        trim_whitespace=False,
+        help_text="Skill id. Lowercase letters, digits, hyphens, or underscores; must start and end with `[a-z0-9]`.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        trim_whitespace=False,
+        help_text="One-line summary shown in the skill index. Required when adding a new skill; optional when updating one.",
+    )
+    body = serializers.CharField(
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="The skill's full markdown body, written to `skills/<id>/SKILL.md`.",
+    )
+
+
+class ImportBundleRequestSerializer(serializers.Serializer):
+    """Body shape for POST /revisions/<id>/bundle/import/.
+
+    Bulk-paste hatch for migrating an existing multi-file agent. Either
+    `agent_md` or `skills` (or both) may be present. Skills merge by `id`:
+    matching ids overwrite their body (and description if provided), new
+    ids are appended. Skills NOT mentioned are left alone — the import is
+    safe to retry.
+    """
+
+    agent_md = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="New `agent.md` contents. When omitted, the existing agent.md is left alone.",
+    )
+    skills = serializers.ListField(
+        child=ImportBundleSkillSerializer(),
+        required=False,
+        default=list,
+        help_text="Per-skill payloads to merge into the bundle by id. When omitted, no skills are touched.",
+    )
+
+
 class WriteSpecRequestSerializer(serializers.Serializer):
     """Body shape for PUT /revisions/<id>/spec/. The body's `spec` object
     is the author-facing slice (skills/tools are server-derived at freeze)."""

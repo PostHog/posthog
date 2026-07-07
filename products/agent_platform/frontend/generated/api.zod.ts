@@ -233,6 +233,72 @@ export const AgentApplicationsRevisionsBundleUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Update one `.md` file on a draft revision's bundle.
+ *
+ * `path` must be `agent.md` or `skills/<id>/SKILL.md` for a skill id
+ * already present in the bundle. Tool source / schema editing is out
+ * of scope here — use the per-tool endpoints. Returns the updated
+ * revision so the caller can refresh its cache in one round-trip.
+ */
+export const AgentApplicationsRevisionsBundleFileUpdateBody = /* @__PURE__ */ zod
+    .object({
+        path: zod
+            .string()
+            .describe(
+                "Canonical bundle path. Must be `agent.md` or `skills\/<id>\/SKILL.md` where `<id>` matches an existing skill in the draft's bundle."
+            ),
+        content: zod.string().describe('The new file contents, written verbatim to the bundle store.'),
+    })
+    .describe(
+        'Body shape for PUT \/revisions\/<id>\/bundle\/file\/.\n\nEdits one `.md` file on a draft revision. `path` is restricted to the\ncanonical author surface — `agent.md` or `skills\/<id>\/SKILL.md` for a\nskill id that already exists in the bundle. Tool source \/ schema editing\nis out of scope here; use the per-tool endpoint for that.'
+    )
+
+/**
+ * Bulk-merge a set of `.md` files into a draft revision.
+ *
+ * Sets `agent_md` if present, and merges `skills[]` by id (overwrites
+ * body — and description when supplied — for existing ids; appends a
+ * new skill for unknown ids). Skills not mentioned are left alone, so
+ * the import is safe to retry. Draft-only; non-draft revisions return
+ * 409 untouched.
+ */
+export const AgentApplicationsRevisionsBundleImportCreateBody = /* @__PURE__ */ zod
+    .object({
+        agent_md: zod
+            .string()
+            .optional()
+            .describe('New `agent.md` contents. When omitted, the existing agent.md is left alone.'),
+        skills: zod
+            .array(
+                zod
+                    .object({
+                        id: zod
+                            .string()
+                            .describe(
+                                'Skill id. Lowercase letters, digits, hyphens, or underscores; must start and end with `[a-z0-9]`.'
+                            ),
+                        description: zod
+                            .string()
+                            .optional()
+                            .describe(
+                                'One-line summary shown in the skill index. Required when adding a new skill; optional when updating one.'
+                            ),
+                        body: zod
+                            .string()
+                            .describe("The skill's full markdown body, written to `skills\/<id>\/SKILL.md`."),
+                    })
+                    .describe(
+                        'One skill entry in a bulk-import payload.\n\nThe optional `description` is honoured when adding a new skill (or\noverwriting an existing one); when omitted on an existing skill, the\ncurrent description is preserved. Skill `id` must match the canonical\nresource-id regex used by the janitor.'
+                    )
+            )
+            .optional()
+            .describe('Per-skill payloads to merge into the bundle by id. When omitted, no skills are touched.'),
+    })
+    .describe(
+        'Body shape for POST \/revisions\/<id>\/bundle\/import\/.\n\nBulk-paste hatch for migrating an existing multi-file agent. Either\n`agent_md` or `skills` (or both) may be present. Skills merge by `id`:\nmatching ids overwrite their body (and description if provided), new\nids are appended. Skills NOT mentioned are left alone — the import is\nsafe to retry.'
+    )
+
+/**
  * Copy every file from `source_revision_id` into this revision.
  */
 export const AgentApplicationsRevisionsCloneFromCreateBody = /* @__PURE__ */ zod
