@@ -2040,8 +2040,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 values.defaultReleaseConditions,
                 values.currentTeam?.id
             )
-            // Bail if the logic unmounted (e.g. navigated away) while release conditions were loading —
-            // otherwise the reads below hit a store path that no longer exists and kea throws.
+            // Bail if the logic unmounted or applyTemplate was re-invoked while release conditions
+            // were loading — otherwise the reads below hit a store path that no longer exists and kea throws.
             breakpoint()
             const defaultGroups =
                 defaultConfig?.enabled && defaultConfig.default_groups?.length > 0 ? defaultConfig.default_groups : []
