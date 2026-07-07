@@ -11,7 +11,7 @@ response post-processing, metrics, and failure signals. Kind-specific behavior
 import re
 import time
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Literal, Union, cast
 
 from django.conf import settings
@@ -67,6 +67,7 @@ from posthog.models import Team, User
 from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.synthetic_user import SyntheticUser
 
+from products.data_modeling.backend.facade.api import saved_query_materialized_at
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_warehouse.backend.facade.api import trigger_saved_query_schedule
 from products.endpoints.backend.exceptions import EndpointAtCapacity, EndpointQueryTooExpensive
@@ -693,10 +694,14 @@ class EndpointExecutionService(PydanticModelMixin):
         """Execute against a materialized table in S3."""
         materialized_hogql_query = None
         query_kind = None
+        materialized_at = None
         saved_query = version.saved_query
         try:
             if not saved_query:
                 raise ValidationError("No materialized query found for this endpoint")
+
+            # v2 never writes saved_query.last_run_at; derive freshness from DataModelingJob.
+            materialized_at = saved_query_materialized_at(saved_query)
 
             strategy = strategy_for(endpoint, version, self.team)
             query_kind = strategy.query_kind
@@ -729,7 +734,7 @@ class EndpointExecutionService(PydanticModelMixin):
 
             extra_fields = {
                 "endpoint_materialized": True,
-                "endpoint_materialized_at": saved_query.last_run_at.isoformat() if saved_query.last_run_at else None,
+                "endpoint_materialized_at": materialized_at.isoformat() if materialized_at else None,
             }
             tag_queries(
                 workload=Workload.ENDPOINTS,
@@ -739,9 +744,9 @@ class EndpointExecutionService(PydanticModelMixin):
 
             # Compute dynamic cache TTL: time remaining until data_freshness window expires
             cache_ttl = None
-            if saved_query.last_run_at and version.data_freshness_seconds:
+            if materialized_at and version.data_freshness_seconds:
                 remaining = (
-                    saved_query.last_run_at + timedelta(seconds=version.data_freshness_seconds) - timezone.now()
+                    materialized_at + timedelta(seconds=version.data_freshness_seconds) - timezone.now()
                 ).total_seconds()
                 if remaining <= 0:
                     logger.warning(
@@ -749,7 +754,7 @@ class EndpointExecutionService(PydanticModelMixin):
                         endpoint_name=endpoint.name,
                         team_id=self.team.pk,
                         data_freshness_seconds=version.data_freshness_seconds,
-                        last_run_at=saved_query.last_run_at.isoformat(),
+                        last_run_at=materialized_at.isoformat(),
                         remaining_seconds=remaining,
                     )
                     tag_queries(endpoint_materialization_behind=True)
@@ -765,7 +770,7 @@ class EndpointExecutionService(PydanticModelMixin):
                 pagination=pagination,
             )
 
-            if self._is_cache_stale(result, saved_query):
+            if self._is_cache_stale(result, materialized_at):
                 query_request_data["refresh"] = RefreshType.FORCE_BLOCKING
                 result = self._execute_query_and_respond(
                     query_request_data,
@@ -794,8 +799,8 @@ class EndpointExecutionService(PydanticModelMixin):
 
             # Freshness relative to the configured target: >1.0 means behind SLA.
             # Absolute age is meaningless across endpoints with different frequencies.
-            if saved_query.last_run_at and version.data_freshness_seconds:
-                age_seconds = max((timezone.now() - saved_query.last_run_at).total_seconds(), 0.0)
+            if materialized_at and version.data_freshness_seconds:
+                age_seconds = max((timezone.now() - materialized_at).total_seconds(), 0.0)
                 ENDPOINT_MATERIALIZED_FRESHNESS_RATIO.observe(age_seconds / version.data_freshness_seconds)
 
             return result
@@ -829,27 +834,25 @@ class EndpointExecutionService(PydanticModelMixin):
                 query_kind=query_kind,
                 executed_sql=materialized_hogql_query.query if materialized_hogql_query else None,
                 saved_query_status=saved_query.status if saved_query else None,
-                saved_query_last_run_at=(
-                    saved_query.last_run_at.isoformat() if saved_query and saved_query.last_run_at else None
-                ),
+                saved_query_last_run_at=(materialized_at.isoformat() if materialized_at else None),
                 saved_query_columns=saved_query.columns if saved_query else None,
                 endpoint_columns=version.columns,
             )
             raise
 
-    def _is_cache_stale(self, result: Response, saved_query) -> bool:
+    def _is_cache_stale(self, result: Response, materialized_at: datetime | None) -> bool:
         """Check if cached result is older than the materialization."""
         if not isinstance(result.data, dict) or not result.data.get("is_cached"):
             return False
 
         last_refresh = result.data.get("last_refresh")
-        if not last_refresh or not saved_query.last_run_at:
+        if not last_refresh or not materialized_at:
             return False
 
         if isinstance(last_refresh, str):
             last_refresh = isoparse(last_refresh)
 
-        return last_refresh < saved_query.last_run_at
+        return last_refresh < materialized_at
 
     # ------------------------------------------------------------------
     # Inline + DuckLake execution
