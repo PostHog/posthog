@@ -392,6 +392,33 @@ mod tests {
     }
 
     #[test]
+    fn scan_range_handles_a_trailing_0xff_in_the_person_id() {
+        // The middle `prefix_successor` case, hit by neither existing test: a trailing `0xFF` run is
+        // popped and then a non-`0xFF` byte is incremented, yielding a *shortened* successor.
+        // person(0xFF)'s 26-byte prefix ends `..0x00 0xFF` while the partition/team are not maxed, so
+        // it takes neither the no-pop path (person(42)) nor the all-ones sentinel path. A bug in the
+        // popping loop would mis-bracket exactly the persons whose UUID ends in `0xFF`.
+        let prefix = PersonPrefix::new(5, 7, person(0xFF));
+        let (start, end) = prefix.scan_range();
+
+        let min_leaf = prefix.behavioral_key(lsk(0x00)).encode();
+        let max_leaf = prefix.behavioral_key(lsk(0xFF)).encode();
+        assert!(start.as_slice() <= min_leaf.as_slice());
+        assert!(max_leaf.as_slice() < end.as_slice());
+
+        // The next person (UUID rolls `..0x00 0xFF` -> `..0x01 0x00`) starts at or past the end.
+        let next_person = PersonPrefix::new(5, 7, person(0x100))
+            .behavioral_key(lsk(0x00))
+            .encode();
+        assert!(end.as_slice() <= next_person.as_slice());
+        // The previous person's maximum leaf is strictly below the start.
+        let prev_person = PersonPrefix::new(5, 7, person(0xFE))
+            .behavioral_key(lsk(0xFF))
+            .encode();
+        assert!(prev_person.as_slice() < start.as_slice());
+    }
+
+    #[test]
     fn scan_range_handles_the_all_ones_prefix() {
         let prefix = PersonPrefix::new(u16::MAX, u64::MAX, person(u128::MAX));
         let (start, end) = prefix.scan_range();

@@ -209,7 +209,13 @@ impl<'a> LeafMembershipResolver<'a> {
             match self.filters.by_lsk.get(&lsk).map(|meta| meta.variant) {
                 None => continue,
                 Some(StateVariant::PersonProperty) => person_lsks.push(lsk),
-                Some(_) => behavioral_lsks.push(lsk),
+                // Exhaustive (no wildcard) so a future membership source resolving from another store
+                // fails to compile here instead of being silently misrouted into `cf_behavioral`.
+                Some(
+                    StateVariant::BehavioralSingle
+                    | StateVariant::BehavioralDailyBuckets
+                    | StateVariant::BehavioralCompressedHistory,
+                ) => behavioral_lsks.push(lsk),
             }
         }
 
@@ -529,6 +535,15 @@ mod tests {
             .unwrap();
     }
 
+    /// Write bytes that fail `PersonRecord::decode` (byte 0 is not the format version) to the person's
+    /// record key, so the compose read path takes its corrupt-record arm.
+    fn write_corrupt_person_record(store: &CohortStore, who: Uuid) {
+        let key = PersonRecordKey::new(PARTITION, TEAM, who);
+        store
+            .write_batch(|b| b.put::<PersonRecords>(&key, b"not a valid person record"))
+            .unwrap();
+    }
+
     fn transition(
         lsk: LeafStateKey,
         who: Uuid,
@@ -592,6 +607,42 @@ mod tests {
         assert_eq!(changes[0].person_id, alice.to_string());
         assert_eq!(changes[0].last_updated, TS);
         assert_eq!(stage2_bit(&store, 1, alice), Some(true), "bit committed");
+    }
+
+    #[tokio::test]
+    async fn corrupt_person_record_composes_as_non_member() {
+        // A record whose bytes fail to decode must read as non-member on the compose path (never a
+        // stale/garbage bit), so the AND cannot enter. Sibling to `entered_when_the_and_is_satisfied`
+        // with the person record corrupted; a regression here would silently drop a still-matching
+        // member from every person-property cohort.
+        let (_dir, store) = temp_store();
+        let filters = freeze(vec![behavioral_leaf(7), person_leaf()]);
+        let (beh_lsk, _per_lsk) = and_leaf_keys(&filters);
+        let alice = person(1);
+
+        write_behavioral(&store, beh_lsk, alice, behavioral_match());
+        write_corrupt_person_record(&store, alice);
+
+        let changes = compose_stage2(
+            PARTITION,
+            &handle(&store),
+            &filters,
+            &[transition(beh_lsk, alice, HASH, TransitionKind::Entered)],
+            EVENT_MS,
+            TS,
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            changes.is_empty(),
+            "a corrupt person record reads as non-member, so the AND does not enter",
+        );
+        assert_eq!(
+            stage2_bit(&store, 1, alice),
+            None,
+            "no membership bit is written",
+        );
     }
 
     #[tokio::test]

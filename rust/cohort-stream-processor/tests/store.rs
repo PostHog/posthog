@@ -195,6 +195,46 @@ fn behavioral_prefix_scan_returns_one_persons_leaves_in_lsk_order() {
 }
 
 #[test]
+fn behavioral_prefix_scan_spans_multiple_flushed_ssts() {
+    // The single-batch test above flushes once, so the scan only ever reads one SST. Force one
+    // person's leaves across two flushed SSTs so the prefix seek (prefix bloom + upper-bound iterator)
+    // is exercised across an SST boundary: a scan that stops one key early, or lets the prefix bloom
+    // skip a live SST, would pass the single-SST test but fail here.
+    let dir = TempDir::new().unwrap();
+    let store = open_store(&dir);
+
+    // SST 1: person 5's leaf 10, plus a neighbouring person that must not leak into the scan.
+    store
+        .write_batch(|b| {
+            b.put::<Behavioral>(&behavioral_key(1, 300, 10, 5), b"a");
+            b.put::<Behavioral>(&behavioral_key(1, 300, 99, 6), b"other-person");
+        })
+        .unwrap();
+    store.flush().unwrap();
+
+    // SST 2: person 5's leaves 30 and 20 (written out of order), plus the same person in another
+    // partition, which shares neither the partition nor the person prefix.
+    store
+        .write_batch(|b| {
+            b.put::<Behavioral>(&behavioral_key(1, 300, 30, 5), b"c");
+            b.put::<Behavioral>(&behavioral_key(1, 300, 20, 5), b"b");
+            b.put::<Behavioral>(&behavioral_key(2, 300, 10, 5), b"other-partition");
+        })
+        .unwrap();
+    store.flush().unwrap();
+
+    let rows = store
+        .scan_behavioral_prefix(PersonPrefix::new(1, 300, person(5)))
+        .unwrap();
+    let leaves: Vec<[u8; 16]> = rows.iter().map(|(k, _)| k.lsk().0).collect();
+    assert_eq!(
+        leaves,
+        vec![lsk(10).0, lsk(20).0, lsk(30).0],
+        "person 5's leaves stay contiguous and in lsk order across two SSTs, no neighbour leak",
+    );
+}
+
+#[test]
 fn delete_partition_isolates_other_partitions() {
     let dir = TempDir::new().unwrap();
     let store = open_store(&dir);

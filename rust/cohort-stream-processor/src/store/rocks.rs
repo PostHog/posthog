@@ -36,8 +36,13 @@ use crate::observability::metrics::{
 
 /// On-disk store schema version, stamped into `cf_meta` at first open and checked on every reopen.
 /// A layout revision (key codec, value shape) that keeps the same CF set MUST bump this so an older
-/// store fails fast instead of being misread; a CF-set change is caught independently by
-/// `open_cf_descriptors`.
+/// store fails fast instead of being misread; an on-disk CF *outside* `Cf::ALL` is caught independently
+/// by `open_cf_descriptors` (see [`CohortStore::open_inner`]).
+///
+/// The same version is also stamped into checkpoint `metadata.json` and checked on restore
+/// (`store/durability/import.rs`), which has *different* failure semantics: a mismatched checkpoint is
+/// silently skipped (falling through to the next candidate, then to a cold start), never a hard fail.
+/// A future bump must keep both guards in mind.
 pub const STORE_SCHEMA_VERSION: u32 = 3;
 
 const OP_OPEN: &str = "open";
@@ -193,8 +198,9 @@ impl CohortStore {
     /// After open, the schema guard runs: a store that did not exist before this open is stamped with
     /// [`STORE_SCHEMA_VERSION`]; an existing store's stamp is checked. A mismatch (or an absent stamp on
     /// an existing store) is a hard [`StoreError::SchemaMismatch`] — unless `wipe_on_schema_mismatch`,
-    /// which destroys and recreates the store, then stamps the fresh one. CF-set changes are caught
-    /// independently by `open_cf_descriptors` failing to open, backstopping the version check.
+    /// which destroys and recreates the store, then stamps the fresh one. A store carrying a CF outside
+    /// `Cf::ALL` never reaches this guard: it fails earlier in [`Self::open_inner`] (see there for the
+    /// extra-vs-subset asymmetry the version key exists to close).
     pub fn open(config: &StoreConfig) -> Result<Self, StoreError> {
         let db_opts = db_options(config);
 
@@ -225,6 +231,18 @@ impl CohortStore {
     }
 
     /// Open the DB handle without the schema guard. Shared by the first open and the post-wipe reopen.
+    ///
+    /// The descriptor list is the fixed `Cf::ALL` set, and this is where cross-era CF-set differences
+    /// are caught — but only in one direction, so the `cf_meta` version key is not redundant with it:
+    /// - A store with a CF *absent from* `Cf::ALL` (e.g. a pre-`cf_behavioral` store's `cf_stage1` /
+    ///   `cf_person_index`) hard-fails here with a generic [`StoreError::Open`], before `check_schema`
+    ///   and its `wipe_on_schema_mismatch` branch run. That is intentional: fail-fast and incapable of
+    ///   misreading bytes. Such a store cannot exist once this schema is live (PoC posture wipes and
+    ///   replays rather than migrates), so there is deliberately no legacy-CF upgrade path here.
+    /// - A store *missing* a CF that `Cf::ALL` adds (a subset) does NOT fail: `create_missing_column_
+    ///   families(true)` creates it and the open succeeds. Same for an identical CF set with a changed
+    ///   value layout. Those are exactly the cases the [`STORE_SCHEMA_VERSION`] stamp in `cf_meta`
+    ///   guards against being silently misread.
     fn open_inner(config: &StoreConfig, db_opts: &Options) -> Result<Self, StoreError> {
         let cache = Cache::new_lru_cache(config.block_cache_bytes);
         let descriptors = column_families::descriptors(config, &cache);

@@ -154,6 +154,8 @@ fn hex_decode(s: &str) -> Option<[u8; 16]> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
     use crate::stage1::state::{AppliedOffsets, Stage1State};
 
@@ -252,6 +254,38 @@ mod tests {
             decoded.leaves[0].record,
             single_record(),
             "the leaf's StatefulRecord transfers whole, so redirect_dedup chains for free",
+        );
+    }
+
+    #[test]
+    fn transfer_round_trips_a_non_empty_person_dedup() {
+        // Every other round-trip sets `person_dedup: None`. `PersonDedup.redirect_dedup` carries
+        // `#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]`; a non-empty round-trip is
+        // what guards that derive. If it silently dropped the field, the None-only tests would all
+        // still pass, so assert the offsets survive the wire whole.
+        let mut redirect_dedup = BTreeMap::new();
+        redirect_dedup.insert(
+            uuid(0xCCCC),
+            AppliedOffsets::from_sorted_entries(vec![(3, 300)]),
+        );
+        let transfer = MergeStateTransfer {
+            team_id: 7,
+            old_person_uuid: uuid(0xAAAA),
+            new_person_uuid: uuid(0xBBBB),
+            merged_at_ms: 1_716_800_000_000,
+            source_partition: 17,
+            source_offset: 12_345,
+            leaves: vec![],
+            forward_hops: 0,
+            person_dedup: Some(PersonDedup {
+                applied_offsets: AppliedOffsets::from_sorted_entries(vec![(1, 100), (2, 200)]),
+                redirect_dedup,
+            }),
+        };
+        let decoded = MergeStateTransfer::decode(&transfer.encode()).unwrap();
+        assert_eq!(
+            decoded, transfer,
+            "a non-empty person_dedup (direct + redirect offsets) survives the wire round-trip",
         );
     }
 
