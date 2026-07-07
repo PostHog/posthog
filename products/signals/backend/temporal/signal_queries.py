@@ -570,7 +570,7 @@ async def fetch_signals_for_reports_activity(input: FetchSignalsForReportsInput)
         query = f"""
             SELECT
                 document_id,
-                substring(content, 1, {MEMBER_CONTENT_MAX_CHARS}) as content,
+                substringUTF8(content, 1, {MEMBER_CONTENT_MAX_CHARS}) as content,
                 metadata,
                 timestamp,
                 JSONExtractString(metadata, 'report_id') as report_id

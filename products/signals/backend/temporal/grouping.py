@@ -1421,12 +1421,19 @@ async def _process_signal_batch(
         # deterministically.
         use_combined = False
         if workflow.patched(_PATCH_COMBINED_MATCH):
-            use_combined = await workflow.execute_activity(
-                check_combined_match_enabled_activity,
-                CheckCombinedMatchEnabledInput(team_id=team_id),
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
+            # Fail closed on Temporal-level failures too (timeout, retries exhausted) — an
+            # escaped exception here would make the outer handler drop the whole batch.
+            try:
+                use_combined = await workflow.execute_activity(
+                    check_combined_match_enabled_activity,
+                    CheckCombinedMatchEnabledInput(team_id=team_id),
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+            except Exception:
+                logger.warning(
+                    "Combined match flag check activity failed, defaulting to two-call path", team_id=team_id
+                )
 
         _par = await process_sequential_phase_parallel(
             batch=batch,
