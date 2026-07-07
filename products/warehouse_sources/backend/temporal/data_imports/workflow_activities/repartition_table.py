@@ -232,7 +232,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     except Exception as e:
         # Do NOT re-raise: a repartition failure must not block the sync — the table is retried on a
         # later run, on the old layout in the meantime.
-        _handle_failure(inputs, schema, pending, trigger_reason, e)
+        _handle_failure(inputs, schema, pending, trigger_reason, e, logger)
         DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="failed").inc()
         return
 
@@ -262,29 +262,47 @@ def _handle_failure(
     pending: dict[str, Any] | None,
     trigger_reason: str,
     error: Exception,
+    logger: FilteringBoundLogger,
 ) -> None:
-    """Record a failed attempt; give up (and clear the flag) after MAX_REPARTITION_ATTEMPTS."""
-    schema.refresh_from_db(fields=["sync_type_config"])
-    pending = schema.repartition_pending or pending or {}
-    attempts = int(pending.get("attempts", 0)) + 1
+    """Record a failed attempt; give up (and clear the flag) after MAX_REPARTITION_ATTEMPTS.
 
+    This runs from the swallow-all `except` around the rewrite, so it must never raise — the whole
+    point of that block is that a repartition failure leaves the table on its old layout and the sync
+    proceeds. The original failure and a dead Postgres connection can arrive together (a transient
+    infra blip drops both S3 and the DB pooler), so re-establish the connection before the ORM access
+    and treat the attempt-bookkeeping writes as best-effort: a residual DB error is logged and
+    captured, not re-raised, or it would fail the very activity the outer `except` exists to protect.
+    """
     props = base_event_props(schema, schema.source, inputs.job_id)
     props.update(
         {
             "trigger_reason": trigger_reason,
-            "attempts": attempts,
             "error_type": type(error).__name__,
             "error_message": str(error)[:1000],
         }
     )
 
-    if attempts >= MAX_REPARTITION_ATTEMPTS:
-        props["final"] = True
-        schema.clear_repartition_pending()
-        schema.clear_repartition_swap()
-    else:
-        updated = {**pending, "attempts": attempts}
-        schema.set_repartition_pending(updated)
+    try:
+        # The pooler connection may have dropped alongside the original failure; recycle it so the ORM
+        # access below re-establishes a fresh one instead of raising OperationalError on a dead socket.
+        close_old_connections()
+        schema.refresh_from_db(fields=["sync_type_config"])
+        pending = schema.repartition_pending or pending or {}
+        attempts = int(pending.get("attempts", 0)) + 1
+        props["attempts"] = attempts
+
+        if attempts >= MAX_REPARTITION_ATTEMPTS:
+            props["final"] = True
+            schema.clear_repartition_pending()
+            schema.clear_repartition_swap()
+        else:
+            updated = {**pending, "attempts": attempts}
+            schema.set_repartition_pending(updated)
+    except Exception as db_error:
+        # Persisting the attempt is best-effort. If the DB is still unreachable we leave the pending
+        # flag untouched (the table simply retries next run) rather than let the error escape.
+        logger.warning("repartition: failed to persist repartition failure state", exc_info=True)
+        capture_exception(db_error)
 
     capture_repartition_event("warehouse_repartition_failed", props)
     capture_exception(error)
