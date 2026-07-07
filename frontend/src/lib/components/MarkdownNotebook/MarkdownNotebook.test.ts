@@ -6262,6 +6262,46 @@ Tail with **bold** text`)
         expect(onChange).toHaveBeenLastCalledWith('# Hello **bold**')
     })
 
+    it('pastes clipboard files through the external converter after the caret block', () => {
+        const onChange = jest.fn()
+        const convertExternalDataTransferToNodes = jest.fn((dataTransfer: DataTransfer) =>
+            dataTransfer.files.length
+                ? [
+                      {
+                          id: 'pasted-image',
+                          type: 'component' as const,
+                          tagName: 'Image',
+                          props: { src: 'https://example.com/pasted.png', alt: 'pasted' },
+                      },
+                  ]
+                : null
+        )
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('First paragraph\n\nSecond paragraph'),
+                onChange,
+                convertExternalDataTransferToNodes,
+            })
+        )
+        const firstParagraph = getBodyTextBlock(container)
+
+        fireEvent.paste(firstParagraph, {
+            clipboardData: {
+                files: [new File([''], 'pasted.png', { type: 'image/png' })],
+                getData: jest.fn(() => ''),
+            },
+        })
+
+        expect(convertExternalDataTransferToNodes).toHaveBeenCalled()
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+First paragraph
+
+![pasted](https://example.com/pasted.png)
+
+Second paragraph`)
+    })
+
     it('undoes pasted markdown blocks as one notebook history step', () => {
         const onChange = jest.fn()
         const { container } = render(

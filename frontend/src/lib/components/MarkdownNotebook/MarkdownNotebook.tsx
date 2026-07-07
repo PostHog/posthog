@@ -239,10 +239,11 @@ export type MarkdownNotebookProps = {
     /** Reports the local caret whenever it moves; null when the selection leaves the notebook. */
     onCaretChange?: (position: MarkdownNotebookCaretPosition | null) => void
     initialInsertMenu?: { nodeIndex?: number; query?: string }
-    /** Converts an external drag (dropped files or app resources) into blocks inserted at the drop
-     * position. Return null to ignore the drag; return a promise when conversion needs async work
-     * (e.g. file uploads) — the drop position is captured at drop time. */
-    convertExternalDragToNodes?: (
+    /** Converts external content (dropped or pasted files, dragged app resources or URLs) into
+     * blocks inserted at the drop/caret position. Return null to ignore the transfer; return a
+     * promise when conversion needs async work (e.g. file uploads) — the insert position is
+     * captured up front. */
+    convertExternalDataTransferToNodes?: (
         dataTransfer: DataTransfer
     ) => NotebookBlockNode[] | Promise<NotebookBlockNode[] | null> | null
     focusAIPromptRequest?: number
@@ -467,7 +468,7 @@ export function MarkdownNotebook({
     remoteCarets,
     onCaretChange,
     initialInsertMenu,
-    convertExternalDragToNodes,
+    convertExternalDataTransferToNodes,
     focusAIPromptRequest,
     aiWritingNodeIndexes,
     placeholder = 'Start writing...',
@@ -494,6 +495,8 @@ export function MarkdownNotebook({
     const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null)
     const [dropBoundaryIndex, setDropBoundaryIndex] = useState<number | null>(null)
     const [isExternalDragOver, setIsExternalDragOver] = useState(false)
+    /** Whether the in-flight drag started inside this editor (native text/link drags included). */
+    const canvasDragOriginRef = useRef(false)
     const [selectedComponentNodeIds, setSelectedComponentNodeIds] = useState<Set<string>>(() => new Set())
     const [componentPanelCache, setComponentPanelCache] = useState<Record<string, ComponentPanelCacheEntry>>({})
     const [internalDebugOpen, setInternalDebugOpen] = useState(false)
@@ -3091,9 +3094,47 @@ export function MarkdownNotebook({
         }
     }
 
+    // Pasted files insert after the block holding the caret (or the focused component); pastes
+    // with no block context append to the end.
+    const getPasteInsertBoundaryIndex = (target: HTMLElement): number => {
+        const nodes = documentRef.current.nodes.length ? documentRef.current.nodes : [emptyNodeRef.current]
+        const focusedComponentNode = getFocusedComponentNode(target, nodes, blockRefs.current)
+        const nodeId = focusedComponentNode
+            ? focusedComponentNode.id
+            : target.closest<HTMLElement>('[data-markdown-notebook-node-id]')?.dataset.markdownNotebookNodeId
+        const nodeIndex = nodeId ? nodes.findIndex((node) => node.id === nodeId) : -1
+        return nodeIndex === -1 ? nodes.length : nodeIndex + 1
+    }
+
     const handleNotebookPaste = (event: ReactClipboardEvent<HTMLDivElement>): void => {
         if (mode !== 'edit' || !(event.target instanceof HTMLElement) || isNativeEditableElement(event.target)) {
             return
+        }
+
+        // Pasted files (e.g. a screenshot) have no text representation the editor could insert —
+        // hand them to the external converter, mirroring the file drop path.
+        const clipboardFiles = event.clipboardData?.files
+        if (
+            convertExternalDataTransferToNodes &&
+            clipboardFiles?.length &&
+            !event.clipboardData.getData('text/plain')
+        ) {
+            const result = convertExternalDataTransferToNodes(event.clipboardData)
+            if (result) {
+                event.preventDefault()
+                event.stopPropagation()
+                const boundaryIndex = getPasteInsertBoundaryIndex(event.target)
+                if (result instanceof Promise) {
+                    void result.then((insertedNodes) => {
+                        if (insertedNodes?.length) {
+                            insertExternalNodesAtBoundary(insertedNodes, boundaryIndex)
+                        }
+                    })
+                    return
+                }
+                insertExternalNodesAtBoundary(result, boundaryIndex)
+                return
+            }
         }
 
         const targetComponentNode = getFocusedComponentNode(event.target, documentRef.current.nodes, blockRefs.current)
@@ -4545,13 +4586,17 @@ export function MarkdownNotebook({
         clearBlockDragState()
     }
 
-    // Only drags carrying an app resource (custom `node` type) or files are treated as external
-    // inserts; plain text/link drags stay on the browser's native contentEditable handling.
+    // Drags carrying an app resource (custom `node` type), files, or a URL are treated as external
+    // inserts. URL drags only count when the drag started outside this editor — dragging a link
+    // (or linked text) within the notebook stays on the browser's native contentEditable handling.
     const isExternalNotebookDrag = (dataTransfer: DataTransfer | null): boolean =>
-        !!dataTransfer && (dataTransfer.types.includes('node') || dataTransfer.types.includes('Files'))
+        !!dataTransfer &&
+        (dataTransfer.types.includes('node') ||
+            dataTransfer.types.includes('Files') ||
+            (dataTransfer.types.includes('text/uri-list') && !canvasDragOriginRef.current))
 
     const acceptsExternalDrag = (event: ReactDragEvent<HTMLDivElement>): boolean =>
-        mode === 'edit' && !!convertExternalDragToNodes && isExternalNotebookDrag(event.dataTransfer)
+        mode === 'edit' && !!convertExternalDataTransferToNodes && isExternalNotebookDrag(event.dataTransfer)
 
     const clearExternalDragState = (): void => {
         setIsExternalDragOver(false)
@@ -4607,7 +4652,7 @@ export function MarkdownNotebook({
             event.preventDefault()
             const boundaryIndex = getDropBoundaryIndexFromPointer(event.clientY)
             clearExternalDragState()
-            const result = convertExternalDragToNodes?.(event.dataTransfer)
+            const result = convertExternalDataTransferToNodes?.(event.dataTransfer)
             if (!result) {
                 return
             }
@@ -5536,6 +5581,12 @@ export function MarkdownNotebook({
                         onKeyDown={handleRootEditableKeyDown}
                         onMouseLeave={handleCanvasMouseLeave}
                         onClick={handleCanvasClick}
+                        onDragStartCapture={() => {
+                            canvasDragOriginRef.current = true
+                        }}
+                        onDragEndCapture={() => {
+                            canvasDragOriginRef.current = false
+                        }}
                         onDragOver={handleCanvasDragOver}
                         onDrop={handleCanvasDrop}
                         onDragLeave={handleCanvasDragLeave}

@@ -12,6 +12,7 @@ import { NotebookNodeType } from '../types'
 import {
     appendMarkdownNotebookBlock,
     buildMarkdownNotebookContent,
+    convertDroppedPostHogUrlToMarkdownNode,
     convertDroppedRichContentNodeToMarkdownNode,
     convertNotebookContentToMarkdown,
     getMarkdownNotebookMarkdown,
@@ -728,6 +729,64 @@ Users activated faster.
         expect(notebookArtifactContentToMarkdown(content)).toEqual(`# Existing title
 
 Body`)
+    })
+
+    describe('convertDroppedPostHogUrlToMarkdownNode', () => {
+        // Entity links drag with only their href; this mapping is what turns a dropped link
+        // into the resource's component node instead of a plain link.
+        it.each<[string, string, { tagName: string; props: Record<string, unknown> } | null]>([
+            ['feature flag', '/feature_flags/123', { tagName: 'FeatureFlag', props: { id: 123 } }],
+            [
+                'feature flag with project prefix',
+                '/project/1/feature_flags/123',
+                { tagName: 'FeatureFlag', props: { id: 123 } },
+            ],
+            ['experiment', '/experiments/42', { tagName: 'Experiment', props: { id: 42 } }],
+            ['cohort', '/cohorts/7', { tagName: 'Cohort', props: { id: 7 } }],
+            [
+                'saved insight',
+                '/insights/AbC123',
+                {
+                    tagName: 'Query',
+                    props: { query: { kind: 'SavedInsightNode', shortId: 'AbC123' }, hideFilters: true },
+                },
+            ],
+            [
+                'survey',
+                '/surveys/018f6a2b-0000-0000-0000-000000000000',
+                { tagName: 'Survey', props: { id: '018f6a2b-0000-0000-0000-000000000000' } },
+            ],
+            [
+                'recording',
+                '/replay/018f6a2b-1111-2222-3333-444444444444',
+                { tagName: 'Recording', props: { id: '018f6a2b-1111-2222-3333-444444444444' } },
+            ],
+            [
+                'person by uuid',
+                '/persons/018f6a2b-1111-2222-3333-444444444444',
+                { tagName: 'Person', props: { id: '018f6a2b-1111-2222-3333-444444444444' } },
+            ],
+            [
+                'person by distinct id',
+                '/person/user%40example.com',
+                { tagName: 'Person', props: { distinctId: 'user@example.com' } },
+            ],
+            ['new flag form (no entity yet)', '/feature_flags/new', null],
+            ['new insight form (no entity yet)', '/insights/new', null],
+            ['unrecognized path', '/settings/project', null],
+        ])('%s', (_name, path, expected) => {
+            const node = convertDroppedPostHogUrlToMarkdownNode(`${window.location.origin}${path}`)
+
+            if (expected === null) {
+                expect(node).toBeNull()
+            } else {
+                expect(node).toMatchObject({ type: 'component', ...expected })
+            }
+        })
+
+        it('ignores URLs from other origins', () => {
+            expect(convertDroppedPostHogUrlToMarkdownNode('https://example.com/feature_flags/123')).toBeNull()
+        })
     })
 
     describe('convertDroppedRichContentNodeToMarkdownNode', () => {
