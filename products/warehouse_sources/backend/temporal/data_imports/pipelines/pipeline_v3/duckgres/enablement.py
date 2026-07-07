@@ -18,18 +18,27 @@ import posthoganalytics
 
 from posthog.ducklake.common import is_dev_mode
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.common.utils import close_db_connections
 
 logger = structlog.get_logger(__name__)
 
 DUCKGRES_BATCH_SINK_FLAG = "duckgres-batch-sink"
 
 
+@close_db_connections
 def duckgres_sink_team_ids() -> list[int] | None:
     """Team ids the sink may process, or None for "no filter" (dev mode).
 
     Runs sync (Django ORM + flag evaluation); call via sync_to_async from the
     consumer. Raises on app-DB errors — the caller keeps its previous cached
     set so a transient app-DB blip doesn't blind the sink.
+
+    The consumer's poll loop is a long-lived thread-pool worker that never
+    passes through Django's request cycle, so ``close_old_connections()`` never
+    fires and a pooled connection reaped server-side would otherwise raise
+    ``OperationalError: the connection is closed`` on the next read. The
+    decorator evicts stale connections around the ORM reads so each refresh
+    starts from a fresh connection.
 
     The flag is evaluated only-locally (no per-team network round-trip) with the
     org/project group properties supplied inline, matching the data-warehouse-scene
