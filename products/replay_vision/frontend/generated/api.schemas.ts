@@ -455,7 +455,7 @@ export interface ReplayObservationLabelApi {
     /** True if the scanner scored this session correctly, false if not. */
     is_correct: boolean
     /**
-     * Why the scanner got it wrong / what it should have concluded. Empty for correct labels.
+     * Optional written context on the rating, for thumbs-up and thumbs-down alike: what the scanner got right or wrong, or what it should have concluded.
      * @maxLength 5000
      */
     feedback?: string
@@ -742,6 +742,41 @@ export interface CoverageStatsApi {
     recent_days: number
 }
 
+export interface ObservationLabelDayCountApi {
+    /** Day (UTC) the observed sessions were scanned. */
+    date: string
+    /** Observations scanned this day labeled correct (thumbs up). */
+    up: number
+    /** Observations scanned this day labeled incorrect (thumbs down). */
+    down: number
+}
+
+export interface ObservationVersionMarkerApi {
+    /** First day (UTC) this prompt version produced observations. */
+    date: string
+    /** The scanner (prompt) version number. */
+    version: number
+    /** The prompt text this version ran with, taken from the observation run snapshots. */
+    prompt: string
+    /** Thumbs-up ratings on this version's observations. */
+    up: number
+    /** Thumbs-down ratings on this version's observations. */
+    down: number
+}
+
+export interface ObservationLabelStatsApi {
+    /** Observations in the filtered set labeled correct (thumbs up). */
+    up_total: number
+    /** Observations in the filtered set labeled incorrect (thumbs down). */
+    down_total: number
+    /** Daily label counts over the last `recent_days` days, bucketed by the day the session was scanned so the series tracks scanner quality over time. Days without labels are omitted. */
+    by_day: ObservationLabelDayCountApi[]
+    /** Daily label counts over the last `recent_days` days, bucketed by the day the rating was last set or changed: the team's rating activity. Days without rating changes are omitted. */
+    by_rating_day: ObservationLabelDayCountApi[]
+    /** Each scanner (prompt) version that produced observations (all-time), with its first day, prompt, and rating counts, for chart markers and the prompt version history. */
+    version_markers: ObservationVersionMarkerApi[]
+}
+
 export interface MonitorStatsApi {
     /** Succeeded observations whose verdict was `yes`. */
     yes_total: number
@@ -803,6 +838,8 @@ export interface ObservationStatsApi {
     status_counts: ObservationStatusCountsApi
     /** Session-level scanner coverage. */
     coverage: CoverageStatsApi
+    /** Team label (thumbs up/down) aggregates over the filtered set. */
+    labels: ObservationLabelStatsApi
     /** All distinct tags (fixed + freeform) emitted by succeeded observations in the filtered set. */
     available_tags: string[]
     /** Monitor-type aggregates; null when the scanner is not a monitor. */
@@ -811,6 +848,73 @@ export interface ObservationStatsApi {
     classifier: ClassifierStatsApi | null
     /** Scorer-type aggregates; null when the scanner is not a scorer. */
     scorer: ScorerStatsApi | null
+}
+
+/**
+ * * `pending` - Pending
+ * * `applied` - Applied
+ * * `dismissed` - Dismissed
+ * * `superseded` - Superseded
+ * * `no_change` - No change
+ */
+export type ReplayScannerPromptSuggestionStatusEnumApi =
+    (typeof ReplayScannerPromptSuggestionStatusEnumApi)[keyof typeof ReplayScannerPromptSuggestionStatusEnumApi]
+
+export const ReplayScannerPromptSuggestionStatusEnumApi = {
+    Pending: 'pending',
+    Applied: 'applied',
+    Dismissed: 'dismissed',
+    Superseded: 'superseded',
+    NoChange: 'no_change',
+} as const
+
+export interface ReplayScannerPromptSuggestionApi {
+    readonly id: string
+    /** pending (current), applied, dismissed, or superseded by a newer suggestion.
+     *
+     * * `pending` - Pending
+     * * `applied` - Applied
+     * * `dismissed` - Dismissed
+     * * `superseded` - Superseded
+     * * `no_change` - No change */
+    readonly status: ReplayScannerPromptSuggestionStatusEnumApi
+    /** The full rewritten prompt, ready to apply to the scanner. */
+    readonly suggested_prompt: string
+    /** The scanner prompt this suggestion was generated against, for diffing. */
+    readonly base_prompt: string
+    /** What the rewrite changed and why, grounded in the ratings. */
+    readonly rationale: string
+    /** Thumbs-up ratings the suggestion was based on. */
+    readonly based_on_up: number
+    /** Thumbs-down ratings the suggestion was based on. */
+    readonly based_on_down: number
+    /** The scanner version whose prompt this suggestion was generated against. */
+    readonly scanner_version: number
+    readonly created_at: string
+    /** User who requested this suggestion; null for automatic refreshes. */
+    readonly created_by: UserBasicApi | null
+    /** @nullable */
+    readonly applied_at: string | null
+    /** User who applied this suggestion to the scanner; null unless applied. */
+    readonly applied_by: UserBasicApi | null
+}
+
+export interface PaginatedReplayScannerPromptSuggestionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ReplayScannerPromptSuggestionApi[]
+}
+
+export interface CurrentPromptSuggestionApi {
+    /** The newest suggestion for this scanner, or null when none has been generated yet. */
+    suggestion: ReplayScannerPromptSuggestionApi | null
+    /** True when the team's ratings changed since the newest suggestion was generated. */
+    stale: boolean
+    /** Number of rated (thumbs up or down) succeeded observations available to generate from. */
+    rated_count: number
 }
 
 /**
@@ -1033,7 +1137,7 @@ export type VisionScannersListParams = {
 
 export type VisionScannersObservationsListParams = {
     /**
-     * When true, return only observations that have a shared label (correct or incorrect).
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: boolean
     /**
@@ -1076,7 +1180,7 @@ export type VisionScannersObservationsListParams = {
 
 export type VisionScannersObservationsStatsRetrieveParams = {
     /**
-     * When true, return only observations that have a shared label (correct or incorrect).
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: string
     /**
@@ -1107,4 +1211,15 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+}
+
+export type VisionScannersPromptSuggestionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
