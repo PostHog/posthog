@@ -83,15 +83,12 @@ Column | Type | Nullable | Description
 ```json
 {
   "minimum_detectable_effect": 5,
-  "recommended_running_time": 14,
   "recommended_sample_size": 1000,
-  "feature_flag_variants": [
-    {"key": "control", "name": "Control", "rollout_percentage": 50},
-    {"key": "test", "name": "Test", "rollout_percentage": 50}
-  ],
   "custom_exposure_filter": {...}
 }
 ```
+
+Feature-flag config (variant split, rollout %, payloads, group-type index, experience continuity) no longer lives in `parameters` — it lives on the linked feature flag. Query `system.feature_flags` and join via `experiments.feature_flag_id` to get the variant split and rollout percentages.
 
 ### Key Relationships
 
