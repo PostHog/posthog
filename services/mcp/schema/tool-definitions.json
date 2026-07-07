@@ -395,7 +395,7 @@
         }
     },
     "switch-project": {
-        "description": "Switch the active PostHog project for subsequent tool calls. Call this proactively whenever the user names a project or workspace they want to operate on. Use `projects-get` to resolve a project name to an id. If the project isn't found, the user may be referring to a project in a different organization, in which case call `organizations-list` and `switch-organization` first, then retry `projects-get`. Default to the active project when no specific project is mentioned.",
+        "description": "Switch the active PostHog project for subsequent tool calls. Call this proactively whenever the user names a project or workspace they want to operate on. Use `projects-get` to resolve a project name to an id. The switch is only applied if the API key can access the target project; if it can't, this tool fails without changing the active project and lists the projects you can switch to. If the project isn't found, the user may be referring to a project in a different organization, in which case call `organizations-list` and `switch-organization` first, then retry `projects-get`. Default to the active project when no specific project is mentioned.",
         "category": "Organization & project management",
         "feature": "workspace",
         "summary": "Switch the active PostHog project for subsequent tool calls.",
