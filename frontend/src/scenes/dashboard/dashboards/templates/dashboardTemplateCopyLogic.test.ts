@@ -8,6 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { DashboardsTab } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { urls } from 'scenes/urls'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import type { DashboardTemplateType } from '~/types'
 
@@ -19,6 +20,9 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
 }))
 
 describe('dashboardTemplateCopyLogic', () => {
+    // Safety net for tests that call silenceKeaLoadersErrors() inline
+    afterEach(resumeKeaLoadersErrors)
+
     let logic: ReturnType<typeof dashboardTemplateCopyLogic.build> | undefined
 
     beforeEach(() => {
@@ -79,6 +83,8 @@ describe('dashboardTemplateCopyLogic', () => {
     })
 
     it('marks load failed when fetching the source template errors', async () => {
+        // Deliberate failure — kea-loaders would log it
+        silenceKeaLoadersErrors()
         const getMock = api.dashboardTemplates.get as jest.Mock
         getMock.mockRejectedValueOnce(new Error('not found'))
 
@@ -143,6 +149,8 @@ describe('dashboardTemplateCopyLogic', () => {
     })
 
     it('submitCopy shows an error toast when the API fails', async () => {
+        // Deliberate failure — kea-loaders would log it
+        silenceKeaLoadersErrors()
         const copyMock = api.dashboardTemplates.copyBetweenProjects as jest.Mock
         copyMock.mockRejectedValueOnce(new ApiError(undefined, 500, undefined, { detail: 'network' }))
 
@@ -159,6 +167,8 @@ describe('dashboardTemplateCopyLogic', () => {
     })
 
     it('submitCopy without destination shows an error toast', async () => {
+        // Deliberate failure — kea-loaders would log it
+        silenceKeaLoadersErrors()
         const copyMock = api.dashboardTemplates.copyBetweenProjects as jest.Mock
 
         const mounted = dashboardTemplateCopyLogic({ sourceTemplateId: 'src-1', sourceTeamId: 1 })
@@ -174,6 +184,8 @@ describe('dashboardTemplateCopyLogic', () => {
     })
 
     it('submitCopy surfaces ApiError detail in the toast', async () => {
+        // Deliberate failure — kea-loaders would log it
+        silenceKeaLoadersErrors()
         const copyMock = api.dashboardTemplates.copyBetweenProjects as jest.Mock
         copyMock.mockRejectedValueOnce(
             new ApiError(undefined, 400, undefined, { detail: 'Org template limit reached' })

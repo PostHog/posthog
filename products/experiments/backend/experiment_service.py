@@ -566,7 +566,13 @@ class ExperimentService:
     # accepted as create/update input to build/sync the flag, projected back into the deprecated
     # `parameters` API field at read time (see ExperimentBaseSerializer), but never persisted into
     # the `parameters` column.
-    FEATURE_FLAG_CONFIG_KEYS = ("feature_flag_variants", "rollout_percentage", "aggregation_group_type_index")
+    FEATURE_FLAG_CONFIG_KEYS = (
+        "feature_flag_variants",
+        "rollout_percentage",
+        "aggregation_group_type_index",
+        "feature_flag_payloads",
+        "ensure_experience_continuity",
+    )
 
     @classmethod
     def _strip_feature_flag_config(cls, parameters: dict | None) -> dict | None:
@@ -576,6 +582,99 @@ class ExperimentService:
         if not parameters:
             return parameters
         return {k: v for k, v in parameters.items() if k not in cls.FEATURE_FLAG_CONFIG_KEYS}
+
+    @staticmethod
+    def _parameters_with_variant_detail(experiment: Experiment) -> dict[str, Any]:
+        """Parameters for analytics events: the stored column carries no flag config, so attach
+        the variant detail event consumers expect from the linked flag."""
+        return {**(experiment.parameters or {}), "feature_flag_variants": experiment.feature_flag.variants}
+
+    @staticmethod
+    def feature_flag_config_to_parameters(
+        feature_flag_input: dict, parameters: dict | None, flag: FeatureFlag | None = None
+    ) -> dict:
+        """Translate a ``feature_flag`` config object (the flag's native write shape:
+        ``filters.multivariate.variants``, ``filters.groups``, ``filters.aggregation_group_type_index``,
+        ``filters.payloads``, ``ensure_experience_continuity``) into the legacy ``parameters`` input
+        keys the service still consumes to build/sync the flag.
+
+        The explicit ``feature_flag`` object wins over any matching keys already in ``parameters``.
+        This is the create/update write counterpart to the read projection (see
+        ``ExperimentBaseSerializer``): callers send config through the flag object instead of
+        ``parameters``, and this normalizes it while ``parameters`` remains the internal input shape.
+        Returns a new dict, leaving the caller's input untouched.
+
+        Pass ``flag`` (the experiment's linked flag, on update) to give the object PATCH semantics:
+        config the input omits is backfilled from the flag's current state, because the downstream
+        sync treats a missing variants key as "reset to defaults" and a missing aggregation key as
+        "clear" — a partial object must not silently regress config it never mentioned.
+        """
+        params = dict(parameters or {})
+        # Reject unrecognized keys instead of silently dropping them: applying half an object
+        # (e.g. taking filters but ignoring `active` or `super_groups`) would leave the flag in a
+        # state the caller never asked for. `id` is allowed because clients serializing an optional
+        # id as null still express write intent (a real echo carries a non-null id).
+        unsupported = sorted(set(feature_flag_input) - {"id", "filters", "ensure_experience_continuity"})
+        if unsupported:
+            raise ValidationError(
+                {
+                    "feature_flag": f"Unsupported keys: {', '.join(unsupported)}. The experiment feature_flag "
+                    "input accepts filters and ensure_experience_continuity; edit the feature flag "
+                    "directly for anything else."
+                }
+            )
+        filters = feature_flag_input.get("filters")
+        if filters is not None and not isinstance(filters, dict):
+            raise ValidationError({"feature_flag": "filters must be an object."})
+        filters = filters or {}
+        unsupported_filters = sorted(
+            set(filters) - {"multivariate", "groups", "aggregation_group_type_index", "payloads"}
+        )
+        if unsupported_filters:
+            raise ValidationError(
+                {
+                    "feature_flag": f"Unsupported filters keys: {', '.join(unsupported_filters)}. The experiment "
+                    "feature_flag input accepts filters.multivariate, filters.groups, "
+                    "filters.aggregation_group_type_index, and filters.payloads; edit the feature flag "
+                    "directly for anything else."
+                }
+            )
+        multivariate = filters.get("multivariate")
+        if multivariate is not None and not isinstance(multivariate, dict):
+            raise ValidationError({"feature_flag": "filters.multivariate must be an object."})
+        multivariate = multivariate or {}
+        if "variants" in multivariate:
+            if not isinstance(multivariate["variants"], list):
+                raise ValidationError({"feature_flag": "filters.multivariate.variants must be a list."})
+            params["feature_flag_variants"] = multivariate["variants"]
+        groups = filters.get("groups")
+        if groups is not None:
+            if not isinstance(groups, list) or not all(isinstance(group, dict) for group in groups):
+                raise ValidationError({"feature_flag": "filters.groups must be a list of objects."})
+            # Only groups[0].rollout_percentage is applied; silently dropping release conditions
+            # would leave the experiment exposed to a wider audience than the caller asked for.
+            if len(groups) > 1 or (groups and groups[0].get("properties")):
+                raise ValidationError(
+                    {
+                        "feature_flag": "Release conditions (multiple groups or group properties) are not "
+                        "supported via the experiment feature_flag input. Edit the feature flag directly."
+                    }
+                )
+            if groups:
+                rollout_percentage = groups[0].get("rollout_percentage")
+                if rollout_percentage is not None:
+                    params["rollout_percentage"] = rollout_percentage
+        if "aggregation_group_type_index" in filters:
+            params["aggregation_group_type_index"] = filters["aggregation_group_type_index"]
+        if "payloads" in filters:
+            params["feature_flag_payloads"] = filters["payloads"]
+        if "ensure_experience_continuity" in feature_flag_input:
+            params["ensure_experience_continuity"] = feature_flag_input["ensure_experience_continuity"]
+        if flag is not None:
+            params.setdefault("feature_flag_variants", flag.variants)
+            if "aggregation_group_type_index" not in params and flag.aggregation_group_type_index is not None:
+                params["aggregation_group_type_index"] = flag.aggregation_group_type_index
+        return params
 
     @staticmethod
     def _variant_keys(variants: list | None) -> list[str]:
@@ -2273,7 +2372,7 @@ class ExperimentService:
 
         completed_metadata = experiment.get_analytics_metadata()
         completed_metadata["end_date"] = experiment.end_date.isoformat() if experiment.end_date else None
-        completed_metadata["parameters"] = experiment.parameters
+        completed_metadata["parameters"] = self._parameters_with_variant_detail(experiment)
         completed_metadata["stats_method"] = (experiment.stats_config or {}).get("method", "bayesian")
         if experiment.start_date and experiment.end_date:
             completed_metadata["duration"] = int((experiment.end_date - experiment.start_date).total_seconds())
@@ -2620,7 +2719,7 @@ class ExperimentService:
         metadata = experiment.get_analytics_metadata()
         metadata["variant_key"] = variant_key
         metadata["release_to_everyone"] = release_to_everyone
-        metadata["parameters"] = experiment.parameters
+        metadata["parameters"] = self._parameters_with_variant_detail(experiment)
 
         report_user_action(
             self.user,
@@ -2810,10 +2909,18 @@ class ExperimentService:
                     "aggregation_group_type_index": aggregation_group_type_index,
                     **holdout_filters_for_flag(holdout.id if holdout else None, holdout.filters if holdout else None),
                 }
+                if "feature_flag_payloads" in update_data["parameters"]:
+                    new_filters["payloads"] = update_data["parameters"]["feature_flag_payloads"]
+
+                flag_update_data: dict[str, Any] = {"filters": new_filters}
+                if "ensure_experience_continuity" in update_data["parameters"]:
+                    flag_update_data["ensure_experience_continuity"] = update_data["parameters"][
+                        "ensure_experience_continuity"
+                    ]
 
                 existing_flag_serializer = FeatureFlagSerializer(
                     feature_flag,
-                    data={"filters": new_filters},
+                    data=flag_update_data,
                     partial=True,
                     context=context,
                 )
@@ -3095,11 +3202,19 @@ class ExperimentService:
 
         parameters = deepcopy(source_experiment.parameters) or {}
 
-        # Variants come from the source experiment's feature flag (the source of truth),
-        # not the stale copy denormalized into parameters.
+        # Variants, payloads, and experience continuity come from the source experiment's feature
+        # flag (the source of truth), not any stale copy denormalized into parameters.
         source_variants = source_experiment.feature_flag.variants
         if source_variants:
             parameters["feature_flag_variants"] = deepcopy(source_variants)
+        source_payloads = source_experiment.feature_flag.get_filters().get("payloads")
+        if source_payloads:
+            parameters["feature_flag_payloads"] = deepcopy(source_payloads)
+        else:
+            parameters.pop("feature_flag_payloads", None)
+        # bool() so a NULL continuity clones as off — the create path treats None as "unset" and
+        # would substitute the target team's flags_persistence_default, changing SDK behavior.
+        parameters["ensure_experience_continuity"] = bool(source_experiment.feature_flag.ensure_experience_continuity)
 
         # An existing flag in the target project wins — reuse its variants instead.
         # For cross-project clones we always check the target; for same-project

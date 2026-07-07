@@ -40,6 +40,8 @@ afterEach(() => {
     cleanupRaf()
     cleanupJsdom()
     cleanup()
+    // featureFlagLogic persists flags to localStorage, so per-test flags leak into later tests otherwise
+    localStorage.clear()
 })
 
 describe('TrendsLineChart', () => {
@@ -285,6 +287,18 @@ describe('TrendsLineChart', () => {
             const tooltip = await chart.hoverTooltip(2)
 
             // Wednesday is the third day (index 2) in our pageview fixture (2024-06-12).
+            expect(tooltip.title()).toMatch(/Wednesday/i)
+            expect(tooltip.title()).toMatch(/12.+Jun/)
+        })
+
+        it('keeps the weekday in the quill tooltip (PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS on)', async () => {
+            renderInsight({
+                query: buildTrendsQuery({ interval: 'day' }),
+                featureFlags: { [FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]: true },
+            })
+
+            const tooltip = await chart.hoverTooltip(2)
+
             expect(tooltip.title()).toMatch(/Wednesday/i)
             expect(tooltip.title()).toMatch(/12.+Jun/)
         })

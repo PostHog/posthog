@@ -32,6 +32,7 @@ env:
     # Schema cache epoch. Bump to abandon every shared schema cache entry at once
     # (key is posthog-schema-mig-<epoch>-<hash>). Single-sourced so it can't drift
     # between the merge-base (PR) and HEAD (push) key computations below.
+    # ci-e2e-playwright.yml restores by the same key — keep its copy in sync when bumping.
     SCHEMA_CACHE_EPOCH: v1
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -799,13 +800,28 @@ jobs:
                   # ClickHouse drop/create race conditions with ReplicatedMergeTree ZK metadata.
                   # --durations-path: turbo runs products from products/<name>/, so pytest-split
                   # needs an explicit path back to the repo-root durations file for balanced sharding.
+                  # --junitxml: written relative to each product's dir (turbo's cwd), so every
+                  # product in the group gets its own products/<name>/junit-product.xml.
                   # On master, also collect timing data for pytest-split sharding.
                   PYTEST_ADDOPTS: >-
                       --reuse-db
                       --durations-path ../../.test_durations
+                      --junitxml=junit-product.xml
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
                       ${{ github.ref == 'refs/heads/master' && '--store-durations' || '' }}
               run: pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
+
+            # Upload results to Trunk for flaky-test detection. Non-gating (continue-on-error),
+            # so a Trunk outage never fails the job. Runs the token only on internal PRs,
+            # master, and the merge queue — never on fork PRs or Dependabot, which have no secret.
+            - name: Upload test results to Trunk
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
+              continue-on-error: true
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: products/*/junit-product.xml
+                  org-slug: posthog-inc
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
 
             - name: Upload timing data
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
