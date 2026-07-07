@@ -27,7 +27,7 @@ export function StaffCacheEntryModal(): JSX.Element {
     return (
         <LemonModal
             title={
-                viewingCacheEntry ? `${CACHE_LABELS[viewingCacheEntry.cache]} — team #${viewingCacheEntry.teamId}` : ''
+                viewingCacheEntry ? `${CACHE_LABELS[viewingCacheEntry.cache]} - team #${viewingCacheEntry.teamId}` : ''
             }
             isOpen={!!viewingCacheEntry}
             onClose={closeCacheEntryModal}

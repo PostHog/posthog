@@ -14,7 +14,7 @@ def register_routes(routers: RouterRegistry) -> None:
     # Library-side feature flag evaluation (legacy root path).
     routers.root.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)
 
-    # Staff-only, unscoped flags tooling — root-level so it is not team-nested.
+    # Staff-only, unscoped flags tooling: root-level so it is not team-nested.
     routers.root.register(
         r"feature_flags_staff_teams",
         staff_teams.FeatureFlagsStaffTeamSearchViewSet,

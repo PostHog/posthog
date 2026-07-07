@@ -9,7 +9,7 @@ function teamOption(team: StaffTeamResult): LemonInputSelectOption<number> {
     return {
         key: String(team.id),
         value: team.id,
-        label: `${team.name} (#${team.id}) — ${team.organization_name}`,
+        label: `${team.name} (#${team.id}) - ${team.organization_name}`,
     }
 }
 

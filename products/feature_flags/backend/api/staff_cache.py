@@ -214,8 +214,8 @@ class FeatureFlagsStaffCacheViewSet(viewsets.ViewSet):
     target ('definitions_no_cohorts') independently, since the two definitions-cache variants are
     individually readable even though they're only mutated as a pair.
 
-    Reuses the existing cache functions and Celery tasks — the same mechanism signal handlers use
-    when a flag changes — rather than re-implementing cache-write logic. Registered on the root
+    Reuses the existing cache functions and Celery tasks (the same mechanism signal handlers use
+    when a flag changes) rather than re-implementing cache-write logic. Registered on the root
     router so it is not team-nested; staff act on teams they do not belong to.
     """
 

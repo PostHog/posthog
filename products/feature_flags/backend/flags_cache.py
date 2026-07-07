@@ -1020,11 +1020,11 @@ def _produce_invalidation(team_id: int) -> None:
 def _enqueue_invalidation(team_id: int) -> None:
     """Run from `transaction.on_commit`: route to Kafka if enabled, otherwise Celery.
 
-    Model signal handlers wrap this in `transaction.on_commit` — deferring until commit
+    Model signal handlers wrap this in `transaction.on_commit`: deferring until commit
     avoids race conditions where the Celery worker reads pre-commit state. Callers with no
     open transaction to defer past (e.g. staff tooling, via `enqueue_evaluation_cache_invalidation`)
     call it directly. Shared by all four signal handlers wired to the flag-invalidation topic.
-    Cohort invalidation is intentionally not routed here — cohort changes flow through their
+    Cohort invalidation is intentionally not routed here, since cohort changes flow through their
     own topic.
 
     The two paths are mutually exclusive so the rollout proves the Kafka path
@@ -1053,8 +1053,8 @@ def _enqueue_invalidation(team_id: int) -> None:
 
 def enqueue_evaluation_cache_invalidation(team_id: int) -> None:
     """Public entry point for `_enqueue_invalidation`, for callers outside a model signal handler
-    (e.g. staff tooling) that want a rebuild to raise the exact same invalidation signal — Kafka
-    or Celery routing — that an organic flag create/update/delete raises."""
+    (e.g. staff tooling) that want a rebuild to raise the exact same invalidation signal (Kafka
+    or Celery routing) that an organic flag create/update/delete raises."""
     _enqueue_invalidation(team_id)
 
 
