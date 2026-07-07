@@ -220,6 +220,9 @@ tools:
                     Tag names to set on the account. Replaces the full existing tag set — pass the complete list, not a
                     delta. Tags are created on demand if they do not already exist for the team.
         feature_flag: customer-analytics-csp
+    accounts-relationships-list:
+        operation: accounts_relationships_list
+        enabled: false
     accounts-retrieve:
         operation: accounts_retrieve
         enabled: true

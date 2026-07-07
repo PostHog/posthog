@@ -12,10 +12,12 @@ import type {
     AccountApi,
     AccountNotebookApi,
     AccountNotesListParams,
+    AccountRelationshipApi,
     AccountRelationshipDefinitionApi,
     AccountRelationshipDefinitionsListParams,
     AccountsListParams,
     AccountsNotebooksListParams,
+    AccountsRelationshipsListParams,
     CustomPropertyDefinitionApi,
     CustomPropertyDefinitionsListParams,
     CustomPropertySourceApi,
@@ -366,6 +368,38 @@ export const accountsNotebooksDestroy = async (
     return apiMutator<void>(getAccountsNotebooksDestroyUrl(projectId, accountId, shortId), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getAccountsRelationshipsListUrl = (
+    projectId: string,
+    accountId: string,
+    params?: AccountsRelationshipsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/accounts/${accountId}/relationships/?${stringifiedParams}`
+        : `/api/projects/${projectId}/accounts/${accountId}/relationships/`
+}
+
+export const accountsRelationshipsList = async (
+    projectId: string,
+    accountId: string,
+    params?: AccountsRelationshipsListParams,
+    options?: RequestInit
+): Promise<AccountRelationshipApi[]> => {
+    return apiMutator<AccountRelationshipApi[]>(getAccountsRelationshipsListUrl(projectId, accountId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -260,21 +260,29 @@ class BatchConsumer:
     def _lease_ttl_seconds(self) -> int:
         return self._config.lease_ttl_seconds or self._config.recovery_grace_seconds or RECOVERY_GRACE_SECONDS
 
-    def _statement_timeout_options(self, client_timeout_seconds: float | None) -> str | None:
-        """libpq options for the server-side statement_timeout backstop; None when
-        the client ceiling is disabled (same "0 disables" contract)."""
+    def _statement_timeout_ms(self, client_timeout_seconds: float | None) -> int | None:
+        """Server-side statement_timeout backstop in milliseconds; None when the
+        client ceiling is disabled (same "0 disables" contract)."""
         if not client_timeout_seconds:
             return None
-        timeout_ms = int((client_timeout_seconds + self._config.statement_timeout_margin_seconds) * 1000)
-        return f"-c statement_timeout={timeout_ms}"
+        return int((client_timeout_seconds + self._config.statement_timeout_margin_seconds) * 1000)
 
-    async def _connect(self, *, statement_timeout_options: str | None = None) -> psycopg.AsyncConnection[Any]:
-        return await psycopg.AsyncConnection.connect(
+    async def _connect(self, *, statement_timeout_seconds: float | None = None) -> psycopg.AsyncConnection[Any]:
+        conn = await psycopg.AsyncConnection.connect(
             self._config.database_url,
             autocommit=True,
             connect_timeout=self._config.connect_timeout_seconds,
-            options=statement_timeout_options,
         )
+        # Session-scoped SET, not a libpq startup option: PgBouncer rejects
+        # statement_timeout inside the `options` startup parameter.
+        timeout_ms = self._statement_timeout_ms(statement_timeout_seconds)
+        if timeout_ms is not None:
+            try:
+                await conn.execute(f"SET statement_timeout = {timeout_ms}")
+            except psycopg.Error:
+                await conn.close()
+                raise
+        return conn
 
     async def _drop_conn(self, attr: str) -> None:
         """Close and forget a connection after a timed-out operation.
@@ -298,9 +306,7 @@ class BatchConsumer:
         async with self._poll_conn_lock:
             if self._poll_conn is None or self._poll_conn.closed or self._poll_conn.broken:
                 logger.warning(self._event("queue_db_poll_connection_reconnecting"))
-                self._poll_conn = await self._connect(
-                    statement_timeout_options=self._statement_timeout_options(self._config.poll_timeout_seconds)
-                )
+                self._poll_conn = await self._connect(statement_timeout_seconds=self._config.poll_timeout_seconds)
             return self._poll_conn
 
     async def _ensure_recovery_conn(self) -> psycopg.AsyncConnection[Any]:
@@ -310,9 +316,7 @@ class BatchConsumer:
         async with self._recovery_conn_lock:
             if self._recovery_conn is None or self._recovery_conn.closed or self._recovery_conn.broken:
                 logger.warning(self._event("queue_db_recovery_connection_reconnecting"))
-                self._recovery_conn = await self._connect(
-                    statement_timeout_options=self._statement_timeout_options(self._config.sweep_timeout_seconds)
-                )
+                self._recovery_conn = await self._connect(statement_timeout_seconds=self._config.sweep_timeout_seconds)
             return self._recovery_conn
 
     async def _wait_or_shutdown(self, timeout: float) -> None:
@@ -324,12 +328,8 @@ class BatchConsumer:
     async def run(self) -> None:
         self._install_signal_handlers()
 
-        self._poll_conn = await self._connect(
-            statement_timeout_options=self._statement_timeout_options(self._config.poll_timeout_seconds)
-        )
-        self._recovery_conn = await self._connect(
-            statement_timeout_options=self._statement_timeout_options(self._config.sweep_timeout_seconds)
-        )
+        self._poll_conn = await self._connect(statement_timeout_seconds=self._config.poll_timeout_seconds)
+        self._recovery_conn = await self._connect(statement_timeout_seconds=self._config.sweep_timeout_seconds)
 
         logger.info(
             self._event("batch_consumer_started"),

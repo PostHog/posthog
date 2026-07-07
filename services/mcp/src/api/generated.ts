@@ -157,6 +157,16 @@ export namespace Schemas {
     }
 
     /**
+     * A user assigned to an account relationship (read shape).
+     */
+    export interface AccountAssignment {
+      /** PostHog user id of the assignee. */
+      readonly id: number;
+      /** Email of the assignee. */
+      readonly email: string;
+    }
+
+    /**
      * * `engineering` - Engineering
      * * `data` - Data
      * * `product` - Product Management
@@ -276,6 +286,25 @@ export namespace Schemas {
       description?: string | null;
       /** Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account. */
       is_single_holder?: boolean;
+    }
+
+    /**
+     * One assignment of a user to an account relationship, with its effective range.
+     */
+    export interface AccountRelationship {
+      /** Unique id of this assignment row. */
+      readonly id: string;
+      /** The relationship type this assignment belongs to. */
+      readonly definition: AccountRelationshipDefinition;
+      /** The assigned user; null when their account was deleted. */
+      readonly user: AccountAssignment | null;
+      /** When this assignment became effective. */
+      readonly started_at: string;
+      /**
+         * When this assignment ended; null while it is active.
+         * @nullable
+         */
+      readonly ended_at: string | null;
     }
 
     export type BounceRatePageViewMode = typeof BounceRatePageViewMode[keyof typeof BounceRatePageViewMode];
@@ -8440,6 +8469,25 @@ export namespace Schemas {
       request_id: string;
     }
 
+    export interface AgentRevisionDryRunToolError {
+      /** Stable error code. `sandbox_acquire_failed` — the platform could not start a sandbox (infrastructure issue, not tool code). `sandbox_invoke_failed` — the sandbox started but the invoke threw uncaught (problem in the tool body, or a runtime error). Dispatcher-side codes come through on `ok:false` invoke results: `timeout`, `secret_not_provisioned`, `action_not_found`, `tool_not_found`. */
+      code: string;
+      /** One-line human-readable detail. */
+      message: string;
+    }
+
+    export interface AgentRevisionDryRunToolResponse {
+      /** True when the tool's `actions.default` returned without throwing. False when the tool threw or the sandbox rejected the invocation (the structured `error` describes which). */
+      ok: boolean;
+      /** Echo of the tool id from the URL. */
+      tool_id: string;
+      /** Present on success — the value the tool's `actions.default` returned. */
+      result?: unknown;
+      error?: AgentRevisionDryRunToolError;
+      /** Wall-clock duration in milliseconds, measured from sandbox acquire to after release. Captured consistently across success, tool-throw, and acquire-failure paths so authors can compare timings between calls. Always present. */
+      duration_ms: number;
+    }
+
     export interface AgentRevisionEnvKeyStatus {
       key: string;
       /** True if the key is present in the env block. The value itself is never returned. */
@@ -11907,6 +11955,20 @@ export namespace Schemas {
       ids: string[];
     }
 
+    /**
+     * * `add` - add
+     * * `remove` - remove
+     * * `set` - set
+     */
+    export type BulkUpdateTagsActionEnum = typeof BulkUpdateTagsActionEnum[keyof typeof BulkUpdateTagsActionEnum];
+
+
+    export const BulkUpdateTagsActionEnum = {
+      Add: 'add',
+      Remove: 'remove',
+      Set: 'set',
+    } as const;
+
     export interface BulkUpdateTagsError {
       id: number;
       reason: string;
@@ -11916,20 +11978,6 @@ export namespace Schemas {
       id: number;
       tags: string[];
     }
-
-    /**
-     * * `add` - add
-     * * `remove` - remove
-     * * `set` - set
-     */
-    export type BulkUpdateTagsRequestActionEnum = typeof BulkUpdateTagsRequestActionEnum[keyof typeof BulkUpdateTagsRequestActionEnum];
-
-
-    export const BulkUpdateTagsRequestActionEnum = {
-      Add: 'add',
-      Remove: 'remove',
-      Set: 'set',
-    } as const;
 
     export interface BulkUpdateTagsRequest {
       /**
@@ -11942,7 +11990,7 @@ export namespace Schemas {
        * * `add` - add
        * * `remove` - remove
        * * `set` - set */
-      action: BulkUpdateTagsRequestActionEnum;
+      action: BulkUpdateTagsActionEnum;
       /** Tag names to add, remove, or set. */
       tags: string[];
     }
@@ -11950,6 +11998,46 @@ export namespace Schemas {
     export interface BulkUpdateTagsResponse {
       updated: BulkUpdateTagsItem[];
       skipped: BulkUpdateTagsError[];
+    }
+
+    export interface BulkUpdateTagsUUIDError {
+      /** UUID of the object that was skipped. */
+      id: string;
+      /** Why the object was skipped, e.g. 'Not found'. */
+      reason: string;
+    }
+
+    export interface BulkUpdateTagsUUIDItem {
+      /** UUID of the object whose tags were updated. */
+      id: string;
+      /** The object's full tag list after the update. */
+      tags: string[];
+    }
+
+    /**
+     * Variant of ``BulkUpdateTagsRequestSerializer`` for resources keyed by UUID (e.g. event definitions).
+     */
+    export interface BulkUpdateTagsUUIDRequest {
+      /**
+         * List of object UUIDs to update tags on.
+         * @maxItems 500
+         */
+      ids: string[];
+      /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+       *
+       * * `add` - add
+       * * `remove` - remove
+       * * `set` - set */
+      action: BulkUpdateTagsActionEnum;
+      /** Tag names to add, remove, or set. */
+      tags: string[];
+    }
+
+    export interface BulkUpdateTagsUUIDResponse {
+      /** Objects whose tags were successfully updated. */
+      updated: BulkUpdateTagsUUIDItem[];
+      /** Objects that were skipped, with a reason each. */
+      skipped: BulkUpdateTagsUUIDError[];
     }
 
     /**
@@ -18157,6 +18245,27 @@ export namespace Schemas {
     export interface DraftStatusResponse {
       updated_at: string;
       has_draft: boolean;
+    }
+
+    /**
+     * Optional `{secret_name → placeholder_string}` map. The string is returned verbatim by `ctx.secrets.ref(name)` inside the tool. The real secret value never enters the sandbox.
+     */
+    export type DryRunToolRequestMockSecrets = {[key: string]: string};
+
+    /**
+     * Body shape for POST /revisions/<id>/tools/<tool_id>/dry_run/.
+     *
+     * Executes the persisted compiled.js once in the janitor's single-shot
+     * sandbox with caller-supplied args + a stubbed ctx. No real secrets
+     * leave Django — `mock_secrets` is a `{name → opaque nonce}` map the
+     * sandbox plumbs into `ctx.secrets.ref(name)` so the tool body returns
+     * something deterministic to the author.
+     */
+    export interface DryRunToolRequest {
+      /** Synthetic args the tool's `actions.default` is called with. Free-form JSON; the sandbox doesn't validate against the tool's `args_schema` — that's the author's responsibility to keep in sync. */
+      args: unknown;
+      /** Optional `{secret_name → placeholder_string}` map. The string is returned verbatim by `ctx.secrets.ref(name)` inside the tool. The real secret value never enters the sandbox. */
+      mock_secrets?: DryRunToolRequestMockSecrets;
     }
 
     /**
@@ -61883,6 +61992,13 @@ export namespace Schemas {
      * Full-text search across notebook title and content.
      */
     search?: string;
+    };
+
+    export type AccountsRelationshipsListParams = {
+    /**
+     * Include ended assignments (the full timeline), not just active ones.
+     */
+    include_history?: boolean;
     };
 
     export type ActionsListParams = {
