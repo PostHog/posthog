@@ -97,14 +97,14 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
                 return
             }
             // In interval view each x-position is a different cohort, otherwise each series is.
-            const rowIndex = isIntervalView
-                ? datum.dataIndex
-                : (series[datum.datasetIndex]?.meta?.rowIndex ?? datum.datasetIndex)
+            // datum.order carries the cohort row index and survives tooltip narrowing, unlike
+            // the positional datum.datasetIndex.
+            const rowIndex = isIntervalView ? datum.dataIndex : datum.order
             if (rowIndex !== undefined) {
                 openModal(rowIndex)
             }
         },
-        [shouldShowMeanPerBreakdown, isIntervalView, series, openModal]
+        [shouldShowMeanPerBreakdown, isIntervalView, openModal]
     )
 
     const renderTooltip = useCallback(

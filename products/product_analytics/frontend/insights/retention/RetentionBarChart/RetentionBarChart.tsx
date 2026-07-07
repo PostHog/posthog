@@ -94,14 +94,14 @@ export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartPro
             if (shouldShowMeanPerBreakdown) {
                 return
             }
-            const rowIndex = isIntervalView
-                ? datum.dataIndex
-                : (series[datum.datasetIndex]?.meta?.rowIndex ?? datum.datasetIndex)
+            // The bar tooltip is narrowed to the hovered bar, so datum.datasetIndex is positional
+            // within the narrowed rows — datum.order carries the narrow-proof cohort row index.
+            const rowIndex = isIntervalView ? datum.dataIndex : datum.order
             if (rowIndex !== undefined) {
                 openModal(rowIndex)
             }
         },
-        [shouldShowMeanPerBreakdown, isIntervalView, series, openModal]
+        [shouldShowMeanPerBreakdown, isIntervalView, openModal]
     )
 
     const renderTooltip = useCallback(

@@ -32,6 +32,9 @@ export type RetentionTrendSeriesEntry = RetentionResultLike & { label?: string }
 export interface RetentionSeriesMeta {
     /** Original row index from the unfiltered results — drives modal opens in non-interval view. */
     rowIndex: number
+    /** Same as rowIndex; read by InsightSeriesTooltip (meta.order ?? idx), where the narrowed
+     *  grouped-bar row list makes the positional idx fallback point at the wrong cohort. */
+    order: number
     breakdown_value?: string | number | null
     days?: string[]
     cohortLabel?: string
@@ -68,6 +71,7 @@ export function buildRetentionSeries(
             data: s.data,
             meta: {
                 rowIndex,
+                order: rowIndex,
                 breakdown_value: s.breakdown_value,
                 days: s.days,
                 cohortLabel: s.label,
