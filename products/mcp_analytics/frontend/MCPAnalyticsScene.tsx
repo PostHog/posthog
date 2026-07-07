@@ -42,12 +42,15 @@ function MCPAnalyticsSceneContent(): JSX.Element {
     const { activeTab } = useValues(mcpAnalyticsSceneLogic)
     const { onboardingState, signals } = useValues(mcpAnalyticsOnboardingLogic)
 
+    // search is Sessions-only — drop it when leaving the tab; the date range stays shared.
+    const { search: _search, ...sharedParams } = searchParams
+
     const tabs: LemonTab<MCPAnalyticsTab>[] = [
         {
             key: 'dashboard',
             label: 'Dashboard',
             content: <MCPAnalyticsDashboard />,
-            link: combineUrl(urls.mcpAnalyticsDashboard(), searchParams).url,
+            link: combineUrl(urls.mcpAnalyticsDashboard(), sharedParams).url,
             'data-attr': 'mcp-analytics-dashboard-tab',
         },
         {
@@ -61,14 +64,14 @@ function MCPAnalyticsSceneContent(): JSX.Element {
             key: 'tool-quality',
             label: 'Tool quality',
             content: <MCPAnalyticsToolQuality />,
-            link: combineUrl(urls.mcpAnalyticsToolQuality(), searchParams).url,
+            link: combineUrl(urls.mcpAnalyticsToolQuality(), sharedParams).url,
             'data-attr': 'mcp-analytics-tool-quality-tab',
         },
         {
             key: 'intent-clustering',
             label: 'Intent clustering',
             content: <MCPAnalyticsClustering />,
-            link: combineUrl(urls.mcpAnalyticsIntentClustering(), searchParams).url,
+            link: combineUrl(urls.mcpAnalyticsIntentClustering(), sharedParams).url,
             'data-attr': 'mcp-analytics-intent-clustering-tab',
         },
     ]

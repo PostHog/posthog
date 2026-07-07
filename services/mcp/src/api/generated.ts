@@ -31,6 +31,25 @@ export namespace Schemas {
       AiGenerationClusters: '$ai_generation_clusters',
     } as const;
 
+    export interface AIReportQueryDiagnostic {
+      /** What this query step was meant to compute. */
+      description: string;
+      /** The HogQL the assistant generated for this step. */
+      hogql: string;
+      /** Whether the query ran successfully. */
+      ok: boolean;
+      /**
+         * Exception class name when the query failed; null on success.
+         * @nullable
+         */
+      error_type: string | null;
+      /**
+         * Human-readable failure reason, present only for query errors safe to surface to the subscription owner (e.g. an unresolved field name); null on success and for internal errors, which expose error_type only.
+         * @nullable
+         */
+      human_readable_error?: string | null;
+    }
+
     export type AccessControlLevel = typeof AccessControlLevel[keyof typeof AccessControlLevel];
 
 
@@ -237,6 +256,26 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly last_modified_at: string;
       readonly last_modified_by: UserBasic;
+    }
+
+    /**
+     * A team-defined account relationship type (CSM, Onboarding manager, ...).
+     */
+    export interface AccountRelationshipDefinition {
+      /** Relationship definition UUID. */
+      readonly id: string;
+      /**
+         * Human-readable name of the relationship. Unique within the team.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * What this relationship means, e.g. 'The customer success manager responsible for this account'.
+         * @nullable
+         */
+      description?: string | null;
+      /** Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account. */
+      is_single_holder?: boolean;
     }
 
     export type BounceRatePageViewMode = typeof BounceRatePageViewMode[keyof typeof BounceRatePageViewMode];
@@ -14668,6 +14707,10 @@ export namespace Schemas {
       date_from?: string | null;
       date_to?: string | null;
       explicitDate?: boolean | null;
+      /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
+      filterTestAccounts?: boolean | null;
+      /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
+      interval?: IntervalType | null;
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
     }
 
@@ -17678,6 +17721,13 @@ export namespace Schemas {
       tile_id: number;
     }
 
+    export interface DeleteWarehouseOrgResponse {
+      /** Deletion lifecycle message from the provisioner */
+      status?: string;
+      /** duckgres org identifier (the PostHog organization id) */
+      org?: string;
+    }
+
     /**
      * * `pending` - Pending
      * * `delivered` - Delivered
@@ -18810,6 +18860,75 @@ export namespace Schemas {
          * @nullable
          */
       saved_query_id?: string | null;
+    }
+
+    /**
+     * The live materialization rules, for agents that want to rewrite a rejected query themselves.
+     */
+    export interface EndpointMaterializationConditions {
+      /** Python source code of the checks that decide whether an endpoint query can be materialized, read from the running system — always matches what this instance enforces. Reason from it to rewrite a rejected query into a form that passes every check. */
+      conditions_source: string;
+      /** Hard rules a rewrite must obey so it stays semantically equivalent to the original query (same results for all variable values, keep every variable placeholder unchanged). */
+      rewrite_contract: string;
+    }
+
+    /**
+     * * `ok` - ok
+     * * `cannot_fix` - cannot_fix
+     * * `invalid` - invalid
+     * * `model_error` - model_error
+     */
+    export type SuggestionStatusEnum = typeof SuggestionStatusEnum[keyof typeof SuggestionStatusEnum];
+
+
+    export const SuggestionStatusEnum = {
+      Ok: 'ok',
+      CannotFix: 'cannot_fix',
+      Invalid: 'invalid',
+      ModelError: 'model_error',
+    } as const;
+
+    /**
+     * AI-suggested query rewrite that would make the endpoint materializable.
+     */
+    export interface EndpointMaterializationSuggestion {
+      /** Outcome of the suggestion run: 'ok' — the suggested query passes the live materialization checks; 'cannot_fix' — no semantically equivalent rewrite exists; 'invalid' — a suggestion was produced but never passed validation (suggested_query carries the last attempt); 'model_error' — the model returned no usable response.
+       *
+       * * `ok` - ok
+       * * `cannot_fix` - cannot_fix
+       * * `invalid` - invalid
+       * * `model_error` - model_error */
+      suggestion_status: SuggestionStatusEnum;
+      /**
+         * The complete rewritten SQL query, or null when no rewrite was produced.
+         * @nullable
+         */
+      suggested_query: string | null;
+      /**
+         * User-facing explanation of what was changed and why, or why no fix exists.
+         * @nullable
+         */
+      explanation: string | null;
+      /** How many suggest→validate rounds were used. */
+      attempts: number;
+      /**
+         * Last validation failure when the suggestion did not pass the checks.
+         * @nullable
+         */
+      error: string | null;
+      /** The materialization blocker that triggered the suggestion. */
+      original_reason: string;
+    }
+
+    /**
+     * Request body for the AI materialization-fix suggestion action.
+     */
+    export interface EndpointMaterializationSuggestionRequest {
+      /**
+         * Endpoint version to suggest a fix for. Defaults to the latest version.
+         * @nullable
+         */
+      version?: number | null;
     }
 
     export type EndpointRefreshMode = typeof EndpointRefreshMode[keyof typeof EndpointRefreshMode];
@@ -20533,6 +20652,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `focused` - Focused
+     * * `balanced` - Balanced
+     * * `comprehensive` - Comprehensive
+     */
+    export type SamplingModeEnum = typeof SamplingModeEnum[keyof typeof SamplingModeEnum];
+
+
+    export const SamplingModeEnum = {
+      Focused: 'focused',
+      Balanced: 'balanced',
+      Comprehensive: 'comprehensive',
+    } as const;
+
+    /**
      * Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.
      */
     export interface EstimateRequest {
@@ -20544,6 +20677,12 @@ export namespace Schemas {
          * @maximum 1
          */
       sampling_rate?: number;
+      /** Quality pre-filter applied to the matched-session count, mirroring the sweep's candidate query. Defaults to comprehensive (no filter).
+       *
+       * * `focused` - Focused
+       * * `balanced` - Balanced
+       * * `comprehensive` - Comprehensive */
+      sampling_mode?: SamplingModeEnum;
       /**
          * The scanner being edited, excluded from `other_enabled_scanners_monthly` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner.
          * @nullable
@@ -20555,11 +20694,11 @@ export namespace Schemas {
      * Forward-looking observation-volume estimate for a proposed scanner. Pricing-agnostic.
      */
     export interface EstimateResponse {
-      /** Distinct sessions matching the query within the 30-day lookback, before sampling. */
+      /** Distinct sessions matching the query within the 30-day lookback, after the sampling_mode quality filter but before random sampling. */
       matched_sessions_in_window: number;
       /** Lookback window the estimate is based on. Normally 30; smaller when the team has fewer days of recordings. */
       window_days: number;
-      /** Projected monthly observations: matched sessions scaled to 30 days, times sampling_rate. */
+      /** Projected monthly observations: quality-filtered matched sessions scaled to 30 days, times sampling_rate. */
       estimated_observations_per_month: number;
       /** Summed projected monthly observations of the org's other enabled scanners (excluding `scanner_id`), from their cached estimates. Read from the same snapshot as this estimate so the forecast can't double-count the edited scanner. */
       other_enabled_scanners_monthly: number;
@@ -27889,6 +28028,46 @@ export namespace Schemas {
       id_jag_allowed_clients?: string[];
     }
 
+    export interface InsightBulkDeleteRequest {
+      /**
+         * Insight IDs to soft-delete (or restore). At most 1000 ids per request. Soft-deleted insights can be brought back via the bulk_restore endpoint.
+         * @maxItems 1000
+         * @items.minimum 1
+         */
+      ids: number[];
+    }
+
+    export interface InsightBulkOperationResult {
+      /** ID of the insight that was soft-deleted or restored. */
+      id: number;
+      /**
+         * The insight's name (or derived name) at the time of the operation; null when it has neither.
+         * @nullable
+         */
+      name: string | null;
+    }
+
+    export interface InsightBulkOperationSkipped {
+      /** ID of the insight that was skipped. */
+      id: number;
+      /** Human-readable reason the insight was skipped (for example, not found or no edit permission). */
+      reason: string;
+    }
+
+    export interface InsightBulkDeleteResponse {
+      /** Insights that were successfully soft-deleted. */
+      deleted: InsightBulkOperationResult[];
+      /** Insights that were not deleted, with the reason for each. */
+      skipped: InsightBulkOperationSkipped[];
+    }
+
+    export interface InsightBulkRestoreResponse {
+      /** Insights that were successfully restored. */
+      restored: InsightBulkOperationResult[];
+      /** Insights that were not restored, with the reason for each. */
+      skipped: InsightBulkOperationSkipped[];
+    }
+
     /**
      * * `trends` - trends
      * * `funnel` - funnel
@@ -31725,6 +31904,15 @@ export namespace Schemas {
       results: AccountNotebook[];
     }
 
+    export interface PaginatedAccountRelationshipDefinitionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AccountRelationshipDefinition[];
+    }
+
     export interface PaginatedActionList {
       count: number;
       /** @nullable */
@@ -33348,6 +33536,12 @@ export namespace Schemas {
          * @maximum 1
          */
       sampling_rate?: number;
+      /** Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).
+       *
+       * * `focused` - Focused
+       * * `balanced` - Balanced
+       * * `comprehensive` - Comprehensive */
+      sampling_mode?: SamplingModeEnum;
       /** LLM provider. v1 is Google-only.
        *
        * * `google` - Google */
@@ -34336,6 +34530,21 @@ export namespace Schemas {
          * @nullable
          */
       readonly change_summary: string | null;
+      /**
+         * AI-generated report markdown delivered by this run. Null for non-AI deliveries or runs without a persisted report.
+         * @nullable
+         */
+      readonly ai_report: string | null;
+      /**
+         * Per-step query diagnostics (generated HogQL + failure type) for this report. Null for non-AI deliveries or runs without persisted diagnostics.
+         * @nullable
+         */
+      readonly ai_report_diagnostics: readonly AIReportQueryDiagnostic[] | null;
+      /**
+         * The subscription's prompt as it was when this report was generated. Null for older deliveries and non-AI deliveries.
+         * @nullable
+         */
+      readonly ai_report_prompt: string | null;
     }
 
     export interface PaginatedSubscriptionDeliveryList {
@@ -34991,6 +35200,32 @@ export namespace Schemas {
     }
 
     /**
+     * Response shape for one @-mention of the requester in a task's thread.
+     */
+    export interface TaskMentionDTO {
+      id: string;
+      message_id: string;
+      task_id: string;
+      task_title: string;
+      /** @nullable */
+      channel_id: string | null;
+      /** @nullable */
+      channel_name: string | null;
+      author?: TaskUserBasicInfo | null;
+      content: string;
+      created_at: string;
+    }
+
+    export interface PaginatedTaskMentionDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TaskMentionDTO[];
+    }
+
+    /**
      * * `claude` - claude
      * * `codex` - codex
      */
@@ -35412,6 +35647,8 @@ export namespace Schemas {
       readonly github_repo: string | null;
       /** @nullable */
       readonly github_issue_number: number | null;
+      /** @nullable */
+      readonly zendesk_ticket_id: number | null;
       /**
          * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
          * @nullable
@@ -36472,6 +36709,26 @@ export namespace Schemas {
       readonly created_by?: number | null;
       /** @nullable */
       readonly updated_at?: string | null;
+    }
+
+    /**
+     * A team-defined account relationship type (CSM, Onboarding manager, ...).
+     */
+    export interface PatchedAccountRelationshipDefinition {
+      /** Relationship definition UUID. */
+      readonly id?: string;
+      /**
+         * Human-readable name of the relationship. Unique within the team.
+         * @maxLength 400
+         */
+      name?: string;
+      /**
+         * What this relationship means, e.g. 'The customer success manager responsible for this account'.
+         * @nullable
+         */
+      description?: string | null;
+      /** Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account. */
+      is_single_holder?: boolean;
     }
 
     /**
@@ -41031,6 +41288,12 @@ export namespace Schemas {
          * @maximum 1
          */
       sampling_rate?: number;
+      /** Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).
+       *
+       * * `focused` - Focused
+       * * `balanced` - Balanced
+       * * `comprehensive` - Comprehensive */
+      sampling_mode?: SamplingModeEnum;
       /** LLM provider. v1 is Google-only.
        *
        * * `google` - Google */
@@ -42804,6 +43067,8 @@ export namespace Schemas {
       readonly github_repo?: string | null;
       /** @nullable */
       readonly github_issue_number?: number | null;
+      /** @nullable */
+      readonly zendesk_ticket_id?: number | null;
       /**
          * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
          * @nullable
@@ -55141,6 +55406,95 @@ export namespace Schemas {
       spec: WriteTypedBundleRequestSpec;
     }
 
+    export interface ZendeskImportError {
+      /** Human-readable error message. */
+      detail: string;
+    }
+
+    /**
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed
+     */
+    export type ZendeskImportJobStatusEnum = typeof ZendeskImportJobStatusEnum[keyof typeof ZendeskImportJobStatusEnum];
+
+
+    export const ZendeskImportJobStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface ZendeskImportJob {
+      /** Unique identifier for the import job. */
+      readonly id: string;
+      /** Current job state: pending, running, completed, or failed.
+       *
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      readonly status: ZendeskImportJobStatusEnum;
+      /**
+         * Zendesk subdomain used for this import job.
+         * @nullable
+         */
+      readonly subdomain: string | null;
+      /** Whether stored Zendesk credentials exist for this job (the token/email are never returned). */
+      readonly has_credentials: boolean;
+      /** Total number of tickets discovered for import. */
+      readonly total_tickets: number;
+      /** Number of tickets processed so far. */
+      readonly processed_tickets: number;
+      /** Number of tickets successfully imported. */
+      readonly imported_tickets: number;
+      /** Number of tickets skipped because they were already imported. */
+      readonly skipped_tickets: number;
+      /** Number of tickets that failed to import. */
+      readonly failed_tickets: number;
+      /**
+         * When the import started running.
+         * @nullable
+         */
+      readonly started_at: string | null;
+      /**
+         * When the import reached a terminal state.
+         * @nullable
+         */
+      readonly finished_at: string | null;
+      /**
+         * Generic, user-safe error message when the job failed.
+         * @nullable
+         */
+      readonly latest_error: string | null;
+      /** When the import job was created. */
+      readonly created_at: string;
+      /** When the import job was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface ZendeskImportStart {
+      /**
+         * Zendesk subdomain (e.g. 'acme' from acme.zendesk.com).
+         * @maxLength 255
+         */
+      subdomain: string;
+      /** Zendesk agent email tied to the API token. */
+      email_address: string;
+      /**
+         * Zendesk API token with ticket read access.
+         * @maxLength 500
+         */
+      api_token: string;
+      /**
+         * Optional fallback email channel for tickets whose original Zendesk recipient doesn't match a configured support address (or isn't an email). Omit or null to leave those tickets without an email channel.
+         * @nullable
+         */
+      default_email_channel_id?: string | null;
+    }
+
     export interface _CompareFilter {
       /** When true, also fetch results for a comparison window and return them under `compare`. */
       compare?: boolean;
@@ -55287,6 +55641,16 @@ export namespace Schemas {
       sparkline: number[];
       /** Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample counts, not extrapolated — severity dominance is a proportion, so scaling would not change it. */
       severity_counts: _LogPatternSeverityCounts;
+      /**
+         * RE2-safe regex over raw log bodies that matches lines of this pattern, compiled from the template and validated against the pattern's own examples before being offered. Null when the template lacks literal content or validation failed — never trust an unvalidated predicate. Use with the message/regex log property filter.
+         * @nullable
+         */
+      match_regex: string | null;
+      /**
+         * Longest literal run in the template, for plain-text (icontains) filtering when `match_regex` is null. Null when the template has no usable literal content.
+         * @nullable
+         */
+      match_literal: string | null;
     }
 
     /**
@@ -59000,6 +59364,30 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
+    export type EnvironmentsInsightsBulkDeleteCreateParams = {
+    format?: EnvironmentsInsightsBulkDeleteCreateFormat;
+    };
+
+    export type EnvironmentsInsightsBulkDeleteCreateFormat = typeof EnvironmentsInsightsBulkDeleteCreateFormat[keyof typeof EnvironmentsInsightsBulkDeleteCreateFormat];
+
+
+    export const EnvironmentsInsightsBulkDeleteCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type EnvironmentsInsightsBulkRestoreCreateParams = {
+    format?: EnvironmentsInsightsBulkRestoreCreateFormat;
+    };
+
+    export type EnvironmentsInsightsBulkRestoreCreateFormat = typeof EnvironmentsInsightsBulkRestoreCreateFormat[keyof typeof EnvironmentsInsightsBulkRestoreCreateFormat];
+
+
+    export const EnvironmentsInsightsBulkRestoreCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
     export type EnvironmentsInsightsBulkUpdateTagsCreateParams = {
     format?: EnvironmentsInsightsBulkUpdateTagsCreateFormat;
     };
@@ -61472,6 +61860,10 @@ export namespace Schemas {
      */
     account_id?: string;
     /**
+     * Only return notes on accounts assigned to these user IDs (the account's CSM or account executive; repeat the param per user).
+     */
+    assigned_to?: number[];
+    /**
      * Only return notes created by these user IDs (repeat the param per user).
      */
     created_by?: number[];
@@ -61487,6 +61879,17 @@ export namespace Schemas {
      * Full-text search across note title and content, plus substring match on account name.
      */
     search?: string;
+    };
+
+    export type AccountRelationshipDefinitionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type AccountsListParams = {
@@ -65878,6 +66281,30 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
+    export type InsightsBulkDeleteCreateParams = {
+    format?: InsightsBulkDeleteCreateFormat;
+    };
+
+    export type InsightsBulkDeleteCreateFormat = typeof InsightsBulkDeleteCreateFormat[keyof typeof InsightsBulkDeleteCreateFormat];
+
+
+    export const InsightsBulkDeleteCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type InsightsBulkRestoreCreateParams = {
+    format?: InsightsBulkRestoreCreateFormat;
+    };
+
+    export type InsightsBulkRestoreCreateFormat = typeof InsightsBulkRestoreCreateFormat[keyof typeof InsightsBulkRestoreCreateFormat];
+
+
+    export const InsightsBulkRestoreCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
     export type InsightsBulkUpdateTagsCreateParams = {
     format?: InsightsBulkUpdateTagsCreateFormat;
     };
@@ -68305,6 +68732,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type TaskMentionsListParams = {
+    /**
+     * Maximum number of mentions to return (newest first).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Only return mentions created after this ISO 8601 timestamp.
+     */
+    since?: string;
     };
 
     export type TasksListParams = {

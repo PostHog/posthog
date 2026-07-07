@@ -1399,17 +1399,19 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
             {"is_materialized": True, "bucket_overrides": {"timestamp": "hour"}},
             format="json",
         )
-        assert response.status_code == status.HTTP_200_OK
+        assert response.status_code == status.HTTP_200_OK, response.json()
         version = EndpointVersion.objects.get(endpoint__name="clear-bucket", endpoint__team=self.team, version=1)
         assert version.bucket_overrides == {"timestamp": "hour"}
 
-        # Disable materialization
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/endpoints/clear-bucket/",
-            {"is_materialized": False},
-            format="json",
-        )
-        assert response.status_code == status.HTTP_200_OK
+        # Disabling reverts the saved query, whose schedule teardown talks to Temporal —
+        # mock the facade call so the test doesn't require a running Temporal dev server.
+        with mock.patch("products.data_warehouse.backend.facade.api.delete_saved_query_schedule"):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/clear-bucket/",
+                {"is_materialized": False},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
 
         # Re-enable without bucket_overrides
         response = self.client.patch(
@@ -1417,7 +1419,7 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
             {"is_materialized": True},
             format="json",
         )
-        assert response.status_code == status.HTTP_200_OK
+        assert response.status_code == status.HTTP_200_OK, response.json()
         version.refresh_from_db()
         assert version.bucket_overrides is None
 

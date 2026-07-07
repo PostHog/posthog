@@ -30,14 +30,18 @@ class AccountAssignment:
     email: str
 
 
-@dataclass(frozen=True)
+@stdlib_dataclass(frozen=True)
 class AccountRelationshipDefinition:
-    """A team-defined account relationship type (CSM, Onboarding manager, ...)."""
+    """A team-defined account relationship type (CSM, Onboarding manager, ...).
 
-    id: UUID
-    name: str
-    description: str | None
-    is_single_holder: bool
+    Stdlib dataclass with defaults so the wrapping ``DataclassSerializer`` can construct it
+    from partial request bodies (see :class:`CustomPropertyDefinitionView`).
+    """
+
+    id: UUID | None = None
+    name: str = ""
+    description: str | None = None
+    is_single_holder: bool = True
 
 
 @dataclass(frozen=True)

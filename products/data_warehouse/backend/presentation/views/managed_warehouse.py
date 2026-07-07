@@ -121,7 +121,8 @@ def _request(
 ) -> Response:
     """Proxy a request to the duckgres provisioning API, gated on the org's feature flag.
 
-    Paths starting with "/" are org-scoped (`/api/v1/orgs/{org}{path}`); others are global
+    An empty path targets the org resource itself (`/api/v1/orgs/{org}`, e.g. to delete it);
+    paths starting with "/" are org-scoped (`/api/v1/orgs/{org}{path}`); others are global
     API paths (`/api/v1/{path}`).
 
     `require_enabled` gates on the user-facing `data-warehouse-scene` flag and is the right
@@ -144,7 +145,9 @@ def _request(
             status=status.HTTP_501_NOT_IMPLEMENTED,
         )
 
-    if path.startswith("/"):
+    if path == "":
+        url = f"{base_url.rstrip('/')}/api/v1/orgs/{org_id}"
+    elif path.startswith("/"):
         url = f"{base_url.rstrip('/')}/api/v1/orgs/{org_id}{path}"
     else:
         url = f"{base_url.rstrip('/')}/api/v1/{path}"
@@ -348,6 +351,17 @@ def enable_backfill(
 
 def deprovision(organization_id: UUID | str, require_enabled: bool = True) -> Response:
     return _request("POST", organization_id, "/deprovision", require_enabled=require_enabled)
+
+
+def delete_org(organization_id: UUID | str, require_enabled: bool = True) -> Response:
+    """Delete the org's provisioning record once teardown has finished, freeing its warehouse name.
+
+    `deprovision` tears the warehouse down (status goes deleting → deleted); this removes the
+    now-empty org row from the control plane so its `database_name` can be reused. Deprovision
+    teardown has no terminal failed state (the provisioner retries indefinitely), so callers
+    should only issue this once the warehouse status reports `deleted`.
+    """
+    return _request("DELETE", organization_id, "", require_enabled=require_enabled)
 
 
 def status_for(organization_id: UUID | str) -> Response:

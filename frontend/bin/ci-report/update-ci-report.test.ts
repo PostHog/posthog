@@ -42,6 +42,16 @@ function legacyComment(summary: string, body = 'old body'): string {
 }
 
 describe('ci-report section helper', () => {
+    // The script narrates its progress to the CI job log via console.info/warn;
+    // exercising it in jest would dump that narration into the test output.
+    beforeEach(() => {
+        jest.spyOn(console, 'info').mockImplementation(() => {})
+        jest.spyOn(console, 'warn').mockImplementation(() => {})
+    })
+    afterEach(() => {
+        jest.restoreAllMocks()
+    })
+
     it('renders collapsed section blocks in fixed registry order regardless of write order', () => {
         // Written eager-graph -> dist-size -> bundle-size; registry order is the reverse.
         const rendered: string = renderComment(
