@@ -31,6 +31,7 @@ import type {
     PauseUntilRequestApi,
     ProjectProfileApi,
     RememberRequestApi,
+    ReportSignalsResponseApi,
     ScoutEmissionReportLinkApi,
     ScoutMemberApi,
     ScoutMetadataApi,
@@ -208,6 +209,25 @@ export const signalsReportsPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedSignalReportContentUpdateApi),
+    })
+}
+
+export const getSignalsReportsSignalsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/signals/`
+}
+
+/**
+ * Fetch all signals for a report from ClickHouse, including full metadata.
+ * @summary List a report's signals
+ */
+export const signalsReportsSignalsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReportSignalsResponseApi> => {
+    return apiMutator<ReportSignalsResponseApi>(getSignalsReportsSignalsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

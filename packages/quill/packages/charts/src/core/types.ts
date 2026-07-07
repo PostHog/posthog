@@ -218,6 +218,17 @@ export interface ChartMargins {
     left: number
 }
 
+/** `showAxisLines` value — a boolean toggles both edges; `{ x, y }` toggles each independently
+ *  (an omitted edge defaults to shown). */
+export type AxisLinesConfig = boolean | { x?: boolean; y?: boolean }
+
+export function resolveAxisLines(value: AxisLinesConfig | undefined): { x: boolean; y: boolean } {
+    if (value == null || typeof value === 'boolean') {
+        return { x: !!value, y: !!value }
+    }
+    return { x: value.x ?? true, y: value.y ?? true }
+}
+
 /** Base configuration shared by all chart types. */
 export interface ChartConfig {
     // — Scale —
@@ -243,7 +254,7 @@ export interface ChartConfig {
     showGrid?: boolean
     /** Draw only the L-shaped axis baselines (left + bottom) without interior grid lines. Ignored
      *  when `showGrid` is true, since the grid already frames the plot. */
-    showAxisLines?: boolean
+    showAxisLines?: AxisLinesConfig
     /** Draw short tick marks on the axes next to each visible tick label. Pairs with
      *  `showAxisLines` for a clean, grid-free axis that still reads precisely. */
     showTickMarks?: boolean
@@ -290,6 +301,10 @@ export interface YAxis {
     tickFormatter?: (value: number) => string
     /** Axis title. */
     label?: string
+    /** Hide this axis's tick labels and margin gutter. The scale still applies to its series. */
+    hide?: boolean
+    /** `false` floats this axis to its data range instead of clamping a non-negative domain to 0. */
+    startAtZero?: boolean
 }
 
 /** Built-in legend config for the multi-series charts. The chart renders a {@link Legend} and,

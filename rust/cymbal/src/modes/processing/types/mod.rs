@@ -6,7 +6,9 @@ use std::hash::Hash;
 use std::ops::{Deref, DerefMut};
 use uuid::Uuid;
 
-use crate::fingerprinting::{FingerprintBuilder, FingerprintComponent, FingerprintRecordPart};
+use crate::fingerprinting::{
+    FingerprintBuilder, FingerprintComponent, FingerprintRecordPart, FingerprintVersion,
+};
 use crate::frames::releases::{ReleaseInfo, ReleaseRecord};
 use crate::frames::{Frame, RawFrame};
 use crate::langs::native::DebugImage;
@@ -151,8 +153,11 @@ pub struct OutputErrProps {
     pub exception_list: ExceptionList,
     #[serde(rename = "$exception_fingerprint")]
     pub fingerprint: String,
-    #[serde(rename = "$exception_proposed_fingerprint")]
-    pub proposed_fingerprint: String,
+    #[serde(
+        rename = "$exception_fingerprint_version",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub fingerprint_version: Option<FingerprintVersion>,
     #[serde(rename = "$exception_fingerprint_record")]
     pub fingerprint_record: Vec<FingerprintRecordPart>,
     #[serde(rename = "$exception_issue_id")]
