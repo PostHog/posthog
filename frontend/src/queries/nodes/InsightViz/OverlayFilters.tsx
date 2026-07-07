@@ -19,12 +19,16 @@ export function ShowTrendLinesSwitch(): JSX.Element {
     return <ShowTrendLinesFilter variant="switch" />
 }
 
-export function ShowAlertThresholdLinesSwitch(): JSX.Element | null {
-    return <ShowAlertThresholdLinesFilter variant="switch" />
-}
-
-export function ShowAlertAnomalyPointsSwitch(): JSX.Element | null {
-    return <ShowAlertAnomalyPointsFilter variant="switch" />
+// One editor filter entry for both alert toggles: the anomaly points toggle only renders when the
+// insight has detector alerts, and a null component in its own entry would still take up a slot
+// in the panel's flex gap, leaving a phantom double gap.
+export function AlertOverlaysSwitches(): JSX.Element | null {
+    return (
+        <div className="flex flex-col gap-2">
+            <ShowAlertThresholdLinesFilter variant="switch" />
+            <ShowAlertAnomalyPointsFilter variant="switch" />
+        </div>
+    )
 }
 
 export function ShowAnnotationsSwitch(): JSX.Element | null {
@@ -40,8 +44,8 @@ export function ConfidenceIntervalFilter(): JSX.Element {
     const { showConfidenceIntervals } = useValues(trendsDataLogic(insightProps))
 
     return (
-        <div className="flex flex-col">
-            <ConfidenceInterval />
+        <div className="flex flex-col gap-2">
+            <ConfidenceInterval className="" />
             {showConfidenceIntervals && <ConfidenceLevelInput />}
         </div>
     )
@@ -52,8 +56,8 @@ export function MovingAverageFilter(): JSX.Element {
     const { showMovingAverage } = useValues(trendsDataLogic(insightProps))
 
     return (
-        <div className="flex flex-col">
-            <MovingAverage />
+        <div className="flex flex-col gap-2">
+            <MovingAverage className="" />
             {showMovingAverage && <MovingAverageIntervalsInput />}
         </div>
     )

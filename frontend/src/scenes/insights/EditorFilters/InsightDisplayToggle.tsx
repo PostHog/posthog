@@ -19,10 +19,10 @@ export function InsightDisplayToggle({
     variant = 'checkbox',
 }: InsightDisplayToggleProps): JSX.Element {
     if (variant === 'switch') {
+        // No own padding — the editor panel's flex gap provides the spacing between rows
         return (
             <LemonSwitch
                 label={label}
-                className="pb-2"
                 fullWidth
                 checked={checked}
                 onChange={onChange}

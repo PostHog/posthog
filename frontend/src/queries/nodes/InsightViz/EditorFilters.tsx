@@ -48,11 +48,10 @@ import { getBreakdownSummary, getFiltersSummary, getSeriesSummary, visibleFilter
 import { GlobalAndOrFilters } from './GlobalAndOrFilters'
 import { LifecycleToggles } from './LifecycleToggles'
 import {
+    AlertOverlaysSwitches,
     ConfidenceIntervalFilter,
     MovingAverageFilter,
     OverlaysDivider,
-    ShowAlertAnomalyPointsSwitch,
-    ShowAlertThresholdLinesSwitch,
     ShowAnnotationsSwitch,
     ShowTrendLinesSwitch,
 } from './OverlayFilters'
@@ -397,8 +396,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 },
                 { key: 'overlays-divider', component: OverlaysDivider, show: displayGoalLines },
                 { key: 'trend-lines', component: ShowTrendLinesSwitch, show: displayTrendLines },
-                { key: 'alert-threshold-lines', component: ShowAlertThresholdLinesSwitch, show: displayAlertOverlays },
-                { key: 'alert-anomaly-points', component: ShowAlertAnomalyPointsSwitch, show: displayAlertOverlays },
+                { key: 'alert-overlays', component: AlertOverlaysSwitches, show: displayAlertOverlays },
                 { key: 'confidence-intervals', component: ConfidenceIntervalFilter, show: displayStatisticalOverlays },
                 { key: 'moving-average', component: MovingAverageFilter, show: displayStatisticalOverlays },
                 { key: 'annotations', component: ShowAnnotationsSwitch, show: displayAnnotations },

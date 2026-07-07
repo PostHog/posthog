@@ -135,7 +135,7 @@ function PercentStack(): JSX.Element {
     )
 }
 
-export function ConfidenceInterval(): JSX.Element {
+export function ConfidenceInterval({ className = 'pb-2' }: { className?: string } = {}): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { querySource, trendsFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
@@ -145,7 +145,7 @@ export function ConfidenceInterval(): JSX.Element {
     return (
         <LemonSwitch
             label="Show confidence intervals"
-            className="pb-2"
+            className={className}
             fullWidth
             checked={showConfidenceIntervals}
             disabledReason={
@@ -166,7 +166,7 @@ export function ConfidenceInterval(): JSX.Element {
     )
 }
 
-export function MovingAverage(): JSX.Element {
+export function MovingAverage({ className = 'pb-2' }: { className?: string } = {}): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { querySource, trendsFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
@@ -176,7 +176,7 @@ export function MovingAverage(): JSX.Element {
     return (
         <LemonSwitch
             label="Show moving average"
-            className="pb-2"
+            className={className}
             fullWidth
             checked={showMovingAverage}
             disabledReason={
