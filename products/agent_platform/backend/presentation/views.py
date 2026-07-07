@@ -83,6 +83,7 @@ from ..logic.skill_editing import (
     publish_skill_body,
     publish_skill_md_edit,
     store_skill_exists,
+    validate_store_write,
 )
 from ..logic.skill_resolution import assert_skill_refs_readable, resolve_skill_ref, stamp_skill_provenance
 from ..logic.spec_schema import missing_required_secrets
@@ -2444,6 +2445,10 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             exists = ref is not None or store_skill_exists(self.team, name)
             if not exists and not skill.get("description"):
                 raise ValidationError(f"Skill '{skill_id}' is new — `description` is required when adding a skill.")
+            # Store-side caps (body size, description length, name format for
+            # creates) checked up-front too, so a bad entry mid-payload can't
+            # leave earlier entries already published.
+            validate_store_write(skill["body"], skill.get("description"), new_skill_name=None if exists else name)
             plan.append((skill, name, exists))
 
         appended_count = sum(1 for entry, _, _ in plan if entry["id"] not in refs_by_alias)

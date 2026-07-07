@@ -419,6 +419,44 @@ class TestBundleEditing(APIBaseTest):
         revision.refresh_from_db()
         self.assertNotIn("source_version_id", revision.skill_refs[0])
 
+    def test_import_rejects_oversized_body(self) -> None:
+        # The store caps bodies at 1 MB in its serializers only; this path calls
+        # the services directly, so dropping the logic-layer guard would let a
+        # 20 MB request body publish oversized versions the skills API refuses.
+        # The valid first entry must NOT publish either — size is checked
+        # up-front with the rest of the all-or-nothing validation.
+        revision = self._revision("draft")
+
+        res = self.client.post(
+            self._import_url(revision),
+            {
+                "skills": [
+                    {"id": "growth-review", "body": "fine"},
+                    {"id": "big-one", "description": "Too big", "body": "a" * 1_000_001},
+                ]
+            },
+            format="json",
+        )
+
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertEqual(self._latest().version, 1)
+        self.assertFalse(LLMSkill.objects.filter(team=self.team, name="big-one").exists())
+
+    def test_import_rejects_store_invalid_name_for_new_skill(self) -> None:
+        # "my_skill" passes the janitor alias regex (underscores allowed) but
+        # violates the store's name rules — creating it would mint a store row
+        # the skills API itself refuses to create or address by name.
+        revision = self._revision("draft")
+
+        res = self.client.post(
+            self._import_url(revision),
+            {"skills": [{"id": "my_skill", "description": "New", "body": "b"}]},
+            format="json",
+        )
+
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertFalse(LLMSkill.objects.filter(team=self.team, name="my_skill").exists())
+
     def test_import_rejects_duplicate_ids(self) -> None:
         revision = self._revision("draft")
 

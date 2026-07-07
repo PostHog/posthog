@@ -18,6 +18,7 @@ from rest_framework.exceptions import APIException, PermissionDenied, Validation
 from posthog.models import Team, User
 from posthog.rbac.user_access_control import UserAccessControl
 
+from products.skills.backend.api.skill_serializers import validate_skill_body_size, validate_skill_name_value
 from products.skills.backend.api.skill_services import (
     LLMSkillDuplicateNameConflictError,
     LLMSkillNotFoundError,
@@ -93,12 +94,40 @@ def store_skill_exists(team: Team, name: str) -> bool:
     return get_skill_by_name_from_db(team, name) is not None
 
 
+# Mirrors LLMSkillPublishSerializer.description's max_length — the store caps
+# it in its serializers, not the service layer, so this direct-service path
+# must re-apply it.
+_MAX_SKILL_DESCRIPTION_CHARS = 4096
+
+
+def validate_store_write(body: str | None, description: str | None, *, new_skill_name: str | None = None) -> None:
+    """Re-apply the store's serializer-level rules. The skills API enforces body
+    size, description length, and name format in `LLMSkill*Serializer`s; this
+    path calls the services directly, so without these gates an agent editor
+    could write rows the store's own API would reject (Django's request cap is
+    20 MB, well above the store's 1 MB body limit, and `create_skill` doesn't
+    validate name format). Pure — safe to run up-front for all-or-nothing bulk
+    validation and again at the publish/create choke points.
+
+    ``new_skill_name`` is only for names about to be CREATED: the store's name
+    rules (≤64 chars, hyphens not underscores, reserved-name blocklist) are
+    stricter than the janitor's alias regex, and an existing skill's name needs
+    no re-check."""
+    if new_skill_name is not None:
+        validate_skill_name_value(new_skill_name)
+    if body is not None:
+        validate_skill_body_size(body)
+    if description is not None and len(description) > _MAX_SKILL_DESCRIPTION_CHARS:
+        raise ValidationError(f"Skill description must be {_MAX_SKILL_DESCRIPTION_CHARS} characters or fewer.")
+
+
 def _publish_next_version(team: Team, *, user: User, skill_name: str, fields: dict[str, Any]) -> LLMSkill:
     """Publish ``fields`` on top of the store's latest version, mapping the
     service errors to API-shaped ones. Publishing targets latest — an edit means
     "move the skill forward", even when the draft's ref pins an older version;
     the caller re-pins the ref to the returned row.
     """
+    validate_store_write(fields.get("body"), fields.get("description"))
     latest = get_skill_by_name_from_db(team, skill_name)
     if latest is None:
         raise ValidationError(
@@ -169,6 +198,7 @@ def publish_skill_md_edit(team: Team, *, user: User, skill_name: str, content: s
 
 def create_store_skill(team: Team, *, user: User, name: str, description: str, body: str) -> LLMSkill:
     """Create a brand-new store skill (v1) for a bulk-imported skill id."""
+    validate_store_write(body, description, new_skill_name=name)
     try:
         return create_skill(team, user=user, name=name, description=description, body=body)
     except LLMSkillDuplicateNameConflictError:
