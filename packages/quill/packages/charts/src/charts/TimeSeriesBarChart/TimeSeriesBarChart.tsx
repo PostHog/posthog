@@ -137,8 +137,8 @@ export function TimeSeriesBarChart<Meta = unknown>({
         tooltip: timeSeriesTooltipConfig,
         animateHover,
         yAxes,
+        barCornerRadius,
         bars: {
-            cornerRadius: barCornerRadius,
             divergingStack,
             valueDomain,
             fillStyle,
