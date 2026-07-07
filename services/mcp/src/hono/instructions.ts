@@ -86,16 +86,7 @@ export class InstructionsBuilder {
     }
 
     buildExecToolEntry(state: ResolvedState): McpTool {
-        const supportsInstructions = state.clientProfile.capabilities.supportsInstructions
-        // Claude web/desktop report `supportsInstructions` but never surface the
-        // `instructions` payload to the model, so the tool-domain index would be
-        // lost. Keep it on the exec command description for those hosts.
-        const keepToolDomains = state.clientProfile.isClaudeUiHost()
-        const ctx = this.buildContext(state)
-        const commandReference = this.formatter.buildExecCommandReference(ctx, {
-            stripEnvContext: supportsInstructions,
-            keepToolDomains,
-        })
+        const commandReference = this.buildExecCommandReference(state)
         const ExecSchema = { command: { type: 'string', description: commandReference } }
 
         return {
@@ -130,6 +121,9 @@ export class InstructionsBuilder {
 
     buildExecCommandReference(state: ResolvedState): string {
         const supportsInstructions = state.clientProfile.capabilities.supportsInstructions
+        // Claude web/desktop report `supportsInstructions` but never surface the
+        // `instructions` payload to the model, so the tool-domain index would be
+        // lost. Keep it on the exec command description for those hosts.
         const keepToolDomains = state.clientProfile.isClaudeUiHost()
         const ctx = this.buildContext(state)
         return this.formatter.buildExecCommandReference(ctx, {
