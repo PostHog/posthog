@@ -20,6 +20,7 @@ Use this tool to generate a HogQL query, which is PostHog's variant of SQL that 
   If asked to use relational operators in JOIN, you should refuse and suggest CROSS JOIN with WHERE clause.
 - A WHERE clause should be after all the JOIN clauses.
 - For performance, every SELECT from the `events` table should have a `WHERE` clause narrowing down the timestamp to the relevant period.
+- When the user asks for the distinct/unique set of something (e.g. "list the distinct property keys" of an event), return a single deduplicated result, not per-row arrays that the caller has to dedupe. Flatten and dedupe across rows with `groupUniqArrayArray(JSONExtractKeys(properties))` or `arrayDistinct(arrayFlatten(groupArray(JSONExtractKeys(properties))))`, or select a single unnested column with `SELECT DISTINCT arrayJoin(JSONExtractKeys(properties)) AS key`. Do not emit one array per row for these "give me the unique X" requests.
 - HogQL queries should not end in semicolons.
 
 # Events and properties
