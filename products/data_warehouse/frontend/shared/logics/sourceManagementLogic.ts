@@ -157,8 +157,7 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
                     (source) => source.access_method?.toLowerCase() !== 'direct'
                 ),
         ],
-        // Match the display label ("Google Ads") as well as the internal source_type ("GoogleAds"),
-        // so a search with the label's spacing/casing finds the source. Fuzzy, like the source catalog.
+        // Search the display label as well as the internal source_type. Fuzzy, like the source catalog.
         managedSourcesFuse: [
             (s) => [s.managedSources, s.availableSources],
             (managedSources, availableSources): Fuse<ExternalDataSource> =>

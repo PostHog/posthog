@@ -44,7 +44,10 @@ describe('sourceManagementLogic', () => {
         databaseLogic.unmount()
     })
 
-    it('matches managed sources by display label as well as internal source_type', async () => {
+    it.each([
+        ['display label', 'Google ads'],
+        ['internal source_type', 'googleads'],
+    ])('finds a managed source by its %s', async (_, searchTerm) => {
         jest.spyOn(api.externalDataSources, 'wizard').mockResolvedValue({
             GoogleAds: { name: 'GoogleAds', label: 'Google Ads' },
         } as any)
@@ -59,14 +62,7 @@ describe('sourceManagementLogic', () => {
             previous: null,
         } as any)
 
-        // Display label spelling ("Google ads" with a space) must find the "GoogleAds" source
-        logic.actions.setManagedSearchTerm('Google ads')
-        await expectLogic(logic).toMatchValues({
-            filteredManagedSources: [expect.objectContaining({ source_type: 'GoogleAds' })],
-        })
-
-        // Internal source_type spelling still matches
-        logic.actions.setManagedSearchTerm('googleads')
+        logic.actions.setManagedSearchTerm(searchTerm)
         await expectLogic(logic).toMatchValues({
             filteredManagedSources: [expect.objectContaining({ source_type: 'GoogleAds' })],
         })
