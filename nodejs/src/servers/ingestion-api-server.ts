@@ -306,7 +306,7 @@ export class IngestionApiServer implements NodeServer {
         })
 
         let overflowRedirectService: OverflowRedirectService | undefined
-        if (this.overflowEnabled()) {
+        if (this.config.INGESTION_OVERFLOW_MODE === 'redirect') {
             overflowRedirectService = new MainLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
                 localCacheTTLSeconds: this.config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
@@ -526,10 +526,6 @@ export class IngestionApiServer implements NodeServer {
             return new HealthCheckResultError('Ingestion pipeline crashed', { error: this.fatalError.message })
         }
         return new HealthCheckResultOk()
-    }
-
-    private overflowEnabled(): boolean {
-        return this.config.INGESTION_OVERFLOW_MODE === 'redirect'
     }
 
     private getCleanupResources(): CleanupResources {

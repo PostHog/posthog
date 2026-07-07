@@ -83,8 +83,6 @@ export type AiSharedScope = Scope<{
 export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiSharedScope) {
     const splitTokens = (value: string): string[] => value.split(',').filter((x) => !!x)
     const overflowMode = config.INGESTION_OVERFLOW_MODE
-    const overflowEnabled = overflowMode === 'redirect'
-    const overflowLaneEnabled = overflowMode === 'consume'
     const preservePartitionLocality = config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY
     // Client name for personhog read metrics: pipeline + lane (e.g. "ai/main").
     // The query name is supplied per call (e.g. "person-properties").
@@ -118,7 +116,7 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             // Dedicated 'ai' keyspace so AI overflow never affects analytics.
             .add(
                 'overflowRedirectService',
-                overflowEnabled
+                overflowMode === 'redirect'
                     ? new MainLaneOverflowRedirectComponent({
                           redisRepository: container.overflowRedisRepository,
                           localCacheTTLSeconds: config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
@@ -130,7 +128,7 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             )
             .add(
                 'overflowLaneTTLRefreshService',
-                overflowLaneEnabled
+                overflowMode === 'consume'
                     ? new OverflowLaneOverflowRedirectComponent({
                           redisRepository: container.overflowRedisRepository,
                           overflowType: 'ai',
