@@ -16,8 +16,22 @@ from temporalio.worker import (
 
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
+from posthog.temporal.common.utils import is_transient_db_connection_error
 
 logger = get_write_only_logger()
+
+
+def _activity_will_retry(activity_info: "activity.Info") -> bool:
+    """Whether the activity has retry attempts remaining after the current one.
+
+    ``maximum_attempts`` of 0 means unlimited retries; ``None`` means the server didn't report
+    the policy, in which case we assume more attempts may follow rather than treating this as final.
+    """
+    retry_policy = activity_info.retry_policy
+    if retry_policy is None:
+        return True
+    maximum_attempts = retry_policy.maximum_attempts
+    return maximum_attempts == 0 or activity_info.attempt < maximum_attempts
 
 
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
@@ -70,6 +84,11 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             if temporalio.exceptions.is_cancelled_exception(e):
                 raise
             activity_info = activity.info()
+            # Transient pgbouncer/Postgres connection drops recover on a fresh connection and are
+            # retried by the activity's retry policy. Don't report them as new error-tracking issues
+            # while retries remain — a genuinely degraded DB still surfaces on the final attempt.
+            if _activity_will_retry(activity_info) and is_transient_db_connection_error(e):
+                raise
             capture_kwargs = {
                 "properties": {
                     "temporal.execution_type": "activity",

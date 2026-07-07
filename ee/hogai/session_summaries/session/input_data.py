@@ -59,9 +59,12 @@ def get_session_events(
     all_events = []
     columns = None
     events_obj = SessionReplayEvents()
+    # Read the team once up front rather than re-running the same ORM query on every page,
+    # which cuts redundant DB round-trips and shrinks the window for connection failures.
+    team = get_team(team_id=team_id) if not local_reads_prod else None
     for page in range(max_pages):
         if not local_reads_prod:
-            team = get_team(team_id=team_id)
+            assert team is not None  # always set when not reading prod locally
             page_columns, page_events, _ = events_obj.get_events(
                 session_id=str(session_id),
                 team=team,

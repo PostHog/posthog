@@ -554,7 +554,7 @@ def test_get_paginated_session_events(
     ]
     with (
         patch("ee.hogai.session_summaries.session.input_data.SessionReplayEvents") as mock_replay_events,
-        patch("ee.hogai.session_summaries.session.input_data.get_team", return_value=mock_team),
+        patch("ee.hogai.session_summaries.session.input_data.get_team", return_value=mock_team) as mock_get_team,
     ):
         # Mock the SessionReplayEvents DB model to return different data for each page
         mock_instance = MagicMock()
@@ -579,6 +579,8 @@ def test_get_paginated_session_events(
         )
         assert len(events) == expected_count
         assert mock_instance.get_events.call_count == expected_iterations
+        # The team is read once up front, not re-queried on each page.
+        assert mock_get_team.call_count == 1
         assert result_columns == mock_columns
         # Verify pagination parameters were passed correctly
         for i, call in enumerate(mock_instance.get_events.call_args_list):
