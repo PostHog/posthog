@@ -28,7 +28,9 @@ export function taxonomicItemToAttachedContext(
 ): AttachedContextItem | null {
     switch (groupType) {
         case TaxonomicFilterGroupType.Events:
-            return { type: 'event', key: item.id ?? item.name ?? value, label: item.name ?? undefined }
+            // Events are keyed by name everywhere (API, HogQL, taxonomy) — `item.id` is the
+            // EventDefinition UUID, which the agent's read tools can't resolve.
+            return { type: 'event', key: item.name ?? value, label: item.name ?? undefined }
         case TaxonomicFilterGroupType.Actions:
             return { type: 'action', key: item.id ?? value, label: item.name ?? undefined }
         case TaxonomicFilterGroupType.Insights:
@@ -66,7 +68,6 @@ export const contextPickerLogic = kea<contextPickerLogicType>([
         ) => ({ value, groupType, item }),
         pickItem: (item: AttachedContextItem) => ({ item }),
         removePickedItem: (key: string) => ({ key }),
-        clearPickedItems: true,
     }),
 
     reducers({
@@ -79,7 +80,6 @@ export const contextPickerLogic = kea<contextPickerLogicType>([
                 },
                 removePickedItem: (state, { key }) =>
                     state.filter((existing) => attachedContextItemKey(existing) !== key),
-                clearPickedItems: () => [],
             },
         ],
     }),
@@ -109,7 +109,6 @@ export const contextPickerLogic = kea<contextPickerLogicType>([
         },
         pickItem: sharedListeners.syncProvider,
         removePickedItem: sharedListeners.syncProvider,
-        clearPickedItems: sharedListeners.syncProvider,
     })),
 
     events(({ actions, cache, values }) => ({

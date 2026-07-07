@@ -25,7 +25,8 @@ describe('contextPickerLogic', () => {
     })
 
     test.each([
-        [TaxonomicFilterGroupType.Events, { id: 'ev-uuid', name: '$pageview' }, 'event', 'ev-uuid', '$pageview'],
+        // Events must key on the name, not the EventDefinition UUID (`item.id`) — tools resolve by name.
+        [TaxonomicFilterGroupType.Events, { id: 'ev-uuid', name: '$pageview' }, 'event', '$pageview', '$pageview'],
         [TaxonomicFilterGroupType.Actions, { id: 12, name: 'Signup' }, 'action', 12, 'Signup'],
         [TaxonomicFilterGroupType.Insights, { short_id: 'abc123', name: 'DAU' }, 'insight', 'abc123', 'DAU'],
         [TaxonomicFilterGroupType.Dashboards, { id: 7, name: 'Growth' }, 'dashboard', 7, 'Growth'],
