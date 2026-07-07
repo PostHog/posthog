@@ -1,38 +1,26 @@
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { NotebookOperation, notebookOperationsLogic } from '../Notebook/notebookOperationsLogic'
-import { NotebookNodeType } from '../types'
+import { collectSqlV2Nodes } from './notebookNodeContent'
 import { NotebookNodeSQLV2Result } from './NotebookNodeSQLV2'
 import type { notebookNodeSQLV2LogicType } from './notebookNodeSQLV2LogicType'
 
-// Walk the notebook document for every named SQLV2 node (except this one) and return
-// its dataframe name -> node id. The backend resolves each referenced node to its
-// last-run query and inlines it as a CTE — the frontend only supplies the wiring.
-export function collectSqlV2Refs(doc: unknown, selfNodeId: string): Record<string, string> {
+// Map every SQLV2 sibling's dataframe name -> node id, excluding the running node itself.
+// Delegates to collectSqlV2Nodes so duplicate names get the same disambiguated form the
+// dependency graph shows (sql_df, sql_df_2, …) — raw attributes would let a later duplicate
+// silently shadow the node the user actually referenced. The backend resolves each referenced
+// node to its last-run query and inlines it as a CTE — the frontend only supplies the wiring.
+export function collectSqlV2Refs(doc: JSONContent | null | undefined, selfNodeId: string): Record<string, string> {
     const refs: Record<string, string> = {}
-    const visit = (node: unknown): void => {
-        if (!node || typeof node !== 'object') {
-            return
-        }
-        const { type, attrs, content } = node as {
-            type?: string
-            attrs?: { nodeId?: string; returnVariable?: string }
-            content?: unknown[]
-        }
-        if (type === NotebookNodeType.SQLV2 && attrs && attrs.nodeId && attrs.nodeId !== selfNodeId) {
-            const name = attrs.returnVariable?.trim()
-            if (name) {
-                refs[name] = attrs.nodeId
-            }
-        }
-        if (Array.isArray(content)) {
-            content.forEach(visit)
+    for (const node of collectSqlV2Nodes(doc)) {
+        if (node.nodeId && node.nodeId !== selfNodeId) {
+            refs[node.returnVariable] = node.nodeId
         }
     }
-    visit(doc)
     return refs
 }
 

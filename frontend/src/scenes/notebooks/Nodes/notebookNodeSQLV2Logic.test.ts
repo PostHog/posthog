@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
 
 import { initKeaTests } from '~/test/init'
 
@@ -34,12 +35,12 @@ describe('notebookNodeSQLV2Logic', () => {
     })
 
     describe('collectSqlV2Refs', () => {
-        const sqlNode = (nodeId: string, returnVariable: string): Record<string, unknown> => ({
+        const sqlNode = (nodeId: string, returnVariable: string): JSONContent => ({
             type: NotebookNodeType.SQLV2,
             attrs: { nodeId, returnVariable },
         })
 
-        const doc = (...children: Record<string, unknown>[]): Record<string, unknown> => ({
+        const doc = (...children: JSONContent[]): JSONContent => ({
             type: 'doc',
             content: children,
         })
@@ -50,9 +51,16 @@ describe('notebookNodeSQLV2Logic', () => {
             expect(collectSqlV2Refs(document, 'self')).toEqual({ df1: 'a', df3: 'c' })
         })
 
-        it('skips nodes with a blank name', () => {
+        it('disambiguates duplicate names the way the dependency graph does', () => {
+            // Raw attributes would let node b shadow node a under the shared name —
+            // the join would silently run against the wrong node's data.
+            const document = doc(sqlNode('a', 'sql_df'), sqlNode('b', 'sql_df'), sqlNode('self', 'sql_df'))
+            expect(collectSqlV2Refs(document, 'self')).toEqual({ sql_df: 'a', sql_df_2: 'b' })
+        })
+
+        it('resolves blank names to the default the dependency graph shows', () => {
             const document = doc(sqlNode('a', ''), sqlNode('b', '  '))
-            expect(collectSqlV2Refs(document, 'self')).toEqual({})
+            expect(collectSqlV2Refs(document, 'self')).toEqual({ sql_df: 'a', sql_df_2: 'b' })
         })
 
         it('finds SQLV2 nodes nested inside other content', () => {
@@ -74,7 +82,7 @@ describe('notebookNodeSQLV2Logic', () => {
         mount()
         logic.actions.runQuery('select 1')
         await expectLogic(logic).toDispatchActions(['runQuery', 'startPolling', 'pollResult'])
-        expect(runSpy).toHaveBeenCalledWith('nb1', { node_id: 'n1', code: 'select 1' })
+        expect(runSpy).toHaveBeenCalledWith('nb1', { node_id: 'n1', code: 'select 1', refs: {} })
         // The run id is persisted so a reload/remount can recover the in-flight run.
         expect(updateAttributes).toHaveBeenCalledWith({ runId: 'r1', result: null })
     })
