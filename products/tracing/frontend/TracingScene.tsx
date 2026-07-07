@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -28,7 +28,7 @@ import { tracingConfigLogic } from './tracingConfigLogic'
 import { tracingDataLogic } from './tracingDataLogic'
 import { TracingDisplayBar } from './TracingDisplayBar'
 import { TracingFilterBar } from './TracingFilterBar'
-import { tracingFiltersLogic } from './tracingFiltersLogic'
+import { TRACING_SCENE_VIEWER_ID, tracingFiltersLogic } from './tracingFiltersLogic'
 import { tracingSceneLogic } from './tracingSceneLogic'
 import { TracingSparkline } from './TracingSparkline'
 import type { Span } from './types'
@@ -45,10 +45,19 @@ export const scene: SceneExport = {
 export default function TracingScene(): JSX.Element {
     const sceneLogic = tracingSceneLogic()
     // Keep filters + data logic alive across React unmounts by attaching them to the scene root.
-    useAttachedLogic(tracingFiltersLogic(), sceneLogic)
-    useAttachedLogic(tracingDataLogic(), sceneLogic)
+    useAttachedLogic(tracingFiltersLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
+    useAttachedLogic(tracingDataLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
 
-    return <TracingSceneContents />
+    // Bind the scene's keyed instances so nested components (filter bar, sparkline, ...)
+    // resolve them from context — the same components work inside an embedded viewer
+    // bound to a different id.
+    return (
+        <BindLogic logic={tracingFiltersLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
+            <BindLogic logic={tracingDataLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
+                <TracingSceneContents />
+            </BindLogic>
+        </BindLogic>
+    )
 }
 
 function TracingSceneContents(): JSX.Element {
@@ -103,7 +112,7 @@ function TracingSceneContents(): JSX.Element {
 
     // Resolved aggregation window (ms) — turns span counts into a request rate.
     // Use sparklineWindowMs which correctly resolves relative date strings (e.g. '-1h').
-    const { sparklineWindowMs } = useValues(tracingFiltersLogic())
+    const { sparklineWindowMs } = useValues(tracingFiltersLogic)
     const operationsWindowMs = sparklineWindowMs.endMs - sparklineWindowMs.startMs
 
     const onDocsLinkClick = (): void => {
