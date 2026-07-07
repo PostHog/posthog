@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 from unittest import TestCase as UnitTestCase
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.apps import apps
 from django.test import TestCase
@@ -301,6 +301,53 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         mock_write.assert_called_once()
         assert mock_write.call_args.args[1] == b"log bytes"
         mock_execute_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_existing_mapping_skips_duplicate_task_creation(self, mock_slack_cls, mock_execute_workflow):
+        """A retried activity (or a concurrent duplicate mention) must not create a
+        second task for a thread that already has one and repoint the mapping."""
+        mock_slack_cls.return_value = MagicMock()
+        existing_task = self.Task.objects.create(
+            team=self.team,
+            title="Existing task",
+            description="desc",
+            origin_product=self.Task.OriginProduct.SLACK,
+            created_by=self.user,
+        )
+        existing_run = self.TaskRun.objects.create(
+            task=existing_task, team=self.team, status=self.TaskRun.Status.IN_PROGRESS
+        )
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=self.integration,
+            slack_workspace_id="T_SLACK",
+            channel="C123",
+            thread_ts="1234.5678",
+            task=existing_task,
+            task_run=existing_run,
+            mentioning_slack_user_id="U_ALICE",
+        )
+
+        inputs = _make_inputs(self.integration.id)
+        create_posthog_code_task_for_repo_activity(
+            inputs,
+            "C123",
+            "1234.5678",
+            "U_ALICE",
+            self.user.id,
+            inputs.event,
+            [{"user": "U_ALICE", "text": "do something"}],
+            None,
+        )
+
+        assert self.Task.objects.count() == 1
+        mapping = SlackThreadTaskMapping.objects.get(
+            integration=self.integration, channel="C123", thread_ts="1234.5678"
+        )
+        assert mapping.task_id == existing_task.id
+        assert mapping.task_run_id == existing_run.id
+        mock_execute_workflow.assert_not_called()
 
     @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
@@ -903,7 +950,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert result is True
         assert mock_token.call_args.args[1] == bob.id
         mock_send.assert_called_once_with(
-            self.task_run, "Bob: please retry the build", auth_token="jwt-token", timeout=90
+            self.task_run, "Bob: please retry the build", auth_token="jwt-token", timeout=90, message_id=ANY
         )
         # No "Only the person who started" denial; the message went through.
         post_calls = [
@@ -933,7 +980,9 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         forward_posthog_code_followup_activity(inputs, "C123", "1234.5678", "U_BOB", "<@BOT> ping", "1234.5679")
 
         assert mock_token.call_args.args[1] == bob.id
-        mock_send.assert_called_once_with(self.task_run, "bob@test.com: ping", auth_token="jwt-token", timeout=90)
+        mock_send.assert_called_once_with(
+            self.task_run, "bob@test.com: ping", auth_token="jwt-token", timeout=90, message_id=ANY
+        )
 
     @patch("products.slack_app.backend.api.resolve_slack_user", return_value=None)
     @patch("posthog.models.integration.SlackIntegration")
@@ -1023,7 +1072,9 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
 
         assert result is True
         mock_token.assert_called_once()
-        mock_send.assert_called_once_with(self.task_run, "do something", auth_token="jwt-token", timeout=90)
+        mock_send.assert_called_once_with(
+            self.task_run, "do something", auth_token="jwt-token", timeout=90, message_id=ANY
+        )
         # Agent is now working on the message, so the :eyes: reaction stays up — it is
         # not swapped to :hedgehog: until the task genuinely completes.
         mock_slack_instance.client.reactions_add.assert_called_once_with(
@@ -1075,6 +1126,9 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
             mock_send.return_value = _command_result(success=True, status_code=200)
 
             result = forward_posthog_code_followup_activity(inputs, "C123", "1234.5678", "U_ALICE", "", "1234.5679")
+            # Temporal retries re-run the whole activity body; the re-upload must
+            # upsert the same manifest entry, not append a duplicate.
+            forward_posthog_code_followup_activity(inputs, "C123", "1234.5678", "U_ALICE", "", "1234.5679")
 
         assert result is True
         sent_run, sent_message = mock_send.call_args.args
@@ -1086,7 +1140,57 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert sent_artifacts[0]["name"] == "only-log.txt"
         assert sent_artifacts[0]["source"] == "slack_user_attachment"
         assert mock_send.call_args.kwargs["auth_token"] == "jwt-token"
-        mock_write.assert_called_once()
+        assert mock_write.call_count == 2
+        assert mock_write.call_args_list[0].args[0] == mock_write.call_args_list[1].args[0]
+        self.task_run.refresh_from_db()
+        assert len(self.task_run.artifacts) == 1
+
+    @parameterized.expand(
+        [
+            ("live_run", False),
+            ("terminal_run", True),
+        ]
+    )
+    def test_followup_with_only_rejected_attachments_posts_notice_without_waking_agent(
+        self, _name: str, terminal: bool
+    ) -> None:
+        if terminal:
+            self.task_run.status = self.TaskRun.Status.COMPLETED
+            self.task_run.save()
+        self._create_mapping()
+        event = {
+            "channel": "C123",
+            "ts": "1234.5679",
+            "user": "U_ALICE",
+            "text": "",
+            "files": [_make_slack_file(name="installer.exe", mimetype="application/x-msdownload", filetype="binary")],
+        }
+        inputs = PostHogCodeSlackMentionWorkflowInputs(
+            event=event,
+            integration_id=self.integration.id,
+            slack_team_id="T_SLACK",
+        )
+
+        with (
+            patch("posthog.models.integration.SlackIntegration") as mock_slack_cls,
+            patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow") as mock_execute_workflow,
+            patch("products.tasks.backend.logic.services.agent_command.send_user_message") as mock_send,
+            patch("posthog.storage.object_storage.write") as mock_write,
+        ):
+            mock_slack_instance = MagicMock()
+            mock_slack_instance.client.token = "xoxb-test"
+            mock_slack_cls.return_value = mock_slack_instance
+
+            result = forward_posthog_code_followup_activity(inputs, "C123", "1234.5678", "U_ALICE", "", "1234.5679")
+
+        assert result is True
+        mock_send.assert_not_called()
+        mock_write.assert_not_called()
+        mock_execute_workflow.assert_not_called()
+        assert self.TaskRun.objects.count() == 1
+        notice = mock_slack_instance.client.chat_postMessage.call_args.kwargs["text"]
+        assert "no attachment was accepted" in notice
+        assert "installer.exe" in notice
 
     @patch(
         "products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token",
@@ -1159,6 +1263,10 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
 
         assert result is True
         assert mock_send.call_count == 2
+        # Redelivery must reuse the idempotency key or the agent applies the message twice.
+        first_id = mock_send.call_args_list[0].kwargs["message_id"]
+        second_id = mock_send.call_args_list[1].kwargs["message_id"]
+        assert first_id and first_id == second_id
         # The :eyes: reaction stays up while the agent works — no swap to :hedgehog:.
         mock_slack_instance.client.reactions_add.assert_called_once_with(
             channel="C123", timestamp="1234.5679", name="eyes"
