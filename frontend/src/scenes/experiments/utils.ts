@@ -1037,7 +1037,12 @@ export function toExperimentWritePayload<T extends Pick<Experiment, 'parameters'
         ...parameters
     } = (experiment.parameters ?? {}) as ProjectedFlagConfigParameters
     const { feature_flag: _echoedFlag, ...rest } = experiment as T & { feature_flag?: unknown }
-    const payload = { ...rest, parameters } as ExperimentWritePayload<T>
+    // Preserve a null/undefined parameters as-is: coercing it to {} would rewrite a stored
+    // null on PATCH.
+    const payload = {
+        ...rest,
+        parameters: experiment.parameters == null ? experiment.parameters : parameters,
+    } as ExperimentWritePayload<T>
 
     if (omitFlagConfig) {
         return payload

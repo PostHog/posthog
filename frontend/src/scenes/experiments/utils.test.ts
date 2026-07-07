@@ -1637,4 +1637,8 @@ describe('toExperimentWritePayload', () => {
             parameters: { variant_notes: {} },
         })
     })
+
+    it('preserves a null parameters instead of coercing it to an empty object', () => {
+        expect(toExperimentWritePayload({ parameters: null } as unknown as Experiment)).toEqual({ parameters: null })
+    })
 })
