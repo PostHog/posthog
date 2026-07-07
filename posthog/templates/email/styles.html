@@ -1,45 +1,9 @@
 <style type="text/css">
-    /* Brand font, served from Cloudinary so mail clients don't depend on the instance's SITE_URL
-       being publicly reachable. The @font-face survives CSS inlining via keep_at_rules=True (see
-       posthog/email.py); mail clients that strip @font-face fall back to the stack declared on
-       `body` below. */
-    @font-face {
-        font-family: 'RoundHog';
-        font-style: normal;
-        font-weight: 800;
-        src: url('https://res.cloudinary.com/dmukukwp6/raw/upload/fonts/RoundHog-Bold.woff2') format('woff2');
-        font-display: swap;
-    }
-
-    @font-face {
-        font-family: 'RoundHog';
-        font-style: normal;
-        font-weight: 700;
-        src: url('https://res.cloudinary.com/dmukukwp6/raw/upload/fonts/RoundHog-SemiBold.woff2') format('woff2');
-        font-display: swap;
-    }
-
-    @font-face {
-        font-family: 'RoundHog';
-        font-style: normal;
-        font-weight: 500;
-        src: url('https://res.cloudinary.com/dmukukwp6/raw/upload/fonts/RoundHog-Medium.woff2') format('woff2');
-        font-display: swap;
-    }
-
-    @font-face {
-        font-family: 'RoundHog';
-        font-style: normal;
-        font-weight: 400;
-        src: url('https://res.cloudinary.com/dmukukwp6/raw/upload/fonts/RoundHog.woff2') format('woff2');
-        font-display: swap;
-    }
-
     /* Main containers */
     body,
     .main {
         width: 100%;
-        font-family: 'RoundHog', 'Helvetica Neue', helvetica, sans-serif;
+        font-family: 'Helvetica Neue', helvetica, sans-serif;
         padding: 0;
         margin: 0;
         color: #2d2d2d;
