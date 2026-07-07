@@ -16,6 +16,12 @@ import postcss from 'postcss'
 import postcssPresetEnv from 'postcss-preset-env'
 import ts from 'typescript'
 
+// Re-exported for one-shot builds outside buildInParallel (e.g. the toolbar loader, which is
+// built after the toolbar app build so it can embed the hashed entry filename). Consumers
+// depend on @posthog/esbuilder, not on esbuild directly, so pnpm's strict node_modules
+// wouldn't let them import 'esbuild' themselves.
+export { build as esbuildBuild } from 'esbuild'
+
 const defaultHost = process.argv.includes('--host') && process.argv.includes('0.0.0.0') ? '0.0.0.0' : 'localhost'
 const defaultPort = 8234
 
@@ -377,7 +383,10 @@ export async function buildInParallel(configs, { onBuildStart, onBuildComplete }
                 })
             )
         )
-    } catch {
+    } catch (error) {
+        // esbuild already prints its own compile errors, but onBuildStart/onBuildComplete
+        // failures (e.g. finalizeToolbarBuild) would otherwise die silently here.
+        console.error(error)
         if (!isDev) {
             process.exit(1)
         }
