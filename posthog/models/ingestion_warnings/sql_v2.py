@@ -29,7 +29,7 @@ INGESTION_WARNINGS_V2_COLUMNS = """
     timestamp DateTime64(6, 'UTC'),
     category LowCardinality(String) MATERIALIZED coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown'),
     severity LowCardinality(String) MATERIALIZED coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning'),
-    pipeline_step LowCardinality(String) MATERIALIZED coalesce(nullIf(JSONExtractString(details, 'pipeline_step'), ''), 'unknown'),
+    pipeline_step LowCardinality(String) MATERIALIZED coalesce(nullIf(JSONExtractString(details, 'pipelineStep'), ''), 'unknown'),
     event_uuid Nullable(UUID) MATERIALIZED toUUIDOrNull(JSONExtractString(details, 'eventUuid')),
     distinct_id Nullable(String) MATERIALIZED nullIf(JSONExtractString(details, 'distinctId'), ''),
     group_key Nullable(String) MATERIALIZED nullIf(JSONExtractString(details, 'groupKey'), ''),
