@@ -1,10 +1,16 @@
-import type { CustomPropertyDisplayTypeEnumApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+import type {
+    CustomPropertyDisplayTypeEnumApi,
+    CustomPropertyOptionApi,
+    CustomPropertySourceApi,
+} from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import {
     DISPLAY_TYPE_OPTIONS,
     formatCustomPropertyValue,
     isNumericDisplayType,
     labelForDisplayType,
+    optionLabelError,
+    sourceSyncStatus,
 } from './customPropertyTypes'
 
 function definition(
@@ -13,6 +19,14 @@ function definition(
 ): { display_type: CustomPropertyDisplayTypeEnumApi; is_big_number: boolean } {
     return { display_type, is_big_number }
 }
+
+const buildSource = (overrides: Partial<CustomPropertySourceApi>): CustomPropertySourceApi =>
+    ({
+        is_enabled: true,
+        last_sync_error: null,
+        last_synced_at: '2026-01-01T00:00:00Z',
+        ...overrides,
+    }) as CustomPropertySourceApi
 
 describe('customPropertyTypes', () => {
     it('labels each display type with its option label', () => {
@@ -56,5 +70,41 @@ describe('customPropertyTypes', () => {
             expect(formatCustomPropertyValue('enterprise', definition('text'))).toBe('enterprise')
             expect(formatCustomPropertyValue('n/a', definition('number'))).toBe('n/a')
         })
+    })
+
+    describe('optionLabelError', () => {
+        const options = [
+            { label: 'Open', color: 'preset-1' },
+            { label: ' Open ', color: 'preset-2' },
+            { label: '  ', color: 'preset-3' },
+            { label: 'Closed', color: 'preset-4' },
+        ] as CustomPropertyOptionApi[]
+
+        it.each([
+            ['first occurrence is valid', 0, undefined],
+            ['later duplicate after trim is flagged', 1, 'Duplicate option label.'],
+            ['blank label is flagged', 2, 'Please enter a label.'],
+            ['unique label is valid', 3, undefined],
+        ])('%s', (_name, index, expected) => {
+            expect(optionLabelError(options, index)).toBe(expected)
+        })
+    })
+
+    it('derives sync status from the source state', () => {
+        expect(sourceSyncStatus(buildSource({})).level).toBe('synced')
+        expect(sourceSyncStatus(buildSource({ last_synced_at: null })).level).toBe('pending')
+        expect(sourceSyncStatus(buildSource({ last_sync_error: 'boom' })).level).toBe('error')
+    })
+
+    it('shows the last error as the reason when a source is auto-disabled', () => {
+        const status = sourceSyncStatus(buildSource({ is_enabled: false, last_sync_error: 'View not found' }))
+        expect(status.level).toBe('disabled')
+        expect(status.tooltip).toBe('View not found')
+    })
+
+    it('explains manual disabling when a disabled source has no error', () => {
+        const status = sourceSyncStatus(buildSource({ is_enabled: false, last_sync_error: null }))
+        expect(status.level).toBe('disabled')
+        expect(status.tooltip).toBe('Syncing is turned off for this source.')
     })
 })

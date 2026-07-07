@@ -1,0 +1,8 @@
+{
+    "name": "@posthog/products-demo",
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/test -v --tb=short",
+        "backend:lint": "ruff check --config ../../pyproject.toml backend && ruff format --config ../../pyproject.toml --check backend",
+        "backend:contract-check": "echo 'Contract files unchanged'"
+    }
+}

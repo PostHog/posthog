@@ -31,6 +31,31 @@ use crate::sweep::EvictionQueue;
 use crate::workers::event_path::schedule_deadline;
 use tracing::warn;
 
+/// The eviction-queue mutations a drain/apply commit implies. The handlers take owned inputs and no
+/// queue borrow, so they hand these back for the caller (which owns the queue) to apply after the
+/// atomic write commits and before any produce — a produce failure must never leave the queue ahead
+/// of the store. `cancels` are the old person's now-deleted keys; `schedules` the survivor's new
+/// eviction deadlines.
+#[must_use]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct QueueEffects {
+    pub cancels: Vec<Stage1Key>,
+    pub schedules: Vec<(Stage1Key, i64)>,
+}
+
+impl QueueEffects {
+    /// Cancel first, then schedule. The two key sets are disjoint by construction (old person ≠ new
+    /// person), so the order is defensive.
+    pub fn apply_to(&self, queue: &mut EvictionQueue<Stage1Key>) {
+        for key in &self.cancels {
+            queue.cancel(key);
+        }
+        for &(key, deadline) in &self.schedules {
+            queue.schedule(key, deadline);
+        }
+    }
+}
+
 /// Bound on cross-partition transfer-forward hops (`forward_hops` on the wire). Mirrors the
 /// event-path [`crate::merge::tombstone_redirect::MAX_CROSS_PARTITION_REDIRECT_HOPS`] — prevents
 /// infinite re-production between partitions in case of a corrupt cross-partition tombstone cycle.
@@ -39,7 +64,11 @@ pub const MAX_TRANSFER_FORWARD_HOPS: u8 = 8;
 #[derive(Debug, Clone, PartialEq)]
 pub enum ApplyOutcome {
     /// Transfer applied; `transitions` are the resolved survivor's per-leaf membership flips.
-    Applied { transitions: Vec<LeafTransition> },
+    /// `effects` carries the survivor's eviction schedules for the caller to apply to its queue.
+    Applied {
+        transitions: Vec<LeafTransition>,
+        effects: QueueEffects,
+    },
     /// Idempotence hit — this transfer was already applied (replay / crash-recovery).
     AlreadyApplied,
     /// `new_person_uuid` is tombstoned to a survivor on a different partition. The caller forwards
@@ -61,13 +90,15 @@ pub enum ApplyOutcome {
 /// `partition_count` is the live co-partitioned topic count (production 64; test lanes lower it):
 /// the forward-vs-inline target resolution turns on whether the survivor hashes onto `partition_id`
 /// under this count, so it must match the deploy's topology.
+// Sync apply core; runs on the blocking pool inside `StoreHandle::run_section`, so its direct
+// `CohortStore` I/O (and that of `apply_into`/`apply_leaves`) is already off the runtime threads.
+#[allow(clippy::disallowed_methods)]
 pub fn handle_transfer(
     partition_id: u16,
     store: &CohortStore,
     filters: &TeamFilters,
     transfer: &MergeStateTransfer,
     _transfer_coords: (i32, i64),
-    queue: &mut EvictionQueue<Stage1Key>,
     partition_count: u32,
 ) -> Result<ApplyOutcome, StoreError> {
     let team_id = transfer.team_id;
@@ -93,12 +124,10 @@ pub fn handle_transfer(
         new_person,
         partition_count,
     )? {
-        Resolution::NotMerged => {
-            apply_into(partition_id, store, filters, transfer, new_person, queue)
-        }
+        Resolution::NotMerged => apply_into(partition_id, store, filters, transfer, new_person),
         Resolution::Inline { final_person, .. } => {
             counter!(MERGE_TRANSFER_FORWARDS_TOTAL, "path" => "inline").increment(1);
-            apply_into(partition_id, store, filters, transfer, final_person, queue)
+            apply_into(partition_id, store, filters, transfer, final_person)
         }
         Resolution::CrossPartition { target_person, .. } => {
             if transfer.forward_hops >= MAX_TRANSFER_FORWARD_HOPS {
@@ -143,13 +172,13 @@ fn applied_key(
 /// commit the merged puts + person-index appends + the `cf_merge_applied` marker keyed by `target`,
 /// schedule deadlines, and return the survivor's transitions. For the `NotMerged` case `target` is
 /// just `new_person_uuid`.
+#[allow(clippy::disallowed_methods)]
 fn apply_into(
     partition_id: u16,
     store: &CohortStore,
     filters: &TeamFilters,
     transfer: &MergeStateTransfer,
     target: Uuid,
-    queue: &mut EvictionQueue<Stage1Key>,
 ) -> Result<ApplyOutcome, StoreError> {
     let team_u64 = transfer.team_id as u64;
     let old_person = transfer.old_person_uuid;
@@ -219,12 +248,12 @@ fn apply_into(
         }
     })?;
 
-    for (key, deadline) in &apply.schedules {
-        queue.schedule(*key, *deadline);
-    }
-
     Ok(ApplyOutcome::Applied {
         transitions: apply.transitions,
+        effects: QueueEffects {
+            cancels: Vec::new(),
+            schedules: apply.schedules,
+        },
     })
 }
 
@@ -241,6 +270,7 @@ pub(crate) struct LeafApply {
 /// Merge each of P_old's `leaves` into P_new's state on `partition_new`. Pure reads only — the
 /// caller composes the final write batch. A leaf whose LSK left the catalog is skipped; a corrupt
 /// P_new record is treated as absent.
+#[allow(clippy::disallowed_methods)]
 pub(crate) fn apply_leaves(
     partition_new: u16,
     store: &CohortStore,

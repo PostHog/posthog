@@ -5,9 +5,8 @@ import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { isPassingConclusion } from './lifecycle'
 
 /**
- * A workflow run's conclusion as a labeled tag. `null` conclusion means the run is still in progress.
- * Decisive failures (failure / timed_out) are danger; success is green; other passing outcomes
- * (skipped / neutral / cancelled) are muted; anything else (e.g. action_required) is a warning.
+ * A workflow run's conclusion as a labeled tag. `null` = still in progress. Decisive failures
+ * (failure / timed_out) are danger; success green; other passing outcomes muted; else warning.
  */
 export function verdictTag(conclusion: string | null): { label: string; type: LemonTagType } {
     if (conclusion === null) {

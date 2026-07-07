@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT property_type, is_numerical FROM posthog_propertydefinition WHERE name = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "property_type",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "is_numerical",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "a7bbc6a5aadd0e4cb1707e4bbe7e88e58aabcfe52c2c00f4ca7ab29a7fc17053"
+}

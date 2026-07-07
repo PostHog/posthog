@@ -28,6 +28,9 @@ interface RunActivityChartProps {
     title?: string
     /** The runs list was capped server-side, so the chart shows the most recent runs, not the full window. */
     truncated?: boolean
+    /** Singular noun for each plotted point in the header count — 'run' by default, 'commit' on the repo-health
+     *  view where every dot is a whole commit's collapsed workflows. */
+    noun?: string
     className?: string
 }
 
@@ -54,16 +57,22 @@ const Y_TICK_COUNT = 4
 const X_TICK_COUNT = 5
 // A scatter of one point says nothing; only draw once there's a spread to read.
 const MIN_POINTS = 2
+
+const isPlottable = (run: ActivityRun): run is ActivityRun & { startedAt: string; durationSeconds: number } =>
+    run.startedAt != null && run.durationSeconds != null && run.durationSeconds >= 0
+
+/** False when RunActivityChart would render null, so callers can show their empty state instead. */
+export function hasEnoughRunActivity(runs: ActivityRun[]): boolean {
+    return runs.filter(isPlottable).length >= MIN_POINTS
+}
 // The focus lens defaults to the most recent day — the "live" view — over a window that's wider than that.
 // Below this much total span there's nothing to pan over, so the brush is hidden and the chart shows it all.
 const LENS_MS = 24 * 60 * 60 * 1000
 // The lens never narrows below 15 min, so it stays grabbable and the zoomed axis keeps a readable span.
 const MIN_LENS_MS = 15 * 60 * 1000
-// A run with no final duration is treated as in flight up to now — but only up to this cap. A run that
-// started longer ago than this and still hasn't settled almost certainly never will (its completion webhook
-// was missed); without the cap its interval would stretch to now and inflate the in-flight band — and the
-// time axis — by hours or days. Capping bounds that phantom load while still counting a genuinely-running
-// recent run right up to now.
+// A run with no final duration counts as in flight up to now, capped here: one that started longer ago
+// and never settled almost certainly lost its completion webhook, and uncapped it would inflate the
+// in-flight band and time axis by days.
 const MAX_IN_FLIGHT_MS = 60 * 60 * 1000
 
 /** Round up to a "nice" number (1/2/5 × 10ⁿ) so axis ticks land on readable values. */
@@ -221,16 +230,15 @@ function RunActivityBrush({
 }
 
 /**
- * Two views of one workflow's runs on a shared time axis: a scatter of each completed run by start time
- * (X) and wall-clock duration (Y), colored by verdict with a dashed median line; and below it an
- * "in-flight" band showing how many runs were executing at once (the red fill is the failing share, the
- * peak is labeled). The scatter answers "are runs slow / failing?"; the band answers "how much parallel
- * load?". Renders nothing below `MIN_POINTS` completed runs, so callers drop it in unconditionally.
+ * Two views of one workflow's runs on a shared time axis: a scatter by start time (X) and duration (Y),
+ * colored by verdict with a dashed median; and below it an "in-flight" band of concurrent runs (red fill
+ * = failing share). Renders nothing below `MIN_POINTS` completed runs, so callers drop it in unconditionally.
  */
 export function RunActivityChart({
     runs,
     title = 'Run activity',
     truncated = false,
+    noun = 'run',
     className,
 }: RunActivityChartProps): JSX.Element | null {
     // The lens sub-range the scatter/band zoom into; null = the default (most recent day). Declared before
@@ -260,10 +268,7 @@ export function RunActivityChart({
         })
 
     // Only completed runs land on the scatter — a still-running run has no final duration to place on Y.
-    const plottable = runs.filter(
-        (run): run is ActivityRun & { startedAt: string; durationSeconds: number } =>
-            run.startedAt != null && run.durationSeconds != null && run.durationSeconds >= 0
-    )
+    const plottable = runs.filter(isPlottable)
     if (plottable.length < MIN_POINTS) {
         return null
     }
@@ -400,13 +405,13 @@ export function RunActivityChart({
                 <Tooltip
                     title={
                         truncated
-                            ? `Over the most recent ${plottable.length} runs — the list is capped, so this isn't the full window.`
+                            ? `Covers the most recent ${plottable.length} ${noun}s, not the full window.`
                             : undefined
                     }
                 >
                     <span className="text-xs whitespace-nowrap text-secondary tabular-nums">
                         {truncated ? 'recent ' : ''}
-                        {brushable ? `${visible.length} of ${plottable.length}` : plottable.length} runs · median{' '}
+                        {brushable ? `${visible.length} of ${plottable.length}` : plottable.length} {noun}s · median{' '}
                         {formatAxisMinutes(medianMin)} · peak {peak} in flight
                     </span>
                 </Tooltip>

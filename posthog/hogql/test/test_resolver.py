@@ -1,5 +1,5 @@
 from datetime import UTC, date, datetime
-from typing import Any, Optional, cast
+from typing import Any, ClassVar, Optional, cast
 from uuid import UUID
 
 import pytest
@@ -10,6 +10,8 @@ from unittest.mock import patch
 from django.test import override_settings
 
 from parameterized import parameterized
+
+from posthog.schema import HogQLQueryModifiers
 
 import posthog.hogql.resolver_utils as resolver_utils
 from posthog.hogql import ast
@@ -28,6 +30,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.errors import QueryError
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast, print_prepared_ast
 from posthog.hogql.resolver import ResolutionError, resolve_types
@@ -54,8 +57,20 @@ class TestResolver(BaseTest):
             "hogql",
         )[0]
 
+    # _fetch_sources hits Postgres a dozen times and its inputs never change within this class
+    # (fixed team, no warehouse objects), so cache the fetched sources per effective modifiers —
+    # the only input that varies (via @override_settings). Building the Database stays per-test
+    # because several tests mutate their instance's tables.
+    _sources_cache: ClassVar[dict[str, Any]] = {}
+
     def setUp(self):
-        self.database = Database.create_for(team=self.team)
+        modifiers = create_default_modifiers_for_team(self.team)
+        cache_key = modifiers.model_dump_json()
+        sources = TestResolver._sources_cache.get(cache_key)
+        if sources is None:
+            sources = Database._fetch_sources(team=self.team, modifiers=modifiers)
+            TestResolver._sources_cache[cache_key] = sources
+        self.database = Database._build_from_sources(sources)
         self.context = HogQLContext(database=self.database, team_id=self.team.pk, enable_select_queries=True)
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -772,6 +787,40 @@ class TestResolver(BaseTest):
         build_ids = self._cte_build_ids(query)
         assert len(build_ids) == len(set(build_ids))
         assert len(set(build_ids)) == 4
+
+    def test_star_cte_shared_by_union_branches_projects_all_columns(self):
+        # Regression: pushdown pruned a `SELECT *` CTE to the first UNION branch's column, and
+        # the cached CTE table (built pre-prune) masked the failure into silently broken SQL.
+        query = cast(
+            ast.SelectSetQuery,
+            clone_expr(
+                parse_select(
+                    "with base as (select * from (select 1 as a, 2 as b, 3 as d)) "
+                    "select a as v from base "
+                    "union all select b as v from base "
+                    "union all select d as v from base"
+                ),
+                clear_locations=True,
+            ),
+        )
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=HogQLQueryModifiers(optimizeProjections=True),
+        )
+        _, prepared = prepare_and_print_ast(query, context, "clickhouse")
+
+        # The single shared CTE must project every column referenced across the branches.
+        assert isinstance(prepared, ast.SelectSetQuery)
+        first_branch = prepared.initial_select_query
+        assert isinstance(first_branch, ast.SelectQuery) and first_branch.ctes is not None
+        base_cte = first_branch.ctes["base"].expr
+        assert isinstance(base_cte, ast.SelectQuery)
+        cte_cols: set[str] = set()
+        for col in base_cte.select:
+            assert isinstance(col, ast.Alias | ast.Field)
+            cte_cols.add(col.alias if isinstance(col, ast.Alias) else str(col.chain[-1]))
+        assert cte_cols == {"a", "b", "d"}, f"CTE dropped columns referenced by sibling UNION branches: got {cte_cols}"
 
     def test_ctes_with_aliases_in_joins(self):
         self.assertEqual(

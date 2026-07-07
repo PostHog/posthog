@@ -62,6 +62,17 @@ export class EventIngestPayloadTooLarge extends Error {
     }
 }
 
+export class ClientDisconnected extends Error {
+    accepted = 0
+    duplicate = 0
+    lastAcceptedSeq = 0
+
+    constructor() {
+        super('Client disconnected during event ingest')
+        this.name = 'ClientDisconnected'
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Redis stream types
 // ---------------------------------------------------------------------------
@@ -96,6 +107,8 @@ export interface SandboxEventIngestTokenPayload {
 // ---------------------------------------------------------------------------
 
 export type StreamConnectionOutcome = 'completed' | 'stream_error' | 'unavailable' | 'client_disconnect'
+
+export type DisconnectClassification = 'run_over' | 'idle' | 'mid_turn'
 
 // ---------------------------------------------------------------------------
 // Ingest HTTP response shape (200 OK body)

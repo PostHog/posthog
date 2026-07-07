@@ -3,18 +3,12 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import type { engineeringAnalyticsFiltersLogicType } from './engineeringAnalyticsFiltersLogicType'
 
-// One window shared by every CI-analytics surface that's scoped by time — the Workflows tab, a single
-// workflow's runs/cost page, and an author's cost tiles — so a window picked on one carries to the others
-// instead of each page snapping back to its own default. 7 days balances the two needs the pages used to
-// split on (-24h health vs -30d spend): long enough to read a week of spend, short enough that health still
-// reads as recent. Nothing live is lost — the "is CI red now" verdict is window-independent and bucket
-// granularity auto-follows the window, so narrowing to 24h still gives the live hourly view on demand.
+// One window shared by every time-scoped CI-analytics surface, so a window picked on one page carries
+// to the others. 7 days: long enough to read a week of spend, short enough that health reads as recent.
 export const SHARED_DEFAULT_DATE_FROM = '-7d'
 
-// The branch scope is shared here too, alongside the window, so filtering to `master` on the Workflows tab
-// carries into a workflow's detail page instead of the detail silently widening back to all branches (which
-// read as "more runs" than the tab showed). It's a server-side filter (head_branch), so typing only stages
-// the value in branchInput; applyBranchFilter promotes it to appliedBranch, which the consuming logics send.
+// The branch scope is shared the same way. It's a server-side filter (head_branch): typing stages
+// branchInput; applyBranchFilter promotes it to appliedBranch, which the consuming logics send.
 export const engineeringAnalyticsFiltersLogic = kea<engineeringAnalyticsFiltersLogicType>([
     path(['products', 'engineering_analytics', 'frontend', 'scenes', 'engineeringAnalyticsFiltersLogic']),
 
@@ -36,9 +30,7 @@ export const engineeringAnalyticsFiltersLogic = kea<engineeringAnalyticsFiltersL
 
     listeners(({ actions, values }) => ({
         setBranchFilter: ({ branch }) => {
-            // The search input's built-in clear (×) only fires onChange(''), never Enter/blur, so clearing it
-            // would otherwise leave the tables scoped to the old branch. Apply on empty so the × resets to
-            // all-branches immediately.
+            // The input's clear (×) only fires onChange('') — apply on empty so it resets to all branches.
             if (branch.trim() === '') {
                 actions.applyBranchFilter()
             }
@@ -54,9 +46,7 @@ export const engineeringAnalyticsFiltersLogic = kea<engineeringAnalyticsFiltersL
     })),
 
     actionToUrl(({ values }) => ({
-        // Encode the window in the URL so tab links and drill-down links (which preserve query params) carry
-        // it, and a shared link reopens it. Replace, not push — nudging a date shouldn't stack back-history.
-        // The default is omitted so a pristine URL stays clean.
+        // Replace, not push — nudging a date shouldn't stack back-history. Defaults are omitted.
         setDateRange: () => {
             const { pathname, searchParams, hashParams } = router.values.currentLocation
             const next = { ...searchParams }
@@ -72,8 +62,7 @@ export const engineeringAnalyticsFiltersLogic = kea<engineeringAnalyticsFiltersL
             }
             return [pathname, next, hashParams, { replace: true }]
         },
-        // Mirror the applied branch into `?q=` so a branch-scoped view is shareable, survives reload, and
-        // carries through drill-down links into the workflow detail page. Empty is omitted to keep URLs clean.
+        // Mirror the applied branch into `?q=` so a branch-scoped view is shareable and survives reload.
         setAppliedBranch: () => {
             const { pathname, searchParams, hashParams } = router.values.currentLocation
             const next = { ...searchParams }
@@ -87,10 +76,8 @@ export const engineeringAnalyticsFiltersLogic = kea<engineeringAnalyticsFiltersL
     })),
 
     urlToAction(({ actions, values }) => ({
-        // Hydrate from the URL on any CI-analytics route — a shared link, a reload, or a drill-down link that
-        // carried the params. Guarded so we only dispatch on a real change, which also breaks the actionToUrl
-        // loop. '*' is safe here: the logic is only mounted while a CI-analytics scene connects it, so this
-        // never fires for unrelated routes. Handler params are inferred (kea-router types them).
+        // Hydrate from the URL, dispatching only on real change (also breaks the actionToUrl loop).
+        // '*' is safe: the logic is only mounted while a CI-analytics scene connects it.
         '*': (_, searchParams) => {
             const dateFrom = searchParams.date_from ?? SHARED_DEFAULT_DATE_FROM
             const dateTo = searchParams.date_to ?? null

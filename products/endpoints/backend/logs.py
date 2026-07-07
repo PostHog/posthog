@@ -6,11 +6,10 @@ import structlog
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 
+from products.endpoints.backend.constants import ENDPOINTS_LOG_SOURCE
+
 logger = structlog.get_logger(__name__)
 
-# Matches the `log_source` column written for endpoint execution logs in the `log_entries`
-# ClickHouse table. The Logs tab and the `endpoints_logs_retrieve` API both read by this value.
-ENDPOINTS_LOG_SOURCE = "endpoints"
 
 # ClickHouse DateTime64(6, 'UTC') input format — same as the temporal logger uses.
 _TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S.%f"

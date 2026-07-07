@@ -96,6 +96,13 @@ class GetSandboxForRepositoryOutput:
     used_snapshot: bool
     should_create_snapshot: bool
     agent_server_launched: bool = False
+    boot_path: str = "classic"
+    image_source: str | None = None
+    # Per-phase boot durations, threaded through to the sandbox_started analytics event.
+    create_ms: int | None = None
+    clone_ms: int | None = None
+    checkout_ms: int | None = None
+    launch_ms: int | None = None
 
 
 @activity.defn
@@ -123,10 +130,14 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                 used_snapshot = snapshot is not None
                 snapshot_lookup_timer.set_used_snapshot(used_snapshot)
             if snapshot is not None:
-                snapshot_source = "repository"
                 snapshot_metadata = get_sandbox_snapshot_metadata(snapshot)
-                snapshot_kind = snapshot_metadata.kind
-                snapshot_mount_path = snapshot_metadata.mount_path
+                if not snapshot_metadata.is_usable:
+                    snapshot = None
+                    used_snapshot = False
+                else:
+                    snapshot_source = "repository"
+                    snapshot_kind = snapshot_metadata.kind
+                    snapshot_mount_path = snapshot_metadata.mount_path
         elif not has_repo:
             emit_agent_log(ctx.run_id, "debug", "Creating environment without repository")
 
@@ -221,10 +232,18 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         # Check for resume snapshot (takes priority over integration-level snapshots)
         resume_snapshot_ext_id = run_state.snapshot_external_id
         if resume_snapshot_ext_id:
-            used_snapshot = True
-            snapshot_source = "resume"
-            snapshot_kind = run_state.resume_snapshot_kind()
-            snapshot_mount_path = run_state.resume_snapshot_mount_path()
+            if not run_state.resume_snapshot_is_usable():
+                emit_agent_log(
+                    ctx.run_id,
+                    "debug",
+                    "Previous session snapshot is unusable; resuming with a fresh sandbox",
+                )
+                resume_snapshot_ext_id = None
+            else:
+                used_snapshot = True
+                snapshot_source = "resume"
+                snapshot_kind = run_state.resume_snapshot_kind()
+                snapshot_mount_path = run_state.resume_snapshot_mount_path()
 
         provider = getattr(settings, "SANDBOX_PROVIDER", None)
         image_source_label = _get_image_source_label(

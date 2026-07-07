@@ -19,6 +19,10 @@ export type {
     ComposerSubmitProps,
 } from '../components/composer/Composer'
 
+// Controlled model + reasoning-effort pickers for a composer footer.
+export { ComposerModelEffortPickers } from '../components/composer/ComposerModelEffortPickers'
+export type { ComposerModelEffortPickersProps } from '../components/composer/ComposerModelEffortPickers'
+
 // Welcome header (logomark + headline + subheadline) and its overridable default headlines.
 export { Welcome } from '../components/welcome/Welcome'
 export type { WelcomeProps } from '../components/welcome/Welcome'
@@ -60,6 +64,9 @@ export {
 export type { ActivityStatus } from '../components/ActivityPrimitives'
 export { RunActivity } from '../components/RunActivity'
 export { RunAlertActivity } from '../components/RunAlertActivity'
+
+export { TaskRunStatusDot } from '../components/TaskRunStatusDot'
+export { TaskRunLivenessDot } from '../components/TaskRunLivenessDot'
 
 export { PermissionInput } from '../components/PermissionInput'
 export { QuestionInput } from '../components/QuestionInput'

@@ -30,9 +30,11 @@ import { notebookPanelLogic } from './notebookPanelLogic'
 export function NotebookPanel(): JSX.Element | null {
     const { selectedNotebook, initialAutofocus, droppedResource, dropProperties } = useValues(notebookPanelLogic)
     const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
-    const { notebook } = useValues(notebookLogic({ shortId: selectedNotebook, target: NotebookTarget.Popover }))
+    const { notebook, content } = useValues(
+        notebookLogic({ shortId: selectedNotebook, target: NotebookTarget.Popover })
+    )
     const editable = !notebook?.is_template
-    const isMarkdownNotebook = isMarkdownNotebookContent(notebook?.content)
+    const isMarkdownNotebook = isMarkdownNotebookContent(content)
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
         832: 'medium',

@@ -12,7 +12,6 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, con
 from posthog.schema_enums import (
     AccessControlLevel as AccessControlLevel,
     Action as Action,
-    Action1 as Action1,
     AgentMode as AgentMode,
     AggregationAxisFormat as AggregationAxisFormat,
     AggregationPropertyType as AggregationPropertyType,
@@ -118,7 +117,6 @@ from posthog.schema_enums import (
     GoogleAdsTableExclusions as GoogleAdsTableExclusions,
     GoogleAdsTableKeywords as GoogleAdsTableKeywords,
     GradientScaleMode as GradientScaleMode,
-    HealthCheckSeverity as HealthCheckSeverity,
     HeatmapSortOrder as HeatmapSortOrder,
     HedgehogActorAccessoryOption as HedgehogActorAccessoryOption,
     HedgehogActorColorOption as HedgehogActorColorOption,
@@ -200,8 +198,6 @@ from posthog.schema_enums import (
     PlanningStepStatus as PlanningStepStatus,
     Position as Position,
     PrecomputationMode as PrecomputationMode,
-    Priority as Priority,
-    ProblemType as ProblemType,
     ProductIntentContext as ProductIntentContext,
     ProductItemCategory as ProductItemCategory,
     ProductKey as ProductKey,
@@ -232,9 +228,6 @@ from posthog.schema_enums import (
     SessionAttributionGroupBy as SessionAttributionGroupBy,
     SessionsV2JoinMode as SessionsV2JoinMode,
     SessionTableVersion as SessionTableVersion,
-    Severity as Severity,
-    SignalSourceProduct as SignalSourceProduct,
-    SignalSourceType as SignalSourceType,
     SimpleIntervalType as SimpleIntervalType,
     SlackIntegrationScope as SlackIntegrationScope,
     SlackIntegrationScopeInReview as SlackIntegrationScopeInReview,
@@ -248,7 +241,6 @@ from posthog.schema_enums import (
     SnapshotSource as SnapshotSource,
     SourceFieldInputConfigType as SourceFieldInputConfigType,
     SourceFieldSelectConfigConverter as SourceFieldSelectConfigConverter,
-    SourceType as SourceType,
     SpanPropertyFilterType as SpanPropertyFilterType,
     StartHandling as StartHandling,
     Status as Status,
@@ -271,7 +263,6 @@ from posthog.schema_enums import (
     TaxonomicFilterGroupType as TaxonomicFilterGroupType,
     TextMatching as TextMatching,
     Theme as Theme,
-    ThresholdOperator as ThresholdOperator,
     TikTokAdsDefaultSources as TikTokAdsDefaultSources,
     TikTokAdsTableExclusions as TikTokAdsTableExclusions,
     TikTokAdsTableKeywords as TikTokAdsTableKeywords,
@@ -875,19 +866,6 @@ class ConditionalFormattingRule(BaseModel):
     templateId: str
 
 
-class ConversationsTicketSignalExtra(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    channel_detail: str | None = None
-    channel_source: str
-    created_at: str
-    email_subject: str | None = None
-    priority: str | None = None
-    status: str
-    ticket_number: float
-
-
 class CustomEventConversionGoal(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1045,26 +1023,6 @@ class EmptyPropertyFilter(BaseModel):
     type: Literal["empty"] = "empty"
 
 
-class EndpointBreakdownLimitExceededSignalExtra(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    breakdown_limit: float
-    endpoint_name: str
-
-
-class EndpointExecutionFailedSignalExtra(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    endpoint_name: str
-    endpoint_version: float | None = None
-    error_class: str
-    error_message: str
-    materialized: bool
-    saved_query_id: str | None = None
-
-
 class EndpointLastExecutionTimesRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1146,13 +1104,6 @@ class ErrorTrackingIssueImpactToolOutput(BaseModel):
         extra="forbid",
     )
     events: list[str]
-
-
-class ErrorTrackingSignalExtra(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    fingerprint: str
 
 
 class EventDefinition(BaseModel):
@@ -1460,19 +1411,6 @@ class FunnelTrendsResults(RootModel[list[dict[str, Any]]]):
     root: list[dict[str, Any]]
 
 
-class GithubIssueSignalExtra(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    created_at: str
-    html_url: str
-    labels: list[str]
-    locked: bool
-    number: float
-    state: str
-    updated_at: str
-
-
 class GoalLine(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1483,20 +1421,6 @@ class GoalLine(BaseModel):
     label: str
     position: Position | None = None
     value: float
-
-
-class HealthCheckSignalExtra(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    issue_id: str
-    kind: str
-    link: str = Field(..., description="Relative in-app path to the resource, e.g. '/web'.")
-    payload: dict[str, Any]
-    severity: HealthCheckSeverity
-    summary: str
-    title: str
-    url: str = Field(..., description="Absolute URL ({project.url} + link).")
 
 
 class HeatmapGradientStop(BaseModel):
@@ -1594,48 +1518,6 @@ class LLMTracePerson(BaseModel):
     uuid: str
 
 
-class LinearIssueSignalExtra(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    created_at: str
-    identifier: str
-    labels: list[str]
-    number: float
-    priority: float
-    priority_label: str
-    state_name: str | None = None
-    state_type: str | None = None
-    team_name: str | None = None
-    updated_at: str
-    url: str
-
-
-class LlmEvalReportSignalExtra(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    evaluation_description: str
-    evaluation_id: str
-    evaluation_name: str
-    period_end: str
-    period_start: str
-    report_id: str
-    report_run_id: str
-
-
-class LlmEvalSignalExtra(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    evaluation_id: str
-    model: str | None = None
-    provider: str | None = None
-    target_event_id: str | None = None
-    target_event_type: str | None = None
-    trace_id: str
-
-
 class LoadingBlock(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1658,22 +1540,6 @@ class LogAttributeResult(BaseModel):
     )
     name: str
     propertyFilterType: str = Field(..., description="Either 'log_attribute' or 'log_resource_attribute'.")
-
-
-class LogsAlertStateChangeSignalExtra(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    action: Action1
-    alert_id: str
-    alert_name: str
-    consecutive_failures: float
-    filters: dict[str, Any]
-    result_count: float | None = None
-    threshold_count: float
-    threshold_operator: ThresholdOperator
-    url: str
-    window_minutes: float
 
 
 class MCPToolDescriptionItem(BaseModel):
@@ -2196,28 +2062,6 @@ class PersonType(BaseModel):
     uuid: str | None = None
 
 
-class PgAnalyzeIssueReference(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: str | None = None
-    name: str | None = None
-    queryText: str | None = None
-    url: str | None = None
-
-
-class PgAnalyzeIssueSignalExtra(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    database_id: str | None = None
-    references: list[PgAnalyzeIssueReference]
-    server_human_id: str | None = None
-    server_name: str | None = None
-    severity: str | None = None
-    synced_at: str
-
-
 class PieChartSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2337,15 +2181,6 @@ class RecordingPropertyFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
-class RelevantCommit(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    reason: str
-    sha: str
-    url: str
-
-
 class ReplayInactivityPeriod(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2355,52 +2190,6 @@ class ReplayInactivityPeriod(BaseModel):
     recording_ts_to_s: float | None = None
     ts_from_s: float
     ts_to_s: float | None = None
-
-
-class ReplayVisionScannerFindingSignalExtra(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    confidence: float = Field(
-        ...,
-        description=("The model's self-reported confidence in the finding, in [0, 1]. Independent of `weight`."),
-    )
-    distinct_id: str | None = None
-    end_time: float = Field(
-        ...,
-        description=("When the issue ends in the recording, in seconds (the footer's REC_T value)."),
-    )
-    exported_asset_id: float = Field(..., description="The rasterized MP4 asset the scanner analysed.")
-    observation_id: str
-    problem_type: str = Field(
-        ...,
-        description=(
-            "Issue category: 'bug' / 'crash' / 'design_flaw' / 'ux_friction'. Kept open"
-            " so new categories don't fail validation."
-        ),
-    )
-    recording_active_seconds: float | None = None
-    recording_duration: float | None = None
-    recording_end_time: str | None = Field(default=None, description="ISO 8601 recording end.")
-    recording_start_time: str | None = Field(default=None, description="ISO 8601 recording start (the REC_T=0 anchor).")
-    scanner_id: str
-    scanner_name: str
-    scanner_type: str = Field(
-        ...,
-        description=(
-            "Replay Vision scanner type, e.g. 'monitor' / 'classifier' / 'scorer' /"
-            " 'summarizer'. Kept open so new scanner types don't fail signal"
-            " validation."
-        ),
-    )
-    session_id: str
-    start_time: float = Field(
-        ...,
-        description=(
-            "When the issue starts in the recording, in seconds from recording start (the footer's REC_T value)."
-        ),
-    )
-    url: str = Field(..., description="The page the issue happened on (the footer's URL value).")
 
 
 class ResolvedDateRangeResponse(BaseModel):
@@ -2533,35 +2322,6 @@ class SessionEventsItem(BaseModel):
     session_id: str = Field(..., description="Session ID these events belong to")
 
 
-class SessionProblemEventEntry(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    current_url: str | None = None
-    event: str
-    event_type: str | None = None
-    interaction_text: str | None = None
-    timestamp: str
-
-
-class SessionProblemSignalExtra(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    distinct_id: str
-    end_time: str
-    event_history: list[SessionProblemEventEntry] | None = None
-    exported_asset_id: float | None = None
-    problem_type: ProblemType
-    segment_title: str
-    session_active_seconds: float | None = None
-    session_duration: float | None = None
-    session_end_time: str | None = None
-    session_id: str
-    session_start_time: str | None = None
-    start_time: str
-
-
 class SessionPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2612,48 +2372,6 @@ class SessionReplayBlock(BaseModel):
     type: Literal["session_replay"] = "session_replay"
 
 
-class SessionReplaySegment(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    content: str
-    distinct_id: str
-    end_time: str
-    session_id: str
-    start_time: str
-
-
-class SessionSegmentClusterMetrics(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    active_users_in_period: float
-    occurrence_count: float
-    relevant_user_count: float
-
-
-class SessionSegmentClusterSignalExtra(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    actionable: bool
-    label_title: str
-    metrics: SessionSegmentClusterMetrics
-    segments: list[SessionReplaySegment]
-
-
-class SessionSegmentClusterSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: SessionSegmentClusterSignalExtra
-    source_id: str
-    source_product: Literal["session_replay"] = "session_replay"
-    source_type: Literal["session_segment_cluster"] = "session_segment_cluster"
-    weight: float
-
-
 class SharingConfigurationSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2665,135 +2383,6 @@ class SharingConfigurationSettings(BaseModel):
     showInspector: bool | None = None
     theme: Theme | None = None
     whitelabel: bool | None = None
-
-
-class SignalExtraBase(BaseModel):
-    pass
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-
-
-class SignalRemediation(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    agent: str = Field(
-        ...,
-        description=(
-            "Agent-facing guidance: how to investigate (which MCP tools to call) and,"
-            " where the fix lives in the user's codebase, how to apply it. The research"
-            " agent treats this as authoritative — it still investigates and produces"
-            " findings, but follows this instead of starting cold."
-        ),
-    )
-    human: str = Field(
-        ...,
-        description=(
-            "Human-facing fix steps (PostHog UI / alert destinations). Surfaced in the report for the reader."
-        ),
-    )
-    priority: Priority | None = Field(
-        default=None,
-        description=("Suggested report priority; advisory, the research agent may override."),
-    )
-
-
-class SignalReviewerUserInfo(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    email: str
-    first_name: str
-    id: float
-    last_name: str
-    uuid: str
-
-
-class SignalsScoutEvidenceEntry(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    entity_id: str | None = Field(
-        default=None,
-        description=("Optional entity id within that product, e.g. an issue id or session id."),
-    )
-    source_product: str = Field(
-        ...,
-        description=("The product the evidence came from, e.g. 'error_tracking', 'logs', 'session_replay'."),
-    )
-    summary: str = Field(..., description="One-line summary of the evidence the scout used.")
-
-
-class TimeRange(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    date_from: str
-    date_to: str
-
-
-class SignalsScoutSignalExtra(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    confidence: float = Field(
-        ...,
-        description=("Scout's self-reported confidence in [0, 1]. Independent of the top-level `weight`."),
-    )
-    dedupe_keys: list[str] | None = Field(
-        default=None,
-        description="Free-form short keys the harness can use for cross-run dedupe.",
-    )
-    evidence: list[SignalsScoutEvidenceEntry]
-    finding_id: str
-    hypothesis: str | None = None
-    mcp_trace_id: str | None = Field(
-        default=None,
-        description=("Trace id from the LLM analytics span for the scout run, when available."),
-    )
-    scout_run_id: str
-    severity: Severity | None = None
-    skill_name: str
-    skill_version: float
-    tags: list[str] | None = Field(
-        default=None,
-        description=(
-            "Lowercase kebab-case slug tags (e.g. `cost-spike`) categorizing the"
-            " finding. Each scout maintains and evolves its own vocabulary over time;"
-            " the harness normalizes and caps these at emit."
-        ),
-    )
-    task_id: str | None = Field(
-        default=None,
-        description=(
-            "The `tasks.Task` id owning `task_run_id`. Pairs with it to deep-link the"
-            " inbox card to the run in the Tasks UI. Absent on emissions made before"
-            " this linkage was captured."
-        ),
-    )
-    task_run_id: str = Field(
-        ...,
-        description=(
-            "The `tasks.TaskRun` id the scout span ran inside. Join key into the"
-            " `signals_scouts_runs` LLM-analytics view, which is keyed on `task_run_id`"
-            " (the `scout_run_id` bridge row is not)."
-        ),
-    )
-    time_range: TimeRange | None = Field(default=None, description="Optional time window the finding refers to.")
-
-
-class SignalsScoutSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: SignalsScoutSignalExtra
-    remediation: SignalRemediation | None = None
-    source_id: str
-    source_product: Literal["signals_scout"] = "signals_scout"
-    source_type: Literal["cross_source_issue"] = "cross_source_issue"
-    weight: float
 
 
 class SimilarIssue(BaseModel):
@@ -3126,31 +2715,6 @@ class YAxisSettings(BaseModel):
     showGridLines: bool | None = None
     showTicks: bool | None = None
     startAtZero: bool | None = Field(default=None, description="Whether the Y axis should start at zero")
-
-
-class ZendeskTicketSignalExtra(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    created_at: str
-    priority: str | None = None
-    status: str
-    tags: list[str]
-    type: str | None = None
-    url: str
-
-
-class ZendeskTicketSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: ZendeskTicketSignalExtra
-    remediation: SignalRemediation | None = None
-    source_id: str
-    source_product: Literal["zendesk"] = "zendesk"
-    source_type: Literal["ticket"] = "ticket"
-    weight: float
 
 
 class NamedArgs(BaseModel):
@@ -4575,19 +4139,6 @@ class CohortPropertyFilter(BaseModel):
     value: int
 
 
-class ConversationsTicketSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: ConversationsTicketSignalExtra
-    remediation: SignalRemediation | None = None
-    source_id: str
-    source_product: Literal["conversations"] = "conversations"
-    source_type: Literal["ticket"] = "ticket"
-    weight: float
-
-
 class CustomChannelCondition(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4733,32 +4284,6 @@ class EmbeddingDistance(BaseModel):
     result: EmbeddingRecord
 
 
-class EndpointBreakdownLimitExceededSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: EndpointBreakdownLimitExceededSignalExtra
-    remediation: SignalRemediation | None = None
-    source_id: str
-    source_product: Literal["endpoints"] = "endpoints"
-    source_type: Literal["endpoint_breakdown_limit_exceeded"] = "endpoint_breakdown_limit_exceeded"
-    weight: float
-
-
-class EndpointExecutionFailedSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: EndpointExecutionFailedSignalExtra
-    remediation: SignalRemediation | None = None
-    source_id: str
-    source_product: Literal["endpoints"] = "endpoints"
-    source_type: Literal["endpoint_execution_failed"] = "endpoint_execution_failed"
-    weight: float
-
-
 class EndpointsUsageOverviewItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4767,16 +4292,6 @@ class EndpointsUsageOverviewItem(BaseModel):
     key: EndpointsUsageOverviewItemKey
     previous: float | None = None
     value: float | None = None
-
-
-class EnrichedReviewer(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    github_login: str
-    github_name: str | None = None
-    relevant_commits: list[RelevantCommit]
-    user: SignalReviewerUserInfo | None = None
 
 
 class ErrorTrackingExternalReferenceIntegration(BaseModel):
@@ -4824,19 +4339,6 @@ class ErrorTrackingPendingFingerprintIssueStateUpdate(BaseModel):
         ...,
         description=("Client-stamped monotonic version (`Date.now()` ms at mutation success)."),
     )
-
-
-class ErrorTrackingSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: ErrorTrackingSignalExtra
-    remediation: SignalRemediation | None = None
-    source_id: str
-    source_product: Literal["error_tracking"] = "error_tracking"
-    source_type: SourceType
-    weight: float
 
 
 class EventMetadataPropertyFilter(BaseModel):
@@ -4955,43 +4457,6 @@ class ExperimentApiEventSource(BaseModel):
     properties: list[EventPropertyFilter] | None = Field(
         default=None,
         description="Event property filters to narrow which events are counted.",
-    )
-
-
-class ExperimentApiExposureConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    event: str | None = Field(
-        default=None,
-        description=("Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."),
-    )
-    id: int | None = Field(default=None, description="Action ID. Required when kind is 'ActionsNode'.")
-    kind: Kind1 | None = Field(
-        default=None,
-        description=(
-            "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure."
-        ),
-    )
-    properties: list[EventPropertyFilter] = Field(
-        ...,
-        description="Event property filters. Pass an empty array if no filters needed.",
-    )
-
-
-class ExperimentApiExposureCriteria(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    exposure_config: ExperimentApiExposureConfig | None = None
-    filterTestAccounts: bool | None = None
-    multiple_variant_handling: MultipleVariantHandling | None = Field(
-        default=None,
-        description=(
-            "How to handle entities exposed to multiple variants. 'exclude' (default)"
-            " drops them from the analysis; 'first_seen' assigns them to the variant"
-            " from their earliest exposure."
-        ),
     )
 
 
@@ -5374,19 +4839,6 @@ class FunnelsFilterLegacy(BaseModel):
     layout: FunnelLayout | None = None
 
 
-class GithubIssueSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: GithubIssueSignalExtra
-    remediation: SignalRemediation | None = None
-    source_id: str
-    source_product: Literal["github"] = "github"
-    source_type: Literal["issue"] = "issue"
-    weight: float
-
-
 class GroupPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5398,19 +4850,6 @@ class GroupPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["group"] = "group"
     value: list[str | float | bool] | str | float | bool | None = None
-
-
-class HealthCheckSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: HealthCheckSignalExtra
-    remediation: SignalRemediation | None = None
-    source_id: str
-    source_product: Literal["health_checks"] = "health_checks"
-    source_type: Literal["health_issue"] = "health_issue"
-    weight: float
 
 
 class HeatmapSettings(BaseModel):
@@ -5649,45 +5088,6 @@ class LifecycleFilterLegacy(BaseModel):
     toggledLifecycles: list[LifecycleToggle] | None = None
 
 
-class LinearIssueSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: LinearIssueSignalExtra
-    remediation: SignalRemediation | None = None
-    source_id: str
-    source_product: Literal["linear"] = "linear"
-    source_type: Literal["issue"] = "issue"
-    weight: float
-
-
-class LlmEvaluationReportSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: LlmEvalReportSignalExtra
-    remediation: SignalRemediation | None = None
-    source_id: str
-    source_product: Literal["llm_analytics"] = "llm_analytics"
-    source_type: Literal["evaluation_report"] = "evaluation_report"
-    weight: float
-
-
-class LlmEvaluationSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: LlmEvalSignalExtra
-    remediation: SignalRemediation | None = None
-    source_id: str
-    source_product: Literal["llm_analytics"] = "llm_analytics"
-    source_type: Literal["evaluation"] = "evaluation"
-    weight: float
-
-
 class LogEntryPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5744,19 +5144,6 @@ class LogValueResult(BaseModel):
     )
     id: str
     name: str
-
-
-class LogsAlertStateChangeSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: LogsAlertStateChangeSignalExtra
-    remediation: SignalRemediation | None = None
-    source_id: str
-    source_product: Literal["logs"] = "logs"
-    source_type: Literal["alert_state_change"] = "alert_state_change"
-    weight: float
 
 
 class MCPHarnessBreakdownItem(BaseModel):
@@ -6077,19 +5464,6 @@ class PersonPropertyFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
-class PgAnalyzeIssueSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: PgAnalyzeIssueSignalExtra
-    remediation: SignalRemediation | None = None
-    source_id: str
-    source_product: Literal["pganalyze"] = "pganalyze"
-    source_type: Literal["issue"] = "issue"
-    weight: float
-
-
 class PlanningStep(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6263,19 +5637,6 @@ class QueryStatusResponse(BaseModel):
         extra="forbid",
     )
     query_status: QueryStatus
-
-
-class ReplayVisionScannerFindingSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: ReplayVisionScannerFindingSignalExtra
-    remediation: SignalRemediation | None = None
-    source_id: str
-    source_product: Literal["replay_vision"] = "replay_vision"
-    source_type: Literal["scanner_finding"] = "scanner_finding"
-    weight: float
 
 
 class ResultCustomization(RootModel[ResultCustomizationByValue | ResultCustomizationByPosition]):
@@ -6894,19 +6255,6 @@ class SessionBatchEventsQueryResponse(BaseModel):
     )
 
 
-class SessionProblemSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: SessionProblemSignalExtra
-    remediation: SignalRemediation | None = None
-    source_id: str
-    source_product: Literal["session_replay"] = "session_replay"
-    source_type: Literal["session_problem"] = "session_problem"
-    weight: float
-
-
 class SessionRecordingType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7052,57 +6400,6 @@ class SessionsTimelineQueryResponse(BaseModel):
             " HogQL queries."
         ),
     )
-
-
-class SignalInput(
-    RootModel[
-        SessionProblemSignalInput
-        | LlmEvaluationSignalInput
-        | LlmEvaluationReportSignalInput
-        | ZendeskTicketSignalInput
-        | GithubIssueSignalInput
-        | LinearIssueSignalInput
-        | ConversationsTicketSignalInput
-        | ErrorTrackingSignalInput
-        | EndpointExecutionFailedSignalInput
-        | EndpointBreakdownLimitExceededSignalInput
-        | PgAnalyzeIssueSignalInput
-        | SignalsScoutSignalInput
-        | LogsAlertStateChangeSignalInput
-        | HealthCheckSignalInput
-        | ReplayVisionScannerFindingSignalInput
-    ]
-):
-    root: (
-        SessionProblemSignalInput
-        | LlmEvaluationSignalInput
-        | LlmEvaluationReportSignalInput
-        | ZendeskTicketSignalInput
-        | GithubIssueSignalInput
-        | LinearIssueSignalInput
-        | ConversationsTicketSignalInput
-        | ErrorTrackingSignalInput
-        | EndpointExecutionFailedSignalInput
-        | EndpointBreakdownLimitExceededSignalInput
-        | PgAnalyzeIssueSignalInput
-        | SignalsScoutSignalInput
-        | LogsAlertStateChangeSignalInput
-        | HealthCheckSignalInput
-        | ReplayVisionScannerFindingSignalInput
-    )
-
-
-class SignalInputBase(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: SignalExtraBase
-    remediation: SignalRemediation | None = None
-    source_id: str
-    source_product: str
-    source_type: str
-    weight: float
 
 
 class SourceFieldFileUploadConfig(BaseModel):
@@ -9926,6 +9223,184 @@ class AssistantTrendsQuery(BaseModel):
     )
     trendsFilter: AssistantTrendsFilter | None = Field(
         default=None, description="Properties specific to the trends insight"
+    )
+
+
+class AssistantWebAnalyticsQueryBase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compareFilter: CompareFilter | None = Field(
+        default=None,
+        description=(
+            "Compare the current period to a prior period. Disabled by default."
+            " Enabling roughly doubles query cost — leave it off unless the user"
+            " explicitly asks for a period-over-period comparison."
+        ),
+    )
+    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = Field(
+        default=None,
+        description=(
+            "Conversion goal — pass an `actionId` (must belong to the current project)"
+            " or a `customEventName`. Adds conversion columns to the response. Disables"
+            " the pre-aggregated fast path — only set when the user explicitly asks"
+            " about a conversion."
+        ),
+    )
+    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+        default=None,
+        description=(
+            "Date range for the query. Defaults to the last 7 days when omitted. Keep"
+            " ranges short — the backend has no upper bound and large windows on the"
+            " slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be"
+            " expensive."
+        ),
+    )
+    doPathCleaning: bool | None = Field(
+        default=False,
+        description="Apply the team's path-cleaning rules to URL-style breakdowns.",
+    )
+    filterTestAccounts: bool | None = Field(
+        default=False,
+        description=("Exclude internal and test users by applying the team's test-account filter."),
+    )
+    properties: (
+        list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter] | None
+    ) = Field(
+        default=[],
+        description=("Property filters applied to the query. Accepts event, person, session, or cohort filters."),
+    )
+
+
+class AssistantWebOverviewQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compareFilter: CompareFilter | None = Field(
+        default=None,
+        description=(
+            "Compare the current period to a prior period. Disabled by default."
+            " Enabling roughly doubles query cost — leave it off unless the user"
+            " explicitly asks for a period-over-period comparison."
+        ),
+    )
+    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = Field(
+        default=None,
+        description=(
+            "Conversion goal — pass an `actionId` (must belong to the current project)"
+            " or a `customEventName`. Adds conversion columns to the response. Disables"
+            " the pre-aggregated fast path — only set when the user explicitly asks"
+            " about a conversion."
+        ),
+    )
+    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+        default=None,
+        description=(
+            "Date range for the query. Defaults to the last 7 days when omitted. Keep"
+            " ranges short — the backend has no upper bound and large windows on the"
+            " slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be"
+            " expensive."
+        ),
+    )
+    doPathCleaning: bool | None = Field(
+        default=False,
+        description="Apply the team's path-cleaning rules to URL-style breakdowns.",
+    )
+    filterTestAccounts: bool | None = Field(
+        default=False,
+        description=("Exclude internal and test users by applying the team's test-account filter."),
+    )
+    kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
+    properties: (
+        list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter] | None
+    ) = Field(
+        default=[],
+        description=("Property filters applied to the query. Accepts event, person, session, or cohort filters."),
+    )
+
+
+class AssistantWebStatsTableQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdownBy: WebStatsBreakdown = Field(
+        ...,
+        description=(
+            "Required. Property to break down the table by. The full enum covers"
+            " path-style (`Page`, `InitialPage`, `ExitPage`, `PreviousPage`),"
+            " marketing/source (UTM source/medium/campaign/term/content, channel,"
+            " referring domain), audience/device (browser, OS, device type, viewport),"
+            " and geography (country, region, city, timezone, language). Path-style"
+            " breakdowns pair naturally with `includeBounceRate` /"
+            " `includeAvgTimeOnPage`."
+        ),
+    )
+    compareFilter: CompareFilter | None = Field(
+        default=None,
+        description=(
+            "Compare the current period to a prior period. Disabled by default."
+            " Enabling roughly doubles query cost — leave it off unless the user"
+            " explicitly asks for a period-over-period comparison."
+        ),
+    )
+    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = Field(
+        default=None,
+        description=(
+            "Conversion goal — pass an `actionId` (must belong to the current project)"
+            " or a `customEventName`. Adds conversion columns to the response. Disables"
+            " the pre-aggregated fast path — only set when the user explicitly asks"
+            " about a conversion."
+        ),
+    )
+    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+        default=None,
+        description=(
+            "Date range for the query. Defaults to the last 7 days when omitted. Keep"
+            " ranges short — the backend has no upper bound and large windows on the"
+            " slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be"
+            " expensive."
+        ),
+    )
+    doPathCleaning: bool | None = Field(
+        default=False,
+        description="Apply the team's path-cleaning rules to URL-style breakdowns.",
+    )
+    filterTestAccounts: bool | None = Field(
+        default=False,
+        description=("Exclude internal and test users by applying the team's test-account filter."),
+    )
+    includeAvgTimeOnPage: bool | None = Field(
+        default=False,
+        description=(
+            "Add an average-time-on-page column. Implies a Page-style breakdown. Disables the pre-aggregated fast path."
+        ),
+    )
+    includeBounceRate: bool | None = Field(
+        default=False,
+        description=("Add a bounce-rate column. Most useful with a path-style breakdown."),
+    )
+    includeHost: bool | None = Field(
+        default=False,
+        description=(
+            "When using a path-style breakdown (`Page`, `InitialPage`, `ExitPage`,"
+            " `PreviousPage`), concatenate host + pathname so the same path on"
+            " different hosts is counted separately."
+        ),
+    )
+    kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
+    limit: conint(ge=1) | None = Field(
+        default=None,
+        description=(
+            "Maximum rows to return. Prefer 10–25 unless the user explicitly asks for"
+            " more. Hard ceiling enforced at the wrapper."
+        ),
+    )
+    offset: conint(ge=0) | None = Field(default=None, description="Pagination offset.")
+    properties: (
+        list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter] | None
+    ) = Field(
+        default=[],
+        description=("Property filters applied to the query. Accepts event, person, session, or cohort filters."),
     )
 
 
@@ -13828,6 +13303,14 @@ class DashboardFilter(BaseModel):
     date_from: str | None = None
     date_to: str | None = None
     explicitDate: bool | None = None
+    filterTestAccounts: bool | None = Field(
+        default=None,
+        description=("Tri-state test-account override. Null/absent = inherit; true = force on; false = force off."),
+    )
+    interval: IntervalType | None = Field(
+        default=None,
+        description=("Time granularity forced onto every insight that supports one. Absent/null = inherit."),
+    )
     properties: (
         list[
             EventPropertyFilter
@@ -15728,6 +15211,67 @@ class EventsQueryResponse(BaseModel):
             " HogQL execution that contributes to this response — so insights backed by"
             " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
             " HogQL queries."
+        ),
+    )
+
+
+class ExperimentApiExposureConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event: str | None = Field(
+        default=None,
+        description=("Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."),
+    )
+    id: int | None = Field(default=None, description="Action ID. Required when kind is 'ActionsNode'.")
+    kind: Kind1 | None = Field(
+        default=None,
+        description=(
+            "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure."
+        ),
+    )
+    properties: list[
+        EventPropertyFilter
+        | PersonPropertyFilter
+        | PersonMetadataPropertyFilter
+        | ElementPropertyFilter
+        | EventMetadataPropertyFilter
+        | SessionPropertyFilter
+        | CohortPropertyFilter
+        | RecordingPropertyFilter
+        | LogEntryPropertyFilter
+        | GroupPropertyFilter
+        | FeaturePropertyFilter
+        | FlagPropertyFilter
+        | HogQLPropertyFilter
+        | EmptyPropertyFilter
+        | DataWarehousePropertyFilter
+        | DataWarehousePersonPropertyFilter
+        | ErrorTrackingIssueFilter
+        | LogPropertyFilter
+        | SpanPropertyFilter
+        | RevenueAnalyticsPropertyFilter
+        | WorkflowVariablePropertyFilter
+    ] = Field(
+        ...,
+        description=(
+            "Property filters (event, person, and other supported types). Pass an empty array if no filters needed."
+        ),
+    )
+
+
+class ExperimentApiExposureCriteria(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    exposure_config: ExperimentApiExposureConfig | None = None
+    filterTestAccounts: bool | None = None
+    multiple_variant_handling: MultipleVariantHandling | None = Field(
+        default=None,
+        description=(
+            "How to handle entities exposed to multiple variants. 'exclude' (default)"
+            " drops them from the analysis; 'first_seen' assigns them to the variant"
+            " from their earliest exposure."
         ),
     )
 
@@ -21767,6 +21311,8 @@ class TileFilters(BaseModel):
     date_from: str | None = None
     date_to: str | None = None
     explicitDate: bool | None = None
+    filterTestAccounts: bool | None = None
+    interval: IntervalType | None = None
     properties: (
         list[
             EventPropertyFilter

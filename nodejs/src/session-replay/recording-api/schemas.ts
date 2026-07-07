@@ -27,6 +27,7 @@ export const TeamParamsSchema = z.object({
     team_id: positiveIntString('team_id'),
 })
 
+// Mirrored by MAX_RECORDINGS_PER_BULK_DELETE in posthog/session_recordings/session_recording_api.py — keep in sync.
 const MAX_DELETE_SESSION_IDS = 100
 
 // Body schema for delete requests
