@@ -63,8 +63,16 @@ Grid-cadence scheduling math (used by logs; billing will use it too):
 - `advance_next_check_at(...)` — next check time on a fixed cadence grid.
 - `compute_shard_offset_seconds(...)` — spreads checks across a window so they don't stampede.
 
+## Layer 1 — `common/alerting/calendar.py`
+
+Calendar-anchored scheduling math (used by insight alerts):
+
+- `CalendarInterval` + `next_calendar_check_time(...)` — anchors checks to local instants (daily 1am, weekly Monday 3am, monthly 1st 4am) in the team timezone; sub-daily intervals advance from the prior check.
+- `is_weekend(now, tz_name)` — weekend-skip predicate in local time.
+- Quiet hours: window validation (`validate_and_normalize_schedule_restriction`), minute math (`is_local_minute_blocked`, `is_utc_datetime_blocked`), and `scan_next_unblocked_utc(...)` which snaps a candidate past blocked windows (returns None at the step cap; the caller owns the fallback, see `posthog/tasks/alerts/schedule_restriction.py`).
+
 > [!NOTE]
-> Two scheduling models coexist deliberately. **Grid** (this file) is for products that check on a fixed cadence. **Calendar** anchoring (interval enum + quiet hours + weekend skip, used by insight alerts) has not been extracted into `common/alerting/` yet — it still lives in `posthog/tasks/alerts/`. Pick one when you adopt; do not mix.
+> Two scheduling models coexist deliberately. **Grid** (`scheduling.py`) is for products that check on a fixed cadence. **Calendar** (`calendar.py`) anchors to local wall-clock instants with quiet hours and weekend skip. Pick one when you adopt; do not mix.
 
 ## Layer 2 — `posthog/alerting/`
 
@@ -88,6 +96,6 @@ Django-aware glue that the pure layer can't hold:
 
 - A config contract (`AlertConfigLike` Protocol + abstract base model) so new products get the shape for free.
 - A generic Temporal harness with a product registry and two trigger modes: scheduled sweep (grid or calendar) and **push** (`submit_check(product, alert_id, CheckInput)`) for event-driven products.
-- Insight alerts moving onto the shared machine; calendar scheduling extracted into `common/alerting/`.
+- Insight alerts moving onto the shared machine.
 
 When those land, this skill gains the full "register a product and write only an evaluator" walkthrough. Until then, follow the logs pattern above.
