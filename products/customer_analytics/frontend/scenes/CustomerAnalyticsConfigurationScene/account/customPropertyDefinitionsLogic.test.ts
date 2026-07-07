@@ -214,6 +214,20 @@ describe('customPropertyDefinitionsLogic', () => {
             .toMatchValues({ definitions: [] })
     })
 
+    it('treats an already-deleted definition (404) as a successful delete', async () => {
+        useMocks({
+            ...defaultMocks(),
+            delete: { ...defaultMocks().delete, [DEFINITION_URL]: () => [404, { detail: 'Not found.' }] },
+        })
+        mountLogic()
+        await expectLogic(logic).toDispatchActions(['loadDefinitionsSuccess'])
+        // A 404 refreshes the table instead of surfacing a failure toast/exception.
+        await expectLogic(logic, () => logic.actions.deleteDefinition({ id: 'def-1' })).toDispatchActions([
+            'deleteDefinitionFailure',
+            'loadDefinitions',
+        ])
+    })
+
     it('exposes the selected view columns for the pickers', async () => {
         useMocks(defaultMocks())
         mountLogic()

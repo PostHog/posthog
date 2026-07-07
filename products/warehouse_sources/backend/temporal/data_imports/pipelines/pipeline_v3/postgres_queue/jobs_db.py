@@ -49,7 +49,8 @@ TAKEOVER_STALE_THRESHOLD_SECONDS = 6 * 60 * 60
 # Lookback for the queue-freshness probe. Bounds both the probe's cost and the
 # reported age: an unclaimed batch older than this saturates the gauge at the
 # window, which is already far past any sane alert threshold.
-FRESHNESS_WINDOW = "48 hours"
+FRESHNESS_WINDOW_SECONDS = 48 * 60 * 60
+FRESHNESS_WINDOW = f"{FRESHNESS_WINDOW_SECONDS} seconds"
 
 
 def pending_batch_select_columns(status_alias: str) -> str:

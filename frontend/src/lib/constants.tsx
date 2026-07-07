@@ -352,7 +352,6 @@ export const FEATURE_FLAGS = {
     LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT: 'llm-observability-show-input-output', // owner: #team-ai-observability
     LOGS: 'logs', // owner: #team-logs
     LOGS_ALERTING: 'logs-alerting', // owner: #team-logs
-    LOGS_FACET_RAIL: 'logs-facet-rail', // owner: #team-logs
     LOGS_GROUP_BY: 'logs-group-by', // owner: #team-logs
     LOGS_PATTERNS_VIEW: 'logs-patterns-view', // owner: #team-logs
     LOGS_SAVED_VIEWS: 'logs-saved-views', // owner: #team-logs
@@ -461,6 +460,7 @@ export const FEATURE_FLAGS = {
     REPLAY_VIDEO_BASED_SUMMARIZATION: 'replay-video-based-summarization', // owner: #team-replay
     REPLAY_VISION: 'replay-vision', // owner: #team-replay
     REPLAY_VISION_ACTIONS: 'replay-vision-actions', // owner: #team-replay
+    REVAMPED_PY_NOTEBOOKS: 'revamped-py-notebooks', // owner: #team-data-tools
     REVENUE_ANALYTICS: 'revenue-analytics', // owner: @rafaeelaudibert #team-customer-analytics
     REVENUE_FIELDS_IN_POWER_USERS_TABLE: 'revenue-fields-in-power-users-table', // owner: @arthurdedeus #team-customer-analytics
     SCENE_MENU_BAR: 'scene-menu-bar', // owner: @adamleithp #team-platform-ux, gates the per-scene MenuBar above SceneTitleSection
@@ -525,7 +525,6 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_TILE_SKELETONS: 'web-analytics-tile-skeletons', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_TILE_TOGGLES: 'web-analytics-tile-toggles', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_TOOLTIP_COMPARISON_LABELS: 'web-analytics-tooltip-comparison-labels', // owner: @lricoy #team-web-analytics
-    WORKFLOW_EMAIL_ASSETS_UI: 'workflow-email-assets-ui', // owner: #team-workflows
     WORKFLOWS_BATCH_TRIGGERS: 'workflows-batch-triggers', // owner: #team-workflows
     WORKFLOWS_ENGAGEMENT_EVENTS: 'workflows-engagement-events', // owner: #team-workflows
     WORKFLOWS_INTERNAL_EVENT_FILTERS: 'workflows-internal-event-filters', // owner: @haven #team-workflows
