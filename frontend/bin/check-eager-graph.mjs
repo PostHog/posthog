@@ -40,16 +40,28 @@ const ROOTS = [
         // 2026-07-01: 3.75 MiB eager output (2.73 MiB JS + 1.02 MiB eager CSS, 21 chunks).
         // ~15% headroom so routine churn doesn't trip the warn; ratchet down on a split win.
         budgetBytes: 4_500_000,
-        forbidden: ['node_modules/monaco-editor/', 'src/lib/components/ActivityLog/describers'],
+        forbidden: [
+            'node_modules/monaco-editor/',
+            'src/lib/components/ActivityLog/describers',
+            // Inlined hoggie SVGs are huge (up to ~1 MiB each), and one static barrel import
+            // from eager code drags every hoggie used anywhere in the app onto the eager
+            // path. Eager code must use lazyHoggie from lib/brand/hoggies instead.
+            'node_modules/@posthog/brand/dist/generated/hoggies/',
+        ],
     },
     {
         root: 'src/scenes/AuthenticatedShell.tsx',
         label: 'authenticated shell (every logged-in page)',
-        // 2026-07-01: 11.58 MiB eager output (10.85 MiB JS + 0.73 MiB eager CSS, 104 chunks).
-        // Includes ~3.6 MiB of inlined @posthog/brand/hoggies SVGs pulled onto the eager path
-        // by #66238 — a ratchet-down target (make those hog usages lazy / import where rendered).
-        budgetBytes: 13_500_000,
-        forbidden: ['node_modules/monaco-editor/', 'src/lib/components/ActivityLog/describers'],
+        // 2026-07-07: 8.02 MiB eager output after moving all @posthog/brand/hoggies usage in
+        // eager code behind lazyHoggie (lib/brand/hoggies) — the hoggies themselves are now a
+        // forbidden module below. ~15% headroom so routine churn doesn't trip the warn.
+        budgetBytes: 9_700_000,
+        forbidden: [
+            'node_modules/monaco-editor/',
+            'src/lib/components/ActivityLog/describers',
+            // See the entry root's note: hoggies must stay behind lazyHoggie in eager code.
+            'node_modules/@posthog/brand/dist/generated/hoggies/',
+        ],
     },
 ]
 

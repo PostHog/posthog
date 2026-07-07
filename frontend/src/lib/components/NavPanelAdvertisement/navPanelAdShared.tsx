@@ -1,6 +1,6 @@
 import { useActions } from 'kea'
 
-import type { SvgAssetComponent } from '@posthog/brand'
+import type { AssetSvgProps } from '@posthog/brand'
 import { IconX } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -28,8 +28,8 @@ export function isCampaignPayload(value: unknown): value is CampaignPayload {
 }
 
 export interface ProductPushDisplay {
-    /** Hoggie illustration shown in the promo card's hero image */
-    Hoggie: SvgAssetComponent
+    /** Hoggie illustration shown in the promo card's hero image (lazy, via `lazyHoggie`) */
+    Hoggie: React.ComponentType<AssetSvgProps>
     /** Product brand color driving the hero's geometric background */
     accentColor: string
     /** Default promo copy, used when the campaign has no custom reason text */

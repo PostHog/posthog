@@ -1,14 +1,4 @@
 import {
-    HedgehogChartHog,
-    HedgehogConstruction1,
-    HedgehogDirector,
-    HedgehogExperiment,
-    HedgehogMagnifyingGlass,
-    HedgehogReadingIsMagic,
-    HedgehogReporter,
-    HedgehogRoboHog,
-} from '@posthog/brand/hoggies'
-import {
     IconBolt,
     IconBuilding,
     IconClock,
@@ -38,12 +28,22 @@ import {
     IconWarning,
 } from '@posthog/icons'
 
+import { lazyHoggie } from 'lib/brand/hoggies'
 import { ExplorerHog, FeatureFlagHog, MailHog } from 'lib/components/hedgehogs'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { type AvailableOnboardingProducts, type OnboardingProduct } from '~/types'
+
+const HedgehogChartHog = lazyHoggie('HedgehogChartHog')
+const HedgehogConstruction1 = lazyHoggie('HedgehogConstruction1')
+const HedgehogDirector = lazyHoggie('HedgehogDirector')
+const HedgehogExperiment = lazyHoggie('HedgehogExperiment')
+const HedgehogMagnifyingGlass = lazyHoggie('HedgehogMagnifyingGlass')
+const HedgehogReadingIsMagic = lazyHoggie('HedgehogReadingIsMagic')
+const HedgehogReporter = lazyHoggie('HedgehogReporter')
+const HedgehogRoboHog = lazyHoggie('HedgehogRoboHog')
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string; color?: string }>> = {
     IconBolt,

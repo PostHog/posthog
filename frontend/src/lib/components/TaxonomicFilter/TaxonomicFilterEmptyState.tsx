@@ -2,10 +2,10 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import type React from 'react'
 
-import { HedgehogConstruction2 } from '@posthog/brand/hoggies'
 import { IconOpenSidebar, IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { lazyHoggie } from 'lib/brand/hoggies'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -15,6 +15,8 @@ import { urls } from 'scenes/urls'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
+
+const HedgehogConstruction2 = lazyHoggie('HedgehogConstruction2')
 
 function labelFor(key: string, type: TaxonomicFilterGroupType, fallback: string): string {
     return getCoreFilterDefinition(key, type)?.label ?? fallback

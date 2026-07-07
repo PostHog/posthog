@@ -1,11 +1,14 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { HedgehogPhoneCall } from '@posthog/brand/hoggies'
 import { LemonSkeleton } from '@posthog/lemon-ui'
+
+import { lazyHoggie } from 'lib/brand/hoggies'
 
 import { CommentWithReplies } from './Comment'
 import { CommentsLogicProps, commentsLogic } from './commentsLogic'
+
+const HedgehogPhoneCall = lazyHoggie('HedgehogPhoneCall')
 
 export interface CommentsListProps extends CommentsLogicProps {
     noun?: string
