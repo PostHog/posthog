@@ -84,6 +84,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                 <ConversationDisplay
                                     eventProperties={properties}
                                     eventId={getEventId(event)}
+                                    eventName={event.event}
                                     eventTimestamp={event.timestamp}
                                 />
                             </div>
