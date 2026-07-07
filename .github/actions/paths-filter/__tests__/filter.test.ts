@@ -174,7 +174,7 @@ describe('matching tests', () => {
       - '!**/*.md'
     `
 
-    test.each([
+    const cases: [string, string, string, string, boolean][] = [
       ['include matches', backendExceptDocs, 'backend', 'posthog/models.py', true],
       ['second include matches', backendExceptDocs, 'backend', 'products/foo/backend/task.py', true],
       ['exclude vetoes a matched include', backendExceptDocs, 'backend', 'posthog/README.md', false],
@@ -182,11 +182,12 @@ describe('matching tests', () => {
       ['no include matches', backendExceptDocs, 'backend', 'frontend/src/app.tsx', false],
       ['exclude-only matches everything else', everythingExceptDocs, 'any', 'src/app.ts', true],
       ['exclude-only still vetoes', everythingExceptDocs, 'any', 'docs/guide.md', false]
-    ])('%s', (_label, yaml, key, filename, shouldMatch) => {
-      const filter = new Filter(yaml as string)
-      const files = modified([filename as string])
+    ]
+    test.each(cases)('%s', (_label, yaml, key, filename, shouldMatch) => {
+      const filter = new Filter(yaml)
+      const files = modified([filename])
       const match = filter.match(files)
-      expect(match[key as string]).toEqual(shouldMatch ? files : [])
+      expect(match[key]).toEqual(shouldMatch ? files : [])
     })
   })
 })

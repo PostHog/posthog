@@ -24,9 +24,10 @@ interface FilterRuleItem {
   isMatch: (str: string) => boolean // Matches the filename against the positive glob
 }
 
-// A leading '!' negates the pattern, unless it opens an extglob group ('!(...)')
+// picomatch.scan tells a real negation ('!foo/**') from an extglob group ('!(a|b)'),
+// so we let the matching library own that rule rather than re-deriving it by hand.
 function isNegatedPattern(pattern: string): boolean {
-  return pattern.startsWith('!') && pattern.charAt(1) !== '('
+  return picomatch.scan(pattern).negated
 }
 
 function positivePattern(pattern: string): string {
@@ -66,7 +67,9 @@ export class Filter {
   match(files: File[]): FilterResults {
     const result: FilterResults = {}
     for (const [key, patterns] of Object.entries(this.rules)) {
-      result[key] = files.filter(file => this.isMatch(file, patterns))
+      const includes = patterns.filter(rule => !rule.negated)
+      const excludes = patterns.filter(rule => rule.negated)
+      result[key] = files.filter(file => this.isMatch(file, includes, excludes))
     }
     return result
   }
@@ -74,16 +77,12 @@ export class Filter {
   // Positive patterns are includes, OR-ed together; every '!' pattern is an exclude
   // that vetoes a match. A file matches when it hits at least one include (or there
   // are no includes) and hits no exclude.
-  private isMatch(file: File, patterns: FilterRuleItem[]): boolean {
-    const matches = (rule: Readonly<FilterRuleItem>): boolean =>
+  private isMatch(file: File, includes: FilterRuleItem[], excludes: FilterRuleItem[]): boolean {
+    const matches = (rule: FilterRuleItem): boolean =>
       (rule.status === undefined || rule.status.includes(file.status)) && rule.isMatch(file.filename)
 
-    const includes = patterns.filter(rule => !rule.negated)
-    const excludes = patterns.filter(rule => rule.negated)
-
     const included = includes.length === 0 || includes.some(matches)
-    const excluded = excludes.some(matches)
-    return included && !excluded
+    return included && !excludes.some(matches)
   }
 
   private parseFilterItemYaml(item: FilterItemYaml): FilterRuleItem[] {

@@ -36422,9 +36422,10 @@ const picomatch_1 = __importDefault(__nccwpck_require__(8569));
 const MatchOptions = {
     dot: true
 };
-// A leading '!' negates the pattern, unless it opens an extglob group ('!(...)')
+// picomatch.scan tells a real negation ('!foo/**') from an extglob group ('!(a|b)'),
+// so we let the matching library own that rule rather than re-deriving it by hand.
 function isNegatedPattern(pattern) {
-    return pattern.startsWith('!') && pattern.charAt(1) !== '(';
+    return picomatch_1.default.scan(pattern).negated;
 }
 function positivePattern(pattern) {
     return isNegatedPattern(pattern) ? pattern.slice(1) : pattern;
@@ -36453,20 +36454,19 @@ class Filter {
     match(files) {
         const result = {};
         for (const [key, patterns] of Object.entries(this.rules)) {
-            result[key] = files.filter(file => this.isMatch(file, patterns));
+            const includes = patterns.filter(rule => !rule.negated);
+            const excludes = patterns.filter(rule => rule.negated);
+            result[key] = files.filter(file => this.isMatch(file, includes, excludes));
         }
         return result;
     }
     // Positive patterns are includes, OR-ed together; every '!' pattern is an exclude
     // that vetoes a match. A file matches when it hits at least one include (or there
     // are no includes) and hits no exclude.
-    isMatch(file, patterns) {
+    isMatch(file, includes, excludes) {
         const matches = (rule) => (rule.status === undefined || rule.status.includes(file.status)) && rule.isMatch(file.filename);
-        const includes = patterns.filter(rule => !rule.negated);
-        const excludes = patterns.filter(rule => rule.negated);
         const included = includes.length === 0 || includes.some(matches);
-        const excluded = excludes.some(matches);
-        return included && !excluded;
+        return included && !excludes.some(matches);
     }
     parseFilterItemYaml(item) {
         if (Array.isArray(item)) {
