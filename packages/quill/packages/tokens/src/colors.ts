@@ -100,6 +100,13 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
         // list rows): light hsl(70 16% 93%), dark hsl(240 8% 10%), in OKLCH.
         muted: [surface(0.953, 1.28, 'light'), surface(0.209, 1.33, 'dark'), 'bg-muted'],
         'muted-foreground': [oklch(0.446, 0.03, 257), oklch(0.709, 0, 0), 'text-muted-foreground'],
+        // One step quieter than muted-foreground — tertiary meta text (attachment
+        // filenames, reply meta). Derived from muted-foreground so it tracks it.
+        'subtle-foreground': [
+            'color-mix(in oklab, var(--muted-foreground) 80%, transparent)',
+            'color-mix(in oklab, var(--muted-foreground) 80%, transparent)',
+            'text-subtle-foreground',
+        ],
 
         // Chrome — UI furniture surface (toolbars, menubars, nav). Matched to
         // PostHog app's --color-bg-surface-tertiary: light hsl(77 13% 89%),

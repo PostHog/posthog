@@ -16,6 +16,7 @@ from django.utils import timezone
 
 import pydantic
 import structlog
+import posthoganalytics
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.schema import (
@@ -40,6 +41,7 @@ from posthog.utils import str_to_bool
 from products.actions.backend.models.action import Action
 from products.approvals.backend.policies import PolicyEngine
 from products.cohorts.backend.models.cohort import Cohort
+from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
 from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
@@ -73,11 +75,18 @@ from products.notifications.backend.facade.api import (
     TargetType,
     create_notification,
 )
+from products.tasks.backend.facade import api as tasks_facade
 
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 from ee.hogai.context.experiment.format import ExperimentTimeseriesFormatter
 
 logger = structlog.get_logger(__name__)
+
+# Feature flag (in PostHog's internal project) gating which teams auto-open flag-cleanup PRs when an
+# experiment ends. Evaluated as a project-group flag — see _cleanup_pr_flag_enabled.
+EXPERIMENT_CLEANUP_PR_FLAG = "experiment-flag-cleanup-pr"
+# Repository the cleanup PR is opened against. Hardcoded for the dogfood; auto-detection comes later.
+EXPERIMENT_CLEANUP_REPOSITORY = "PostHog/posthog"
 
 DEFAULT_ROLLOUT_PERCENTAGE = 100
 
@@ -515,6 +524,21 @@ class ExperimentService:
                 f"Must be one of: {', '.join(sorted(variant_keys))}"
             )
 
+    # Feature-flag config keys that belong on the linked FeatureFlag (the source of truth). They are
+    # accepted as create/update input to build/sync the flag, projected back into the deprecated
+    # `parameters` API field at read time (see ExperimentBaseSerializer), but never persisted into
+    # the `parameters` column.
+    FEATURE_FLAG_CONFIG_KEYS = ("feature_flag_variants", "rollout_percentage", "aggregation_group_type_index")
+
+    @classmethod
+    def _strip_feature_flag_config(cls, parameters: dict | None) -> dict | None:
+        """Return ``parameters`` without the feature-flag config keys, so they are not stored in the
+        deprecated column. Callers consume those keys earlier to build/sync the flag; reads
+        re-derive them from it. Returns a new dict, leaving the caller's input untouched."""
+        if not parameters:
+            return parameters
+        return {k: v for k, v in parameters.items() if k not in cls.FEATURE_FLAG_CONFIG_KEYS}
+
     @staticmethod
     def _variant_keys(variants: list | None) -> list[str]:
         """Extract variant keys from a feature_flag_variants list, skipping malformed entries."""
@@ -855,7 +879,9 @@ class ExperimentService:
             "name": name,
             "description": description,
             "type": type,
-            "parameters": parameters,
+            # Feature-flag config was already consumed by _ensure_feature_flag above; strip it so it
+            # lives only on the flag, not mirrored into the deprecated `parameters` column.
+            "parameters": self._strip_feature_flag_config(parameters),
             "running_time_calculation": running_time_calculation,
             "excluded_variants": excluded_variants,
             "metrics": metrics if metrics is not None else [],
@@ -888,15 +914,40 @@ class ExperimentService:
             self._sync_saved_metrics(experiment, saved_metrics_ids, serializer_context)
 
         self._validate_metric_ordering_on_create(experiment)
-        self._report_experiment_created(
-            experiment,
-            serializer_context=serializer_context,
-            event_source=event_source,
-            allow_unknown_events=allow_unknown_events,
-            creation_mode=creation_mode,
+        # Defer the analytics capture until after commit so create_experiment's @transaction.atomic
+        # doesn't hold posthog_experiment / posthog_filesystem locks open across an external SDK call.
+        transaction.on_commit(
+            lambda: self._report_experiment_created_safe(
+                experiment,
+                serializer_context=serializer_context,
+                event_source=event_source,
+                allow_unknown_events=allow_unknown_events,
+                creation_mode=creation_mode,
+            )
         )
 
         return experiment
+
+    def _report_experiment_created_safe(
+        self,
+        experiment: Experiment,
+        *,
+        serializer_context: dict | None,
+        event_source: EventSource | None,
+        allow_unknown_events: bool,
+        creation_mode: ExperimentCreationMode,
+    ) -> None:
+        # Post-commit: the experiment is already persisted, so analytics failures must not break the request.
+        try:
+            self._report_experiment_created(
+                experiment,
+                serializer_context=serializer_context,
+                event_source=event_source,
+                allow_unknown_events=allow_unknown_events,
+                creation_mode=creation_mode,
+            )
+        except Exception:
+            logger.exception("experiment_created_analytics_failed", experiment_id=experiment.id)
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -1648,6 +1699,7 @@ class ExperimentService:
         *,
         conclusion: str | None = None,
         conclusion_comment: str | None = None,
+        open_cleanup_pr: bool = False,
         request: Any | None = None,
     ) -> Experiment:
         """End a running experiment: set end_date and mark as stopped.
@@ -1666,16 +1718,84 @@ class ExperimentService:
         experiment.conclusion_comment = conclusion_comment
         experiment.save()
 
-        self._report_experiment_ended(experiment, request=request)
+        self._report_experiment_ended(experiment, request=request, open_cleanup_pr=open_cleanup_pr)
 
         return experiment
+
+    def _cleanup_pr_flag_enabled(self) -> bool:
+        # Our backend's posthoganalytics client points at PostHog's own internal project, so we gate a
+        # customer team by passing it as the "project" group and targeting that group's id on the flag.
+        # Local eval keeps this off the request's hot path (definitions refresh on a short poll).
+        return bool(
+            posthoganalytics.feature_enabled(
+                EXPERIMENT_CLEANUP_PR_FLAG,
+                str(self.team.id),
+                groups={"project": str(self.team.id)},
+                group_properties={"project": {"id": str(self.team.id)}},
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        )
+
+    def _maybe_open_cleanup_pr(self, experiment: Experiment, open_cleanup_pr: bool) -> None:
+        """When opted in (the checkbox) and the team's gate flag is on, open a draft PR that removes the
+        experiment's feature-flag code, via the Tasks engine.
+
+        Deferred to after commit (so a rolled-back end never opens a PR) and wrapped so it can never
+        break ending an experiment.
+        """
+        try:
+            conclusion = experiment.conclusion or ""
+            if not open_cleanup_pr or not conclusion or not self._cleanup_pr_flag_enabled():
+                return
+
+            flag_key = experiment.get_feature_flag_key()
+            plan = cleanup_plan(conclusion, experiment.feature_flag.variants or [])
+            title, description = build_cleanup_prompt(experiment, flag_key, plan)
+            team = experiment.team
+            user_id = self.user.id
+            experiment_id = experiment.id
+
+            def _open() -> None:
+                try:
+                    tasks_facade.create_and_run_task(
+                        team=team,
+                        title=title,
+                        description=description,
+                        origin_product=tasks_facade.TaskOriginProduct.EXPERIMENTS,
+                        user_id=user_id,
+                        repository=EXPERIMENT_CLEANUP_REPOSITORY,
+                        create_pr=True,
+                        interaction_origin="experiments",
+                        ai_stage="implementation",
+                    )
+                except Exception:
+                    logger.exception("experiment_cleanup_pr_task_failed", experiment_id=experiment_id)
+
+            transaction.on_commit(_open)
+            logger.info(
+                "experiment_cleanup_pr_requested",
+                experiment_id=experiment.id,
+                team_id=experiment.team_id,
+                flag_key=flag_key,
+                keep_variant=plan.keep_variant,
+                remove_variants=plan.remove_variants,
+                confident=plan.confident,
+            )
+        except Exception:
+            logger.exception("experiment_cleanup_pr_failed", experiment_id=experiment.id)
 
     def _report_experiment_ended(
         self,
         experiment: Experiment,
         *,
         request: Any | None = None,
+        open_cleanup_pr: bool = False,
     ) -> None:
+        # The opt-in cleanup PR doesn't depend on the request — run it before the request-gated
+        # analytics below so it behaves the same regardless of call context.
+        self._maybe_open_cleanup_pr(experiment, open_cleanup_pr)
+
         if request is None:
             return
 
@@ -1823,6 +1943,7 @@ class ExperimentService:
         release_to_everyone: bool = False,
         conclusion: str | None = None,
         conclusion_comment: str | None = None,
+        open_cleanup_pr: bool = False,
         request: Any,
     ) -> Experiment:
         """Ship a variant and (optionally) end the experiment.
@@ -1900,7 +2021,7 @@ class ExperimentService:
             experiment, variant_key=variant_key, release_to_everyone=release_to_everyone, request=request
         )
         if was_running:
-            self._report_experiment_ended(experiment, request=request)
+            self._report_experiment_ended(experiment, request=request, open_cleanup_pr=open_cleanup_pr)
 
         return experiment
 
@@ -2249,6 +2370,10 @@ class ExperimentService:
             feature_flag.save()
 
         # --- apply changes and save ----------------------------------------
+        # Feature-flag config was already synced to the flag above; strip it so it is not mirrored
+        # into the deprecated `parameters` column. Reads re-derive it from the flag.
+        if update_data.get("parameters") is not None:
+            update_data["parameters"] = self._strip_feature_flag_config(update_data["parameters"])
         for attr, value in update_data.items():
             setattr(experiment, attr, value)
         experiment.save()

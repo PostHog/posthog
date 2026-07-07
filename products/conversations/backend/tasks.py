@@ -19,11 +19,12 @@ import requests
 import structlog
 from celery import shared_task
 
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.comment import Comment as CommentModel
+from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.team import Team
 from posthog.models.uploaded_media import UploadedMedia
-from posthog.rate_limiting.github_observability import record_github_api_response
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage import object_storage
 
@@ -92,7 +93,6 @@ SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS = 6 * 60
 SUPPORTHOG_EVENT_IDEMPOTENCY_KEY_PREFIX = "supporthog:slack:event:"
 SUPPORTHOG_TEAMS_EVENT_IDEMPOTENCY_KEY_PREFIX = "supporthog:teams:event:"
 SUPPORTHOG_GITHUB_EVENT_IDEMPOTENCY_KEY_PREFIX = "supporthog:github:event:"
-GITHUB_API_VERSION = "2022-11-28"
 
 
 def _is_duplicate_supporthog_event(event_id: str) -> bool:
@@ -1545,6 +1545,8 @@ def _get_or_create_github_ticket(team: Team, repo: str, issue_number: int, paylo
                 github_repo=repo,
                 github_issue_number=issue_number,
                 unread_team_count=0,
+                # Created from a signature-validated GitHub webhook — platform-attested identity.
+                identity_verified=True,
             )
 
             if title:
@@ -1765,7 +1767,12 @@ def post_reply_to_github(
         logger.warning("github_reply_missing_issue_info", ticket_id=ticket_id)
         return
 
-    github = GitHubIntegration.first_for_team_repository(team_id, ticket.github_repo)
+    try:
+        github = GitHubIntegration.first_for_team_repository(team_id, ticket.github_repo, source="conversations")
+    except GitHubRateLimitError as e:
+        # The access probe hit GitHub's limit — retry the reply later rather than dropping it.
+        logger.warning("github_reply_rate_limited", ticket_id=ticket_id)
+        raise cast(Any, post_reply_to_github).retry(exc=e, countdown=min(e.retry_after or 60, 600))
     if not github:
         logger.warning("github_reply_no_integration", team_id=team_id, repo=ticket.github_repo)
         return
@@ -1778,21 +1785,13 @@ def post_reply_to_github(
     if author_name:
         reply_text = f"**{author_name}** replied:\n\n{reply_text}"
 
-    access_token = github.get_access_token()
-    url = f"https://api.github.com/repos/{ticket.github_repo}/issues/{ticket.github_issue_number}/comments"
-
     try:
-        resp = requests.post(
-            url,
-            json={"body": reply_text},
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": GITHUB_API_VERSION,
-            },
+        resp = github.api_request(
+            "POST",
+            f"/repos/{ticket.github_repo}/issues/{ticket.github_issue_number}/comments",
+            json_body={"body": reply_text},
             timeout=15,
         )
-        record_github_api_response(resp, source="conversations", installation_id=github.github_installation_id)
         if resp.status_code not in (200, 201):
             logger.warning(
                 "github_reply_post_failed",
@@ -1815,7 +1814,10 @@ def post_reply_to_github(
             )
 
         logger.info("github_reply_posted", ticket_id=ticket_id, repo=ticket.github_repo)
-    except requests.RequestException as e:
+    except GitHubRateLimitError as e:
+        logger.warning("github_reply_rate_limited", ticket_id=ticket_id)
+        raise cast(Any, post_reply_to_github).retry(exc=e, countdown=min(e.retry_after or 60, 600))
+    except (GitHubIntegrationError, requests.RequestException) as e:
         logger.exception("github_reply_post_error", ticket_id=ticket_id, error=str(e))
         raise cast(Any, post_reply_to_github).retry(exc=e)
 
@@ -1845,32 +1847,17 @@ def create_github_issue(
         logger.warning("github_create_issue_integration_not_found", integration_id=integration_id)
         return None
 
-    github = GitHubIntegration(integration)
-    access_token = github.get_access_token()
+    github = GitHubIntegration(integration, source="conversations")
 
-    json_body: dict[str, Any] = {"title": title, "body": body}
-    if labels:
-        json_body["labels"] = labels
-
-    url = f"https://api.github.com/repos/{repo}/issues"
     try:
-        resp = requests.post(
-            url,
-            json=json_body,
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": GITHUB_API_VERSION,
-            },
-            timeout=15,
-        )
-        record_github_api_response(resp, source="conversations", installation_id=github.github_installation_id)
-        resp.raise_for_status()
-    except requests.RequestException as e:
+        issue_data = github.create_issue({"title": title, "body": body, "repository": repo, "labels": labels})
+    except GitHubRateLimitError as e:
+        logger.warning("github_create_issue_rate_limited", repo=repo)
+        raise cast(Any, create_github_issue).retry(exc=e, countdown=min(e.retry_after or 60, 600))
+    except GitHubIntegrationError as e:
         logger.exception("github_create_issue_failed", repo=repo, error=str(e))
         raise cast(Any, create_github_issue).retry(exc=e)
 
-    issue_data = resp.json()
     issue_number = issue_data.get("number")
 
     ticket = Ticket.objects.create_with_number(
@@ -1882,6 +1869,9 @@ def create_github_issue(
         status=Status.OPEN,
         github_repo=repo,
         github_issue_number=issue_number,
+        # Outbound issue opened by the team — there's no external party whose identity we verified,
+        # so leave it unknown rather than claiming a verification that never happened.
+        identity_verified=None,
     )
 
     CommentModel.objects.create(

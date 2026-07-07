@@ -277,7 +277,7 @@ class TestWebAuthnLogin(APIBaseTest):
         self.assertEqual(me_response.status_code, status.HTTP_401_UNAUTHORIZED)
 
         mock_is_email_available.assert_called_once()
-        mock_send_email_verification.assert_called_once_with(self.user)
+        mock_send_email_verification.assert_called_once_with(self.user, None)
 
     @patch("posthog.auth.verify_passkey_authentication_response")
     def test_login_with_unverified_credential_fails(self, mock_verify):

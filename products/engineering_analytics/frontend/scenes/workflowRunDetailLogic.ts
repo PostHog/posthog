@@ -6,8 +6,13 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { engineeringAnalyticsWorkflowJobs, engineeringAnalyticsWorkflowRun } from '../generated/api'
-import type { WorkflowJobApi, WorkflowRunDetailApi } from '../generated/api.schemas'
+import {
+    engineeringAnalyticsRunFailureLogs,
+    engineeringAnalyticsWorkflowJobs,
+    engineeringAnalyticsWorkflowRun,
+} from '../generated/api'
+import type { RunFailureLogsApi, WorkflowJobApi, WorkflowRunDetailApi } from '../generated/api.schemas'
+import { isDecisiveFailure } from '../lib/lifecycle'
 import { RunCostSummary, summarizeRunCost } from '../lib/runHealth'
 import type { workflowRunDetailLogicType } from './workflowRunDetailLogicType'
 
@@ -38,10 +43,8 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
                     }),
             },
         ],
-        // A single run's jobs — the breakdown the PR view shows on expand. null while not loaded (kea
-        // reducers can't hold undefined), [] when the source isn't synced. Scoped to the run's actual
-        // attempt (loaded first): a rerun's jobs source can lag, and the backend's omitted-attempt fallback
-        // would otherwise show an older attempt's jobs/costs.
+        // null = not loaded, [] = source unsynced. Scoped to the run's actual attempt (loaded first) —
+        // the backend's omitted-attempt fallback would otherwise show an older attempt's jobs/costs.
         jobs: [
             null as WorkflowJobApi[] | null,
             {
@@ -51,6 +54,22 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
                         run_attempt: values.run?.run_attempt ?? undefined,
                         source_id: props.sourceId ?? undefined,
                     }),
+            },
+        ],
+        // Fetched only for a decisively failed run; 'unavailable' = the fetch itself failed.
+        failureLogs: [
+            null as RunFailureLogsApi | 'unavailable' | null,
+            {
+                loadFailureLogs: async (): Promise<RunFailureLogsApi | 'unavailable'> => {
+                    try {
+                        return await engineeringAnalyticsRunFailureLogs(projectId(), {
+                            run_id: props.runId,
+                            source_id: props.sourceId ?? undefined,
+                        })
+                    } catch {
+                        return 'unavailable'
+                    }
+                },
             },
         ],
     })),
@@ -67,10 +86,8 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
     }),
 
     selectors({
-        // Exposed so the scene can preserve `?source=` when linking out to the PR detail.
         sourceId: [() => [(_, p: WorkflowRunDetailLogicProps) => p.sourceId], (sourceId): string | null => sourceId],
-        // The run's own CI cost, summed from the jobs already loaded for the breakdown table — no extra
-        // query. null until jobs load or when nothing on the run is billable. Mirrors the PR page's tile.
+        // Summed from the already-loaded jobs — no extra query.
         runCost: [(s) => [s.jobs], (jobs): RunCostSummary | null => (jobs ? summarizeRunCost(jobs) : null)],
         // A non-numeric path segment yields NaN — the scene shows a clean "not found" instead of a load error.
         isValidRunId: [
@@ -95,14 +112,19 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
         ],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         // Load jobs only once the run is in, so they can be scoped to the run's real attempt.
-        loadRunSuccess: () => actions.loadJobs(),
+        loadRunSuccess: () => {
+            actions.loadJobs()
+            // Failure logs only exist for failed runs — skip the query otherwise.
+            if (isDecisiveFailure(values.run?.conclusion ?? null)) {
+                actions.loadFailureLogs()
+            }
+        },
     })),
 
     afterMount(({ actions, props }) => {
-        // Skip the load for a non-numeric run id (NaN) — it would just 400; the scene renders "not found".
-        // Jobs load on loadRunSuccess (needs the run's attempt first).
+        // A non-numeric run id would just 400; the scene renders "not found" instead.
         if (Number.isFinite(props.runId)) {
             actions.loadRun()
         }

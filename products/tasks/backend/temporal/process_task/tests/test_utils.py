@@ -37,11 +37,84 @@ class TestRunStateSnapshotPaths(TestCase):
                 {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR},
                 DEFAULT_SANDBOX_WORKING_DIR,
             ),
+            # A disallowed stored path invalidates the snapshot (None) — it must NOT be remapped
+            # to the default: the snapshot's content layout only fits the path it was captured
+            # from. "/tmp" is the legacy default whose re-mount killed the sandbox.
+            (
+                "legacy_tmp_directory_snapshot",
+                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": "/tmp"},
+                None,
+            ),
+            (
+                "unsupported_directory_snapshot_path",
+                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": "/tmp/agent-env"},
+                None,
+            ),
             ("filesystem_snapshot", {"snapshot_kind": "filesystem"}, None),
         ]
     )
     def test_resume_snapshot_mount_path(self, _name: str, state: dict[str, str], expected_path: str | None) -> None:
         assert RunState.model_validate(state).resume_snapshot_mount_path() == expected_path
+
+    @parameterized.expand(
+        [
+            (
+                "directory_workspace_path",
+                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR},
+                True,
+            ),
+            ("directory_no_path", {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY}, True),
+            (
+                "directory_legacy_tmp_path",
+                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": "/tmp"},
+                False,
+            ),
+            ("filesystem", {"snapshot_kind": "filesystem"}, True),
+            ("no_kind", {}, True),
+        ]
+    )
+    def test_resume_snapshot_is_usable(self, _name: str, state: dict[str, str], expected: bool) -> None:
+        assert RunState.model_validate(state).resume_snapshot_is_usable() is expected
+
+    @parameterized.expand(
+        [
+            (
+                "directory_full_triple",
+                {
+                    "snapshot_external_id": "im-dir",
+                    "snapshot_kind": SNAPSHOT_KIND_DIRECTORY,
+                    "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
+                },
+                {
+                    "snapshot_external_id": "im-dir",
+                    "snapshot_kind": SNAPSHOT_KIND_DIRECTORY,
+                    "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
+                },
+            ),
+            (
+                "filesystem_no_mount_path",
+                {"snapshot_external_id": "im-fs", "snapshot_kind": "filesystem"},
+                {"snapshot_external_id": "im-fs", "snapshot_kind": "filesystem"},
+            ),
+            (
+                "legacy_no_kind",
+                {"snapshot_external_id": "im-old"},
+                {"snapshot_external_id": "im-old", "snapshot_kind": "filesystem"},
+            ),
+            (
+                "unusable_directory",
+                {
+                    "snapshot_external_id": "im-dir",
+                    "snapshot_kind": SNAPSHOT_KIND_DIRECTORY,
+                    "snapshot_mount_path": "/tmp",
+                },
+                {},
+            ),
+            ("no_snapshot", {}, {}),
+        ]
+    )
+    def test_resume_snapshot_carry_state(self, _name: str, state: dict[str, str], expected: dict[str, str]) -> None:
+        assert RunState.model_validate(state).resume_snapshot_carry_state() == expected
 
 
 class TestGetSandboxMcpConfigs(TestCase):
@@ -394,6 +467,7 @@ class TestGetGitIdentityEnvVars(TestCase):
         [
             (Task.OriginProduct.ERROR_TRACKING,),
             (Task.OriginProduct.SUPPORT_QUEUE,),
+            (Task.OriginProduct.HOGDESK,),
             (Task.OriginProduct.EVAL_CLUSTERS,),
             (Task.OriginProduct.SESSION_SUMMARIES,),
         ]

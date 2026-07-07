@@ -1,10 +1,11 @@
+import { Message } from 'node-rdkafka'
+
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 
 export interface LibVersionMonitorStepInput {
-    parsedMessage: ParsedMessageData
+    message: Message
 }
 
 /**
@@ -16,9 +17,9 @@ export interface LibVersionMonitorStepInput {
  */
 export function createLibVersionMonitorStep<T extends LibVersionMonitorStepInput>(): ProcessingStep<T, T> {
     return function libVersionMonitorStep(input) {
-        const { parsedMessage } = input
+        const { message } = input
 
-        const libVersion = readLibVersionFromHeaders(parsedMessage.headers)
+        const libVersion = readLibVersionFromHeaders(message.headers)
         const parsedVersion = parseVersion(libVersion)
 
         if (parsedVersion && parsedVersion.major === 1 && parsedVersion.minor < 75) {
@@ -38,7 +39,7 @@ export function createLibVersionMonitorStep<T extends LibVersionMonitorStepInput
     }
 }
 
-function readLibVersionFromHeaders(headers: ParsedMessageData['headers']): string | undefined {
+function readLibVersionFromHeaders(headers: Message['headers']): string | undefined {
     const libVersionHeader = headers?.find((header) => header['lib_version'])?.['lib_version']
     return typeof libVersionHeader === 'string' ? libVersionHeader : libVersionHeader?.toString()
 }

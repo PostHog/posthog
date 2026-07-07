@@ -24,6 +24,9 @@
 //! Every test creates 4-partition topics and deletes the Kafka topic on exit (a leaked high-partition
 //! topic wedges later runs); the S3 e2e also sweeps its per-test S3 prefix on exit.
 
+// Tests seed and assert through `CohortStore` directly — the sanctioned direct-store test surface.
+#![allow(clippy::disallowed_methods)]
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -37,8 +40,8 @@ use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFiltersBuilder, TeamId,
 };
 use cohort_stream_processor::partitions::{
-    run_rebalance_worker, CohortConsumerContext, OffsetTracker, PartitionMirror, PartitionRouter,
-    ShuffleMessage,
+    run_rebalance_worker, CohortConsumerContext, MeteredReceiver, OffsetTracker, PartitionMirror,
+    PartitionRouter, ShuffleMessage,
 };
 use cohort_stream_processor::producer::{
     CaptureSink, CohortMembershipChange, KafkaMembershipSink, MembershipSink, MembershipStatus,
@@ -48,8 +51,21 @@ use cohort_stream_processor::store::durability::{
     run_boot_restore, upload_cadence, CheckpointExporter, CheckpointSweeper, OffsetManifest,
     RestoreSource, S3Uploader,
 };
-use cohort_stream_processor::store::{CohortStore, LeafStateKey, Stage1Key, StoreConfig};
+use cohort_stream_processor::store::{
+    CohortStore, LeafStateKey, OffloadConfig, OffloadMode, Stage1Key, StoreConfig, StoreHandle,
+};
 use cohort_stream_processor::sweep::Sweeper;
+
+fn test_handle(store: &CohortStore) -> StoreHandle {
+    StoreHandle::new(
+        store.clone(),
+        OffloadConfig {
+            mode: OffloadMode::All,
+            event_read_permits: 16,
+            maintenance_permits: 6,
+        },
+    )
+}
 use cohort_stream_processor::workers::{MergeWorkerDeps, Stage1Worker};
 use common_kafka::config::KafkaConfig;
 use common_kafka::kafka_producer::KafkaProduceError;
@@ -234,7 +250,7 @@ fn build_consumer_with_restore(
     let dispatcher = Arc::new(EventDispatcher::new(
         PartitionRouter::new(64),
         Arc::new(OffsetTracker::new()),
-        store,
+        test_handle(&store),
         Arc::new(catalog),
         sink,
         MergeWorkerDeps::capture(),
@@ -1102,10 +1118,11 @@ async fn durable_restart_reopens_live_state_and_fires_a_dormant_left() {
     let far_future = 4_000_000_000_000i64; // ~year 2096, well past every BASE_TS + 7d deadline
     for partition in 0..NUM_PARTITIONS {
         let (tx, rx) = mpsc::channel(4);
+        let rx = MeteredReceiver::unmetered(rx);
         let worker = Stage1Worker::spawn(
             partition as u16,
             rx,
-            store2.clone(),
+            test_handle(&store2),
             catalog.clone(),
             sink.clone(),
             Arc::new(OffsetTracker::new()),
@@ -1190,7 +1207,7 @@ fn build_consumer_with_manifest(
     let dispatcher = Arc::new(EventDispatcher::new(
         PartitionRouter::new(64),
         Arc::new(OffsetTracker::new()),
-        store,
+        test_handle(&store),
         Arc::new(catalog),
         sink,
         MergeWorkerDeps::capture(),
@@ -1377,7 +1394,7 @@ async fn s3_restore_reseeds_state_resumes_at_manifest_offset_and_fires_a_dormant
         let ckpt_dispatcher = Arc::new(EventDispatcher::new(
             PartitionRouter::new(64),
             Arc::new(OffsetTracker::new()),
-            store.clone(),
+            test_handle(&store),
             Arc::new(behavioral_catalog()),
             Arc::new(CaptureSink::new()),
             MergeWorkerDeps::capture(),
@@ -1483,10 +1500,11 @@ async fn s3_restore_reseeds_state_resumes_at_manifest_offset_and_fires_a_dormant
     let far_future = 4_000_000_000_000i64; // ~year 2096, past every BASE_TS + 7d deadline
     for partition in 0..NUM_PARTITIONS {
         let (tx, rx) = mpsc::channel(4);
+        let rx = MeteredReceiver::unmetered(rx);
         let worker = Stage1Worker::spawn(
             partition as u16,
             rx,
-            store2.clone(),
+            test_handle(&store2),
             catalog.clone(),
             left_sink.clone(),
             Arc::new(OffsetTracker::new()),

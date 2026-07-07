@@ -1838,6 +1838,7 @@ email@example.org,
                 filters={"properties": {"type": "OR", "values": values}},
                 cohort_type=CohortType.REALTIME if realtime_backfilled else None,
                 last_backfill_person_properties_at=timezone.now() if realtime_backfilled else None,
+                last_backfill_events_at=timezone.now() if realtime_backfilled else None,
             )
 
         cohorts = {
@@ -2064,6 +2065,7 @@ email@example.org,
             },
             cohort_type=cohort_type,
             last_backfill_person_properties_at=datetime.now() if is_backfilled else None,
+            last_backfill_events_at=datetime.now() if is_backfilled else None,
         )
 
         regular_cohort = Cohort.objects.create(
@@ -2119,6 +2121,7 @@ email@example.org,
             },
             cohort_type=CohortType.REALTIME,
             last_backfill_person_properties_at=datetime.now(),
+            last_backfill_events_at=datetime.now(),
         )
 
         # Parent: non-behavioral cohort that references the leaf

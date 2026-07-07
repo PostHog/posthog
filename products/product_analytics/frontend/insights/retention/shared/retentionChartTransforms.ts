@@ -5,6 +5,7 @@ import type {
     TimeSeriesLineChartConfig,
     TooltipConfig,
     TrendLineConfig,
+    YAxisConfig,
 } from '@posthog/quill-charts'
 
 import { schemaGoalLinesToConfigs } from 'products/product_analytics/frontend/insights/trends/shared/goalLinesAdapter'
@@ -112,7 +113,9 @@ export function buildRetentionLineChartConfig(opts: BuildRetentionChartConfigOpt
     }
 }
 
-export function buildRetentionBarChartConfig(opts: BuildRetentionChartConfigOpts): TimeSeriesBarChartConfig {
+export function buildRetentionBarChartConfig(
+    opts: BuildRetentionChartConfigOpts
+): TimeSeriesBarChartConfig & { yAxis?: YAxisConfig } {
     return {
         yAxis: {
             format: opts.isPercentage ? 'percentage' : 'numeric',
@@ -251,7 +254,7 @@ export interface RetentionChartModel {
     series: Series<RetentionSeriesMeta>[]
     labels: string[]
     lineConfig: TimeSeriesLineChartConfig
-    barConfig: TimeSeriesBarChartConfig
+    barConfig: TimeSeriesBarChartConfig & { yAxis?: YAxisConfig }
     /** Cohort count before the `maxCohorts` cap — lets the host show a truncation notice. */
     totalCohorts: number
 }
