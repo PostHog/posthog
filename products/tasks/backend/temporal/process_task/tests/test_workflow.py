@@ -381,6 +381,23 @@ class TestProcessTaskWorkflowUnit:
             extra={"run_id": "run-id", "sandbox_id": "sandbox-123"},
         )
 
+    async def test_credential_refresh_credentials_unavailable_does_not_mark_sandbox_gone(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        logger = Mock()
+        refresh_loop_mock = AsyncMock(return_value=CredentialRefreshExitReason.CREDENTIALS_UNAVAILABLE)
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", logger)
+        monkeypatch.setattr(process_task_workflow_module, "run_credential_refresh_loop", refresh_loop_mock)
+
+        await workflow._run_credential_refresh_until_sandbox_gone("sandbox-123")
+
+        assert workflow._sandbox_gone is False
+        logger.warning.assert_called_once_with(
+            "credential_refresh_stopped_credentials_unavailable",
+            extra={"run_id": "run-id", "sandbox_id": "sandbox-123"},
+        )
+
     async def test_run_cleans_up_sandbox_when_provisioning_fails_after_creation(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
         get_task_processing_context_mock = AsyncMock(return_value=_build_context(github_integration_id=123))

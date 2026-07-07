@@ -20652,6 +20652,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `focused` - Focused
+     * * `balanced` - Balanced
+     * * `comprehensive` - Comprehensive
+     */
+    export type SamplingModeEnum = typeof SamplingModeEnum[keyof typeof SamplingModeEnum];
+
+
+    export const SamplingModeEnum = {
+      Focused: 'focused',
+      Balanced: 'balanced',
+      Comprehensive: 'comprehensive',
+    } as const;
+
+    /**
      * Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.
      */
     export interface EstimateRequest {
@@ -20663,6 +20677,12 @@ export namespace Schemas {
          * @maximum 1
          */
       sampling_rate?: number;
+      /** Quality pre-filter applied to the matched-session count, mirroring the sweep's candidate query. Defaults to comprehensive (no filter).
+       *
+       * * `focused` - Focused
+       * * `balanced` - Balanced
+       * * `comprehensive` - Comprehensive */
+      sampling_mode?: SamplingModeEnum;
       /**
          * The scanner being edited, excluded from `other_enabled_scanners_monthly` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner.
          * @nullable
@@ -20674,11 +20694,11 @@ export namespace Schemas {
      * Forward-looking observation-volume estimate for a proposed scanner. Pricing-agnostic.
      */
     export interface EstimateResponse {
-      /** Distinct sessions matching the query within the 30-day lookback, before sampling. */
+      /** Distinct sessions matching the query within the 30-day lookback, after the sampling_mode quality filter but before random sampling. */
       matched_sessions_in_window: number;
       /** Lookback window the estimate is based on. Normally 30; smaller when the team has fewer days of recordings. */
       window_days: number;
-      /** Projected monthly observations: matched sessions scaled to 30 days, times sampling_rate. */
+      /** Projected monthly observations: quality-filtered matched sessions scaled to 30 days, times sampling_rate. */
       estimated_observations_per_month: number;
       /** Summed projected monthly observations of the org's other enabled scanners (excluding `scanner_id`), from their cached estimates. Read from the same snapshot as this estimate so the forecast can't double-count the edited scanner. */
       other_enabled_scanners_monthly: number;
@@ -33359,6 +33379,12 @@ export namespace Schemas {
          * @maximum 1
          */
       sampling_rate?: number;
+      /** Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).
+       *
+       * * `focused` - Focused
+       * * `balanced` - Balanced
+       * * `comprehensive` - Comprehensive */
+      sampling_mode?: SamplingModeEnum;
       /** LLM provider. v1 is Google-only.
        *
        * * `google` - Google */
@@ -35014,6 +35040,32 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: TaskDetailDTO[];
+    }
+
+    /**
+     * Response shape for one @-mention of the requester in a task's thread.
+     */
+    export interface TaskMentionDTO {
+      id: string;
+      message_id: string;
+      task_id: string;
+      task_title: string;
+      /** @nullable */
+      channel_id: string | null;
+      /** @nullable */
+      channel_name: string | null;
+      author?: TaskUserBasicInfo | null;
+      content: string;
+      created_at: string;
+    }
+
+    export interface PaginatedTaskMentionDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TaskMentionDTO[];
     }
 
     /**
@@ -41081,6 +41133,12 @@ export namespace Schemas {
          * @maximum 1
          */
       sampling_rate?: number;
+      /** Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).
+       *
+       * * `focused` - Focused
+       * * `balanced` - Balanced
+       * * `comprehensive` - Comprehensive */
+      sampling_mode?: SamplingModeEnum;
       /** LLM provider. v1 is Google-only.
        *
        * * `google` - Google */
@@ -68428,6 +68486,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type TaskMentionsListParams = {
+    /**
+     * Maximum number of mentions to return (newest first).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Only return mentions created after this ISO 8601 timestamp.
+     */
+    since?: string;
     };
 
     export type TasksListParams = {

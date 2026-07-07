@@ -14,7 +14,7 @@ import { billingJson } from '~/mocks/fixtures/_billing'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { IntegrationType } from '~/types'
 
-import { onboardingLogic } from '../../../legacy/onboardingLogic'
+import { onboardingLogic } from '../../legacy/onboardingLogic'
 import { activeCloudRunLogic } from './activeCloudRunLogic'
 import { WizardCloudRunBlock } from './WizardCloudRunBlock'
 import { wizardCloudRunLogic } from './wizardCloudRunLogic'
@@ -117,6 +117,10 @@ export default meta
 
 type Story = StoryObj
 
+// The scene mounts asynchronously after navigation, so waits inside play functions need far more
+// than @testing-library's 1s default before CI can be trusted to have rendered the install step.
+const WAIT_OPTIONS = { timeout: 8000, interval: 200 }
+
 // Click a footer/body button by its exact label, waiting for it to mount first.
 async function clickButton(text: string): Promise<void> {
     await waitFor(() => {
@@ -124,7 +128,7 @@ async function clickButton(text: string): Promise<void> {
         if (!btn) {
             throw new Error(`button "${text}" not ready`)
         }
-    })
+    }, WAIT_OPTIONS)
     const btn = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.trim() === text)
     await userEvent.click(btn as Element)
 }
@@ -205,14 +209,14 @@ export const RepoPickerOpen: Story = cloudRunStory({
             if (!document.querySelector('[data-attr="select-github-repository"] input')) {
                 throw new Error('repo picker not ready')
             }
-        })
+        }, WAIT_OPTIONS)
         await userEvent.click(document.querySelector('[data-attr="select-github-repository"] input') as Element)
         // full_name only appears in the open dropdown (nothing is selected), so this confirms it's open.
         await waitFor(() => {
             if (!Array.from(document.querySelectorAll('span')).some((el) => el.textContent === 'acme-co/mobile-app')) {
                 throw new Error('repo options not open')
             }
-        })
+        }, WAIT_OPTIONS)
     },
 })
 
@@ -255,11 +259,11 @@ export const RunItYourself: Story = cloudRunStory({
     waitForSelector: '[data-attr="wizard-command-block"]',
     extraPlay: async () => {
         await waitFor(() => {
-            if (!document.querySelector('[data-attr="context-wizard-mode-local"]')) {
+            if (!document.querySelector('[data-attr="wizard-mode-local"]')) {
                 throw new Error('install-mode toggle not ready')
             }
-        })
-        await userEvent.click(document.querySelector('[data-attr="context-wizard-mode-local"]') as Element)
+        }, WAIT_OPTIONS)
+        await userEvent.click(document.querySelector('[data-attr="wizard-mode-local"]') as Element)
     },
 })
 

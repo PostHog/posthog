@@ -1,6 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { InstallationProgress, InstallationStepStatus } from '../installationProgressLogic'
+import { InstallationProgress, InstallationStepStatus } from './installationProgressLogic'
 import { WizardSyncCard, WizardSyncMode } from './WizardSyncCard'
 
 /**

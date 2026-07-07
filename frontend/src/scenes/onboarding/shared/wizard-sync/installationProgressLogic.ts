@@ -231,6 +231,10 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
         // Once the cloud run is terminal there is nothing left for the session source to enrich, and
         // it has no terminal state of its own to stop on — without this, an undismissed finished run
         // keeps a session stream/poll alive app-wide until the user clicks "Dismiss this run".
+        // CAVEAT: wizardSessionStreamLogic connect/disconnect is NOT refcounted, and the keyed
+        // instance is shared — this disconnect also cuts the transport for any co-mounted consumer
+        // (e.g. the legacy wizardProgressTrackerLogic). Fine today because the run is terminal;
+        // refcount before adding consumers that must outlive a finishing cloud run.
         taskRunStreamCompleted: () => {
             if (props.mode === 'cloud') {
                 actions.disconnectSession()

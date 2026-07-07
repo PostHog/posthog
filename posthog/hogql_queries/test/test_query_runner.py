@@ -42,10 +42,11 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import QueryError, ResolutionError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
+from posthog.errors import ExposedCHQueryError
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import (
@@ -628,6 +629,23 @@ class TestQueryRunner(BaseTest):
                 SloOutcome.SUCCESS,
                 "user_error",
                 False,
+            ),
+            (
+                # ClickHouse-raised user-safe error (code 60 = UNKNOWN_TABLE), e.g. a query
+                # referencing a deleted warehouse table — must not reach error tracking.
+                "user_facing_ch_query_error",
+                lambda: ExposedCHQueryError("Unknown table ae_event_people", code=60),
+                SloOutcome.SUCCESS,
+                "user_error",
+                False,
+            ),
+            (
+                # Internal (non-exposed) HogQL errors are server faults and must stay captured.
+                "internal_hogql_resolution_error",
+                lambda: ResolutionError("Unable to resolve field: ae_event_people"),
+                SloOutcome.FAILURE,
+                "error",
+                True,
             ),
             ("unclassified_value_error", ValueError, SloOutcome.FAILURE, "error", True),
         ]

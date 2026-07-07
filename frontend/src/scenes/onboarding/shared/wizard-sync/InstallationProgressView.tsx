@@ -65,7 +65,7 @@ export function InstallationProgressContent({
                 ? "Review it whenever you like; we'll keep CI green in the meantime."
                 : phase === 'connecting'
                   ? 'Getting things ready…'
-                  : 'Working on it — feel free to keep going.'
+                  : 'Working on it. Feel free to keep going.'
 
     return (
         <div
@@ -77,7 +77,9 @@ export function InstallationProgressContent({
                     <h4 className={cn('font-semibold m-0', phase === 'error' && 'text-danger')}>{headline}</h4>
                     <p className="text-sm text-muted m-0">{subtitle}</p>
                 </div>
-                {onDismiss && (
+                {/* Dismiss only once the run is settled — mid-run, hiding the only progress surface
+                    (the FAB is suppressed while this panel is mounted) would orphan a live run. */}
+                {onDismiss && (phase === 'completed' || phase === 'error') && (
                     <LemonButton
                         size="small"
                         icon={<IconX />}
@@ -139,7 +141,7 @@ export function InstallationProgressContent({
 
             {prUrl && (
                 <LemonButton type="primary" to={prUrl} targetBlank icon={<IconPullRequest />} center>
-                    Review pull request
+                    Review PR
                 </LemonButton>
             )}
         </div>
