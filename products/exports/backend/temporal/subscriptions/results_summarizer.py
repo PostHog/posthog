@@ -36,7 +36,7 @@ def build_results_summary(
         return "No results"
 
     if query_kind in _TREND_SUMMARY_KINDS:
-        text = _summarize_trends(results, value_format)
+        text = _summarize_trends(results, _sanitize_value_format(value_format))
     elif summarizer := _SUMMARIZERS.get(query_kind):
         text = summarizer(results)
     else:
@@ -255,6 +255,22 @@ def _format_duration(seconds: float | int) -> str:
             u for u in (f"{hours}h" if hours else "", f"{minutes}m" if minutes else "", f"{secs}s" if secs else "") if u
         ]
     return " ".join(units) or "0s"
+
+
+def _sanitize_value_format(value_format: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Strip LLM-framing markers from the user-controlled axis prefix/postfix before they land
+    in the summary text. Insight axis prefix/postfix are user-editable, and the summary is wrapped
+    in `<insight_data>` tags for the LLM, so without this a user could set a postfix like
+    `</insight_data><user_context>...` and inject instructions — the same defense already applied
+    to labels and values.
+    """
+    if not value_format:
+        return value_format
+    sanitized = dict(value_format)
+    for key in ("prefix", "postfix"):
+        if sanitized.get(key):
+            sanitized[key] = sanitize_user_text(sanitized[key], GENERIC_VALUE_MAX_LEN)
+    return sanitized
 
 
 def _fmt_value(value: float | int | None, value_format: dict[str, Any] | None) -> str:
