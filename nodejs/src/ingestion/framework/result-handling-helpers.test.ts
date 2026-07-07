@@ -5,7 +5,6 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import {
     logDroppedMessage,
     produceMessageToDLQ,
@@ -17,17 +16,8 @@ import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outpu
 jest.mock('~/common/utils/logger')
 jest.mock('~/common/utils/posthog')
 
-jest.mock('~/ingestion/common/ingestion-warnings', () => {
-    const actual = jest.requireActual('~/ingestion/common/ingestion-warnings')
-    return {
-        ...actual,
-        emitIngestionWarning: jest.fn(),
-    }
-})
-
 const mockLogger = logger as jest.Mocked<typeof logger>
 const mockCaptureException = captureException as jest.MockedFunction<typeof captureException>
-const mockEmitIngestionWarning = emitIngestionWarning as jest.MockedFunction<typeof emitIngestionWarning>
 
 describe('produceMessageToDLQ', () => {
     let mockOutputs: jest.Mocked<IngestionOutputs<'dlq' | 'ingestion_warnings'>>
@@ -69,8 +59,6 @@ describe('produceMessageToDLQ', () => {
             error: 'Test error',
         })
 
-        expect(mockEmitIngestionWarning).not.toHaveBeenCalled()
-
         expect(mockOutputs.produce).toHaveBeenCalledWith(DLQ_OUTPUT, {
             value: mockMessage.value,
             key: mockMessage.key,
@@ -102,8 +90,6 @@ describe('produceMessageToDLQ', () => {
             event: undefined,
             error: 'Test error',
         })
-
-        expect(mockEmitIngestionWarning).not.toHaveBeenCalled()
     })
 
     it('should handle different header value types', async () => {
