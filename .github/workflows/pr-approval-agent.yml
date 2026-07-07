@@ -135,7 +135,7 @@ jobs:
                     # so pipe to standalone jq. The || guard keeps a transient
                     # lookup failure from aborting the step before the label strip
                     # below (it degrades to posting a fresh comment instead).
-                    EXISTING=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --slurp 2>/dev/null \
+                    EXISTING=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --slurp \
                       | jq "[.[][] | select(.user.login == \"$BOT_LOGIN\" and (.body | startswith(\"$MARKER\")))][0] // empty" \
                       || echo "")
                     COMMENT_ID=""
