@@ -6,6 +6,7 @@ from typing import Optional
 import structlog
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.kafka_client.client import ProduceResult
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_CDP_INTERNAL_EVENTS
 
@@ -59,14 +60,25 @@ def create_internal_event(
     return data
 
 
-def produce_internal_event(team_id: int, event: InternalEventEvent, person: Optional[InternalEventPerson] = None):
+def produce_internal_event(
+    team_id: int, event: InternalEventEvent, person: Optional[InternalEventPerson] = None
+) -> ProduceResult:
     data = create_internal_event(team_id, event, person)
     serialized_data = internal_event_to_dict(data)
     kafka_topic = KAFKA_CDP_INTERNAL_EVENTS
 
     try:
         producer = get_producer(topic=kafka_topic)
-        producer.produce(topic=kafka_topic, data=serialized_data, key=data.event.uuid)
+        return producer.produce(topic=kafka_topic, data=serialized_data, key=data.event.uuid)
     except Exception as e:
         logger.exception("Failed to produce internal event", data=serialized_data, error=e)
         raise
+
+
+def flush_internal_events_producer(timeout: float) -> int:
+    """Block until previously produced internal events are delivered (or `timeout`
+    elapses), returning the number still undelivered. Callers that must not
+    persist "notified" state before delivery use this as a barrier, then check
+    each `ProduceResult` individually — a zero here only means all delivery
+    callbacks have fired, not that they all succeeded."""
+    return get_producer(topic=KAFKA_CDP_INTERNAL_EVENTS).flush(timeout)
