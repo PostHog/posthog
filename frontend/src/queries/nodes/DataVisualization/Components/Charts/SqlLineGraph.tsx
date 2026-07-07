@@ -6,6 +6,7 @@ import { DefaultTooltip, TimeSeriesLineChart, type PointClickData, type TooltipC
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { LineGraphProps } from './LineGraph'
+import { SqlChartAnnotations } from './SqlChartAnnotations'
 import { SqlLineSeriesMeta, buildLineChartConfig, formatSqlSeriesValue } from './sqlLineGraphAdapter'
 import { useSqlChartModel } from './useSqlChartModel'
 
@@ -73,7 +74,9 @@ export const SqlLineGraph = (props: LineGraphProps): JSX.Element => {
                     tooltip={onPointClickProp ? renderTooltip : undefined}
                     onPointClick={onPointClickProp ? onPointClick : undefined}
                     onError={handleChartError}
-                />
+                >
+                    <SqlChartAnnotations {...props} />
+                </TimeSeriesLineChart>
             )}
         </div>
     )

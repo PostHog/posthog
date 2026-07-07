@@ -267,6 +267,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 dashboardId={dashboardId}
                 goalLines={[...alertThresholdLines, ...goalLines]}
                 presetChartHeight={presetChartHeight}
+                insightNumericId={insight?.id}
             />
         )
     } else if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {

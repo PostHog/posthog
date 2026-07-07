@@ -6,6 +6,7 @@ import { TimeSeriesBarChart, type PointClickData } from '@posthog/quill-charts'
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { LineGraphProps } from './LineGraph'
+import { SqlChartAnnotations } from './SqlChartAnnotations'
 import { type SqlLineSeriesMeta, buildBarChartConfig } from './sqlLineGraphAdapter'
 import { useSqlChartModel } from './useSqlChartModel'
 
@@ -38,7 +39,9 @@ export const SqlBarGraph = (props: LineGraphProps): JSX.Element => {
                     config={model.config}
                     onPointClick={onPointClickProp ? onPointClick : undefined}
                     onError={handleChartError}
-                />
+                >
+                    <SqlChartAnnotations {...props} />
+                </TimeSeriesBarChart>
             )}
         </div>
     )
