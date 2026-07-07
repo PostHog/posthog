@@ -1770,6 +1770,9 @@ importers:
       jest-environment-node:
         specifier: ^30.0.0
         version: 30.0.5
+      jest-junit:
+        specifier: ^16.0.0
+        version: 16.0.0
       pino-pretty:
         specifier: ^9.1.0
         version: 9.4.0
