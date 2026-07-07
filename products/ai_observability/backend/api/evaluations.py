@@ -23,20 +23,26 @@ from posthog.models import User
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
+from posthog.temporal.ai_observability.model_resolution import active_key_fallback
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io, run_hog_eval
 
 from ..feature_flags import is_sentiment_evaluations_enabled
+from ..hog import compile_ai_observability_hog
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import (
+    TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
+    TRACE_EVAL_MAX_WINDOW_SECONDS,
+    TRACE_EVAL_MIN_WINDOW_SECONDS,
     EvaluationType,
     OutputType,
     evaluation_supports_reports,
     evaluation_uses_model_configuration,
     get_evaluation_config_content_key,
     validate_evaluation_configs,
+    validate_target_config,
 )
 from ..models.evaluation_reports import EvaluationReport
-from ..models.evaluations import Evaluation, EvaluationStatusReason
+from ..models.evaluations import Evaluation, EvaluationStatusReason, EvaluationTarget
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
 from .metrics import llma_track_latency
@@ -119,6 +125,29 @@ class _OutputConfigField(serializers.JSONField):
     pass
 
 
+@extend_schema_field(
+    {
+        "type": "object",
+        "properties": {
+            "window_seconds": {
+                "type": "integer",
+                "description": (
+                    "For 'trace' target: seconds to wait after the first matching generation before "
+                    "evaluating the whole trace. Captured when the run is scheduled — editing it does not "
+                    "change trace runs already in flight."
+                ),
+                "minimum": TRACE_EVAL_MIN_WINDOW_SECONDS,
+                "maximum": TRACE_EVAL_MAX_WINDOW_SECONDS,
+                "default": TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
+            }
+        },
+        "additionalProperties": False,
+    }
+)
+class _TargetConfigField(serializers.JSONField):
+    pass
+
+
 class ModelConfigurationSerializer(serializers.Serializer):
     """Nested serializer for model configuration."""
 
@@ -184,6 +213,10 @@ class EvaluationSerializer(serializers.ModelSerializer):
         required=False,
         help_text="Output config. For 'boolean' output_type: {allows_na} to permit N/A results.",
     )
+    target_config = _TargetConfigField(
+        required=False,
+        help_text="Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'.",
+    )
     conditions = EvaluationConditionSerializer(
         many=True,
         required=False,
@@ -209,6 +242,8 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "output_type",
             "output_config",
             "conditions",
+            "target",
+            "target_config",
             "model_configuration",
             "created_at",
             "updated_at",
@@ -239,6 +274,15 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "output_type": {
                 "help_text": (
                     "Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis."
+                )
+            },
+            "target": {
+                "help_text": (
+                    "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event "
+                    "individually. 'trace' evaluates the whole trace once: the first matching generation schedules "
+                    "a run that waits for the trace to settle, then evaluates all of its events together. "
+                    "Condition filters still match individual generations — a trace is evaluated when any of its "
+                    "generations matches, and sampling applies per trace."
                 )
             },
             "deleted": {"help_text": "Set to true to soft-delete the evaluation."},
@@ -284,6 +328,29 @@ class EvaluationSerializer(serializers.ModelSerializer):
                 )
             except ValueError as e:
                 raise serializers.ValidationError({"config": str(e)})
+
+        # Sentiment is addressed per-message within one generation event ($ai_target_event_id +
+        # message index). A trace target emits a single evaluation event for the whole trace, where
+        # the message index is ambiguous and that per-generation linkage is absent. Trace-level
+        # sentiment is already produced by aggregating generation-target sentiment evals at read time.
+        effective_target = data.get("target") or getattr(self.instance, "target", None) or EvaluationTarget.GENERATION
+        if evaluation_type == EvaluationType.SENTIMENT.value and effective_target == EvaluationTarget.TRACE.value:
+            raise serializers.ValidationError(
+                {"target": "Sentiment evaluations can't target a whole trace. Use the 'generation' target."}
+            )
+
+        # Validate target_config against the effective target (request value, else the stored one).
+        # Surfaces a clean field error for an out-of-range window; the model's save() re-runs this
+        # so untouched requests still get normalized.
+        if "target" in data or "target_config" in data:
+            target = data.get("target") or getattr(self.instance, "target", None) or "generation"
+            config = data.get("target_config")
+            if config is None:
+                config = getattr(self.instance, "target_config", {})
+            try:
+                data["target_config"] = validate_target_config(target, config or {})
+            except ValueError as e:
+                raise serializers.ValidationError({"target_config": str(e)})
 
         # Guard re-enable transitions: if the eval is currently disabled and the caller is flipping
         # `enabled=True`, make sure whatever caused the disabled state has actually been resolved.
@@ -397,18 +464,21 @@ class EvaluationSerializer(serializers.ModelSerializer):
 
     def _effective_provider_key(self, data: dict) -> LLMProviderKey | None:
         """Return the provider key the evaluation will use after this update."""
+        team = self.context["get_team"]()
         model_config_data = data.get("model_configuration")
         if model_config_data is not None:
             provider_key_id = model_config_data.get("provider_key_id")
-            if not provider_key_id:
-                return None
-            return LLMProviderKey.objects.filter(
-                id=provider_key_id,
-                team=self.context["get_team"](),
-            ).first()
-        if self.instance and self.instance.model_configuration:
-            return self.instance.model_configuration.provider_key
-        return None
+            provider = model_config_data.get("provider")
+        elif self.instance and self.instance.model_configuration:
+            provider_key_id = self.instance.model_configuration.provider_key_id
+            provider = self.instance.model_configuration.provider
+        else:
+            return None
+
+        if provider_key_id:
+            return LLMProviderKey.objects.filter(id=provider_key_id, team=team).first()
+        config = EvaluationConfig.objects.filter(team=team).first()
+        return active_key_fallback(config, provider) if config and provider else None
 
     def _create_or_update_model_configuration(
         self, model_config_data: dict[str, Any] | None, team_id: int
@@ -452,10 +522,13 @@ class EvaluationSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
     def update(self, instance, validated_data):
+        # An explicit `model_configuration: null` detaches the config; a PATCH that omits the field must
+        # leave it untouched. pop()'s default can't tell the two apart, so check membership explicitly.
+        model_config_provided = "model_configuration" in validated_data
         model_config_data = validated_data.pop("model_configuration", None)
         old_config = None
 
-        if model_config_data is not None:
+        if model_config_provided:
             # Defer the cascade until after super().update(): SET_NULL would otherwise null
             # Evaluation.model_configuration_id before ModelActivityMixin.save() snapshots
             # before_update from the DB, producing a `null -> new` diff instead of `old -> new`.
@@ -614,7 +687,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         with transaction.atomic():
             instance = serializer.save()
 
-            if evaluation_supports_reports(instance.output_type):
+            if evaluation_supports_reports(instance.output_type) and instance.target == EvaluationTarget.GENERATION:
                 # Auto-create a default report config so reports are generated from the start.
                 # Defaults to count-triggered (frequency=every_n), so rrule/starts_at stay empty
                 # and users add email/Slack delivery targets later if they want notifications.
@@ -781,12 +854,11 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         from posthog.hogql.property import property_to_expr
         from posthog.hogql.query import execute_hogql_query
 
-        from posthog.cdp.validation import compile_hog
         from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
         from posthog.models.team import Team
 
         try:
-            bytecode = compile_hog(source, "destination")
+            bytecode = compile_ai_observability_hog(source, "destination")
         except serializers.ValidationError as e:
             return Response({"error": f"Compilation error: {e.detail}"}, status=400)
         except Exception:

@@ -116,11 +116,30 @@ def events_tool() -> types.Tool:
     )
 
 
+def _parse_seconds(value: Any) -> int | None:
+    """Coerce a model-sent tool argument to whole seconds; `None` when it isn't numeric."""
+    try:
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, int | float):
+            return int(value)
+        if isinstance(value, str):
+            return int(float(value.strip()))
+    except (ValueError, OverflowError):
+        return None
+    return None
+
+
 def dispatch_events_tool(function_call: Any, index: EventsIndex) -> dict[str, Any]:
     """Execute a model `get_events_around` call against the prebuilt events index."""
     if getattr(function_call, "name", None) != GET_EVENTS_TOOL_NAME:
         return {"error": f"unknown tool: {getattr(function_call, 'name', None)}"}
     args = dict(getattr(function_call, "args", None) or {})
-    rec_t = int(args.get("rec_t", 0))
-    window_s = int(args.get("window_s", _DEFAULT_WINDOW_S))
+    # Errors go back to the model as tool output — a malformed call must not fail the billed conversation.
+    rec_t = _parse_seconds(args.get("rec_t", 0))
+    if rec_t is None:
+        return {"error": "rec_t must be a number of recording seconds (the footer's REC_T value)"}
+    window_s = _parse_seconds(args.get("window_s", _DEFAULT_WINDOW_S))
+    if window_s is None:
+        window_s = _DEFAULT_WINDOW_S
     return {"events": get_events_around(index, rec_t, window_s)}

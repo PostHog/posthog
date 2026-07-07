@@ -1,3 +1,7 @@
+// .StepLegend styles live in FunnelBarVertical.scss; import here so they load on the quill funnel
+// charts that reuse this component (the old FunnelBarVertical that used to pull them in is gone).
+import './FunnelBarVertical.scss'
+
 import { useActions, useValues } from 'kea'
 
 import { IconClock } from '@posthog/icons'

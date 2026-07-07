@@ -99,18 +99,28 @@ def _split_text_into_chunks(text: str, limit: int = SLACK_MRKDWN_SECTION_LIMIT) 
 
 
 def _last_successful_delivery_finished_at(subscription: Subscription) -> datetime | None:
-    # The gap-free "since last send" anchor: the most recent COMPLETED delivery's finish time.
-    # None on the first run (no prior success) → compute_report_window falls back to window_days.
-    return (
-        SubscriptionDelivery.objects.filter(
-            subscription_id=subscription.id,
-            status=SubscriptionDelivery.Status.COMPLETED,
-            finished_at__isnull=False,
+    try:
+        return (
+            SubscriptionDelivery.objects.filter(
+                subscription_id=subscription.id,
+                status=SubscriptionDelivery.Status.COMPLETED,
+                finished_at__isnull=False,
+            )
+            .order_by("-finished_at")
+            .values_list("finished_at", flat=True)
+            .first()
         )
-        .order_by("-finished_at")
-        .values_list("finished_at", flat=True)
-        .first()
-    )
+    except Exception as exc:
+        # A transient DB error on this one lookup shouldn't fail the whole delivery — None falls
+        # back to the cadence window (which may re-cover already-sent data, never drop any).
+        logger.warning(
+            "ai_report.last_delivery_lookup_failed",
+            subscription_id=subscription.id,
+            team_id=subscription.team_id,
+            exc_info=True,
+        )
+        capture_exception(exc, {"subscription_id": subscription.id, "feature": "ai_subscription"})
+        return None
 
 
 def _resolve_subscription_context(
@@ -120,11 +130,20 @@ def _resolve_subscription_context(
     # here keeps all ORM access (and the timezone math) off the event loop in one sync hop. The frozen
     # plan (if any) is read here too so the generation path stays free of ORM access.
     team = subscription.team
+    # Day-based window modes don't anchor to delivery history — skip the lookup for them.
+    last_successful_delivery_at = (
+        _last_successful_delivery_finished_at(subscription)
+        if subscription.ai_window_mode == Subscription.AIWindowMode.SINCE_LAST_SENT
+        else None
+    )
     window = compute_report_window(
         team=team,
-        last_successful_delivery_at=_last_successful_delivery_finished_at(subscription),
+        last_successful_delivery_at=last_successful_delivery_at,
         now=datetime.now(tz=UTC),
         window_days=subscription.ai_report_window_days,
+        mode=subscription.ai_window_mode,
+        start_days_ago=subscription.ai_window_start_days_ago,
+        end_days_ago=subscription.ai_window_end_days_ago,
     )
     return team, subscription.created_by, window, subscription.ai_query_plan
 

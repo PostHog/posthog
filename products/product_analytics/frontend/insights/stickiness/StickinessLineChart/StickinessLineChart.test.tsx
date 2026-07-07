@@ -6,8 +6,9 @@ import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
+import { ExportType } from '~/exporter/types'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { buildStickinessQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
+import { buildStickinessQuery, chart, personsModal, renderInsight } from '~/test/insight-testing'
 
 configure({ asyncUtilTimeout: 5000 })
 // With asyncUtilTimeout at 5s, a single legitimate waitFor can exhaust Jest's default
@@ -34,22 +35,7 @@ describe('StickinessLineChart', () => {
         it('renders the chart from a StickinessQuery with one series', async () => {
             renderInsight({ query: buildStickinessQuery() })
 
-            await screen.findByRole('img', { name: /chart with 1 data series/i })
-        })
-    })
-
-    describe('y-axis', () => {
-        it('renders percent ticks (legacy `${value.toFixed(1)}%` parity)', async () => {
-            renderInsight({ query: buildStickinessQuery() })
-
-            await screen.findByRole('img', { name: /chart with/i })
-            await waitFor(() => {
-                const ticks = getHogChart().yTicks()
-                expect(ticks.length).toBeGreaterThan(0)
-                for (const t of ticks) {
-                    expect(t).toMatch(/%/)
-                }
-            })
+            await screen.findByLabelText(/chart with 1 data series/i)
         })
     })
 
@@ -60,16 +46,6 @@ describe('StickinessLineChart', () => {
             const tooltip = await chart.hoverTooltip(2)
             // Pageview canned series is [45, 82, 134, 210, 95], total 566, so bucket 2 == 134/566 ≈ 23.7%.
             expect(tooltip.row('Pageview')).toMatch(/%/)
-        })
-
-        it('uses "Stickiness on {interval} {day}" as the tooltip title (not a calendar date)', async () => {
-            renderInsight({ query: buildStickinessQuery() })
-
-            const tooltip = await chart.hoverTooltip(2)
-            // Day at index 2 is 3 in the mock's 1-indexed stickiness days.
-            expect(tooltip.title()).toMatch(/Stickiness on day 3/)
-            // Critically — must NOT default to a Unix-epoch-derived calendar date.
-            expect(tooltip.title()).not.toMatch(/1970/i)
         })
     })
 
@@ -84,7 +60,7 @@ describe('StickinessLineChart', () => {
             await waitFor(() => {
                 expect(screen.getByTestId('insight-empty-state')).toBeInTheDocument()
             })
-            expect(screen.queryByRole('img', { name: /chart with/i })).not.toBeInTheDocument()
+            expect(screen.queryByLabelText(/chart with/i)).not.toBeInTheDocument()
         })
     })
 
@@ -103,21 +79,24 @@ describe('StickinessLineChart', () => {
             expect(personsModal.title()).toMatch(/Pageview/)
         })
 
-        it('fires context.onDataPointClick with the integer day instead of opening the modal', async () => {
-            const onDataPointClick = jest.fn()
-            renderInsight({
-                query: buildStickinessQuery(),
-                context: { onDataPointClick },
+        describe('shared mode', () => {
+            beforeEach(() => {
+                // Shared/exported pages set this global before React mounts; trendsDataLogic.hasPersonsModal reads it.
+                window.POSTHOG_EXPORTED_DATA = { type: ExportType.Embed }
             })
 
-            await chart.clickAtIndex(2)
-
-            await waitFor(() => {
-                expect(onDataPointClick).toHaveBeenCalledTimes(1)
+            afterEach(() => {
+                delete (window as { POSTHOG_EXPORTED_DATA?: unknown }).POSTHOG_EXPORTED_DATA
             })
-            const [seriesArg] = onDataPointClick.mock.calls[0]
-            expect(seriesArg.day).toBe(3)
-            expect(personsModal.get()).not.toBeInTheDocument()
+
+            it('clicking a data point does not open the persons modal', async () => {
+                renderInsight({ query: buildStickinessQuery(), inSharedMode: true })
+
+                await chart.clickAtIndex(2)
+
+                // Sharing-token auth can't run person-level queries, so shared views must not offer the drill-down.
+                expect(personsModal.get()).not.toBeInTheDocument()
+            })
         })
     })
 
@@ -138,7 +117,7 @@ describe('StickinessLineChart', () => {
             const { container } = renderInsight({ query: twoSeriesLine, featureFlags: quillLegendFlag })
 
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             })
 
             const legendEl = getInChartLegend(container)

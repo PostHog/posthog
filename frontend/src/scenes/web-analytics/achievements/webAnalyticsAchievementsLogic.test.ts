@@ -11,6 +11,7 @@ import { webAnalyticsAchievementsLogic } from './webAnalyticsAchievementsLogic'
 
 const OVERVIEW_URL = '/api/projects/:team_id/web_analytics_achievements/overview/'
 const ACKNOWLEDGE_URL = '/api/projects/:team_id/web_analytics_achievements/acknowledge_celebration/'
+const PREFERENCES_URL = '/api/projects/:team_id/web_analytics_achievements/preferences/'
 
 const MOCK_OVERVIEW: AchievementsListResponseApi = {
     definitions: [],
@@ -64,7 +65,10 @@ describe('webAnalyticsAchievementsLogic', () => {
         jest.spyOn(lemonToast, 'success').mockReturnValue('mock-toast-id')
         initKeaTests()
         useMocks({
-            get: { [OVERVIEW_URL]: () => [200, MOCK_OVERVIEW] },
+            get: {
+                [OVERVIEW_URL]: () => [200, MOCK_OVERVIEW],
+                [PREFERENCES_URL]: () => [200, { achievements_opt_out: false }],
+            },
             post: {
                 [ACKNOWLEDGE_URL]: async ({ request }) => {
                     lastAck = (await request.json()) as { track_key: string; stage: number }

@@ -62,6 +62,7 @@ from posthog.schema import ProductKey
 
 from posthog.api.log_entries import LogEntryRequestSerializer, LogEntrySerializer, fetch_log_entries
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.streaming import streaming_response
 from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.helpers.encrypted_fields import EncryptedTextField
@@ -84,6 +85,7 @@ from .serializers import (
     AgentRevisionSerializer,
     CloneFromRequestSerializer,
     DecideApprovalRequestSerializer,
+    DryRunToolRequestSerializer,
     NewDraftRevisionRequestSerializer,
     PreviewProxyInvokeRequestSerializer,
     PromoteRevisionRequestSerializer,
@@ -190,6 +192,22 @@ class JanitorUpstreamError(APIException):
                     parts.append(f"{prefix}{er['message']}{suffix}")
                 if parts:
                     joined = "; ".join(parts)
+                    msg = f"{msg}: {joined}" if isinstance(msg, str) else joined
+            # Zod-validation rejects (typed-bundle PUTs: spec/agent_md/skill_refs/
+            # tools) -> issues=[{message, path:[...]}] with `error=invalid_request`.
+            # Surface `message [path]` so the caller sees the offending field, not
+            # just the opaque code.
+            issues = e.body.get("issues")
+            if isinstance(issues, list) and issues:
+                issue_parts: list[str] = []
+                for iss in issues:
+                    if not isinstance(iss, dict) or not isinstance(iss.get("message"), str):
+                        continue
+                    path = iss.get("path")
+                    loc = ".".join(str(p) for p in path) if isinstance(path, list) and path else ""
+                    issue_parts.append(f"{iss['message']} [{loc}]" if loc else iss["message"])
+                if issue_parts:
+                    joined = "; ".join(issue_parts)
                     msg = f"{msg}: {joined}" if isinstance(msg, str) else joined
             detail_str: str = msg if isinstance(msg, str) else json.dumps(e.body)
         elif isinstance(e.body, str):
@@ -591,6 +609,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "list",
         "retrieve",
         "models",
+        "spec_schema",
         "sessions_list",
         "sessions_retrieve",
         "session_logs",
@@ -786,10 +805,10 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             finally:
                 await sync_to_async(upstream.close, thread_sensitive=False)()
 
-        resp = StreamingHttpResponse(
+        resp = streaming_response(
             _stream(),
-            status=upstream.status_code,
             content_type=upstream.headers.get("Content-Type", "application/octet-stream"),
+            status=upstream.status_code,
         )
         # Forward upstream response headers verbatim minus connection-control
         # ones that Django handles itself.
@@ -990,6 +1009,47 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         try:
             payload = _janitor().get_models()
         except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
+
+    @extend_schema(
+        operation_id="agent_applications_spec_schema",
+        parameters=[
+            OpenApiParameter(
+                "section",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Return only this top-level slice of the spec schema to save tokens — one of "
+                    "`models`, `triggers`, `tools`, `mcps`, `skills`, `identity_providers`, `secrets`, "
+                    "`limits`, `reasoning`, `framework_prompt`, `resume`. Omit for the whole spec schema."
+                ),
+            ),
+        ],
+        description=(
+            "The canonical JSON Schema for an agent `spec` — every field, type, enum, default, and the "
+            "discriminated unions for `models` / `triggers[]` / `tools[]`, each with an inline description. "
+            "Emitted from the same source the runner validates against (fields with a default are optional "
+            "on write), so read it BEFORE composing a spec for create / revisions-spec-update instead of "
+            "guessing the shape. Pass `section` to fetch just one part."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="spec_schema")
+    def spec_schema(self, request: Request, **kwargs) -> Response:
+        """The agent-spec JSON Schema, proxied from the janitor, which emits it
+        from the canonical zod `AgentSpecSchema` (no Python mirror — the schema
+        an author reads can't drift from the one the runner parses). Optional
+        `section` slices one top-level property."""
+        section = request.query_params.get("section") or None
+        try:
+            payload = _janitor().get_spec_schema(section=section)
+        except JanitorClientError as e:
+            # A bad `section` is a client error — the janitor returns 400 with the
+            # valid section list. Surface that as a clean 400, not a 502.
+            if e.status_code == status.HTTP_400_BAD_REQUEST:
+                body = e.body if isinstance(e.body, dict) else {"detail": e.message}
+                return Response(body, status=status.HTTP_400_BAD_REQUEST)
             raise JanitorUpstreamError(e) from e
         return Response(payload)
 
@@ -1682,6 +1742,10 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "set_skill_refs",
         "put_tool",
         "delete_tool",
+        # Dry-run reads the persisted compiled.js but actually executes user
+        # code in a sandbox — treat it as a write-scoped op so the scope
+        # gates arbitrary compute, not just data reads.
+        "dry_run_tool",
         "cron_fire",
         "set_env",
         # env_keys_key handles GET/PUT/DELETE on /env_keys/<KEY>/ — bundled
@@ -2156,6 +2220,61 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def delete_tool(self, request: Request, tool_id: str, **kwargs) -> Response:
         revision: AgentRevision = self.get_object()
         return Response(self._call(_janitor().delete_tool, str(revision.id), tool_id))
+
+    @extend_schema(
+        request=DryRunToolRequestSerializer,
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentRevisionDryRunToolResponse",
+                fields={
+                    "ok": drf_serializers.BooleanField(
+                        help_text="True when the tool's `actions.default` returned without throwing. False when the tool threw or the sandbox rejected the invocation (the structured `error` describes which)."
+                    ),
+                    "tool_id": drf_serializers.CharField(help_text="Echo of the tool id from the URL."),
+                    "result": drf_serializers.JSONField(
+                        required=False,
+                        help_text="Present on success — the value the tool's `actions.default` returned.",
+                    ),
+                    "error": inline_serializer(
+                        name="AgentRevisionDryRunToolError",
+                        fields={
+                            "code": drf_serializers.CharField(
+                                help_text=(
+                                    "Stable error code. `sandbox_acquire_failed` — the platform could not start a "
+                                    "sandbox (infrastructure issue, not tool code). `sandbox_invoke_failed` — the "
+                                    "sandbox started but the invoke threw uncaught (problem in the tool body, or a "
+                                    "runtime error). Dispatcher-side codes come through on `ok:false` invoke results: "
+                                    "`timeout`, `secret_not_provisioned`, `action_not_found`, `tool_not_found`."
+                                )
+                            ),
+                            "message": drf_serializers.CharField(help_text="One-line human-readable detail."),
+                        },
+                        required=False,
+                    ),
+                    "duration_ms": drf_serializers.IntegerField(
+                        help_text=(
+                            "Wall-clock duration in milliseconds, measured from sandbox acquire to after release. "
+                            "Captured consistently across success, tool-throw, and acquire-failure paths so authors "
+                            "can compare timings between calls. Always present."
+                        )
+                    ),
+                },
+            )
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path=r"tools/(?P<tool_id>[a-z0-9][a-z0-9_-]*)/dry_run")
+    def dry_run_tool(self, request: Request, tool_id: str, **kwargs) -> Response:
+        """Execute one persisted custom tool in a single-shot sandbox.
+
+        Authoring loop's "test this tool" button. The tool's source must
+        already be PUT (compiled.js is what runs); this just invokes it
+        with the caller-supplied args and a stubbed ctx. No real secrets
+        leave Django — `mock_secrets` is a `{name → placeholder}` map.
+        """
+        revision: AgentRevision = self.get_object()
+        body = DryRunToolRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        return Response(self._call(_janitor().dry_run_tool, str(revision.id), tool_id, body.validated_data))
 
     @extend_schema(
         request=None,

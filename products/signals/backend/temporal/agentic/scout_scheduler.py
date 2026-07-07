@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
+from django.conf import settings
 from django.db import InterfaceError, OperationalError
 
 import structlog
 import temporalio
-from temporalio.common import RetryPolicy
+from asgiref.sync import async_to_sync
+from temporalio.client import Client
+from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
@@ -165,3 +169,48 @@ class RunSignalsScoutWorkflow:
             # tick will try again.
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
+
+
+def manual_run_workflow_id(team_id: int, skill_name: str) -> str:
+    """Deterministic workflow id for an on-demand (`run now`) scout run.
+
+    Distinct namespace from the coordinator's per-tick child ids (`signals-scout-run-…`)
+    so a manual run can't collide with a scheduled one. Stable per `(team, skill)` so the
+    id-conflict policy in `start_manual_signals_scout_run` can single-flight against it.
+
+    The readable skill fragment is truncated for legibility, but a digest of the *full*
+    skill name is appended so two custom scouts sharing the first 60 chars still map to
+    distinct ids — otherwise `WorkflowIDConflictPolicy.FAIL` would 409 one scout while the
+    other (truncation-twin) is running, even though it has no in-flight run of its own.
+    """
+    safe_skill = skill_name.replace(" ", "_")[:60]
+    digest = hashlib.sha256(skill_name.encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
+    return f"signals-scout-manual-run-{team_id}-{safe_skill}-{digest}"
+
+
+@async_to_sync
+async def start_manual_signals_scout_run(client: Client, *, team_id: int, skill_name: str) -> str:
+    """Dispatch one on-demand scout run on the signals task queue; return its workflow id.
+
+    Reuses `RunSignalsScoutWorkflow`, so a manual run inherits every guard the scheduled
+    path has — the activity's Signals-credits quota check, and the runner's withheld-skill
+    denylist, stale-run self-heal, and single-flight. It does NOT honor the per-scout
+    schedule or `last_run_at`: a manual run is off-schedule and deliberately leaves the
+    cadence untouched.
+
+    Single-flight is enforced at the Temporal server, so the trigger can't be gamed into
+    stacking concurrent runs of the same scout: `ALLOW_DUPLICATE` lets the stable id be
+    reused once the prior manual run has closed, while `FAIL` rejects a second trigger
+    while one is still running — raising `WorkflowAlreadyStartedError` for the caller to
+    map to a 409.
+    """
+    workflow_id = manual_run_workflow_id(team_id, skill_name)
+    await client.start_workflow(
+        RunSignalsScoutWorkflow.run,
+        RunSignalsScoutInput(team_id=team_id, skill_name=skill_name),
+        id=workflow_id,
+        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+        id_conflict_policy=WorkflowIDConflictPolicy.FAIL,
+    )
+    return workflow_id

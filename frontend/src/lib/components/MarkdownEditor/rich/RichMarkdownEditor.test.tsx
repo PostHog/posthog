@@ -113,7 +113,7 @@ describe('RichMarkdownEditor', () => {
             />
         )
 
-        expect(screen.getByRole('button', { name: 'Strikethrough' })).toBeInTheDocument()
+        expect(screen.getByLabelText('Strikethrough')).toBeInTheDocument()
     })
 
     it('invokes toggleStrike when Strikethrough toolbar button is clicked', () => {
@@ -135,7 +135,7 @@ describe('RichMarkdownEditor', () => {
             />
         )
 
-        fireEvent.click(screen.getByRole('button', { name: 'Strikethrough' }))
+        fireEvent.click(screen.getByLabelText('Strikethrough'))
 
         expect(toggleStrike).toHaveBeenCalled()
         expect(run).toHaveBeenCalled()
@@ -152,7 +152,7 @@ describe('RichMarkdownEditor', () => {
             />
         )
 
-        fireEvent.click(screen.getAllByRole('tab', { name: 'Preview' })[0])
+        fireEvent.click(screen.getAllByText('Preview')[0])
         expect(screen.getByText('Custom Preview Render')).toBeInTheDocument()
     })
 

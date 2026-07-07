@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     io::{self, Write},
     sync::Mutex,
     time::{Duration, Instant},
@@ -8,8 +9,9 @@ use anyhow::Error;
 use async_trait::async_trait;
 use common_types::{InternallyCapturedEvent, RawEvent};
 use metrics::counter;
-use posthog_rs::{Client, Event};
+use posthog_rs::{Client, Error as PosthogError, Event};
 use tracing::{info, warn};
+use uuid::Uuid;
 
 use super::{Emitter, Transaction};
 
@@ -23,6 +25,10 @@ pub struct CaptureTransaction<'a> {
     send_rate: u64,
     start: Instant,
     events: Mutex<Vec<Event>>,
+    // Capture's V1 endpoint rejects a whole batch if two events in one request share a UUID,
+    // and a source export can contain duplicate event UUIDs. Track UUIDs across the whole
+    // transaction so duplicates are dropped before they reach (and poison) a capture request.
+    seen_uuids: Mutex<HashSet<Uuid>>,
 }
 
 impl CaptureEmitter {
@@ -39,6 +45,7 @@ impl Emitter for CaptureEmitter {
             send_rate: self.send_rate,
             start: Instant::now(),
             events: Mutex::new(Vec::new()),
+            seen_uuids: Mutex::new(HashSet::new()),
         }))
     }
 }
@@ -81,12 +88,38 @@ fn convert_event(ice: &InternallyCapturedEvent) -> Result<Event, Error> {
 #[async_trait]
 impl<'a> Transaction<'a> for CaptureTransaction<'a> {
     async fn emit(&self, data: &[InternallyCapturedEvent]) -> Result<(), Error> {
-        let converted: Vec<Event> = data.iter().map(convert_event).collect::<Result<_, _>>()?;
-
-        self.events
+        let mut seen = self
+            .seen_uuids
             .lock()
-            .map_err(|e| Error::msg(format!("events lock poisoned: {e}")))?
-            .extend(converted);
+            .map_err(|e| Error::msg(format!("seen_uuids lock poisoned: {e}")))?;
+        let mut events = self
+            .events
+            .lock()
+            .map_err(|e| Error::msg(format!("events lock poisoned: {e}")))?;
+
+        let mut duplicates: u64 = 0;
+        for captured in data {
+            // Drop repeat UUIDs so a source-level duplicate can't make capture reject the batch.
+            if seen.contains(&captured.inner.uuid) {
+                duplicates += 1;
+                continue;
+            }
+            // Record the UUID only after a successful conversion, so a convert error never
+            // leaves a UUID marked seen with no corresponding event.
+            let event = convert_event(captured)?;
+            seen.insert(captured.inner.uuid);
+            events.push(event);
+        }
+        drop(events);
+        drop(seen);
+
+        if duplicates > 0 {
+            warn!(
+                duplicates,
+                "dropped events with duplicate uuids before sending to capture"
+            );
+            counter!("capture_batch_duplicate_uuids_total").increment(duplicates);
+        }
 
         Ok(())
     }
@@ -114,10 +147,11 @@ impl<'a> Transaction<'a> for CaptureTransaction<'a> {
         // earlier ones were accepted, the offset rollback re-sends the whole chunk and
         // re-delivers the accepted events — bounded over-delivery we accept over skipping data.
         let batches = split_into_byte_limited_batches(events)?;
+        let num_batches = batches.len();
 
         info!(
             count,
-            batches = batches.len(),
+            batches = num_batches,
             ?txn_elapsed,
             ?min_duration,
             ?to_sleep,
@@ -127,19 +161,47 @@ impl<'a> Transaction<'a> for CaptureTransaction<'a> {
         for batch in batches {
             let batch_count = batch.len();
             if let Err(e) = self.client.capture_batch(batch, true).await {
-                counter!("capture_batch_events_total", "outcome" => "failure")
+                // The worker is the only place that sees per-event loss attributed to a
+                // reason: capture counts requests, not events, and a failed import sub-batch
+                // can carry thousands of events. `reason` lets alerting exclude expected
+                // quota (402) drops and act on transport/server/bad_request failures.
+                let reason = failure_reason(&e);
+                counter!("capture_batch_events_total", "outcome" => "failure", "reason" => reason)
                     .increment(batch_count as u64);
+                counter!("capture_batch_requests_total", "outcome" => "failure", "reason" => reason)
+                    .increment(1);
                 return Err(Error::msg(format!("capture batch failed: {e}")));
             }
         }
 
         // Count success once per fully-committed chunk. A mid-chunk failure rolls the offset
         // back and re-sends the whole chunk on retry, so counting per sub-batch would inflate
-        // the success total across retries.
+        // the success total across retries. The request counter follows the same rule: only
+        // the fully-committed chunk's sub-batches are counted as successful requests.
         counter!("capture_batch_events_total", "outcome" => "success").increment(count as u64);
+        counter!("capture_batch_requests_total", "outcome" => "success")
+            .increment(num_batches as u64);
 
         info!(count, "successfully sent batch to capture");
         Ok(to_sleep)
+    }
+}
+
+/// Maps a posthog-rs capture error to a bounded `&'static str` failure reason for
+/// metrics. The split is what makes worker-side alerting actionable: `quota` (HTTP
+/// 402) is expected billing enforcement and is excluded from alerts, while
+/// transport / server / bad_request failures are real ingestion problems. The
+/// `_` arm is required because `posthog_rs::Error` is `#[non_exhaustive]`.
+fn failure_reason(err: &PosthogError) -> &'static str {
+    match err {
+        PosthogError::BillingLimitExceeded(_) => "quota", // 402
+        PosthogError::BadRequest(_) => "bad_request",     // 400 / 413 (malformed / oversize)
+        PosthogError::ServerError { .. } => "server_error", // 5xx
+        PosthogError::RateLimit => "rate_limited",        // 429
+        PosthogError::Unauthorized => "unauthorized",     // 401
+        PosthogError::Connection(_) => "transport",       // network / unexpected status
+        PosthogError::Serialization(_) => "serialization", // local encode failure
+        _ => "other",
     }
 }
 
@@ -363,6 +425,7 @@ mod tests {
             send_rate: 10_000,
             start: Instant::now(),
             events: Mutex::new(vec![event]),
+            seen_uuids: Mutex::new(HashSet::new()),
         })
     }
 
@@ -426,6 +489,7 @@ mod tests {
             send_rate: 10_000,
             start: Instant::now(),
             events: Mutex::new(vec![]),
+            seen_uuids: Mutex::new(HashSet::new()),
         });
 
         let result = txn.commit_write().await;
@@ -627,10 +691,269 @@ mod tests {
             send_rate: 10_000,
             start: Instant::now(),
             events: Mutex::new(events),
+            seen_uuids: Mutex::new(HashSet::new()),
         });
 
         let result = txn.commit_write().await;
         assert!(result.is_ok(), "got {result:?}");
         mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_emit_drops_duplicate_uuids_within_and_across_batches() {
+        let dup = Uuid::now_v7();
+        let unique = Uuid::now_v7();
+        let mut a = make_internally_captured_event("e", "u", serde_json::json!({}), None, None);
+        let mut b = make_internally_captured_event("e", "u", serde_json::json!({}), None, None);
+        let mut c = make_internally_captured_event("e", "u", serde_json::json!({}), None, None);
+        let mut d = make_internally_captured_event("e", "u", serde_json::json!({}), None, None);
+        a.inner.uuid = dup;
+        b.inner.uuid = dup; // duplicate within the first emit
+        c.inner.uuid = unique;
+        d.inner.uuid = dup; // duplicate across emit calls
+
+        let client = make_client("http://localhost:1").await;
+        let txn = CaptureTransaction {
+            client: &client,
+            send_rate: 10_000,
+            start: Instant::now(),
+            events: Mutex::new(Vec::new()),
+            seen_uuids: Mutex::new(HashSet::new()),
+        };
+        txn.emit(&[a, b]).await.unwrap();
+        txn.emit(&[c, d]).await.unwrap();
+
+        let events = txn.events.lock().unwrap();
+        assert_eq!(events.len(), 2, "only the first event per uuid is kept");
+    }
+
+    // --- failure-reason labeling + per-request counters ---
+
+    #[test]
+    fn failure_reason_maps_every_variant() {
+        // The exact tag for each variant is a metric contract consumed by the
+        // dashboard/alerts (quota MUST be separable from actionable failures).
+        let cases: &[(PosthogError, &str)] = &[
+            (PosthogError::BillingLimitExceeded("x".into()), "quota"),
+            (PosthogError::BadRequest("x".into()), "bad_request"),
+            (
+                PosthogError::ServerError {
+                    status: 503,
+                    message: "x".into(),
+                },
+                "server_error",
+            ),
+            (PosthogError::RateLimit, "rate_limited"),
+            (PosthogError::Unauthorized, "unauthorized"),
+            (PosthogError::Connection("x".into()), "transport"),
+            (PosthogError::Serialization("x".into()), "serialization"),
+            // A variant capture_batch never returns still maps safely via the
+            // non_exhaustive catch-all rather than panicking.
+            (PosthogError::NotInitialized, "other"),
+        ];
+        for (err, expected) in cases {
+            assert_eq!(failure_reason(err), *expected, "reason for {err:?}");
+        }
+    }
+
+    /// Runs `f` under a local metrics recorder and returns every counter that
+    /// fired, as (name, labels, value). current_thread flavor keeps the
+    /// thread-local recorder visible across awaits.
+    async fn counters_after<F, Fut>(
+        f: F,
+    ) -> Vec<(String, std::collections::HashMap<String, String>, u64)>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = ()>,
+    {
+        use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+        f().await;
+        snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .filter_map(|(key, _, _, value)| match value {
+                DebugValue::Counter(c) => {
+                    let labels = key
+                        .key()
+                        .labels()
+                        .map(|l| (l.key().to_string(), l.value().to_string()))
+                        .collect();
+                    Some((key.key().name().to_string(), labels, c))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn counter_value(
+        snap: &[(String, std::collections::HashMap<String, String>, u64)],
+        name: &str,
+        labels: &[(&str, &str)],
+    ) -> Option<u64> {
+        snap.iter()
+            .find(|(n, got, _)| {
+                n == name
+                    // Exact label-set match (not subset): a future stray label on a
+                    // counter must not silently satisfy a narrower query.
+                    && got.len() == labels.len()
+                    && labels
+                        .iter()
+                        .all(|(k, v)| got.get(*k).map(String::as_str) == Some(*v))
+            })
+            .map(|(_, _, c)| *c)
+    }
+
+    async fn commit_against_status(
+        status: usize,
+        body: &str,
+    ) -> Vec<(String, std::collections::HashMap<String, String>, u64)> {
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("POST", "/i/v1/analytics/events")
+            .with_status(status)
+            .with_body(body)
+            .create();
+
+        counters_after(|| async {
+            let client = make_client(&server.url()).await;
+            let txn = make_transaction(&client);
+            assert!(
+                txn.commit_write().await.is_err(),
+                "status {status} must fail the commit"
+            );
+        })
+        .await
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn bad_request_failure_labels_events_and_requests() {
+        // 400/413 -> bad_request on BOTH the per-event and per-request counters;
+        // events charged the full sub-batch (here 1), requests charged once.
+        let snap = commit_against_status(400, "bad request").await;
+        assert_eq!(
+            counter_value(
+                &snap,
+                "capture_batch_events_total",
+                &[("outcome", "failure"), ("reason", "bad_request")]
+            ),
+            Some(1)
+        );
+        assert_eq!(
+            counter_value(
+                &snap,
+                "capture_batch_requests_total",
+                &[("outcome", "failure"), ("reason", "bad_request")]
+            ),
+            Some(1)
+        );
+        // No success was recorded for a failed chunk.
+        assert_eq!(
+            counter_value(
+                &snap,
+                "capture_batch_events_total",
+                &[("outcome", "success")]
+            ),
+            None
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn quota_failure_is_separable_from_actionable_failures() {
+        // The alerting-critical case: 402 must surface as reason="quota" so it
+        // can be excluded from actionable-failure alerts.
+        let snap = commit_against_status(402, "billing limit exceeded").await;
+        // capture_batch_events_total is the primary per-event-loss metric, so the
+        // quota split has to hold there too — not just on the request counter.
+        assert_eq!(
+            counter_value(
+                &snap,
+                "capture_batch_events_total",
+                &[("outcome", "failure"), ("reason", "quota")]
+            ),
+            Some(1)
+        );
+        assert_eq!(
+            counter_value(
+                &snap,
+                "capture_batch_events_total",
+                &[("outcome", "failure"), ("reason", "bad_request")]
+            ),
+            None
+        );
+        assert_eq!(
+            counter_value(
+                &snap,
+                "capture_batch_requests_total",
+                &[("outcome", "failure"), ("reason", "quota")]
+            ),
+            Some(1)
+        );
+        assert_eq!(
+            counter_value(
+                &snap,
+                "capture_batch_requests_total",
+                &[("outcome", "failure"), ("reason", "bad_request")]
+            ),
+            None
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn success_counts_events_total_and_requests_per_subbatch() {
+        // A chunk that splits into >1 sub-batch must count success once per event
+        // (count) and once per sub-batch request (num_batches), not per event for
+        // both — proving the request counter tracks requests, not events.
+        let events: Vec<Event> = (0..5).map(|_| padded_event(2_500_000)).collect();
+        let expected_requests = split_into_byte_limited_batches(events.clone())
+            .unwrap()
+            .len();
+        assert!(
+            expected_requests > 1,
+            "test must exercise multiple requests"
+        );
+        let total = events.len() as u64;
+
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("POST", "/i/v1/analytics/events")
+            .with_status(200)
+            .with_body(V1_OK_BODY)
+            .expect(expected_requests)
+            .create();
+
+        let snap = counters_after(|| async {
+            let client = make_client(&server.url()).await;
+            let txn = Box::new(CaptureTransaction {
+                client: &client,
+                send_rate: 10_000,
+                start: Instant::now(),
+                events: Mutex::new(events),
+                seen_uuids: Mutex::new(HashSet::new()),
+            });
+            txn.commit_write().await.unwrap();
+        })
+        .await;
+
+        assert_eq!(
+            counter_value(
+                &snap,
+                "capture_batch_events_total",
+                &[("outcome", "success")]
+            ),
+            Some(total)
+        );
+        assert_eq!(
+            counter_value(
+                &snap,
+                "capture_batch_requests_total",
+                &[("outcome", "success")]
+            ),
+            Some(expected_requests as u64)
+        );
     }
 }

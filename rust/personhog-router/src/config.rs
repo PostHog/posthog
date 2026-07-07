@@ -45,15 +45,6 @@ pub enum RouterMode {
     Leader,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ProxyMode {
-    /// Typed mode: deserialize/serialize every request through the PersonHogService trait.
-    Typed,
-    /// Raw mode: proxy raw bytes to replica for most methods, only deserialize
-    /// for GetPerson (STRONG) and UpdatePersonProperties which need leader routing.
-    Raw,
-}
-
 impl fmt::Display for RouterMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -77,29 +68,6 @@ impl FromStr for RouterMode {
     }
 }
 
-impl fmt::Display for ProxyMode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ProxyMode::Typed => write!(f, "typed"),
-            ProxyMode::Raw => write!(f, "raw"),
-        }
-    }
-}
-
-impl FromStr for ProxyMode {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "typed" => Ok(ProxyMode::Typed),
-            "raw" => Ok(ProxyMode::Raw),
-            other => Err(format!(
-                "unknown proxy mode '{other}', expected 'typed' or 'raw'"
-            )),
-        }
-    }
-}
-
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
     #[envconfig(default = "127.0.0.1:50052")]
@@ -108,12 +76,6 @@ pub struct Config {
     /// Router mode: "replica" (default) or "leader"
     #[envconfig(default = "replica")]
     pub router_mode: RouterMode,
-
-    /// Proxy mode: "typed" (default) or "raw"
-    /// Typed: full deserialization through PersonHogService trait
-    /// Raw: byte-level proxying for most methods, only typed for leader paths
-    #[envconfig(default = "typed")]
-    pub proxy_mode: ProxyMode,
 
     /// URL of the personhog-replica backend (DNS mode only)
     #[envconfig(default = "http://127.0.0.1:50051")]
@@ -378,53 +340,6 @@ mod tests {
         for mode in [RouterMode::Replica, RouterMode::Leader] {
             let s = mode.to_string();
             let parsed: RouterMode = s.parse().unwrap();
-            assert_eq!(
-                parsed, mode,
-                "Display → FromStr roundtrip failed for {mode:?}"
-            );
-        }
-    }
-
-    // ── ProxyMode ─────────────────────────────────────────────────────────────
-
-    #[test]
-    fn proxy_mode_from_str_valid_variants() {
-        let cases = [
-            ("typed", ProxyMode::Typed),
-            ("raw", ProxyMode::Raw),
-            ("TYPED", ProxyMode::Typed),
-            ("RAW", ProxyMode::Raw),
-        ];
-        for (input, expected) in cases {
-            let result: Result<ProxyMode, _> = input.parse();
-            assert_eq!(
-                result.unwrap(),
-                expected,
-                "'{input}' should parse to {expected:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn proxy_mode_from_str_invalid_returns_error() {
-        let invalid_inputs = ["byte", "", "proxy", "passthrough"];
-        for input in invalid_inputs {
-            let result: Result<ProxyMode, _> = input.parse();
-            assert!(result.is_err(), "'{input}' should be an error");
-        }
-    }
-
-    #[test]
-    fn proxy_mode_display() {
-        assert_eq!(ProxyMode::Typed.to_string(), "typed");
-        assert_eq!(ProxyMode::Raw.to_string(), "raw");
-    }
-
-    #[test]
-    fn proxy_mode_roundtrips() {
-        for mode in [ProxyMode::Typed, ProxyMode::Raw] {
-            let s = mode.to_string();
-            let parsed: ProxyMode = s.parse().unwrap();
             assert_eq!(
                 parsed, mode,
                 "Display → FromStr roundtrip failed for {mode:?}"

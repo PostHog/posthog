@@ -29,6 +29,8 @@ from posthog.temporal.data_modeling.workflows.materialize_view import (
     MaterializeViewWorkflowResult,
 )
 
+from products.data_modeling.backend.facade.models import DataModelingJobEngine
+
 MAX_CONCURRENT_CHILDREN = 10
 
 
@@ -265,6 +267,10 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         node_results: list[NodeResult] = []
         ephemeral_node_set = set(dag_structure.ephemeral_nodes)
         failed_node_set: set[str] = set()
+        serving_engine = (
+            DataModelingJobEngine.DUCKGRES if inputs.duckgres_only else DataModelingJobEngine.CLICKHOUSE
+        ).value
+        suspended_node_set: set[str] = set(dag_structure.suspended_nodes.get(serving_engine, []))
         downstreams = _get_downstream_lookup(edge_lookup)
         # execute child workflows with bounded concurrency using a sliding window;
         # the semaphore limits how many child workflows run simultaneously across
@@ -278,14 +284,21 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
             execute_nodes = []
             skip_nodes = []
             ephemeral_nodes = []
+            # failed_node_set only grows between levels, so the blocked set is stable within one
+            blocked_node_set = failed_node_set | suspended_node_set
             for node_id in level:
                 should_skip = False
                 skip_reason = None
-                for failed_id in failed_node_set:
-                    if node_id in downstreams[failed_id]:
-                        should_skip = True
-                        skip_reason = f"Upstream node {failed_id} failed"
-                        break
+                if node_id in suspended_node_set:
+                    should_skip = True
+                    skip_reason = "Node suspended after repeated materialization failures"
+                else:
+                    for blocked_id in blocked_node_set:
+                        if node_id in downstreams[blocked_id]:
+                            should_skip = True
+                            verb = "suspended" if blocked_id in suspended_node_set else "failed"
+                            skip_reason = f"Upstream node {blocked_id} {verb}"
+                            break
                 if should_skip:
                     skip_nodes.append((node_id, skip_reason))
                 elif node_id in ephemeral_node_set:

@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.ut
 )
 
 from .constants import (
+    SHOPIFY_ACCESS_SCOPES_URL,
     SHOPIFY_ACCESS_TOKEN_CHECK,
     SHOPIFY_ACCESS_TOKEN_GRANT,
     SHOPIFY_ACCESS_TOKEN_URL,
@@ -335,6 +336,19 @@ def _get_shopify_access_token(shopify_store_id: str, shopify_client_id: str, sho
     return access_res.json()["access_token"]
 
 
+def _get_granted_scopes(store_id: str, sess: requests.Session) -> set[str] | None:
+    """The token's granted scope handles, or None on any failure — best-effort so a blip degrades
+    the query rather than failing the sync."""
+    try:
+        res = sess.get(SHOPIFY_ACCESS_SCOPES_URL.format(store_id))
+        res.raise_for_status()
+        data = res.json()
+    except (requests.RequestException, ValueError):
+        return None
+    scopes = data.get("access_scopes", []) if isinstance(data, dict) else []
+    return {scope["handle"] for scope in scopes if isinstance(scope, dict) and "handle" in scope}
+
+
 def shopify_source(
     shopify_store_id: str,
     shopify_client_id: str,
@@ -358,6 +372,24 @@ def shopify_source(
         graphql_object = SHOPIFY_GRAPHQL_OBJECTS.get(schema_name)
         if not graphql_object:
             raise Exception(f"Shopify object does not exist: {schema_name}")
+
+        # Drop fields the token lacks the scope to read, so a partially scoped token imports the
+        # rest instead of hard-failing on "Access denied for <field>". Falls back to the minimal
+        # query when scopes can't be detected.
+        if graphql_object.protected_query_builder is not None:
+            granted_scopes = _get_granted_scopes(store_id, sess)
+            if granted_scopes is None:
+                granted_scopes = set()
+                logger.warning(
+                    f"Shopify: could not detect granted scopes for {schema_name}; syncing without protected fields"
+                )
+            graphql_object = ShopifyGraphQLObject(
+                name=graphql_object.name,
+                query=graphql_object.protected_query_builder(granted_scopes),
+                display_name=graphql_object.display_name,
+                permissions_query=graphql_object.permissions_query,
+                protected_query_builder=graphql_object.protected_query_builder,
+            )
 
         logger.debug(f"Shopify: reading from resource {schema_name}")
 

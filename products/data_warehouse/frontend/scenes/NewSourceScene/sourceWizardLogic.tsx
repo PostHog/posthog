@@ -295,6 +295,8 @@ export interface SourceWizardLogicProps {
     availableSources: Record<string, SourceConfig>
     /** When set, only these tables will be pre-selected and they cannot be deselected */
     requiredTables?: string[]
+    /** Onboarding: pre-select every syncable table with smart defaults for a one-click sync */
+    autoConfigureTables?: boolean
 }
 
 export const sourceWizardLogic = kea<sourceWizardLogicType>([
@@ -1475,6 +1477,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             schema.sync_type = 'full_refresh'
                         }
                     }
+
+                    // Onboarding one-click setup: opt every syncable table in (permission errors
+                    // already continued above), so the user can sync the whole source in one click.
+                    if (props.autoConfigureTables) {
+                        schema.should_sync = true
+                    }
                 }
 
                 if (showToast && !values.requiredTables) {
@@ -1825,8 +1833,17 @@ export const getErrorsForFields = (
         if (!values?.prefix?.trim()) {
             errors['prefix'] = 'Please enter a name for this direct query source.'
         }
-    } else if (!/^[a-zA-Z0-9_-]*$/.test(values?.prefix ?? '')) {
-        errors['prefix'] = "Please enter a valid prefix (only letters, numbers, and '_' or '-')."
+    } else {
+        // Mirror the backend `validate_source_prefix` rules (which strip only underscores, not
+        // whitespace) so an invalid prefix is caught here rather than after the create request.
+        const prefix = values?.prefix ?? ''
+        const cleaned = prefix.replace(/^_+|_+$/g, '')
+        if (prefix && !cleaned) {
+            errors['prefix'] = 'Prefix cannot consist of only underscores'
+        } else if (cleaned && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(cleaned)) {
+            errors['prefix'] =
+                'Prefix must contain only letters, numbers, and underscores, and start with a letter or underscore'
+        }
     }
 
     // Payload errors

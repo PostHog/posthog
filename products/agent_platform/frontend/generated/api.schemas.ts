@@ -199,28 +199,6 @@ export const AgentRevisionStateEnumApi = {
     Archived: 'archived',
 } as const
 
-export type AgentRevisionApiSpecReasoning =
-    (typeof AgentRevisionApiSpecReasoning)[keyof typeof AgentRevisionApiSpecReasoning]
-
-export const AgentRevisionApiSpecReasoning = {
-    Minimal: 'minimal',
-    Low: 'low',
-    Medium: 'medium',
-    High: 'high',
-    Xhigh: 'xhigh',
-} as const
-
-export type AgentRevisionApiSpecFrameworkPromptOmitItem =
-    (typeof AgentRevisionApiSpecFrameworkPromptOmitItem)[keyof typeof AgentRevisionApiSpecFrameworkPromptOmitItem]
-
-export const AgentRevisionApiSpecFrameworkPromptOmitItem = {
-    MetaToolGuidance: 'meta_tool_guidance',
-    StateContract: 'state_contract',
-    ToolFailureGuidance: 'tool_failure_guidance',
-    ApprovalGuidance: 'approval_guidance',
-    ReasoningHint: 'reasoning_hint',
-} as const
-
 /**
  * One reference to a versioned skill in the llma-skill store, pinned into
  * this agent's bundle at freeze.
@@ -245,376 +223,6 @@ export interface SkillRefApi {
 }
 
 /**
- * How this agent selects its model. `auto`: pick a quality/cost `level` and the platform resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: give an explicit priority-ordered `models` list (primary first). `optimize_for` governs how the chosen model is treated across the session's turns.
- */
-export type AgentRevisionApiSpecModels =
-    | {
-          mode: 'auto'
-          /** Quality/cost tier (auto). low = cheapest, for short, formulaic, no-reasoning jobs (lookups, FAQ bots); medium = balanced default, for multi-step but bounded work; high = top-tier, for long, branching, reasoning-heavy work. Resolved to a priority-ordered cross-provider list at session start. */
-          level?: 'low' | 'medium' | 'high'
-          /** Reasoning/thinking effort budget. minimal = no deliberation (fastest, cheapest) … xhigh = maximal (research-grade, ~5-10x the per-turn cost). Omit for the provider/spec default. */
-          reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
-          /** Session model stability vs. resilience. `cost` (default): the first turn picks a working model and PINS it for the whole session — keeps the provider's prompt cache warm (cache reads are ~0.1-0.5x of full input) and never fails over mid-session; if the pinned model is down the turn fails rather than re-reading the whole context cold on another provider. `availability`: fail over to the next model when the session's model fails — survives an outage at the cost of a one-time cold re-read. Prefer `cost` for long/expensive sessions, `availability` where uptime matters more than spend. */
-          optimize_for?: 'cost' | 'availability'
-      }
-    | {
-          mode: 'manual'
-          /**
-           * Explicit priority-ordered fallback list — the runner tries entries in order (primary first).
-           * @minItems 1
-           */
-          models: {
-              /**
-               * Canonical model id, e.g. `anthropic/claude-sonnet-4-6` (see the agent-applications-models tool for served ids).
-               * @minLength 1
-               * @pattern ^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$
-               */
-              model: string
-              /** Per-model reasoning effort override (else the spec default). */
-              reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
-          }[]
-          /** Session model stability vs. resilience. `cost` (default): pin the first working model for the whole session (warm prompt cache, no mid-session failover). `availability`: fail over down this list when the session's model fails (survives outages, re-reads context cold). */
-          optimize_for?: 'cost' | 'availability'
-      }
-
-export type AgentRevisionApiSpecTriggersItem =
-    | {
-          type: 'slack'
-          config: {
-              channel_id?: string
-              mention_only: boolean
-              auto_resume_threads: boolean
-              allow_workspace_participants: boolean
-              ack_reaction?: string
-              allow_direct_messages: boolean
-              trusted_workspaces: string[] | '*'
-          }
-      }
-    | {
-          type: 'webhook'
-          config: {
-              path: string
-          }
-          auth: {
-              modes?: (
-                  | {
-                        type: 'public'
-                        acknowledge_public_exposure: true
-                    }
-                  | {
-                        type: 'posthog'
-                        scopes?: string[]
-                        audience?: 'project' | 'organization'
-                    }
-                  | {
-                        type: 'jwt'
-                        /** @minLength 1 */
-                        issuer_secret_ref: string
-                    }
-                  | {
-                        type: 'shared_secret'
-                        /** @minLength 1 */
-                        header: string
-                        /** @minLength 1 */
-                        secret_ref: string
-                    }
-                  | {
-                        type: 'posthog_internal'
-                    }
-              )[]
-          }
-      }
-    | {
-          type: 'cron'
-          config: {
-              /** @minLength 1 */
-              name: string
-              /** @minLength 1 */
-              schedule: string
-              timezone?: string
-              /**
-               * @minLength 1
-               * @maxLength 4096
-               */
-              prompt: string
-              external_key?: string
-              catch_up?: 'all' | 'most_recent' | 'skip'
-              /**
-               * @minimum 1
-               * @maximum 604800
-               */
-              max_catch_up_age_seconds?: number
-          }
-      }
-    | {
-          type: 'chat'
-          config?: {
-              allow_restart?: boolean
-          }
-          auth: {
-              modes?: (
-                  | {
-                        type: 'public'
-                        acknowledge_public_exposure: true
-                    }
-                  | {
-                        type: 'posthog'
-                        scopes?: string[]
-                        audience?: 'project' | 'organization'
-                    }
-                  | {
-                        type: 'jwt'
-                        /** @minLength 1 */
-                        issuer_secret_ref: string
-                    }
-                  | {
-                        type: 'shared_secret'
-                        /** @minLength 1 */
-                        header: string
-                        /** @minLength 1 */
-                        secret_ref: string
-                    }
-                  | {
-                        type: 'posthog_internal'
-                    }
-              )[]
-          }
-      }
-    | {
-          type: 'mcp'
-          config?: {
-              allow_restart?: boolean
-          }
-          auth: {
-              modes?: (
-                  | {
-                        type: 'public'
-                        acknowledge_public_exposure: true
-                    }
-                  | {
-                        type: 'posthog'
-                        scopes?: string[]
-                        audience?: 'project' | 'organization'
-                    }
-                  | {
-                        type: 'jwt'
-                        /** @minLength 1 */
-                        issuer_secret_ref: string
-                    }
-                  | {
-                        type: 'shared_secret'
-                        /** @minLength 1 */
-                        header: string
-                        /** @minLength 1 */
-                        secret_ref: string
-                    }
-                  | {
-                        type: 'posthog_internal'
-                    }
-              )[]
-          }
-      }
-
-export type AgentRevisionApiSpecToolsItem =
-    | {
-          kind: 'native'
-          id: string
-          requires_approval?: boolean
-          approval_policy?: {
-              type?: 'principal' | 'agent'
-              allow_edit?: boolean
-              /**
-               * @minimum 60000
-               * @maximum 604800000
-               */
-              ttl_ms?: number
-          }
-      }
-    | {
-          kind: 'custom'
-          id: string
-          path: string
-          requires_approval?: boolean
-          approval_policy?: {
-              type?: 'principal' | 'agent'
-              allow_edit?: boolean
-              /**
-               * @minimum 60000
-               * @maximum 604800000
-               */
-              ttl_ms?: number
-          }
-          requires_identity?: string
-      }
-    | {
-          kind: 'custom_template'
-          from_template: string
-          alias: string
-          /** @minimum 1 */
-          version?: number
-      }
-    | {
-          kind: 'client'
-          /** @minLength 1 */
-          id: string
-          /** @minLength 1 */
-          description: string
-          args_schema?: { [key: string]: unknown }
-          required?: boolean
-          /**
-           * @minimum 1
-           * @maximum 600000
-           */
-          timeout_ms?: number
-          interactive?: boolean
-      }
-
-export type AgentRevisionApiSpecMcpsItemAuth = {
-    provider?: string
-}
-
-export type AgentRevisionApiSpecMcpsItemHeaders = { [key: string]: string }
-
-export type AgentRevisionApiSpecMcpsItemToolsItem =
-    | string
-    | {
-          /** @minLength 1 */
-          name: string
-          requires_approval?: boolean
-          approval_policy?: {
-              type?: 'principal' | 'agent'
-              allow_edit?: boolean
-              /**
-               * @minimum 60000
-               * @maximum 604800000
-               */
-              ttl_ms?: number
-          }
-      }
-
-export type AgentRevisionApiSpecMcpsItem = {
-    /** @minLength 1 */
-    id: string
-    url: string
-    auth?: AgentRevisionApiSpecMcpsItemAuth
-    secrets?: string[]
-    headers?: AgentRevisionApiSpecMcpsItemHeaders
-    tools?: AgentRevisionApiSpecMcpsItemToolsItem[]
-}
-
-export type AgentRevisionApiSpecSkillsItem = {
-    id: string
-    path: string
-    description?: string
-    from_template?: string
-    alias?: string
-    /** @minimum 1 */
-    version?: number
-    source_version_id?: string
-}
-
-export type AgentRevisionApiSpecIdentityProvidersItem =
-    | {
-          kind: 'posthog'
-          /** @minLength 1 */
-          id?: string
-          binding?: 'principal'
-          scopes?: string[]
-          client_id?: string
-      }
-    | {
-          kind: 'oauth2'
-          /** @minLength 1 */
-          id: string
-          binding?: 'principal'
-          authorize_url: string
-          token_url: string
-          /** @minLength 1 */
-          client_id: string
-          client_secret_ref?: string
-          scopes?: string[]
-          userinfo_url?: string
-      }
-
-export type AgentRevisionApiSpecSecretsItem =
-    | string
-    | {
-          /** @minLength 1 */
-          name: string
-          /**
-           * @minItems 1
-           * @items.minLength 1
-           */
-          allowed_hosts: string[]
-      }
-
-export type AgentRevisionApiSpecLimits = {
-    /**
-     * @maximum 2147483647
-     * @exclusiveMinimum 0
-     */
-    max_turns: number
-    /**
-     * @maximum 2147483647
-     * @exclusiveMinimum 0
-     */
-    max_tool_calls: number
-    /**
-     * @maximum 2147483647
-     * @exclusiveMinimum 0
-     */
-    max_wall_seconds: number
-    /**
-     * @maximum 200000
-     * @exclusiveMinimum 0
-     */
-    max_output_tokens?: number
-    /**
-     * @maximum 16384
-     * @exclusiveMinimum 0
-     */
-    max_memory_mb: number
-    /**
-     * @maximum 8
-     * @exclusiveMinimum 0
-     */
-    max_cpu_cores: number
-}
-
-export type AgentRevisionApiSpecFrameworkPrompt = {
-    omit: AgentRevisionApiSpecFrameworkPromptOmitItem[]
-    /**
-     * @maximum 2147483647
-     * @exclusiveMinimum 0
-     */
-    version_pin?: number
-}
-
-export type AgentRevisionApiSpecResume = {
-    enabled: boolean
-    /**
-     * @maximum 2147483647
-     * @exclusiveMinimum 0
-     */
-    max_completed_age_ms: number
-}
-
-export type AgentRevisionApiSpec = {
-    /** How this agent selects its model. `auto`: pick a quality/cost `level` and the platform resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: give an explicit priority-ordered `models` list (primary first). `optimize_for` governs how the chosen model is treated across the session's turns. */
-    models: AgentRevisionApiSpecModels
-    triggers: AgentRevisionApiSpecTriggersItem[]
-    tools: AgentRevisionApiSpecToolsItem[]
-    mcps: AgentRevisionApiSpecMcpsItem[]
-    skills: AgentRevisionApiSpecSkillsItem[]
-    identity_providers?: AgentRevisionApiSpecIdentityProvidersItem[]
-    secrets: AgentRevisionApiSpecSecretsItem[]
-    limits: AgentRevisionApiSpecLimits
-    reasoning?: AgentRevisionApiSpecReasoning
-    framework_prompt?: AgentRevisionApiSpecFrameworkPrompt
-    resume?: AgentRevisionApiSpecResume
-}
-
-/**
  * Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.
  * @nullable
  */
@@ -634,7 +242,7 @@ export interface AgentRevisionApi {
     bundle_uri?: string
     /** @nullable */
     readonly bundle_sha256: string | null
-    spec?: AgentRevisionApiSpec
+    spec?: unknown
     /** Store-skill references for this draft, set via the `skill_refs` action and resolved into the bundle at freeze. Preserved as the authoring record on the frozen revision (and carried forward when forking a new draft); resolved provenance is stamped onto `spec.skills[].source_version_id`. */
     readonly skill_refs: readonly SkillRefApi[]
     /** @nullable */
@@ -658,398 +266,6 @@ export interface PaginatedAgentRevisionListApi {
 }
 
 /**
- * How this agent selects its model. `auto`: pick a quality/cost `level` and the platform resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: give an explicit priority-ordered `models` list (primary first). `optimize_for` governs how the chosen model is treated across the session's turns.
- */
-export type PatchedAgentRevisionApiSpecModels =
-    | {
-          mode: 'auto'
-          /** Quality/cost tier (auto). low = cheapest, for short, formulaic, no-reasoning jobs (lookups, FAQ bots); medium = balanced default, for multi-step but bounded work; high = top-tier, for long, branching, reasoning-heavy work. Resolved to a priority-ordered cross-provider list at session start. */
-          level?: 'low' | 'medium' | 'high'
-          /** Reasoning/thinking effort budget. minimal = no deliberation (fastest, cheapest) … xhigh = maximal (research-grade, ~5-10x the per-turn cost). Omit for the provider/spec default. */
-          reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
-          /** Session model stability vs. resilience. `cost` (default): the first turn picks a working model and PINS it for the whole session — keeps the provider's prompt cache warm (cache reads are ~0.1-0.5x of full input) and never fails over mid-session; if the pinned model is down the turn fails rather than re-reading the whole context cold on another provider. `availability`: fail over to the next model when the session's model fails — survives an outage at the cost of a one-time cold re-read. Prefer `cost` for long/expensive sessions, `availability` where uptime matters more than spend. */
-          optimize_for?: 'cost' | 'availability'
-      }
-    | {
-          mode: 'manual'
-          /**
-           * Explicit priority-ordered fallback list — the runner tries entries in order (primary first).
-           * @minItems 1
-           */
-          models: {
-              /**
-               * Canonical model id, e.g. `anthropic/claude-sonnet-4-6` (see the agent-applications-models tool for served ids).
-               * @minLength 1
-               * @pattern ^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$
-               */
-              model: string
-              /** Per-model reasoning effort override (else the spec default). */
-              reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
-          }[]
-          /** Session model stability vs. resilience. `cost` (default): pin the first working model for the whole session (warm prompt cache, no mid-session failover). `availability`: fail over down this list when the session's model fails (survives outages, re-reads context cold). */
-          optimize_for?: 'cost' | 'availability'
-      }
-
-export type PatchedAgentRevisionApiSpecTriggersItem =
-    | {
-          type: 'slack'
-          config: {
-              channel_id?: string
-              mention_only: boolean
-              auto_resume_threads: boolean
-              allow_workspace_participants: boolean
-              ack_reaction?: string
-              allow_direct_messages: boolean
-              trusted_workspaces: string[] | '*'
-          }
-      }
-    | {
-          type: 'webhook'
-          config: {
-              path: string
-          }
-          auth: {
-              modes?: (
-                  | {
-                        type: 'public'
-                        acknowledge_public_exposure: true
-                    }
-                  | {
-                        type: 'posthog'
-                        scopes?: string[]
-                        audience?: 'project' | 'organization'
-                    }
-                  | {
-                        type: 'jwt'
-                        /** @minLength 1 */
-                        issuer_secret_ref: string
-                    }
-                  | {
-                        type: 'shared_secret'
-                        /** @minLength 1 */
-                        header: string
-                        /** @minLength 1 */
-                        secret_ref: string
-                    }
-                  | {
-                        type: 'posthog_internal'
-                    }
-              )[]
-          }
-      }
-    | {
-          type: 'cron'
-          config: {
-              /** @minLength 1 */
-              name: string
-              /** @minLength 1 */
-              schedule: string
-              timezone?: string
-              /**
-               * @minLength 1
-               * @maxLength 4096
-               */
-              prompt: string
-              external_key?: string
-              catch_up?: 'all' | 'most_recent' | 'skip'
-              /**
-               * @minimum 1
-               * @maximum 604800
-               */
-              max_catch_up_age_seconds?: number
-          }
-      }
-    | {
-          type: 'chat'
-          config?: {
-              allow_restart?: boolean
-          }
-          auth: {
-              modes?: (
-                  | {
-                        type: 'public'
-                        acknowledge_public_exposure: true
-                    }
-                  | {
-                        type: 'posthog'
-                        scopes?: string[]
-                        audience?: 'project' | 'organization'
-                    }
-                  | {
-                        type: 'jwt'
-                        /** @minLength 1 */
-                        issuer_secret_ref: string
-                    }
-                  | {
-                        type: 'shared_secret'
-                        /** @minLength 1 */
-                        header: string
-                        /** @minLength 1 */
-                        secret_ref: string
-                    }
-                  | {
-                        type: 'posthog_internal'
-                    }
-              )[]
-          }
-      }
-    | {
-          type: 'mcp'
-          config?: {
-              allow_restart?: boolean
-          }
-          auth: {
-              modes?: (
-                  | {
-                        type: 'public'
-                        acknowledge_public_exposure: true
-                    }
-                  | {
-                        type: 'posthog'
-                        scopes?: string[]
-                        audience?: 'project' | 'organization'
-                    }
-                  | {
-                        type: 'jwt'
-                        /** @minLength 1 */
-                        issuer_secret_ref: string
-                    }
-                  | {
-                        type: 'shared_secret'
-                        /** @minLength 1 */
-                        header: string
-                        /** @minLength 1 */
-                        secret_ref: string
-                    }
-                  | {
-                        type: 'posthog_internal'
-                    }
-              )[]
-          }
-      }
-
-export type PatchedAgentRevisionApiSpecToolsItem =
-    | {
-          kind: 'native'
-          id: string
-          requires_approval?: boolean
-          approval_policy?: {
-              type?: 'principal' | 'agent'
-              allow_edit?: boolean
-              /**
-               * @minimum 60000
-               * @maximum 604800000
-               */
-              ttl_ms?: number
-          }
-      }
-    | {
-          kind: 'custom'
-          id: string
-          path: string
-          requires_approval?: boolean
-          approval_policy?: {
-              type?: 'principal' | 'agent'
-              allow_edit?: boolean
-              /**
-               * @minimum 60000
-               * @maximum 604800000
-               */
-              ttl_ms?: number
-          }
-          requires_identity?: string
-      }
-    | {
-          kind: 'custom_template'
-          from_template: string
-          alias: string
-          /** @minimum 1 */
-          version?: number
-      }
-    | {
-          kind: 'client'
-          /** @minLength 1 */
-          id: string
-          /** @minLength 1 */
-          description: string
-          args_schema?: { [key: string]: unknown }
-          required?: boolean
-          /**
-           * @minimum 1
-           * @maximum 600000
-           */
-          timeout_ms?: number
-          interactive?: boolean
-      }
-
-export type PatchedAgentRevisionApiSpecMcpsItemAuth = {
-    provider?: string
-}
-
-export type PatchedAgentRevisionApiSpecMcpsItemHeaders = { [key: string]: string }
-
-export type PatchedAgentRevisionApiSpecMcpsItemToolsItem =
-    | string
-    | {
-          /** @minLength 1 */
-          name: string
-          requires_approval?: boolean
-          approval_policy?: {
-              type?: 'principal' | 'agent'
-              allow_edit?: boolean
-              /**
-               * @minimum 60000
-               * @maximum 604800000
-               */
-              ttl_ms?: number
-          }
-      }
-
-export type PatchedAgentRevisionApiSpecMcpsItem = {
-    /** @minLength 1 */
-    id: string
-    url: string
-    auth?: PatchedAgentRevisionApiSpecMcpsItemAuth
-    secrets?: string[]
-    headers?: PatchedAgentRevisionApiSpecMcpsItemHeaders
-    tools?: PatchedAgentRevisionApiSpecMcpsItemToolsItem[]
-}
-
-export type PatchedAgentRevisionApiSpecSkillsItem = {
-    id: string
-    path: string
-    description?: string
-    from_template?: string
-    alias?: string
-    /** @minimum 1 */
-    version?: number
-    source_version_id?: string
-}
-
-export type PatchedAgentRevisionApiSpecIdentityProvidersItem =
-    | {
-          kind: 'posthog'
-          /** @minLength 1 */
-          id?: string
-          binding?: 'principal'
-          scopes?: string[]
-          client_id?: string
-      }
-    | {
-          kind: 'oauth2'
-          /** @minLength 1 */
-          id: string
-          binding?: 'principal'
-          authorize_url: string
-          token_url: string
-          /** @minLength 1 */
-          client_id: string
-          client_secret_ref?: string
-          scopes?: string[]
-          userinfo_url?: string
-      }
-
-export type PatchedAgentRevisionApiSpecSecretsItem =
-    | string
-    | {
-          /** @minLength 1 */
-          name: string
-          /**
-           * @minItems 1
-           * @items.minLength 1
-           */
-          allowed_hosts: string[]
-      }
-
-export type PatchedAgentRevisionApiSpecLimits = {
-    /**
-     * @maximum 2147483647
-     * @exclusiveMinimum 0
-     */
-    max_turns: number
-    /**
-     * @maximum 2147483647
-     * @exclusiveMinimum 0
-     */
-    max_tool_calls: number
-    /**
-     * @maximum 2147483647
-     * @exclusiveMinimum 0
-     */
-    max_wall_seconds: number
-    /**
-     * @maximum 200000
-     * @exclusiveMinimum 0
-     */
-    max_output_tokens?: number
-    /**
-     * @maximum 16384
-     * @exclusiveMinimum 0
-     */
-    max_memory_mb: number
-    /**
-     * @maximum 8
-     * @exclusiveMinimum 0
-     */
-    max_cpu_cores: number
-}
-
-export type PatchedAgentRevisionApiSpecReasoning =
-    (typeof PatchedAgentRevisionApiSpecReasoning)[keyof typeof PatchedAgentRevisionApiSpecReasoning]
-
-export const PatchedAgentRevisionApiSpecReasoning = {
-    Minimal: 'minimal',
-    Low: 'low',
-    Medium: 'medium',
-    High: 'high',
-    Xhigh: 'xhigh',
-} as const
-
-export type PatchedAgentRevisionApiSpecFrameworkPromptOmitItem =
-    (typeof PatchedAgentRevisionApiSpecFrameworkPromptOmitItem)[keyof typeof PatchedAgentRevisionApiSpecFrameworkPromptOmitItem]
-
-export const PatchedAgentRevisionApiSpecFrameworkPromptOmitItem = {
-    MetaToolGuidance: 'meta_tool_guidance',
-    StateContract: 'state_contract',
-    ToolFailureGuidance: 'tool_failure_guidance',
-    ApprovalGuidance: 'approval_guidance',
-    ReasoningHint: 'reasoning_hint',
-} as const
-
-export type PatchedAgentRevisionApiSpecFrameworkPrompt = {
-    omit: PatchedAgentRevisionApiSpecFrameworkPromptOmitItem[]
-    /**
-     * @maximum 2147483647
-     * @exclusiveMinimum 0
-     */
-    version_pin?: number
-}
-
-export type PatchedAgentRevisionApiSpecResume = {
-    enabled: boolean
-    /**
-     * @maximum 2147483647
-     * @exclusiveMinimum 0
-     */
-    max_completed_age_ms: number
-}
-
-export type PatchedAgentRevisionApiSpec = {
-    /** How this agent selects its model. `auto`: pick a quality/cost `level` and the platform resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: give an explicit priority-ordered `models` list (primary first). `optimize_for` governs how the chosen model is treated across the session's turns. */
-    models: PatchedAgentRevisionApiSpecModels
-    triggers: PatchedAgentRevisionApiSpecTriggersItem[]
-    tools: PatchedAgentRevisionApiSpecToolsItem[]
-    mcps: PatchedAgentRevisionApiSpecMcpsItem[]
-    skills: PatchedAgentRevisionApiSpecSkillsItem[]
-    identity_providers?: PatchedAgentRevisionApiSpecIdentityProvidersItem[]
-    secrets: PatchedAgentRevisionApiSpecSecretsItem[]
-    limits: PatchedAgentRevisionApiSpecLimits
-    reasoning?: PatchedAgentRevisionApiSpecReasoning
-    framework_prompt?: PatchedAgentRevisionApiSpecFrameworkPrompt
-    resume?: PatchedAgentRevisionApiSpecResume
-}
-
-/**
  * Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.
  * @nullable
  */
@@ -1069,7 +285,7 @@ export interface PatchedAgentRevisionApi {
     bundle_uri?: string
     /** @nullable */
     readonly bundle_sha256?: string | null
-    spec?: PatchedAgentRevisionApiSpec
+    spec?: unknown
     /** Store-skill references for this draft, set via the `skill_refs` action and resolved into the bundle at freeze. Preserved as the authoring record on the frozen revision (and carried forward when forking a new draft); resolved provenance is stamped onto `spec.skills[].source_version_id`. */
     readonly skill_refs?: readonly SkillRefApi[]
     /** @nullable */
@@ -1221,6 +437,46 @@ export interface AgentRevisionSystemPromptResponseApi {
     framework_prompt_version: number
     /** Fully-assembled system prompt the runner would pass to pi-ai for a session against this revision. Concatenates the platform framework preamble, the bundle's `agent.md`, and the skills index. Inspect before promotion to confirm the model will see what you expect. */
     system_prompt: string
+}
+
+/**
+ * Optional `{secret_name → placeholder_string}` map. The string is returned verbatim by `ctx.secrets.ref(name)` inside the tool. The real secret value never enters the sandbox.
+ */
+export type DryRunToolRequestApiMockSecrets = { [key: string]: string }
+
+/**
+ * Body shape for POST /revisions/<id>/tools/<tool_id>/dry_run/.
+ *
+ * Executes the persisted compiled.js once in the janitor's single-shot
+ * sandbox with caller-supplied args + a stubbed ctx. No real secrets
+ * leave Django — `mock_secrets` is a `{name → opaque nonce}` map the
+ * sandbox plumbs into `ctx.secrets.ref(name)` so the tool body returns
+ * something deterministic to the author.
+ */
+export interface DryRunToolRequestApi {
+    /** Synthetic args the tool's `actions.default` is called with. Free-form JSON; the sandbox doesn't validate against the tool's `args_schema` — that's the author's responsibility to keep in sync. */
+    args: unknown
+    /** Optional `{secret_name → placeholder_string}` map. The string is returned verbatim by `ctx.secrets.ref(name)` inside the tool. The real secret value never enters the sandbox. */
+    mock_secrets?: DryRunToolRequestApiMockSecrets
+}
+
+export interface AgentRevisionDryRunToolErrorApi {
+    /** Stable error code. `sandbox_acquire_failed` — the platform could not start a sandbox (infrastructure issue, not tool code). `sandbox_invoke_failed` — the sandbox started but the invoke threw uncaught (problem in the tool body, or a runtime error). Dispatcher-side codes come through on `ok:false` invoke results: `timeout`, `secret_not_provisioned`, `action_not_found`, `tool_not_found`. */
+    code: string
+    /** One-line human-readable detail. */
+    message: string
+}
+
+export interface AgentRevisionDryRunToolResponseApi {
+    /** True when the tool's `actions.default` returned without throwing. False when the tool threw or the sandbox rejected the invocation (the structured `error` describes which). */
+    ok: boolean
+    /** Echo of the tool id from the URL. */
+    tool_id: string
+    /** Present on success — the value the tool's `actions.default` returned. */
+    result?: unknown
+    error?: AgentRevisionDryRunToolErrorApi
+    /** Wall-clock duration in milliseconds, measured from sandbox acquire to after release. Captured consistently across success, tool-throw, and acquire-failure paths so authors can compare timings between calls. Always present. */
+    duration_ms: number
 }
 
 export interface AgentRevisionValidationErrorApi {
@@ -2032,6 +1288,13 @@ export type AgentApplicationsStatsParams = {
      * ISO datetime — counts spend + session totals from this point forward. Defaults to 24h ago.
      */
     since?: string
+}
+
+export type AgentApplicationsSpecSchemaParams = {
+    /**
+     * Return only this top-level slice of the spec schema to save tokens — one of `models`, `triggers`, `tools`, `mcps`, `skills`, `identity_providers`, `secrets`, `limits`, `reasoning`, `framework_prompt`, `resume`. Omit for the whole spec schema.
+     */
+    section?: string
 }
 
 export type AgentFleetApprovalsListParams = {

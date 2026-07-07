@@ -603,14 +603,9 @@ class TestSignupAPI(APIBaseTest):
                 "attr": "password",
             }, [password, res.json()]
 
-    @mock.patch(
-        "posthog.helpers.signup_dashboard_experiment.get_starter_dashboard_variant",
-        return_value="test",
-    )
-    def test_default_dashboard_is_created_on_signup(self, _mock_variant):
+    def test_default_dashboard_is_created_on_signup(self):
         """
         Tests that the default web app dashboard is created on signup.
-        Note: This feature is currently behind a feature flag.
         """
 
         response = self.client.post(
@@ -860,59 +855,6 @@ class TestSignupAPI(APIBaseTest):
     def test_social_signup_with_allowed_domain_on_self_hosted(self, mock_sso_providers, mock_request, mock_capture):
         self.run_test_for_allowed_domain(mock_sso_providers, mock_request, mock_capture)
 
-    @unittest.skip("Skipping until fixed in Python 3.12+")
-    @patch("posthoganalytics.capture")
-    @mock.patch("ee.billing.billing_manager.BillingManager.update_billing_organization_users")
-    @mock.patch("social_core.backends.base.BaseAuth.request")
-    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
-    @pytest.mark.ee
-    def test_social_signup_with_allowed_domain_on_cloud(
-        self,
-        mock_sso_providers,
-        mock_request,
-        mock_update_billing_organization_users,
-        mock_capture,
-    ):
-        with self.is_cloud(True):
-            self.run_test_for_allowed_domain(mock_sso_providers, mock_request, mock_capture)
-        mock_update_billing_organization_users.assert_called_once()  # assert fails, error was shadowed in Python <3.12
-
-    @unittest.skip("Skipping until fixed in Python 3.12+")
-    @patch("posthoganalytics.capture")
-    @mock.patch("ee.billing.billing_manager.BillingManager.update_billing_organization_users")
-    @mock.patch("social_core.backends.base.BaseAuth.request")
-    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
-    @pytest.mark.ee
-    def test_social_signup_with_allowed_domain_on_cloud_with_existing_invite(
-        self,
-        mock_sso_providers,
-        mock_request,
-        mock_update_billing_organization_users,
-        mock_capture,
-    ):
-        with self.is_cloud(True):
-            self.run_test_for_allowed_domain(mock_sso_providers, mock_request, mock_capture, use_invite=True)
-        mock_update_billing_organization_users.assert_called_once()  # assert fails, error was shadowed in Python <3.12
-
-    @unittest.skip("Skipping until fixed in Python 3.12+")
-    @patch("posthoganalytics.capture")
-    @mock.patch("ee.billing.billing_manager.BillingManager.update_billing_organization_users")
-    @mock.patch("social_core.backends.base.BaseAuth.request")
-    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
-    @pytest.mark.ee
-    def test_social_signup_with_allowed_domain_on_cloud_with_existing_expired_invite(
-        self,
-        mock_sso_providers,
-        mock_request,
-        mock_update_billing_organization_users,
-        mock_capture,
-    ):
-        with self.is_cloud(True):
-            self.run_test_for_allowed_domain(
-                mock_sso_providers, mock_request, mock_capture, use_invite=True, expired_invite=True
-            )
-        mock_update_billing_organization_users.assert_called_once()  # assert fails, error was shadowed in Python <3.12
-
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
@@ -1001,7 +943,7 @@ class TestSignupAPI(APIBaseTest):
                 domain="posthog.net",
                 verified_at=timezone.now(),
                 jit_provisioning_enabled=True,
-                scim_enabled=True,
+                _scim_enabled=True,
                 organization=new_org,
             )
             Team.objects.create(organization=new_org, name="Test Project")
@@ -1044,7 +986,7 @@ class TestSignupAPI(APIBaseTest):
                 domain="posthog.net",
                 verified_at=timezone.now(),
                 jit_provisioning_enabled=True,
-                scim_enabled=True,
+                _scim_enabled=True,
                 organization=new_org,
             )
             Team.objects.create(organization=new_org, name="Test Project")

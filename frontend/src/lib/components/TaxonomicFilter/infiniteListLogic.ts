@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
@@ -19,6 +19,7 @@ import { legacyTaxonomicSurface } from 'lib/components/TaxonomicFilter/taxonomic
 import {
     ExcludedOperators,
     InfiniteListLogicProps,
+    META_GROUP_TYPES,
     QuickFilterItem,
     SkeletonItem,
     isQuickFilterItem,
@@ -35,6 +36,12 @@ import {
     COLLAPSED_TO_CONTAINS_ROW,
     partitionContainsShortcuts,
 } from 'lib/components/TaxonomicFilter/utils/collapsedContainsRow'
+import {
+    floatRecentAndPinnedToTop,
+    groupItemKey,
+    pinnedSourceKey,
+    recentSourceKey,
+} from 'lib/components/TaxonomicFilter/utils/floatRecentPinned'
 import { promoteMatchingProperties } from 'lib/components/TaxonomicFilter/utils/promoteProperties'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { createFuse } from 'lib/utils/fuseSearch'
@@ -87,6 +94,20 @@ function recentItemMatchesSearch(
     return false
 }
 
+function withoutPinnedDuplicatesOfRecents(
+    pinnedItems: TaxonomicDefinitionTypes[],
+    recentItems: TaxonomicDefinitionTypes[]
+): TaxonomicDefinitionTypes[] {
+    const recentKeys = new Set(recentItems.map(recentSourceKey).filter((key): key is string => key != null))
+    if (recentKeys.size === 0) {
+        return pinnedItems
+    }
+    return pinnedItems.filter((item) => {
+        const key = pinnedSourceKey(item)
+        return key == null || !recentKeys.has(key)
+    })
+}
+
 export interface RowInfo {
     startIndex: number
     stopIndex: number
@@ -116,10 +137,15 @@ export function getInitialPinnedRowIndex({
     value: string | number | null | undefined
     isActiveTab: boolean
 }): number | null {
+    const dataWarehouseGroupTypes: TaxonomicFilterGroupType[] = [
+        TaxonomicFilterGroupType.DataWarehouse,
+        TaxonomicFilterGroupType.DataWarehouseSourceTables,
+    ]
     if (
         !isActiveTab ||
-        listGroupType !== TaxonomicFilterGroupType.DataWarehouse ||
-        groupType !== TaxonomicFilterGroupType.DataWarehouse ||
+        !dataWarehouseGroupTypes.includes(listGroupType) ||
+        groupType === undefined ||
+        !dataWarehouseGroupTypes.includes(groupType) ||
         value == null
     ) {
         return null
@@ -159,13 +185,33 @@ const API_CACHE_TIMEOUT = 60000
 let apiCache: Record<string, ListStorage> = {}
 let apiCacheTimers: Record<string, number> = {}
 
+type ListResponse = unknown[] | { results?: unknown[]; count?: number }
+
+function responseHasResults(response: ListResponse): boolean {
+    if (Array.isArray(response)) {
+        return response.length > 0
+    }
+    return (response?.results?.length ?? 0) > 0 || (response?.count ?? 0) > 0
+}
+
+/** Reset the module-level API cache. */
+export function clearApiCache(): void {
+    Object.values(apiCacheTimers).forEach((timerId) => window.clearTimeout(timerId))
+    apiCache = {}
+    apiCacheTimers = {}
+}
+
 async function fetchCachedListResponse(path: string, searchParams: Record<string, any>): Promise<ListStorage> {
     const url = combineUrl(path, searchParams).url
-    let response
     if (apiCache[url]) {
-        response = apiCache[url]
-    } else {
-        response = await api.get(url)
+        return apiCache[url]
+    }
+    const response = await api.get(url)
+    // Never cache an empty response. A transient empty result (a backend blip, a race) would
+    // otherwise be pinned for the full timeout, so an event that actually exists keeps reading as
+    // "No results" for up to a minute — retrying the same query just re-reads the cached blank.
+    // Only successful, non-empty responses are safe to reuse.
+    if (responseHasResults(response)) {
         apiCache[url] = response
         apiCacheTimers[url] = window.setTimeout(() => {
             delete apiCache[url]
@@ -223,6 +269,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         expand: true,
         abortAnyRunningQuery: true,
         setHasMore: (hasMore: boolean) => ({ hasMore }),
+        remoteItemsFetchFailedForQuery: (searchQuery: string) => ({ searchQuery }),
     }),
     loaders(({ actions, values, cache, props }) => ({
         remoteItems: [
@@ -281,45 +328,54 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     let response: any
                     let expandedCountResponse: any = null
 
-                    // Querying groups from /groups/ endpoint may result in query timeouts. Let's query clickhouse instead
-                    const isGroupNamesFilter = values.listGroupType.startsWith(
-                        TaxonomicFilterGroupType.GroupNamesPrefix
-                    )
-                    if (isGroupNamesFilter && values.group?.groupTypeIndex !== undefined) {
-                        const groupsResponse = await api.groups.listClickhouse({
-                            group_type_index: values.group.groupTypeIndex as GroupTypeIndex,
-                            search: searchQuery || '',
-                            limit,
-                        })
+                    try {
+                        // Querying groups from /groups/ endpoint may result in query timeouts. Let's query clickhouse instead
+                        const isGroupNamesFilter = values.listGroupType.startsWith(
+                            TaxonomicFilterGroupType.GroupNamesPrefix
+                        )
+                        if (isGroupNamesFilter && values.group?.groupTypeIndex !== undefined) {
+                            const groupsResponse = await api.groups.listClickhouse({
+                                group_type_index: values.group.groupTypeIndex as GroupTypeIndex,
+                                search: searchQuery || '',
+                                limit,
+                            })
 
-                        const transformedGroups = mapGroupQueryResponse(groupsResponse)
-                        response = {
-                            results: transformedGroups,
-                            count: transformedGroups.length,
+                            const transformedGroups = mapGroupQueryResponse(groupsResponse)
+                            response = {
+                                results: transformedGroups,
+                                count: transformedGroups.length,
+                            }
+                            actions.setHasMore(groupsResponse.hasMore || false)
+                            if (scopedRemoteEndpoint && !isExpanded) {
+                                expandedCountResponse = { count: transformedGroups.length }
+                            }
+                        } else {
+                            // Use the original REST API for non-groups endpoints
+                            const [apiResponse, expandedApiResponse] = await Promise.all([
+                                // get the list of results
+                                fetchCachedListResponse(
+                                    scopedRemoteEndpoint && !isExpanded ? scopedRemoteEndpoint : remoteEndpoint,
+                                    searchParams
+                                ),
+                                // if this is an unexpanded scoped list, get the count for the full list
+                                scopedRemoteEndpoint && !isExpanded
+                                    ? fetchCachedListResponse(remoteEndpoint, {
+                                          ...searchParams,
+                                          limit: 1,
+                                          offset: 0,
+                                      })
+                                    : null,
+                            ])
+                            response = apiResponse
+                            expandedCountResponse = expandedApiResponse
                         }
-                        actions.setHasMore(groupsResponse.hasMore || false)
-                        if (scopedRemoteEndpoint && !isExpanded) {
-                            expandedCountResponse = { count: transformedGroups.length }
+                    } catch (error: any) {
+                        if (!isBreakpoint(error)) {
+                            // Carry the query that was in flight when this run errored so the
+                            // reducer can attribute the failure to the right query string.
+                            actions.remoteItemsFetchFailedForQuery(searchQuery)
                         }
-                    } else {
-                        // Use the original REST API for non-groups endpoints
-                        const [apiResponse, expandedApiResponse] = await Promise.all([
-                            // get the list of results
-                            fetchCachedListResponse(
-                                scopedRemoteEndpoint && !isExpanded ? scopedRemoteEndpoint : remoteEndpoint,
-                                searchParams
-                            ),
-                            // if this is an unexpanded scoped list, get the count for the full list
-                            scopedRemoteEndpoint && !isExpanded
-                                ? fetchCachedListResponse(remoteEndpoint, {
-                                      ...searchParams,
-                                      limit: 1,
-                                      offset: 0,
-                                  })
-                                : null,
-                        ])
-                        response = apiResponse
-                        expandedCountResponse = expandedApiResponse
+                        throw error
                     }
                     breakpoint()
 
@@ -347,8 +403,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 },
                 updateRemoteItem: ({ item }) => {
                     // On updating item, invalidate cache
-                    apiCache = {}
-                    apiCacheTimers = {}
+                    clearApiCache()
                     const popFromResults = 'hidden' in item && item.hidden
                     const results: TaxonomicDefinitionTypes[] = values.remoteItems.results
                         .map((i) => (i.name === item.name ? (popFromResults ? null : item) : i))
@@ -397,6 +452,17 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         stopIndex: [0, { onRowsRendered: (_, { rowInfo: { stopIndex } }) => stopIndex }],
         isExpanded: [false, { expand: () => true }],
         hasMore: [false, { setHasMore: (_, { hasMore }) => hasMore }],
+        // Tracks the searchQuery whose fetch failed. Using the query (not a boolean) prevents
+        // a stale out-of-order failure from settling a newer in-flight request — only a failure
+        // for the _current_ query should count as settled.
+        remoteFetchFailed: [
+            null as string | null,
+            {
+                loadRemoteItems: () => null,
+                loadRemoteItemsSuccess: () => null,
+                remoteItemsFetchFailedForQuery: (_, { searchQuery }) => searchQuery,
+            },
+        ],
     })),
     selectors({
         listGroupType: [(_, p) => [p.listGroupType], (listGroupType) => listGroupType],
@@ -458,6 +524,33 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 return pinnedFilterItems.filter(
                     (item) => hasPinnedContext(item) && availableTypes.has(item._pinnedContext.sourceGroupType)
                 )
+            },
+        ],
+        // This list is the filter's only substantive (non-meta) group. There are no separate
+        // Recent/Pinned tabs leading the filter, so this list floats recent/pinned items to
+        // the top of its own results instead (see `items`).
+        isSoleSubstantiveGroup: [
+            (s) => [s.listGroupType, s.taxonomicGroupTypes],
+            (listGroupType, taxonomicGroupTypes: TaxonomicFilterGroupType[]): boolean => {
+                const substantive = taxonomicGroupTypes.filter((t) => !META_GROUP_TYPES.has(t))
+                return substantive.length === 1 && substantive[0] === listGroupType
+            },
+        ],
+        // Whether the sole substantive group has a usable getValue function for
+        // floating recent/pinned items. The `items` selector reads this boolean
+        // (stable reference) rather than a function (unstable closure that would
+        // defeat kea's reference-equality memoisation and cause infinite re-renders).
+        soleGroupHasGetValue: [
+            (s) => [s.isSoleSubstantiveGroup, s.listGroupType, s.taxonomicGroups],
+            (
+                isSoleSubstantiveGroup: boolean,
+                listGroupType: TaxonomicFilterGroupType,
+                taxonomicGroups: TaxonomicFilterGroup[]
+            ): boolean => {
+                if (!isSoleSubstantiveGroup) {
+                    return false
+                }
+                return !!taxonomicGroups.find((g) => g.type === listGroupType)?.getValue
             },
         ],
         allowNonCapturedEvents: [
@@ -522,6 +615,24 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             (isExpandable, index, totalListCount) => isExpandable && index === totalListCount - 1,
         ],
         hasRemoteDataSource: [(s) => [s.remoteEndpoint], (remoteEndpoint) => !!remoteEndpoint],
+        remoteResultsAreFresh: [
+            (s) => [s.hasRemoteDataSource, s.remoteItems, s.searchQuery, s.remoteFetchFailed],
+            (
+                hasRemoteDataSource: boolean,
+                remoteItems: ListStorage,
+                searchQuery: string,
+                remoteFetchFailed: string | null
+            ): boolean => {
+                // Local-only groups resolve synchronously — always fresh.
+                const isLocalOnly = !hasRemoteDataSource
+                // A failed fetch for *this* query counts as settled. We check the exact query
+                // rather than a bare boolean so that an out-of-order stale failure (run A failing
+                // after run B is already in flight) doesn't incorrectly settle run B's result.
+                const currentQueryFailed = remoteFetchFailed === searchQuery
+                const currentQuerySettled = (remoteItems.searchQuery ?? '') === searchQuery
+                return isLocalOnly || currentQueryFailed || currentQuerySettled
+            },
+        ],
         showNonCapturedEventOption: [
             (s) => [s.allowNonCapturedEvents, s.listGroupType, s.searchQuery, s.isLoading, s.results],
             (
@@ -559,6 +670,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.hasRemoteDataSource,
                 s.showNonCapturedEventOption,
                 s.needsMoreSearchCharacters,
+                s.remoteResultsAreFresh,
             ],
             (
                 totalListCount: number,
@@ -568,25 +680,44 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 searchQuery: string,
                 hasRemoteDataSource: boolean,
                 showNonCapturedEventOption: boolean,
-                needsMoreSearchCharacters: boolean
+                needsMoreSearchCharacters: boolean,
+                remoteResultsAreFresh: boolean
             ): boolean =>
                 (totalListCount === 0 &&
                     !isLoading &&
+                    // Don't declare "No results" until the fetch for the *current* query has landed —
+                    // otherwise a stale/empty list from the previous query masquerades as no matches.
+                    remoteResultsAreFresh &&
                     !(isSuggestedFilters && anyGroupLoading && searchQuery.trim().length > 0) &&
                     (!!searchQuery || !hasRemoteDataSource) &&
                     !showNonCapturedEventOption) ||
                 needsMoreSearchCharacters,
         ],
         showLoadingState: [
-            (s) => [s.isLoading, s.isSuggestedFilters, s.anyGroupLoading, s.results, s.searchQuery],
+            (s) => [
+                s.isLoading,
+                s.isSuggestedFilters,
+                s.anyGroupLoading,
+                s.results,
+                s.searchQuery,
+                s.hasRemoteDataSource,
+                s.remoteResultsAreFresh,
+            ],
             (
                 isLoading: boolean,
                 isSuggestedFilters: boolean,
                 anyGroupLoading: boolean,
                 results: TaxonomicDefinitionTypes[],
-                searchQuery: string
+                searchQuery: string,
+                hasRemoteDataSource: boolean,
+                remoteResultsAreFresh: boolean
             ): boolean =>
-                (isLoading || (isSuggestedFilters && anyGroupLoading && searchQuery.trim().length > 0)) &&
+                (isLoading ||
+                    (isSuggestedFilters && anyGroupLoading && searchQuery.trim().length > 0) ||
+                    // The current-query remote fetch hasn't landed yet: keep the spinner up rather
+                    // than flash a premature "No results". Gated on there being nothing to show
+                    // (below) so still-valid rows aren't replaced by a spinner on every keystroke.
+                    (hasRemoteDataSource && !remoteResultsAreFresh && searchQuery.trim().length > 0)) &&
                 (!results || results.length === 0),
         ],
         rawLocalItems: [
@@ -814,17 +945,21 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     return []
                 }
                 const recentPrefix = !searchQuery ? (contextFilteredRecentItems || []).slice(0, 3) : []
-                const pinnedPrefix = !searchQuery ? (contextFilteredPinnedItems || []).slice(0, 3) : []
+                const pinnedPrefix = !searchQuery
+                    ? withoutPinnedDuplicatesOfRecents(contextFilteredPinnedItems || [], recentPrefix).slice(0, 3)
+                    : []
 
                 const dedupeKeys = new Set<string>()
                 const addRecentKey = (item: TaxonomicDefinitionTypes): void => {
-                    if (hasRecentContext(item) && item._recentContext.sourceValue != null) {
-                        dedupeKeys.add(`${item._recentContext.sourceGroupType}::${item._recentContext.sourceValue}`)
+                    const key = recentSourceKey(item)
+                    if (key != null) {
+                        dedupeKeys.add(key)
                     }
                 }
                 const addPinnedKey = (item: TaxonomicDefinitionTypes): void => {
-                    if (hasPinnedContext(item) && item._pinnedContext.value != null) {
-                        dedupeKeys.add(`${item._pinnedContext.sourceGroupType}::${item._pinnedContext.value}`)
+                    const key = pinnedSourceKey(item)
+                    if (key != null) {
+                        dedupeKeys.add(key)
                     }
                 }
                 recentPrefix.forEach(addRecentKey)
@@ -864,6 +999,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.suggestedPinnedMatches,
                 s.suggestedRecentMatches,
                 s.keywordShortcutItems,
+                s.isSoleSubstantiveGroup,
+                s.soleGroupHasGetValue,
+                s.taxonomicGroups,
                 (_, props: InfiniteListLogicProps) => props.collapseUrlsToContainsRow,
             ],
             (
@@ -877,6 +1015,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 suggestedPinnedMatches,
                 suggestedRecentMatches,
                 keywordShortcutItems,
+                isSoleSubstantiveGroup,
+                soleGroupHasGetValue,
+                taxonomicGroups,
                 collapseUrlsToContainsRow
             ) => {
                 // Collapse URL groups to a single "URL contains <query>" shortcut row
@@ -901,7 +1042,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 }
                 const isSuggested = listGroupType === TaxonomicFilterGroupType.SuggestedFilters
                 const recentPrefix = isSuggested && !searchQuery ? (contextFilteredRecentItems || []).slice(0, 3) : []
-                const pinnedPrefix = isSuggested && !searchQuery ? (contextFilteredPinnedItems || []).slice(0, 3) : []
+                // An item that is both recent and pinned shows once, under the section that
+                // renders first — recents (mirrors the rebuild Combobox's prefix dedupe).
+                const pinnedPrefix =
+                    isSuggested && !searchQuery
+                        ? withoutPinnedDuplicatesOfRecents(contextFilteredPinnedItems || [], recentPrefix).slice(0, 3)
+                        : []
+                const pinnedMatches = withoutPinnedDuplicatesOfRecents(suggestedPinnedMatches, suggestedRecentMatches)
                 const topMatches = isSuggested ? dedupedTopMatches : []
 
                 // Shortcuts lead the list so users searching for the verb they mean (e.g. "click")
@@ -915,14 +1062,44 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     ...recentPrefix,
                     ...pinnedPrefix,
                     ...suggestedRecentMatches,
-                    ...suggestedPinnedMatches,
+                    ...pinnedMatches,
                     ...localItems.results,
                     ...remoteItems.results,
                     ...topMatches,
                 ]
-                const orderedBase = searchQuery
-                    ? promoteMatchingProperties(combinedResults, searchQuery)
-                    : combinedResults
+                // Reordering a windowed list would break onRowsRendered's display-index ->
+                // remote-offset mapping (and sparse holes would crash the keyer), so only float
+                // the sole group's recents/pinned once its list is fully loaded and dense.
+                // Local-only groups (count 0, no remote) are always fully loaded.
+                const soleGroupFullyLoaded =
+                    remoteItems.results.length >= remoteItems.count && !combinedResults.includes(undefined as any)
+                // Build the keyer inline (instead of a separate selector returning a
+                // function) so kea's reference-equality memoisation isn't defeated by a
+                // fresh closure on every evaluation.
+                const shouldFloat =
+                    !searchQuery && isSoleSubstantiveGroup && soleGroupHasGetValue && soleGroupFullyLoaded
+                let orderedBase: typeof combinedResults
+                if (searchQuery) {
+                    orderedBase = promoteMatchingProperties(combinedResults, searchQuery)
+                } else if (shouldFloat) {
+                    const getValue = taxonomicGroups.find(
+                        (g: TaxonomicFilterGroup) => g.type === listGroupType
+                    )?.getValue
+                    if (getValue) {
+                        const keyOf = (item: TaxonomicDefinitionTypes): string | null =>
+                            groupItemKey(listGroupType, getValue(item))
+                        orderedBase = floatRecentAndPinnedToTop(
+                            combinedResults,
+                            keyOf,
+                            contextFilteredRecentItems || [],
+                            contextFilteredPinnedItems || []
+                        )
+                    } else {
+                        orderedBase = combinedResults
+                    }
+                } else {
+                    orderedBase = combinedResults
+                }
                 // The "URL contains <query>" shortcut leads the aggregated SuggestedFilters list —
                 // ahead of recents/pinned/top-matches — so a URL search surfaces the contains
                 // suggestion first. Everything else keeps its existing order.
@@ -935,7 +1112,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         recentPrefix.length +
                         pinnedPrefix.length +
                         suggestedRecentMatches.length +
-                        suggestedPinnedMatches.length +
+                        pinnedMatches.length +
                         localItems.count +
                         remoteItems.count +
                         topMatches.filter((item) => !isSkeletonItem(item)).length,
@@ -1046,6 +1223,21 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             cache.lastActiveTab = activeTab
             actions.resetPinnedRowState()
             actions.reconcilePinnedRowState()
+
+            // A tab switch can cut short this list's in-flight (debounced) remote search before
+            // it lands, leaving the cached results stale for the current query. Nothing else
+            // re-fires the load, so the stale list surfaces as a false "No results" until a later
+            // render or re-type. Reconcile here: if the cached remote query no longer matches the
+            // active search, re-dispatch so switching to (or back to) a tab always reloads against
+            // the current query. Skip when a load is already in flight — it reads the current
+            // query at fetch time and settles correctly on its own.
+            if (
+                values.hasRemoteDataSource &&
+                !values.remoteItemsLoading &&
+                (values.remoteItems.searchQuery ?? '') !== values.searchQuery
+            ) {
+                actions.loadRemoteItems({ offset: 0, limit: values.limit })
+            }
         },
         setSearchQuery: async () => {
             const searchQueryChanged = cache.lastSearchQuery !== values.searchQuery
@@ -1103,6 +1295,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         loadRemoteItemsSuccess: ({ remoteItems }) => {
             actions.infiniteListResultsReceived(props.listGroupType, remoteItems)
 
+            // A success ends the failure episode: the next failure for the same query is a
+            // new episode and should capture again, not be deduped against the previous one.
+            cache.lastFetchFailedDedupeKey = null
+
             const trimmedQuery = (remoteItems.searchQuery ?? '').trim()
             const queryReachedBackend = trimmedQuery.length >= values.minSearchQueryLength
             // Only fire on the tab the user is actually looking at — every list runs the same
@@ -1125,6 +1321,30 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         searchQuery: trimmedQuery,
                     })
                 }
+            }
+        },
+        remoteItemsFetchFailedForQuery: ({ searchQuery }) => {
+            // Failures land on the same empty state as genuine no-matches, so without this
+            // capture the "event exists but the backend blipped" case is invisible in prod.
+            // Only count failures the user can actually see: the current query (a stale
+            // out-of-order failure is rejected by `remoteResultsAreFresh` and never renders),
+            // a real typed search (mount loads with an empty query are a different signal),
+            // and the active tab — every list runs the search in parallel, and background-tab
+            // failures the user never sees would inflate the metric.
+            const trimmedQuery = searchQuery.trim()
+            if (!values.isActiveTab || searchQuery !== values.searchQuery || trimmedQuery.length === 0) {
+                return
+            }
+            const dedupeKey = `${props.listGroupType}::${trimmedQuery}`
+            if (cache.lastFetchFailedDedupeKey !== dedupeKey) {
+                cache.lastFetchFailedDedupeKey = dedupeKey
+                posthog.capture('taxonomic filter fetch failed', {
+                    surface: legacyTaxonomicSurface(
+                        posthog.getFeatureFlag(FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN)
+                    ),
+                    groupType: props.listGroupType,
+                    searchQuery: trimmedQuery,
+                })
             }
         },
         infiniteListResultsReceived: () => {

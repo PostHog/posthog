@@ -147,8 +147,8 @@ def get_allowed_resources() -> list[str]:
 def _get_jwks_client(issuer: str, jwks_url: str | None = None) -> jwt.PyJWKClient:
     """Resolve a `PyJWKClient` for the given IdP issuer.
 
-    If `jwks_url` is provided (set on the `OrganizationDomain.id_jag_jwks_url`
-    field), skip OIDC discovery and point PyJWKClient at it directly. Otherwise
+    If `jwks_url` is provided (from the linked `IdentityProviderConfig.id_jag_jwks_url`),
+    skip OIDC discovery and point PyJWKClient at it directly. Otherwise
     do OIDC discovery against `<issuer>/.well-known/openid-configuration` and
     cache the resulting `jwks_uri` for `ID_JAG_JWKS_CACHE_TTL_SECONDS`. We
     don't cache the `PyJWKClient` object itself because it already does
@@ -280,11 +280,12 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
         )
         raise InvalidGrantError(GENERIC_ID_JAG_REJECTION)
 
-    expected_issuer = (org_domain.id_jag_issuer_url or "").rstrip("/")
+    idp_config = org_domain.idp_config
+    expected_issuer = (idp_config.id_jag_issuer_url or "").rstrip("/")
     provider_name = org_domain.domain
 
     try:
-        jwks_client = _get_jwks_client(expected_issuer, jwks_url=org_domain.id_jag_jwks_url or None)
+        jwks_client = _get_jwks_client(expected_issuer, jwks_url=idp_config.id_jag_jwks_url or None)
         signing_key = jwks_client.get_signing_key_from_jwt(assertion)
     except jwt.PyJWTError as e:
         raise InvalidGrantError(f"ID-JAG signing key resolution failed: {e}")
@@ -354,7 +355,7 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
         raise InvalidGrantError("ID-JAG is missing the client_id claim")
 
     # validate allowed clients if set in config
-    if org_domain.id_jag_allowed_clients and client_id not in org_domain.id_jag_allowed_clients:
+    if idp_config.id_jag_allowed_clients and client_id not in idp_config.id_jag_allowed_clients:
         raise InvalidClientError(f"client_id {client_id!r} is not allowed for this domain")
 
     # prevent replayed tokens from being used again
