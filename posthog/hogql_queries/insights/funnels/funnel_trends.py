@@ -17,8 +17,9 @@ from posthog.hogql_queries.insights.utils.breakdowns import NOT_IN_COHORT_ID
 from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql, get_start_of_interval_hogql_str
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_unfiltered
+from posthog.interval_specs import get_interval_func
 from posthog.queries.breakdown_props import get_breakdown_cohort_name
-from posthog.queries.util import correct_result_for_sampling, get_interval_func_ch
+from posthog.queries.util import correct_result_for_sampling
 from posthog.utils import DATERANGE_MAP, relative_date_parse
 
 
@@ -470,7 +471,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
             name="assumeNotNull",
             args=[ast.Call(name="toDateTime", args=[(ast.Constant(value=formatted_date_to))])],
         )
-        interval_func = get_interval_func_ch(interval.value)
+        interval_func = get_interval_func(interval.value)
 
         fill_select: list[ast.Expr] = [
             ast.Alias(

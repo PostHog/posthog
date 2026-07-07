@@ -4,6 +4,7 @@
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
     },
     "dependencies": {
+        "kea": "catalog:",
         "posthog-js": "catalog:"
     },
     "devDependencies": {

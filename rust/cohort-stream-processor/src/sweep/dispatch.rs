@@ -56,7 +56,7 @@ mod tests {
     use crate::filters::{CatalogHandle, FilterCatalog};
     use crate::partitions::{OffsetTracker, PartitionRouter};
     use crate::producer::{CaptureSink, MembershipSink};
-    use crate::store::{CohortStore, StoreConfig};
+    use crate::store::{CohortStore, OffloadConfig, OffloadMode, StoreConfig, StoreHandle};
     use crate::workers::MergeWorkerDeps;
 
     fn dispatcher() -> (TempDir, Arc<EventDispatcher>) {
@@ -66,12 +66,20 @@ mod tests {
             ..StoreConfig::default()
         })
         .unwrap();
+        let handle = StoreHandle::new(
+            store,
+            OffloadConfig {
+                mode: OffloadMode::All,
+                event_read_permits: 16,
+                maintenance_permits: 6,
+            },
+        );
         let catalog = Arc::new(CatalogHandle::from_catalog(FilterCatalog::from_teams([])));
         let sink: Arc<dyn MembershipSink> = Arc::new(CaptureSink::new());
         let dispatcher = EventDispatcher::new(
             PartitionRouter::new(64),
             Arc::new(OffsetTracker::new()),
-            store,
+            handle,
             catalog,
             sink,
             MergeWorkerDeps::capture(),

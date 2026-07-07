@@ -25,6 +25,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     }
 
     const samplingRatio = Math.max(0, Math.min(scanner.sampling_rate, 1))
+    // The estimate already applies the quality filter and sampling rate backend-side.
     const projected = scannerEstimate?.estimated_observations_per_month ?? null
     const hasCap = !!quota && quota.monthly_quota > 0
     const used = quota?.usage_this_month ?? 0

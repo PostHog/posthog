@@ -13,6 +13,7 @@ pydantic-error formatting, and activity logging live behind the facade.
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from typing import cast
 from uuid import UUID
 
@@ -35,6 +36,7 @@ from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.presentation.views.serializers import (
     AccountNotebookSerializer,
     AccountNoteSerializer,
+    AccountRelationshipDefinitionSerializer,
     AccountSerializer,
     CustomerJourneySerializer,
     CustomerProfileConfigSerializer,
@@ -228,12 +230,15 @@ class CustomPropertyDefinitionViewSet(
                 description=data.description,
                 display_type=data.display_type,
                 is_big_number=data.is_big_number,
+                options=_custom_property_option_dicts(data.options),
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
             )
         except api.CustomPropertyDefinitionConflictError as e:
             raise Conflict(str(e))
+        except api.InvalidCustomPropertyOptions as e:
+            raise ValidationError({"options": str(e)})
         return Response(CustomPropertyDefinitionSerializer(instance=definition).data, status=status.HTTP_201_CREATED)
 
     def update(self, request: Request, *args, **kwargs) -> Response:
@@ -251,6 +256,8 @@ class CustomPropertyDefinitionViewSet(
             )
         except api.CustomPropertyDefinitionConflictError as e:
             raise Conflict(str(e))
+        except api.InvalidCustomPropertyOptions as e:
+            raise ValidationError({"options": str(e)})
         if definition is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(CustomPropertyDefinitionSerializer(instance=definition).data)
@@ -284,6 +291,94 @@ def _custom_property_definition_write_fields(validated, raw_data: dict) -> dict:
         fields["display_type"] = validated.display_type
     if "is_big_number" in raw_data:
         fields["is_big_number"] = validated.is_big_number
+    if "options" in raw_data:
+        fields["options"] = _custom_property_option_dicts(validated.options)
+    return fields
+
+
+def _custom_property_option_dicts(options) -> list[dict] | None:
+    """Nested DataclassSerializer fields validate into dataclass instances; the facade and the
+    JSONField speak plain dicts."""
+    if options is None:
+        return None
+    return [asdict(option) for option in options]
+
+
+class AccountRelationshipDefinitionViewSet(
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    _FacadePaginationMixin,
+    viewsets.ModelViewSet,
+):
+    scope_object = "account"
+    serializer_class = AccountRelationshipDefinitionSerializer
+    queryset = None  # data is reached through the facade; declared for router/schema only
+
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        return self._paginate_via_facade(
+            request,
+            lambda offset, limit: api.list_account_relationship_definitions(self.team_id, offset=offset, limit=limit),
+            AccountRelationshipDefinitionSerializer,
+        )
+
+    def retrieve(self, request: Request, *args, **kwargs) -> Response:
+        definition = api.get_account_relationship_definition(self.team_id, self.kwargs["pk"])
+        if definition is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(AccountRelationshipDefinitionSerializer(instance=definition).data)
+
+    def create(self, request: Request, *args, **kwargs) -> Response:
+        serializer = AccountRelationshipDefinitionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            definition = api.create_account_relationship_definition(
+                team_id=self.team_id,
+                name=data.name,
+                description=data.description,
+                is_single_holder=data.is_single_holder,
+                created_by=cast(User, request.user),
+            )
+        except api.AccountRelationshipDefinitionConflictError as e:
+            raise Conflict(str(e))
+        return Response(
+            AccountRelationshipDefinitionSerializer(instance=definition).data, status=status.HTTP_201_CREATED
+        )
+
+    def update(self, request: Request, *args, **kwargs) -> Response:
+        partial = kwargs.pop("partial", False)
+        serializer = AccountRelationshipDefinitionSerializer(data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        try:
+            definition = api.update_account_relationship_definition(
+                team_id=self.team_id,
+                definition_id=self.kwargs["pk"],
+                fields=_account_relationship_definition_write_fields(serializer.validated_data, request.data),
+            )
+        except api.AccountRelationshipDefinitionConflictError as e:
+            raise Conflict(str(e))
+        if definition is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(AccountRelationshipDefinitionSerializer(instance=definition).data)
+
+    def partial_update(self, request: Request, *args, **kwargs) -> Response:
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request: Request, *args, **kwargs) -> Response:
+        if not api.delete_account_relationship_definition(team_id=self.team_id, definition_id=self.kwargs["pk"]):
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+def _account_relationship_definition_write_fields(validated, raw_data: dict) -> dict:
+    fields: dict = {}
+    if "name" in raw_data:
+        fields["name"] = validated.name
+    if "description" in raw_data:
+        fields["description"] = validated.description
+    if "is_single_holder" in raw_data:
+        fields["is_single_holder"] = validated.is_single_holder
     return fields
 
 
@@ -807,6 +902,34 @@ def _synthesize_notebook_content(text_content, existing_content):
     return None
 
 
+# Module-level (not ViewSet static methods) so the ``list[int]`` return annotation resolves to
+# the builtin: the ViewSets define a ``list`` method that shadows ``list`` inside the class body.
+def _parse_int_ids_param(request: Request, name: str) -> list[int]:
+    """Parse a repeated or comma-joined integer-id query param (e.g. ``created_by`` / ``assigned_to``).
+
+    The generated client serializes an array as a single comma-joined value; accept that
+    and the repeated-param form alike."""
+    ids: list[int] = []
+    for value in request.query_params.getlist(name):
+        for part in value.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            if not part.isdigit():
+                raise ValidationError({name: "Must be a comma-separated list of numeric user IDs."})
+            ids.append(int(part))
+    return ids
+
+
+def _parse_uuid_param(request: Request, name: str) -> UUID | None:
+    if raw := request.query_params.get(name):
+        try:
+            return UUID(raw)
+        except ValueError:
+            raise ValidationError({name: "Must be a valid UUID."})
+    return None
+
+
 @extend_schema(tags=["customer_analytics"])
 class AccountNotesViewSet(
     TeamAndOrgViewSetMixin,
@@ -843,26 +966,18 @@ class AccountNotesViewSet(
                 required=False,
                 description="Only return notes created by these user IDs (repeat the param per user).",
             ),
+            OpenApiParameter(
+                name="assigned_to",
+                type=OpenApiTypes.INT,
+                many=True,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Only return notes on accounts assigned to these user IDs "
+                "(the account's CSM or account executive; repeat the param per user).",
+            ),
         ],
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
-        # The generated client serializes the array as a single comma-joined value; accept that
-        # and the repeated-param form alike.
-        created_by_ids = []
-        for value in request.query_params.getlist("created_by"):
-            for part in value.split(","):
-                part = part.strip()
-                if not part:
-                    continue
-                if not part.isdigit():
-                    raise ValidationError({"created_by": "Must be a comma-separated list of numeric user IDs."})
-                created_by_ids.append(int(part))
-        account_id: UUID | None = None
-        if raw_account_id := request.query_params.get("account_id"):
-            try:
-                account_id = UUID(raw_account_id)
-            except ValueError:
-                raise ValidationError({"account_id": "Must be a valid UUID."})
         return self._paginate_via_facade(
             request,
             lambda offset, limit: api.list_account_notes_for_view(
@@ -871,8 +986,9 @@ class AccountNotesViewSet(
                 offset=offset,
                 limit=limit,
                 search=request.query_params.get("search", "").strip() or None,
-                account_id=account_id,
-                created_by_ids=created_by_ids or None,
+                account_id=_parse_uuid_param(request, "account_id"),
+                created_by_ids=_parse_int_ids_param(request, "created_by") or None,
+                assigned_to_ids=_parse_int_ids_param(request, "assigned_to") or None,
             ),
             AccountNoteSerializer,
         )
