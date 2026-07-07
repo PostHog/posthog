@@ -2,13 +2,18 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from parameterized import parameterized
 
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 
+from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     SLACK_MRKDWN_SECTION_LIMIT,
     _build_ai_slack_message,
+    _persist_ai_query_plan,
     _split_text_into_chunks,
     build_ai_subscription_report,
     render_ai_email_html,
@@ -285,6 +290,33 @@ class TestFeedbackFooter:
         assert context[f"feedback_{feedback}_url"] == _feedback_url(feedback, "email")
 
 
+class TestPersistAiQueryPlanRaceGuard(APIBaseTest):
+    @parameterized.expand(
+        [
+            # The write is conditional on the planning-time prompt: an edit that landed mid-generation
+            # (clearing the plan via save()) must not be overwritten with a plan for the old prompt.
+            ("prompt_unchanged_persists", "original prompt?", True),
+            ("prompt_changed_noops", "edited mid-generation?", False),
+        ]
+    )
+    def test_persist_is_conditional_on_planning_prompt(self, _name: str, current_prompt: str, written: bool) -> None:
+        sub = Subscription.objects.create(
+            team=self.team,
+            prompt=current_prompt,
+            target_type="email",
+            target_value="a@posthog.com",
+            frequency="weekly",
+            interval=1,
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        plan = {"version": 1, "plan": {}}
+
+        _persist_ai_query_plan(sub.id, self.team.id, "original prompt?", plan)
+
+        sub.refresh_from_db()
+        assert sub.ai_query_plan == (plan if written else None)
+
+
 class TestFreezePlanPersistence:
     """build_ai_subscription_report freezes a freshly-generated plan and skips persistence on reuse.
     These guard the freeze contract without touching the DB — the persist write itself is a one-line
@@ -320,7 +352,7 @@ class TestFreezePlanPersistence:
             await build_ai_subscription_report(sub)
 
         # The plan generated on the first delivery is frozen onto the (id, team_id)-scoped subscription.
-        mock_persist.assert_called_once_with(sub.id, sub.team_id, fresh_plan)
+        mock_persist.assert_called_once_with(sub.id, sub.team_id, sub.prompt, fresh_plan)
 
     async def test_persist_failure_does_not_abort_the_delivery(self) -> None:
         # The report is already generated when the freeze write runs; a transient DB error must not

@@ -38,6 +38,14 @@ def _test_window() -> ReportWindow:
     return ReportWindow(start=_WINDOW_END - timedelta(days=1), end=_WINDOW_END)
 
 
+_ALL_FAILED_RUN = (
+    ["### s0\n\n_Query failed to run (ExposedHogQLError)_"],
+    1,
+    [QueryStepDiagnostic("s0", "SELECT bad", False, "ExposedHogQLError")],
+)
+_OK_RUN = (["### s\n\nok"], 0, [QueryStepDiagnostic("s", "SELECT count() FROM events", True, None)])
+
+
 def _spec(steps: int = 1) -> EnrichedPromptSpec:
     return EnrichedPromptSpec(
         cleaned_prompt="p",
@@ -384,14 +392,6 @@ async def test_run_steps_substitutes_fresh_window_into_placeholder_sql(mock_exec
     skeleton_0 = captured[0].replace(early.window_filter_sql, "")
     skeleton_1 = captured[1].replace(later.window_filter_sql, "")
     assert skeleton_0 == skeleton_1
-
-
-_ALL_FAILED_RUN = (
-    ["### s0\n\n_Query failed to run (ExposedHogQLError)_"],
-    1,
-    [QueryStepDiagnostic("s0", "SELECT bad", False, "ExposedHogQLError")],
-)
-_OK_RUN = (["### s\n\nok"], 0, [QueryStepDiagnostic("s", "SELECT count() FROM events", True, None)])
 
 
 @pytest.mark.parametrize(
