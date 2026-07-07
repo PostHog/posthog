@@ -149,10 +149,16 @@ function createProducePromises(personsStoreMessages: FlushResult[], outputs: Per
                             distinctId: record.distinctId,
                             uuid: record.uuid,
                         })
-                        return emitIngestionWarning(outputs, record.teamId, 'message_size_too_large', {
-                            eventUuid: record.uuid,
-                            distinctId: record.distinctId,
-                            step: 'flushBatchStoresStep',
+                        return emitIngestionWarning(outputs, record.teamId, {
+                            type: 'message_size_too_large',
+                            details: {
+                                eventUuid: record.uuid,
+                                distinctId: record.distinctId,
+                                step: 'flushBatchStoresStep',
+                            },
+                            category: 'size',
+                            severity: 'error',
+                            pipelineStep: 'flush',
                         })
                     } else {
                         // Other errors should fail the side effect

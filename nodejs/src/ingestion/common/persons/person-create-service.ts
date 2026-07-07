@@ -86,12 +86,18 @@ export class PersonCreateService {
             throw new Error('Unexpected CreatePersonResult state')
         } catch (error) {
             if (error instanceof PersonPropertiesSizeViolationError) {
-                await emitIngestionWarning(this.context.outputs, teamId, 'person_properties_size_violation', {
-                    personId: error.personId,
-                    distinctId: primaryDistinctId.distinctId,
-                    teamId: teamId,
-                    eventUuid: creatorEventUuid,
-                    message: 'Person properties exceeds size limit and was rejected',
+                await emitIngestionWarning(this.context.outputs, teamId, {
+                    type: 'person_properties_size_violation',
+                    details: {
+                        personId: error.personId,
+                        distinctId: primaryDistinctId.distinctId,
+                        teamId: teamId,
+                        eventUuid: creatorEventUuid,
+                        message: 'Person properties exceeds size limit and was rejected',
+                    },
+                    category: 'size',
+                    severity: 'error',
+                    pipelineStep: 'person-store',
                 })
                 throw error
             }

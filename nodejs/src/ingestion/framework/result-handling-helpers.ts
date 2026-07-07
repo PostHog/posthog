@@ -92,19 +92,20 @@ export async function produceMessageToDLQ(
 
     try {
         if (messageInfo.teamId) {
-            await emitIngestionWarning(
-                outputs,
-                parseInt(messageInfo.teamId, 10),
-                'pipeline_step_dlq',
-                {
+            await emitIngestionWarning(outputs, parseInt(messageInfo.teamId, 10), {
+                type: 'pipeline_step_dlq',
+                details: {
                     distinctId: messageInfo.distinctId || 'unknown',
                     eventUuid: messageInfo.uuid || 'unknown',
                     error: error instanceof Error ? error.message : String(error),
                     event: messageInfo.event || 'unknown',
                     step,
                 },
-                { alwaysSend: true }
-            )
+                category: 'pipeline',
+                severity: 'error',
+                pipelineStep: step,
+                alwaysSend: true,
+            })
         }
 
         await outputs.produce(DLQ_OUTPUT, {

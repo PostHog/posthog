@@ -25,7 +25,10 @@ describe('captureIngestionWarning()', () => {
     })
 
     it('can read own writes', async () => {
-        await captureIngestionWarning(kafkaProducer, 2, 'some_type', { foo: 'bar' })
+        await captureIngestionWarning(kafkaProducer, 2, {
+            type: 'some_type',
+            details: { foo: 'bar' },
+        })
 
         const warnings = await clickhouse.delayUntilEventIngested(
             async () => await clickhouse.query('SELECT * FROM ingestion_warnings')

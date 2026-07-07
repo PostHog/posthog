@@ -788,17 +788,18 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             } else {
                 // Handle specific error types
                 if (result?.error instanceof PersonPropertiesSizeViolationError) {
-                    await emitIngestionWarning(
-                        this.ingestionWarningsOutputs,
-                        update.team_id,
-                        'person_properties_size_violation',
-                        {
+                    await emitIngestionWarning(this.ingestionWarningsOutputs, update.team_id, {
+                        type: 'person_properties_size_violation',
+                        details: {
                             personId: update.id,
                             distinctId: update.distinct_id,
                             teamId: update.team_id,
                             message: 'Person properties exceeds size limit and was rejected',
-                        }
-                    )
+                        },
+                        category: 'size',
+                        severity: 'error',
+                        pipelineStep: 'person-store',
+                    })
                     personWriteMethodAttemptCounter.inc({
                         db_write_mode: this.options.dbWriteMode,
                         method: 'batch',
@@ -999,15 +1000,16 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     private async handleIndividualUpdateError(error: unknown, update: PersonUpdate): Promise<FlushResult[]> {
         // If the Kafka message is too large, we can't retry, so we need to capture a warning and stop retrying
         if (error instanceof MessageSizeTooLarge) {
-            await emitIngestionWarning(
-                this.ingestionWarningsOutputs,
-                update.team_id,
-                'person_upsert_message_size_too_large',
-                {
+            await emitIngestionWarning(this.ingestionWarningsOutputs, update.team_id, {
+                type: 'person_upsert_message_size_too_large',
+                details: {
                     personId: update.id,
                     distinctId: update.distinct_id,
-                }
-            )
+                },
+                category: 'size',
+                severity: 'error',
+                pipelineStep: 'person-store',
+            })
             personWriteMethodAttemptCounter.inc({
                 db_write_mode: this.options.dbWriteMode,
                 method: this.options.dbWriteMode,
@@ -1017,17 +1019,18 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         }
 
         if (error instanceof PersonPropertiesSizeViolationError) {
-            await emitIngestionWarning(
-                this.ingestionWarningsOutputs,
-                update.team_id,
-                'person_properties_size_violation',
-                {
+            await emitIngestionWarning(this.ingestionWarningsOutputs, update.team_id, {
+                type: 'person_properties_size_violation',
+                details: {
                     personId: update.id,
                     distinctId: update.distinct_id,
                     teamId: update.team_id,
                     message: 'Person properties exceeds size limit and was rejected',
-                }
-            )
+                },
+                category: 'size',
+                severity: 'error',
+                pipelineStep: 'person-store',
+            })
             personWriteMethodAttemptCounter.inc({
                 db_write_mode: this.options.dbWriteMode,
                 method: this.options.dbWriteMode,
