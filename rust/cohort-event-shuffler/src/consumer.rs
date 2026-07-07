@@ -134,8 +134,7 @@ fn decode_gated(payload: &[u8], team_index: &TeamIndex) -> Decoded {
 }
 
 /// Resolved delivery of one forwarded event, carried back to the pipeline task by an
-/// [`AckFuture`]. Named (not a bare tuple) so each destructuring site reads by field instead of
-/// re-establishing what each position means.
+/// [`AckFuture`].
 struct DeliveryAck {
     partition: SourcePartition,
     offset: SourceOffset,
