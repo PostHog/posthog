@@ -12,6 +12,10 @@ from django.db.models.functions import Lower
 
 MENTION_TOKEN_PATTERN = re.compile(r"@\[[^\][\n]+\]\(([^\s()]+@[^\s()]+)\)")
 
+# Content length is unbounded, so cap how many distinct emails one message may
+# resolve to keep the lookup's IN list from growing with attacker-sized input.
+MAX_RESOLVED_MENTIONS_PER_MESSAGE = 50
+
 
 def extract_mention_emails(content: str) -> set[str]:
     """Emails mentioned in the content, lowercased and deduped."""
@@ -25,12 +29,12 @@ def resolve_mentioned_user_ids(user_model: Any, content: str, *, team_id: int, a
     ``user_model`` is injected so the backfill migration can pass its historical model
     and stay filter-identical with the write path.
     """
-    emails = extract_mention_emails(content)
+    emails = sorted(extract_mention_emails(content))[:MAX_RESOLVED_MENTIONS_PER_MESSAGE]
     if not emails:
         return []
     member_ids = (
         user_model.objects.annotate(_email_lower=Lower("email"))
-        .filter(organizations__team__id=team_id, _email_lower__in=list(emails))
+        .filter(organizations__team__id=team_id, _email_lower__in=emails)
         .values_list("id", flat=True)
         .distinct()
     )
