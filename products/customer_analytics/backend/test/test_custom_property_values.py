@@ -37,6 +37,11 @@ from products.workflows.backend.models import HogFlow
 
 LOGIC_MODULE = "products.customer_analytics.backend.logic.custom_property_values"
 
+SELECT_OPTIONS = [
+    {"id": "opt-1", "label": "Enterprise", "color": "preset-1"},
+    {"id": "opt-2", "label": "Startup", "color": "preset-2"},
+]
+
 
 class TestSetCustomPropertyValue(BaseTest):
     def setUp(self):
@@ -116,6 +121,37 @@ class TestSetCustomPropertyValue(BaseTest):
     )
     def test_rejects_values_that_do_not_match_the_type(self, _name, display_type, value):
         definition = self._create_property_definition(display_type=display_type, name=_name)
+
+        with pytest.raises(InvalidCustomPropertyValue):
+            self._set(definition=definition, value=value)
+
+        assert not CustomPropertyValue.objects.for_team(self.team.id).filter(definition=definition).exists()
+
+    def test_select_writes_matching_label_into_value_str(self):
+        definition = create_custom_property_definition(
+            team_id=self.team.id, name="Tier", display_type=DisplayType.SELECT, options=SELECT_OPTIONS
+        )
+
+        instance = self._set(definition=definition, value="Enterprise")
+        instance.refresh_from_db()
+
+        assert instance.value_str == "Enterprise"
+        assert instance.value_num is None and instance.value_bool is None and instance.value_datetime is None
+
+    @parameterized.expand(
+        [
+            ("unknown_label", "Mid-market"),
+            ("case_mismatch", "enterprise"),
+            ("empty_string", ""),
+            ("number", 3),
+            ("boolean", True),
+            ("list", ["Enterprise"]),
+        ]
+    )
+    def test_select_rejects_values_not_matching_an_option(self, _name, value):
+        definition = create_custom_property_definition(
+            team_id=self.team.id, name=f"Tier {_name}", display_type=DisplayType.SELECT, options=SELECT_OPTIONS
+        )
 
         with pytest.raises(InvalidCustomPropertyValue):
             self._set(definition=definition, value=value)

@@ -17,6 +17,7 @@ use crate::{
         extract_retry_after_from_error, get_user_message, is_rate_limited_error, is_timeout_error,
         is_transient_network_error, is_transient_server_error, UserError,
     },
+    extractor::detect_compression_magic,
     job::{backoff::format_backoff_messages, config::SinkConfig},
     parse::{format::ParserFn, Parsed},
     source::DataSource,
@@ -252,6 +253,28 @@ pub(crate) async fn select_and_fetch_next_chunk(
             },
             false,
         )));
+    }
+
+    // A part that still *begins* with a known compression magic can never be
+    // parsed as newline-delimited JSON: the file is compressed a second time, or
+    // the source/extractor's compression setting does not match the file. Only the
+    // start of a part is decisive - mid-file chunks can coincidentally begin with
+    // these bytes - so this is gated on offset 0. Fail fast with an actionable,
+    // non-transient error (a UserError pauses the job) instead of letting the
+    // parser emit a confusing "invalid utf-8" failure or crawl one byte at a time.
+    if next_part.current_offset == 0 {
+        if let Some(fmt) = detect_compression_magic(&next_chunk) {
+            let internal = Error::msg(format!(
+                "part {} begins with {fmt} magic bytes at offset 0 ({chunk_bytes} bytes read)",
+                next_part.key
+            ));
+            return Err(internal.context(UserError::new(format!(
+                "Part {} begins with {fmt}-compressed data where newline-delimited JSON was \
+                 expected - the file may be compressed twice, or the import's compression \
+                 setting doesn't match the file.",
+                next_part.key
+            ))));
+        }
     }
 
     info!(job_id = %job_id, "Fetched part chunk {:?}", next_part);
@@ -1793,6 +1816,165 @@ mod tests {
                 0,
                 "all parts' .raw files must be cleaned up by the read loop alone"
             );
+        }
+    }
+
+    /// A part whose first bytes are a known compression magic is still compressed
+    /// (double-compression, or a source/extractor whose compression setting does
+    /// not match the file). The loop must fail fast at part offset 0 with an
+    /// actionable, non-transient error - never crawl or emit a confusing utf-8
+    /// parse failure. The guard sits in the shared loop, so one streaming source
+    /// (post-decompression double-gzip) and one plain verbatim source (a gzip file
+    /// on a non-decompressing source) together prove it covers every source shape.
+    mod compression_magic_guard_tests {
+        use super::staging_cleanup_invariant_tests::{
+            build_source_with_extractor, dummy_model, gzip_bytes, job_state,
+            newline_consumed_transform,
+        };
+        use super::*;
+        use crate::extractor::ExtractorType;
+        use crate::source::folder::FolderSource;
+        use tempfile::TempDir;
+
+        fn assert_non_transient(err: &Error) {
+            assert!(!crate::error::is_rate_limited_error(err));
+            assert!(!crate::error::is_timeout_error(err));
+            assert!(!crate::error::is_transient_network_error(err));
+            assert!(!crate::error::is_transient_server_error(err));
+        }
+
+        #[tokio::test]
+        async fn test_double_gzipped_part_detected_at_offset_zero() {
+            // gzip(gzip(jsonl)): the extractor strips the outer gzip, so the
+            // plaintext stream *starts* with the inner gzip magic. The guard must
+            // catch it at offset 0 and pause with the double-compression message.
+            let server = MockServer::start();
+            let mut inner = String::new();
+            for i in 0..50 {
+                inner.push_str(&format!("{{\"event\":\"e{i}\"}}\n"));
+            }
+            let double = gzip_bytes(&gzip_bytes(inner.as_bytes()));
+            let _mock = server.mock(|when, then| {
+                when.method(Method::GET).path("/export");
+                then.status(200).body(double);
+            });
+
+            let staging = TempDir::new().unwrap();
+            let source = build_source_with_extractor(
+                server.url("/export"),
+                staging.path(),
+                1,
+                ExtractorType::PlainGzip,
+            );
+            source.prepare_for_job().await.unwrap();
+            let keys = source.keys().await.unwrap();
+
+            let state = Mutex::new(job_state(&keys));
+            let model = Mutex::new(dummy_model(job_state(&keys)));
+            let transform = newline_consumed_transform();
+
+            let err = select_and_fetch_next_chunk(
+                &state,
+                &model,
+                &source,
+                &transform,
+                1024,
+                Uuid::now_v7(),
+            )
+            .await
+            .expect_err("double-gzipped data must be rejected at offset 0");
+
+            let user_msg = crate::error::get_user_message(&err);
+            assert!(
+                user_msg.contains("compressed twice") && user_msg.contains("gzip"),
+                "unexpected user message: {user_msg}"
+            );
+            assert!(
+                format!("{err:#}").contains("offset 0"),
+                "internal chain should record the offset, got: {err:#}"
+            );
+            assert_non_transient(&err);
+            // The guard fires before advancing, so nothing is consumed.
+            assert_eq!(state.lock().await.parts[0].current_offset, 0);
+        }
+
+        #[tokio::test]
+        async fn test_plain_source_serving_gzip_file_detected_at_offset_zero() {
+            // The reverse misconfiguration: a gzipped file handed to a plain
+            // (verbatim, non-decompressing) source. The raw gzip magic is the first
+            // thing the loop reads, so the same offset-0 guard must catch it.
+            let staging = TempDir::new().unwrap();
+            let gz = gzip_bytes(b"{\"event\":\"x\"}\n");
+            std::fs::write(staging.path().join("data.jsonl"), &gz).unwrap();
+
+            let source = FolderSource::new(staging.path().to_str().unwrap().to_string())
+                .await
+                .unwrap();
+            let keys = source.keys().await.unwrap();
+
+            let state = Mutex::new(job_state(&keys));
+            let model = Mutex::new(dummy_model(job_state(&keys)));
+            let transform = newline_consumed_transform();
+
+            let err = select_and_fetch_next_chunk(
+                &state,
+                &model,
+                &source,
+                &transform,
+                1024,
+                Uuid::now_v7(),
+            )
+            .await
+            .expect_err("a gzip file on a plain source must be rejected at offset 0");
+
+            let user_msg = crate::error::get_user_message(&err);
+            assert!(
+                user_msg.contains("compressed") && user_msg.contains("gzip"),
+                "unexpected user message: {user_msg}"
+            );
+            assert_non_transient(&err);
+        }
+
+        #[tokio::test]
+        async fn test_non_magic_binary_still_yields_parse_error() {
+            // Bucket 3: non-magic invalid-utf8 content is corrupt data, not
+            // compression. The guard must NOT fire; the pre-existing utf-8 parse
+            // error must surface unchanged, proving the guard does not over-claim.
+            let staging = TempDir::new().unwrap();
+            // 0xff is not a compression-magic first byte; the trailing newline forms
+            // a complete line that fails utf-8 validation - the pre-existing path.
+            std::fs::write(staging.path().join("data.jsonl"), [0xff, 0x28, 0xff, b'\n']).unwrap();
+
+            let source = FolderSource::new(staging.path().to_str().unwrap().to_string())
+                .await
+                .unwrap();
+            let keys = source.keys().await.unwrap();
+
+            let state = Mutex::new(job_state(&keys));
+            let model = Mutex::new(dummy_model(job_state(&keys)));
+            let transform = newline_consumed_transform();
+
+            let err = select_and_fetch_next_chunk(
+                &state,
+                &model,
+                &source,
+                &transform,
+                1024,
+                Uuid::now_v7(),
+            )
+            .await
+            .expect_err("invalid-utf8 binary must still fail");
+
+            let full = format!("{err:#}");
+            assert!(
+                full.contains("utf8") || full.contains("Failed to parse"),
+                "expected the pre-existing parse error, got: {full}"
+            );
+            assert!(
+                !crate::error::get_user_message(&err).contains("compressed twice"),
+                "non-magic data must not be mislabeled as double-compression: {full}"
+            );
+            assert_non_transient(&err);
         }
     }
 
