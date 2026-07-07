@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework.exceptions import APIException
 
 from posthog.schema import (
@@ -46,8 +47,10 @@ from posthog.schema import (
 from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.errors import ExposedCHQueryError
+from posthog.exceptions import ClickHouseAtCapacity
 
 from ee.hogai.context.insight.query_executor import (
     AssistantQueryExecutor,
@@ -55,7 +58,7 @@ from ee.hogai.context.insight.query_executor import (
     get_example_prompt,
     is_supported_query,
 )
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolRetryableError, MaxToolTransientError
 from ee.hogai.utils.query import validate_assistant_query
 
 
@@ -277,6 +280,40 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             await self.query_runner.arun_and_format_query(query)
 
         self.assertIn("max execution time", str(context.exception))
+
+    @parameterized.expand(
+        [
+            # A concurrency throttle raised directly must not be treated as a query problem.
+            ("concurrency_limit", ConcurrencyLimitExceeded("Exceeded maximum concurrency limit: 20 for key: x")),
+            # ClickHouse-at-capacity (SERVER_OVERLOADED / TOO_MANY_SIMULTANEOUS_QUERIES) is also a throttle.
+            ("clickhouse_at_capacity", ClickHouseAtCapacity()),
+        ]
+    )
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_run_and_format_query_rate_limit_raises_transient(self, _name, error, mock_process_query):
+        # A rate-limit/concurrency throttle must surface as a transient error (back off and retry
+        # unchanged), not a retryable one that tells Max to rewrite the query.
+        mock_process_query.side_effect = error
+
+        query = AssistantTrendsQuery(series=[])
+
+        with self.assertRaises(MaxToolTransientError):
+            await self.query_runner.arun_and_format_query(query)
+
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_run_and_format_query_rate_limit_message_in_response_dict_raises_transient(self, mock_process_query):
+        # The async polling branch re-raises the stored throttle message as a plain string, losing the
+        # exception type. A response carrying the at-capacity message must still map to transient.
+        mock_process_query.return_value = {
+            "results": [],
+            "columns": ["count"],
+            "error": str(ClickHouseAtCapacity.default_detail),
+        }
+
+        query = AssistantHogQLQuery(query="SELECT count() FROM events")
+
+        with self.assertRaises(MaxToolTransientError):
+            await self.query_runner.arun_and_format_query(query)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")

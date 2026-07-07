@@ -2,7 +2,7 @@ import json
 import time
 import asyncio
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, NoReturn, Optional
 
 from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
@@ -47,8 +47,10 @@ from posthog.hogql.errors import (
 
 from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.client.execute_async import get_query_status
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries, tags_context
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
 from posthog.models import Team
 from posthog.rbac.user_access_control import UserAccessControlError
@@ -72,7 +74,7 @@ from ee.hogai.context.insight.format import (
     get_boxplot_results,
     is_boxplot_query,
 )
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolRetryableError, MaxToolTransientError
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.query import validate_assistant_query
 from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery, AnyPydanticModelQuery
@@ -102,6 +104,36 @@ from .prompts import (
 logger = structlog.get_logger(__name__)
 
 TIMING_LOG_PREFIX = "[QUERY_EXECUTOR]"
+
+# Message handed to Max when a query is throttled. It must make clear the query itself is fine,
+# so Max backs off and retries unchanged instead of looping on fruitless query rewrites.
+RATE_LIMIT_ERROR_MESSAGE = (
+    "The query engine is temporarily at capacity (too many concurrent queries for this organization). "
+    "This is a transient throttle, not a problem with the query itself, so the same query should "
+    "succeed once capacity frees up."
+)
+
+
+def _is_rate_limit_error(err: Exception, message: str) -> bool:
+    """Whether a query failure is a concurrency/rate-limit throttle rather than a query problem.
+
+    A throttle means "back off and retry unchanged", not "rewrite the query". Direct exceptions are
+    classified by type, but the async polling branch re-raises the stored error message as a plain
+    APIException (losing the original type), so we also match the known throttle message.
+    """
+    if classify_query_error(err) == QueryErrorCategory.RATE_LIMITED:
+        return True
+    return str(ClickHouseAtCapacity.default_detail) in message
+
+
+def _raise_query_execution_error(err: Exception, message: str) -> NoReturn:
+    """Translate a query execution failure into the right Max tool error.
+
+    Throttles become a transient error (retry unchanged); everything else stays retryable-with-fixes.
+    """
+    if _is_rate_limit_error(err, message):
+        raise MaxToolTransientError(RATE_LIMIT_ERROR_MESSAGE)
+    raise MaxToolRetryableError(message)
 
 
 def is_supported_query(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery) -> bool:
@@ -432,6 +464,7 @@ class AssistantQueryExecutor:
             HogQLNotImplementedError,
             ExposedCHQueryError,
             UserAccessControlError,
+            ConcurrencyLimitExceeded,
         ) as err:
             elapsed = time.time() - start_time
             # Handle known query execution errors with user-friendly messages
@@ -443,7 +476,7 @@ class AssistantQueryExecutor:
                     err_message = ", ".join(map(str, err.detail))
             if debug_timing:
                 logger.exception(f"{TIMING_LOG_PREFIX} Query execution failed after {elapsed:.3f}s: {err_message}")
-            raise MaxToolRetryableError(err_message)
+            _raise_query_execution_error(err, err_message)
         except:
             elapsed = time.time() - start_time
             # Catch-all for unexpected errors during query execution
@@ -458,7 +491,8 @@ class AssistantQueryExecutor:
         # table, indistinguishable from "zero rows matched". Surface it as an error, mirroring the
         # `query_status.error` check the async-polling branch above already does.
         if isinstance(response_dict, dict) and (error := response_dict.get("error")):
-            raise MaxToolRetryableError(str(error))
+            error_message = str(error)
+            _raise_query_execution_error(Exception(error_message), error_message)
 
         total_elapsed = time.time() - start_time
         if debug_timing:

@@ -163,6 +163,19 @@ Acknowledge to the user that you encountered an error and do not attempt to fix 
 </system_reminder>
 """.strip()
 
+EXECUTE_SQL_RATE_LIMITED_ERROR_PROMPT = """
+The query could not run because of a temporary capacity throttle:
+```
+{{{error}}}
+```
+
+<system_reminder>
+This is NOT a problem with your query. The query is fine and does not need changing. Do NOT rewrite,
+simplify, or otherwise modify the query in response to this error, and do NOT keep retrying it in a loop.
+Tell the user that the query engine is temporarily at capacity and they should try again in a little while.
+</system_reminder>
+""".strip()
+
 EXECUTE_SQL_CONTEXT_PROMPT = """
 The current HogQL query (which CAN be empty) is:
 <current_query>

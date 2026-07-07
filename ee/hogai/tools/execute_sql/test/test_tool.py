@@ -18,6 +18,7 @@ from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversa
 from products.product_analytics.backend.models.insight import Insight
 
 from ee.hogai.context.context import AssistantContextManager
+from ee.hogai.tool_errors import MaxToolTransientError
 from ee.hogai.tools.execute_sql.tool import ExecuteSQLTool, ExecuteSQLToolArgs
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
@@ -217,3 +218,22 @@ class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(result_text, "")
         self.assertIsNotNone(artifact_messages)
         self.assertIn("Revenue Trends", artifact_messages.messages[1].content)
+
+    async def test_rate_limit_returns_backoff_prompt_not_rewrite(self):
+        # A concurrency/rate-limit throttle must hand Max the back-off prompt, not the "fix it and
+        # generate a new query" recoverable prompt that triggers fruitless query rewrites.
+        tool = await self._create_tool()
+
+        with patch(
+            "ee.hogai.tools.execute_sql.tool.InsightContext.execute_and_format",
+            AsyncMock(side_effect=MaxToolTransientError("temporarily at capacity")),
+        ):
+            result_text, artifact_messages = await tool._arun_impl(
+                "SELECT count() FROM events",
+                "Event count",
+                "Count events",
+            )
+
+        self.assertIsNone(artifact_messages)
+        self.assertIn("Do NOT rewrite", result_text)
+        self.assertNotIn("generate a new query", result_text)

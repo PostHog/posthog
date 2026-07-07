@@ -21,8 +21,10 @@ from posthog.clickhouse.client import (
 )
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, execute_process_query
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.redis import get_client
@@ -142,6 +144,8 @@ class TestExecuteProcessQuery(TestCase):
             ("user_safe_ch_error", ExposedCHQueryError("NOT_AN_AGGREGATE"), False),
             ("user_safe_hogql_error", ExposedHogQLError("bad query"), False),
             ("server_error", ValueError("something broke"), True),
+            # A concurrency throttle is an expected capacity event, not a server bug — don't report it.
+            ("rate_limit", ConcurrencyLimitExceeded("Exceeded maximum concurrency limit"), False),
         ]
     )
     @patch("posthog.clickhouse.client.execute_async.capture_exception")
@@ -160,6 +164,28 @@ class TestExecuteProcessQuery(TestCase):
         execute_process_query(self.team.id, self.user.id, self.query_id, self.query_json, self.limit_context)
 
         self.assertEqual(mock_capture_exception.called, should_capture)
+
+    @patch("posthog.clickhouse.client.execute_async.capture_exception")
+    @patch("posthog.clickhouse.client.execute_async.redis.get_client")
+    @patch("posthog.api.services.query.process_query_dict")
+    def test_execute_process_query_surfaces_throttle_message_to_non_staff(
+        self, mock_process_query_dict, mock_redis_client, mock_capture_exception
+    ):
+        # A concurrency throttle must reach non-staff users with a friendly, actionable message rather
+        # than degrading to a generic "Query failed" (error stored with no message).
+        self.assertFalse(self.user.is_staff)
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = json.dumps(
+            {"id": self.query_id, "team_id": self.team.id, "complete": False, "error": False}
+        ).encode()
+        mock_redis_client.return_value = mock_redis
+        mock_process_query_dict.side_effect = ConcurrencyLimitExceeded("Exceeded maximum concurrency limit for key: x")
+
+        execute_process_query(self.team.id, self.user.id, self.query_id, self.query_json, self.limit_context)
+
+        stored = json.loads(mock_redis.set.call_args[0][1])
+        self.assertTrue(stored["error"])
+        self.assertEqual(stored["error_message"], str(ClickHouseAtCapacity.default_detail))
 
 
 class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):

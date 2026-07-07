@@ -8,7 +8,7 @@ from posthog.sync import database_sync_to_async
 from products.product_analytics.backend.models.insight import Insight
 
 from ee.hogai.context.insight.query_executor import execute_and_format_query
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolError, MaxToolRetryableError
 from ee.hogai.utils.helpers import build_insight_url
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.query import validate_assistant_query
@@ -98,6 +98,11 @@ class InsightContext:
             error_message = f"Error executing query: {str(e)}"
             if return_exceptions:
                 results = error_message
+            elif isinstance(e, MaxToolError):
+                # Already a typed Max error (e.g. a transient rate-limit throttle vs. a retryable query
+                # error) — preserve it so callers can branch on the retry strategy instead of collapsing
+                # every failure into "fix your query".
+                raise
             else:
                 raise MaxToolRetryableError(error_message)
 

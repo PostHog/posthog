@@ -7,7 +7,7 @@ from posthog.schema import ArtifactMessage, AssistantMessage, AssistantToolCallM
 from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.core.node import AssistantNode
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolRetryableError, MaxToolTransientError
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage
 
@@ -36,6 +36,12 @@ class QueryExecutorNode(AssistantNode):
                 insight_id=artifact.artifact_id,
             )
             formatted_query_result = await context.execute_and_format()
+        except MaxToolTransientError as err:
+            # A concurrency/rate-limit throttle — the query is fine, so surface the transient cause and
+            # point the user at retrying rather than implying the query needs changing.
+            return PartialAssistantState(
+                messages=[AssistantMessage(content=f"{str(err)} Please try again in a little while.", id=str(uuid4()))]
+            )
         except MaxToolRetryableError as err:
             # Handle known query execution errors (exposed to users)
             return PartialAssistantState(
