@@ -33,8 +33,7 @@ export interface LemonMenuItemBase extends Pick<
     custom?: boolean
 }
 export interface LemonMenuItemNode extends LemonMenuItemBase {
-    /** The submenu contents — the nested LemonMenu accepts sections too. */
-    items: LemonMenuItems
+    items: (LemonMenuItem | false | null)[]
     placement?: LemonDropdownProps['placement']
     keyboardShortcut?: never
 }

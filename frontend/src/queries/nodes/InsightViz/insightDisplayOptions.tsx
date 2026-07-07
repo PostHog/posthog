@@ -1,6 +1,5 @@
 import { useValues } from 'kea'
 
-import { IconChevronRight } from '@posthog/icons'
 import { normalizeAxisLabel } from '@posthog/quill-charts'
 
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
@@ -9,6 +8,15 @@ import { LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
+import { AxisLabelsFilter } from 'scenes/insights/EditorFilters/AxisLabelsFilter'
+import {
+    LineShapePicker,
+    LineStylePicker,
+    ShowGridLinesFilter,
+    ShowPointsFilter,
+} from 'scenes/insights/EditorFilters/ChartStyleFilters'
+import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
+import { ShowMultipleYAxesFilter } from 'scenes/insights/EditorFilters/ShowMultipleYAxesFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -18,6 +26,8 @@ import { ChartDisplayType } from '~/types'
 
 import {
     BAR_DISPLAYS,
+    CollapsibleOptionsSection,
+    DecimalPrecision,
     displayMatches,
     DisplayOptions,
     isDefaultTrendsLineDisplay,
@@ -251,41 +261,56 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     // data to the chart. Conditions mirror the ones getDisplayItems/the sections above use, so each
     // option keeps appearing for exactly the same insights, just in the other menu.
     // With the reorganized menu, the rarely used options and the chart style controls collapse
-    // into click-to-open submenus so the frequently used options stay scannable at the top level.
+    // into accordion rows that expand inline, keeping the frequently used options scannable at
+    // the top level.
     if (styleMenuEnabled) {
-        const submenuRows: LemonMenuItem[] = []
+        const collapsedRows: LemonMenuItem[] = []
         if (showLineStyleConfig) {
-            submenuRows.push({
-                label: 'Line style',
-                sideIcon: <IconChevronRight />,
-                // `custom` keeps the submenu open while toggling the controls inside
-                custom: true,
-                items: [
-                    DisplayOptions.LineShape,
-                    DisplayOptions.LineStyle,
-                    DisplayOptions.ShowPoints,
-                    DisplayOptions.GridLines,
-                ],
+            collapsedRows.push({
+                label: function LineStyleSection() {
+                    return (
+                        <CollapsibleOptionsSection label="Line style" dataAttr="options-line-style-section">
+                            <LineShapePicker />
+                            <LineStylePicker />
+                            <ShowPointsFilter />
+                            <ShowGridLinesFilter />
+                        </CollapsibleOptionsSection>
+                    )
+                },
             })
         }
-        const axesItems: LemonMenuItems = []
-        if (showMultipleYAxesConfig) {
-            axesItems.push({ items: [DisplayOptions.MultipleYAxes] })
+        const showDecimalPlaces = mightContainFractionalNumbers && isTrends && !isCalendarHeatmap
+        if (showMultipleYAxesConfig || showYAxisScale || showAxisLabelsConfig || showDecimalPlaces) {
+            collapsedRows.push({
+                label: function AxesSection() {
+                    return (
+                        <CollapsibleOptionsSection label="Axes" dataAttr="options-axes-section">
+                            {showMultipleYAxesConfig && <ShowMultipleYAxesFilter />}
+                            {showYAxisScale && (
+                                <>
+                                    <SectionHeader>Y-axis scale</SectionHeader>
+                                    <ScalePicker />
+                                </>
+                            )}
+                            {showAxisLabelsConfig && (
+                                <>
+                                    <SectionHeader>Axis labels</SectionHeader>
+                                    <AxisLabelsFilter />
+                                </>
+                            )}
+                            {showDecimalPlaces && (
+                                <>
+                                    <SectionHeader>Decimal places</SectionHeader>
+                                    <DecimalPrecision />
+                                </>
+                            )}
+                        </CollapsibleOptionsSection>
+                    )
+                },
+            })
         }
-        if (showYAxisScale) {
-            axesItems.push({ title: 'Y-axis scale', items: [DisplayOptions.Scale] })
-        }
-        if (showAxisLabelsConfig) {
-            axesItems.push({ title: 'Axis labels', items: [DisplayOptions.AxisLabels] })
-        }
-        if (mightContainFractionalNumbers && isTrends && !isCalendarHeatmap) {
-            axesItems.push({ title: 'Decimal places', items: [DisplayOptions.DecimalPrecision] })
-        }
-        if (axesItems.length > 0) {
-            submenuRows.push({ label: 'Axes', sideIcon: <IconChevronRight />, custom: true, items: axesItems })
-        }
-        if (submenuRows.length > 0) {
-            items.push({ items: submenuRows })
+        if (collapsedRows.length > 0) {
+            items.push({ items: collapsedRows })
         }
     }
 

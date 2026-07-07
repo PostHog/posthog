@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { ReactNode } from 'react'
+import { ReactNode, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconInfo } from '@posthog/icons'
-import { LemonCheckbox, LemonInput, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
+import { IconChevronDown, IconChevronRight, IconInfo } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonInput, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
 import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
@@ -203,7 +203,7 @@ export function MovingAverage(): JSX.Element {
     )
 }
 
-function DecimalPrecision(): JSX.Element {
+export function DecimalPrecision(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { trendsFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
@@ -229,6 +229,35 @@ function DecimalPrecision(): JSX.Element {
             }}
             className="mx-2 mb-1.5"
         />
+    )
+}
+
+/** A menu row that expands its options inline, accordion-style. Nested popovers are awkward to
+ * use inside a menu, so collapsed option groups expand within the same overlay instead. */
+export function CollapsibleOptionsSection({
+    label,
+    dataAttr,
+    children,
+}: {
+    label: string
+    dataAttr?: string
+    children: ReactNode
+}): JSX.Element {
+    const [expanded, setExpanded] = useState(false)
+
+    return (
+        <div className="flex flex-col w-full">
+            <LemonButton
+                fullWidth
+                size="small"
+                onClick={() => setExpanded(!expanded)}
+                sideIcon={expanded ? <IconChevronDown /> : <IconChevronRight />}
+                data-attr={dataAttr}
+            >
+                {label}
+            </LemonButton>
+            {expanded && <div className="flex flex-col pl-2 w-full">{children}</div>}
+        </div>
     )
 }
 
