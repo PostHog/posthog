@@ -482,13 +482,6 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
             action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
             return action.name
 
-    def intervals_num(self) -> int:
-        delta = self.query_date_range.date_to() - self.query_date_range.date_from()
-        if self.query_date_range.interval_name == "day":
-            return delta.days + 1
-        else:
-            return delta.days
-
     def setup_series(self) -> list[SeriesWithExtras]:
         series_with_extras = [
             SeriesWithExtras(

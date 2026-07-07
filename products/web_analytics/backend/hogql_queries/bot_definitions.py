@@ -362,6 +362,13 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "StatusCake",
         documentation_url="https://bots.fyi/d/statuscake-uptime",
     ),
+    "Google-Ads-Conversions": BotDefinition(
+        "Google Ads Conversions",
+        "monitoring",
+        "Bot",
+        "Google",
+        documentation_url="https://support.google.com/google-ads/answer/6095821",
+    ),
     "Datadog": BotDefinition(
         "Datadog",
         "monitoring",
@@ -543,6 +550,12 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     ),
     # Headless Browsers
     "Mozlila/": BotDefinition("Mozlila Typo Bot", "headless_browser", "Automation", "Unknown"),
+    # Real Chrome always emits "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/..."; a platform
+    # paren followed directly by Chrome (no KHTML clause) only occurs in hand-built UAs from
+    # scraper/stealth-automation fleets (observed cross-team at ~30x the human events-per-IP).
+    "\\) AppleWebKit/537\\.36 Chrome/": BotDefinition(
+        "Malformed Chrome UA", "headless_browser", "Automation", "Unknown"
+    ),
     "HeadlessChrome": BotDefinition(
         "Headless Chrome",
         "headless_browser",

@@ -4,6 +4,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { AggregatedSpanRow } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
@@ -60,6 +61,7 @@ function mountWithSpans(spans: Span[] = mockSpans): ReturnType<typeof tracingDat
 }
 
 describe('tracingDataLogic', () => {
+    afterEach(resumeKeaLoadersErrors)
     let logic: ReturnType<typeof tracingDataLogic.build>
 
     beforeEach(() => {
@@ -235,6 +237,20 @@ describe('tracingDataLogic', () => {
             tracingFiltersLogic().actions.setViewMode('spans')
             expect(logic.values.totalMatchingFilters).toBe(5000)
         })
+
+        it('sparkline counts root spans in traces mode and all spans in spans mode', async () => {
+            const sparklineSpy = jest.spyOn(api.tracing, 'sparkline').mockResolvedValue({ results: [] })
+            logic = mountWithSpans([])
+            await logic.asyncActions.fetchSparkline()
+            expect(sparklineSpy).toHaveBeenCalledWith(expect.objectContaining({ rootSpans: true }), expect.anything())
+            tracingFiltersLogic().actions.setViewMode('spans')
+            await logic.asyncActions.fetchSparkline()
+            expect(sparklineSpy).toHaveBeenLastCalledWith(
+                expect.objectContaining({ rootSpans: false }),
+                expect.anything()
+            )
+            sparklineSpy.mockRestore()
+        })
     })
 
     describe('matching counts', () => {
@@ -260,6 +276,7 @@ describe('tracingDataLogic', () => {
         })
 
         it('toasts on a real count failure', async () => {
+            silenceKeaLoadersErrors()
             const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
             jest.spyOn(api.tracing, 'count').mockRejectedValue(new Error('boom'))
             logic = mountWithSpans([])
@@ -270,14 +287,15 @@ describe('tracingDataLogic', () => {
     })
 
     describe('sparkline', () => {
-        it('does not re-fetch the sparkline when only the view mode changes', async () => {
+        it('re-fetches the sparkline when the view mode changes', async () => {
             const sparklineSpy = jest.spyOn(api.tracing, 'sparkline').mockResolvedValue({ results: [] })
             logic = mountWithSpans([])
             await logic.asyncActions.fetchSparkline()
             tracingFiltersLogic().actions.setViewMode('spans')
             await logic.asyncActions.fetchSparkline()
-            // The sparkline is view-mode-independent, so the second run reuses the cached result.
-            expect(sparklineSpy).toHaveBeenCalledTimes(1)
+            // The sparkline counts root spans in 'traces' mode and all spans in 'spans' mode, so a
+            // view-mode toggle changes its scope and must re-fetch.
+            expect(sparklineSpy).toHaveBeenCalledTimes(2)
             sparklineSpy.mockRestore()
         })
 
@@ -289,6 +307,25 @@ describe('tracingDataLogic', () => {
             await logic.asyncActions.fetchSparkline()
             expect(sparklineSpy).toHaveBeenCalledTimes(2)
             sparklineSpy.mockRestore()
+        })
+    })
+
+    describe('keyed instances', () => {
+        it('reads filters from its own instance, not the scene default', () => {
+            const isolatedFilters = tracingFiltersLogic({ id: 'isolated' })
+            const isolatedData = tracingDataLogic({ id: 'isolated' })
+            isolatedFilters.mount()
+            isolatedData.mount()
+            const defaultData = mountWithSpans([])
+            try {
+                isolatedFilters.actions.setServiceNames(['isolated-svc'])
+
+                expect(isolatedData.values.filters.serviceNames).toEqual(['isolated-svc'])
+                expect(defaultData.values.filters.serviceNames).toEqual([])
+            } finally {
+                isolatedData.unmount()
+                isolatedFilters.unmount()
+            }
         })
     })
 })

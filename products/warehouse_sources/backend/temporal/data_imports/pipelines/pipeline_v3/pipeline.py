@@ -8,6 +8,7 @@ from structlog.types import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.activity_context import (
     current_activity_attempt,
     current_workflow_id,
@@ -18,7 +19,11 @@ from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.models import DataWarehouseTable
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    process_incremental_value,
+    update_sync_type_config_keys,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     advance_xmin_state,
@@ -27,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     finalize_desc_sort_incremental_value,
     handle_reset_or_full_refresh,
     reset_rows_synced_if_needed,
+    run_pre_write_defensive_compact,
     setup_row_tracking_with_billing_check,
     should_check_shutdown,
     update_incremental_field_values,
@@ -50,7 +56,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _append_debug_column_to_pyarrows_table,
     _handle_null_columns_with_definitions,
     evolve_pyarrow_schema,
+    merge_observed_columns_into_schema_metadata,
     normalize_table_column_names,
+    observe_and_project_table,
+    source_uses_delta_write_column_selection,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import set_initial_sync_complete
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.metrics import (
@@ -164,6 +173,12 @@ class PipelineV3(Generic[ResumableData]):
         # Determine if this is the first-ever sync (no DWH table exists yet)
         is_first_ever_sync = self._schema.table is None
 
+        # SQL sources project enabled_columns in their SELECT and own schema_metadata via
+        # introspection; managed-schema sources don't allow selection. Everything else gets the
+        # write-side drop plus observed-columns capture so the column picker has a catalog.
+        self._uses_delta_write_column_selection = source_uses_delta_write_column_selection(source.source_type)
+        self._observed_columns: dict[str, dict[str, Any]] = {}
+
         is_resume = resumable_source_manager is not None and resumable_source_manager.can_resume()
 
         self._pg_producer = PostgresProducer(
@@ -189,7 +204,13 @@ class PipelineV3(Generic[ResumableData]):
         )
 
         self._resumable_source_manager = resumable_source_manager
-        self._batcher = Batcher(self._logger)
+        # A source can shrink the batcher chunk (e.g. document sources with large rows) so the
+        # source->Arrow conversion doesn't materialise an oversized table; None falls back to defaults.
+        self._batcher = Batcher(
+            self._logger,
+            chunk_size=source_response.chunk_size,
+            chunk_size_bytes=source_response.chunk_size_bytes,
+        )
         self._internal_schema = HogQLSchema()
         self._cdp_producer = CDPProducer(
             team_id=self._job.team_id, schema_id=self._schema.id, job_id=job_id, logger=self._logger
@@ -260,6 +281,14 @@ class PipelineV3(Generic[ResumableData]):
             is_fresh_sync = self._delta_table_helper.is_first_sync or self._schema.table is None
             if is_fresh_sync:
                 self._pg_producer.is_first_ever_sync = True
+
+            # Defensive pre-write compaction. See `extract.run_pre_write_defensive_compact`
+            # for rationale; shared with the v2 pipeline so the threshold + error handling
+            # stay in lockstep.
+            if not is_fresh_sync:
+                await run_pre_write_defensive_compact(
+                    self._delta_table_helper, self._schema, self._resource, self._logger
+                )
 
             async for item in async_iterate(self._resource.items()):
                 py_table = None
@@ -347,6 +376,22 @@ class PipelineV3(Generic[ResumableData]):
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
         pa_table = normalize_table_column_names(pa_table)
 
+        if self._uses_delta_write_column_selection:
+            pa_table = await observe_and_project_table(
+                pa_table,
+                self._schema.enabled_columns,
+                self._resource.primary_keys,
+                self._schema.incremental_field,
+                [
+                    *(self._schema.partitioning_keys_override or []),
+                    *(self._schema.partitioning_keys or []),
+                    *(self._resource.partition_keys or []),
+                ],
+                self._observed_columns,
+                self._logger,
+                "V3 Pipeline: Dropped non-enabled columns before write",
+            )
+
         pa_table = evolve_pyarrow_schema(pa_table, None)
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
 
@@ -393,6 +438,18 @@ class PipelineV3(Generic[ResumableData]):
         )
 
     async def _finalize(self, row_count: int) -> None:
+        # Column-picker bookkeeping — a failure here must not fail an otherwise successful sync.
+        if self._observed_columns:
+            observed = list(self._observed_columns.values())
+            try:
+                await database_sync_to_async_pool(update_sync_type_config_keys)(
+                    self._schema.id,
+                    self._job.team_id,
+                    mutate=lambda config: merge_observed_columns_into_schema_metadata(config, observed),
+                )
+            except Exception:
+                await self._logger.aexception("V3 Pipeline: Failed to persist observed columns into schema_metadata")
+
         total_batches = len(self._batch_results)
 
         if total_batches == 0:

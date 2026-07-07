@@ -82,6 +82,7 @@ class TestElasticsearchSource:
             "401 Client Error: Unauthorized for url: https://es.example.com:9243/orders/_search",
             "403 Client Error: Forbidden for url: https://es.example.com:9243/_cat/indices",
             "404 Client Error: Not Found for url: https://es.example.com:9243/gone/_search",
+            "ValueError: Elasticsearch returned a non-JSON response. Check that the cluster URL points at the Elasticsearch HTTP API, not a browser or Kibana URL.",
         ],
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error):

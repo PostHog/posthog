@@ -373,3 +373,25 @@ export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
             'Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.'
         ),
 })
+
+export const conversationsZendeskImportsCreateBodySubdomainMax = 255
+
+export const conversationsZendeskImportsCreateBodyApiTokenMax = 500
+
+export const ConversationsZendeskImportsCreateBody = /* @__PURE__ */ zod.object({
+    subdomain: zod
+        .string()
+        .max(conversationsZendeskImportsCreateBodySubdomainMax)
+        .describe("Zendesk subdomain (e.g. 'acme' from acme.zendesk.com)."),
+    email_address: zod.email().describe('Zendesk agent email tied to the API token.'),
+    api_token: zod
+        .string()
+        .max(conversationsZendeskImportsCreateBodyApiTokenMax)
+        .describe('Zendesk API token with ticket read access.'),
+    default_email_channel_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            "Optional fallback email channel for tickets whose original Zendesk recipient doesn't match a configured support address (or isn't an email). Omit or null to leave those tickets without an email channel."
+        ),
+})

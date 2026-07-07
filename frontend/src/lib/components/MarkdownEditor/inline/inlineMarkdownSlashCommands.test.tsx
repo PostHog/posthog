@@ -34,6 +34,7 @@ const PREFLIGHT_WITH_OBJECT_STORAGE = {
     slack_service: { available: false },
     data_warehouse_integrations: { hubspot: {}, salesforce: {} },
     object_storage: true,
+    wizard_cloud_run_available: false,
 } satisfies PreflightStatus
 
 const PREFLIGHT_WITHOUT_OBJECT_STORAGE: PreflightStatus = {
@@ -100,8 +101,8 @@ describe('InlineMarkdownSlashMenu', () => {
             />
         )
 
-        expect(screen.getByRole('button', { name: /Bold/i })).toBeInTheDocument()
-        expect(screen.queryByRole('button', { name: /Image/i })).not.toBeInTheDocument()
+        expect(screen.getByText('Bold')).toBeInTheDocument()
+        expect(screen.queryByText('Image')).not.toBeInTheDocument()
     })
 
     it('hides the Image row when slash image upload is disabled on the host ref', () => {
@@ -122,7 +123,7 @@ describe('InlineMarkdownSlashMenu', () => {
             />
         )
 
-        expect(screen.queryByRole('button', { name: /Image/i })).not.toBeInTheDocument()
+        expect(screen.queryByText('Image')).not.toBeInTheDocument()
     })
 
     it('disables Image when object storage is not available', () => {
@@ -145,7 +146,7 @@ describe('InlineMarkdownSlashMenu', () => {
             />
         )
 
-        const imageRow = screen.getByRole('button', { name: /Image/i })
+        const imageRow = screen.getByText('Image').closest('button')
         expect(imageRow).toHaveAttribute('aria-disabled', 'true')
     })
 
@@ -209,7 +210,7 @@ describe('InlineMarkdownSlashMenu', () => {
             })
         }
 
-        expect(screen.getByRole('button', { name: /Image/i })).toHaveClass('LemonButton--active')
+        expect(screen.getByText('Image').closest('button')).toHaveClass('LemonButton--active')
 
         slashImageHostRef.current.showSlashImageUpload = false
         rerender(
@@ -223,8 +224,8 @@ describe('InlineMarkdownSlashMenu', () => {
             />
         )
 
-        expect(screen.queryByRole('button', { name: /Image/i })).not.toBeInTheDocument()
-        expect(screen.getByRole('button', { name: /Gamma/i })).toHaveClass('LemonButton--active')
+        expect(screen.queryByText('Image')).not.toBeInTheDocument()
+        expect(screen.getByText('Gamma').closest('button')).toHaveClass('LemonButton--active')
     })
 
     it('choosing Image deletes the slash range and opens the host picker', () => {
@@ -254,7 +255,7 @@ describe('InlineMarkdownSlashMenu', () => {
             />
         )
 
-        fireEvent.click(screen.getByRole('button', { name: /Image/i }))
+        fireEvent.click(screen.getByText('Image'))
 
         expect(deleteRun).toHaveBeenCalled()
         expect(onClose).toHaveBeenCalled()
@@ -290,7 +291,7 @@ describe('InlineMarkdownSlashMenu', () => {
             />
         )
 
-        fireEvent.click(screen.getByRole('button', { name: /Link/i }))
+        fireEvent.click(screen.getByText('Link'))
 
         expect(deleteRun).toHaveBeenCalled()
         expect(onClose).toHaveBeenCalled()

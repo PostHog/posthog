@@ -6,6 +6,8 @@ from unittest.mock import Mock, patch
 import posthoganalytics
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 
+from posthog.settings.ingestion import DedicatedAIEndpointRollout
+
 from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.chat_agent.runner import ChatAgentRunner
@@ -67,7 +69,12 @@ class TestBaseAgentRunnerCallbackHandlers(BaseTest):
         )
 
         self.assertEqual(len(runner._callback_handlers), 1)
-        mock_get_client.assert_called_once_with("US", flush_at=1, before_send=ai_event_truncator)
+        mock_get_client.assert_called_once_with(
+            "US",
+            flush_at=1,
+            before_send=ai_event_truncator,
+            dedicated_ai_endpoint_stage=DedicatedAIEndpointRollout.RUNNER,
+        )
 
     @patch("ee.hogai.core.runner.is_cloud")
     @patch("ee.hogai.core.runner.get_instance_region")
@@ -96,8 +103,18 @@ class TestBaseAgentRunnerCallbackHandlers(BaseTest):
 
         self.assertEqual(len(runner._callback_handlers), 2)
         self.assertEqual(mock_get_client.call_count, 2)
-        mock_get_client.assert_any_call("EU", flush_at=1, before_send=ai_event_truncator)
-        mock_get_client.assert_any_call("US", flush_at=1, before_send=ai_event_truncator)
+        mock_get_client.assert_any_call(
+            "EU",
+            flush_at=1,
+            before_send=ai_event_truncator,
+            dedicated_ai_endpoint_stage=DedicatedAIEndpointRollout.RUNNER,
+        )
+        mock_get_client.assert_any_call(
+            "US",
+            flush_at=1,
+            before_send=ai_event_truncator,
+            dedicated_ai_endpoint_stage=DedicatedAIEndpointRollout.RUNNER,
+        )
 
     @patch("ee.hogai.core.runner.is_cloud")
     @patch("ee.hogai.core.runner.get_instance_region")

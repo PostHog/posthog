@@ -26,6 +26,16 @@ export interface VisualImageDiffViewerProps {
     /** Natural image width — images under 600px on both axes render at 2x with pixelated scaling */
     imageWidth?: number
     imageHeight?: number
+    /**
+     * Natural per-side dimensions. When baseline and current differ in size,
+     * split/blend composite both onto a shared canvas (the union of the two
+     * sizes) at one scale, anchored top-left, instead of rescaling each to
+     * fill the frame. Fall back to `imageWidth`/`imageHeight` when unset.
+     */
+    baselineWidth?: number
+    baselineHeight?: number
+    currentWidth?: number
+    currentHeight?: number
     mode?: ComparisonMode
     onModeChange?: (mode: ComparisonMode) => void
     /**
@@ -267,6 +277,10 @@ export function VisualImageDiffViewer({
     className,
     imageWidth,
     imageHeight,
+    baselineWidth,
+    baselineHeight,
+    currentWidth,
+    currentHeight,
     diffOverlayBoxes,
     diffOverlayWidth,
     diffOverlayHeight,
@@ -286,14 +300,58 @@ export function VisualImageDiffViewer({
     const supportsComparison = isComparisonResult(result)
     const hasBothImages = Boolean(baselineUrl && currentUrl)
     const hasDiffImage = Boolean(diffUrl)
+
+    // Natural per-side dimensions, falling back to the single size the caller
+    // already passes for matched-size snapshots.
+    const baselineNaturalWidth = baselineWidth ?? imageWidth
+    const baselineNaturalHeight = baselineHeight ?? imageHeight
+    const currentNaturalWidth = currentWidth ?? imageWidth
+    const currentNaturalHeight = currentHeight ?? imageHeight
+    // Shared compositing canvas = union of both sizes. split/blend overlay
+    // both images onto it at one scale, anchored top-left: when widths match
+    // the canvas only grows downward, when heights match it only grows to the
+    // right, and the smaller image keeps its top-left origin with the extra
+    // area left empty — so a size change reads as growth, not a rescale.
+    const canvasWidth =
+        baselineNaturalWidth !== undefined && currentNaturalWidth !== undefined
+            ? Math.max(baselineNaturalWidth, currentNaturalWidth)
+            : (baselineNaturalWidth ?? currentNaturalWidth)
+    const canvasHeight =
+        baselineNaturalHeight !== undefined && currentNaturalHeight !== undefined
+            ? Math.max(baselineNaturalHeight, currentNaturalHeight)
+            : (baselineNaturalHeight ?? currentNaturalHeight)
+    // Only set an explicit aspect ratio (and thus absolute-positioned image
+    // layers) when both canvas dims are known; otherwise fall back to letting
+    // the base image size the stage in normal flow.
+    const stageAspectRatio = canvasWidth && canvasHeight ? `${canvasWidth} / ${canvasHeight}` : undefined
+
     const isSmallImage =
-        imageWidth !== undefined &&
-        imageWidth < SMALL_IMAGE_THRESHOLD &&
-        (imageHeight === undefined || imageHeight < SMALL_IMAGE_THRESHOLD)
+        canvasWidth !== undefined &&
+        canvasWidth < SMALL_IMAGE_THRESHOLD &&
+        (canvasHeight === undefined || canvasHeight < SMALL_IMAGE_THRESHOLD)
     const pixelatedStyle = isSmallImage
-        ? { imageRendering: 'pixelated' as const, width: (imageWidth ?? 0) * 2, maxWidth: '100%' }
+        ? { imageRendering: 'pixelated' as const, width: (canvasWidth ?? 0) * 2, maxWidth: '100%' }
         : {}
     const pixelatedClass = isSmallImage ? '' : 'max-w-full'
+
+    // One image layer on the shared canvas. When the canvas size is known the
+    // layer is absolutely positioned at its true fraction of the canvas
+    // (top-left anchored); otherwise it falls back to filling the stage width.
+    const layerClass = stageAspectRatio ? 'block bg-black/5' : 'w-full h-auto block bg-black/5'
+    const layerStyle = (naturalWidth?: number, naturalHeight?: number): React.CSSProperties => {
+        const pixelated = isSmallImage ? { imageRendering: 'pixelated' as const } : {}
+        if (stageAspectRatio && canvasWidth && canvasHeight && naturalWidth && naturalHeight) {
+            return {
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: `${(naturalWidth / canvasWidth) * 100}%`,
+                height: `${(naturalHeight / canvasHeight) * 100}%`,
+                ...pixelated,
+            }
+        }
+        return pixelated
+    }
 
     const [internalMode, setInternalMode] = useState<ComparisonMode>('sideBySide')
     const requestedMode = controlledMode ?? internalMode
@@ -446,9 +504,9 @@ export function VisualImageDiffViewer({
         return (
             <div className="p-3 flex justify-center">
                 <div
-                    className="overflow-hidden rounded-lg border bg-bg-light inline-block max-w-full relative"
+                    className="overflow-hidden rounded-lg border bg-bg-light w-full max-w-full relative"
                     // eslint-disable-next-line react/forbid-dom-props
-                    style={isSmallImage ? { width: (imageWidth ?? 0) * 2, maxWidth: '100%' } : undefined}
+                    style={isSmallImage ? { width: (canvasWidth ?? 0) * 2, maxWidth: '100%' } : undefined}
                 >
                     {/* Base header — blend: both labels; split: "Before" left-aligned */}
                     <div className="flex items-center justify-between px-2 py-1 border-b bg-bg-3000 text-[11px] font-semibold uppercase tracking-wide">
@@ -465,15 +523,22 @@ export function VisualImageDiffViewer({
                         )}
                     </div>
 
-                    {/* Base image area */}
-                    <div ref={overlayRef} className="relative overflow-hidden">
+                    {/* Base image area — sized to the shared canvas so both the
+                     * baseline and the clipped "After" overlay composite at one
+                     * scale (see layerStyle). */}
+                    <div
+                        ref={overlayRef}
+                        className="relative overflow-hidden"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={stageAspectRatio ? { aspectRatio: stageAspectRatio } : undefined}
+                    >
                         {baselineUrl ? (
                             <img
                                 src={baselineUrl}
                                 alt="Before snapshot"
-                                className="w-full h-auto bg-black/5 block"
+                                className={layerClass}
                                 // eslint-disable-next-line react/forbid-dom-props
-                                style={isSmallImage ? { imageRendering: 'pixelated' as const } : undefined}
+                                style={layerStyle(baselineNaturalWidth, baselineNaturalHeight)}
                             />
                         ) : (
                             <EmptyImageState title="Before snapshot missing" />
@@ -485,9 +550,12 @@ export function VisualImageDiffViewer({
                                 <img
                                     src={activeOverlayUrl}
                                     alt="Flicker frame"
-                                    className="w-full h-auto bg-black/5 block"
+                                    className={layerClass}
                                     // eslint-disable-next-line react/forbid-dom-props
-                                    style={isSmallImage ? { imageRendering: 'pixelated' as const } : undefined}
+                                    style={layerStyle(
+                                        flickerCurrentVisible ? currentNaturalWidth : baselineNaturalWidth,
+                                        flickerCurrentVisible ? currentNaturalHeight : baselineNaturalHeight
+                                    )}
                                 />
                             </div>
                         )}
@@ -504,9 +572,9 @@ export function VisualImageDiffViewer({
                                 <img
                                     src={activeOverlayUrl}
                                     alt="After snapshot"
-                                    className="w-full h-auto bg-black/5 block"
+                                    className={layerClass}
                                     // eslint-disable-next-line react/forbid-dom-props
-                                    style={isSmallImage ? { imageRendering: 'pixelated' as const } : undefined}
+                                    style={layerStyle(currentNaturalWidth, currentNaturalHeight)}
                                 />
                             </div>
                         )}
@@ -515,7 +583,7 @@ export function VisualImageDiffViewer({
                             <img
                                 src={diffUrl as string}
                                 alt="Diff overlay"
-                                className="absolute top-0 left-0 w-full h-auto mix-blend-screen pointer-events-none"
+                                className="absolute top-0 left-0 w-full h-full mix-blend-screen pointer-events-none"
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{ opacity: diffOverlayOpacity / 100 }}
                             />
@@ -575,13 +643,17 @@ export function VisualImageDiffViewer({
                             <div className="flex items-center justify-end px-2 py-1 border-b bg-bg-3000 text-[11px] font-semibold uppercase tracking-wide">
                                 <span>After</span>
                             </div>
-                            <div className="relative">
+                            <div
+                                className="relative overflow-hidden"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={stageAspectRatio ? { aspectRatio: stageAspectRatio } : undefined}
+                            >
                                 <img
                                     src={activeOverlayUrl}
                                     alt="After snapshot"
-                                    className="w-full h-auto bg-black/5 block"
+                                    className={layerClass}
                                     // eslint-disable-next-line react/forbid-dom-props
-                                    style={isSmallImage ? { imageRendering: 'pixelated' as const } : undefined}
+                                    style={layerStyle(currentNaturalWidth, currentNaturalHeight)}
                                 />
                                 {/* Second copy of the bbox overlay inside the
                                  * clipped After half so the boxes stay visible

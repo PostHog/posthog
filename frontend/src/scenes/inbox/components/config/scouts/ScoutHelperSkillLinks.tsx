@@ -8,11 +8,11 @@ const SCOUTS_DOCS_URL = 'https://posthog.com/docs/self-driving/scouts'
 const HELPER_SKILLS = [
     {
         label: 'authoring scouts',
-        url: 'https://github.com/PostHog/ai-plugin/blob/main/skills/authoring-signals-scouts/SKILL.md',
+        url: 'https://github.com/PostHog/ai-plugin/blob/main/skills/authoring-scouts/SKILL.md',
     },
     {
         label: 'exploring scouts',
-        url: 'https://github.com/PostHog/ai-plugin/blob/main/skills/exploring-signals-scouts/SKILL.md',
+        url: 'https://github.com/PostHog/ai-plugin/blob/main/skills/exploring-scouts/SKILL.md',
     },
 ]
 

@@ -69,6 +69,11 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["actor_type"] == "user"
         assert call_kwargs["properties"]["actor_id"] == self.user.id
         assert call_kwargs["properties"]["actor_email"] == self.user.email
+        # Customer identity travels alongside the actor so workflows can email the customer,
+        # not the team member the event's distinct_id is attributed to.
+        assert call_kwargs["properties"]["customer_name"] == "Test Customer"
+        assert call_kwargs["properties"]["customer_email"] == "test@example.com"
+        assert call_kwargs["properties"]["customer_distinct_id"] == self.ticket.distinct_id
 
     @patch("products.conversations.backend.events.capture_internal")
     def test_capture_ticket_priority_changed_uses_team_token(self, mock_capture):
@@ -85,6 +90,8 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["actor_type"] == "user"
         assert call_kwargs["properties"]["actor_id"] == self.user.id
         assert call_kwargs["properties"]["actor_email"] == self.user.email
+        assert call_kwargs["properties"]["customer_email"] == "test@example.com"
+        assert call_kwargs["properties"]["customer_distinct_id"] == self.ticket.distinct_id
 
     @patch("products.conversations.backend.events.capture_internal")
     def test_capture_ticket_assigned_uses_team_token(self, mock_capture):
@@ -101,6 +108,8 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["actor_type"] == "user"
         assert call_kwargs["properties"]["actor_id"] == self.user.id
         assert call_kwargs["properties"]["actor_email"] == self.user.email
+        assert call_kwargs["properties"]["customer_email"] == "test@example.com"
+        assert call_kwargs["properties"]["customer_distinct_id"] == self.ticket.distinct_id
 
     @patch("products.conversations.backend.events.capture_internal")
     def test_capture_message_sent_uses_team_token(self, mock_capture):
@@ -127,6 +136,9 @@ class TestConversationEvents(BaseTest):
             ("capture_ticket_created", capture_ticket_created, []),
             ("capture_message_received", capture_message_received, ["msg-id", "content"]),
             ("capture_message_sent", capture_message_sent, ["msg-id", "content"]),
+            ("capture_ticket_status_changed", capture_ticket_status_changed, ["new", "pending"]),
+            ("capture_ticket_priority_changed", capture_ticket_priority_changed, [None, "high"]),
+            ("capture_ticket_assigned", capture_ticket_assigned, ["user", "123"]),
         ]
     )
     @patch("products.conversations.backend.events.capture_internal")

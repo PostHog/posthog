@@ -8,7 +8,10 @@ use fernet::MultiFernet;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use uuid::Uuid;
+
 use crate::{
+    config::StagingBackendKind,
     context::AppContext,
     emit::{
         capture::CaptureEmitter, kafka::KafkaEmitter, Emitter, FileEmitter, NoOpEmitter,
@@ -22,8 +25,9 @@ use crate::{
         s3::S3Source,
         s3_gzip::GzipS3Source,
         url_list::UrlList,
-        DataSource,
+        DataSource, RemoteStaging,
     },
+    staging::{StagingBackend, TempBucketBackend},
 };
 
 use super::model::JobModel;
@@ -193,8 +197,26 @@ impl SourceConfig {
         secrets: &JobSecrets,
         context: Arc<AppContext>,
         is_restarting: bool,
+        job_id: Uuid,
     ) -> Result<Box<dyn DataSource>, Error> {
         let staging_dir = context.config.staging_dir();
+        let staging_max_bytes = context.config.staging_dir_max_bytes;
+        // The effective ceiling is always non-zero in temp-bucket mode: it caps the
+        // decompressed part size just below the S3 multipart wall so an oversized
+        // part pauses with the actionable message instead of an opaque S3 error.
+        // Irrelevant in local mode (no RemoteStaging is constructed).
+        let staged_plaintext_max_bytes = context.config.effective_plaintext_ceiling();
+        // Fail fast on invalid staging config (e.g. temp_bucket without a bucket name)
+        // before any source work starts. Only the compressed sources stage plaintext,
+        // so only they receive the backend.
+        let staging_backend: Option<Arc<dyn StagingBackend>> =
+            match context.config.staging_backend()? {
+                StagingBackendKind::LocalDisk => None,
+                StagingBackendKind::TempBucket => Some(Arc::new(
+                    TempBucketBackend::from_config(&context.config, format!("job-{job_id}"))
+                        .await?,
+                )),
+            };
         match self {
             SourceConfig::Folder(config) => Ok(Box::new(config.create_source().await?)),
             SourceConfig::UrlList(config) => Ok(Box::new(
@@ -204,11 +226,27 @@ impl SourceConfig {
             )),
             SourceConfig::S3(config) => Ok(Box::new(config.create_source(secrets).await?)),
             SourceConfig::S3Gzip(config) => Ok(Box::new(
-                config.create_gzip_source(secrets, staging_dir).await?,
+                config
+                    .create_gzip_source(
+                        secrets,
+                        staging_dir,
+                        staging_max_bytes,
+                        staging_backend,
+                        staged_plaintext_max_bytes,
+                    )
+                    .await?,
             )),
-            SourceConfig::DateRangeExport(config) => {
-                Ok(Box::new(config.create_source(secrets, staging_dir).await?))
-            }
+            SourceConfig::DateRangeExport(config) => Ok(Box::new(
+                config
+                    .create_source(
+                        secrets,
+                        staging_dir,
+                        staging_max_bytes,
+                        staging_backend,
+                        staged_plaintext_max_bytes,
+                    )
+                    .await?,
+            )),
         }
     }
 }
@@ -423,9 +461,18 @@ impl S3SourceConfig {
         &self,
         secrets: &JobSecrets,
         staging_dir: PathBuf,
+        staging_max_bytes: u64,
+        staging_backend: Option<Arc<dyn StagingBackend>>,
+        staged_plaintext_max_bytes: u64,
     ) -> Result<GzipS3Source, Error> {
         let builder = self.build_s3_config(secrets)?;
         let client = aws_sdk_s3::Client::from_conf(builder.build());
+
+        let remote_staging = staging_backend.map(|backend| RemoteStaging {
+            backend,
+            extractor_type: ExtractorType::PlainGzip,
+            max_plaintext_bytes: staged_plaintext_max_bytes,
+        });
 
         Ok(GzipS3Source::new(
             client,
@@ -433,6 +480,8 @@ impl S3SourceConfig {
             self.prefix.clone(),
             ExtractorType::PlainGzip.create_extractor(),
             staging_dir,
+            staging_max_bytes,
+            remote_staging,
         ))
     }
 }
@@ -441,6 +490,9 @@ impl DateRangeExportSourceConfig {
         &self,
         secrets: &JobSecrets,
         staging_dir: PathBuf,
+        staging_max_bytes: u64,
+        staging_backend: Option<Arc<dyn StagingBackend>>,
+        staged_plaintext_max_bytes: u64,
     ) -> Result<DateRangeExportSource, Error> {
         let auth_config = match &self.auth {
             AuthSourceConfig::None => AuthConfig::None,
@@ -526,6 +578,12 @@ impl DateRangeExportSourceConfig {
 
         let extractor = self.extractor_type.create_extractor();
 
+        let remote_staging = staging_backend.map(|backend| RemoteStaging {
+            backend,
+            extractor_type: self.extractor_type.clone(),
+            max_plaintext_bytes: staged_plaintext_max_bytes,
+        });
+
         DateRangeExportSource::builder(
             self.base_url.clone(),
             self.start,
@@ -540,6 +598,8 @@ impl DateRangeExportSourceConfig {
         .with_auth(auth_config)
         .with_date_format(self.date_format.clone())
         .with_headers(self.headers.clone())
+        .with_staging_max_bytes(staging_max_bytes)
+        .with_remote_staging(remote_staging)
         .build()
     }
 

@@ -91,6 +91,124 @@ class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("country", variables_schema["properties"])
         self.assertEqual(variables_schema["properties"]["country"]["type"], "string")
 
+    def test_openapi_spec_marks_hogql_variables_without_default_as_required(self):
+        """Regression for #54605."""
+        from products.product_analytics.backend.models.insight_variable import InsightVariable
+
+        with_default = InsightVariable.objects.create(
+            team=self.team,
+            name="Has Default",
+            code_name="has_default",
+            type=InsightVariable.Type.STRING,
+            default_value="default-value",
+        )
+        without_default = InsightVariable.objects.create(
+            team=self.team,
+            name="Required",
+            code_name="card_name",
+            type=InsightVariable.Type.STRING,
+        )
+
+        query_with_mixed_variables = {
+            "kind": "HogQLQuery",
+            "query": "SELECT * FROM events WHERE name = {variables.card_name}",
+            "variables": {
+                str(with_default.id): {
+                    "variableId": str(with_default.id),
+                    "code_name": "has_default",
+                    "value": "default-value",
+                },
+                str(without_default.id): {
+                    "variableId": str(without_default.id),
+                    "code_name": "card_name",
+                },
+            },
+        }
+
+        create_endpoint_with_version(
+            name="endpoint-required-vars",
+            team=self.team,
+            query=query_with_mixed_variables,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/endpoint-required-vars/openapi.json/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        spec = response.json()
+
+        variables_schema = spec["components"]["schemas"]["Variables"]
+        self.assertEqual(variables_schema.get("required"), ["card_name"])
+        self.assertNotIn("has_default", variables_schema.get("required", []))
+
+        operation = next(iter(spec["paths"].values()))["post"]
+        self.assertTrue(operation["requestBody"]["required"])
+
+        # `variables` itself must be required on EndpointRunRequest, otherwise
+        # a client sending {} passes validation without supplying card_name.
+        request_schema = spec["components"]["schemas"]["EndpointRunRequest"]
+        self.assertIn("variables", request_schema.get("required", []))
+
+    def test_openapi_spec_keeps_request_body_optional_when_all_variables_have_defaults(self):
+        """When every HogQL variable has a default value, nothing is required."""
+        from products.product_analytics.backend.models.insight_variable import InsightVariable
+
+        variable = InsightVariable.objects.create(
+            team=self.team,
+            name="Country Filter",
+            code_name="country",
+            type=InsightVariable.Type.STRING,
+            default_value="US",
+        )
+
+        query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT * FROM events WHERE properties.$country = {variables.country}",
+            "variables": {str(variable.id): {"variableId": str(variable.id), "code_name": "country", "value": "US"}},
+        }
+
+        create_endpoint_with_version(
+            name="endpoint-optional-vars",
+            team=self.team,
+            query=query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/endpoint-optional-vars/openapi.json/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        spec = response.json()
+
+        variables_schema = spec["components"]["schemas"]["Variables"]
+        self.assertNotIn("required", variables_schema)
+
+        operation = next(iter(spec["paths"].values()))["post"]
+        self.assertFalse(operation["requestBody"]["required"])
+
+        request_schema = spec["components"]["schemas"]["EndpointRunRequest"]
+        self.assertNotIn("variables", request_schema.get("required", []))
+
+    def test_build_variables_schema_marks_breakdown_required_on_insight(self):
+        """Breakdown variables are enforced at run time on both inline and materialized
+        insight endpoints, so the spec marks them required on both paths."""
+        from products.endpoints.backend.openapi import _build_variables_schema
+
+        trends_query = {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+            "breakdownFilter": {"breakdown": "$browser", "breakdown_type": "event"},
+        }
+
+        schema = _build_variables_schema(trends_query, is_materialized=True, team_id=self.team.id)
+        assert schema is not None
+        self.assertIn("$browser", schema["properties"])
+        self.assertEqual(schema.get("required"), ["$browser"])
+
+        schema_non_materialized = _build_variables_schema(trends_query, is_materialized=False, team_id=self.team.id)
+        assert schema_non_materialized is not None
+        self.assertIn("$browser", schema_non_materialized["properties"])
+        self.assertEqual(schema_non_materialized.get("required"), ["$browser"])
+
     def test_openapi_spec_variable_types(self):
         from products.product_analytics.backend.models.insight_variable import InsightVariable
 
@@ -314,3 +432,205 @@ class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
 
         # Should not have Variables schema since no variables defined
         self.assertNotIn("Variables", spec["components"]["schemas"])
+
+
+class TestEndpointOpenAPIRequiredVariables(ClickhouseTestMixin, APIBaseTest):
+    """The Variables schema must surface which variables are required vs optional so
+    generated client SDKs reflect the real /run contract. Required breakdowns enforce; optional
+    breakdowns may be omitted."""
+
+    def _get(self, name: str) -> dict:
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{name}/openapi.json/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        schemas = response.json()["components"]["schemas"]
+        self.assertIn("Variables", schemas, f"Variables schema missing for endpoint '{name}'")
+        return schemas["Variables"]
+
+    def _create_trends(self, name: str, breakdowns: list[dict], optional: list[str] | None = None):
+        endpoint = create_endpoint_with_version(
+            name=name,
+            team=self.team,
+            query={
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode"}],
+                "breakdownFilter": {"breakdowns": breakdowns},
+            },
+            created_by=self.user,
+            is_active=True,
+        )
+        if optional:
+            version = endpoint.versions.first()
+            version.optional_breakdown_properties = optional
+            version.save(update_fields=["optional_breakdown_properties"])
+        return endpoint
+
+    def test_single_breakdown_required_by_default(self):
+        self._create_trends("trends_one_breakdown", [{"property": "$browser", "type": "event"}])
+
+        schema = self._get("trends_one_breakdown")
+        self.assertIn("$browser", schema["properties"])
+        self.assertIn("$browser", schema.get("required", []))
+
+    def test_single_breakdown_omitted_from_required_when_optional(self):
+        self._create_trends("trends_one_optional", [{"property": "$browser", "type": "event"}], optional=["$browser"])
+
+        schema = self._get("trends_one_optional")
+        # Property is still surfaced so callers can pass it...
+        self.assertIn("$browser", schema["properties"])
+        # ...but it's NOT in the required list, so generated SDKs leave it optional.
+        # Either no `required` key at all, or `required` exists without $browser.
+        self.assertNotIn("$browser", schema.get("required", []))
+
+    def test_multi_breakdown_all_emitted_and_all_required_by_default(self):
+        """Every breakdown property must be surfaced and land in `required` until explicitly
+        marked optional — historically only the first breakdown was emitted."""
+        self._create_trends(
+            "trends_multi_breakdown",
+            [
+                {"property": "$browser", "type": "event"},
+                {"property": "$os", "type": "event"},
+                {"property": "$country", "type": "event"},
+            ],
+        )
+
+        schema = self._get("trends_multi_breakdown")
+        for prop in ("$browser", "$os", "$country"):
+            self.assertIn(prop, schema["properties"], f"property {prop} missing")
+            self.assertIn(prop, schema.get("required", []), f"property {prop} not marked required")
+
+    def test_multi_breakdown_required_minus_optional(self):
+        self._create_trends(
+            "trends_multi_one_optional",
+            [
+                {"property": "$browser", "type": "event"},
+                {"property": "$os", "type": "event"},
+            ],
+            optional=["$browser"],
+        )
+
+        schema = self._get("trends_multi_one_optional")
+        self.assertIn("$browser", schema["properties"])
+        self.assertIn("$os", schema["properties"])
+        self.assertIn("$os", schema.get("required", []))
+        self.assertNotIn("$browser", schema.get("required", []))
+
+    def test_all_breakdowns_optional_omits_required_array(self):
+        self._create_trends(
+            "trends_all_optional",
+            [
+                {"property": "$browser", "type": "event"},
+                {"property": "$os", "type": "event"},
+            ],
+            optional=["$browser", "$os"],
+        )
+
+        schema = self._get("trends_all_optional")
+        # No required entries — generated SDK treats every variable as optional.
+        self.assertNotIn("required", schema)
+
+    def test_date_variables_never_required(self):
+        """date_from / date_to are inline-only convenience variables; they always default at
+        runtime and must NOT appear in the required array, even when breakdowns are required."""
+        self._create_trends("trends_dates_not_required", [{"property": "$browser", "type": "event"}])
+
+        schema = self._get("trends_dates_not_required")
+        self.assertIn("date_from", schema["properties"])
+        self.assertIn("date_to", schema["properties"])
+        self.assertNotIn("date_from", schema.get("required", []))
+        self.assertNotIn("date_to", schema.get("required", []))
+
+    def test_hogql_inline_does_not_mark_variables_required(self):
+        """Inline HogQL substitutes defaults/NULLs for missing variables — that's a coherent
+        contract. The OpenAPI spec must not mark inline HogQL variables required, or generated
+        SDKs would reject calls that are legal at runtime."""
+        from products.product_analytics.backend.models.insight_variable import InsightVariable
+
+        InsightVariable.objects.create(
+            team=self.team,
+            id="00000000-0000-0000-0000-0000000000aa",
+            code_name="event_name",
+            type="String",
+        )
+        create_endpoint_with_version(
+            name="hogql_inline_no_required",
+            team=self.team,
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events WHERE event = {variables.event_name}",
+                "variables": {
+                    "00000000-0000-0000-0000-0000000000aa": {
+                        "variableId": "00000000-0000-0000-0000-0000000000aa",
+                        "code_name": "event_name",
+                        "value": "$pageview",
+                    },
+                },
+            },
+            created_by=self.user,
+            is_active=True,
+        )
+
+        schema = self._get("hogql_inline_no_required")
+        self.assertIn("event_name", schema["properties"])
+        self.assertNotIn("required", schema)
+
+    def test_hogql_materialized_marks_all_variables_required(self):
+        """Materialized HogQL rejects ANY missing variable at run time, defaults included, so the
+        spec must mark every variable required — unlike the inline path, which substitutes
+        defaults/NULLs and stays optional."""
+        from products.endpoints.backend.openapi import _build_variables_schema
+        from products.product_analytics.backend.models.insight_variable import InsightVariable
+
+        with_default = InsightVariable.objects.create(
+            team=self.team,
+            id="00000000-0000-0000-0000-0000000000bb",
+            code_name="has_default",
+            type="String",
+            default_value="fallback",
+        )
+        no_default = InsightVariable.objects.create(
+            team=self.team,
+            id="00000000-0000-0000-0000-0000000000cc",
+            code_name="event_name",
+            type="String",
+        )
+        query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT count() FROM events WHERE event = {variables.event_name}",
+            "variables": {
+                str(with_default.id): {
+                    "variableId": str(with_default.id),
+                    "code_name": "has_default",
+                    "value": "fallback",
+                },
+                str(no_default.id): {"variableId": str(no_default.id), "code_name": "event_name"},
+            },
+        }
+
+        schema = _build_variables_schema(query, is_materialized=True, team_id=self.team.id)
+        assert schema is not None
+        self.assertEqual(schema.get("required"), ["event_name", "has_default"])
+
+    def test_deprecation_warning_mentions_marking_breakdown_optional(self):
+        """The X-PostHog-Warn deprecation message must mention the optional opt-in (not just
+        'use variables instead') — marking the breakdown optional is what callers actually want
+        if they were relying on permissive behavior."""
+        endpoint = create_endpoint_with_version(
+            name="hdr_check",
+            team=self.team,
+            query={
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode"}],
+                "breakdownFilter": {"breakdowns": [{"property": "$browser", "type": "event"}]},
+            },
+            created_by=self.user,
+            is_active=True,
+        )
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+            {"filters_override": {"properties": [{"key": "$browser", "value": "Chrome", "type": "event"}]}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        warn = response.headers.get("X-PostHog-Warn", "")
+        self.assertIn("filters_override is deprecated", warn)
+        self.assertIn("optional", warn)

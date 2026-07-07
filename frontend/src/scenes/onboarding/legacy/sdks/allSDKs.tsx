@@ -5,7 +5,7 @@
  * - TSX components (React.memo) - for logos that need Tailwind's `dark:fill-white` class to work,
  *   since CSS classes inside SVG files don't apply when rendered as <img> tags
  */
-import { Logomark } from 'lib/brand/Logomark'
+import { Logomark } from 'lib/brand'
 
 import { SDK, SDKKey, SDKTag } from '~/types'
 
@@ -115,7 +115,7 @@ export const ALL_SDKS: SDK[] = [
         tags: [SDKTag.SERVER, SDKTag.INTEGRATION],
         image: (
             <span className="flex h-8 w-8">
-                <Logomark />
+                <Logomark className="w-8 h-auto" />
             </span>
         ),
         docsLink: 'https://posthog.com/docs/api',
@@ -462,7 +462,7 @@ export const ALL_SDKS: SDK[] = [
         tags: [SDKTag.FRAMEWORK, SDKTag.MODEL_PROVIDER, SDKTag.GATEWAY],
         image: (
             <span className="flex w-8 pb-3">
-                <Logomark />
+                <Logomark className="w-8 h-auto" />
             </span>
         ),
         docsLink: 'https://posthog.com/docs/ai-observability/installation/manual-capture',

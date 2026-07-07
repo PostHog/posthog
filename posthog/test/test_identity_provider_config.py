@@ -5,14 +5,25 @@ from django.core.exceptions import ValidationError
 from django.core.management import call_command
 
 from posthog.models import IdentityProviderConfig, Organization, OrganizationDomain
-from posthog.models.identity_provider_config import IDP_CONFIG_SYNCED_FIELDS, sync_identity_provider_config_from_domain
+from posthog.models.identity_provider_config import (
+    IDP_CONFIG_SYNCED_FIELDS,
+    sync_domains_from_identity_provider_config,
+    sync_identity_provider_config_from_domain,
+)
 
 from ee.api.scim.utils import disable_scim_for_domain, enable_scim_for_domain, regenerate_scim_token
 
 
+def _prefix_idp_kwargs(kwargs: dict) -> dict:
+    # The domain's IdP columns are underscore-prefixed Python attributes; map the public names.
+    return {(f"_{k}" if k in IDP_CONFIG_SYNCED_FIELDS else k): v for k, v in kwargs.items()}
+
+
 class TestIdentityProviderConfigSync(BaseTest):
     def _create_domain(self, domain: str = "posthog.com", **kwargs) -> OrganizationDomain:
-        return OrganizationDomain.objects.create(organization=self.organization, domain=domain, **kwargs)
+        return OrganizationDomain.objects.create(
+            organization=self.organization, domain=domain, **_prefix_idp_kwargs(kwargs)
+        )
 
     def test_domain_without_idp_settings_does_not_create_config(self):
         domain = self._create_domain()
@@ -21,9 +32,9 @@ class TestIdentityProviderConfigSync(BaseTest):
 
     def test_saving_saml_settings_creates_and_links_config(self):
         domain = self._create_domain()
-        domain.saml_entity_id = "entity-id"
-        domain.saml_acs_url = "https://idp.example.com/acs"
-        domain.saml_x509_cert = "cert-contents"
+        domain._saml_entity_id = "entity-id"
+        domain._saml_acs_url = "https://idp.example.com/acs"
+        domain._saml_x509_cert = "cert-contents"
         domain.save()
 
         domain.refresh_from_db()
@@ -45,8 +56,8 @@ class TestIdentityProviderConfigSync(BaseTest):
         config = domain.identity_provider_config
         assert config is not None
 
-        domain.saml_entity_id = "new-entity-id"
-        domain.id_jag_issuer_url = "https://issuer.example.com"
+        domain._saml_entity_id = "new-entity-id"
+        domain._id_jag_issuer_url = "https://issuer.example.com"
         domain.save()
 
         config.refresh_from_db()
@@ -61,9 +72,9 @@ class TestIdentityProviderConfigSync(BaseTest):
             saml_acs_url="https://idp.example.com/acs",
             saml_x509_cert="cert-contents",
         )
-        domain.saml_entity_id = None
-        domain.saml_acs_url = None
-        domain.saml_x509_cert = None
+        domain._saml_entity_id = None
+        domain._saml_acs_url = None
+        domain._saml_x509_cert = None
         domain.save()
 
         config = domain.identity_provider_config
@@ -80,12 +91,12 @@ class TestIdentityProviderConfigSync(BaseTest):
         config = domain.identity_provider_config
         assert config is not None
         assert config.scim_enabled is True
-        assert config.scim_bearer_token == domain.scim_bearer_token
+        assert config.scim_bearer_token == domain._scim_bearer_token
         assert config.has_scim
 
         regenerate_scim_token(domain)
         config.refresh_from_db()
-        assert config.scim_bearer_token == domain.scim_bearer_token
+        assert config.scim_bearer_token == domain._scim_bearer_token
 
         disable_scim_for_domain(domain)
         config.refresh_from_db()
@@ -97,12 +108,14 @@ class TestIdentityProviderConfigSync(BaseTest):
         assert IdentityProviderConfig.objects.count() == 1
 
     def test_synced_fields_match_between_models(self):
-        # Guard against the two models drifting apart while domains remain the source of truth
+        # Guard against the two models drifting apart. The domain stores these as underscore-prefixed
+        # columns (with the original db_column), the config stores them under the plain name.
         for field in IDP_CONFIG_SYNCED_FIELDS:
-            domain_field = OrganizationDomain._meta.get_field(field)
+            domain_field = OrganizationDomain._meta.get_field(f"_{field}")
             config_field = IdentityProviderConfig._meta.get_field(field)
             assert domain_field.__class__ == config_field.__class__, field
             assert getattr(domain_field, "max_length", None) == getattr(config_field, "max_length", None), field
+            assert getattr(domain_field, "db_column", None) == field, field
 
     def test_deleting_domain_keeps_config(self):
         domain = self._create_domain(id_jag_issuer_url="https://issuer.example.com")
@@ -152,11 +165,107 @@ class TestIdentityProviderConfigSync(BaseTest):
         domain.refresh_from_db()
         assert domain.identity_provider_config is None
 
+    def test_config_save_syncs_to_linked_domain(self):
+        domain = self._create_domain(
+            saml_entity_id="entity-id",
+            saml_acs_url="https://idp.example.com/acs",
+            saml_x509_cert="cert-contents",
+        )
+        config = domain.identity_provider_config
+        assert config is not None
+
+        config.saml_entity_id = "new-entity-id"
+        config.save()
+
+        domain.refresh_from_db()
+        assert domain._saml_entity_id == "new-entity-id"
+
+    def test_config_save_with_no_linked_domains_is_noop(self):
+        config = IdentityProviderConfig.objects.create(organization=self.organization, saml_entity_id="entity-id")
+        assert sync_domains_from_identity_provider_config(config) == 0
+
+    def test_linking_populated_config_to_new_domain_does_not_clobber(self):
+        # A new domain linked to an already-populated config must adopt the config's values, not
+        # blank the (potentially shared) config via the forward mirror.
+        config = IdentityProviderConfig.objects.create(
+            organization=self.organization,
+            saml_entity_id="entity-id",
+            saml_acs_url="https://idp.example.com/acs",
+            saml_x509_cert="cert",
+            scim_enabled=True,
+            scim_bearer_token="hashed",
+        )
+        domain = OrganizationDomain.objects.create(
+            organization=self.organization, domain="new.example.com", identity_provider_config=config
+        )
+
+        config.refresh_from_db()
+        assert config.saml_entity_id == "entity-id"
+        assert config.scim_enabled is True
+        assert config.scim_bearer_token == "hashed"
+        # The new domain adopts the config's values (config is the source of truth for reads).
+        assert domain.has_saml
+        assert domain._saml_entity_id == "entity-id"
+
+    def test_domain_save_does_not_clobber_config_written_directly(self):
+        domain = self._create_domain(
+            saml_entity_id="entity-id",
+            saml_acs_url="https://idp.example.com/acs",
+            saml_x509_cert="cert-contents",
+        )
+        config = domain.identity_provider_config
+        assert config is not None
+
+        # Write via the config (the source of truth)
+        config.saml_entity_id = "config-owned-entity"
+        config.save()
+
+        # An unrelated domain save must not revert the config to a stale value
+        domain.refresh_from_db()
+        domain.jit_provisioning_enabled = True
+        domain.save()
+
+        config.refresh_from_db()
+        domain.refresh_from_db()
+        assert config.saml_entity_id == "config-owned-entity"
+        assert domain._saml_entity_id == "config-owned-entity"
+
+    def test_has_saml_reads_from_config_not_domain_columns(self):
+        domain = self._create_domain(
+            saml_entity_id="entity-id",
+            saml_acs_url="https://idp.example.com/acs",
+            saml_x509_cert="cert-contents",
+        )
+        config = domain.identity_provider_config
+        assert config is not None
+        assert domain.has_saml
+
+        # Blank the domain's own columns without touching the config (bypass sync via queryset update)
+        OrganizationDomain.objects.filter(pk=domain.pk).update(_saml_entity_id="", _saml_acs_url="", _saml_x509_cert="")
+        domain.refresh_from_db()
+        # Reads resolve from the config, which still has SAML
+        assert domain.has_saml
+
+        # Clearing the config flips the read
+        config.saml_entity_id = None
+        config.saml_acs_url = None
+        config.saml_x509_cert = None
+        config.save()
+        domain.refresh_from_db()
+        assert not domain.has_saml
+
+    def test_domain_without_config_has_no_idp_reads(self):
+        domain = self._create_domain()
+        assert domain.identity_provider_config is None
+        assert not domain.has_saml
+        assert not domain.has_scim
+        assert not domain.has_id_jag
+
 
 class TestSyncIdentityProviderConfigsCommand(BaseTest):
     def _create_unsynced_domain(self, domain: str, **kwargs) -> OrganizationDomain:
         # Bypass `OrganizationDomain.save()` dual-write to simulate pre-existing rows
-        instance = OrganizationDomain(organization=self.organization, domain=domain, **kwargs)
+        instance = OrganizationDomain(organization=self.organization, domain=domain, **_prefix_idp_kwargs(kwargs))
         instance.save()
         OrganizationDomain.objects.filter(pk=instance.pk).update(identity_provider_config=None)
         IdentityProviderConfig.objects.all().delete()
@@ -185,7 +294,7 @@ class TestSyncIdentityProviderConfigsCommand(BaseTest):
         domain = OrganizationDomain.objects.create(
             organization=self.organization,
             domain="saml.example.com",
-            id_jag_issuer_url="https://issuer.example.com",
+            _id_jag_issuer_url="https://issuer.example.com",
         )
         config = domain.identity_provider_config
         assert config is not None
@@ -212,7 +321,7 @@ class TestSyncIdentityProviderConfigsCommand(BaseTest):
     def test_command_filters_by_organization(self):
         other_org = Organization.objects.create(name="Other")
         other_domain = OrganizationDomain.objects.create(
-            organization=other_org, domain="other.example.com", id_jag_issuer_url="https://issuer.example.com"
+            organization=other_org, domain="other.example.com", _id_jag_issuer_url="https://issuer.example.com"
         )
         # `_create_unsynced_domain` wipes all configs, leaving both domains unsynced
         domain = self._create_unsynced_domain("mine.example.com", id_jag_issuer_url="https://issuer.example.com")

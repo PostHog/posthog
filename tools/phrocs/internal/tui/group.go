@@ -59,6 +59,21 @@ func groupDimensions(cfg *config.Config) []string {
 	return dims
 }
 
+// initialGroupDimIndex resolves the config's default_group dimension to an
+// index into dims. Returns -1 (no grouping) when default_group is unset or
+// names a dimension that isn't available.
+func initialGroupDimIndex(dims []string, defaultGroup string) int {
+	if defaultGroup == "" {
+		return -1
+	}
+	for i, d := range dims {
+		if d == defaultGroup {
+			return i
+		}
+	}
+	return -1
+}
+
 // groupOrderFor returns the display order for a given dimension.
 // If group_order is configured, uses that. Otherwise discovers groups from
 // processes in the order they first appear.

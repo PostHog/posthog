@@ -2650,6 +2650,9 @@ class TestIsNonRetryableError(BaseTest):
             ("no_such_column", 16, "No such column"),
             ("timeout", 159, "Timeout exceeded"),
             ("too_many_queries", 202, "Too many simultaneous queries"),
+            # The read cap is deterministic for a given window: a retry re-scans
+            # the same data only to fail the same way.
+            ("too_many_rows_or_bytes", 307, "Limit for rows or bytes to read exceeded"),
             # An OOM won't succeed on an immediate retry — retrying just re-pressures the
             # cluster. Fail fast so the caller can react (e.g. cap the team's window).
             ("memory_limit", 241, "Memory limit exceeded"),

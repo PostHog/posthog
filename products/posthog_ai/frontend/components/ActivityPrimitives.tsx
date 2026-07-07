@@ -1,8 +1,8 @@
 import clsx from 'clsx'
 import React, { useLayoutEffect, useState } from 'react'
 
-import { IconCheck, IconChevronDown, IconChevronRight, IconX } from '@posthog/icons'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { IconChevronDown, IconChevronRight } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { MarkdownMessage } from '../messages/MarkdownMessage'
 
@@ -52,26 +52,13 @@ function activitySubstepText(content: string, isInProgress: boolean): string {
     return content
 }
 
-export function ActivityStatusIcon({
-    status,
-    showCompletionIcon = true,
-    showProgressIcon = false,
-    failedIcon,
-}: {
+export function ActivityStatusIcon(_props: {
     status: ActivityStatus
     showCompletionIcon?: boolean
     showProgressIcon?: boolean
     failedIcon?: React.ReactNode
 }): JSX.Element | null {
-    if ((status === 'pending' || status === 'in_progress') && showProgressIcon) {
-        return <Spinner className="size-3" />
-    }
-    if (status === 'completed' && showCompletionIcon) {
-        return <IconCheck className="text-success size-3" />
-    }
-    if (status === 'failed' && showCompletionIcon) {
-        return failedIcon ? <>{failedIcon}</> : <IconX className="text-danger size-3" />
-    }
+    // Intentionally renders nothing — kept as a no-op so the Activity prop chain and facade export stay stable.
     return null
 }
 
@@ -104,12 +91,15 @@ export function ActivityHeader({
     const isInProgress = status === 'in_progress'
     const isFailed = status === 'failed'
 
-    const titleNode =
-        isInProgress && animate ? (
-            <ShimmeringContent>{title}</ShimmeringContent>
-        ) : (
-            <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{title}</span>
-        )
+    const titleNode = (
+        <div className="min-w-0 min-h-5 flex items-center">
+            {isInProgress && animate ? (
+                <ShimmeringContent>{title}</ShimmeringContent>
+            ) : (
+                <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{title}</span>
+            )}
+        </div>
+    )
     const statusIcon = (
         <ActivityStatusIcon
             status={status}
@@ -123,7 +113,8 @@ export function ActivityHeader({
         <div
             className={clsx(
                 'group/activity-header transition-all duration-500 flex select-none min-w-0',
-                (isPending || isFailed) && 'text-muted',
+                isPending && 'text-muted',
+                isFailed && 'text-danger',
                 !isInProgress && !isPending && !isFailed && 'text-default',
                 hasDetails ? 'cursor-pointer' : 'cursor-default',
                 hasDetails && 'rounded px-1 -mx-1 hover:bg-fill-button-tertiary-hover',
@@ -164,20 +155,20 @@ export function ActivityHeader({
                     )}
                 </div>
             )}
-            <div className="flex items-center gap-1 flex-1 min-w-0 h-full">
+            <div className="flex items-center gap-1 flex-1 min-w-0">
                 {children ? (
                     // The title/subtitle column grows to fill the row, so the subtitle (second line) gets the
                     // full available width before it truncates.
                     <div className="flex flex-col flex-1 min-w-0">
                         {/* Status icon rides the first line with the title; the second line is the subtitle. */}
                         <div className="flex items-center gap-1 min-w-0">
-                            <div className="min-w-0">{titleNode}</div>
+                            {titleNode}
                             {statusIcon}
                         </div>
                         <div className="text-muted truncate min-w-0">{children}</div>
                     </div>
                 ) : (
-                    <div className="min-w-0">{titleNode}</div>
+                    titleNode
                 )}
                 {!children && statusIcon}
             </div>

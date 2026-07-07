@@ -1,6 +1,7 @@
 from parameterized import parameterized
 from rest_framework import serializers
 
+from posthog.api.cohort import CohortSerializer
 from posthog.api.organization_member import OrganizationMemberSerializer
 from posthog.api.shared import SearchMatchTypeSerializerMixin
 
@@ -23,6 +24,7 @@ SEARCH_LIST_SERIALIZERS = [
     ("survey", SurveySerializer),
     ("product_tour", ProductTourSerializer),
     ("alert", AlertSerializer),
+    ("cohort", CohortSerializer),
 ]
 
 

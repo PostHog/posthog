@@ -36,6 +36,11 @@ on:
                 description: 'Whether to push built images to the registry'
                 type: boolean
                 default: true
+        secrets:
+            POSTHOG_API_TOKEN:
+                required: false
+            POSTHOG_DEVEX_PROJECT_API_TOKEN:
+                required: false
         outputs:
             digests:
                 description: 'JSON object mapping image name to digest'
@@ -137,11 +142,17 @@ jobs:
 
             - name: Retrieve sccache configuration
               id: sccache
+              env:
+                  IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
               run: |
+                  echo "cache-key-prefix=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_OUTPUT"
+                  if [ "$IS_FORK_PR" = "true" ]; then
+                      echo "Fork PR — skipping sccache credentials (build runs without remote cache)"
+                      exit 0
+                  fi
                   echo "endpoint=$SCCACHE_WEBDAV_ENDPOINT" >> "$GITHUB_OUTPUT"
                   echo "::add-mask::$SCCACHE_WEBDAV_TOKEN"
                   echo "token=$SCCACHE_WEBDAV_TOKEN" >> "$GITHUB_OUTPUT"
-                  echo "cache-key-prefix=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_OUTPUT"
 
             - name: Build and push image
               id: docker_build
@@ -160,6 +171,7 @@ jobs:
                       SCCACHE_NO_DAEMON=1
                       BIN=${{ matrix.bin || matrix.image }}
                       BUILD_FEATURES=${{ matrix.features || '' }}
+                      EXTRA_RUSTFLAGS=${{ matrix.extra_rustflags || '' }}
                       SCCACHE_WEBDAV_KEY_PREFIX=${{ steps.sccache.outputs.cache-key-prefix }}
                   secrets: |
                       SCCACHE_WEBDAV_ENDPOINT=${{ steps.sccache.outputs.endpoint }}

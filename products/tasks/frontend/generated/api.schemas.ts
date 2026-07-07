@@ -297,6 +297,74 @@ export interface PatchedTaskAutomationWriteApi {
 }
 
 /**
+ * Response shape for a task channel, read from a frozen ``ChannelDTO``.
+ */
+export interface ChannelDTOApi {
+    id: string
+    name: string
+    channel_type: string
+    created_at: string
+    created_by?: TaskUserBasicInfoApi | null
+}
+
+export interface PaginatedChannelDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ChannelDTOApi[]
+}
+
+/**
+ * Request body for creating (resolve-or-create) or renaming a public channel.
+ */
+export interface ChannelWriteApi {
+    /**
+     * Channel name, rendered as #<name>. Normalized to lowercase-dashed.
+     * @maxLength 128
+     */
+    name: string
+}
+
+/**
+ * Request body for creating (resolve-or-create) or renaming a public channel.
+ */
+export interface PatchedChannelWriteApi {
+    /**
+     * Channel name, rendered as #<name>. Normalized to lowercase-dashed.
+     * @maxLength 128
+     */
+    name?: string
+}
+
+/**
+ * Response shape for one @-mention of the requester in a task's thread.
+ */
+export interface TaskMentionDTOApi {
+    id: string
+    message_id: string
+    task_id: string
+    task_title: string
+    /** @nullable */
+    channel_id: string | null
+    /** @nullable */
+    channel_name: string | null
+    author?: TaskUserBasicInfoApi | null
+    content: string
+    created_at: string
+}
+
+export interface PaginatedTaskMentionDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TaskMentionDTOApi[]
+}
+
+/**
  * @nullable
  */
 export type TaskDetailDTOApiJsonSchema = { [key: string]: unknown } | null
@@ -356,6 +424,7 @@ export interface PaginatedTaskDetailDTOListApi {
 }
 
 /**
+ * * `onboarding` - Onboarding
  * * `error_tracking` - Error Tracking
  * * `eval_clusters` - Eval Clusters
  * * `user_created` - User Created
@@ -364,13 +433,16 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `support_queue` - Support Queue
  * * `session_summaries` - Session Summaries
  * * `posthog_ai` - PostHog AI
+ * * `experiments` - Experiments
  * * `signal_report` - Signal Report
  * * `signals_scout` - Signals Scout
  * * `support_reply` - Support Reply
+ * * `hogdesk` - HogDesk
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
 
 export const OriginProductEnumApi = {
+    Onboarding: 'onboarding',
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     UserCreated: 'user_created',
@@ -379,9 +451,11 @@ export const OriginProductEnumApi = {
     SupportQueue: 'support_queue',
     SessionSummaries: 'session_summaries',
     PosthogAi: 'posthog_ai',
+    Experiments: 'experiments',
     SignalReport: 'signal_report',
     SignalsScout: 'signals_scout',
     SupportReply: 'support_reply',
+    Hogdesk: 'hogdesk',
 } as const
 
 /**
@@ -441,6 +515,7 @@ export interface TaskWriteApi {
     description?: string
     /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
      *
+     * * `onboarding` - Onboarding
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -449,9 +524,11 @@ export interface TaskWriteApi {
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
+     * * `experiments` - Experiments
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
-     * * `support_reply` - Support Reply */
+     * * `support_reply` - Support Reply
+     * * `hogdesk` - HogDesk */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -510,6 +587,21 @@ export interface TaskWriteApi {
      * * `xhigh` - xhigh
      * * `max` - max */
     reasoning_effort?: ReasoningEffortEnumApi | null
+    /**
+     * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
+     * @nullable
+     */
+    pending_user_message?: string | null
+    /**
+     * Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched.
+     * @items.maxLength 128
+     */
+    pending_user_artifact_ids?: string[]
+    /**
+     * Channel this task is owned by (the channel it was kicked off in).
+     * @nullable
+     */
+    channel?: string | null
 }
 
 /**
@@ -531,6 +623,7 @@ export interface PatchedTaskWriteApi {
     description?: string
     /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
      *
+     * * `onboarding` - Onboarding
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -539,9 +632,11 @@ export interface PatchedTaskWriteApi {
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
+     * * `experiments` - Experiments
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
-     * * `support_reply` - Support Reply */
+     * * `support_reply` - Support Reply
+     * * `hogdesk` - HogDesk */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -600,6 +695,21 @@ export interface PatchedTaskWriteApi {
      * * `xhigh` - xhigh
      * * `max` - max */
     reasoning_effort?: ReasoningEffortEnumApi | null
+    /**
+     * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
+     * @nullable
+     */
+    pending_user_message?: string | null
+    /**
+     * Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched.
+     * @items.maxLength 128
+     */
+    pending_user_artifact_ids?: string[]
+    /**
+     * Channel this task is owned by (the channel it was kicked off in).
+     * @nullable
+     */
+    channel?: string | null
 }
 
 /**
@@ -1633,8 +1743,16 @@ export interface ConnectionTokenResponseApi {
 }
 
 export interface TaskRunRelayMessageRequestApi {
-    /** @maxLength 10000 */
+    /**
+     * Joined message body. Used when text_parts is absent.
+     * @maxLength 10000
+     */
     text: string
+    /**
+     * Ordered assistant text blocks. When present, the last non-empty entry is posted instead of text.
+     * @items.maxLength 10000
+     */
+    text_parts?: string[]
 }
 
 export interface TaskRunRelayMessageResponseApi {
@@ -1670,6 +1788,37 @@ export interface StreamReadTokenResponseApi {
      * @nullable
      */
     stream_base_url: string | null
+}
+
+/**
+ * Response shape for one message in a task's thread.
+ */
+export interface TaskThreadMessageDTOApi {
+    id: string
+    task: string
+    content: string
+    created_at: string
+    author?: TaskUserBasicInfoApi | null
+    /** @nullable */
+    forwarded_to_agent_at?: string | null
+    forwarded_by?: TaskUserBasicInfoApi | null
+}
+
+export interface PaginatedTaskThreadMessageDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TaskThreadMessageDTOApi[]
+}
+
+/**
+ * Request body for posting a thread message.
+ */
+export interface TaskThreadMessageWriteApi {
+    /** Message text. */
+    content: string
 }
 
 export interface TaskRepositoriesResponseApi {
@@ -2053,6 +2202,34 @@ export type TaskAutomationsListParams = {
     offset?: number
 }
 
+export type TaskChannelsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type TaskMentionsListParams = {
+    /**
+     * Maximum number of mentions to return (newest first).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Only return mentions created after this ISO 8601 timestamp.
+     */
+    since?: string
+}
+
 export type TasksListParams = {
     /**
      * Filter by archived state. Defaults to excluding archived tasks. Use 'true' to list only archived tasks, 'false' for the default, or 'all' to include both.
@@ -2064,13 +2241,22 @@ export type TasksListParams = {
      */
     archived?: TasksListArchived
     /**
+     * Filter tasks to a channel's feed.
+     */
+    channel?: string
+    /**
      * Filter by creator user ID
      */
     created_by?: number
     /**
-     * When true, list internal tasks instead of user-facing ones. Honored in debug environments or for staff users; ignored for non-staff users in production. Defaults to excluding internal tasks.
+     * Filter by the internal flag, which controls whether a task is shown by default, not whether it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal and user-facing tasks, or 'true' to list only internal tasks. All values are available to any team member; access stays governed by task visibility.
+     *
+     * * `true` - true
+     * * `false` - false
+     * * `all` - all
+     * @minLength 1
      */
-    internal?: boolean
+    internal?: TasksListInternal
     /**
      * Number of results to return per page.
      * @minimum 1
@@ -2123,6 +2309,14 @@ export type TasksListParams = {
 export type TasksListArchived = (typeof TasksListArchived)[keyof typeof TasksListArchived]
 
 export const TasksListArchived = {
+    True: 'true',
+    False: 'false',
+    All: 'all',
+} as const
+
+export type TasksListInternal = (typeof TasksListInternal)[keyof typeof TasksListInternal]
+
+export const TasksListInternal = {
     True: 'true',
     False: 'false',
     All: 'all',
@@ -2186,6 +2380,17 @@ export type TasksRunsStreamRetrieveParams = {
      * Set to `latest` to skip the event backlog and only receive events published after connecting.
      */
     start?: string
+}
+
+export type TasksThreadMessagesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type TasksRepositoryReadinessRetrieveParams = {

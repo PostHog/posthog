@@ -434,9 +434,11 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
             for s in api.list_mcp_sessions(self.team, limit=50, offset=0, date_from=one_hour_ago).results
             if s.session_id == session_id
         )
-        calls = api.list_mcp_tool_calls(self.team, session_id=session_id, date_from=session.session_start)
+        page = api.list_mcp_tool_calls(
+            self.team, session_id=session_id, limit=500, offset=0, date_from=session.session_start
+        )
 
-        assert [c.tool_name for c in calls] == ["before_window", "in_window"]
+        assert [c.tool_name for c in page.results] == ["before_window", "in_window"]
 
 
 class TestGenerateSessionIntent(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
@@ -523,6 +525,48 @@ class TestGenerateSessionIntent(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTest
         assert sessions[0].intent == "Persisted summary."
 
 
+class TestListMCPToolCalls(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    def _seed_tool_call(self, session_id: str, *, timestamp: datetime, tool: str) -> None:
+        _create_event(
+            team=self.team,
+            event="$mcp_tool_call",
+            distinct_id="seed",
+            timestamp=timestamp,
+            properties={"$session_id": session_id, "$mcp_tool_name": tool},
+        )
+
+    def test_has_next_signals_more_pages(self) -> None:
+        session_id = str(uuid7())
+        start = datetime.now(tz=UTC) - timedelta(minutes=5)
+        for i, tool in enumerate(["first", "second", "third"]):
+            self._seed_tool_call(session_id, timestamp=start + timedelta(seconds=i), tool=tool)
+
+        # Over-fetch (limit+1) lets the first page know more exists without a count query;
+        # calls come back in chronological order, so the two pages cover all three with no skips.
+        first = api.list_mcp_tool_calls(self.team, session_id=session_id, limit=2, offset=0, date_from=start)
+        assert [c.tool_name for c in first.results] == ["first", "second"]
+        assert first.has_next is True
+
+        second = api.list_mcp_tool_calls(self.team, session_id=session_id, limit=2, offset=2, date_from=start)
+        assert [c.tool_name for c in second.results] == ["third"]
+        assert second.has_next is False
+
+    def test_pagination_is_stable_across_tied_timestamps(self) -> None:
+        session_id = str(uuid7())
+        ts = datetime.now(tz=UTC) - timedelta(minutes=5)
+        # All four calls share a timestamp (a burst), so only the event_id tiebreaker gives a total
+        # order — without it, the two offset pages could overlap or skip a boundary row.
+        for tool in ["a", "b", "c", "d"]:
+            self._seed_tool_call(session_id, timestamp=ts, tool=tool)
+
+        first = api.list_mcp_tool_calls(self.team, session_id=session_id, limit=2, offset=0, date_from=ts)
+        second = api.list_mcp_tool_calls(self.team, session_id=session_id, limit=2, offset=2, date_from=ts)
+        event_ids = [c.event_id for c in first.results] + [c.event_id for c in second.results]
+
+        # The two pages cover all four calls with no duplicates and no skips.
+        assert len(set(event_ids)) == 4
+
+
 class TestSessionEventsLookbackBound(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
     """The session-detail queries (tool calls and intents alike) bound their scan to
     SESSION_EVENTS_LOOKBACK by default, or to an explicit date_from, so the events sort key can
@@ -541,7 +585,9 @@ class TestSessionEventsLookbackBound(_MCPAnalyticsTeamScopedTestMixin, Clickhous
         [
             (
                 "tool_calls",
-                lambda self, sid: [c.tool_name for c in api.list_mcp_tool_calls(self.team, session_id=sid)],
+                lambda self, sid: [
+                    c.tool_name for c in api.list_mcp_tool_calls(self.team, session_id=sid, limit=500, offset=0).results
+                ],
                 ["recent_tool"],
             ),
             (
@@ -571,7 +617,10 @@ class TestSessionEventsLookbackBound(_MCPAnalyticsTeamScopedTestMixin, Clickhous
             (
                 "tool_calls",
                 lambda self, sid, df: [
-                    c.tool_name for c in api.list_mcp_tool_calls(self.team, session_id=sid, date_from=df)
+                    c.tool_name
+                    for c in api.list_mcp_tool_calls(
+                        self.team, session_id=sid, limit=500, offset=0, date_from=df
+                    ).results
                 ],
                 ["ancient_tool"],
             ),

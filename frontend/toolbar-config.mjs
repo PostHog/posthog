@@ -38,6 +38,23 @@ const deniedPaths = [
     'scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager.ts',
 ]
 
+// Heavy third-party libraries the toolbar never renders, but which leak in transitively
+// through the shared scene graph (mostly via scenes/urls.ts -> products.tsx). Because the
+// toolbar is a single IIFE with no code-splitting, even lazily `import()`-ed libraries get
+// inlined, so these must be cut at resolve time. CloudFront won't gzip files over 10 MB, so
+// keeping the bundle small is what keeps it compressible.
+const deniedThirdPartyPackages = [
+    // mermaid diagram rendering (via LemonMarkdownWithMermaid). Denying the entry cascades to
+    // its exclusive deps: katex, cytoscape, @mermaid-js/parser, dagre-d3-es, layout/cose-base.
+    /^mermaid(\/|$)/,
+    // chart.js + its annotation plugin (via Sparkline). Charts in the toolbar go through the
+    // already-denied LineGraph.
+    /^chart\.js(\/|$)/,
+    /^chartjs-plugin-annotation(\/|$)/,
+    // hls.js video streaming, dynamically imported by the shared replay rrweb plugins.
+    /^hls\.js(\/|$)/,
+]
+
 const deniedPatterns = [
     /monaco/,
     /scenes\/insights\/filters\/ActionFilter/,
@@ -49,6 +66,7 @@ const deniedPatterns = [
     /scenes\/billing/,
     /scenes\/data-warehouse/,
     /LineGraph/,
+    ...deniedThirdPartyPackages,
 ]
 
 /**

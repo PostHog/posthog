@@ -38,12 +38,15 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
     const { openShareModal, duplicateNotebook, exportJSON, downloadMarkdown, copyMarkdown, setShowHistory } =
         useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { showTableOfContents, isExpanded, showKernelInfo } = useValues(notebookSettingsLogic)
-    const { setShowTableOfContents, setIsExpanded, setShowKernelInfo } = useActions(notebookSettingsLogic)
+    const { showTableOfContents, isExpanded, isMarkdownExpanded, showKernelInfo } = useValues(notebookSettingsLogic)
+    const { setShowTableOfContents, setIsExpanded, setIsMarkdownExpanded, setShowKernelInfo } =
+        useActions(notebookSettingsLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
     const isMarkdownNotebook = isMarkdownNotebookContent(content)
     const canDelete = !isLocalOnly && !notebook?.is_template
     const showKernelToggle = !!featureFlags[FEATURE_FLAGS.NOTEBOOK_PYTHON]
+    const isContentWidthExpanded = isMarkdownNotebook ? isMarkdownExpanded : isExpanded
+    const setContentWidthExpanded = isMarkdownNotebook ? setIsMarkdownExpanded : setIsExpanded
 
     return (
         <SceneMenuBar>
@@ -56,7 +59,7 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
                                 data-attr={`${RESOURCE_TYPE}-menubar-download-markdown`}
                             >
                                 <IconDownload />
-                                Download markdown
+                                Download .md
                             </SceneMenuBarItem>
                             <SceneMenuBarItem
                                 onClick={() => copyMarkdown()}
@@ -127,8 +130,8 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
                     </SceneMenuBarCheckboxItem>
                 )}
                 <SceneMenuBarCheckboxItem
-                    checked={isExpanded}
-                    onCheckedChange={(checked) => setIsExpanded(checked)}
+                    checked={isContentWidthExpanded}
+                    onCheckedChange={(checked) => setContentWidthExpanded(checked)}
                     data-attr={`${RESOURCE_TYPE}-menubar-fill-width`}
                 >
                     Fill content width

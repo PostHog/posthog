@@ -142,7 +142,7 @@ only when a concrete external client demands them.
 
 `tools-destroy` deletes a custom tool's source with no undo, and
 `archive` clears a live revision. (Skills are store references —
-`skill-refs-set` only changes which skills the agent pins; it never
+`skill-refs-update` only changes which skills the agent pins; it never
 deletes skill content.)
 
 Before either:
