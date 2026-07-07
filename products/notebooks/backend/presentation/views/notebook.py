@@ -81,14 +81,17 @@ def classify_request_source(request: Request) -> tuple[str, dict[str, str | None
     """Classify a notebook request as a browser action (``ui``) vs a programmatic client (``mcp``/API).
 
     Session-cookie requests are the browser; anything else (personal API key, OAuth app) is a
-    programmatic client. ``api_key_type`` + ``mcp_client`` let PostHog Code be separated from a
-    customer's own MCP client later. Shared by the create and (upcoming) read events."""
+    programmatic client. The PostHog MCP server forwards the client identity so PostHog Code can be
+    told apart from a customer's own MCP client: ``mcp_consumer`` is ``posthog-code``/``posthog-cli``
+    for first-party PostHog Code, and ``mcp_oauth_client`` is the OAuth app name (e.g. Claude) for
+    third-party clients. Shared by the create and read events."""
     authenticator = getattr(request, "successful_authenticator", None)
     if authenticator is None or isinstance(authenticator, SessionAuthentication):
         return NotebookCreationSource.UI, {}
     return NotebookCreationSource.MCP, {
         "api_key_type": type(authenticator).__name__,
-        "mcp_client": request.META.get("HTTP_USER_AGENT"),
+        "mcp_consumer": request.META.get("HTTP_X_POSTHOG_MCP_CONSUMER"),
+        "mcp_oauth_client": request.META.get("HTTP_X_POSTHOG_MCP_OAUTH_CLIENT_NAME"),
     }
 
 
@@ -234,7 +237,8 @@ class NotebookSerializer(NotebookMinimalSerializer):
             request=request,
             visibility=notebook.visibility,
             node_count=notebook_node_count(notebook.content),
-            mcp_client=source_props.get("mcp_client"),
+            mcp_consumer=source_props.get("mcp_consumer"),
+            mcp_oauth_client=source_props.get("mcp_oauth_client"),
             api_key_type=source_props.get("api_key_type"),
         )
 
@@ -681,7 +685,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 read_source=read_source,
                 is_creator=instance.created_by_id == getattr(request.user, "id", None),
                 user_access_level=serializer.data.get("user_access_level"),
-                mcp_client=source_props.get("mcp_client"),
+                mcp_consumer=source_props.get("mcp_consumer"),
+                mcp_oauth_client=source_props.get("mcp_oauth_client"),
                 api_key_type=source_props.get("api_key_type"),
             )
 

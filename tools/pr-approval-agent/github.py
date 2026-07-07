@@ -32,6 +32,8 @@ class PRData:
     check_runs: list[dict]
     author_is_bot: bool = False
     pr_reactions: list[dict] = field(default_factory=list)
+    body: str = ""
+    discussion: list[dict] = field(default_factory=list)
 
     @property
     def file_paths(self) -> list[str]:
@@ -92,6 +94,21 @@ def is_bot_author(user: dict) -> bool:
 _SELF_REVIEW_LOGINS = {"stamphog[bot]", "github-actions[bot]"}
 
 
+def _prompt_worthy_author(login: str | None, association: str | None, is_bot: bool) -> bool:
+    """One author-trust gate for reviews, inline comments, and discussion.
+
+    Drops stamphog's own prior verdicts (they describe a stale snapshot the next
+    run would misread as third-party tampering) and admits only trusted org
+    members or bots. Without this, an untrusted external commenter could reach
+    the prompt via discussion and grief it with a fake maintainer hold or forge
+    a fake assurance claim. REST and GraphQL spell the author differently, so
+    the caller passes the already-extracted login/association/bot-ness.
+    """
+    if login in _SELF_REVIEW_LOGINS:
+        return False
+    return is_bot or association == "BOT" or association in _TRUSTED_ASSOCIATIONS
+
+
 def _normalize_reviews_for_prompt(reviews_raw: list[dict], head_sha: str) -> list[dict]:
     """Normalize top-level reviews for the reviewer prompt.
 
@@ -106,13 +123,8 @@ def _normalize_reviews_for_prompt(reviews_raw: list[dict], head_sha: str) -> lis
     """
     normalized_reviews = []
     for review in reviews_raw:
-        if review.get("user", {}).get("login") in _SELF_REVIEW_LOGINS:
-            continue
-        if not (
-            review.get("author_association") in _TRUSTED_ASSOCIATIONS
-            or review.get("author_association") == "BOT"
-            or review.get("user", {}).get("type") == "Bot"
-        ):
+        user = review.get("user") or {}
+        if not _prompt_worthy_author(user.get("login"), review.get("author_association"), user.get("type") == "Bot"):
             continue
 
         commit_id = review.get("commit_id")
@@ -128,6 +140,29 @@ def _normalize_reviews_for_prompt(reviews_raw: list[dict], head_sha: str) -> lis
         )
 
     return normalized_reviews
+
+
+def _normalize_discussion_for_prompt(comments_raw: list[dict]) -> list[dict]:
+    """Normalize the PR's issue-comment timeline for the reviewer prompt.
+
+    These are the general discussion comments (not inline review comments).
+    Stamphog's own bot comments are excluded and the same author-trust gate as
+    reviews/inline comments applies, so an untrusted external commenter can't
+    slip a fake maintainer hold or assurance claim into the prompt.
+    """
+    normalized = []
+    for comment in comments_raw:
+        user = comment.get("user") or {}
+        if not _prompt_worthy_author(user.get("login"), comment.get("author_association"), user.get("type") == "Bot"):
+            continue
+        normalized.append(
+            {
+                "user": user.get("login", "ghost"),
+                "body": comment.get("body", ""),
+                "created_at": comment.get("created_at"),
+            }
+        )
+    return normalized
 
 
 # GitHub spells reaction contents two ways: REST returns "+1"/"-1", GraphQL
@@ -220,14 +255,25 @@ def _normalize_reactions(node: dict, is_trusted: Callable[[str], bool]) -> list[
 def _gh_api(endpoint: str, *, paginate: bool = False) -> dict | list:
     cmd = ["gh", "api", endpoint]
     if paginate:
-        cmd.append("--paginate")
+        # --paginate alone emits one JSON document per page, which json.loads
+        # rejects on 2+ pages; --slurp wraps the pages in one outer array.
+        cmd.extend(["--paginate", "--slurp"])
     else:
         sep = "&" if "?" in endpoint else "?"
         cmd[2] = f"{endpoint}{sep}per_page=100"
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
     if result.returncode != 0:
         raise RuntimeError(f"gh api {endpoint} failed: {result.stderr.strip()}")
-    return json.loads(result.stdout)
+    data = json.loads(result.stdout)
+    if paginate:
+        flat: list = []
+        for page in data:
+            if isinstance(page, list):
+                flat.extend(page)
+            else:
+                flat.append(page)
+        return flat
+    return data
 
 
 # GitHub rejects GraphQL queries whose worst-case node count — the product of
@@ -325,21 +371,20 @@ def _fetch_threads_and_reactions(repo: str, pr_number: int, author: str) -> tupl
                     f"has >50 comments — pagination not implemented, escalate to human review"
                 )
             for c in comment_page["nodes"]:
-                # Same exclusion as _normalize_reviews_for_prompt: stamphog's
-                # own inline comments describe an earlier snapshot, and feeding
-                # them back makes the next run read them as impersonation.
-                # Reactions on these comments are also dropped — a 👍 on
-                # stamphog's comment endorses stamphog's verdict, not the PR.
-                if (c.get("author") or {}).get("login") in _SELF_REVIEW_LOGINS:
-                    continue
-                assoc = c.get("authorAssociation", "")
-                is_bot = (c.get("author") or {}).get("__typename") == "Bot"
-                if assoc not in _TRUSTED_ASSOCIATIONS and assoc != "BOT" and not is_bot:
+                # Same author-trust gate as reviews and discussion: stamphog's
+                # own inline comments describe an earlier snapshot (feeding them
+                # back reads as impersonation) and untrusted external commenters
+                # are dropped. Reactions on these comments are also dropped — a
+                # 👍 on stamphog's comment endorses stamphog's verdict, not the PR.
+                comment_author = c.get("author") or {}
+                if not _prompt_worthy_author(
+                    comment_author.get("login"), c.get("authorAssociation"), comment_author.get("__typename") == "Bot"
+                ):
                     continue
                 reply_to = c.get("replyTo")
                 comments.append(
                     {
-                        "user": (c.get("author") or {}).get("login", "ghost"),
+                        "user": comment_author.get("login", "ghost"),
                         "body": c.get("body", ""),
                         "path": thread.get("path", ""),
                         "line": thread.get("line"),
@@ -395,6 +440,24 @@ def _git_diff_files(base_sha: str, head_sha: str, repo_root: Path) -> list[dict]
     return files
 
 
+def write_pr_diff(base_sha: str, head_sha: str, dest: Path, repo_root: Path) -> Path:
+    """Write the base...head PR diff to `dest` from the local checkout.
+
+    Shared by the reviewer (feeds the LLM the diff to read) and the familiarity
+    signal (parses the same diff for base-side modified line ranges), so the
+    `git diff` invocation lives in one place.
+    """
+    result = subprocess.run(
+        ["git", "diff", f"{base_sha}...{head_sha}"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        cwd=repo_root,
+    )
+    dest.write_text(result.stdout if result.returncode == 0 else f"git diff failed: {result.stderr}")
+    return dest
+
+
 def ensure_commits(pr_number: int, head_sha: str, repo_root: Path) -> None:
     """Fetch PR commits if not available locally."""
     result = subprocess.run(
@@ -417,6 +480,18 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
     """Fetch PR data: metadata from API, file stats from local git."""
     pr = _gh_api(f"repos/{repo}/pulls/{pr_number}")
     reviews_raw = _gh_api(f"repos/{repo}/pulls/{pr_number}/reviews", paginate=True)
+
+    # Discussion is advisory context only. Skip it for bot PRs (refused before
+    # any prompt is built) and never let a transient gh failure fail the run —
+    # an exception here would turn the wait-loop refetch into a spurious WAIT.
+    author_is_bot = is_bot_author(pr.get("user", {}))
+    discussion: list[dict] = []
+    if not author_is_bot:
+        try:
+            discussion_raw = _gh_api(f"repos/{repo}/issues/{pr_number}/comments", paginate=True)
+            discussion = _normalize_discussion_for_prompt(discussion_raw)
+        except Exception as exc:
+            print(f"warning: discussion fetch failed ({exc}); continuing with no discussion context")  # noqa: T201
 
     base_sha = pr["base"]["sha"]
     head_sha = pr["head"]["sha"]
@@ -443,8 +518,10 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
         reviews=_normalize_reviews_for_prompt(reviews_raw, head_sha),
         review_comments=review_comments,
         check_runs=check_runs_resp.get("check_runs", []),
-        author_is_bot=is_bot_author(pr.get("user", {})),
+        author_is_bot=author_is_bot,
         pr_reactions=pr_reactions,
+        body=pr.get("body") or "",
+        discussion=discussion,
     )
 
 

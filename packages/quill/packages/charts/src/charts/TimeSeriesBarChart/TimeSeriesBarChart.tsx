@@ -2,6 +2,7 @@ import React from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import type {
+    AxisLinesConfig,
     BarChartConfig,
     BarFillStyle,
     ChartLegendConfig,
@@ -39,7 +40,7 @@ export interface TimeSeriesBarChartConfig {
      *  `yAxis` config, when set, wins. */
     showGrid?: boolean
     /** Draw L-shaped axis baselines without grid lines (ignored when `yAxis.showGrid` is true). */
-    showAxisLines?: boolean
+    showAxisLines?: AxisLinesConfig
     /** Draw short tick marks next to each visible axis label. Pairs with `showAxisLines`. */
     showTickMarks?: boolean
     /** Tooltip behaviour (pinning, placement). Tooltip *content* is the `tooltip` render prop. */
@@ -124,7 +125,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
         xTickFormatter,
         yTickFormatter,
         hideXAxis: xAxis?.hide,
-        hideYAxis: primaryYAxis?.hide,
+        hideYAxis: yAxes ? yAxes.length > 0 && yAxes.every((a) => a.hide) : primaryYAxis?.hide,
         xAxisLabel: xAxis?.label,
         yAxisLabel: primaryYAxis?.label,
         showGrid: primaryYAxis?.showGrid ?? showGrid,
@@ -136,8 +137,8 @@ export function TimeSeriesBarChart<Meta = unknown>({
         tooltip: timeSeriesTooltipConfig,
         animateHover,
         yAxes,
+        barCornerRadius,
         bars: {
-            cornerRadius: barCornerRadius,
             divergingStack,
             valueDomain,
             fillStyle,

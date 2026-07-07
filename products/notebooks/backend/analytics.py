@@ -22,7 +22,7 @@ class NotebookCreationSource:
     MCP = "mcp"
     MAX_AI = "max_ai"
     TEMPORAL_AGENT = "temporal_agent"
-    GROUP_AUTO = "group_auto"
+    GROUP = "group"
     # Neutral default for the generic facade create; real callers pass their own source.
     SERVER = "server"
     # The account-notebook path (max_account_notebook) is deferred; its source lands with it.
@@ -49,7 +49,8 @@ def capture_notebook_created(
     user: User | None = None,
     created_by_id: int | None = None,
     request: "Request | None" = None,
-    mcp_client: str | None = None,
+    mcp_consumer: str | None = None,
+    mcp_oauth_client: str | None = None,
     api_key_type: str | None = None,
     conversation_id: str | None = None,
     topic: str | None = None,
@@ -64,7 +65,8 @@ def capture_notebook_created(
         "short_id": short_id,
         "creation_source": creation_source,
         **_optional_props(
-            mcp_client=mcp_client,
+            mcp_consumer=mcp_consumer,
+            mcp_oauth_client=mcp_oauth_client,
             api_key_type=api_key_type,
             conversation_id=conversation_id,
             topic=topic,
@@ -94,7 +96,8 @@ def capture_notebook_read(
     read_source: str,
     is_creator: bool,
     user_access_level: str | None = None,
-    mcp_client: str | None = None,
+    mcp_consumer: str | None = None,
+    mcp_oauth_client: str | None = None,
     api_key_type: str | None = None,
 ) -> None:
     """Emit `notebook read` for a programmatic (non-browser) notebook retrieve. Browser opens are
@@ -106,7 +109,8 @@ def capture_notebook_read(
         "is_creator": is_creator,
         **_optional_props(
             user_access_level=user_access_level,
-            mcp_client=mcp_client,
+            mcp_consumer=mcp_consumer,
+            mcp_oauth_client=mcp_oauth_client,
             api_key_type=api_key_type,
         ),
     }

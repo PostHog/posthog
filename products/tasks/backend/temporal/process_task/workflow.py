@@ -59,6 +59,7 @@ from .activities.send_followup_to_sandbox import (
     SendFollowupToSandboxInput,
     send_followup_to_sandbox,
 )
+from .activities.slack_agent_design_signals import RelayAgentDesignSignalsInput, relay_agent_design_signals
 from .activities.start_agent_server import (
     MarkRepoReadyInput,
     StartAgentServerInput,
@@ -546,6 +547,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 relay_task = asyncio.ensure_future(
                     self._relay_sandbox_events(agent_server_output, sandbox_id=sandbox_id)
                 )
+            elif self._is_agent_design_enabled:
+                # Sequenced ingest streams events straight to Redis, bypassing the SSE relay that
+                # normally fans out the Slack agent-design signals. Tail that stream instead so
+                # the per-turn Slack updates still fire.
+                relay_task = asyncio.ensure_future(self._relay_agent_design_signals())
 
             if self.context.has_github_credentials:
                 credential_refresh_task = asyncio.ensure_future(
@@ -1211,6 +1217,42 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         except Exception as e:
             workflow.logger.warning(
                 "relay_sandbox_events_failed_non_fatal",
+                extra={
+                    "run_id": self.context.run_id,
+                    "error": str(e),
+                },
+            )
+
+    async def _relay_agent_design_signals(self) -> None:
+        """Tail the ingest-populated Redis stream to fan out Slack agent-design signals.
+
+        The flag-on counterpart to ``_relay_sandbox_events``: it reads events from Redis
+        rather than the sandbox SSE stream, so it holds no sandbox connection."""
+        try:
+            relay_input = RelayAgentDesignSignalsInput(
+                run_id=self.context.run_id,
+                task_id=self.context.task_id,
+                slack_thread_context=self._slack_thread_context,
+            )
+            await workflow.execute_activity(
+                relay_agent_design_signals,
+                relay_input,
+                start_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
+                schedule_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
+                heartbeat_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(
+                    initial_interval=timedelta(seconds=5),
+                    maximum_interval=timedelta(minutes=1),
+                    maximum_attempts=0,
+                    non_retryable_error_types=["ValueError"],
+                ),
+                cancellation_type=workflow.ActivityCancellationType.TRY_CANCEL,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            workflow.logger.warning(
+                "relay_agent_design_signals_failed_non_fatal",
                 extra={
                     "run_id": self.context.run_id,
                     "error": str(e),

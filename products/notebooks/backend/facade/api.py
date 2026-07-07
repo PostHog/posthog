@@ -225,7 +225,7 @@ def create_group_notebook(team_id: int, group_id: int, *, title: str | None, con
     notebook = logic.create_group_notebook(team_id, group_id, title=title, content=content)
     capture_notebook_created(
         short_id=notebook.short_id,
-        creation_source=NotebookCreationSource.GROUP_AUTO,
+        creation_source=NotebookCreationSource.GROUP,
         team_id=team_id,
         visibility=notebook.visibility,
         node_count=notebook_node_count(notebook.content),
