@@ -78,11 +78,19 @@ function ZendeskImportForm(): JSX.Element {
             </div>
 
             {importJob?.status === 'completed' ? (
-                <p className="text-xs text-muted-alt m-0">
-                    Imported {importJob.imported_tickets.toLocaleString()} tickets (
-                    {importJob.skipped_tickets.toLocaleString()} skipped, {importJob.failed_tickets.toLocaleString()}{' '}
-                    failed).
-                </p>
+                <>
+                    <p className="text-xs text-muted-alt m-0">
+                        Imported {importJob.imported_tickets.toLocaleString()} tickets (
+                        {importJob.skipped_tickets.toLocaleString()} skipped,{' '}
+                        {importJob.failed_tickets.toLocaleString()} failed).
+                    </p>
+                    <p className="text-xs text-muted-alt m-0">
+                        If the imported total is lower than the latest ticket number in Zendesk, that is usually
+                        expected. Ticket numbers count every ticket ever created, including gaps from deleted tickets.
+                        The export API only returns tickets Zendesk still exposes: permanently deleted tickets (after
+                        retention), archived tickets, and AI agent tickets may be omitted.
+                    </p>
+                </>
             ) : null}
 
             {importJob?.status === 'failed' && importJob.latest_error ? (

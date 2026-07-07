@@ -86,7 +86,7 @@ class TestZendeskImportCoordinatorContinueAsNew:
             ):
                 result = await env.client.execute_workflow(
                     ZendeskImportCoordinatorWorkflow.run,
-                    ZendeskImportCoordinatorInput(job_id="job-1", team_id=1),
+                    ZendeskImportCoordinatorInput(job_id="job-1", team_id=1, task_queue=task_queue),
                     id="test-zendesk-import-can",
                     task_queue=task_queue,
                 )

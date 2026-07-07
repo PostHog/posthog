@@ -25,6 +25,7 @@ async def start_zendesk_import_workflow(
 ) -> tuple[str, str | None]:
     client = await async_connect()
     workflow_id = f"{WORKFLOW_ID_PREFIX}-{team_id}-{job_id}"
+    task_queue = settings.VIDEO_EXPORT_TASK_QUEUE
     handle = await client.start_workflow(
         ZendeskImportCoordinatorWorkflow.run,
         ZendeskImportCoordinatorInput(
@@ -33,9 +34,10 @@ async def start_zendesk_import_workflow(
             dry_run=dry_run,
             max_tickets=max_tickets,
             default_email_channel_id=default_email_channel_id,
+            task_queue=task_queue,
         ),
         id=workflow_id,
-        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+        task_queue=task_queue,
         id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
     )
     return workflow_id, handle.run_id

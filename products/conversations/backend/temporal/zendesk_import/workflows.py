@@ -7,8 +7,6 @@ import asyncio
 from dataclasses import dataclass
 from datetime import timedelta
 
-from django.conf import settings
-
 from temporalio import workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -57,6 +55,14 @@ class ZendeskImportCoordinatorInput:
     # Fallback EmailChannel (UUID str) for tickets whose Zendesk recipient doesn't match a
     # configured support address. None = leave email_config null in those cases.
     default_email_channel_id: str | None = None
+    # Worker queue for batch child workflows. Passed in at start time (starter.py) so the
+    # coordinator never reads django.conf.settings inside the sandbox.
+    task_queue: str = ""
+    # Cumulative batch totals from prior continue-as-new generations (the in-memory counters
+    # reset on each generation; job progress activities already persist to the DB).
+    imported_offset: int = 0
+    skipped_offset: int = 0
+    failed_offset: int = 0
 
 
 @dataclass
@@ -88,7 +94,7 @@ class ZendeskImportCoordinatorWorkflow:
         return ZendeskImportCoordinatorInput(**loaded)
 
     async def _run_batch_child(
-        self, *, child_id: str, wf_input: ZendeskImportBatchWorkflowInput
+        self, *, child_id: str, wf_input: ZendeskImportBatchWorkflowInput, task_queue: str
     ) -> ZendeskImportCoordinatorOutput:
         try:
             return await workflow.execute_child_workflow(
@@ -96,7 +102,7 @@ class ZendeskImportCoordinatorWorkflow:
                 wf_input,
                 id=child_id,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                task_queue=task_queue,
             )
         except WorkflowAlreadyStartedError:
             # workflow.logger is a stdlib LoggerAdapter — structlog-style kwargs raise TypeError.
@@ -113,9 +119,9 @@ class ZendeskImportCoordinatorWorkflow:
                 retry_policy=RETRY_POLICY,
             )
 
-        total_imported = 0
-        total_skipped = 0
-        total_failed = 0
+        total_imported = input.imported_offset
+        total_skipped = input.skipped_offset
+        total_failed = input.failed_offset
         cursor = input.cursor
         pages_processed = input.pages_processed
         selected = 0  # tickets picked for import this run (against max_tickets budget)
@@ -176,6 +182,7 @@ class ZendeskImportCoordinatorWorkflow:
                                     dry_run=input.dry_run,
                                     default_email_channel_id=input.default_email_channel_id,
                                 ),
+                                task_queue=input.task_queue,
                             )
                             for offset, batch in enumerate(window)
                         ]
@@ -217,6 +224,10 @@ class ZendeskImportCoordinatorWorkflow:
                             dry_run=input.dry_run,
                             max_tickets=None if input.max_tickets is None else input.max_tickets - selected,
                             default_email_channel_id=input.default_email_channel_id,
+                            task_queue=input.task_queue,
+                            imported_offset=total_imported,
+                            skipped_offset=total_skipped,
+                            failed_offset=total_failed,
                         )
                     )
 
