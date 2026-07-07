@@ -33,6 +33,7 @@ from posthog.session_recordings.queries.utils import (
     _strip_person_and_event_and_cohort_properties,
     expand_test_account_filters,
     is_session_property,
+    unexpected_properties_to_report,
 )
 from posthog.types import AnyPropertyFilter
 
@@ -425,7 +426,11 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
         remaining_properties = _strip_person_and_event_and_cohort_properties(self._query.properties)
         if remaining_properties:
-            capture_exception(UnexpectedQueryProperties(remaining_properties))
+            # Raw HogQL and flag filters are handled fine by property_to_expr below, so only report
+            # property types we genuinely don't know how to turn into a replay-scoped expression.
+            unexpected_properties = unexpected_properties_to_report(remaining_properties)
+            if unexpected_properties:
+                capture_exception(UnexpectedQueryProperties(unexpected_properties))
             optional_exprs.append(property_to_expr(remaining_properties, team=self._team, scope="replay"))
 
         if self._query.console_log_filters:
