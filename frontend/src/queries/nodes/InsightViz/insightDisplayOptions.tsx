@@ -272,7 +272,6 @@ function LineStyleOptionsAccordion(): JSX.Element {
             <LineStylePicker />
             <ShowPointsFilter />
             <GradientFillFilter />
-            <ShowGridLinesFilter />
         </CollapsibleOptionsSection>
     )
 }
@@ -285,6 +284,7 @@ function AxesOptionsAccordion(): JSX.Element {
         showMultipleYAxesConfig,
         showAxisLabelsConfig,
         showDecimalPlaces,
+        showLineStyleConfig,
     } = useDisplayOptionsState()
 
     return (
@@ -302,6 +302,8 @@ function AxesOptionsAccordion(): JSX.Element {
                 </>
             )}
             {showMultipleYAxesConfig && <ShowMultipleYAxesFilter />}
+            {/* Gridlines are only wired into the quill line/area charts, same as the Line style controls */}
+            {showLineStyleConfig && <ShowGridLinesFilter />}
             {showAxisLabelsConfig && (
                 <>
                     <SectionHeader>Axis labels</SectionHeader>

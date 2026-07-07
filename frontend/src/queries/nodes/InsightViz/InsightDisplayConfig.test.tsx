@@ -465,6 +465,7 @@ describe('InsightDisplayConfig', () => {
             expect(within(axes).getByText('Y-axis unit')).toBeInTheDocument()
             expect(within(axes).getByText('Y-axis scale')).toBeInTheDocument()
             expect(within(axes).getByText('Show multiple Y-axes')).toBeInTheDocument()
+            expect(within(axes).getByText('Show gridlines')).toBeInTheDocument()
             expect(within(axes).getByText('Axis labels')).toBeInTheDocument()
             // ... and nowhere else in the menu
             expect(screen.getAllByText('Y-axis unit')).toHaveLength(1)
