@@ -47,6 +47,7 @@ from posthog.hogql_queries.insights.funnels.funnel_validation_rules import (
     ValidateFunnelStepRange,
     ValidateOptionalFunnelSteps,
 )
+from posthog.hogql_queries.insights.funnels.utils import get_breakdown_cohort_name
 from posthog.hogql_queries.insights.utils.breakdowns import (
     ALL_USERS_COHORT_ID,
     BREAKDOWN_BASELINE_DISPLAY,
@@ -65,7 +66,6 @@ from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
-from posthog.queries.breakdown_props import get_breakdown_cohort_name
 
 from products.cohorts.backend.models.cohort import Cohort
 
