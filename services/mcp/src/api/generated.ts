@@ -28005,6 +28005,41 @@ export namespace Schemas {
       id_jag_allowed_clients?: string[];
     }
 
+    /**
+     * One skill entry in a bulk-import payload.
+     *
+     * Skills are store-backed: each entry publishes to (or creates) a skill in
+     * the skill store and pins a `skill_refs` entry on the draft. The optional
+     * `description` is honoured when supplied; when omitted on an existing
+     * skill, the current store description is preserved. Skill `id` must match
+     * the canonical resource-id regex used by the janitor.
+     */
+    export interface ImportBundleSkill {
+      /** Skill id. Lowercase letters, digits, hyphens, or underscores; must start and end with `[a-z0-9]`. */
+      id: string;
+      /** One-line summary shown in the skill index. Required when creating a new skill; optional when updating one. */
+      description?: string;
+      /** The skill's markdown body, published as a new version of the store skill. */
+      body: string;
+    }
+
+    /**
+     * Body shape for POST /revisions/<id>/bundle/import/.
+     *
+     * Bulk-paste hatch for migrating an existing multi-file agent. Either
+     * `agent_md` or `skills` (or both) may be present. Skills merge by `id`
+     * into the skill store: an id already referenced by the draft publishes a
+     * new version of its store skill; a new id attaches (or creates) the store
+     * skill of that name and appends a pinned `skill_refs` entry. Skills NOT
+     * mentioned are left alone — the import is safe to retry.
+     */
+    export interface ImportBundleRequest {
+      /** New `agent.md` contents. When omitted, the existing agent.md is left alone. */
+      agent_md?: string;
+      /** Per-skill payloads merged into the skill store by id and pinned onto the draft's skill references. When omitted, no skills are touched. */
+      skills?: ImportBundleSkill[];
+    }
+
     export interface InsightBulkDeleteRequest {
       /**
          * Insight IDs to soft-delete (or restore). At most 1000 ids per request. Soft-deleted insights can be brought back via the bulk_restore endpoint.
@@ -48769,6 +48804,27 @@ export namespace Schemas {
       stale: number;
     }
 
+    /**
+     * 409 body returned when a bundle edit targets a non-draft revision.
+     *
+     * Distinct from a 400 on purpose: the frozen bundle sha is the source of
+     * truth once a revision leaves `draft`, so the fix is to clone a new draft,
+     * not to correct the payload. Callers switch on `error`.
+     */
+    export interface RevisionNotDraftError {
+      /** Machine-readable error code — always `revision_not_draft`. */
+      error: string;
+      /** The revision's current state (never `draft` — a draft would have accepted the edit).
+       *
+       * * `draft` - draft
+       * * `ready` - ready
+       * * `live` - live
+       * * `archived` - archived */
+      state: AgentRevisionStateEnum;
+      /** Human-readable explanation of the conflict. */
+      detail: string;
+    }
+
     export interface RevokeOtherSessionsResponse {
       /** Number of other login sessions that were revoked. */
       revoked_count: number;
@@ -54431,6 +54487,23 @@ export namespace Schemas {
          * @maxLength 10
          */
       target_language?: string;
+    }
+
+    /**
+     * Body shape for PUT /revisions/<id>/bundle/file/.
+     *
+     * Edits one `.md` file on a draft revision. `agent.md` writes go to the
+     * draft bundle. `skills/<id>/SKILL.md` writes are store-backed: the edit
+     * publishes a new version of the referenced skill-store skill and re-pins
+     * the draft's `skill_refs` entry to it — skills are materialized from the
+     * store at freeze, so the store is the single source of truth. Tool
+     * source / schema editing is out of scope here; use the per-tool endpoint.
+     */
+    export interface UpdateBundleFileRequest {
+      /** Canonical bundle path. Must be `agent.md` or `skills/<id>/SKILL.md` where `<id>` is a skill-reference alias on this revision. */
+      path: string;
+      /** The new file contents. For `agent.md`, written verbatim to the draft bundle. For a skill, published as a new version of the referenced store skill — shared with every agent that references it. SKILL.md frontmatter (description, license, allowed-tools, metadata) is honoured when present; body-only content carries those fields forward. */
+      content: string;
     }
 
     export interface UpdateDashboardWidgetsBatchResponse {

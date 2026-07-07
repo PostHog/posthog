@@ -60,6 +60,7 @@ import type {
     CloneFromRequestApi,
     DecideApprovalRequestApi,
     DryRunToolRequestApi,
+    ImportBundleRequestApi,
     NewDraftRevisionRequestApi,
     PaginatedAgentApplicationListApi,
     PaginatedAgentRevisionListApi,
@@ -70,6 +71,7 @@ import type {
     SetEnvKeyRequestApi,
     SetEnvRequestApi,
     SetSkillRefsRequestApi,
+    UpdateBundleFileRequestApi,
     WriteAgentMdRequestApi,
     WriteSpecRequestApi,
     WriteToolRequestApi,
@@ -809,6 +811,82 @@ export const agentApplicationsRevisionsBundleUpdate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(writeTypedBundleRequestApi),
     })
+}
+
+export const getAgentApplicationsRevisionsBundleFileUpdateUrl = (
+    projectId: string,
+    applicationId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/bundle/file/`
+}
+
+/**
+ * Update one `.md` file on a draft revision.
+ *
+ * `agent.md` writes go to the draft bundle. `skills/<id>/SKILL.md`
+ * writes are store-backed — skills are materialized from the skill
+ * store at freeze, so the edit publishes a new version of the
+ * referenced store skill and re-pins the draft's `skill_refs` entry
+ * to it. `<id>` must be a ref alias on this revision; add new skills
+ * via `bundle/import/` or `skill_refs`. Tool source / schema editing
+ * is out of scope here — use the per-tool endpoints. Returns the
+ * updated revision so the caller can refresh in one round-trip.
+ */
+export const agentApplicationsRevisionsBundleFileUpdate = async (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    updateBundleFileRequestApi: UpdateBundleFileRequestApi,
+    options?: RequestInit
+): Promise<AgentRevisionApi> => {
+    return apiMutator<AgentRevisionApi>(
+        getAgentApplicationsRevisionsBundleFileUpdateUrl(projectId, applicationId, id),
+        {
+            ...options,
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(updateBundleFileRequestApi),
+        }
+    )
+}
+
+export const getAgentApplicationsRevisionsBundleImportCreateUrl = (
+    projectId: string,
+    applicationId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/bundle/import/`
+}
+
+/**
+ * Bulk-merge a set of `.md` files into a draft revision.
+ *
+ * Sets `agent_md` on the draft bundle if present. `skills[]` are
+ * store-backed and merge by `id`: an id already referenced by the
+ * draft publishes a new version of its store skill; an unreferenced
+ * id attaches the store skill of that name (publishing the payload's
+ * body to it), or creates it when no such skill exists — and each
+ * ref is (re-)pinned to the published version. Skills not mentioned
+ * are left alone, so the import is safe to retry. Draft-only;
+ * non-draft revisions return 409 untouched.
+ */
+export const agentApplicationsRevisionsBundleImportCreate = async (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    importBundleRequestApi?: ImportBundleRequestApi,
+    options?: RequestInit
+): Promise<AgentRevisionApi> => {
+    return apiMutator<AgentRevisionApi>(
+        getAgentApplicationsRevisionsBundleImportCreateUrl(projectId, applicationId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(importBundleRequestApi),
+        }
+    )
 }
 
 export const getAgentApplicationsRevisionsCloneFromCreateUrl = (
