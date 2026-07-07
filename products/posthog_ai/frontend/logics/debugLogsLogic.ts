@@ -29,10 +29,14 @@ export const debugLogsLogic = kea<debugLogsLogicType>([
         ],
     }),
     selectors({
-        /** Who may see and toggle debug logs at all: staff or local dev. Impersonation force-shows them. */
+        /**
+         * Who may see and toggle debug logs: staff or local dev, but never an impersonated session.
+         * Impersonation force-shows debug logs unconditionally (see `showDebugLogs`), so surfacing a
+         * toggle there would be a no-op that contradicts that invariant — exclude it here instead.
+         */
         canControlDebugLogs: [
             (s) => [s.user, s.isDev],
-            (user, isDev): boolean => !!user?.is_staff || !!isDev,
+            (user, isDev): boolean => !user?.is_impersonated && (!!user?.is_staff || !!isDev),
         ],
         /**
          * Whether debug rows should actually render. Impersonation always shows them; otherwise staff/dev

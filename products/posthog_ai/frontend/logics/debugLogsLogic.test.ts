@@ -40,6 +40,13 @@ describe('debugLogsLogic', () => {
         expect(logic.values.showDebugLogs).toBe(true)
     })
 
+    it('offers no toggle to a staff user who is also impersonating, but still forces logs on', () => {
+        // The toggle would be a no-op during impersonation (logs are force-shown), so it must not render.
+        setup({ user: { is_staff: true, is_impersonated: true }, isDev: false })
+        expect(logic.values.canControlDebugLogs).toBe(false)
+        expect(logic.values.showDebugLogs).toBe(true)
+    })
+
     it.each([
         { name: 'staff, toggle on', user: { is_staff: true }, isDev: false, enabled: true, expected: true },
         { name: 'staff, toggle off', user: { is_staff: true }, isDev: false, enabled: false, expected: false },
