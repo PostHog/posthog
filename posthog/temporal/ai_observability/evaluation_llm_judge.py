@@ -39,10 +39,14 @@ from products.ai_observability.backend.llm.errors import (
     RateLimitError,
     StructuredOutputParseError,
 )
+from products.ai_observability.backend.text_repr.formatters import reduce_by_uniform_sampling
 
 logger = structlog.get_logger(__name__)
 
 DEFAULT_JUDGE_MODEL = DEFAULT_MODEL_BY_PROVIDER["openai"]
+
+# Same cap as the trace-level judge (JUDGE_TRACE_MAX_CHARS).
+JUDGE_EVENT_MAX_CHARS = 150_000
 
 LLM_JUDGE_RETRY_POLICY = RetryPolicy(
     maximum_attempts=3,
@@ -230,6 +234,7 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
         sections.append(f"Tools available:\n{tools_data}")
     sections.append(f"Output: {output_data}")
     user_prompt = "\n\n".join(sections)
+    user_prompt, _ = reduce_by_uniform_sampling(user_prompt, JUDGE_EVENT_MAX_CHARS)
 
     return call_llm_judge(
         evaluation=evaluation,
