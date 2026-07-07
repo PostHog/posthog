@@ -26,19 +26,27 @@ def _votes(feedback: dict) -> dict:
 
 
 def record_vote(
-    model: type[TFeedbackModel], team_id: int, pk: uuid.UUID, user_id: int, helpful: bool | None
+    model: type[TFeedbackModel],
+    team_id: int,
+    pk: uuid.UUID,
+    user_id: int,
+    helpful: bool | None,
+    select_related: tuple[str, ...] = ("created_by",),
 ) -> TFeedbackModel:
     """Overwrite (or remove, for null) the caller's vote under a row lock, so concurrent voters
     can't clobber each other's read-modify-write of the shared votes dict.
 
     Votes live in the feedback JSONField, one key per user — bounded by team size; migrating to a
     votes table is a straight backfill if the shape ever needs to grow.
+
+    Callers pass the FKs their serializer reads via select_related so the returned instance serializes
+    without a lazy follow-up SELECT (e.g. ProductBrief needs "config" alongside "created_by").
     """
     with transaction.atomic():
-        # select_related avoids a lazy created_by SELECT at serialization; of=("self",) locks only the
-        # main row — FOR UPDATE cannot lock the nullable side of the created_by outer join.
+        # select_related avoids lazy FK SELECTs at serialization; of=("self",) locks only the main
+        # row — FOR UPDATE cannot lock the nullable side of a select_related outer join.
         instance = (
-            model.objects.for_team(team_id).select_related("created_by").select_for_update(of=("self",)).get(pk=pk)
+            model.objects.for_team(team_id).select_related(*select_related).select_for_update(of=("self",)).get(pk=pk)
         )
         votes = dict(_votes(instance.feedback))
         if helpful is None:
