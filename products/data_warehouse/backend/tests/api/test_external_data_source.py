@@ -58,7 +58,7 @@ from products.warehouse_sources.backend.facade.models import (
     PendingSourceCredential,
     sync_frequency_interval_to_sync_frequency,
 )
-from products.warehouse_sources.backend.facade.types import IncrementalFieldType
+from products.warehouse_sources.backend.facade.types import IncrementalFieldType, IndexMechanism
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import BigQuerySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
@@ -4470,6 +4470,8 @@ class TestExternalDataSource(APIBaseTest):
             SourceSchema(name="table_1", supports_incremental=False, supports_append=False, row_count=42)
         ]
         mock_source.get_endpoint_permissions.return_value = {}
+        # The response serializes this attribute; a bare MagicMock is not JSON-serializable.
+        mock_source.index_mechanism = IndexMechanism.INDEX
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
@@ -4554,6 +4556,7 @@ class TestExternalDataSource(APIBaseTest):
                             "is_indexed": True,
                         }
                     ],
+                    "index_mechanism": "index",
                     "incremental_available": True,
                     "append_available": True,
                     "cdc_available": None,
@@ -4625,6 +4628,7 @@ class TestExternalDataSource(APIBaseTest):
                             "is_indexed": True,
                         }
                     ],
+                    "index_mechanism": "index",
                     "incremental_available": True,
                     "append_available": True,
                     "cdc_available": None,

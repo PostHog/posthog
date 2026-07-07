@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.types import (
     ExternalDataSourceType,
     IncrementalField,
     IncrementalFieldType,
+    IndexMechanism,
     PartitionSettings,
 )
 
@@ -22,5 +23,6 @@ __all__ = [
     "ExternalDataSourceType",
     "IncrementalField",
     "IncrementalFieldType",
+    "IndexMechanism",
     "PartitionSettings",
 ]
