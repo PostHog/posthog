@@ -237,6 +237,25 @@ def _restart_install_for_dead_installation(
         return None
     if probe.status_code != 404:
         return None
+    # `purge_installation_rows` deletes every Integration/UserIntegration row for this installation
+    # across all teams, so a lone 404 — which a transient GitHub incident can emit — must not drive
+    # it. Require a confirmatory second 404 before the destructive path; on any disagreement, take
+    # the non-destructive branch (return None) instead of wiping cross-team rows.
+    try:
+        confirm = GitHubIntegration.client_request(f"installations/{installation_id}")
+    except Exception:
+        logger.warning(
+            "github_link: stale-installation re-probe failed", installation_id=installation_id, exc_info=True
+        )
+        return None
+    if confirm.status_code != 404:
+        logger.info(
+            "github_link: stale-installation probes disagreed, skipping purge",
+            installation_id=installation_id,
+            first_status=probe.status_code,
+            second_status=confirm.status_code,
+        )
+        return None
     team_deleted, user_deleted = purge_installation_rows(installation_id)
     logger.info(
         "github_link: installation gone on GitHub, purged stale rows and restarting install flow",

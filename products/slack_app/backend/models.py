@@ -96,9 +96,10 @@ class SlackUserPersona(models.TextChoices):
 
 class SlackSettings(UUIDModel):
     """Per-(Slack workspace, Slack user) settings for inbound Slack events.
-    Currently stores the routing default — which PostHog integration a mention
-    from this Slack user should route to — and the permission mode for Slack-started
-    agent runs.
+    Stores the routing default — which PostHog integration a mention from this
+    Slack user should route to — the permission mode for Slack-started agent runs,
+    and the persona-onboarding state (``persona``, ``onboarded_at``,
+    ``onboarding_state``) captured the first time a user DMs the assistant.
 
     Two row shapes share this table:
     - ``slack_user_id`` set → that Slack user's personal settings for this workspace.

@@ -70,6 +70,9 @@ SCOUTS_DOC_URL = "https://posthog.com/docs/self-driving/scouts"
 
 # Single-flight window for the kickoff post (see `start_onboarding_dm`).
 _START_CLAIM_TTL_SECONDS = 60
+# Single-flight window for block-action handling (see `_run_action`). Slack delivers each click as
+# its own request, so a double-click lands two handler threads racing the same state write.
+_ACTION_CLAIM_TTL_SECONDS = 30
 
 # Funnel: home_card_shown → started → persona_selected → fleet_shown → channel_configured →
 # completed (skipped/grandfathered are exits; invite_needed, nudged, and error mark friction
@@ -153,8 +156,7 @@ def _authored_count(messages: list[dict], slack_user_id: str) -> int:
     return sum(1 for message in messages if message.get("user") == slack_user_id)
 
 
-def _detect_persona_from_messages(slack: SlackIntegration, workspace_id: str, slack_user_id: str) -> str | None:
-    action_token = slack_search.get_cached_action_token(workspace_id, slack_user_id)
+def _detect_persona_from_messages(slack: SlackIntegration, slack_user_id: str, action_token: str | None) -> str | None:
     if action_token is None:
         return None
     csm_score = _authored_count(
@@ -191,8 +193,9 @@ def _detect_persona_from_title(slack: SlackIntegration, slack_user_id: str) -> s
 def detect_persona(slack: SlackIntegration, workspace_id: str, slack_user_id: str) -> tuple[str | None, str | None]:
     """Returns ``(candidate, source)`` — candidate in {"csm", "engineer", None}, source in
     {"messages", "title", None}. Best-effort at every rung; never raises."""
-    if slack_search.search_available(slack, workspace_id, slack_user_id):
-        candidate = _detect_persona_from_messages(slack, workspace_id, slack_user_id)
+    action_token = slack_search.get_cached_action_token(workspace_id, slack_user_id)
+    if slack_search.search_available(slack, action_token):
+        candidate = _detect_persona_from_messages(slack, slack_user_id, action_token)
         if candidate is not None:
             return candidate, DETECTION_SOURCE_MESSAGES
     candidate = _detect_persona_from_title(slack, slack_user_id)
@@ -226,10 +229,8 @@ _TOOL_HIT_MIN = 3
 def detect_workspace_tools(slack: SlackIntegration, workspace_id: str, slack_user_id: str) -> list[str]:
     """MCP server names whose tool shows up in recent public-channel messages. Empty when
     search is unavailable — the fleet reveal then renders generic gap lines."""
-    if not slack_search.search_available(slack, workspace_id, slack_user_id):
-        return []
     action_token = slack_search.get_cached_action_token(workspace_id, slack_user_id)
-    if action_token is None:
+    if action_token is None or not slack_search.search_available(slack, action_token):
         return []
     detected: list[str] = []
     for tool in _CONNECTABLE_TOOLS:
@@ -347,6 +348,10 @@ class CsmDataReadiness:
 
     def as_dict(self) -> dict:
         return dataclasses.asdict(self)
+
+    def analytics_props(self) -> dict:
+        # ready_details is presentation-only with variable keys — keep it out of the flat event schema.
+        return {key: value for key, value in self.as_dict().items() if key != "ready_details"}
 
 
 def _active_source_kinds(team_id: int) -> set[str]:
@@ -981,6 +986,11 @@ def _post_kickoff(
             logger.warning("persona_onboarding_dm_open_failed", slack_user_id=slack_user_id)
             return
     blocks = build_kickoff_blocks(display_name, candidate)
+    # Post before saving state: the state row keys off this message's ts + resolved channel, so it
+    # can only be written after the post lands. The reverse (save first) is worse — a failed post
+    # would strand the user with onboarding_state set and no DM to act on. The single-flight claim in
+    # `start_onboarding_dm` bounds the duplicate-post window; a save failure after a successful post
+    # (then a redelivery) is the narrow residual and re-posts an idempotent, user-retryable kickoff.
     posted = slack.client.chat_postMessage(
         channel=channel_id, thread_ts=thread_ts, text="Quick setup — which best describes what you do?", blocks=blocks
     )
@@ -1007,7 +1017,9 @@ def _post_kickoff(
         entry_point=entry_point,
         persona_candidate=candidate,
         detection_source=source or "none",
-        search_available=slack_search.search_available(slack, workspace_id, slack_user_id),
+        search_available=slack_search.search_available(
+            slack, slack_search.get_cached_action_token(workspace_id, slack_user_id)
+        ),
         posthog_user_id=posthog_user_id,
     )
 
@@ -1144,6 +1156,18 @@ def handle_block_action(payload: dict, action: dict) -> HttpResponse:
 
 
 def _run_action(handler: Callable[[], None], payload: dict, action_id: str) -> None:
+    # A double-click lands two handler threads that both clear the `step ==` guard before either
+    # writes state (double-posting a completion, re-writing the github-connect followup). A per-user
+    # claim makes handling single-flight: only the first thread runs the handler; the duplicate
+    # skips. The first thread's `_freeze_buttons` (a chat_update on the shared message) is what the
+    # user sees, so a skipped duplicate never strands frozen buttons.
+    workspace_id = str((payload.get("team") or {}).get("id") or "")
+    slack_user_id = str((payload.get("user") or {}).get("id") or "")
+    claim_key = (
+        f"slack_onboarding_action_claim:{workspace_id}:{slack_user_id}" if workspace_id and slack_user_id else None
+    )
+    if claim_key is not None and not cache.add(claim_key, 1, timeout=_ACTION_CLAIM_TTL_SECONDS):
+        return
     try:
         handler()
     except Exception:
@@ -1155,6 +1179,9 @@ def _run_action(handler: Callable[[], None], payload: dict, action_id: str) -> N
                 _post(ctx, [_section(ERROR_TEXT)], ERROR_TEXT)
             except Exception:
                 logger.warning("persona_onboarding_error_post_failed", exc_info=True)
+    finally:
+        if claim_key is not None:
+            cache.delete(claim_key)
 
 
 def _post_nudge(ctx: _FlowContext) -> None:
@@ -1201,7 +1228,14 @@ def _can_create_channel(slack: SlackIntegration) -> bool:
 
 def _handle_connect_click(payload: dict, action: dict) -> None:
     # URL button — the browser already navigated; just ack + record the click.
-    scout_key, _, server_name = str(action.get("value") or "").rpartition(":")
+    # Values are "<readiness_key>:<server>" (readiness_key is colon-free, so split on the
+    # first colon to keep server names that themselves contain colons intact) — or a bare
+    # server name like "github" for buttons not tied to a readiness gap.
+    raw_value = str(action.get("value") or "")
+    if ":" in raw_value:
+        scout_key, _, server_name = raw_value.partition(":")
+    else:
+        scout_key, server_name = "", raw_value
     ctx = _load_context(payload)
     if ctx is not None:
         _capture_flow_event(ctx, EVENT_CONNECT_CLICKED, server_name=server_name, scout_readiness_key=scout_key or None)
@@ -1236,9 +1270,14 @@ def handle_mcp_connect_return(
     template_name: str,
     success: bool,
     error: str = "",
+    capture_event: bool = True,
 ) -> str:
     """Post-OAuth landing for a Connect button: refresh the fleet-reveal message with fresh
-    readiness and return the Slack deep link that sends the user back to the conversation."""
+    readiness and return the Slack deep link that sends the user back to the conversation.
+
+    ``capture_event`` gates only the connect-conversion analytics: the signed state is reusable,
+    so the caller dedupes it per token. The fleet refresh below is DB-recomputed and idempotent,
+    so it always runs regardless."""
     row = SlackSettings.objects.filter(slack_workspace_id=workspace_id, slack_user_id=slack_user_id).first()
     state = row.onboarding_state if row is not None and isinstance(row.onboarding_state, dict) else None
     integration = None
@@ -1247,18 +1286,19 @@ def handle_mcp_connect_return(
         if integration is not None and integration.integration_id != workspace_id:
             integration = None
     if integration is not None:
-        capture_slack_event(
-            integration,
-            EVENT_MCP_CONNECTED,
-            slack_user_id=slack_user_id,
-            distinct_id=slack_user_distinct_id(workspace_id, slack_user_id),
-            server_name=template_name,
-            scout_readiness_key=readiness_key,
-            success=success,
-            error=error or None,
-            persona=row.persona if row is not None else None,
-            posthog_user_id=state.get("posthog_user_id") if state else None,
-        )
+        if capture_event:
+            capture_slack_event(
+                integration,
+                EVENT_MCP_CONNECTED,
+                slack_user_id=slack_user_id,
+                distinct_id=slack_user_distinct_id(workspace_id, slack_user_id),
+                server_name=template_name,
+                scout_readiness_key=readiness_key,
+                success=success,
+                error=error or None,
+                persona=row.persona if row is not None else None,
+                posthog_user_id=state.get("posthog_user_id") if state else None,
+            )
         if row is not None and state is not None and success:
             _refresh_fleet_reveal(integration, row, state, workspace_id, slack_user_id)
     dm_channel_id = str(state.get("dm_channel_id") or "") if state else ""
@@ -1446,7 +1486,7 @@ def _handle_persona_select(payload: dict, action: dict) -> None:
         ctx.state["fleet_message_ts"] = posted.get("ts")
         _save_state(ctx.row, ctx.state)
     _post_channel_prompt(ctx)
-    _capture_flow_event(ctx, EVENT_FLEET_SHOWN, detected_tools=detected_tools, **readiness.as_dict())
+    _capture_flow_event(ctx, EVENT_FLEET_SHOWN, detected_tools=detected_tools, **readiness.analytics_props())
 
 
 def _handle_skip(payload: dict) -> None:
@@ -1526,7 +1566,7 @@ def _handle_channel_verify(payload: dict, action: dict) -> None:
         return
     channel_name = ctx.state.get("pending_channel_name") or _channel_name_best_effort(ctx.slack, channel_id)
     _freeze_buttons(ctx, payload, f"⏳ Checking #{channel_name}…")
-    _attempt_channel_setup(ctx, channel_id, channel_name, method="selected", invite_required=True)
+    _attempt_channel_setup(ctx, channel_id, channel_name, method="verified", invite_required=True)
 
 
 # Membership-shaped hello failures that the /invite-then-Verify flow can recover from.
@@ -1663,7 +1703,8 @@ def _provision_and_complete(ctx: _FlowContext, channel_id: str, channel_name: st
         scouts_provisioned=len([result for result in results if result.config_id]),
         first_runs_fired=len([result for result in results if result.first_run_started]),
         channel_conflict=bool(channel_conflict),
-        **readiness,
+        # readiness still carries ready_details for the Block Kit render above; keep it out of analytics.
+        **{key: value for key, value in readiness.items() if key != "ready_details"},
     )
     _republish_home(ctx.integration, ctx.slack_user_id)
     _start_first_patrol_digest(ctx, results, channel_name)
