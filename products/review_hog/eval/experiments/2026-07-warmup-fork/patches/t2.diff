@@ -1,0 +1,156 @@
+diff --git a/packages/agent/src/adapters/claude/session/options.test.ts b/packages/agent/src/adapters/claude/session/options.test.ts
+index 87fd3b2ae..8a2b8b114 100644
+--- a/packages/agent/src/adapters/claude/session/options.test.ts
++++ b/packages/agent/src/adapters/claude/session/options.test.ts
+@@ -4,7 +4,7 @@ import type { HookInput, Options } from "@anthropic-ai/claude-agent-sdk";
+ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+ import { Logger } from "../../../utils/logger";
+ import { SUBAGENT_REWRITES } from "../hooks";
+-import { buildSessionOptions } from "./options";
++import { buildSessionOptions, buildSystemPrompt } from "./options";
+ import { SettingsManager } from "./settings";
+ 
+ const GIT_COMMIT_HOOK_INPUT = {
+@@ -254,5 +254,50 @@ describe("buildSessionOptions", () => {
+ 
+       expect(headers).toBe(expected);
+     });
++
++    it("omits the Bedrock fallback header when POSTHOG_DISABLE_BEDROCK_FALLBACK is set", () => {
++      process.env.POSTHOG_DISABLE_BEDROCK_FALLBACK = "1";
++      try {
++        const headers = buildSessionOptions(makeParams()).env
++          ?.ANTHROPIC_CUSTOM_HEADERS;
++        expect(headers).not.toContain("x-posthog-use-bedrock-fallback");
++      } finally {
++        delete process.env.POSTHOG_DISABLE_BEDROCK_FALLBACK;
++      }
++    });
++  });
++
++  describe("systemPrompt", () => {
++    // Dynamic preset sections (cwd, git status, date) vary per session and per
++    // request; excluding them keeps identical prompts byte-stable so they can
++    // share Anthropic's prompt cache across sessions.
++    it("excludes dynamic preset sections by default", () => {
++      expect(buildSystemPrompt()).toMatchObject({
++        type: "preset",
++        preset: "claude_code",
++        excludeDynamicSections: true,
++      });
++    });
++
++    it("excludes dynamic preset sections for the cloud append shape", () => {
++      const prompt = buildSystemPrompt({ append: "cloud instructions" });
++      expect(prompt).toMatchObject({
++        type: "preset",
++        preset: "claude_code",
++        excludeDynamicSections: true,
++      });
++      expect((prompt as { append: string }).append).toContain(
++        "cloud instructions",
++      );
++    });
++
++    it("applies the built prompt to session options", () => {
++      const options = buildSessionOptions(makeParams());
++      expect(options.systemPrompt).toMatchObject({
++        type: "preset",
++        preset: "claude_code",
++        excludeDynamicSections: true,
++      });
++    });
+   });
+ });
+diff --git a/packages/agent/src/adapters/claude/session/options.ts b/packages/agent/src/adapters/claude/session/options.ts
+index 2c611709c..adf653e14 100644
+--- a/packages/agent/src/adapters/claude/session/options.ts
++++ b/packages/agent/src/adapters/claude/session/options.ts
+@@ -98,6 +98,9 @@ export function buildSystemPrompt(
+     type: "preset",
+     preset: "claude_code",
+     append: APPENDED_INSTRUCTIONS,
++    // Keep the preset byte-stable across sessions (no cwd/git-status/date
++    // sections) so identical prompts can share Anthropic's prompt cache.
++    excludeDynamicSections: true,
+   };
+ 
+   if (!customPrompt) {
+@@ -158,8 +161,11 @@ function buildEnvironment(gateway?: GatewayEnv): Record<string, string> {
+   if (projectId) {
+     headerLines.push(`x-posthog-property-team_id: ${projectId}`);
+   }
+-  // Route to AWS Bedrock as a fallback when Anthropic returns 5xx
+-  headerLines.push("x-posthog-use-bedrock-fallback: true");
++  // Route to AWS Bedrock as a fallback when Anthropic returns 5xx. Bedrock has
++  // a separate prompt-cache namespace, so cache-sensitive runs can opt out.
++  if (!process.env.POSTHOG_DISABLE_BEDROCK_FALLBACK) {
++    headerLines.push("x-posthog-use-bedrock-fallback: true");
++  }
+   const customHeaders = headerLines.join("\n");
+ 
+   // SDK 0.3.142 made MCP servers connect in the background by default. That
+diff --git a/packages/agent/src/server/agent-server.test.ts b/packages/agent/src/server/agent-server.test.ts
+index 615bd854c..e1c9b47fa 100644
+--- a/packages/agent/src/server/agent-server.test.ts
++++ b/packages/agent/src/server/agent-server.test.ts
+@@ -1888,7 +1888,10 @@ describe("AgentServer HTTP Mode", () => {
+       expect(prompt).not.toContain("gh pr checkout");
+       expect(prompt).not.toContain("Create a draft pull request");
+       expect(prompt).toContain("Generated-By: PostHog Code");
+-      expect(prompt).toContain("Task-Id: test-task-id");
++      expect(prompt).toContain("Task-Id: <this task's id>");
++      // The task id must never be interpolated into the prompt — it would make
++      // the system prompt task-unique and defeat cross-session prompt caching.
++      expect(prompt).not.toContain("test-task-id");
+     });
+ 
+     it("returns default prompt when no prUrl", () => {
+@@ -1899,7 +1902,7 @@ describe("AgentServer HTTP Mode", () => {
+         "Do NOT create a branch, commit, push, or open a pull request unless the user explicitly asks.",
+       );
+       expect(prompt).toContain("Generated-By: PostHog Code");
+-      expect(prompt).toContain("Task-Id: test-task-id");
++      expect(prompt).toContain("Task-Id: <this task's id>");
+       expect(prompt).not.toContain("gh pr create --draft");
+     });
+ 
+@@ -1926,7 +1929,7 @@ describe("AgentServer HTTP Mode", () => {
+           "gh issue list --search",
+           "Closes #<n>",
+           "Generated-By: PostHog Code",
+-          "Task-Id: test-task-id",
++          "Task-Id: <this task's id>",
+         ],
+         shouldNotContain: [],
+       },
+@@ -1965,7 +1968,7 @@ describe("AgentServer HTTP Mode", () => {
+       expect(prompt).toContain("Create a draft pull request");
+       expect(prompt).toContain("gh pr create --draft");
+       expect(prompt).toContain("Generated-By: PostHog Code");
+-      expect(prompt).toContain("Task-Id: test-task-id");
++      expect(prompt).toContain("Task-Id: <this task's id>");
+       // Slack-origin PRs are attributed to PostHog, not the PostHog Code app.
+       expect(prompt).toContain(
+         "Created with [PostHog](https://posthog.com?ref=pr)",
+diff --git a/packages/agent/src/server/agent-server.ts b/packages/agent/src/server/agent-server.ts
+index 138fdfb5b..41928a02d 100644
+--- a/packages/agent/src/server/agent-server.ts
++++ b/packages/agent/src/server/agent-server.ts
+@@ -2589,7 +2589,6 @@ export class AgentServer {
+     slackThreadUrl?: string | null,
+     inboxReportUrl?: string | null,
+   ): string {
+-    const taskId = this.config.taskId;
+     const shouldAutoCreatePr = this.shouldAutoPublishCloudChanges();
+     const isSlack = this.getCloudInteractionOrigin() === "slack";
+     const identityInstructions = isSlack
+@@ -2657,7 +2656,7 @@ Do NOT add "Co-Authored-By" trailers or "Generated with [Claude Code]" lines to
+ commit messages. The \`git_signed_commit\` tool automatically appends the only trailers
+ we want:
+   Generated-By: PostHog Code
+-  Task-Id: ${taskId}`;
++  Task-Id: <this task's id>`;
+ 
+     const whyContextInstruction = `   - Add a brief **Why** to the body — one or two sentences capturing the reason the user asked for this change (the motivation, not a restatement of the diff). Keep it short.`;
+     const publicRepoSafetyInstruction = `   - **Public-repo safety.** Treat the target repository as public-readable unless you have verified otherwise. The PR title, description, and commit messages must not contain private operational scale (exact event counts, internal row volumes, customer-usage percentages), customer names / emails / companies, references to internal tickets or incidents, the contents of Slack threads (do not quote or paraphrase what was said), or unreleased roadmap details. Linking to the originating Slack thread is fine and encouraged — Slack links are auth-gated and useful as context — as are channel references like "raised in #team-foo". Describe findings qualitatively ("present on nearly all X events, absent from Y") rather than with quantitative figures pulled from analytics queries — the reasoning that uses those numbers can stay in the thread; the PR copy cannot.`;

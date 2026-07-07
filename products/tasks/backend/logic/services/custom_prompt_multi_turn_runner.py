@@ -66,6 +66,8 @@ class MultiTurnSession:
         on_task_run_created: Callable[[TaskRun], Awaitable[None]] | None = None,
         max_poll_seconds: int | None = None,
         fallback_from_text: Callable[[str], _ModelT] | None = None,
+        resume_from_run_id: str | None = None,
+        resume_from_task_id: str | None = None,
     ) -> tuple[MultiTurnSession, _ModelT]:
         """Start a multi-turn sandbox session and wait for the first structured response.
 
@@ -98,6 +100,8 @@ class MultiTurnSession:
             internal=internal,
             on_task_run_created=on_task_run_created,
             max_poll_seconds=max_poll_seconds,
+            resume_from_run_id=resume_from_run_id,
+            resume_from_task_id=resume_from_task_id,
         )
         try:
             parsed = cls._parse_and_validate(last_message, model, label="initial turn")
@@ -151,6 +155,8 @@ class MultiTurnSession:
         internal: bool = False,
         on_task_run_created: Callable[[TaskRun], Awaitable[None]] | None = None,
         max_poll_seconds: int | None = None,
+        resume_from_run_id: str | None = None,
+        resume_from_task_id: str | None = None,
     ) -> tuple[MultiTurnSession, str]:
         """Start a multi-turn sandbox session and return the first raw agent response.
 
@@ -168,6 +174,8 @@ class MultiTurnSession:
             signal_report_id=signal_report_id,
             ai_stage=ai_stage,
             internal=internal,
+            resume_from_run_id=resume_from_run_id,
+            resume_from_task_id=resume_from_task_id,
         )
         logger.info("multi_turn: started task=%s run=%s step=%s", task.id, task_run.id, step_name or "unknown")
         # Get session's parent workflow to send heartbeats to keep the agent alive while waiting for turns

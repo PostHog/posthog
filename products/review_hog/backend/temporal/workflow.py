@@ -16,6 +16,7 @@ when `inputs.publish` is set (the cloud label trigger), and is skipped for eval 
 
 import json
 import asyncio
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -27,7 +28,9 @@ from temporalio.exceptions import ApplicationError
 from products.review_hog.backend.reviewer.constants import (
     BLIND_SPOT_PASS_NUMBER,
     FAN_OUT_FAILURE_FLOOR,
+    FORK_LEADER_HEAD_START_SECONDS,
     MAX_CONCURRENT_SANDBOXES,
+    WARMUP_FORK_ENABLED,
 )
 from products.review_hog.backend.temporal.activities import (
     AppendCodeReviewArtefactInput,
@@ -53,6 +56,8 @@ from products.review_hog.backend.temporal.activities import (
     ValidateChunkInput,
     ValidateChunkResult,
     ValidateIntegrationInput,
+    WarmupChunkInput,
+    WarmupChunkResult,
     append_code_review_artefact_activity,
     build_body_activity,
     combine_and_clean_activity,
@@ -69,6 +74,7 @@ from products.review_hog.backend.temporal.activities import (
     sync_review_skills_activity,
     validate_chunk_activity,
     validate_github_integration_activity,
+    warmup_chunk_activity,
 )
 from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_LABEL, ReviewPRWorkflowInputs
 
@@ -133,7 +139,12 @@ class ReviewPerspectivesWorkflow:
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_SANDBOXES)
 
         async def _review(
-            pass_number: int, skill_name: str, skill_version: int, chunk_id: int, blind_spot_check: bool
+            pass_number: int,
+            skill_name: str,
+            skill_version: int,
+            chunk_id: int,
+            blind_spot_check: bool,
+            resume: WarmupChunkResult | None = None,
         ) -> bool:
             async with semaphore:
                 return await workflow.execute_activity(
@@ -152,11 +163,16 @@ class ReviewPerspectivesWorkflow:
                         skill_version=skill_version,
                         blind_spot_check=blind_spot_check,
                         wave_perspectives=ordered if blind_spot_check else [],
+                        resume_from_task_id=resume.resume_from_task_id if resume else None,
+                        resume_from_run_id=resume.resume_from_run_id if resume else None,
                     ),
                     start_to_close_timeout=_SANDBOX_TIMEOUT,
                     heartbeat_timeout=_SANDBOX_HEARTBEAT,
                     retry_policy=_RETRY,
                 )
+
+        if WARMUP_FORK_ENABLED:
+            return await self._run_forked(inputs, ordered, semaphore, _review)
 
         units = [(p, c) for p in ordered for c in inputs.chunk_ids]
         results = await asyncio.gather(
@@ -198,6 +214,116 @@ class ReviewPerspectivesWorkflow:
             )
 
         return reviewed
+
+    async def _run_forked(
+        self,
+        inputs: ReviewPerspectivesInputs,
+        ordered: list[LoadedPerspectiveDTO],
+        semaphore: asyncio.Semaphore,
+        review_unit: Callable[..., Awaitable[bool]],
+    ) -> int:
+        """The warm-up+fork arm (`WARMUP_FORK_ENABLED`): per chunk, warm-up → forked wave → forked blind-spot.
+
+        Chunks run as concurrent sequenced pipelines instead of the global wave barrier, so a
+        chunk's blind-spot fires the moment ITS wave settles (fifth forker, still cache-warm). A
+        failed warm-up degrades its chunk to the unforked fan-out — the review must never be worse
+        than the control because of the optimization. Unit failures aggregate into the same
+        Review / Blind spots stage floors as the unforked path, applied once at the end.
+        """
+        blind_spots: LoadedBlindSpotsSkillDTO = await workflow.execute_activity(
+            load_blind_spots_skill_activity,
+            LoadBlindSpotsInput(team_id=inputs.team_id, acting_user_id=inputs.acting_user_id),
+            start_to_close_timeout=_QUICK_TIMEOUT,
+            retry_policy=_RETRY,
+        )
+        expected_passes = [p.pass_number for p in ordered] + [BLIND_SPOT_PASS_NUMBER]
+
+        async def _chunk_pipeline(chunk_id: int) -> tuple[int, int, int]:
+            """Returns (wave_failed, spot_failed, reviewed) for one chunk."""
+            resume: WarmupChunkResult | None = None
+            try:
+                async with semaphore:
+                    warmup: WarmupChunkResult = await workflow.execute_activity(
+                        warmup_chunk_activity,
+                        WarmupChunkInput(
+                            team_id=inputs.team_id,
+                            user_id=inputs.user_id,
+                            report_id=inputs.report_id,
+                            head_sha=inputs.head_sha,
+                            repository=inputs.repository,
+                            branch=inputs.branch,
+                            run_index=inputs.run_index,
+                            chunk_id=chunk_id,
+                            expected_pass_numbers=expected_passes,
+                        ),
+                        start_to_close_timeout=_SANDBOX_TIMEOUT,
+                        heartbeat_timeout=_SANDBOX_HEARTBEAT,
+                        retry_policy=_RETRY,
+                    )
+                if warmup.resume_from_run_id:
+                    resume = warmup
+            except Exception:
+                workflow.logger.warning(f"Warm-up failed for chunk {chunk_id}; degrading to unforked fan-out")
+
+            # Forked wave: the leader gets a head start so its identical-first-turn cache write is
+            # readable before the sibling units' matching requests land (see run_forked_review).
+            # Unforked (degraded) chunks launch everything together, like the control path.
+            wave: list[object]
+            if resume is not None and len(ordered) > 1:
+                leader_task = asyncio.ensure_future(
+                    review_unit(
+                        ordered[0].pass_number, ordered[0].skill_name, ordered[0].version, chunk_id, False, resume
+                    )
+                )
+                await asyncio.sleep(FORK_LEADER_HEAD_START_SECONDS)
+                rest = await asyncio.gather(
+                    *(
+                        review_unit(p.pass_number, p.skill_name, p.version, chunk_id, False, resume)
+                        for p in ordered[1:]
+                    ),
+                    return_exceptions=True,
+                )
+                try:
+                    leader_result: object = await leader_task
+                except Exception as e:
+                    leader_result = e
+                wave = [leader_result, *rest]
+            else:
+                wave = list(
+                    await asyncio.gather(
+                        *(
+                            review_unit(p.pass_number, p.skill_name, p.version, chunk_id, False, resume)
+                            for p in ordered
+                        ),
+                        return_exceptions=True,
+                    )
+                )
+            wave_failed = sum(1 for r in wave if isinstance(r, BaseException))
+
+            spot_failed = 0
+            try:
+                await review_unit(
+                    BLIND_SPOT_PASS_NUMBER, blind_spots.skill_name, blind_spots.version, chunk_id, True, resume
+                )
+            except Exception:
+                spot_failed = 1
+            reviewed = (len(wave) - wave_failed) + (1 - spot_failed)
+            return wave_failed, spot_failed, reviewed
+
+        outcomes = await asyncio.gather(*(_chunk_pipeline(c) for c in inputs.chunk_ids))
+
+        wave_total = len(ordered) * len(inputs.chunk_ids)
+        wave_failed = sum(o[0] for o in outcomes)
+        spot_total = len(inputs.chunk_ids)
+        spot_failed = sum(o[1] for o in outcomes)
+        _enforce_failure_floor("Review", wave_failed, wave_total)
+        _enforce_failure_floor("Blind spots", spot_failed, spot_total)
+        if wave_failed or spot_failed:
+            workflow.logger.warning(
+                f"Forked review: {wave_failed}/{wave_total} wave unit(s) and "
+                f"{spot_failed}/{spot_total} blind-spot(s) failed best-effort"
+            )
+        return sum(o[2] for o in outcomes)
 
 
 def _chunk_id_of(issue_json: str) -> int | None:

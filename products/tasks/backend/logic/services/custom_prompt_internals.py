@@ -134,6 +134,8 @@ async def create_task_and_trigger(
     signal_report_id: str | None = None,
     ai_stage: str | None = None,
     internal: bool = False,
+    resume_from_run_id: str | None = None,
+    resume_from_task_id: str | None = None,
 ):
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
@@ -163,6 +165,12 @@ async def create_task_and_trigger(
         internal=internal,
         sandbox_resources=context.sandbox_resources,
         sandbox_timeout_seconds=context.sandbox_timeout_seconds,
+        resume_from_run_id=resume_from_run_id,
+        resume_from_task_id=resume_from_task_id,
+        # On the fork/resume path the agent replays the seeded session instead of
+        # taking the description as its first message; the description must ride
+        # run state so the resume continuation delivers it as the next user turn.
+        pending_user_message=description if resume_from_run_id else None,
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
     task_run = await sync_to_async(lambda: task.latest_run)()

@@ -39,6 +39,19 @@ multi-stage effort to bring this (originally March 2026) branch up to date with 
 This work (now on `signals/reviewhog`, originally `signals/custom-prompt-to-sandbox`) predates several
 months of `master` evolution. The work is staged; keep this section updated as stages land.
 
+### 🎯 NEXT (small, high-leverage) — dedup: emit ids + merge decisions, stop re-emitting issue bodies
+
+Observed live 2026-07-07 (PR #67451): the one-shot dedup prompt has the model re-emit every surviving
+issue's full JSON, so output scales with finding count — a 36-finding PR needed ~29K output tokens, one
+**294-second** generation that first **killed the whole publish run** at the then-16K `max_tokens` cap
+(no parseable output → workflow failed after ~40 min of upstream compute; cap since raised to 64K) and
+still costs a silent ~5-minute stall between blind-spots and validation on finding-heavy PRs.
+Fix (small: prompt + local reassembly in `dedup_activity`): the model returns only surviving issue ids +
+merge decisions (a few hundred tokens); issue bodies are reassembled locally from the persisted findings.
+Value: structurally removes the max_tokens run-killer (worth an entire unattended run's cost, $10-50,
+each time it fires), cuts ~5 min wall-clock on heavy PRs, ~$0.05-0.30/run direct output tokens.
+**Queued behind the 2026-07 warmup-fork eval (don't land mid-eval — it changes pipeline behavior).**
+
 ### 🎯 NEXT — productionize the 2026-07 reviewer-topology eval (CURRENT start-here; older START-HERE markers below are historical)
 
 **Context:** a 17-run topology experiment (8 configs, frozen PR #62096, LLM-judged vs the old reviewer's
@@ -187,11 +200,23 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    lessons), `PLAN.md` (Gate 0, closed — its metrology shipped: the cache-aware `dump_result.py` split,
    validated at Δ +0.0% vs gateway costs; naive token math overstates true cost ~4.8×).
    The locked program: **one neutral warm-up agent per chunk does the investigation once; every perspective
-   (user-extensible, could be 20) forks its cached session at 0.1× and skips re-investigating, while keeping
+   (user-extensible, could be 20) forks its persisted session and skips re-investigating, while keeping
    full tools — quality is the moat, one-shot code investigation is permanently vetoed.** No overlap
    measurement gates the build; gates are mechanics (follower turn-1 cache reads), cost (follower turns
-   drop), and quality (yardstick parity + anchoring guard) on frozen PR #62096. TTL: sandboxes run the 5m
-   cache (proven); `ENABLE_PROMPT_CACHING_1H=1` per sandbox enforces 1h when needed. Working mode
+   drop), and quality (yardstick parity + anchoring guard) on frozen PR #62096. Fork mechanics (as built,
+   proven in-pipeline 2026-07-07): live and replayed sessions differ in byte form, so followers never read
+   the warm-up's own cache — the S3 transcript artifact is the durable carrier. Forked units run TWO turns:
+   turn 1 is byte-identical across a chunk's siblings (cache entries are addressable only at message ends —
+   a shared head inside one message shares NOTHING, measured), turn 2 carries the perspective prompt on the
+   cached prefix. The chunk leader launches `FORK_LEADER_HEAD_START_SECONDS` (60s) ahead of siblings — an
+   entry is readable only once the writer's response has STARTED, and TTFT on a ~100K write exceeds 30s.
+   Measured (arm smoke 2): 5/6 wave followers + 1/3 blind-spots read the full shared prefix at 0.1×; a miss
+   only re-pays the ~1.25× replay write (~$0.15-0.20) — the fork never breaks. The 1h TTL env var is unused;
+   every arm dump prints writers/readers per chunk (dump_result.py fork tracker). Eval state (11:20 UTC):
+   both controls in ($15.63 @ 2 chunks / $25.60 @ 3; per-chunk review+blind-spot ≈ $5.6-5.8, stable);
+   remaining: 2 arm runs on #62096 + judgment. Hardening shipped en route: read-only MCP scopes on all
+   sandbox units (an agent tombstoned team skills mid-run twice — see Known issues) and the silent
+   sonnet→opus overload rescue env-gated off for DEBUG sandboxes; the dump flags ⚠️SWITCHED units. Working mode
    (amended 2026-07-07): everything on `signals/reviewhog`, experiment code behind on/off constants,
    losers reverted — no per-experiment branches.
 
@@ -3180,6 +3205,18 @@ Per-run state by kind:
 ## Known issues & tech debt
 
 Found during Stage 1 analysis and the first parallel run (PR #65862); **documented, not fixed**:
+
+- **FOR FUTURE — review units can corrupt team skill state (observed live 2026-07-07).** Sandbox units run
+  with FULL posthog-MCP scopes, and during an eval run one agent soft-deleted the team's
+  `review-hog-blind-spots-general` `LLMSkill` row via a skills-store write tool (it only ever needs
+  `skill-get`). Because the canonical sync deliberately never resurrects deleted rows ("the team removed it" —
+  correct etiquette for the user-curated perspectives surface), every later review on the team failed at the
+  blind-spot load until the row's `deleted`/`is_latest` flags were fixed by hand. Two-layer fix, in order:
+  (1) **least-privilege MCP scopes for review/blind-spot/validation/warm-up units** — read-only skills access;
+  (2) **required-slot self-heal**: blind-spots and validation are required single-active stages, so when the
+  slot resolves to nothing (canonical tombstoned AND no enabled custom replacement) the loader should resurrect
+  the canonical with a loud log instead of raising — a user who replaced the canonical with their own skill
+  stays fully respected; only the bricked state self-heals. Perspectives keep pure tombstone semantics.
 
 - **TODO — transient sandbox timeout silently drops a review.** On the #65862 run, the Performance perspective
   × chunk-1 returned `API Error: The operation timed out.` and was dropped (11/12 `(perspective × chunk)`

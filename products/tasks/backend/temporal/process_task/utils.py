@@ -257,6 +257,10 @@ class RunState(BaseModel, extra="allow"):
     model: str | None = None
     reasoning_effort: ReasoningEffort | None = None
     resume_from_run_id: str | None = None
+    # The task that owns resume_from_run_id when it is not this run's own task —
+    # run lookups are routed per task, so forking another task's session (e.g. a
+    # shared warm-up run) must address that task explicitly.
+    resume_from_task_id: str | None = None
     handoff_resumed: bool = False
     snapshot_external_id: str | None = None
     snapshot_kind: str | None = None

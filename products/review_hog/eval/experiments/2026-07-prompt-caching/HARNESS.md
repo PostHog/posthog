@@ -36,7 +36,12 @@ Housekeeping: while `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` is set, EVERY local sandb
 (which drifts from npm `@latest`) — keep the code repo checkout clean/known during experiments and record the
 `agentVersion` fingerprint on every run.
 
-## T2 patch surface (cache-stable system prompt) — small, both sites verified
+## T2 patch surface (cache-stable system prompt) — PATCHED 2026-07-07 (verified live: shared turn-1 span grew 27,618 → 37,120)
+
+> As shipped: Task-Id de-interpolated to `Task-Id: <this task's id>`; `excludeDynamicSections: true` in the
+> preset default (covers the cloud append shape); Bedrock fallback header env-gated behind
+> `POSTHOG_DISABLE_BEDROCK_FALLBACK` (NOT set for runs — the confound stays, symmetric across arm/control).
+> Diff: `../2026-07-warmup-fork/patches/t2-t3-combined.diff`. Original surface notes below.
 
 - **V1 — Task-Id de-interpolation is SAFE.** The `Task-Id: ${taskId}` line sits in the `signedCommitInstructions`
   template (`packages/agent/src/server/agent-server.ts:2655-2660`, `buildCloudSystemPrompt` at `:2587`).
@@ -59,7 +64,16 @@ Housekeeping: while `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` is set, EVERY local sandb
   detector confound for the T1 rewrite signature). For experiment runs, consider gating it off; `options.test.ts:196`
   asserts the exact header string and will need updating if touched.
 
-## T3 patch surface (raw-JSONL persistence + fork-seed)
+## T3 patch surface (raw-JSONL persistence + fork-seed) — PATCHED 2026-07-07 (fork proven: replay-vs-replay byte-perfect)
+
+> As shipped, three build-time discoveries folded in: (1) upload fires at EVERY turn end via
+> `broadcastTurnComplete` (sandbox teardown never reliably reaches `cleanupSession`); (2) artifact name is
+> `transcript-<sessionId>.jsonl` — slash-free, the backend keeps only the basename; (3) the artifact manifest
+> APPENDS per upload, so the seed takes the newest matching entry. Cross-task forks: `POSTHOG_RESUME_TASK_ID`
+> (env + `resume_from_task_id` run state) routes the lookup to the source run's task; the forked run's own
+> prompt rides `pending_user_message` (the resume continuation delivers it as the next user turn — without it
+> the fork gets a generic "continue"). posthog side: `resume_from_run_id`/`resume_from_task_id` passthrough on
+> `Task.create_and_run` → `create_task_and_trigger` → `MultiTurnSession.start`. Original surface notes below.
 
 - Raw transcript path in sandbox: `${CLAUDE_CONFIG_DIR || ~/.claude}/projects/${encodeCwdToProjectKey(cwd)}/${sessionId}.jsonl`
   (`jsonl-hydration.ts:90-107`); cwd = `repositoryPath ?? "/tmp/workspace"` (`agent-server.ts:1281`) — deterministic
@@ -83,7 +97,12 @@ Housekeeping: while `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` is set, EVERY local sandb
 - Remember from CANDIDATES #8: the warm-up needs a final settling user turn (thinking-block stripping), and Spike 2's
   gate is against the stripped-form prefix.
 
-## 1h cache TTL — resolved 2026-07-06 (late session): default is 5m on our path; 1h is one env var away
+## 1h cache TTL — resolved 2026-07-06; SUPERSEDED for the fork 2026-07-07 (unused in the build)
+
+> The fork never reads the warm-up's live cache (storage-dialect fact, `INVESTIGATION.md`), so extending the
+> warm-up's TTL buys nothing — the S3 transcript is the durable carrier and a TTL miss only re-pays the
+> replay-span write. The env-var mechanism below stays valid (and got a free behavioral confirmation:
+> Spike 2 attempt 2's warm-up read attempt 1's cache 13 minutes later on a 1h-TTL sandbox env).
 
 **Question (user):** aren't we on the 1-hour TTL by default? **Answer: no — proven three ways, and cleanly enforceable.**
 
@@ -186,8 +205,11 @@ Reading of the evidence:
 
 - Dev stack: UP (llm-gateway :3308, temporal-worker under nodemon, backend). Ngrok: UP (`https://alexl-llmg.ngrok.dev` -> 200).
 - `.env`: `SANDBOX_PROVIDER=MODAL_DOCKER` + `SANDBOX_LLM_GATEWAY_URL` set; `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` added 2026-07-06
-  (line 212) and picked up after a full stack restart — the flox hook sources `.env` at ACTIVATION, so a nodemon respawn or
-  phrocs process toggle does NOT re-read it; only a stack restart (or an export in the launching shell) does.
+  (line 212). **The `.env` route is fragile** (burned 2026-07-07: a stack restart from a shell whose flox activation predated the
+  line silently dropped it — the on-activate hook doesn't re-run on already-activated shells, and `local_packages.py` returns
+  None without logging when the var is absent). Reliable remedy: `export LOCAL_POSTHOG_CODE_MONOREPO_ROOT=...` (plus
+  `TEMPORAL_DISABLE_HOT_RELOAD=1` — kills the nodemon mid-run-edit hazard) in the stack-launching shell before `hogli start`.
+  Verify on EVERY run via `agentVersion 0.0.0-dev` in the TaskRun log; no-nodemon is visible in the worker's process cmdline.
 - Code repo: clean on `main`, agent built via `pnpm turbo build --filter=@posthog/agent...` (~10s), SDK 0.3.170 pinned.
 
 ## Smoke-run lessons (2026-07-06)

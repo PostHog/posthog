@@ -645,6 +645,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         ai_stage: str | None = None,
         wizard_config: dict | None = None,
         pending_user_message: str | None = None,
+        resume_from_run_id: str | None = None,
+        resume_from_task_id: str | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import _normalize_slack_context, execute_task_processing_workflow
 
@@ -676,6 +678,12 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         )
 
         run_extra_state = dict(extra_state or {})
+        # Seed the run from another run's session (fork/resume). The task id is only
+        # needed when the source run belongs to a different task — see RunState.
+        if resume_from_run_id:
+            run_extra_state["resume_from_run_id"] = resume_from_run_id
+            if resume_from_task_id:
+                run_extra_state["resume_from_task_id"] = resume_from_task_id
         if start_workflow:
             # Persist everything the dispatch needs alongside the row, in the same INSERT, so a
             # reconciler can re-dispatch faithfully if the on_commit callback below is ever lost.

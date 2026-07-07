@@ -15,6 +15,7 @@ from products.review_hog.backend.temporal.activities import (
     sync_review_skills_activity,
     validate_chunk_activity,
     validate_github_integration_activity,
+    warmup_chunk_activity,
 )
 from products.review_hog.backend.temporal.workflow import (
     ReviewPerspectivesWorkflow,
@@ -37,6 +38,7 @@ ACTIVITIES = [
     split_chunks_activity,
     load_perspectives_activity,
     load_blind_spots_skill_activity,
+    warmup_chunk_activity,
     review_chunk_activity,
     combine_and_clean_activity,
     dedup_activity,

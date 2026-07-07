@@ -1,0 +1,642 @@
+diff --git a/packages/agent/src/adapters/claude/session/jsonl-hydration.test.ts b/packages/agent/src/adapters/claude/session/jsonl-hydration.test.ts
+index 633299d6c..7c8c5257d 100644
+--- a/packages/agent/src/adapters/claude/session/jsonl-hydration.test.ts
++++ b/packages/agent/src/adapters/claude/session/jsonl-hydration.test.ts
+@@ -1425,4 +1425,90 @@ describe("hydrateSessionJsonl", () => {
+     await fs.chmod(path.dirname(file), 0o755);
+     expect(await fs.readFile(file, "utf8")).toBe(before);
+   });
++
++  it("seeds from the raw transcript artifact instead of ACP reconstruction", async () => {
++    const transcriptLine = JSON.stringify({
++      type: "assistant",
++      uuid: "raw-1",
++      parentUuid: null,
++      message: { role: "assistant", content: [{ type: "text", text: "raw" }] },
++    });
++    const getTaskRun = vi.fn().mockResolvedValue({
++      log_url: "s3://logs/run.jsonl",
++      artifacts: [
++        // Two entries with the same name: the manifest appends per turn-end
++        // upload, and the seed must take the most recent (last) one.
++        {
++          name: `transcript-${sessionId}.jsonl`,
++          type: "artifact",
++          storage_path: "tasks/artifacts/run/stale_transcript.jsonl",
++        },
++        {
++          name: `transcript-${sessionId}.jsonl`,
++          type: "artifact",
++          storage_path: "tasks/artifacts/run/transcript.jsonl",
++        },
++      ],
++    });
++    const downloadArtifact = vi
++      .fn()
++      .mockResolvedValue(
++        new TextEncoder().encode(`${transcriptLine}\n`).buffer,
++      );
++    const fetchTaskRunLogs = vi.fn();
++    const posthogAPI = {
++      getTaskRun,
++      downloadArtifact,
++      fetchTaskRunLogs,
++    } as unknown as PostHogAPIClient;
++    const log = { info: vi.fn(), warn: vi.fn() };
++
++    const result = await hydrateSessionJsonl({
++      sessionId,
++      cwd,
++      taskId: "warmup-task",
++      runId: "warmup-run",
++      posthogAPI,
++      log,
++    });
++
++    expect(result).toBe(true);
++    expect(downloadArtifact).toHaveBeenCalledWith(
++      "warmup-task",
++      "warmup-run",
++      "tasks/artifacts/run/transcript.jsonl",
++    );
++    // The lossy ACP reconstruction path must not run when the raw file seeds.
++    expect(fetchTaskRunLogs).not.toHaveBeenCalled();
++    const file = getSessionJsonlPath(sessionId, cwd);
++    expect(await fs.readFile(file, "utf8")).toContain('"raw"');
++  });
++
++  it("falls back past the transcript seed when the run has no such artifact", async () => {
++    const getTaskRun = vi.fn().mockResolvedValue({
++      log_url: "",
++      artifacts: [],
++    });
++    const downloadArtifact = vi.fn();
++    const posthogAPI = {
++      getTaskRun,
++      downloadArtifact,
++    } as unknown as PostHogAPIClient;
++    const log = { info: vi.fn(), warn: vi.fn() };
++
++    const result = await hydrateSessionJsonl({
++      sessionId,
++      cwd,
++      taskId: "t1",
++      runId: "r1",
++      posthogAPI,
++      log,
++    });
++
++    expect(result).toBe(false);
++    expect(downloadArtifact).not.toHaveBeenCalled();
++    expect(log.info).toHaveBeenCalledWith(
++      "No log URL, skipping JSONL hydration",
++    );
++  });
+ });
+diff --git a/packages/agent/src/adapters/claude/session/jsonl-hydration.ts b/packages/agent/src/adapters/claude/session/jsonl-hydration.ts
+index 6d78d96a5..2982defef 100644
+--- a/packages/agent/src/adapters/claude/session/jsonl-hydration.ts
++++ b/packages/agent/src/adapters/claude/session/jsonl-hydration.ts
+@@ -5,7 +5,7 @@ import * as path from "node:path";
+ import type { ContentBlock } from "@agentclientprotocol/sdk";
+ import { DEFAULT_GATEWAY_MODEL } from "../../../gateway-models";
+ import type { PostHogAPIClient } from "../../../posthog-api";
+-import type { StoredEntry } from "../../../types";
++import type { StoredEntry, TaskRun } from "../../../types";
+ import { isEmptyContentBlock } from "../../../utils/acp-content";
+ import { supports1MContext } from "./models";
+ 
+@@ -651,6 +651,68 @@ export async function sanitizeSessionJsonl(
+   }
+ }
+ 
++export function rawTranscriptArtifactName(sessionId: string): string {
++  // Slash-free on purpose: the backend keeps only the basename of an artifact name.
++  return `transcript-${sessionId}.jsonl`;
++}
++
++async function seedFromRawTranscriptArtifact(
++  taskRun: TaskRun,
++  params: {
++    sessionId: string;
++    taskId: string;
++    runId: string;
++    posthogAPI: PostHogAPIClient;
++    log: HydrationLog;
++  },
++  jsonlPath: string,
++): Promise<boolean> {
++  const { posthogAPI, log } = params;
++  try {
++    const wanted = rawTranscriptArtifactName(params.sessionId);
++    // The manifest appends on every upload (one entry per turn-end), so the
++    // last matching entry is the most recent transcript.
++    const matches = (taskRun.artifacts ?? []).filter(
++      (a) => a.name === wanted && a.storage_path,
++    );
++    const artifact = matches[matches.length - 1];
++    if (!artifact?.storage_path) {
++      return false;
++    }
++    const content = await posthogAPI.downloadArtifact(
++      params.taskId,
++      params.runId,
++      artifact.storage_path,
++    );
++    if (!content || content.byteLength === 0) {
++      log.warn("Raw transcript artifact download returned no content", {
++        artifact: wanted,
++      });
++      return false;
++    }
++    await fs.mkdir(path.dirname(jsonlPath), { recursive: true });
++    await fs.writeFile(jsonlPath, Buffer.from(content));
++    try {
++      await sanitizeSessionJsonl(jsonlPath);
++    } catch (err) {
++      log.warn("Failed to sanitize seeded session JSONL", {
++        jsonlPath,
++        error: err instanceof Error ? err.message : String(err),
++      });
++    }
++    log.info("Seeded session JSONL from raw transcript artifact", {
++      jsonlPath,
++      bytes: content.byteLength,
++    });
++    return true;
++  } catch (error) {
++    log.warn("Raw transcript seed failed; falling back to ACP reconstruction", {
++      error: error instanceof Error ? error.message : String(error),
++    });
++    return false;
++  }
++}
++
+ export async function hydrateSessionJsonl(params: {
+   sessionId: string;
+   cwd: string;
+@@ -687,6 +749,14 @@ export async function hydrateSessionJsonl(params: {
+     }
+ 
+     const taskRun = await posthogAPI.getTaskRun(params.taskId, params.runId);
++
++    // Prefer the raw session transcript uploaded at the source run's cleanup:
++    // the ACP-log reconstruction below is lossy (fresh UUIDs, flattened tool
++    // results, truncation), so a resume/fork from it is never byte-exact.
++    if (await seedFromRawTranscriptArtifact(taskRun, params, jsonlPath)) {
++      return true;
++    }
++
+     if (!taskRun.log_url) {
+       log.info("No log URL, skipping JSONL hydration");
+       return false;
+diff --git a/packages/agent/src/adapters/claude/session/options.test.ts b/packages/agent/src/adapters/claude/session/options.test.ts
+index 87fd3b2ae..b5b5c78ea 100644
+--- a/packages/agent/src/adapters/claude/session/options.test.ts
++++ b/packages/agent/src/adapters/claude/session/options.test.ts
+@@ -4,7 +4,7 @@ import type { HookInput, Options } from "@anthropic-ai/claude-agent-sdk";
+ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+ import { Logger } from "../../../utils/logger";
+ import { SUBAGENT_REWRITES } from "../hooks";
+-import { buildSessionOptions } from "./options";
++import { buildSessionOptions, buildSystemPrompt } from "./options";
+ import { SettingsManager } from "./settings";
+ 
+ const GIT_COMMIT_HOOK_INPUT = {
+@@ -115,6 +115,16 @@ describe("buildSessionOptions", () => {
+     expect(options.fallbackModel).toBe("claude-sonnet-5");
+   });
+ 
++  it("omits fallbackModel when POSTHOG_DISABLE_MODEL_FALLBACK is set", () => {
++    process.env.POSTHOG_DISABLE_MODEL_FALLBACK = "1";
++    try {
++      const options = buildSessionOptions(makeParams());
++      expect(options.fallbackModel).toBeUndefined();
++    } finally {
++      delete process.env.POSTHOG_DISABLE_MODEL_FALLBACK;
++    }
++  });
++
+   it("threads onEnsureLocalToolsConnected into the signed-commit guard (cloud)", async () => {
+     const healSpy = vi.fn().mockResolvedValue(true);
+     await runPreToolUseHooks(
+@@ -254,5 +264,50 @@ describe("buildSessionOptions", () => {
+ 
+       expect(headers).toBe(expected);
+     });
++
++    it("omits the Bedrock fallback header when POSTHOG_DISABLE_BEDROCK_FALLBACK is set", () => {
++      process.env.POSTHOG_DISABLE_BEDROCK_FALLBACK = "1";
++      try {
++        const headers = buildSessionOptions(makeParams()).env
++          ?.ANTHROPIC_CUSTOM_HEADERS;
++        expect(headers).not.toContain("x-posthog-use-bedrock-fallback");
++      } finally {
++        delete process.env.POSTHOG_DISABLE_BEDROCK_FALLBACK;
++      }
++    });
++  });
++
++  describe("systemPrompt", () => {
++    // Dynamic preset sections (cwd, git status, date) vary per session and per
++    // request; excluding them keeps identical prompts byte-stable so they can
++    // share Anthropic's prompt cache across sessions.
++    it("excludes dynamic preset sections by default", () => {
++      expect(buildSystemPrompt()).toMatchObject({
++        type: "preset",
++        preset: "claude_code",
++        excludeDynamicSections: true,
++      });
++    });
++
++    it("excludes dynamic preset sections for the cloud append shape", () => {
++      const prompt = buildSystemPrompt({ append: "cloud instructions" });
++      expect(prompt).toMatchObject({
++        type: "preset",
++        preset: "claude_code",
++        excludeDynamicSections: true,
++      });
++      expect((prompt as { append: string }).append).toContain(
++        "cloud instructions",
++      );
++    });
++
++    it("applies the built prompt to session options", () => {
++      const options = buildSessionOptions(makeParams());
++      expect(options.systemPrompt).toMatchObject({
++        type: "preset",
++        preset: "claude_code",
++        excludeDynamicSections: true,
++      });
++    });
+   });
+ });
+diff --git a/packages/agent/src/adapters/claude/session/options.ts b/packages/agent/src/adapters/claude/session/options.ts
+index 2c611709c..7d1a89500 100644
+--- a/packages/agent/src/adapters/claude/session/options.ts
++++ b/packages/agent/src/adapters/claude/session/options.ts
+@@ -98,6 +98,9 @@ export function buildSystemPrompt(
+     type: "preset",
+     preset: "claude_code",
+     append: APPENDED_INSTRUCTIONS,
++    // Keep the preset byte-stable across sessions (no cwd/git-status/date
++    // sections) so identical prompts can share Anthropic's prompt cache.
++    excludeDynamicSections: true,
+   };
+ 
+   if (!customPrompt) {
+@@ -158,8 +161,11 @@ function buildEnvironment(gateway?: GatewayEnv): Record<string, string> {
+   if (projectId) {
+     headerLines.push(`x-posthog-property-team_id: ${projectId}`);
+   }
+-  // Route to AWS Bedrock as a fallback when Anthropic returns 5xx
+-  headerLines.push("x-posthog-use-bedrock-fallback: true");
++  // Route to AWS Bedrock as a fallback when Anthropic returns 5xx. Bedrock has
++  // a separate prompt-cache namespace, so cache-sensitive runs can opt out.
++  if (!process.env.POSTHOG_DISABLE_BEDROCK_FALLBACK) {
++    headerLines.push("x-posthog-use-bedrock-fallback: true");
++  }
+   const customHeaders = headerLines.join("\n");
+ 
+   // SDK 0.3.142 made MCP servers connect in the background by default. That
+@@ -494,7 +500,14 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
+     options.model = DEFAULT_MODEL;
+   }
+ 
+-  if (!options.fallbackModel && options.model !== FALLBACK_MODEL) {
++  // The rescue silently switches the session's model mid-run, which breaks
++  // prompt-cache sharing (model is part of the cache key) and model-pinned
++  // measurement — pinned-model workloads can opt out and rely on retries.
++  if (
++    !options.fallbackModel &&
++    options.model !== FALLBACK_MODEL &&
++    !process.env.POSTHOG_DISABLE_MODEL_FALLBACK
++  ) {
+     options.fallbackModel = FALLBACK_MODEL;
+   }
+ 
+diff --git a/packages/agent/src/server/agent-server.test.ts b/packages/agent/src/server/agent-server.test.ts
+index 615bd854c..16abb81e4 100644
+--- a/packages/agent/src/server/agent-server.test.ts
++++ b/packages/agent/src/server/agent-server.test.ts
+@@ -1,5 +1,5 @@
+ import { createHash } from "node:crypto";
+-import { mkdtemp, readFile, rm } from "node:fs/promises";
++import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+ import { tmpdir } from "node:os";
+ import { join } from "node:path";
+ import type { ContentBlock } from "@agentclientprotocol/sdk";
+@@ -209,6 +209,10 @@ vi.mock("@anthropic-ai/claude-agent-sdk", async (importOriginal) => ({
+ }));
+ 
+ interface TestableServer {
++  getResumeTaskId(taskRun: TaskRun | null): string | null;
++  uploadRawSessionTranscript(): Promise<void>;
++  posthogAPI: unknown;
++  session: unknown;
+   getInitialPromptOverride(run: TaskRun): string | null;
+   getClearedPendingUserState(run: TaskRun | null): string[] | null;
+   clearPendingInitialPromptState(
+@@ -425,6 +429,91 @@ describe("AgentServer HTTP Mode", () => {
+     );
+   };
+ 
++  describe("getResumeTaskId", () => {
++    afterEach(() => {
++      delete process.env.POSTHOG_RESUME_TASK_ID;
++    });
++
++    it("prefers the env var over TaskRun state", () => {
++      process.env.POSTHOG_RESUME_TASK_ID = "warmup-task";
++      const s = createServer() as unknown as TestableServer;
++      expect(s.getResumeTaskId(null)).toBe("warmup-task");
++    });
++
++    it("falls back to TaskRun state, else null", () => {
++      const s = createServer() as unknown as TestableServer;
++      expect(
++        s.getResumeTaskId({
++          state: { resume_from_task_id: "other-task" },
++        } as unknown as TaskRun),
++      ).toBe("other-task");
++      expect(s.getResumeTaskId({ state: {} } as unknown as TaskRun)).toBeNull();
++      expect(s.getResumeTaskId(null)).toBeNull();
++    });
++  });
++
++  describe("uploadRawSessionTranscript", () => {
++    let configDir: string;
++    let originalConfigDir: string | undefined;
++
++    beforeEach(async () => {
++      originalConfigDir = process.env.CLAUDE_CONFIG_DIR;
++      configDir = await mkdtemp(join(tmpdir(), "transcript-upload-"));
++      process.env.CLAUDE_CONFIG_DIR = configDir;
++    });
++
++    afterEach(async () => {
++      if (originalConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
++      else process.env.CLAUDE_CONFIG_DIR = originalConfigDir;
++      await rm(configDir, { recursive: true, force: true });
++    });
++
++    it("uploads the raw session JSONL as a run artifact", async () => {
++      const s = createServer() as unknown as TestableServer;
++      const sessionId = "upload-sess";
++      const file = getSessionJsonlPath(sessionId, repo.path);
++      await mkdir(join(file, ".."), { recursive: true });
++      await writeFile(file, '{"type":"assistant","uuid":"u1"}\n');
++
++      const uploadTaskArtifacts = vi.fn().mockResolvedValue([
++        { name: `transcript-${sessionId}.jsonl`, type: "artifact" },
++      ]);
++      s.posthogAPI = { uploadTaskArtifacts };
++      s.session = {
++        acpSessionId: sessionId,
++        payload: { task_id: "test-task-id", run_id: "test-run-id" },
++      };
++
++      await s.uploadRawSessionTranscript();
++
++      expect(uploadTaskArtifacts).toHaveBeenCalledWith(
++        "test-task-id",
++        "test-run-id",
++        [
++          expect.objectContaining({
++            name: `transcript-${sessionId}.jsonl`,
++            type: "artifact",
++            content: '{"type":"assistant","uuid":"u1"}\n',
++          }),
++        ],
++      );
++    });
++
++    it("skips quietly when the session JSONL does not exist", async () => {
++      const s = createServer() as unknown as TestableServer;
++      const uploadTaskArtifacts = vi.fn();
++      s.posthogAPI = { uploadTaskArtifacts };
++      s.session = {
++        acpSessionId: "missing-sess",
++        payload: { task_id: "test-task-id", run_id: "test-run-id" },
++      };
++
++      await s.uploadRawSessionTranscript();
++
++      expect(uploadTaskArtifacts).not.toHaveBeenCalled();
++    });
++  });
++
+   describe("GET /health", () => {
+     it("returns ok status with active session", async () => {
+       await createServer().start();
+@@ -1888,7 +1977,10 @@ describe("AgentServer HTTP Mode", () => {
+       expect(prompt).not.toContain("gh pr checkout");
+       expect(prompt).not.toContain("Create a draft pull request");
+       expect(prompt).toContain("Generated-By: PostHog Code");
+-      expect(prompt).toContain("Task-Id: test-task-id");
++      expect(prompt).toContain("Task-Id: <this task's id>");
++      // The task id must never be interpolated into the prompt — it would make
++      // the system prompt task-unique and defeat cross-session prompt caching.
++      expect(prompt).not.toContain("test-task-id");
+     });
+ 
+     it("returns default prompt when no prUrl", () => {
+@@ -1899,7 +1991,7 @@ describe("AgentServer HTTP Mode", () => {
+         "Do NOT create a branch, commit, push, or open a pull request unless the user explicitly asks.",
+       );
+       expect(prompt).toContain("Generated-By: PostHog Code");
+-      expect(prompt).toContain("Task-Id: test-task-id");
++      expect(prompt).toContain("Task-Id: <this task's id>");
+       expect(prompt).not.toContain("gh pr create --draft");
+     });
+ 
+@@ -1926,7 +2018,7 @@ describe("AgentServer HTTP Mode", () => {
+           "gh issue list --search",
+           "Closes #<n>",
+           "Generated-By: PostHog Code",
+-          "Task-Id: test-task-id",
++          "Task-Id: <this task's id>",
+         ],
+         shouldNotContain: [],
+       },
+@@ -1965,7 +2057,7 @@ describe("AgentServer HTTP Mode", () => {
+       expect(prompt).toContain("Create a draft pull request");
+       expect(prompt).toContain("gh pr create --draft");
+       expect(prompt).toContain("Generated-By: PostHog Code");
+-      expect(prompt).toContain("Task-Id: test-task-id");
++      expect(prompt).toContain("Task-Id: <this task's id>");
+       // Slack-origin PRs are attributed to PostHog, not the PostHog Code app.
+       expect(prompt).toContain(
+         "Created with [PostHog](https://posthog.com?ref=pr)",
+diff --git a/packages/agent/src/server/agent-server.ts b/packages/agent/src/server/agent-server.ts
+index 138fdfb5b..60bb98386 100644
+--- a/packages/agent/src/server/agent-server.ts
++++ b/packages/agent/src/server/agent-server.ts
+@@ -28,6 +28,7 @@ import {
+ import {
+   getSessionJsonlPath,
+   hydrateSessionJsonl,
++  rawTranscriptArtifactName,
+ } from "../adapters/claude/session/jsonl-hydration";
+ import type { GatewayEnv } from "../adapters/claude/session/options";
+ import {
+@@ -676,9 +677,10 @@ export class AgentServer {
+ 
+     const resumeRunId = this.getResumeRunId(preTaskRun);
+     if (!resumeRunId) return null;
++    const resumeTaskId = this.getResumeTaskId(preTaskRun) ?? payload.task_id;
+ 
+     if (!this.resumeState) {
+-      await this.loadResumeState(payload.task_id, resumeRunId, payload.run_id);
++      await this.loadResumeState(resumeTaskId, resumeRunId, payload.run_id);
+     }
+ 
+     const priorSessionId = this.resumeState?.sessionId ?? null;
+@@ -701,7 +703,7 @@ export class AgentServer {
+       const hasSession = await hydrateSessionJsonl({
+         sessionId: priorSessionId,
+         cwd,
+-        taskId: payload.task_id,
++        taskId: resumeTaskId,
+         runId: resumeRunId,
+         model: this.config.model,
+         permissionMode,
+@@ -1542,7 +1544,7 @@ export class AgentServer {
+       const resumeRunId = this.getResumeRunId(taskRun);
+       if (resumeRunId) {
+         await this.loadResumeState(
+-          payload.task_id,
++          this.getResumeTaskId(taskRun) ?? payload.task_id,
+           resumeRunId,
+           payload.run_id,
+         );
+@@ -2446,7 +2448,11 @@ export class AgentServer {
+ 
+     const resumeRunId = process.env.POSTHOG_RESUME_RUN_ID;
+     if (resumeRunId) {
+-      await this.loadResumeState(taskId, resumeRunId, runId);
++      await this.loadResumeState(
++        process.env.POSTHOG_RESUME_TASK_ID || taskId,
++        resumeRunId,
++        runId,
++      );
+     }
+ 
+     // Create a synthetic payload from config (no JWT needed for auto-init)
+@@ -2476,6 +2482,23 @@ export class AgentServer {
+       : null;
+   }
+ 
++  /**
++   * The task that owns the resume run, when it is not the current task.
++   * Run lookups are routed per task, so forking another task's session
++   * (e.g. a shared warm-up run) must address that task explicitly.
++   */
++  private getResumeTaskId(taskRun: TaskRun | null): string | null {
++    const envTaskId = process.env.POSTHOG_RESUME_TASK_ID;
++    if (envTaskId) return envTaskId;
++
++    if (!taskRun) return null;
++    const state = taskRun.state as Record<string, unknown> | undefined;
++    const stateTaskId = state?.resume_from_task_id;
++    return typeof stateTaskId === "string" && stateTaskId.trim().length > 0
++      ? stateTaskId.trim()
++      : null;
++  }
++
+   private buildSessionSystemPrompt(
+     prUrl?: string | null,
+     slackThreadUrl?: string | null,
+@@ -2589,7 +2612,6 @@ export class AgentServer {
+     slackThreadUrl?: string | null,
+     inboxReportUrl?: string | null,
+   ): string {
+-    const taskId = this.config.taskId;
+     const shouldAutoCreatePr = this.shouldAutoPublishCloudChanges();
+     const isSlack = this.getCloudInteractionOrigin() === "slack";
+     const identityInstructions = isSlack
+@@ -2657,7 +2679,7 @@ Do NOT add "Co-Authored-By" trailers or "Generated with [Claude Code]" lines to
+ commit messages. The \`git_signed_commit\` tool automatically appends the only trailers
+ we want:
+   Generated-By: PostHog Code
+-  Task-Id: ${taskId}`;
++  Task-Id: <this task's id>`;
+ 
+     const whyContextInstruction = `   - Add a brief **Why** to the body — one or two sentences capturing the reason the user asked for this change (the motivation, not a restatement of the diff). Keep it short.`;
+     const publicRepoSafetyInstruction = `   - **Public-repo safety.** Treat the target repository as public-readable unless you have verified otherwise. The PR title, description, and commit messages must not contain private operational scale (exact event counts, internal row volumes, customer-usage percentages), customer names / emails / companies, references to internal tickets or incidents, the contents of Slack threads (do not quote or paraphrase what was said), or unreleased roadmap details. Linking to the originating Slack thread is fine and encouraged — Slack links are auth-gated and useful as context — as are channel references like "raised in #team-foo". Describe findings qualitatively ("present on nearly all X events, absent from Y") rather than with quantitative figures pulled from analytics queries — the reasoning that uses those numbers can stay in the thread; the PR copy cannot.`;
+@@ -3370,6 +3392,12 @@ ${signedCommitInstructions}
+       this.logger.error("Failed to flush session logs", error);
+     }
+ 
++    try {
++      await this.uploadRawSessionTranscript();
++    } catch (error) {
++      this.logger.error("Failed to upload raw session transcript", error);
++    }
++
+     // Drain pending permissions before ACP cleanup to avoid deadlocks —
+     // cleanup may await operations that are blocked on a permission response.
+     for (const [, pending] of this.pendingPermissions) {
+@@ -3399,6 +3427,46 @@ ${signedCommitInstructions}
+     this.session = null;
+   }
+ 
++  /**
++   * Persist the raw Claude session JSONL as a run artifact. The S3 ACP log is
++   * a lossy reconstruction (fresh UUIDs, flattened tool results, truncation),
++   * so a byte-exact session resume/fork needs the original file. Best-effort;
++   * POSTHOG_DISABLE_TRANSCRIPT_UPLOAD opts a sandbox out.
++   */
++  private async uploadRawSessionTranscript(): Promise<void> {
++    if (!this.session || !this.posthogAPI) return;
++    if (process.env.POSTHOG_DISABLE_TRANSCRIPT_UPLOAD) return;
++    const sessionId = this.session.acpSessionId;
++    if (!sessionId) return;
++    const cwd = this.config.repositoryPath ?? "/tmp/workspace";
++    const jsonlPath = getSessionJsonlPath(sessionId, cwd);
++    let content: string;
++    try {
++      content = await readFile(jsonlPath, "utf8");
++    } catch {
++      this.logger.debug("No raw session JSONL to upload", { jsonlPath });
++      return;
++    }
++    if (!content.trim()) return;
++    const uploaded = await this.posthogAPI.uploadTaskArtifacts(
++      this.session.payload.task_id,
++      this.session.payload.run_id,
++      [
++        {
++          name: rawTranscriptArtifactName(sessionId),
++          type: "artifact",
++          content,
++          content_type: "application/x-ndjson",
++        },
++      ],
++    );
++    this.logger.debug("Uploaded raw session transcript artifact", {
++      jsonlPath,
++      bytes: content.length,
++      uploadedCount: uploaded.length,
++    });
++  }
++
+   private async captureCheckpointState(
+     localGitState?: HandoffLocalGitState,
+   ): Promise<void> {
+@@ -3474,6 +3542,15 @@ ${signedCommitInstructions}
+       notification,
+     });
+ 
++    if (stopReason === "end_turn") {
++      // Persist the raw transcript at every turn end: sandbox teardown on task
++      // completion does not reliably reach cleanupSession, and a follower
++      // forking this run needs the artifact the moment the last turn lands.
++      void this.uploadRawSessionTranscript().catch((error) =>
++        this.logger.debug("Turn-end transcript upload failed", { error }),
++      );
++    }
++
+     this.session.logWriter.appendRawLine(
+       this.session.payload.run_id,
+       JSON.stringify(notification),

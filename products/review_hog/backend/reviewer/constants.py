@@ -86,3 +86,28 @@ CHUNK_SOFT_MAX_ADDITIONS = 600
 # 1..N over enabled perspectives), so persisted (pass, chunk) resume keys never collide with a wave
 # pass when the enabled set changes between executions at the same head.
 BLIND_SPOT_PASS_NUMBER = 1000
+
+
+# WARM-UP + FORK (experiment arm — eval/experiments/2026-07-warmup-fork/PLAN.md)
+# When enabled, each chunk first runs one neutral read-only warm-up agent whose raw session
+# transcript is persisted; every review unit for that chunk (wave + blind-spot) then forks from it,
+# inheriting the investigation from Anthropic's prompt cache instead of re-deriving it per unit.
+# Off = byte-for-byte today's pipeline (the eval control). A failed warm-up degrades its chunk to
+# the unforked fan-out, never fails it.
+WARMUP_FORK_ENABLED = False
+
+# How long the warm-up activity waits for the raw transcript artifact to land on the warm-up's
+# TaskRun after the session ends (uploaded fire-and-forget at turn end by the agent harness).
+WARMUP_TRANSCRIPT_WAIT_SECONDS = 90
+
+# Soft reading budget the warm-up prompt states (tokens of file content, guidance not enforced) —
+# keeps the shared forked prefix well under the request-size cliff while covering the chunk.
+WARMUP_READ_BUDGET_TOKENS = 50_000
+
+# Head start the first forked unit of a chunk gets before its siblings launch. A cache entry
+# becomes readable only once the writer's response has STARTED, and snapshot-restore provisioning
+# is uniform enough (~±10s) that simultaneously-launched siblings land inside the write window and
+# each rewrite the shared prefix instead of reading it (measured: 3/3 collided with no head start).
+# 30s still lost one collision — time-to-first-token on a ~96K-token prefix write can exceed it —
+# so 60s. One head start suffices: once the leader's entry is readable, all later units read it.
+FORK_LEADER_HEAD_START_SECONDS = 60

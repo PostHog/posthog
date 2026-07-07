@@ -1,6 +1,9 @@
+import time
+import asyncio
 import logging
 from typing import TypeVar
 
+from asgiref.sync import sync_to_async
 from pydantic import BaseModel
 
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession
@@ -78,6 +81,8 @@ async def run_sandbox_review(
     ``initial_permission_mode`` sets the agent's approval mode — a headless step that calls MCP tools
     under Codex must pass ``"full-access"`` or it stalls on an approval prompt (Codex ``"auto"`` does
     not auto-approve MCP tool calls).
+
+    Forked units (the warm-up+fork arm) do NOT go through here — see ``run_forked_review``.
     """
     full_prompt = f"{system_prompt}\n\n{prompt}"
     context = CustomPromptSandboxContext(
@@ -88,8 +93,71 @@ async def run_sandbox_review(
         runtime_adapter=runtime_adapter,
         reasoning_effort=reasoning_effort,
         initial_permission_mode=initial_permission_mode,
+        # Review units only ever read over MCP (skill-get / skill-file-get). Read-only strips the
+        # write tools entirely — a unit deleted a team's LLMSkill row mid-run before this.
+        posthog_mcp_scopes="read_only",
     )
     return await _run_prompt(full_prompt, context, model_to_validate, branch=branch, step_name=step_name)
+
+
+async def run_forked_review(
+    *,
+    team_id: int,
+    user_id: int,
+    repository: str,
+    branch: str,
+    first_turn_prompt: str,
+    review_prompt: str,
+    model_to_validate: type[_ModelT],
+    step_name: str = "",
+    runtime_adapter: str | None = None,
+    model: str | None = None,
+    reasoning_effort: str | None = None,
+    initial_permission_mode: str | None = None,
+    resume_from_run_id: str,
+    resume_from_task_id: str | None = None,
+) -> _ModelT:
+    """Run one review unit forked from another run's session, in two turns.
+
+    Turn 1 sends ``first_turn_prompt`` — which MUST be byte-identical across every sibling forking
+    the same source, because a prompt-cache entry is only addressable at its end: siblings share
+    the big replayed-transcript prefix only when their entire first request matches the leader's.
+    The unit's real ``review_prompt`` (perspective-specific, so necessarily divergent) goes in
+    turn 2, riding the already-cached first-turn prefix. Same failure semantics as
+    ``run_sandbox_review``: raises so the calling Temporal activity retries; the session is always
+    ended.
+    """
+    context = CustomPromptSandboxContext(
+        team_id=team_id,
+        user_id=user_id,
+        repository=repository,
+        model=model,
+        runtime_adapter=runtime_adapter,
+        reasoning_effort=reasoning_effort,
+        initial_permission_mode=initial_permission_mode,
+        # Review units only ever read over MCP (skill-get / skill-file-get). Read-only strips the
+        # write tools entirely — a unit deleted a team's LLMSkill row mid-run before this.
+        posthog_mcp_scopes="read_only",
+    )
+    try:
+        session, _ack = await MultiTurnSession.start_raw(
+            prompt=first_turn_prompt,
+            context=context,
+            branch=branch or None,
+            step_name=step_name,
+            resume_from_run_id=resume_from_run_id,
+            resume_from_task_id=resume_from_task_id,
+        )
+    except Exception:
+        logger.exception("Forked sandbox session start failed")
+        raise
+    try:
+        return await session.send_followup(review_prompt, model_to_validate, label=step_name)
+    except Exception:
+        logger.exception("Forked sandbox review turn failed")
+        raise
+    finally:
+        await session.end()
 
 
 async def start_sandbox_session(
@@ -126,6 +194,9 @@ async def start_sandbox_session(
         runtime_adapter=runtime_adapter,
         reasoning_effort=reasoning_effort,
         initial_permission_mode=initial_permission_mode,
+        # Review units only ever read over MCP (skill-get / skill-file-get). Read-only strips the
+        # write tools entirely — a unit deleted a team's LLMSkill row mid-run before this.
+        posthog_mcp_scopes="read_only",
     )
     try:
         return await MultiTurnSession.start(
@@ -162,3 +233,27 @@ async def continue_sandbox_session(
 async def end_sandbox_session(session: MultiTurnSession) -> None:
     """End a session opened by ``start_sandbox_session`` (call in a ``finally``)."""
     await session.end()
+
+
+async def wait_for_session_transcript(session: MultiTurnSession, *, timeout_seconds: int) -> bool:
+    """Wait until the session's raw transcript artifact is on its TaskRun; False on timeout.
+
+    The agent harness uploads the raw session JSONL fire-and-forget at every turn end
+    (``transcript-<sessionId>.jsonl``), so after the last turn completes the artifact lands within
+    seconds. A forked unit hydrates from this artifact — launching followers before it exists makes
+    them fall back to a fresh session, so the warm-up caller must gate on it.
+    """
+
+    def _has_transcript() -> bool:
+        session.task_run.refresh_from_db(fields=["artifacts"])
+        return any(
+            artifact.get("name", "").startswith("transcript-") and artifact.get("storage_path")
+            for artifact in (session.task_run.artifacts or [])
+        )
+
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if await sync_to_async(_has_transcript, thread_sensitive=False)():
+            return True
+        await asyncio.sleep(3)
+    return False

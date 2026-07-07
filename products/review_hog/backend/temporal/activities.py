@@ -38,6 +38,7 @@ from products.review_hog.backend.reviewer.constants import (
     VALIDATION_MODEL,
     VALIDATION_REASONING_EFFORT,
     VALIDATION_RUNTIME_ADAPTER,
+    WARMUP_TRANSCRIPT_WAIT_SECONDS,
     effective_priority,
     published_priorities_for,
 )
@@ -73,8 +74,10 @@ from products.review_hog.backend.reviewer.sandbox.executor import (
     MultiTurnSession,
     continue_sandbox_session,
     end_sandbox_session,
+    run_forked_review,
     run_sandbox_review,
     start_sandbox_session,
+    wait_for_session_transcript,
 )
 from products.review_hog.backend.reviewer.skill_loader import (
     load_blind_spots_skill_for_run,
@@ -102,6 +105,15 @@ from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     count_reviewable_additions,
     generate_chunking_prompt,
     plan_deterministic_chunks,
+)
+from products.review_hog.backend.reviewer.tools.warmup import (
+    FORKED_UNIT_CONTEXT_NOTE,
+    FORKED_UNIT_FIRST_TURN_PROMPT,
+    WARMUP_SETTLE_PROMPT,
+    WARMUP_SYSTEM_PROMPT,
+    WarmUpResult,
+    WarmUpSettleAck,
+    build_warmup_prompt,
 )
 from products.review_hog.backend.temporal.types import TRIGGER_MANUAL
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -251,6 +263,27 @@ class ReviewChunkInput(SandboxStageInput):
     # wave — fed every wave finding for the chunk, and told (below) which lenses already ran.
     blind_spot_check: bool = False
     wave_perspectives: list[LoadedPerspectiveDTO] = field(default_factory=list)
+    # Warm-up fork (WARMUP_FORK_ENABLED): the chunk's warm-up task/run to fork this unit's session
+    # from. None = fresh session (the control path, and the degraded path when the warm-up failed).
+    resume_from_task_id: str | None = None
+    resume_from_run_id: str | None = None
+
+
+@dataclass
+class WarmupChunkInput(SandboxStageInput):
+    chunk_id: int
+    # Pass numbers the workflow will fan out for this chunk (wave passes + the blind-spot). When all
+    # of them already have persisted results at this head (a Temporal retry), the warm-up is skipped.
+    expected_pass_numbers: list[int] = field(default_factory=list)
+
+
+@dataclass
+class WarmupChunkResult:
+    chunk_id: int
+    # The warm-up's task/run whose transcript the chunk's units fork from; None when the warm-up was
+    # skipped (all units already persisted) — callers then fan out unforked.
+    resume_from_task_id: str | None = None
+    resume_from_run_id: str | None = None
 
 
 @dataclass
@@ -742,20 +775,38 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
         else f"issues-review-p{input.pass_number}-c{input.chunk_id}"
     )
     async with Heartbeater():
-        review = await run_sandbox_review(
-            team_id=input.team_id,
-            user_id=input.user_id,
-            repository=input.repository,
-            branch=input.branch,
-            prompt=prompt,
-            system_prompt=REVIEW_SYSTEM_PROMPT,
-            model_to_validate=IssuesReview,
-            step_name=step_name,
-            runtime_adapter=REVIEW_RUNTIME_ADAPTER,
-            model=REVIEW_MODEL,
-            reasoning_effort=REVIEW_REASONING_EFFORT,
-            initial_permission_mode=REVIEW_INITIAL_PERMISSION_MODE,
-        )
+        if input.resume_from_run_id:
+            review = await run_forked_review(
+                team_id=input.team_id,
+                user_id=input.user_id,
+                repository=input.repository,
+                branch=input.branch,
+                first_turn_prompt=FORKED_UNIT_FIRST_TURN_PROMPT,
+                review_prompt=f"{REVIEW_SYSTEM_PROMPT}\n\n{FORKED_UNIT_CONTEXT_NOTE}\n\n{prompt}",
+                model_to_validate=IssuesReview,
+                step_name=step_name,
+                runtime_adapter=REVIEW_RUNTIME_ADAPTER,
+                model=REVIEW_MODEL,
+                reasoning_effort=REVIEW_REASONING_EFFORT,
+                initial_permission_mode=REVIEW_INITIAL_PERMISSION_MODE,
+                resume_from_run_id=input.resume_from_run_id,
+                resume_from_task_id=input.resume_from_task_id,
+            )
+        else:
+            review = await run_sandbox_review(
+                team_id=input.team_id,
+                user_id=input.user_id,
+                repository=input.repository,
+                branch=input.branch,
+                prompt=prompt,
+                system_prompt=REVIEW_SYSTEM_PROMPT,
+                model_to_validate=IssuesReview,
+                step_name=step_name,
+                runtime_adapter=REVIEW_RUNTIME_ADAPTER,
+                model=REVIEW_MODEL,
+                reasoning_effort=REVIEW_REASONING_EFFORT,
+                initial_permission_mode=REVIEW_INITIAL_PERMISSION_MODE,
+            )
     # Stamp each issue's perspective (the skill that ran) here, not in combine — it survives the
     # persisted result + resume, and keeps `source_perspective` = skill_name, decoupled from the enum.
     for issue in review.issues:
@@ -767,6 +818,81 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
         results={(input.pass_number, input.chunk_id): review},
     )
     return True
+
+
+def _prepare_warmup_prompt(
+    team_id: int,
+    report_id: str,
+    head_sha: str,
+    chunk_id: int,
+    expected_pass_numbers: list[int],
+) -> str | None:
+    """Build the chunk's warm-up prompt, or None when every expected unit is already persisted.
+
+    The skip mirrors `_prepare_review_prompt`'s idempotence: on a Temporal retry at the same head,
+    a chunk whose whole fan-out already ran must not pay a fresh warm-up.
+    """
+    if expected_pass_numbers:
+        done = load_perspective_results(team_id=team_id, report_id=report_id, head_sha=head_sha)
+        if all((pass_number, chunk_id) in done for pass_number in expected_pass_numbers):
+            return None
+    snapshot = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=head_sha)
+    chunks = load_chunk_set(team_id=team_id, report_id=report_id, head_sha=head_sha)
+    if snapshot is None or chunks is None:
+        raise ApplicationError("PR snapshot or chunk set missing for warm-up", non_retryable=True)
+    chunk = next((c for c in chunks.chunks if c.chunk_id == chunk_id), None)
+    if chunk is None:
+        raise ApplicationError(f"Chunk {chunk_id} not found in chunk set", non_retryable=True)
+    return build_warmup_prompt(chunk, snapshot.pr_files)
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def warmup_chunk_activity(input: WarmupChunkInput) -> WarmupChunkResult:
+    """Run the chunk's neutral read-only warm-up session and return the fork source ids.
+
+    The session ends with the settling turn (see `tools/warmup.py`), and the activity gates on the
+    raw transcript artifact landing on the warm-up's TaskRun — followers hydrate from it, so
+    returning earlier would race them into fresh sessions.
+    """
+    prompt = await database_sync_to_async(_prepare_warmup_prompt, thread_sensitive=False)(
+        input.team_id,
+        input.report_id,
+        input.head_sha,
+        input.chunk_id,
+        input.expected_pass_numbers,
+    )
+    if prompt is None:
+        return WarmupChunkResult(chunk_id=input.chunk_id)
+    async with Heartbeater():
+        session, _ = await start_sandbox_session(
+            team_id=input.team_id,
+            user_id=input.user_id,
+            repository=input.repository,
+            branch=input.branch,
+            prompt=prompt,
+            system_prompt=WARMUP_SYSTEM_PROMPT,
+            model_to_validate=WarmUpResult,
+            step_name=f"warmup-c{input.chunk_id}",
+            runtime_adapter=REVIEW_RUNTIME_ADAPTER,
+            model=REVIEW_MODEL,
+            reasoning_effort=REVIEW_REASONING_EFFORT,
+            initial_permission_mode=REVIEW_INITIAL_PERMISSION_MODE,
+        )
+        try:
+            await continue_sandbox_session(
+                session, prompt=WARMUP_SETTLE_PROMPT, model_to_validate=WarmUpSettleAck, label="settle"
+            )
+        finally:
+            await end_sandbox_session(session)
+        if not await wait_for_session_transcript(session, timeout_seconds=WARMUP_TRANSCRIPT_WAIT_SECONDS):
+            raise ApplicationError(f"Warm-up transcript artifact missing for chunk {input.chunk_id}")
+    return WarmupChunkResult(
+        chunk_id=input.chunk_id,
+        resume_from_task_id=str(session.task.id),
+        resume_from_run_id=str(session.task_run.id),
+    )
 
 
 # --- Combine + scope-clean + dedup -----------------------------------------------------------------
