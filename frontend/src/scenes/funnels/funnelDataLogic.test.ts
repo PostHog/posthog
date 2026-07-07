@@ -1654,15 +1654,19 @@ describe('funnelDataLogic', () => {
             const steps = logic.values.visibleStepsWithConversionMetrics
             expect(steps).toHaveLength(2)
 
-            // Chrome (current 100) outranks Safari (current 40): Chrome pair first, then Safari pair,
-            // current before previous within each value.
-            expect(steps[0].nested_breakdown?.map((b) => [b.breakdown_value, b.compare_label])).toEqual([
-                [['Chrome'], 'current'],
-                [['Chrome'], 'previous'],
-                [['Safari'], 'current'],
-                [['Safari'], 'previous'],
+            // The baseline pair (both periods aggregated) leads, then Chrome (current 100) outranks
+            // Safari (current 40): each value's pair grouped, current before previous.
+            expect(
+                steps[0].nested_breakdown?.map((b) => [getVisibilityKey(b.breakdown_value), b.compare_label])
+            ).toEqual([
+                ['Baseline', 'current'],
+                ['Baseline', 'previous'],
+                ['Chrome', 'current'],
+                ['Chrome', 'previous'],
+                ['Safari', 'current'],
+                ['Safari', 'previous'],
             ])
-            expect(steps[0].nested_breakdown?.map((b) => b.count)).toEqual([100, 80, 40, 25])
+            expect(steps[0].nested_breakdown?.map((b) => b.count)).toEqual([140, 105, 100, 80, 40, 25])
 
             // The step's aggregate (shown in the legend) is the current period's total only —
             // not current+previous summed together.
@@ -1670,33 +1674,51 @@ describe('funnelDataLogic', () => {
             expect(steps[1].count).toBe(70) // 50 Chrome + 20 Safari
         })
 
-        it('shares each period’s height across its breakdown values at the first step (larger period fills)', async () => {
+        it('shares each period’s height across its breakdown values (larger period fills), keeping the first-step basis at later steps', async () => {
             await loadBreakdownCompare(funnelResultStepsBreakdownCompare.result)
 
-            const [chromeCur, chromePrev, safariCur, safariPrev] =
+            const [baselineCur, baselinePrev, chromeCur, chromePrev, safariCur, safariPrev] =
                 logic.values.visibleStepsWithConversionMetrics[0].nested_breakdown!
 
             // At the first step every value converts 100% of its own entrants, so a period's values all
             // share one height — the period's share of the larger baseline: current (140) fills, previous
-            // (105) → 105/140. Chrome and Safari read identically within each period.
+            // (105) → 105/140. Baseline, Chrome and Safari read identically within each period.
+            expect(baselineCur.conversionRates.fromBasisStep).toBe(1)
+            expect(baselinePrev.conversionRates.fromBasisStep).toBe(105 / 140)
             expect(chromeCur.conversionRates.fromBasisStep).toBe(1)
             expect(chromePrev.conversionRates.fromBasisStep).toBe(105 / 140)
             expect(safariCur.conversionRates.fromBasisStep).toBe(1)
             expect(safariPrev.conversionRates.fromBasisStep).toBe(105 / 140)
+
+            // Later steps keep the first-step denominator (largest period's entrants, 140), so each
+            // baseline bar reads as the share of that starting cohort still left: not a per-step
+            // rescale, and not silently dropped past step 0.
+            const [baselineCur1, baselinePrev1] = logic.values.visibleStepsWithConversionMetrics[1].nested_breakdown!
+            expect(baselineCur1.count).toBe(70)
+            expect(baselineCur1.conversionRates.fromBasisStep).toBe(70 / 140)
+            expect(baselinePrev1.count).toBe(40)
+            expect(baselinePrev1.conversionRates.fromBasisStep).toBe(40 / 140)
         })
 
-        it('colors each breakdown value distinctly and desaturates its previous-period bar', async () => {
+        it('colors each breakdown value distinctly, desaturates its previous-period bar, and matches the table', async () => {
             await loadBreakdownCompare(funnelResultStepsBreakdownCompare.result)
 
-            const [chromeCur, chromePrev, safariCur, safariPrev] =
+            const [baselineCur, baselinePrev, chromeCur, chromePrev, safariCur, safariPrev] =
                 logic.values.visibleStepsWithConversionMetrics[0].nested_breakdown!
             const color = logic.values.getFunnelsColor
 
-            // Distinct hue per breakdown value...
+            // Distinct hue per breakdown value, baseline included...
             expect(color(chromeCur)).not.toBe(color(safariCur))
+            expect(color(baselineCur)).not.toBe(color(chromeCur))
             // ...with each value's previous-period bar the same hue, desaturated.
+            expect(color(baselinePrev)).toBe(dimPreviousPeriodColor(color(baselineCur)))
             expect(color(chromePrev)).toBe(dimPreviousPeriodColor(color(chromeCur)))
             expect(color(safariPrev)).toBe(dimPreviousPeriodColor(color(safariCur)))
+
+            // The chart bars now include the baseline the table always showed, in the same order, so
+            // the two share colors bar-for-row instead of being shifted by one slot.
+            const chartColors = logic.values.visibleStepsWithConversionMetrics[0].nested_breakdown!.map(color)
+            expect(chartColors).toEqual(logic.values.flattenedBreakdowns.map(color))
         })
 
         it('doubles the breakdown table into one row per value and period', async () => {
@@ -1745,12 +1767,14 @@ describe('funnelDataLogic', () => {
                 builtDataNodeLogic.actions.loadDataSuccess(insight)
             }).toFinishAllListeners()
 
-            // Hiding Chrome drops its current AND previous bars; Safari's pair remains, still grouped.
+            // Hiding Chrome drops its current AND previous bars; the baseline and Safari's pair remain.
             const visibleValues = logic.values.visibleStepsWithConversionMetrics[0].nested_breakdown?.map((b) => [
                 getVisibilityKey(b.breakdown_value),
                 b.compare_label,
             ])
             expect(visibleValues).toEqual([
+                ['Baseline', 'current'],
+                ['Baseline', 'previous'],
                 ['Safari', 'current'],
                 ['Safari', 'previous'],
             ])

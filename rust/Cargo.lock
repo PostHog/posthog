@@ -1792,6 +1792,7 @@ dependencies = [
  "capture",
  "chrono",
  "common-alloc",
+ "common-compression",
  "common-continuous-profiling",
  "common-redis",
  "common-types",
@@ -1874,6 +1875,7 @@ dependencies = [
  "chrono",
  "clickhouse",
  "common-alloc",
+ "common-compression",
  "common-continuous-profiling",
  "common-metrics",
  "envconfig",
@@ -4538,7 +4540,7 @@ dependencies = [
 
 [[package]]
 name = "hogql_parser_rs"
-version = "1.3.105"
+version = "1.3.106"
 dependencies = [
  "pyo3",
  "serde_json",

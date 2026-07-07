@@ -344,6 +344,12 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "posthog.auth.ZxcvbnValidator"},
 ]
 
+if TEST:
+    # PBKDF2 is deliberately slow (~150ms per hash), which adds up because every
+    # per-test user creation hashes a password. MD5 keeps the same hasher API with
+    # none of the cost. Never used outside tests.
+    PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
+
 PASSWORD_RESET_TIMEOUT = 86_400  # 1 day
 
 ####
@@ -494,6 +500,8 @@ SPECTACULAR_SETTINGS = {
         "TicketStatusEnum": "products.conversations.backend.models.constants.Status",
         "HealthIssueStatusEnum": "posthog.models.health_issue.HealthIssue.Status",
         "HealthIssueSeverityEnum": "posthog.models.health_issue.HealthIssue.Severity",
+        # Disambiguates from the same-valued inline enum on the signals LogsAlertStateChangeSignalExtra contract.
+        "LogsAlertThresholdOperatorEnum": "products.logs.backend.models.LogsAlertConfiguration.ThresholdOperator",
         "LLMProviderEnum": "products.ai_observability.backend.models.provider_keys.LLMProvider",
         "HogFlowStatusEnum": "products.workflows.backend.models.hog_flow.hog_flow.HogFlow.State",
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
@@ -514,7 +522,23 @@ SPECTACULAR_SETTINGS = {
         "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
-        "CustomPropertyDisplayTypeEnum": ["text", "number", "currency", "percent", "date", "datetime", "boolean"],
+        # Full signal taxonomy on the report `signals` endpoint; the source-config serializer's
+        # subset enums keep their own auto-resolved names.
+        "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",
+        "SignalSourceType": "products.signals.backend.enums.SIGNAL_SOURCE_TYPE_VALUES",
+        "CustomPropertyDisplayTypeEnum": [
+            "text",
+            "number",
+            "currency",
+            "percent",
+            "date",
+            "datetime",
+            "boolean",
+            "select",
+        ],
+        # Pinned pre-emptively: the auto-name would be the collision-prone "ColorEnum", and adding a
+        # palette color later would change the hash and silently rename the generated type.
+        "CustomPropertyOptionColorEnum": [f"preset-{i}" for i in range(1, 11)],
         # Experiment now has two serializers (full ExperimentSerializer + ExperimentBasicSerializer
         # for the list endpoint) that both expose `type`/`status`. Pin both to their pre-existing
         # generated names so the shared enums don't get component-prefixed auto-names on collision.
@@ -864,6 +888,9 @@ ERROR_TRACKING_WEEKLY_DIGEST_ORG_IDS = get_list(get_from_env("ERROR_TRACKING_WEE
 # Comma-separated list of email addresses allowed to receive the Error Tracking weekly digest
 # "*" for all
 ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS = get_list(get_from_env("ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS", ""))
+
+# webhook secret used initially for ET weekly digest workflow webhook but feel free to adopt it
+WORKFLOWS_WEBHOOK_SECRET = get_from_env("WORKFLOWS_WEBHOOK_SECRET", "")
 
 ####
 # OAuth

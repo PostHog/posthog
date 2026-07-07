@@ -1,5 +1,7 @@
 import {
     NotebookBlockNode,
+    NotebookCodeBlockNode,
+    NotebookCodeRefMark,
     NotebookComponentBlockNode,
     NotebookComponentProps,
     NotebookDocument,
@@ -228,7 +230,7 @@ function serializeNodeUncached(node: NotebookBlockNode): string {
     if (node.type === 'code') {
         // The fence must be longer than any backtick run in the content, so the content can't close it
         const fence = getCodeBlockFence(node.text)
-        return `${fence}${node.language ?? ''}\n${node.text}\n${fence}`
+        return `${fence}${serializeCodeBlockInfo(node)}\n${node.text}\n${fence}`
     }
     if (node.type === 'component' && node.errors?.length && node.raw) {
         // Props that failed to parse exist only in `raw` — re-emitting from `props` would
@@ -891,13 +893,42 @@ function serializeTableSeparatorCell(alignment: NotebookTableAlignment | undefin
     return '---'
 }
 
+/** A comment anchor in a fence info string: `ref=<id>:<start>-<end>`. */
+const CODE_BLOCK_REF_TOKEN_REGEX = /^ref=([A-Za-z0-9_-]+):(\d+)-(\d+)$/
+
+function serializeCodeBlockInfo(node: NotebookCodeBlockNode): string {
+    const refTokens = (node.refs ?? [])
+        .filter((ref) => ref.start >= 0 && ref.start < node.text.length && ref.end > ref.start)
+        .map((ref) => `ref=${ref.id}:${ref.start}-${Math.min(ref.end, node.text.length)}`)
+    return [node.language ?? '', ...refTokens].filter(Boolean).join(' ')
+}
+
+function parseCodeBlockInfo(info: string): { language?: string; refs: NotebookCodeRefMark[] } {
+    if (!info) {
+        return { language: undefined, refs: [] }
+    }
+
+    const refs: NotebookCodeRefMark[] = []
+    const languageTokens: string[] = []
+    for (const token of info.split(/\s+/)) {
+        const refMatch = token.match(CODE_BLOCK_REF_TOKEN_REGEX)
+        if (refMatch) {
+            refs.push({ id: refMatch[1], start: Number(refMatch[2]), end: Number(refMatch[3]) })
+            continue
+        }
+        languageTokens.push(token)
+    }
+
+    return { language: languageTokens.join(' ') || undefined, refs }
+}
+
 function parseCodeBlock(lines: string[], lineIndex: number): BlockParseResult {
     const startLine = lines[lineIndex].trim()
     const fenceLength = startLine.match(/^`+/)?.[0].length ?? 3
     // Only a bare fence at least as long as the opener closes the block, so shorter
     // fences (or fences with info strings) inside the code stay part of the content
     const closingFenceRegex = new RegExp(`^\`{${fenceLength},}$`)
-    const language = startLine.slice(fenceLength).trim() || undefined
+    const { language, refs } = parseCodeBlockInfo(startLine.slice(fenceLength).trim())
     const codeLines: string[] = []
     let nextLineIndex = lineIndex + 1
 
@@ -906,12 +937,18 @@ function parseCodeBlock(lines: string[], lineIndex: number): BlockParseResult {
         nextLineIndex += 1
     }
 
+    const text = codeLines.join('\n')
+    const validRefs = refs
+        .map((ref) => ({ ...ref, end: Math.min(ref.end, text.length) }))
+        .filter((ref) => ref.start >= 0 && ref.start < text.length && ref.end > ref.start)
+
     return {
         node: {
             id: '',
             type: 'code',
             language,
-            text: codeLines.join('\n'),
+            text,
+            ...(validRefs.length ? { refs: validRefs } : {}),
         },
         nextLineIndex: nextLineIndex < lines.length ? nextLineIndex + 1 : nextLineIndex,
         error:

@@ -17,6 +17,7 @@ import type {
     PaginatedSandboxEnvironmentDTOListApi,
     PaginatedTaskAutomationDTOListApi,
     PaginatedTaskDetailDTOListApi,
+    PaginatedTaskMentionDTOListApi,
     PaginatedTaskRunDetailDTOListApi,
     PaginatedTaskSummaryDTOListApi,
     PaginatedTaskThreadMessageDTOListApi,
@@ -37,6 +38,7 @@ import type {
     TaskAutomationsListParams,
     TaskChannelsListParams,
     TaskDetailDTOApi,
+    TaskMentionsListParams,
     TaskPresenceBeaconRequestApi,
     TaskRepositoriesResponseApi,
     TaskRunAppendLogRequestApi,
@@ -425,6 +427,37 @@ export const taskChannelsDestroy = async (projectId: string, id: string, options
     return apiMutator<void>(getTaskChannelsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getTaskMentionsListUrl = (projectId: string, params?: TaskMentionsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/task_mentions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/task_mentions/`
+}
+
+/**
+ * Thread messages that @-mention the requester, newest first, restricted to tasks they can see.
+ * @summary List mentions of the requester
+ */
+export const taskMentionsList = async (
+    projectId: string,
+    params?: TaskMentionsListParams,
+    options?: RequestInit
+): Promise<PaginatedTaskMentionDTOListApi> => {
+    return apiMutator<PaginatedTaskMentionDTOListApi>(getTaskMentionsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

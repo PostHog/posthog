@@ -9,6 +9,12 @@ import {
     setToolbarRefs,
 } from '~/toolbar/toolbarController'
 
+// The toolbar logger mirrors intentional error/auth paths to the console (its job on
+// customer pages); tests exercise those paths on purpose, so stub the boundary.
+jest.mock('~/toolbar/toolbarLogger', () => ({
+    toolbarLogger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+}))
+
 global.fetch = jest.fn(() =>
     Promise.resolve({
         ok: true,

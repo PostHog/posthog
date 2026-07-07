@@ -52,6 +52,18 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
     CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: string
 
+    // Master switch for pre-send email MX validation, off by default. When true,
+    // every email send is validated (syntax + MX lookup, cached per domain) and
+    // would-skip outcomes are recorded in Prometheus — shadow mode unless the team
+    // is also matched by CDP_EMAIL_MX_VALIDATION_ENFORCE_TEAMS, which controls
+    // actual skipping.
+    CDP_EMAIL_MX_VALIDATION_ENABLED: boolean
+    // Teams whose predicted hard bounces are actually skipped (same string format as
+    // the other team matchers: '' = none, '*' = all, '2,7' = exact set). Teams not
+    // matched here are observe-only: validation runs and metrics are recorded, but
+    // the send always proceeds.
+    CDP_EMAIL_MX_VALIDATION_ENFORCE_TEAMS: string
+
     CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: string
     CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
     CDP_LEGACY_EVENT_CONSUMER_INCLUDE_WEBHOOKS: boolean
@@ -107,10 +119,9 @@ export type CdpConfig = ClickhouseConfig & {
     HOG_INVOCATION_RESULTS_ENABLED: boolean
     // Message assets: rendered emails snapshotted to object storage + a metadata
     // row in the message_assets ClickHouse table, surfaced in the workflow
-    // "Assets" tab. Capture is a global ops kill-switch, not a per-team toggle.
+    // "Assets" tab.
     MESSAGE_ASSETS_TOPIC: string
     MESSAGE_ASSETS_PRODUCER: CdpProducerName
-    MESSAGE_ASSETS_CAPTURE_ENABLED: boolean
     HOG_INVOCATION_RERUN_MAX_COUNT: number
     // How many rerun wrapper jobs the worker dequeues per cyclotron-v2 poll.
     // Kept small by default — each job runs a full ClickHouse query per page.
@@ -178,6 +189,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: 'hog',
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
         CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
+        CDP_EMAIL_MX_VALIDATION_ENABLED: false,
+        CDP_EMAIL_MX_VALIDATION_ENFORCE_TEAMS: '',
 
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
@@ -238,7 +251,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Same cyclotron Warpstream cluster as hog_invocation_results — ClickHouse
         // consumes message_assets from the warpstream_cyclotron named collection.
         MESSAGE_ASSETS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
-        MESSAGE_ASSETS_CAPTURE_ENABLED: isDevEnv() ? true : false,
         // Hard cap on rows a single rerun wrapper job will drain. Mirrors the
         // Django serializer's HOG_INVOCATION_RERUN_MAX_COUNT (same env var).
         HOG_INVOCATION_RERUN_MAX_COUNT: 10000,
