@@ -387,7 +387,7 @@ DENY_PATTERNS = _compile_patterns(_DENY_PATTERN_DEFS)
 
 # Compiled path patterns for stamphog's own policy/engine files. A dismiss-time
 # guard consults these so a retained approval can't silently absorb a policy
-# edit - .md is otherwise blanket-trivial and AGENT_POLICIES.md would slip in.
+# edit - .md is otherwise blanket-trivial and AGENT_APPROVALS.md would slip in.
 _STAMPHOG_POLICY_PATH_PATTERNS = DENY_PATTERNS["stamphog_policy"]["paths"]
 
 ALLOW_ONLY_EXTENSIONS = set(POLICY.allow_extensions)
@@ -432,7 +432,7 @@ def is_trivial_at_dismiss_time(path: str) -> bool:
     """
     # Stamphog's own policy/engine files are never trivial at dismiss time -
     # otherwise a retained approval would let a post-approval policy edit land
-    # unreviewed (AGENT_POLICIES.md is .md, which is blanket-trivial below).
+    # unreviewed (AGENT_APPROVALS.md is .md, which is blanket-trivial below).
     if any(rx.search(path) for rx in _STAMPHOG_POLICY_PATH_PATTERNS):
         return False
 

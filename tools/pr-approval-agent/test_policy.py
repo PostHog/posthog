@@ -271,8 +271,8 @@ def test_malformed_policy_hard_fails(tmp_path: Path, mutate) -> None:
 # ── 3. Folder-override resolution ──
 
 
-_VISUAL_REVIEW_FILE = "products/visual_review/AGENT_POLICIES.md"
-_PRODUCTS_FILE = "products/AGENT_POLICIES.md"
+_VISUAL_REVIEW_FILE = "products/visual_review/AGENT_APPROVALS.md"
+_PRODUCTS_FILE = "products/AGENT_APPROVALS.md"
 _PROSE_ONLY_FM = "{}"
 
 
@@ -285,10 +285,10 @@ def _multi_prose(*parts: tuple[str, str]) -> str:
 
 
 def _write_agent_policy(root: Path, rel_dir: str, frontmatter: str, prose: str) -> str:
-    path = root / rel_dir / "AGENT_POLICIES.md"
+    path = root / rel_dir / "AGENT_APPROVALS.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(f"---\n{frontmatter}\n---\n\n{prose}\n")
-    return f"{rel_dir}/AGENT_POLICIES.md"
+    return f"{rel_dir}/AGENT_APPROVALS.md"
 
 
 def _write_folder_policy(root: Path, frontmatter: str, prose: str = "advisory prose") -> None:
@@ -471,7 +471,7 @@ def test_resolve_invalid_child_rides_parent_grant(fake_repo: Path) -> None:
 
 @pytest.mark.parametrize(
     "path",
-    [".stamphog/policy.yml", "some/AGENT_POLICIES.md", "tools/pr-approval-agent/review_pr.py"],
+    [".stamphog/policy.yml", "some/AGENT_APPROVALS.md", "tools/pr-approval-agent/review_pr.py"],
 )
 def test_policy_file_only_pr_is_t2_never(path: str) -> None:
     deny = gates.detect_deny_categories([path])
@@ -506,7 +506,7 @@ def test_reviewer_system_composes_guidance_and_scaffold() -> None:
 
 @pytest.mark.parametrize(
     "path",
-    ["products/visual_review/AGENT_POLICIES.md", ".stamphog/policy.yml", "tools/pr-approval-agent/gates.py"],
+    ["products/visual_review/AGENT_APPROVALS.md", ".stamphog/policy.yml", "tools/pr-approval-agent/gates.py"],
 )
 def test_policy_paths_not_trivial_at_dismiss_time(path: str) -> None:
     assert gates.is_trivial_at_dismiss_time(path) is False

@@ -121,7 +121,7 @@ deny:
         match:
             paths:
                 - '\.stamphog/'
-                - 'AGENT_POLICIES\.md'
+                - 'AGENT_APPROVALS\.md'
                 - 'tools/pr-approval-agent/'
 allow:
     path_patterns:
