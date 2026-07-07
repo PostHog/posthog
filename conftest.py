@@ -62,7 +62,7 @@ def _cache_reverse_rel_identity() -> None:
             self._identity_hash = h = hash(self.identity)
             return h
 
-    ForeignObjectRel.__hash__ = cached_hash  # type: ignore[assignment]
+    ForeignObjectRel.__hash__ = cached_hash  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
     # __eq__ compares the full identity tuples element by element (each element itself a
     # Field with a non-trivial __eq__), and dict probing in select-mask construction calls
@@ -85,7 +85,7 @@ def _cache_reverse_rel_identity() -> None:
     # _eq_cache is per-instance and per-session (unbounded), holding strong refs to every
     # object each rel is ever compared with. Bounded by schema size, not test count, so
     # harmless in practice — but don't mistake it for a per-test cache.
-    ForeignObjectRel.__eq__ = cached_eq  # type: ignore[method-assign, assignment]
+    ForeignObjectRel.__eq__ = cached_eq  # type: ignore[method-assign, assignment]  # ty: ignore[invalid-assignment]
 
 
 def _cache_select_masks() -> None:
@@ -112,7 +112,7 @@ def _cache_select_masks() -> None:
             mask = masks[key] = orig_get_select_mask(self)
         return mask
 
-    Query.get_select_mask = get_select_mask  # type: ignore[method-assign]
+    Query.get_select_mask = get_select_mask  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
 
 def _cache_drf_field_info() -> None:
@@ -131,7 +131,7 @@ def _cache_drf_field_info() -> None:
             info = infos[key] = orig_get_field_info(model)
         return info
 
-    model_meta.get_field_info = get_field_info
+    model_meta.get_field_info = get_field_info  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
 
 def _cache_url_resolution() -> None:
@@ -166,7 +166,7 @@ def _cache_url_resolution() -> None:
         match.extra_kwargs = dict(getattr(hit, "extra_kwargs", None) or {})
         return match
 
-    resolvers.URLResolver.resolve = resolve  # type: ignore[method-assign]
+    resolvers.URLResolver.resolve = resolve  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
 
 def pytest_configure(config) -> None:
