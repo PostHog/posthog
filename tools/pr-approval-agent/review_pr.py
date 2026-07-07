@@ -869,6 +869,15 @@ def main() -> None:
     if verdict == "DRY-RUN":
         print(f"\n{_dim('DRY RUN — would proceed to LLM review')}")
 
+    # Show the comment exactly as it would be posted (the workflow posts
+    # review_body verbatim), gate-mechanics table included.
+    review_body = pipeline._render_review_body()
+    if review_body:
+        print(f"\n{_bold('Review comment (as posted)')}")
+        print(_dim("─" * 60))
+        print(review_body)
+        print(_dim("─" * 60))
+
     if args.output_json:
         pipeline.save_json(args.output_json)
 
