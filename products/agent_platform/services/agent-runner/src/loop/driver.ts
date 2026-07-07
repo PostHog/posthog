@@ -552,6 +552,13 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         }
         {
             const approvals = deps.approvals
+            // pi-agent-core Promise.alls a turn's tool calls, so two gated
+            // calls in one turn would both pass the max_open_approvals count
+            // check before either row lands. Chain the count+insert critical
+            // section instead: one worker owns a session run (queue claim is
+            // exclusive), so an in-process chain is a sufficient lock — no
+            // other process inserts queued rows for this session.
+            let gateChain: Promise<unknown> = Promise.resolve()
             // Shared by the static wrap and the dynamic proxy wrap. Every gated
             // call queues for a human decision — being the asker is not consent
             // to the specific call (the model could have been steered by content
@@ -562,17 +569,22 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 args: Record<string, unknown>,
                 policy: ApprovalPolicy
             ): Promise<AgentToolResult<ToolResultDetails>> => {
-                const queued = await queueApprovalResult({
-                    approvals,
-                    buildApprovalUrl: deps.buildApprovalUrl,
-                    session,
-                    revisionId: rev.id,
-                    turn,
-                    toolName,
-                    toolCallId,
-                    args,
-                    policy,
-                })
+                const run = gateChain.then(() =>
+                    queueApprovalResult({
+                        approvals,
+                        buildApprovalUrl: deps.buildApprovalUrl,
+                        session,
+                        revisionId: rev.id,
+                        turn,
+                        toolName,
+                        toolCallId,
+                        args,
+                        policy,
+                        maxOpenApprovals: rev.spec.limits.max_open_approvals,
+                    })
+                )
+                gateChain = run.catch(() => undefined)
+                const queued = await run
                 // `principal` + Slack: post Approve/Reject buttons in-thread
                 // (best-effort; skip a deduped re-queue).
                 const reqId = queued.details?.requestId
