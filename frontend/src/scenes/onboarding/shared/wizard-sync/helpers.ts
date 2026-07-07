@@ -1,4 +1,4 @@
-import { InstallationProgress, InstallationStep, InstallationStepStatus } from '../installationProgressLogic'
+import { InstallationProgress, InstallationStep, InstallationStepStatus } from './installationProgressLogic'
 
 // "m:ss", or "h:mm:ss" once a run passes the hour mark (cloud runs can be long).
 export function formatElapsed(totalSeconds: number): string {

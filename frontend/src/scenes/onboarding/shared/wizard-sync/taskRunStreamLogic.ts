@@ -15,7 +15,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { getTasksRunsStreamRetrieveUrl, tasksRunsRetrieve } from 'products/tasks/frontend/generated/api'
 import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { onboardingEventUsageLogic } from '../../../onboardingEventUsageLogic'
+import { onboardingEventUsageLogic } from '../../onboardingEventUsageLogic'
 import { activeCloudRunLogic } from './activeCloudRunLogic'
 import type { taskRunStreamLogicType } from './taskRunStreamLogicType'
 
