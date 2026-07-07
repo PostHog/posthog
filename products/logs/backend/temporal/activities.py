@@ -629,8 +629,10 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
             # Delivery barrier: block until Kafka acks (or the flush deadline
             # passes) BEFORE the save, so undelivered notifications roll state
             # back and get retried next cycle. flush() blocks, so run it off
-            # the event loop.
-            dispatched = await asyncio.to_thread(_resolve_notification_deliveries, dispatched)
+            # the event loop — and only when something was actually produced,
+            # sparing quiet cohorts the thread hop.
+            if any(d.produce_result is not None for d in dispatched):
+                dispatched = await asyncio.to_thread(_resolve_notification_deliveries, dispatched)
 
             try:
                 saved, failed = (await save_cohort_async(dispatched, now)) if dispatched else ([], [])
@@ -915,7 +917,7 @@ def _resolve_notification_deliveries(dispatched: list[_DispatchedAlert]) -> list
     with rolled-back state beats no save at all — the cohort erroring out here
     would skip the save entirely.
     """
-    if not any(d.produce_result is not None for d in dispatched):
+    if all(d.produce_result is None for d in dispatched):
         return dispatched
 
     try:
@@ -932,6 +934,9 @@ def _resolve_notification_deliveries(dispatched: list[_DispatchedAlert]) -> list
             resolved.append(d)
             continue
         try:
+            # Delivery callbacks only fire while flush()/poll() pumps the queue,
+            # so after the flush above each result is already resolved or never
+            # will be this cycle — timeout=0 reads the outcome without blocking.
             d.produce_result.get(timeout=0)
             resolved.append(d)
         except Exception:

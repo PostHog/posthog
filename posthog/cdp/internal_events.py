@@ -77,8 +77,7 @@ def produce_internal_event(
 
 def flush_internal_events_producer(timeout: float) -> int:
     """Block until previously produced internal events are delivered (or `timeout`
-    elapses), returning the number still undelivered. Callers that must not
-    persist "notified" state before delivery use this as a barrier, then check
-    each `ProduceResult` individually — a zero here only means all delivery
-    callbacks have fired, not that they all succeeded."""
+    elapses), returning the number still undelivered. A zero only means all
+    delivery callbacks have fired, not that they all succeeded — check each
+    `ProduceResult` for per-message outcomes."""
     return get_producer(topic=KAFKA_CDP_INTERNAL_EVENTS).flush(timeout)
