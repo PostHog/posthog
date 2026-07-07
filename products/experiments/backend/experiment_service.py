@@ -1771,8 +1771,9 @@ class ExperimentService:
         try:
             with transaction.atomic():
                 # Lock the flag row so the guard re-check, the transform, and the save happen against
-                # a state no concurrent freeze/pause/archive/edit can move underneath us — those
-                # writers either committed (we see them) or block until we commit.
+                # a state no concurrent freeze/pause/archive/reset/edit can move underneath us — those
+                # writers either committed (we see them) or block until we commit (reset takes this
+                # same lock in _clear_frozen_exposure, so it can't slip between our re-check and save).
                 locked_flag = (
                     FeatureFlag.objects.select_for_update()
                     .filter(pk=experiment.feature_flag_id, team_id=experiment.team_id)
@@ -2268,11 +2269,19 @@ class ExperimentService:
 
         Checks the group stamps rather than ``is_exposure_frozen`` on purpose: stale stamps on a
         stopped or paused experiment's flag must be cleared too, or the relaunch is born frozen.
+
+        Reads the flag under ``select_for_update`` (the caller runs in a transaction) so a reset
+        serializes with freeze_exposure's phase 2: a freeze committing mid-reset would otherwise
+        stamp the flag after this method saw it stamp-free, leaving a draft experiment born frozen.
         """
         if experiment.feature_flag_id is None:
             return
-        flag = experiment.feature_flag
-        if flag.deleted:
+        flag = (
+            FeatureFlag.objects.select_for_update()
+            .filter(pk=experiment.feature_flag_id, team_id=experiment.team_id)
+            .first()
+        )
+        if flag is None or flag.deleted:
             return
         stripped_filters, cohort_ids = self._strip_frozen_exposure_from_filters(flag.filters or {})
         if stripped_filters == (flag.filters or {}):
