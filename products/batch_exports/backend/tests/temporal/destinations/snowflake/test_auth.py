@@ -24,13 +24,11 @@ def test_load_private_key_raises_error_if_key_is_invalid():
 
 
 def test_load_private_key_raises_error_if_incorrect_passphrase():
-    """Test we raise the right error when passing an incorrect passphrase."""
     buffer = _create_key("a-passphrase")
 
-    with pytest.raises(InvalidPrivateKeyError) as exc_info:
+    # Assert only the type: the error message varies with the random key's padding; the raised type doesn't.
+    with pytest.raises(InvalidPrivateKeyError):
         _ = load_private_key(buffer.read(), "another-passphrase")
-
-    assert "incorrect passphrase" in str(exc_info.value)
 
 
 def test_load_private_key_raises_error_if_passphrase_not_empty():
