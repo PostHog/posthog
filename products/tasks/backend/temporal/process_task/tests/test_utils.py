@@ -516,8 +516,6 @@ class TestGetGithubToken(TestCase):
 
         org = Organization.objects.create(name="o")
         team = Team.objects.create(organization=org, name="t")
-        # A disarmed dead installation: expires_in/refreshed_at dropped (so access_token_expired()
-        # is False forever) with the unavailable marker set and a stale token still stored.
         integration = Integration.objects.create(
             team=team,
             kind="github",

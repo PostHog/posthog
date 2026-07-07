@@ -512,9 +512,6 @@ def get_github_token(github_integration_id: int) -> Optional[str]:
     github_integration = GitHubIntegration(integration)
 
     if github_integration.installation_unavailable():
-        # The installation is uninstalled/suspended and proactive refresh was disarmed, so
-        # access_token_expired() stays False forever — the stored token is stale. Handing it
-        # out would 401 in the sandbox while the refresh cycle reports "refreshed".
         raise CredentialUnavailableError(
             "GitHub App installation for this integration is uninstalled or suspended",
             {"github_integration_id": github_integration_id},

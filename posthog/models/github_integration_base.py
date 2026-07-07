@@ -45,8 +45,6 @@ GITHUB_REPOSITORY_CACHE_TTL_SECONDS = 60 * 60
 GITHUB_BRANCH_CACHE_TTL_SECONDS = 60 * 10
 GITHUB_BRANCH_CACHE_TIMEOUT_SECONDS = 60 * 60 * 24
 
-# Stamped into config when a token mint reports the installation permanently gone
-# (uninstalled/suspended); cleared by the next successful mint. See installation_unavailable().
 INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY = "installation_unavailable_since"
 
 
@@ -347,7 +345,6 @@ class GitHubIntegrationBase:
             "expires_in": expires_in,
             "refreshed_at": int(time.time()),
         }
-        # A successful mint proves the installation is back — clear the dead-installation marker.
         config.pop(INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY, None)
         self.integration.config = config
         self.integration.sensitive_config = {
