@@ -742,8 +742,17 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                     id: item.key,
                                     name: item.label,
                                 })
-                            } else if (item.value) {
-                                attachedContext.push({ type: 'text', value: item.value })
+                            } else {
+                                // Keyed items outside the allowlist (e.g. a trace ref) carry no `value`,
+                                // so render their key/label the way posthogContextBlock's formatItem does.
+                                const keyedFallback =
+                                    item.key != null && item.key !== ''
+                                        ? `${item.type} ${item.key}${item.label ? ` ("${item.label}")` : ''}`
+                                        : ''
+                                const fallback = item.value || keyedFallback
+                                if (fallback.trim()) {
+                                    attachedContext.push({ type: 'text', value: fallback })
+                                }
                             }
                         }
                         if (values.agentMode) {

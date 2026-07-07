@@ -24,13 +24,23 @@ export function formatPosthogContextBlock(items: AttachedContextItem[]): string 
     return lines.join('\n')
 }
 
+/**
+ * Invariant: interpolated fields must never contain the literal close-tag sequence.
+ * `unwrapUserMessageContent` cuts at the FIRST '</posthog_context>', so a raw close tag inside the
+ * body would truncate the strip early and leave block remnants on replay. Mirrors the backend
+ * `_defang` in `context_wrapper.py`.
+ */
+function defang(text: string | number): string {
+    return String(text).replace(/<\/posthog_context/g, '<\\/posthog_context')
+}
+
 function formatItem(item: AttachedContextItem): string {
     if (item.key === undefined || item.key === null || item.key === '') {
-        return `- ${item.type}: "${item.value ?? ''}"`
+        return `- ${defang(item.type)}: "${defang(item.value ?? '')}"`
     }
-    let line = `- ${item.type} ${item.key}`
+    let line = `- ${defang(item.type)} ${defang(item.key)}`
     if (item.label) {
-        line += ` ("${item.label}")`
+        line += ` ("${defang(item.label)}")`
     }
     return line
 }

@@ -13,7 +13,7 @@ import {
     TaskExecutionModeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
-import { attachedContextLogic, runStreamLogic } from '../../api/logics'
+import { attachedContextItemKey, attachedContextLogic, runStreamLogic } from '../../api/logics'
 import type { SuggestionGroup, SuggestionItem } from '../../api/primitives'
 import { DEFAULT_HEADLINES, pickHeadline } from '../../api/primitives'
 import { runnerPanelLogic } from '../../logics/runnerPanelLogic'
@@ -83,6 +83,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             ['loadTasks', 'loadRepositories', 'deleteTask'],
             integrationsLogic,
             ['loadIntegrationsSuccess'],
+            attachedContextLogic,
+            ['markContextSent'],
         ],
     })),
 
@@ -246,6 +248,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 // Auto-run the task after creation; the detail scene shows the latest run by default. The
                 // run checks out the chosen branch (server falls back to the repo's default branch if unset)
                 // and launches with the picked model / reasoning effort (clamped to one the model supports).
+                // Snapshot the context here so the keys marked sent below match exactly what got wrapped.
+                const seededContext = values.contextItems
                 const runResponse = await api.tasks.run(newTask.id, {
                     branch: repositoryConfig.branch ?? null,
                     runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
@@ -259,8 +263,15 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     mode: TaskExecutionModeEnumApi.Interactive,
                     // Wrap only the message sent to the agent with the on-screen context block; the task
                     // `description` field and the optimistic seed (`startOptimisticRun`) stay raw.
-                    pending_user_message: wrapWithPosthogContext(description, values.contextItems),
+                    pending_user_message: wrapWithPosthogContext(description, seededContext),
                 })
+
+                // Mark the seeded non-text refs sent under the created task, so the run's first follow-up
+                // (sent via `runInteractionLogic`) doesn't re-wrap them. Text items always resend.
+                const seededKeys = seededContext.filter((item) => item.type !== 'text').map(attachedContextItemKey)
+                if (seededKeys.length > 0) {
+                    actions.markContextSent(newTask.id, seededKeys)
+                }
 
                 // Attach the real ids to the optimistic creation so the detail page adopts this seeded stream
                 // (same `streamKey` + real `runId`) instead of cold-bootstrapping a fresh, skeleton-flashing one.

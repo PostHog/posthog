@@ -52,4 +52,19 @@ describe('attachedContextLogic', () => {
             logic.actions.registerContext('p', [{ type: 'insight' }, { type: 'text', value: 'keep me' }])
         }).toMatchValues({ contextItems: [{ type: 'text', value: 'keep me' }] })
     })
+
+    // Sent-context keys are scoped per task: a global (unkeyed) store would prune context from the first
+    // message of an unrelated task just because the same resource was sent from another one.
+    it('accumulates sent context keys per task without leaking across tasks', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.markContextSent('task-a', ['insight:x'])
+            logic.actions.markContextSent('task-a', ['insight:x', 'dashboard:9'])
+            logic.actions.markContextSent('task-b', ['insight:x'])
+        }).toMatchValues({
+            sentContextKeysByTask: {
+                'task-a': ['insight:x', 'dashboard:9'],
+                'task-b': ['insight:x'],
+            },
+        })
+    })
 })

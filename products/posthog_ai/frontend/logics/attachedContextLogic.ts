@@ -12,6 +12,12 @@ import type { attachedContextLogicType } from './attachedContextLogicType'
  * A consumer reads `contextItems` at send time and wraps the outgoing message with a
  * `<posthog_context>` block (`utils/posthogContextBlock`). Nothing here is keyed by conversation —
  * the on-screen context is global to the app at any instant.
+ *
+ * This store also keeps the sent-context bookkeeping (`sentContextKeysByTask`): which non-text refs
+ * were already wrapped into a sent message, keyed by task id. The send paths mark keys after a
+ * successful send and prune already-sent refs from the next wrap. It is task-scoped (not run-scoped)
+ * so the dedupe survives a terminal-run send re-pointing the consumer to a fresh run, mirroring the
+ * backend's `prune_repeated_entity_refs`, which dedupes across a task's whole resume chain.
  */
 export const attachedContextLogic = kea<attachedContextLogicType>([
     path(['products', 'posthog_ai', 'frontend', 'logics', 'attachedContextLogic']),
@@ -20,6 +26,8 @@ export const attachedContextLogic = kea<attachedContextLogicType>([
         /** Idempotent upsert — re-register the same `providerId` to update its items. */
         registerContext: (providerId: string, items: AttachedContextItem[]) => ({ providerId, items }),
         deregisterContext: (providerId: string) => ({ providerId }),
+        /** Record context item keys already wrapped into a message sent for `taskId`. */
+        markContextSent: (taskId: string, keys: string[]) => ({ taskId, keys }),
     }),
 
     reducers({
@@ -33,6 +41,24 @@ export const attachedContextLogic = kea<attachedContextLogicType>([
                     }
                     const { [providerId]: _dropped, ...rest } = state
                     return rest
+                },
+            },
+        ],
+        // Per-task set of `attachedContextItemKey`s already wrapped into a sent message. Append-only for
+        // the session: entity refs sent once anywhere in a task's resume chain stay pruned from later sends.
+        sentContextKeysByTask: [
+            {} as Record<string, string[]>,
+            {
+                markContextSent: (state, { taskId, keys }) => {
+                    if (keys.length === 0) {
+                        return state
+                    }
+                    const existing = state[taskId] ?? []
+                    const added = keys.filter((key) => !existing.includes(key))
+                    if (added.length === 0) {
+                        return state
+                    }
+                    return { ...state, [taskId]: [...existing, ...added] }
                 },
             },
         ],

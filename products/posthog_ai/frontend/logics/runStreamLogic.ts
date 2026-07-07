@@ -809,6 +809,90 @@ function dedupeBufferedAgainstHistory(buffered: StoredLogEntry[], history: Store
     return survivors
 }
 
+/**
+ * The invocation a `tool_call` frame creates, replacing any prior invocation for the id. Shared by
+ * the `foldLogToThread` projection and the per-frame tracker in `ingestAcpFrame`, so tool-stream
+ * events carry exactly the invocation the projection derives without re-folding the whole log.
+ */
+function invocationFromToolCall(update: Record<string, unknown>): ToolInvocation | null {
+    const toolCallId = String(update.toolCallId ?? '')
+    if (!toolCallId) {
+        return null
+    }
+    return {
+        toolCallId,
+        rawServerName: String(update.serverName ?? 'posthog'),
+        rawToolName: String(update.toolName ?? ''),
+        input: (update.rawInput ?? update.input ?? {}) as Record<string, unknown>,
+        status: mapAcpStatus(update.status),
+        title: update.title as string | undefined,
+        kind: update.kind as string | undefined,
+        locations: update.locations as { path: string; line?: number }[] | undefined,
+        contentBlocks: Array.isArray(update.content) ? update.content : [],
+        meta: update._meta,
+    }
+}
+
+/**
+ * Folds one `tool_call_update` frame into the existing invocation (field-wise, newer-wins; the
+ * invocation-level twin of `mergeToolCallUpdateEntries`). A reconnect can deliver a terminal update
+ * whose creating `tool_call` was lost, so with no existing invocation this builds a minimal one and
+ * the card still renders instead of vanishing. Shared by the projection and the per-frame tracker.
+ */
+function invocationFromToolCallUpdate(
+    existing: ToolInvocation | undefined,
+    update: Record<string, unknown>,
+    notification: StoredLogEntry['notification']
+): ToolInvocation | null {
+    const toolCallId = String(update.toolCallId ?? '')
+    if (!toolCallId) {
+        return null
+    }
+    const status = mapAcpStatus(update.status ?? existing?.status)
+    const rawInput =
+        update.rawInput && typeof update.rawInput === 'object'
+            ? (update.rawInput as Record<string, unknown>)
+            : update.input && typeof update.input === 'object'
+              ? (update.input as Record<string, unknown>)
+              : undefined
+    const denialReason = status === 'failed' ? extractDenialReason(update._meta) : undefined
+    const errorMessage =
+        (update.error as { message?: string } | null)?.message ??
+        denialReason ??
+        (status === 'failed' ? notification.error?.message : undefined)
+    const updateContent = Array.isArray(update.content) ? update.content : []
+
+    if (!existing) {
+        return {
+            toolCallId,
+            rawServerName: 'posthog',
+            rawToolName: '',
+            input: rawInput ?? {},
+            status,
+            title: update.title as string | undefined,
+            locations: update.locations as { path: string; line?: number }[] | undefined,
+            contentBlocks: updateContent,
+            meta: update._meta,
+            ...(errorMessage !== undefined ? { error: { message: errorMessage } } : {}),
+        }
+    }
+
+    return {
+        ...existing,
+        status,
+        title: (update.title as string | undefined) ?? existing.title,
+        progress: update.progress ?? existing.progress,
+        output: update.rawOutput ?? existing.output,
+        locations: (update.locations as { path: string; line?: number }[] | undefined) ?? existing.locations,
+        // ACP update semantics: a present `content` replaces the collection (the agent re-sends
+        // the full accumulated blocks) — appending would duplicate every prior snapshot.
+        contentBlocks: updateContent.length > 0 ? updateContent : existing.contentBlocks,
+        error: errorMessage !== undefined ? { message: errorMessage } : existing.error,
+        ...(rawInput ? { input: rawInput } : {}),
+        ...(update._meta ? { meta: update._meta } : {}),
+    }
+}
+
 export interface FoldedThread {
     threadItems: ThreadItem[]
     toolInvocations: Map<string, ToolInvocation>
@@ -935,60 +1019,15 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
         update: Record<string, unknown>,
         notification: StoredLogEntry['notification']
     ): void => {
-        const toolCallId = String(update.toolCallId ?? '')
-        if (!toolCallId) {
+        const existing = invocations.get(String(update.toolCallId ?? ''))
+        const next = invocationFromToolCallUpdate(existing, update, notification)
+        if (!next) {
             return
         }
-        const existing = invocations.get(toolCallId)
-        const status = mapAcpStatus(update.status ?? existing?.status)
-        const rawInput =
-            update.rawInput && typeof update.rawInput === 'object'
-                ? (update.rawInput as Record<string, unknown>)
-                : update.input && typeof update.input === 'object'
-                  ? (update.input as Record<string, unknown>)
-                  : undefined
-        const denialReason = status === 'failed' ? extractDenialReason(update._meta) : undefined
-        const errorMessage =
-            (update.error as { message?: string } | null)?.message ??
-            denialReason ??
-            (status === 'failed' ? notification.error?.message : undefined)
-        const updateContent = Array.isArray(update.content) ? update.content : []
-
-        if (!existing) {
-            // A reconnect can deliver a terminal update whose creating `tool_call` was lost — upsert a
-            // minimal invocation so the card still renders instead of vanishing.
-            invocations.set(toolCallId, {
-                toolCallId,
-                rawServerName: 'posthog',
-                rawToolName: '',
-                input: rawInput ?? {},
-                status,
-                title: update.title as string | undefined,
-                locations: update.locations as { path: string; line?: number }[] | undefined,
-                contentBlocks: updateContent,
-                meta: update._meta,
-                ...(errorMessage !== undefined ? { error: { message: errorMessage } } : {}),
-            })
-            if (!subagentParentToolCallId(update._meta)) {
-                upsertInvocationItem(toolCallId)
-            }
-            return
+        invocations.set(next.toolCallId, next)
+        if (!existing && !subagentParentToolCallId(update._meta)) {
+            upsertInvocationItem(next.toolCallId)
         }
-
-        invocations.set(toolCallId, {
-            ...existing,
-            status,
-            title: (update.title as string | undefined) ?? existing.title,
-            progress: update.progress ?? existing.progress,
-            output: update.rawOutput ?? existing.output,
-            locations: (update.locations as { path: string; line?: number }[] | undefined) ?? existing.locations,
-            // ACP update semantics: a present `content` replaces the collection (the agent re-sends
-            // the full accumulated blocks) — appending would duplicate every prior snapshot.
-            contentBlocks: updateContent.length > 0 ? updateContent : existing.contentBlocks,
-            error: errorMessage !== undefined ? { message: errorMessage } : existing.error,
-            ...(rawInput ? { input: rawInput } : {}),
-            ...(update._meta ? { meta: update._meta } : {}),
-        })
     }
 
     for (const { entry, source } of entries) {
@@ -1151,26 +1190,15 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
                 )
                 break
             case 'tool_call': {
-                const toolCallId = String(update.toolCallId ?? '')
-                if (!toolCallId) {
+                const invocation = invocationFromToolCall(update)
+                if (!invocation) {
                     break
                 }
-                invocations.set(toolCallId, {
-                    toolCallId,
-                    rawServerName: String(update.serverName ?? 'posthog'),
-                    rawToolName: String(update.toolName ?? ''),
-                    input: (update.rawInput ?? update.input ?? {}) as Record<string, unknown>,
-                    status: mapAcpStatus(update.status),
-                    title: update.title as string | undefined,
-                    kind: update.kind as string | undefined,
-                    locations: update.locations as { path: string; line?: number }[] | undefined,
-                    contentBlocks: Array.isArray(update.content) ? update.content : [],
-                    meta: update._meta,
-                })
+                invocations.set(invocation.toolCallId, invocation)
                 // A subagent's inner tool calls carry the parent Task's id; they belong inside that
                 // card, not as top-level siblings, so keep them out of the thread.
                 if (!subagentParentToolCallId(update._meta)) {
-                    upsertInvocationItem(toolCallId)
+                    upsertInvocationItem(invocation.toolCallId)
                 }
                 break
             }
@@ -2491,7 +2519,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
             cache.disposables.dispose('event-source')
         },
         reset: () => {
-            // `log` clears via its own reducer on `reset`, so the projection empties with it.
+            // `log` clears via its own reducer on `reset`, so the projection empties with it. The
+            // per-frame invocation tracker mirrors the log, so it must clear alongside it.
+            cache.trackedToolInvocations = undefined
             cache.activeRun = undefined
             cache.turnStartedAtMs = undefined
             cache.isBootstrapping = false
@@ -2552,13 +2582,29 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // (so history replay doesn't pay per-frame resolution for nobody).
             const emitToolStream = !isReplay || hasReplayListener(values.toolListeners)
 
-            // Pre-update tool status for the once-per-transition `tool_call_completed` telemetry and the
-            // tool-stream phase, read from the projection BEFORE the append folds this update in.
+            // Per-frame tool-invocation tracker: the same fold the projection applies, maintained
+            // O(1) per tool frame so the telemetry and tool-stream emits below never read the
+            // `toolInvocations` projection (each such read re-folds the entire log, which turns a
+            // long tool-heavy history replay quadratic). Maintained for every source so a live update
+            // whose `tool_call` arrived during replay still sees the right prior status.
+            // `preToolStatus` is the status BEFORE this frame folds in; it gates the
+            // once-per-transition `tool_call_completed` telemetry and the tool-stream phase.
+            const trackedInvocations: Map<string, ToolInvocation> = (cache.trackedToolInvocations ??= new Map())
             let preToolStatus: ToolInvocationStatus | undefined
-            if (emitToolStream && method === 'session/update') {
+            if (method === 'session/update') {
                 const u = notification.params?.update
-                if (isRecord(u) && u.sessionUpdate === 'tool_call_update') {
-                    preToolStatus = values.toolInvocations.get(String(u.toolCallId ?? ''))?.status
+                if (isRecord(u) && u.sessionUpdate === 'tool_call') {
+                    const invocation = invocationFromToolCall(u)
+                    if (invocation) {
+                        trackedInvocations.set(invocation.toolCallId, invocation)
+                    }
+                } else if (isRecord(u) && u.sessionUpdate === 'tool_call_update') {
+                    const existing = trackedInvocations.get(String(u.toolCallId ?? ''))
+                    preToolStatus = existing?.status
+                    const invocation = invocationFromToolCallUpdate(existing, u, notification)
+                    if (invocation) {
+                        trackedInvocations.set(invocation.toolCallId, invocation)
+                    }
                 }
             }
 
@@ -2674,11 +2720,11 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 return
             }
             if (update.sessionUpdate === 'tool_call') {
-                // A fresh tool call — the projection folded it into `toolInvocations` above, so resolve
-                // its name off the merged invocation and publish a `started` event on the bus.
+                // A fresh tool call — the tracker folded it in above, so resolve its name off the
+                // merged invocation and publish a `started` event on the bus.
                 if (emitToolStream) {
                     const toolCallId = String(update.toolCallId ?? '')
-                    const invocation = toolCallId ? values.toolInvocations.get(toolCallId) : undefined
+                    const invocation = toolCallId ? trackedInvocations.get(toolCallId) : undefined
                     if (invocation) {
                         actions.emitToolEvent({
                             streamKey: props.streamKey,
@@ -2696,8 +2742,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
             if (update.sessionUpdate === 'tool_call_update') {
                 // TOOL_CALL_COMPLETED telemetry — emit once when a tool call first transitions to a
                 // terminal status. `preToolStatus` (read before the upsert) gates the once-only fire;
-                // the resolved key comes from the merged invocation in the projection. Suppressed on
-                // replay, and skipped when the creating `tool_call` was lost (no pre-status).
+                // the resolved key comes from the tracked merged invocation. Suppressed on replay,
+                // and skipped when the creating `tool_call` was lost (no pre-status).
                 const toolCallId = String(update.toolCallId ?? '')
                 if (!toolCallId) {
                     return
@@ -2710,7 +2756,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     preToolStatus !== 'failed' &&
                     (status === 'completed' || status === 'failed')
                 ) {
-                    const invocation = values.toolInvocations.get(toolCallId)
+                    const invocation = trackedInvocations.get(toolCallId)
                     const startedAt = cache.turnStartedAtMs as number | undefined
                     posthog.capture('tool_call_completed', {
                         conversation_id: props.conversationId,
@@ -2725,7 +2771,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 // Tool-stream event: phase from the pre-fold status → new status transition. A crossing
                 // into a terminal status is `completed`/`failed`; any other update is `updated`.
                 if (emitToolStream) {
-                    const invocation = values.toolInvocations.get(toolCallId)
+                    const invocation = trackedInvocations.get(toolCallId)
                     if (invocation) {
                         const wasTerminal = preToolStatus === 'completed' || preToolStatus === 'failed'
                         const phase: ToolStreamPhase =

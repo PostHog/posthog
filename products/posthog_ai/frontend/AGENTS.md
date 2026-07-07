@@ -144,8 +144,10 @@ abstract `AttachedContextItem`s — `type` is an **arbitrary string** (`'insight
 to the user**: the live echo (`pushHumanMessage`) carries the raw text and `unwrapUserMessageContent` strips
 the block on history replay. The open/close **tags** must stay identical to the backend template
 (`products/posthog_ai/backend/context_wrapper.py`) — stripping works on the tags, not the body.
-`runInteractionLogic` prunes entity refs already sent this run (`sentContextKeys`); `text` items are never
-deduped — repeated text is intentional, mirroring the backend's `prune_repeated_entity_refs`.
+The send paths prune entity refs already sent for the task (`attachedContextLogic.sentContextKeysByTask`,
+keyed by task id so the dedupe survives a terminal-run send re-pointing to a fresh run, matching the
+backend's `prune_repeated_entity_refs`, which dedupes across the task's whole resume chain); `text` items
+are never deduped, repeated text is intentional.
 
 **Tool-stream events (`logics/toolStreamEventsLogic.ts`):** a global bus `runStreamLogic` publishes
 tool-call lifecycle events to — `phase: started/updated/completed/failed`, with `toolName` **resolved** via
