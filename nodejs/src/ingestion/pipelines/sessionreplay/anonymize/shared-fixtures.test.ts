@@ -199,6 +199,35 @@ describe('anonymize shared fixtures', () => {
                 expect(decoded.node.childNodes[0].textContent).toBe('keep ******')
             })
 
+            it('media-scrubs an rr_src attribute inside a cv mutation sub-field', async () => {
+                const attrMutation = {
+                    type: 3,
+                    cv: '2024-10',
+                    data: {
+                        source: 0,
+                        attributes: gzipLatin1(
+                            JSON.stringify([
+                                {
+                                    id: 7,
+                                    attributes: {
+                                        rr_src: 'https://widget.example-vendor.co/v2/app/?refreshToken=FakeRefreshTok3nValue000',
+                                    },
+                                },
+                            ])
+                        ),
+                    },
+                }
+                rustAddon!.initAnonymizer({ text: [], url: [] })
+                const result = await rustAddon!.anonymizeKafkaPayload(payloadOf('w', [attrMutation]))
+                expect(result.failed).toBe(false)
+                const line = parseLines(result.lines!)[0] as [string, { data: { attributes: string } }]
+                const decoded = unzstdLatin1(line[1].data.attributes) as { attributes: Record<string, string> }[]
+                expect(decoded[0].attributes.rr_src).toMatch(/^data:image\/svg\+xml/)
+                expect(decoded[0].attributes['data-anon-original-rr_src']).toBe(
+                    'https://example.com/[redacted]/[redacted]/'
+                )
+            })
+
             it('scrubs a cv mutation sub-field and re-emits a decodable zstd payload', async () => {
                 rustAddon!.initAnonymizer({ text: ['keep'], url: [] })
                 const result = await rustAddon!.anonymizeKafkaPayload(payloadOf('w', [mutation]))

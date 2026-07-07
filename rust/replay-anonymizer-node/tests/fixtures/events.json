@@ -479,5 +479,173 @@
     "allow": { "text": [], "url": [] },
     "event": { "type": 0, "data": { "href": "https://example.com/secret" } },
     "expected": { "type": 0, "data": { "href": "https://example.com/secret" } }
+  },
+  {
+    "name": "iframe rr_src with tokens and user object is url-scrubbed identically to src",
+    "allow": { "text": [], "url": [] },
+    "event": {
+      "type": 2,
+      "data": {
+        "node": {
+          "type": 0,
+          "childNodes": [
+            {
+              "type": 2,
+              "id": 7,
+              "tagName": "iframe",
+              "attributes": {
+                "rr_src": "https://widget.example-vendor.co/v2/app/?key=abcd1234-fake-fake-fake-abcdef123456&route=%2Fannouncements&widgetToken=eyJ0eXAiOiJKV1QifQ.eyJzdWIiOiJ1c2VyX2Zha2UxMjMifQ.fakesignature&refreshToken=FakeRefreshTok3nValue000&user=%7B%22name%22%3A%22John%20Fakename%22%2C%22email%22%3A%22john.fakename%40example.com%22%7D"
+              },
+              "childNodes": []
+            },
+            {
+              "type": 2,
+              "id": 8,
+              "tagName": "iframe",
+              "attributes": {
+                "src": "https://widget.example-vendor.co/v2/app/?key=abcd1234-fake-fake-fake-abcdef123456&route=%2Fannouncements&widgetToken=eyJ0eXAiOiJKV1QifQ.eyJzdWIiOiJ1c2VyX2Zha2UxMjMifQ.fakesignature&refreshToken=FakeRefreshTok3nValue000&user=%7B%22name%22%3A%22John%20Fakename%22%2C%22email%22%3A%22john.fakename%40example.com%22%7D"
+              },
+              "childNodes": []
+            }
+          ]
+        },
+        "initialOffset": { "top": 0, "left": 0 }
+      }
+    },
+    "expected": {
+      "type": 2,
+      "data": {
+        "node": {
+          "type": 0,
+          "childNodes": [
+            {
+              "type": 2,
+              "id": 7,
+              "tagName": "iframe",
+              "attributes": { "rr_src": "https://widget.example-vendor.co/[redacted]/[redacted]/" },
+              "childNodes": []
+            },
+            {
+              "type": 2,
+              "id": 8,
+              "tagName": "iframe",
+              "attributes": { "src": "https://widget.example-vendor.co/[redacted]/[redacted]/" },
+              "childNodes": []
+            }
+          ]
+        },
+        "initialOffset": { "top": 0, "left": 0 }
+      }
+    }
+  },
+  {
+    "name": "mutation setting rr_src takes the media path like src",
+    "allow": { "text": [], "url": [] },
+    "event": {
+      "type": 3,
+      "data": {
+        "source": 0,
+        "texts": [],
+        "attributes": [
+          {
+            "id": 7,
+            "attributes": {
+              "rr_src": "https://widget.example-vendor.co/v2/app/?key=abcd1234-fake-fake-fake-abcdef123456&route=%2Fannouncements&widgetToken=eyJ0eXAiOiJKV1QifQ.eyJzdWIiOiJ1c2VyX2Zha2UxMjMifQ.fakesignature&refreshToken=FakeRefreshTok3nValue000&user=%7B%22name%22%3A%22John%20Fakename%22%2C%22email%22%3A%22john.fakename%40example.com%22%7D"
+            }
+          }
+        ],
+        "adds": [],
+        "removes": []
+      }
+    },
+    "expected": {
+      "type": 3,
+      "data": {
+        "source": 0,
+        "texts": [],
+        "attributes": [
+          {
+            "id": 7,
+            "attributes": {
+              "rr_src": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'><rect width='80' height='80' fill='%23f3f4f6'/><rect x='6' y='6' width='68' height='68' fill='none' stroke='%23d1d5db' stroke-width='2' rx='6'/><circle cx='26' cy='26' r='6' fill='%239ca3af'/><path d='M14 60 L34 40 L48 50 L66 32 L66 66 L14 66 Z' fill='%239ca3af'/></svg>",
+              "data-anon-original-rr_src": "https://example.com/[redacted]/[redacted]/"
+            }
+          }
+        ],
+        "adds": [],
+        "removes": []
+      }
+    }
+  },
+  {
+    "name": "media element rr_src becomes placeholder with scrubbed original stashed",
+    "allow": { "text": [], "url": [] },
+    "event": {
+      "type": 2,
+      "data": {
+        "node": {
+          "type": 0,
+          "childNodes": [
+            {
+              "type": 2,
+              "tagName": "img",
+              "attributes": { "rr_src": "https://cdn.example.com/u/john-fakename-avatar.png" },
+              "childNodes": []
+            }
+          ]
+        },
+        "initialOffset": { "top": 0, "left": 0 }
+      }
+    },
+    "expected": {
+      "type": 2,
+      "data": {
+        "node": {
+          "type": 0,
+          "childNodes": [
+            {
+              "type": 2,
+              "tagName": "img",
+              "attributes": {
+                "rr_src": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'><rect width='80' height='80' fill='%23f3f4f6'/><rect x='6' y='6' width='68' height='68' fill='none' stroke='%23d1d5db' stroke-width='2' rx='6'/><circle cx='26' cy='26' r='6' fill='%239ca3af'/><path d='M14 60 L34 40 L48 50 L66 32 L66 66 L14 66 Z' fill='%239ca3af'/></svg>",
+                "data-anon-original-rr_src": "https://example.com/[redacted]/[redacted]"
+              },
+              "childNodes": []
+            }
+          ]
+        },
+        "initialOffset": { "top": 0, "left": 0 }
+      }
+    }
+  },
+  {
+    "name": "benign rr_src values follow the fail-closed url scrub src already gets",
+    "allow": { "text": [], "url": [] },
+    "event": {
+      "type": 2,
+      "data": {
+        "node": {
+          "type": 0,
+          "childNodes": [
+            { "type": 2, "tagName": "iframe", "attributes": { "rr_src": "about:blank" }, "childNodes": [] },
+            { "type": 2, "tagName": "div", "attributes": { "rr_src": "data:text/html;base64,PGgxPmhpPC9oMT4=" }, "childNodes": [] }
+          ]
+        },
+        "initialOffset": { "top": 0, "left": 0 }
+      }
+    },
+    "expected": {
+      "type": 2,
+      "data": {
+        "node": {
+          "type": 0,
+          "childNodes": [
+            { "type": 2, "tagName": "iframe", "attributes": { "rr_src": "[redacted]" }, "childNodes": [] },
+            { "type": 2, "tagName": "div", "attributes": { "rr_src": "[redacted]/[redacted]" }, "childNodes": [] }
+          ]
+        },
+        "initialOffset": { "top": 0, "left": 0 }
+      }
+    }
   }
 ]
