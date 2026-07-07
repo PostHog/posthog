@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
@@ -90,7 +90,7 @@ function WizardSyncDialog({
                         {mode === 'cloud' ? 'Cloud run' : 'On your machine'} · {formatElapsed(elapsedSeconds)}
                     </span>
                 </div>
-                <InstallationProgressContent progress={progress} />
+                <InstallationProgressContent progress={progress} mode={mode} />
                 {isTerminal && onClear && (
                     <LemonButton type="secondary" onClick={onClear} className="self-end">
                         Dismiss this run
@@ -128,9 +128,16 @@ function WizardSyncSurface({
     const elapsedSeconds = startedAt ? elapsedSecondsFrom(startedAt, now) : 0
     const minimized = dismissedKey === runKey
     const eventProps = { runKey, mode, phase: progress.phase }
+    // One-shot: a double-click can land two dispatches before the surface unmounts, which would
+    // double-fire the dismissal telemetry and re-run onClear.
+    const clearedRef = useRef(false)
     // Clearing a finished run also closes the dialog before the surface unmounts.
     const handleClear = onClear
         ? () => {
+              if (clearedRef.current) {
+                  return
+              }
+              clearedRef.current = true
               reportWizardSyncRunDismissed({ ...eventProps, elapsedSeconds })
               closeDialog()
               onClear()
@@ -225,7 +232,7 @@ function WizardSyncLocalGate(): JSX.Element | null {
  * The single detached wizard sync widget, mounted app-wide (AuthenticatedShell). It surfaces whichever
  * run is in flight, cloud or local, in one place: a cloud run (the persisted handle) takes precedence,
  * otherwise a local wizard session detected by the poll. Replaces the earlier separate cloud-run and
- * WizardProgressFab so there is one corner widget, never two.
+ * per-mode corner widgets so there is one corner widget, never two.
  */
 export function WizardSyncFab(): JSX.Element | null {
     const syncEnabled = useFeatureFlag('ONBOARDING_WIZARD_SYNC', 'test')

@@ -8,7 +8,7 @@ import { WizardSyncCard, WizardSyncMode } from './WizardSyncCard'
  * reviewable in isolation. The component is pure, so no streams or mocks are needed.
  */
 const meta: Meta<typeof WizardSyncCard> = {
-    title: 'Scenes-Other/Onboarding/Wizard Sync Card',
+    title: 'Scenes-Other/Onboarding/Shared/Wizard Sync Card',
     component: WizardSyncCard,
     argTypes: {
         onExpand: { action: 'expand' },

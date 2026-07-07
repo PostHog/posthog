@@ -9,7 +9,7 @@ import { InstallationProgressContent } from './InstallationProgressView'
  * glance.
  */
 const meta: Meta<typeof InstallationProgressContent> = {
-    title: 'Scenes-Other/Onboarding/Installation Progress',
+    title: 'Scenes-Other/Onboarding/Shared/Installation Progress',
     component: InstallationProgressContent,
     // Provide the local-fallback callback to every story so the failed-run states show the full
     // "Run it yourself" + "Read the docs" recovery (no-op on non-error phases).
@@ -49,17 +49,32 @@ function progress(overrides: Partial<InstallationProgress>): InstallationProgres
 }
 
 export const Connecting: Story = {
-    args: { progress: progress({ phase: 'connecting' }) },
+    args: { progress: progress({ phase: 'connecting' }), mode: 'cloud' },
+}
+
+export const ConnectingLocal: Story = {
+    args: { progress: progress({ phase: 'connecting' }), mode: 'local' },
 }
 
 export const RunningProvisioning: Story = {
     args: { progress: progress({ steps: steps(['in_progress', 'pending', 'pending', 'pending']) }) },
 }
 
+// The wizard's own sub-steps (session tasks) expand into the timeline under the wizard stage,
+// indented with smaller markers so the two sources read distinctly.
+const wizardSubSteps: InstallationProgress['steps'] = [
+    { id: 'wizard-task:a', label: 'Detected Next.js', status: 'completed', detail: null, source: 'wizard' },
+    { id: 'wizard-task:b', label: 'Installing the PostHog SDK', status: 'in_progress', detail: null, source: 'wizard' },
+    { id: 'wizard-task:c', label: 'Wiring up event capture', status: 'pending', detail: null, source: 'wizard' },
+]
+
 export const RunningWizard: Story = {
     args: {
         progress: progress({
-            steps: steps(['completed', 'completed', 'in_progress', 'pending'], { at: 2, text: 'Detecting Next.js' }),
+            steps: (() => {
+                const stages = steps(['completed', 'completed', 'in_progress', 'pending'])
+                return [...stages.slice(0, 3), ...wizardSubSteps, ...stages.slice(3)]
+            })(),
         }),
     },
 }
@@ -158,7 +173,8 @@ export const AllStates: Story = {
     parameters: { controls: { disable: true } },
     render: () => {
         const states: { label: string; args: Story['args'] }[] = [
-            { label: 'Connecting', args: Connecting.args },
+            { label: 'Connecting (cloud)', args: Connecting.args },
+            { label: 'Connecting (local)', args: ConnectingLocal.args },
             { label: 'Running: provisioning', args: RunningProvisioning.args },
             { label: 'Running: wizard', args: RunningWizard.args },
             { label: 'Pull request ready', args: PullRequestReady.args },
@@ -172,7 +188,11 @@ export const AllStates: Story = {
                 {states.map(({ label, args }) => (
                     <div key={label} className="flex flex-col gap-1">
                         <span className="text-xs font-medium text-muted">{label}</span>
-                        <InstallationProgressContent progress={args!.progress!} onRetryLocally={() => {}} />
+                        <InstallationProgressContent
+                            progress={args!.progress!}
+                            mode={args!.mode}
+                            onRetryLocally={() => {}}
+                        />
                     </div>
                 ))}
             </div>

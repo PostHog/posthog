@@ -131,8 +131,13 @@ function isTerminalStatus(status: string): status is TerminalTaskRunStatus {
 // The agent opens the PR mid-run (while it keeps CI green), so the url arrives via the "pr" progress
 // step before the run reaches a terminal output. Prefer the terminal output when present.
 export function taskRunPrUrl(state: TaskRunStreamState | null, steps: TaskRunProgressStep[]): string | null {
+    // Both sources originate from agent output over the stream — only ever surface http(s) URLs.
+    const outputUrl = state?.output?.pr_url
     const prStepUrl = steps.find((s) => s.step === 'pr')?.detail
-    return state?.output?.pr_url ?? (prStepUrl && prStepUrl.startsWith('http') ? prStepUrl : null)
+    return (
+        (outputUrl && outputUrl.startsWith('http') ? outputUrl : null) ??
+        (prStepUrl && prStepUrl.startsWith('http') ? prStepUrl : null)
+    )
 }
 
 export interface CloudRunCompletionReport {

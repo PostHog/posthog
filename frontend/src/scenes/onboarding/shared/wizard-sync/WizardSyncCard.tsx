@@ -11,7 +11,15 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { currentTaskLabel, formatElapsed, pipClass, stepCounts, syncHeadline, toneTextClass } from './helpers'
+import {
+    currentTaskLabel,
+    formatElapsed,
+    pipClass,
+    prNameLabel,
+    stepCounts,
+    syncHeadline,
+    toneTextClass,
+} from './helpers'
 import { InstallationProgress } from './installationProgressLogic'
 
 export type WizardSyncMode = 'cloud' | 'local'
@@ -118,6 +126,10 @@ export function WizardSyncCard({
                 <ModeChip mode={mode} />
                 <div className="flex items-center gap-1">
                     {progress.prUrl && (
+                        // ph-no-capture: the label carries the customer's repo name and the href
+                        // their PR url — neither may reach autocapture in shared app analytics.
+                        // Truncated: owner + repo can reach ~140 chars and this footer sits inside
+                        // a fixed 340px card next to the mode chip and two icon buttons.
                         <LemonButton
                             size="xsmall"
                             // The PR is the run's payoff: promote it once the run has finished.
@@ -126,8 +138,10 @@ export function WizardSyncCard({
                             targetBlank
                             icon={<IconPullRequest />}
                             onClick={(e) => e.stopPropagation()}
+                            className="ph-no-capture"
+                            tooltip={prNameLabel(progress.prUrl)}
                         >
-                            Review PR
+                            <span className="truncate max-w-32">{prNameLabel(progress.prUrl)}</span>
                         </LemonButton>
                     )}
                     <LemonButton
