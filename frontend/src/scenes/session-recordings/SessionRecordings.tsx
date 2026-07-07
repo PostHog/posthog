@@ -146,12 +146,14 @@ function ReplayVisionPromoBanner(): JSX.Element | null {
                         ? {
                               children: 'Try Replay vision',
                               to: urls.replayVision(),
+                              center: true,
                               'data-attr': 'replay-vision-waitlist-banner-cta',
                           }
                         : {
                               children: 'Join the waitlist',
                               to: 'https://posthog.com/replay-vision?utm_medium=in-product&utm_campaign=replay-vision-waitlist-banner',
                               targetBlank: true,
+                              center: true,
                               'data-attr': 'replay-vision-waitlist-banner-cta',
                           }
                 }
