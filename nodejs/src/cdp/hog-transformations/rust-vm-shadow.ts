@@ -21,6 +21,10 @@ import { KNOWN_BOT_IP_LIST, KNOWN_BOT_UA_LIST } from './bots/bots'
 // The Rust VM budgets steps, not wall-clock time; generous so it never trips before the Node VM's
 // timeout would.
 const RUST_MAX_STEPS = 1_000_000
+// STL functions whose output legitimately differs between two executions — programs calling them
+// can never be compared, so they're skipped at capture time.
+const NONDETERMINISTIC_FNS = new Set(['randomFloat', 'generateUUIDv4', 'now', 'today'])
+const CALL_GLOBAL_OP = 2
 // Safety cap so a stalled flush can't grow the buffer unboundedly.
 const MAX_BUFFER_SIZE = 10_000
 
@@ -56,6 +60,7 @@ export type ShadowOutcome =
     | 'status_mismatch'
     | 'rust_error'
     | 'skipped_unsupported'
+    | 'skipped_nondeterministic'
     | 'dropped'
 
 export interface ShadowNodeResult {
@@ -116,6 +121,7 @@ export class RustVmShadow {
     private buffer: ShadowCapturedInvocation[] = []
     private module_: HogvmNodeModule | null | undefined = undefined
     private flushInFlight = false
+    private nondeterministicByFunction = new Map<string, boolean>()
 
     constructor(
         private options: {
@@ -133,11 +139,35 @@ export class RustVmShadow {
     }
 
     public capture(item: ShadowCapturedInvocation): void {
+        if (this.isNondeterministic(item.functionId, item.bytecode)) {
+            shadowComparison.inc({ outcome: 'skipped_nondeterministic' })
+            return
+        }
         if (this.buffer.length >= MAX_BUFFER_SIZE) {
             shadowComparison.inc({ outcome: 'dropped' })
             return
         }
         this.buffer.push(item)
+    }
+
+    // Every string literal in hog bytecode is preceded by the STRING op (32); only CALL_GLOBAL (2)
+    // is directly followed by the function name, so this pair scan cannot false-positive on string
+    // literals that merely contain a function name.
+    private isNondeterministic(functionId: string, bytecode: HogBytecode): boolean {
+        let cached = this.nondeterministicByFunction.get(functionId)
+        if (cached === undefined) {
+            cached = bytecode.some(
+                (token, index) =>
+                    token === CALL_GLOBAL_OP &&
+                    typeof bytecode[index + 1] === 'string' &&
+                    NONDETERMINISTIC_FNS.has(bytecode[index + 1] as string)
+            )
+            if (this.nondeterministicByFunction.size >= MAX_BUFFER_SIZE) {
+                this.nondeterministicByFunction.clear()
+            }
+            this.nondeterministicByFunction.set(functionId, cached)
+        }
+        return cached
     }
 
     /**

@@ -90,7 +90,7 @@ export function HeatmapCanvas({
         isReady,
         heightOverride,
         heatmapFixedPositionMode,
-        heatmapElements,
+        filteredHeatmapElements,
         windowWidthOverride,
     } = useValues(heatmapDataLogic({ context, exportToken }))
     const { setSelectedArea } = useActions(heatmapDataLogic({ context, exportToken }))
@@ -133,7 +133,7 @@ export function HeatmapCanvas({
             const nearbyElements: HeatmapAreaPoint[] = []
             let totalCount = 0
 
-            for (const element of heatmapElements) {
+            for (const element of filteredHeatmapElements) {
                 const visualX = element.xPercentage * width
                 const distance = Math.sqrt(Math.pow(clickX - visualX, 2) + Math.pow(clickY - element.y, 2))
 
@@ -156,7 +156,7 @@ export function HeatmapCanvas({
                 })
             }
         },
-        [heatmapElements, windowWidth, windowWidthOverride, setSelectedArea, isToolbar, scrollYRef]
+        [filteredHeatmapElements, windowWidth, windowWidthOverride, setSelectedArea, isToolbar, scrollYRef]
     )
 
     const setHeatmapContainer = useCallback((container: HTMLDivElement | null): void => {

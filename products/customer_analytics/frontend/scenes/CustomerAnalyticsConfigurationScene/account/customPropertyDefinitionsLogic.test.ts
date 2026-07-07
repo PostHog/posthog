@@ -116,6 +116,7 @@ describe('customPropertyDefinitionsLogic', () => {
             description: '',
             displayType: 'currency',
             isBigNumber: true,
+            options: [],
             sourceMode: 'data_warehouse',
             savedQuery: 'view-1',
             sourceColumn: 'mrr',

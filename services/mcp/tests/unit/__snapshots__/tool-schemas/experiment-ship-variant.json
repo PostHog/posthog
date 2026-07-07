@@ -30,6 +30,11 @@
             "description": "A unique integer value identifying this experiment.",
             "type": "number"
         },
+        "open_cleanup_pr": {
+            "default": false,
+            "description": "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Only acts for allowlisted teams; ignored otherwise.",
+            "type": "boolean"
+        },
         "release_to_everyone": {
             "default": false,
             "description": "If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them.",

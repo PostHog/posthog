@@ -59,6 +59,7 @@ from .activities.send_followup_to_sandbox import (
     SendFollowupToSandboxInput,
     send_followup_to_sandbox,
 )
+from .activities.slack_agent_design_signals import RelayAgentDesignSignalsInput, relay_agent_design_signals
 from .activities.start_agent_server import (
     MarkRepoReadyInput,
     StartAgentServerInput,
@@ -529,6 +530,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     "sandbox_url": agent_server_output.sandbox_url,
                     "used_snapshot": sandbox_output.used_snapshot,
                     "repository": self.context.repository,
+                    "boot_path": sandbox_output.boot_path,
+                    "image_source": sandbox_output.image_source,
+                    "boot_total_ms": agent_server_output.boot_total_ms,
+                    "sandbox_create_ms": sandbox_output.create_ms,
+                    "repo_clone_ms": sandbox_output.clone_ms,
+                    "branch_checkout_ms": sandbox_output.checkout_ms,
+                    "agent_launch_ms": sandbox_output.launch_ms,
+                    "agent_ready_wait_ms": agent_server_output.ready_wait_ms,
+                    "agent_session_init_ms": agent_server_output.session_init_ms,
                 },
             )
 
@@ -537,6 +547,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 relay_task = asyncio.ensure_future(
                     self._relay_sandbox_events(agent_server_output, sandbox_id=sandbox_id)
                 )
+            elif self._is_agent_design_enabled:
+                # Sequenced ingest streams events straight to Redis, bypassing the SSE relay that
+                # normally fans out the Slack agent-design signals. Tail that stream instead so
+                # the per-turn Slack updates still fire.
+                relay_task = asyncio.ensure_future(self._relay_agent_design_signals())
 
             if self.context.has_github_credentials:
                 credential_refresh_task = asyncio.ensure_future(
@@ -860,13 +875,17 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         will_checkout = bool(prepared.repository and prepared.branch and has_clone_credentials)
 
         overlap = bool(self.context.overlap_clone_boot_enabled and will_clone)
+        boot_path = "overlap" if overlap else "classic"
+        launch_ms: int | None = None
         if overlap:
             await self._emit_progress("agent", "in_progress", "Starting agent", "setup")
-            await self._launch_agent_server(created, defer_for_clone=True)
+            launch_output = await self._launch_agent_server(created, defer_for_clone=True, used_snapshot=used_snapshot)
+            launch_ms = launch_output.launch_ms if launch_output else None
 
+        clone_ms: int | None = None
         if will_clone:
             await self._emit_progress("clone", "in_progress", "Cloning repository", "setup")
-            await workflow.execute_activity(
+            clone_output = await workflow.execute_activity(
                 clone_repository_in_sandbox,
                 CloneRepositoryInSandboxInput(
                     context=self.context,
@@ -878,15 +897,18 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
+            # Pre-rollout histories (and mocked tests) recorded a null result here.
+            clone_ms = getattr(clone_output, "clone_ms", None)
             await self._emit_progress("clone", "completed", "Cloned repository", "setup")
 
         state = self.context.state or {}
         is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
+        checkout_ms: int | None = None
         if will_checkout and not is_resume:
             branch_label_active = f"Checking out branch {prepared.branch}"
             branch_label_done = f"Checked out branch {prepared.branch}"
             await self._emit_progress("checkout", "in_progress", branch_label_active, "setup")
-            await workflow.execute_activity(
+            checkout_output = await workflow.execute_activity(
                 checkout_branch_in_sandbox,
                 CheckoutBranchInSandboxInput(
                     context=self.context,
@@ -900,6 +922,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
+            # Pre-rollout histories (and mocked tests) recorded a null result here.
+            checkout_ms = getattr(checkout_output, "checkout_ms", None)
             await self._emit_progress("checkout", "completed", branch_label_done, "setup")
 
         if overlap:
@@ -912,6 +936,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             used_snapshot=used_snapshot,
             should_create_snapshot=not used_snapshot,
             agent_server_launched=overlap,
+            boot_path=boot_path,
+            image_source=prepared.image_source,
+            create_ms=created.create_ms,
+            clone_ms=clone_ms,
+            checkout_ms=checkout_ms,
+            launch_ms=launch_ms,
         )
 
     async def _cleanup_sandbox(self, sandbox_id: str) -> None:
@@ -967,6 +997,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
         await self._emit_progress("wizard", "completed", "Ran PostHog setup wizard", "setup")
 
+    @staticmethod
+    def _workflow_start_at_iso() -> str | None:
+        """Workflow start time for the boot-total metric; None outside a workflow event loop (unit tests)."""
+        try:
+            return workflow.info().start_time.isoformat()
+        except Exception:
+            return None
+
     async def _start_agent_server(self, sandbox_output: GetSandboxForRepositoryOutput) -> StartAgentServerOutput:
         return await workflow.execute_activity(
             start_agent_server,
@@ -976,13 +1014,16 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 sandbox_url=sandbox_output.sandbox_url,
                 sandbox_connect_token=sandbox_output.connect_token,
                 posthog_mcp_scopes=self._posthog_mcp_scopes,
+                boot_path=sandbox_output.boot_path,
+                used_snapshot=sandbox_output.used_snapshot,
+                workflow_start_at=self._workflow_start_at_iso(),
             ),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
     async def _launch_agent_server(
-        self, created: GetSandboxForRepositoryOutput, *, defer_for_clone: bool
+        self, created: GetSandboxForRepositoryOutput, *, defer_for_clone: bool, used_snapshot: bool | None = None
     ) -> StartAgentServerOutput:
         return await workflow.execute_activity(
             launch_agent_server,
@@ -993,6 +1034,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 sandbox_connect_token=created.connect_token,
                 posthog_mcp_scopes=self._posthog_mcp_scopes,
                 defer_for_clone=defer_for_clone,
+                boot_path="overlap",
+                used_snapshot=used_snapshot,
             ),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
@@ -1015,6 +1058,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 sandbox_url=sandbox_output.sandbox_url,
                 sandbox_connect_token=sandbox_output.connect_token,
                 posthog_mcp_scopes=self._posthog_mcp_scopes,
+                boot_path=sandbox_output.boot_path,
+                used_snapshot=sandbox_output.used_snapshot,
+                workflow_start_at=self._workflow_start_at_iso(),
             ),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
@@ -1171,6 +1217,42 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         except Exception as e:
             workflow.logger.warning(
                 "relay_sandbox_events_failed_non_fatal",
+                extra={
+                    "run_id": self.context.run_id,
+                    "error": str(e),
+                },
+            )
+
+    async def _relay_agent_design_signals(self) -> None:
+        """Tail the ingest-populated Redis stream to fan out Slack agent-design signals.
+
+        The flag-on counterpart to ``_relay_sandbox_events``: it reads events from Redis
+        rather than the sandbox SSE stream, so it holds no sandbox connection."""
+        try:
+            relay_input = RelayAgentDesignSignalsInput(
+                run_id=self.context.run_id,
+                task_id=self.context.task_id,
+                slack_thread_context=self._slack_thread_context,
+            )
+            await workflow.execute_activity(
+                relay_agent_design_signals,
+                relay_input,
+                start_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
+                schedule_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
+                heartbeat_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(
+                    initial_interval=timedelta(seconds=5),
+                    maximum_interval=timedelta(minutes=1),
+                    maximum_attempts=0,
+                    non_retryable_error_types=["ValueError"],
+                ),
+                cancellation_type=workflow.ActivityCancellationType.TRY_CANCEL,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            workflow.logger.warning(
+                "relay_agent_design_signals_failed_non_fatal",
                 extra={
                     "run_id": self.context.run_id,
                     "error": str(e),

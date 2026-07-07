@@ -1575,14 +1575,31 @@ describe('funnelDataLogic', () => {
             expect(previousColor).not.toBe(currentColor)
         })
 
-        it('exposes no breakdown table for a pure compare funnel', async () => {
+        it('builds one baseline table row per period for a pure compare funnel', async () => {
             await loadStepsCompare(funnelResultStepsCompare.result)
 
-            // Pure compare: current/previous bars are not real breakdown values.
+            // Pure compare: current/previous bars are not real breakdown values, but each period
+            // still gets a baseline row in the detailed results table.
             expect(logic.values.isComparedFunnel).toBe(true)
             expect(logic.values.isBreakdownCompareFunnel).toBe(false)
-            // So the breakdown table / flattened breakdown rows stay empty.
-            expect(logic.values.flattenedBreakdowns).toEqual([])
+
+            const rows = logic.values.flattenedBreakdowns
+            expect(rows.map((r) => [r.compare_label, r.breakdownIndex, r.colorIndex, r.isBaseline])).toEqual([
+                ['current', 0, 0, true],
+                ['previous', 1, 0, true],
+            ])
+            // Rows carry no breakdown value so their color/customization key matches the chart bars.
+            expect(rows.map((r) => r.breakdown_value)).toEqual([undefined, undefined])
+            // Each row aggregates its own period: current 200->100, previous 150->60.
+            expect(rows[0].steps?.map((s) => s.count)).toEqual([200, 100])
+            expect(rows[1].steps?.map((s) => s.count)).toEqual([150, 60])
+            expect(rows[0].conversionRates?.total).toBe(0.5)
+            expect(rows[1].conversionRates?.total).toBe(0.4)
+
+            // The previous row's ribbon is the dimmed current color, matching the chart bars.
+            expect(logic.values.getFunnelsColor(rows[1])).toBe(
+                dimPreviousPeriodColor(logic.values.getFunnelsColor(rows[0]))
+            )
         })
 
         it('leaves a non-compared steps funnel unchanged (single bar per step)', async () => {
@@ -1682,19 +1699,36 @@ describe('funnelDataLogic', () => {
             expect(color(safariPrev)).toBe(dimPreviousPeriodColor(color(safariCur)))
         })
 
-        it('keeps the breakdown table populated with the real breakdown values', async () => {
+        it('doubles the breakdown table into one row per value and period', async () => {
             await loadBreakdownCompare(funnelResultStepsBreakdownCompare.result)
 
             // Breakdown + compare is distinguished from pure compare so breakdown behavior survives.
             expect(logic.values.isComparedFunnel).toBe(true)
             expect(logic.values.isBreakdownCompareFunnel).toBe(true)
 
-            // The table is built from the current-period bars: one row per real value (Chrome,
-            // Safari), not one per period — the compare periods are not breakdown values.
-            const breakdownValues = logic.values.flattenedBreakdowns
-                .filter((b) => !b.isBaseline)
-                .map((b) => getVisibilityKey(b.breakdown_value))
-            expect(breakdownValues).toEqual(['Chrome', 'Safari'])
+            const rows = logic.values.flattenedBreakdowns
+            expect(rows.map((r) => [getVisibilityKey(r.breakdown_value), r.compare_label])).toEqual([
+                ['Baseline', 'current'],
+                ['Baseline', 'previous'],
+                ['Chrome', 'current'],
+                ['Chrome', 'previous'],
+                ['Safari', 'current'],
+                ['Safari', 'previous'],
+            ])
+            // Unique row keys with pair-shared color positions.
+            expect(rows.map((r) => r.breakdownIndex)).toEqual([0, 1, 2, 3, 4, 5])
+            expect(rows.map((r) => r.colorIndex)).toEqual([0, 0, 1, 1, 2, 2])
+
+            // The previous baseline has no upstream aggregate — it's synthesized from the previous
+            // bars: 105 -> 40, with the period's weighted conversion time.
+            expect(rows[1].steps?.map((s) => s.count)).toEqual([105, 40])
+            expect(rows[1].conversionRates?.total).toBe(40 / 105)
+            expect(rows[1].steps?.[1].average_conversion_time).toBe(4200)
+
+            // Row ribbons pair up per value: previous is the dimmed current, distinct across values.
+            const color = logic.values.getFunnelsColor
+            expect(color(rows[3])).toBe(dimPreviousPeriodColor(color(rows[2])))
+            expect(color(rows[2])).not.toBe(color(rows[4]))
         })
 
         it('hides both periods of a breakdown value when its legend entry is hidden', async () => {
@@ -1721,11 +1755,12 @@ describe('funnelDataLogic', () => {
                 ['Safari', 'previous'],
             ])
 
-            // The table still lists Chrome (just unchecked), so it can be toggled back on.
+            // The table still lists both of Chrome's period rows (just unchecked), so it can be
+            // toggled back on.
             const breakdownValues = logic.values.flattenedBreakdowns
                 .filter((b) => !b.isBaseline)
                 .map((b) => getVisibilityKey(b.breakdown_value))
-            expect(breakdownValues).toEqual(['Chrome', 'Safari'])
+            expect(breakdownValues).toEqual(['Chrome', 'Chrome', 'Safari', 'Safari'])
         })
     })
 })
