@@ -192,9 +192,87 @@ fn collapsed_host(allow: &AllowLists, host_port: &str) -> String {
     }
 }
 
-// Only these schemes survive without slashes; an arbitrary token before a colon (`user:secret`)
-// must not pass through as a "scheme", so anything else redacts whole like a relative path.
-const KNOWN_SLASHLESS_SCHEMES: &[&str] = &["about", "data", "javascript", "mailto", "sms", "tel"];
+/// Schemes that survive (name only, value still scrubbed) when written without slashes.
+/// `scheme://` URLs keep any scheme unconditionally, so this list only gates the slashless form,
+/// where an arbitrary token before a colon (`user:secret`) must not pass through as a "scheme" —
+/// anything not listed redacts whole like a relative path. Mirrors `KNOWN_SLASHLESS_SCHEMES`
+/// in `anonymize/url.ts`.
+pub const KNOWN_SLASHLESS_SCHEMES: &[&str] = &[
+    // Web platform
+    "about",
+    "blob",
+    "data",
+    "file",
+    "ftp",
+    "geo",
+    "javascript",
+    "magnet",
+    "mailto",
+    "sms",
+    "tel",
+    "urn",
+    "ws",
+    "wss", // Microsoft
+    "ms-access",
+    "ms-excel",
+    "ms-outlook",
+    "ms-powerpoint",
+    "ms-project",
+    "ms-publisher",
+    "ms-visio",
+    "ms-word",
+    "msteams",
+    "onenote",
+    "sip",
+    "sips",
+    "skype", // Google
+    "comgooglemaps",
+    "googlechrome",
+    "googlegmail",
+    "googlemaps", // Apple
+    "facetime",
+    "facetime-audio",
+    "itms",
+    "itms-apps",
+    "maps",
+    "music",
+    "shortcuts",
+    // Chat and social
+    "bluesky",
+    "callto",
+    "discord",
+    "fb",
+    "fb-messenger",
+    "instagram",
+    "irc",
+    "line",
+    "linkedin",
+    "matrix",
+    "reddit",
+    "sgnl",
+    "slack",
+    "snapchat",
+    "telegram",
+    "tg",
+    "tiktok",
+    "twitter",
+    "viber",
+    "wechat",
+    "weixin",
+    "whatsapp",
+    "xmpp",
+    // Media, payments, and tools
+    "bitcoin",
+    "bittorrent",
+    "figma",
+    "notion",
+    "obsidian",
+    "spotify",
+    "steam",
+    "vscode",
+    "zoommtg",
+    "zoomus",
+];
 
 fn scheme_without_slashes(s: &str) -> Option<usize> {
     let colon = s.find(':')?;

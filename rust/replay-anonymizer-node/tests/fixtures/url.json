@@ -239,5 +239,15 @@
     "input": "john.fakename:secret-chat",
     "collapseHost": false,
     "expected": "[redacted]"
+  },
+  {
+    "name": "app deep-link scheme survives with its value scrubbed",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "input": "spotify:track:4uLU6hMCjMI75M1A2tKUQC",
+    "collapseHost": false,
+    "expected": "spotify:[redacted]"
   }
 ]
