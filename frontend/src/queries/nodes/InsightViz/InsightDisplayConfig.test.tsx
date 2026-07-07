@@ -347,9 +347,13 @@ describe('InsightDisplayConfig', () => {
             expect(screen.getByText('Y-axis scale')).toBeInTheDocument()
         })
 
-        it('shows no Style button without the style menu flag', () => {
+        it('keeps rarely used options top-level without the style menu flag', async () => {
             setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
-            expect(screen.queryByLabelText('Style')).not.toBeInTheDocument()
+            await openOptionsMenu()
+
+            expect(getSectionTitles()).toContain('Y-axis scale')
+            expect(screen.queryByText('Line style')).not.toBeInTheDocument()
+            expect(screen.queryByText('Axes')).not.toBeInTheDocument()
         })
 
         it('removes axis label option count after clearing a committed label', async () => {
@@ -413,49 +417,48 @@ describe('InsightDisplayConfig', () => {
         })
     })
 
-    describe('style menu with the style menu flag', () => {
+    describe('options menu with the style menu flag', () => {
         beforeEach(() => {
             featureFlagLogic.actions.setFeatureFlags([], {
                 [FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHT_STYLE_MENU]: true,
             })
         })
 
-        it('hosts the presentation options in their own Style menu', async () => {
-            setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
-            await userEvent.click(screen.getAllByLabelText('Style')[0])
-
-            expect(getSectionTitles()).toEqual([
-                'Labels & legend',
-                'Line style',
-                'Color customization by',
-                'Y-axis unit',
-                'Axis labels',
-            ])
-            expect(screen.getByText('Show values on series')).toBeInTheDocument()
-            expect(screen.getByText('Show legend')).toBeInTheDocument()
-            // The chart style controls, only for line-ish displays
-            expect(screen.getByText('Line shape')).toBeInTheDocument()
-            expect(screen.getByText('Show points')).toBeInTheDocument()
-        })
-
-        it('omits the Line style section for non-line displays', async () => {
-            setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsBarValue))
-            await userEvent.click(screen.getAllByLabelText('Style')[0])
-
-            expect(getSectionTitles()).not.toContain('Line style')
-        })
-
-        it('drops the moved presentation options from the Options menu', async () => {
+        it('keeps frequent options top-level and collapses rare ones into submenu rows', async () => {
             setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
             await openOptionsMenu()
 
-            expect(getSectionTitles()).toEqual(['Display', 'Y-axis scale', 'Statistical analysis'])
             const items = getDisplaySectionItems()
-            expect(items).not.toContain('Show values on series')
-            expect(items).not.toContain('Show legend')
-            // Options staying in the menu are unaffected
-            expect(items).toContain('Show multiple Y-axes')
-            expect(items).toContain('Show trend lines')
+            expect(items).toContain('Show values on series')
+            expect(items).toContain('Show legend')
+            // Rarely used options leave the top level for the submenus
+            expect(items).not.toContain('Show multiple Y-axes')
+            expect(getSectionTitles()).not.toContain('Y-axis scale')
+            expect(getSectionTitles()).not.toContain('Axis labels')
+            expect(screen.getByText('Line style')).toBeInTheDocument()
+            expect(screen.getByText('Axes')).toBeInTheDocument()
+        })
+
+        it('reveals the sub-options when a submenu row is opened', async () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
+            await openOptionsMenu()
+
+            await userEvent.click(screen.getByText('Line style'))
+            expect(await screen.findByText('Line shape')).toBeInTheDocument()
+            expect(screen.getByText('Show points')).toBeInTheDocument()
+
+            await userEvent.click(screen.getByText('Axes'))
+            expect(await screen.findByText('Show multiple Y-axes')).toBeInTheDocument()
+            expect(screen.getByText('Y-axis scale')).toBeInTheDocument()
+        })
+
+        it('omits the Line style submenu for non-line displays', async () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsBarValue))
+            await openOptionsMenu()
+
+            expect(screen.queryByText('Line style')).not.toBeInTheDocument()
+            // Axis labels still apply to bar charts, so the Axes submenu stays
+            expect(screen.getByText('Axes')).toBeInTheDocument()
         })
     })
 
