@@ -58,17 +58,60 @@ box-http edge resolves to whatever box currently backs the pen — so **a
 reviewer's link survives every re-push** (the box swaps underneath). Requires
 hogland's pen-id edge routing (shipped in hogland #319).
 
+## Auto-previews & opt-out
+
+Frontend PRs get a preview **automatically** — no label needed. A cheap,
+credential-free `decide` job in `hogbox-preview-env.yml` gates every PR event and
+builds a preview when **all** hold:
+
+- the PR is **same-repo** (fork PRs never get one — they'd run fork code with the
+  hogland token in scope),
+- the author is a **human** (bots — `user.type == 'Bot'`, `…[bot]`, and the usual
+  suspects like dependabot/renovate — are skipped),
+- the PR is **ready** (not draft; flipping draft→ready builds it),
+- it does **not** carry the **`no-preview`** opt-out label, and
+- it either carries the **`hogbox-preview`** label (manual opt-in, works for **any**
+  paths) **or** its diff touches the frontend (`frontend/**`,
+  `products/*/frontend/**`, `common/esbuilder/**`).
+
+Two labels, two escape hatches: **`hogbox-preview`** forces a preview on a PR that
+wouldn't auto-qualify (e.g. a backend-only change you want to click through);
+**`no-preview`** suppresses one on a PR that would (and tears down a live one).
+
+Why a `decide` job and not an `on.pull_request.paths` filter: a path filter would
+kill the label-only path for backend PRs, so the trigger stays broad and
+eligibility is decided in a job step. Rapid pushes coalesce via a per-PR
+`concurrency` group on the build job (cancel-in-progress) — a busy PR (p90 ~17
+pushes) rebuilds once for the latest commit, not 17 times. The group is job-level
+and keyed on PR number only, so an unrelated label removal can't cancel an active
+build.
+
 ## Reporting & lifecycle
 
 - **PR comment** — a sticky comment (`<!-- hogbox-preview-comment -->`) staged
   building → ready → failed, with the URL, login, and what's running.
 - **GitHub Deployment** — a `preview-pr-<n>` environment (in_progress → success
   /failure + URL), so the preview shows in the PR's Deployments UI.
-- **Teardown** — on PR close (`pr-closed.yml`) + on `hogbox-preview` label
-  removal (`hogbox-preview-env.yml`); both destroy box + pen. A daily stale-sweep
-  (`cleanup-stale`) in `hogbox-preview-cleanup.yml` reaps previews whose PR closed
-  but slipped through — its own workflow because the OIDC mint needs
-  `id-token: write`, which can't live in the reusable `pr-cleanup.yml`.
+- **Teardown** — on PR close (`pr-closed.yml`) + on the fast path in
+  `hogbox-preview-env.yml`: removing `hogbox-preview` **or** adding `no-preview`
+  destroys box + pen. A daily stale-sweep (`cleanup-stale`) in
+  `hogbox-preview-cleanup.yml` reaps previews whose PR closed but slipped
+  through — its own workflow because the OIDC mint needs `id-token: write`, which
+  can't live in the reusable `pr-cleanup.yml`.
+
+## Hibernation & wake (why autos are affordable)
+
+Every preview pen is created with `on_idle=hibernate` + `wake=on-request` (both
+re-asserted on each push). After ~30 min idle (the `--ttl-seconds` window),
+hogland's reaper **snapshots the box to S3 and deletes it** — zero node cost while
+nobody's looking. The **stable URL stays live**: the next visit hits the box-front
+edge, which sees a hibernated wake-on-request pen and serves a brief **"waking
+up" interstitial** (a polling page for browser navigations, a retry-503 for
+XHR/asset clients) while it restores the box (~30–40s, a warm restore of the ready
+stack) and repoints the pen. Actively-viewed previews stay awake — edge traffic
+touches the box, so only a genuinely idle one sleeps. This hibernate/wake cycle is
+what makes fleet-wide auto-previews (peak ~85–115 concurrently open) affordable
+(~7–10× vs always-on). See hogland's `docs/PENS.md`.
 
 Access is **tailnet-only** (PostHog VPN) — internal reviewers, no public URL.
 

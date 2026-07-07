@@ -129,12 +129,23 @@ class HoglandBackend(PreviewBackend):
         # `running` means the VM resumed, not that hogpanion's HTTP API answers
         # yet — a restored box needs a beat before the first exec.
         self._wait_exec_ready()
-        # Point the pen at the new box, and re-send the spec so it carries the
-        # current shape. The latter heals a pen left by an older SDK whose nested
-        # expose:{http_port} the server dropped: such a pen has wake=on-request
-        # but no spec.web_port, and the server rejects any update of it until the
-        # flat web_port is present. Idempotent for a freshly-created pen.
-        self._client.update_pen(self.name, current_box_id=self._box_id, spec=self._pen_spec())
+        # Point the pen at the new box, re-send the spec so it carries the current
+        # shape, and RE-ASSERT the hibernate/wake policies. The spec re-send heals
+        # a pen left by an older SDK whose nested expose:{http_port} the server
+        # dropped: such a pen has wake=on-request but no spec.web_port, and the
+        # server rejects any update of it until the flat web_port is present.
+        # Re-asserting on_idle/wake makes hibernation mandatory for every push:
+        # with auto-previews the fleet is large, and always-on previews would be
+        # unaffordable — so even a pen that somehow lost the policy (older create,
+        # manual PATCH) is healed back to hibernate-on-idle here, not just at
+        # create. Idempotent for a freshly-created pen.
+        self._client.update_pen(
+            self.name,
+            current_box_id=self._box_id,
+            spec=self._pen_spec(),
+            on_idle="hibernate",
+            wake="on-request",
+        )
 
     def _create_kwargs(self) -> dict:
         # The golden is pinned to this sizing; restore must MATCH it exactly.

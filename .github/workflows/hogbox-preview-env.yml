@@ -20,21 +20,29 @@
 # frontend/dist. If a PR's migrations are incompatible with the baseline, fall
 # back to --reset-db.
 #
+# --- TRIGGER (who gets a preview) -----------------------------------------------
+# The `decide` job (cheap, credential-free) is the gate. A same-repo, human,
+# ready (non-draft) PR gets a preview when it carries the `hogbox-preview` label
+# (manual opt-in, ANY paths) OR its diff touches the frontend (frontend/**,
+# products/*/frontend/**, common/esbuilder/**). The `no-preview` label opts out.
+# Auto-previews for frontend PRs are org-visible default behavior; the opt-out +
+# hibernation (below) keep them cheap. See the trigger notes on `on.pull_request`.
+#
 # --- LIFECYCLE ------------------------------------------------------------------
-#   - build/update: this workflow, on a labeled PR's push (and manual dispatch).
-#   - teardown on PR close + the daily stale-sweep: folded into pr-cleanup.yml
-#     (cleanup-hogbox-preview), invoked from pr-closed.yml — same place hobby's
-#     teardown lives. The GitHub Deployment/environment (preview-pr-<n>) is reaped
-#     by pr-cleanup.yml's existing deployment cleanup.
-#   - teardown on label removal: the teardown job below (fast path; the cron is
-#     the backstop).
+#   - build/update: this workflow's `preview` job, once `decide` says build.
+#   - teardown on PR close + the daily stale-sweep: pr-closed.yml (box + pen) +
+#     hogbox-preview-cleanup.yml's cron. The GitHub Deployment/environment
+#     (preview-pr-<n>) is reaped by pr-cleanup.yml's existing deployment cleanup.
+#   - teardown fast path: the `teardown` job below fires when `hogbox-preview` is
+#     removed OR `no-preview` is added (the cron is the backstop).
 #
 # --- PREREQS (tracked out of band) ----------------------------------------------
 #   - vars.TS_HOGLAND_CI_CLIENT_ID / TS_HOGLAND_CI_AUDIENCE  (tailnet join)
 #   - the golden is referenced by its global alias `posthog-preview-golden`
 #   - target hogland deploy has HOG_GITHUB_OIDC_AUDIENCE + a github_oidc
 #     TrustMapping for PostHog/posthog on prod-us
-#   - PRs opt in with the `hogbox-preview` label (mirrors hobby's label gate)
+#   - frontend PRs auto-preview; `hogbox-preview` forces it for any paths,
+#     `no-preview` opts out (see the TRIGGER section above)
 # The box is driven entirely by the posthog-hogland SDK (pip-installable, keyless
 # over hogplane's HTTP API) — no `hogland` CLI binary and no box SSH key needed.
 
@@ -42,16 +50,27 @@ name: Hogbox Preview Environment
 
 on:
     pull_request:
-        types: [opened, synchronize, reopened, labeled, unlabeled]
+        # Broad on purpose — the eligibility decision CANNOT live in an
+        # `on.pull_request.paths` filter: that would kill the label-only path for
+        # backend PRs (a labeled PR gets a preview for ANY paths). So the trigger
+        # fires for every PR event of these types and the `decide` job below is the
+        # real gate (see 2a in README). `ready_for_review` is included so a
+        # draft→ready flip creates the preview; `labeled`/`unlabeled` drive both
+        # the manual `hogbox-preview` opt-in and the `no-preview` opt-out.
+        types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
     workflow_dispatch:
         inputs:
             pr_number:
                 description: PR number to (re)build a preview for
                 required: true
 
-concurrency:
-    group: hogbox-preview-${{ github.event.pull_request.number || github.event.inputs.pr_number }}
-    cancel-in-progress: true
+# NOTE: there is deliberately NO workflow-level `concurrency` here. The workflow
+# fires on `unlabeled` (a no-op teardown-irrelevant label removal still starts a
+# run), and a workflow-level `cancel-in-progress` would let such an unrelated run
+# cancel an in-flight preview BUILD for the same PR. Instead the cancelable
+# concurrency lives on the `preview`/`teardown` jobs (keyed on PR number), which
+# only run once eligibility is decided — so a no-op run never enters the group
+# and never cancels anything. See 2b in README.
 
 permissions:
     contents: read
@@ -67,33 +86,132 @@ env:
 
 jobs:
     # ----------------------------------------------------------------------------
+    # Cheap, credential-free gate. Runs on EVERY event (github-script only, no
+    # checkout, no tailnet, no token) and decides — from the PR's labels, author,
+    # draft state and diff — whether to build a preview, tear one down, or do
+    # nothing. Keeping it separate + non-cancelable is what dodges the
+    # unlabeled-cancel trap: a no-op event runs only this job, never touches the
+    # `preview`/`teardown` concurrency group, so it can't cancel an active build.
+    decide:
+        name: decide eligibility
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            contents: read
+            pull-requests: read # read labels + list changed files; no write, no token
+        outputs:
+            build: ${{ steps.decide.outputs.build }}
+            teardown: ${{ steps.decide.outputs.teardown }}
+        steps:
+            - name: Decide build vs teardown vs skip
+              id: decide
+              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+              with:
+                  script: |
+                      const base = `${context.repo.owner}/${context.repo.repo}`;
+                      const event = context.eventName;
+                      const action = context.payload.action;
+                      const decide = (build, teardown, why) => {
+                          core.info(why);
+                          core.setOutput('build', build ? 'true' : 'false');
+                          core.setOutput('teardown', teardown ? 'true' : 'false');
+                      };
+
+                      // Manual dispatch is an explicit act by someone with Actions
+                      // write — always attempt a build. The preview job's fork guard
+                      // is the security gate for a dispatched fork number.
+                      if (event === 'workflow_dispatch') {
+                          return decide(true, false, 'workflow_dispatch → build');
+                      }
+
+                      const pr = context.payload.pull_request;
+                      const label = context.payload.label && context.payload.label.name;
+
+                      // Teardown fast paths (idempotent — a no-op if nothing is up):
+                      // removing `hogbox-preview` keeps its existing teardown
+                      // semantics; adding the `no-preview` opt-out tears a live
+                      // preview down the same way.
+                      if (action === 'unlabeled' && label === 'hogbox-preview') {
+                          return decide(false, true, 'hogbox-preview removed → tear down');
+                      }
+                      if (action === 'labeled' && label === 'no-preview') {
+                          return decide(false, true, 'no-preview opt-out added → tear down');
+                      }
+
+                      // Most label toggles don't change build intent — only two do:
+                      // `hogbox-preview` ADDED (manual opt-in) and `no-preview`
+                      // REMOVED (opt-out lifted). Any other labeled/unlabeled is a
+                      // no-op, skipped WITHOUT an API call so a busy PR's unrelated
+                      // label churn never queues a ~10-min rebuild. Code pushes
+                      // (synchronize) are what rebuild on change.
+                      const buildRelevantLabel =
+                          (action === 'labeled' && label === 'hogbox-preview') ||
+                          (action === 'unlabeled' && label === 'no-preview');
+                      if ((action === 'labeled' || action === 'unlabeled') && !buildRelevantLabel) {
+                          return decide(false, false, `label ${action} '${label}' — not preview-relevant → skip`);
+                      }
+
+                      // Build eligibility: same-repo AND human AND ready AND not
+                      // opted-out AND (labeled OR frontend-touching).
+                      const labels = (pr.labels || []).map(l => l.name);
+                      const hasPreviewLabel = labels.includes('hogbox-preview');
+                      const optedOut = labels.includes('no-preview');
+                      const sameRepo = (pr.head && pr.head.repo && pr.head.repo.full_name) === base;
+                      const login = (pr.user && pr.user.login) || '';
+                      const isBot = (pr.user && pr.user.type) === 'Bot'
+                          || /\[bot\]$/i.test(login)
+                          || /^(dependabot|renovate|github-actions|snyk-bot|posthog-bot|mendral-app|greptileai|coderabbitai|sentry-io)\b/i.test(login);
+                      const ready = pr.draft === false;
+
+                      if (!sameRepo) return decide(false, false, `fork PR (${pr.head && pr.head.repo && pr.head.repo.full_name}) → skip`);
+                      if (isBot) return decide(false, false, `bot author (${login}) → skip`);
+                      if (!ready) return decide(false, false, 'draft PR → skip');
+                      if (optedOut) return decide(false, false, 'no-preview label present → skip');
+
+                      // The manual label opts a PR in for ANY paths; without it we
+                      // require a frontend-touching diff. Only pay for the files
+                      // list when there's no label (short-circuit the API call).
+                      let frontend = false;
+                      if (!hasPreviewLabel) {
+                          const files = await github.paginate(github.rest.pulls.listFiles,
+                              { ...context.repo, pull_number: pr.number, per_page: 100 });
+                          const fe = /^frontend\/|^products\/[^/]+\/frontend\/|^common\/esbuilder\//;
+                          frontend = files.some(f => fe.test(f.filename));
+                          core.info(`frontend-touching: ${frontend}`);
+                      }
+                      const build = hasPreviewLabel || frontend;
+                      return decide(build, false, build
+                          ? `eligible (label=${hasPreviewLabel}, frontend=${frontend}) → build`
+                          : 'no hogbox-preview label and no frontend changes → skip');
+
+    # ----------------------------------------------------------------------------
     preview:
         name: build preview
-        # This job mints the prod-us hogland token + tailnet access and then runs
-        # the PR's OWN tool code, so gate it: opt-in label AND same-repo (the
-        # branch lives in PostHog/posthog, not a fork). A same-repo branch already
-        # requires write access to the repo, so only trusted contributors can
-        # trigger it; forks never run, so a non-member's PR can't reach the token.
-        # (author_association is deliberately NOT used — the webhook payload reports
-        # CONTRIBUTOR, not MEMBER, for private org members, so it skips legit
-        # authors; a reliable org-member-strict check needs an org-read App token,
-        # left as a follow-up.) workflow_dispatch is manual, already limited to
-        # actors with Actions write. Skip unlabeled — that's teardown.
-        if: >-
-            github.event_name == 'workflow_dispatch' ||
-            (github.event.action != 'unlabeled' &&
-             contains(github.event.pull_request.labels.*.name, 'hogbox-preview') &&
-             github.event.pull_request.head.repo.full_name == github.repository)
+        needs: decide
+        if: needs.decide.outputs.build == 'true'
+        # Per-PR cancelable group, keyed on PR number ONLY, and set at the JOB
+        # level (not workflow level). Rapid pushes coalesce — median 4 pushes/PR,
+        # p90 17, so without this a busy PR could queue 17 sequential ~10-min
+        # rebuilds; cancel-in-progress keeps just the latest. Because only an
+        # eligible run (decide.build==true) reaches this job, a filtered-out event
+        # never enters the group — so an unrelated `unlabeled` can't cancel an
+        # active build. `teardown` shares this group so the latest intent wins
+        # (a no-preview teardown cancels an in-flight build for the same PR, and
+        # vice-versa). Dispatch uses the same key so a manual rebuild coalesces
+        # with a push rebuild for the same PR.
+        concurrency:
+            group: hogbox-preview-${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+            cancel-in-progress: true
         runs-on: ubuntu-24.04
         timeout-minutes: 40
         steps:
             # SECURITY GATE — manual dispatch takes a bare pr_number and the tool
             # later checks out `pull/<n>/head` INSIDE the box and EXECUTES it with
             # the tailnet + a minted hogland token in scope. The `pull_request`
-            # path is same-repo-gated by the job `if`, but a dispatched number is
-            # not — dispatching a FORK PR's number would run fork code against real
-            # credentials. So resolve the PR via the API and hard-fail unless its
-            # head lives in this repo (never a fork). Runs first, before any
+            # path is same-repo-gated in the `decide` job, but a dispatched number
+            # is not — dispatching a FORK PR's number would run fork code against
+            # real credentials. So resolve the PR via the API and hard-fail unless
+            # its head lives in this repo (never a fork). Runs first, before any
             # checkout / credential mint, so a fork number dies before anything
             # sensitive comes online.
             - name: Guard dispatch against fork PRs
@@ -323,12 +441,22 @@ jobs:
                       else await github.rest.issues.createComment({ ...context.repo, issue_number: pr, body });
 
     # ----------------------------------------------------------------------------
-    # Fast-path teardown when the `hogbox-preview` label is removed (the daily
-    # stale-sweep in pr-cleanup.yml is the backstop; PR *close* teardown lives in
-    # pr-cleanup.yml too, via pr-closed.yml).
-    teardown-on-unlabel:
-        name: tear down preview (label removed)
-        if: github.event.action == 'unlabeled' && github.event.label.name == 'hogbox-preview'
+    # Fast-path teardown, decided by the `decide` job: either the `hogbox-preview`
+    # label was removed (existing semantics) or the `no-preview` opt-out was added
+    # to a PR with a live preview. Both destroy box + pen (idempotent — a no-op if
+    # nothing is up). The daily stale-sweep in hogbox-preview-cleanup.yml is the
+    # backstop; PR *close* teardown lives in pr-closed.yml.
+    teardown:
+        name: tear down preview
+        needs: decide
+        if: needs.decide.outputs.teardown == 'true'
+        # Share the preview job's per-PR group so the latest intent wins: a
+        # teardown cancels an in-flight build for the same PR (and vice-versa),
+        # instead of a build finishing and re-posting a preview the user just
+        # opted out of.
+        concurrency:
+            group: hogbox-preview-${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+            cancel-in-progress: true
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         steps:
