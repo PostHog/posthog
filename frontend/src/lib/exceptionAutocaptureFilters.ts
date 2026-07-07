@@ -39,7 +39,4 @@ export function dropRequestCancellationExceptions<T extends FilterableEvent>(eve
 // Central error-tracking `before_send` filters, applied to every posthog-js init in the app
 // (see `loadPostHogJS`). Composing here rather than mutating `before_send` at runtime keeps a
 // single owner of the config slot, so filters can't clobber each other.
-export const exceptionAutocaptureFilters: BeforeSendFn[] = [
-    dropRequestCancellationExceptions,
-    dropReadOnlyExceptions,
-]
+export const exceptionAutocaptureFilters: BeforeSendFn[] = [dropRequestCancellationExceptions, dropReadOnlyExceptions]
