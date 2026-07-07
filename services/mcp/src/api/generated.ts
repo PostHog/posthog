@@ -61392,6 +61392,10 @@ export namespace Schemas {
      */
     account_id?: string;
     /**
+     * Only return notes on accounts assigned to these user IDs (the account's CSM or account executive; repeat the param per user).
+     */
+    assigned_to?: number[];
+    /**
      * Only return notes created by these user IDs (repeat the param per user).
      */
     created_by?: number[];
