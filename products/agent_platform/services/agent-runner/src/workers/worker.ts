@@ -585,6 +585,13 @@ export class Worker {
             // carries `?agent=<slug>` — the ingress-routed approval modal needs it
             // to address the agent's ingress directly.
             const buildApprovalUrl = this.deps.buildApprovalUrl
+            // Team-blanket memory read: same-team apps whose owner opted their
+            // memory into team-wide sharing. Loaded once per session; the
+            // memory/table READ tools honour an `owner` arg only for these ids.
+            // Fail-safe to self-only (empty set) if the lookup errors.
+            const memoryReadableAppIds = new Set(
+                await this.deps.revisions.listMemorySharedAppIds(session.team_id).catch(() => [])
+            )
             const outcome = await runSession(rev, session, {
                 models,
                 apiKey,
@@ -607,6 +614,7 @@ export class Worker {
                     : undefined,
                 memoryStore: this.deps.memoryStore,
                 tabularStore: this.deps.tabularStore,
+                memoryReadableAppIds,
                 webSearchProviders: this.deps.webSearchProviders,
                 credentialBroker: this.deps.credentialBroker,
                 identityCredentials: this.deps.identityCredentials,

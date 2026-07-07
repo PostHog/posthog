@@ -42,9 +42,26 @@ type Result<T> = { ok: true; data: T } | { ok: false; error: string; code: strin
 const ok = <T>(data: T): Result<T> => ({ ok: true, data })
 const err = (error: string, code = 'error'): Result<never> => ({ ok: false, error, code })
 
-function scope(ctx: ToolContext): { teamId: number; applicationId: string } {
+type Scope = { teamId: number; applicationId: string }
+function selfScope(ctx: ToolContext): Scope {
     return { teamId: ctx.teamId, applicationId: ctx.applicationId }
 }
+// Resolve the read scope. `owner` targets another agent's tables; allowed only
+// when that app opted into team-wide sharing. `teamId` is NEVER taken from the
+// arg, so cross-team access is impossible by construction. null = access denied.
+function readScope(ctx: ToolContext, owner?: string): Scope | null {
+    const applicationId = owner ?? ctx.applicationId
+    if (applicationId !== ctx.applicationId && !ctx.memoryReadableAppIds?.has(applicationId)) {
+        return null
+    }
+    return { teamId: ctx.teamId, applicationId }
+}
+const OWNER = Type.Optional(
+    Type.String({
+        description:
+            "Read another agent's tables instead of your own: the owner AgentApplication id. Works only when that agent opted its memory into team-wide sharing (same team); otherwise returns access_denied. Omit to read your own tables.",
+    })
+)
 function storeOrError(ctx: ToolContext): TabularStore | { error: string } {
     if (!ctx.tabularStore) {
         return { error: 'tabular_store_unavailable' }
@@ -75,6 +92,7 @@ export const tableMembershipV1 = defineNativeTool({
         table: TABLE,
         key_column: Type.String({ description: 'The column holding the identifier to test membership against.' }),
         values: Type.Array(SCALAR, { description: 'Candidate values to test.' }),
+        owner: OWNER,
     }),
     returns: RESULT,
     cost_hint: 'cheap',
@@ -83,8 +101,12 @@ export const tableMembershipV1 = defineNativeTool({
         if ('error' in s) {
             return err(s.error, 'unavailable')
         }
+        const sc = readScope(ctx, args.owner)
+        if (!sc) {
+            return err(`no team-shared memory access to owner '${args.owner}'`, 'access_denied')
+        }
         try {
-            const res = await s.membership(scope(ctx), args.table, args.key_column, args.values)
+            const res = await s.membership(sc, args.table, args.key_column, args.values)
             return ok(res)
         } catch (e) {
             return err(asError(e), asCode(e))
@@ -112,7 +134,7 @@ export const tableAppendV1 = defineNativeTool({
             return err(s.error, 'unavailable')
         }
         try {
-            const res = await s.append(scope(ctx), args.table, args.rows, { dedupeOn: args.dedupe_on })
+            const res = await s.append(selfScope(ctx), args.table, args.rows, { dedupeOn: args.dedupe_on })
             return ok(res)
         } catch (e) {
             return err(asError(e), asCode(e))
@@ -132,6 +154,7 @@ export const tableQueryV1 = defineNativeTool({
         order_by: Type.Optional(Type.String({ description: 'Sort by this column.' })),
         desc: Type.Optional(Type.Boolean({ description: 'Descending order.' })),
         limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000 })),
+        owner: OWNER,
     }),
     returns: RESULT,
     cost_hint: 'cheap',
@@ -140,8 +163,12 @@ export const tableQueryV1 = defineNativeTool({
         if ('error' in s) {
             return err(s.error, 'unavailable')
         }
+        const sc = readScope(ctx, args.owner)
+        if (!sc) {
+            return err(`no team-shared memory access to owner '${args.owner}'`, 'access_denied')
+        }
         try {
-            const rows = await s.query(scope(ctx), args.table, {
+            const rows = await s.query(sc, args.table, {
                 where: args.where as Where,
                 columns: args.columns,
                 order_by: args.order_by,
@@ -159,7 +186,7 @@ export const tableCountV1 = defineNativeTool({
     id: '@posthog/table-count',
     approval: 'allow',
     description: 'Count rows in a table matching `where` (or all rows if omitted).',
-    args: Type.Object({ table: TABLE, where: Type.Optional(WHERE) }),
+    args: Type.Object({ table: TABLE, where: Type.Optional(WHERE), owner: OWNER }),
     returns: RESULT,
     cost_hint: 'cheap',
     async run(args, ctx) {
@@ -167,8 +194,12 @@ export const tableCountV1 = defineNativeTool({
         if ('error' in s) {
             return err(s.error, 'unavailable')
         }
+        const sc = readScope(ctx, args.owner)
+        if (!sc) {
+            return err(`no team-shared memory access to owner '${args.owner}'`, 'access_denied')
+        }
         try {
-            return ok({ count: await s.count(scope(ctx), args.table, args.where as Where) })
+            return ok({ count: await s.count(sc, args.table, args.where as Where) })
         } catch (e) {
             return err(asError(e), asCode(e))
         }
@@ -188,7 +219,7 @@ export const tableDeleteV1 = defineNativeTool({
             return err(s.error, 'unavailable')
         }
         try {
-            return ok(await s.delete(scope(ctx), args.table, args.where as Where))
+            return ok(await s.delete(selfScope(ctx), args.table, args.where as Where))
         } catch (e) {
             return err(asError(e), asCode(e))
         }
@@ -208,7 +239,7 @@ export const tableTruncateV1 = defineNativeTool({
             return err(s.error, 'unavailable')
         }
         try {
-            await s.truncate(scope(ctx), args.table)
+            await s.truncate(selfScope(ctx), args.table)
             return ok({ truncated: args.table })
         } catch (e) {
             return err(asError(e), asCode(e))
