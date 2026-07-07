@@ -5124,6 +5124,48 @@ class TestExperimentCRUD(APILicensedTest):
         )
         self.assertEqual(end_response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=False)
+    def test_end_endpoint_cleanup_pr_requires_task_write_scope(self, _mock_flag):
+        exp_deny = self._create_running_experiment(name="Cleanup Deny", flag_key="cleanup-deny-flag")["id"]
+        exp_no_opt = self._create_running_experiment(name="Cleanup No Opt", flag_key="cleanup-no-opt-flag")["id"]
+        exp_allow = self._create_running_experiment(name="Cleanup Allow", flag_key="cleanup-allow-flag")["id"]
+
+        def _pat(scopes: list[str]) -> str:
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(user=self.user, label="t", secure_value=hash_key_value(token), scopes=scopes)
+            return token
+
+        self.client.logout()
+
+        # experiment:write alone can't open a cleanup PR; opening one starts a task, which needs task:write.
+        token = _pat(["experiment:write"])
+        resp = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{exp_deny}/end/",
+            {"conclusion": "won", "open_cleanup_pr": True},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
+
+        # experiment:write alone still ends the experiment when not opening a PR.
+        resp = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{exp_no_opt}/end/",
+            {"conclusion": "won", "open_cleanup_pr": False},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+
+        # With task:write, opting in is allowed.
+        token = _pat(["experiment:write", "task:write"])
+        resp = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{exp_allow}/end/",
+            {"conclusion": "won", "open_cleanup_pr": True},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+
     def test_ship_variant_endpoint_default_preserves_groups(self):
         data = self._create_running_experiment(name="Ship Endpoint", flag_key="ship-endpoint-flag")
         experiment_id = data["id"]

@@ -128,6 +128,7 @@ async def aupsert_notebook(
     last_modified_by_id: int | None,
     title: str,
     content: dict[str, Any],
+    text_content: str | None = None,
 ) -> tuple[contracts.NotebookData, bool]:
     notebook, created = await logic.aupsert_notebook(
         team_id,
@@ -136,6 +137,7 @@ async def aupsert_notebook(
         last_modified_by_id=last_modified_by_id,
         title=title,
         content=content,
+        text_content=text_content,
     )
     return _to_notebook_data(notebook), created
 
@@ -282,6 +284,7 @@ def _to_team_account_note(link: ResourceNotebook) -> contracts.TeamAccountNote:
         last_modified_at=link.notebook.last_modified_at,
         account_id=link.account.id,
         account_name=link.account.name,
+        created_by=_to_notebook_user(link.notebook.created_by),
     )
 
 
@@ -289,11 +292,19 @@ def list_team_account_notes(
     team_id: int,
     *,
     account_ids: Iterable[UUID | str] | None = None,
+    account_id: UUID | str | None = None,
+    created_by_ids: Iterable[int] | None = None,
     search: str | None = None,
     offset: int = 0,
     limit: int = 100,
 ) -> tuple[list[contracts.TeamAccountNote], int]:
     links, count = logic.list_team_account_notes(
-        team_id, account_ids=account_ids, search=search, offset=offset, limit=limit
+        team_id,
+        account_ids=account_ids,
+        account_id=account_id,
+        created_by_ids=created_by_ids,
+        search=search,
+        offset=offset,
+        limit=limit,
     )
     return [_to_team_account_note(link) for link in links], count

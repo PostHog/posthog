@@ -58,8 +58,7 @@ def seed_warehouse_schema(context: CustomPromptSandboxContext) -> dict[str, Any]
 
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.data_tools.backend.models.join import DataWarehouseJoin
-    from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
-    from products.warehouse_sources.backend.models.table import DataWarehouseTable
+    from products.warehouse_sources.backend.facade.models import DataWarehouseTable, WarehouseColumnAnnotation
 
     team = Team.objects.get(pk=context.team_id)
     user_id = context.user_id
@@ -190,10 +189,12 @@ def _create_queryable_needle(team: Team, table: SynthTable) -> dict[str, Any]:
         XDIST_SUFFIX,
     )
 
-    from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-    from products.warehouse_sources.backend.models.table import DataWarehouseTable
-    from products.warehouse_sources.backend.types import ExternalDataSourceType
+    from products.warehouse_sources.backend.facade.models import (
+        DataWarehouseCredential,
+        DataWarehouseTable,
+        ExternalDataSource,
+    )
+    from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
     degraded = {"queryable": False, "answer": RETRIEVAL_NEEDLE_ANSWER, "event_id": RETRIEVAL_NEEDLE_EVENT_ID}
     if not OBJECT_STORAGE_ACCESS_KEY_ID or not OBJECT_STORAGE_SECRET_ACCESS_KEY:

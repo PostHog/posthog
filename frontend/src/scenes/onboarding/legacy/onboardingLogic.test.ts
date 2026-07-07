@@ -609,9 +609,9 @@ describe('onboardingLogic — flow composition', () => {
             expect(logic.values.onboardingFlowVariant).toBe('legacy')
         })
 
-        it('returns redesign when the flag selects it', () => {
-            setVariant('redesign')
-            expect(logic.values.onboardingFlowVariant).toBe('redesign')
+        it('returns self-driving when the flag selects it', () => {
+            setVariant('self-driving')
+            expect(logic.values.onboardingFlowVariant).toBe('self-driving')
         })
 
         it('falls back to legacy for an unregistered variant', () => {

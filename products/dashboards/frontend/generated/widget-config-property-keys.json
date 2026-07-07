@@ -23,6 +23,7 @@
         ],
         "experiments_list": ["createdBy", "limit", "orderBy", "orderDirection", "status"],
         "experiment_results": ["experimentId"],
+        "survey_results": ["dateRange", "limit", "surveyId"],
         "logs_list": [
             "dateRange",
             "limit",
@@ -294,6 +295,19 @@
         },
         "experiment_results": {
             "experimentId": {
+                "$type": "integer"
+            }
+        },
+        "survey_results": {
+            "dateRange": {
+                "date_from": {
+                    "$enum": ["-14d", "-1M", "-1h", "-24h", "-30M", "-30d", "-3h", "-7d", "-90d"]
+                }
+            },
+            "surveyId": {
+                "$type": "string"
+            },
+            "limit": {
                 "$type": "integer"
             }
         },

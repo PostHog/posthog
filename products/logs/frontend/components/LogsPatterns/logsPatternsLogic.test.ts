@@ -31,12 +31,18 @@ const RESPONSE: _LogsPatternsResponseApi = {
             last_seen: '2026-06-23T12:05:00+00:00',
             examples: [],
             services: ['auth'],
+            sparkline: [1, 2],
+            severity_counts: { error: 3 },
         },
     ],
     scanned_count: 3,
     total_count: 3,
     sampled: false,
     sample_coverage_pct: 100,
+    sparkline_buckets: [
+        { start: '2026-06-23T12:00:00+00:00', end: '2026-06-23T12:30:00+00:00' },
+        { start: '2026-06-23T12:30:00+00:00', end: '2026-06-23T13:00:00+00:00' },
+    ],
 }
 
 describe('logsPatternsLogic', () => {
@@ -94,6 +100,36 @@ describe('logsPatternsLogic', () => {
             expect.any(String),
             expect.objectContaining({ query: expect.objectContaining({ severityLevels: ['error'] }) })
         )
+    })
+
+    // The label format flips on a >= 24h window threshold (time-of-day vs date-prefixed) and
+    // early-returns on empty buckets — none of the above tests read `sparklineLabels`, so a
+    // flipped threshold or a broken dayjs format would otherwise go undetected.
+    const labelCases: [string, { start: string; end: string }[], string[]][] = [
+        ['empty buckets yield no labels', [], []],
+        [
+            'a sub-day window uses time-of-day labels',
+            [
+                { start: '2026-06-23T12:00:00+00:00', end: '2026-06-23T12:30:00+00:00' },
+                { start: '2026-06-23T12:30:00+00:00', end: '2026-06-23T13:00:00+00:00' },
+            ],
+            ['12:00 – 12:30', '12:30 – 13:00'],
+        ],
+        [
+            'a multi-day window prefixes the date',
+            [
+                { start: '2026-06-23T00:00:00+00:00', end: '2026-06-24T00:00:00+00:00' },
+                { start: '2026-06-24T00:00:00+00:00', end: '2026-06-25T00:00:00+00:00' },
+            ],
+            ['Jun 23 00:00 – Jun 24 00:00', 'Jun 24 00:00 – Jun 25 00:00'],
+        ],
+    ]
+    it.each(labelCases)('builds sparkline labels: %s', async (_name, sparkline_buckets, expected) => {
+        mockCreate.mockResolvedValue({ ...RESPONSE, sparkline_buckets })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadPatternsSuccess'])
+        expect(logic.values.sparklineLabels).toEqual(expected)
     })
 
     it('scopes mining to the embedding viewer pinned filters', async () => {

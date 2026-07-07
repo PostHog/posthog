@@ -943,7 +943,7 @@
         }
     },
     "annotations-list": {
-        "description": "List annotations in the current project, newest first. Use this to review existing deployment markers and analysis notes before adding new annotations.",
+        "description": "List annotations in the current project, newest first. Use this to review existing deployment markers and analysis notes before adding new annotations. Results are paginated (default 100 per page) — use `limit` and `offset` to page through, and `search` to filter by annotation content. Each row's `created_by` is trimmed to `{id, email}`.",
         "category": "Annotations",
         "feature": "annotations",
         "summary": "List annotations",
@@ -2271,6 +2271,20 @@
             "readOnlyHint": true
         }
     },
+    "elements-stats-retrieve": {
+        "description": "Counts of autocapture clicks, rage clicks, and dead clicks grouped by page element, ordered by count. Each result carries the parsed element chain (tag, text, href, attributes) of the clicked element. Filter by date range, event types, URL or other event/person properties, and the project's internal-test-account filters. This powers heatmap/clickmap views; use it to answer \"what do users click most\" and \"which elements get rage or dead clicks\". Responses can be very large on busy projects — always pass a small `limit` (e.g. 100) and paginate with `offset` if you need more results.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Get element click stats",
+        "title": "Get element click stats",
+        "required_scopes": ["element:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "endpoint-create": {
         "description": "Create a new API endpoint from a HogQL or insight query. The name must be URL-safe (letters, numbers, hyphens, underscores, starts with a letter, max 128 chars). Materialization is auto-enabled if the query is eligible.",
         "category": "Endpoints",
@@ -2591,6 +2605,48 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "error-tracking-bypass-rules-create": {
+        "description": "Create a rate limit bypass rule for the current project. Exception events matching the rule skip both the project-wide and per-issue exception rate limits and are always ingested. Provide `filters` with at least one condition — empty match-all rules are rejected; to stop rate limiting entirely, update the rate limits via error-tracking-settings-update instead. Keep filters scoped to the specific errors that must never be dropped: bypassed events are ingested and billed even during error spikes, so a broad rule can cause unbounded volume.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Create error tracking bypass rule",
+        "title": "Create error tracking bypass rule",
+        "required_scopes": ["error_tracking:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "error-tracking-bypass-rules-list": {
+        "description": "List rate limit bypass rules for the current project. Exception events matching a rule skip the project-wide and per-issue exception rate limits. Returns rules in evaluation order with their filters and disabled state. Supports pagination with `limit` and `offset`.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "List error tracking bypass rules",
+        "title": "List error tracking bypass rules",
+        "required_scopes": ["error_tracking:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "error-tracking-bypass-rules-update": {
+        "description": "Update a rate limit bypass rule's `filters` by ID. Omit `filters` to leave them unchanged. Editing the rule also clears any auto-disable state so the rule is re-enabled. Broadening filters exempts more exception events from rate limiting, which can increase ingested (and billed) volume during error spikes — keep them scoped to the specific errors that must never be dropped.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Update error tracking bypass rule",
+        "title": "Update error tracking bypass rule",
+        "required_scopes": ["error_tracking:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "error-tracking-external-references-create": {
@@ -4706,7 +4762,7 @@
         }
     },
     "llma-personal-spend": {
-        "description": "Retrieve the current user's personal LLM spend analysis across PostHog products over the last N days (default 30, max 90). Returns a summary plus breakdowns by product, tool, model, and top traces. The `product` query param is required and scopes the tool / model / trace breakdowns to a single product; currently only `posthog_code` is supported. `by_product` always returns the cross-product view. Pass `refresh=true` to bypass the 5-minute cache.",
+        "description": "Retrieve the current user's personal LLM spend analysis across PostHog products over the last N days (default 30, max 90). Returns a summary plus breakdowns by product, tool, model and UTC day. The `product` query param is required and scopes the tool / model / day breakdowns to a single product; currently only `posthog_code` is supported. `by_product` always returns the cross-product view, and `by_day` is a day-ascending series for spend-over-time questions. Pass `refresh=true` to bypass the 5-minute cache.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get my LLM spend analysis",
@@ -5545,6 +5601,21 @@
         "feature": "mcp_analytics",
         "summary": "List MCP sessions",
         "title": "List MCP sessions",
+        "required_scopes": ["mcp_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "mcp-analytics"
+    },
+    "mcp-analytics-sessions-tool-calls": {
+        "description": "List a single session's $mcp_tool_call events in chronological order — the drill-down for a session found via mcp-analytics-sessions-list. Pass the session's session_id (the {id} path param); for sessions older than the default 7-day lookback, also pass its session_start as date_from so the event scan reaches them. Each call has tool_name, intent, timestamp, duration_ms, and is_error / error_message. Pages with limit (defaults to 500 — the whole page, since sessions rarely have more — max 500) and offset; the response's has_next flag indicates whether more calls remain.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "List session tool calls",
+        "title": "List session tool calls",
         "required_scopes": ["mcp_analytics:read"],
         "annotations": {
             "destructiveHint": false,
@@ -6678,8 +6749,22 @@
             "readOnlyHint": false
         }
     },
+    "session-recording-bulk-delete": {
+        "description": "Delete a batch of session recordings by session ID, up to 100 per call. Deletion is permanent and cannot be undone — confirm with the user before deleting. Prefer this over `session-recording-delete` whenever more than one recording needs deleting: find the target IDs with `query-session-recordings-list`, then delete in batches. Pass `date_from` (e.g. '-30d') when the recordings' age is known — it makes the lookup much faster. IDs with no matching recording are skipped, so a `deleted_count` below `total_requested` is normal when some recordings were already deleted or never existed.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "Bulk delete session recordings",
+        "title": "Bulk delete session recordings",
+        "required_scopes": ["session_recording:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "session-recording-delete": {
-        "description": "Delete a session recording by ID. This permanently removes the recording data. Use for privacy or compliance workflows.",
+        "description": "Delete a session recording by ID. This permanently removes the recording data. Use for privacy or compliance workflows. To delete more than one recording, use `session-recording-bulk-delete` instead of calling this repeatedly.",
         "category": "Session replays",
         "feature": "replay",
         "summary": "Delete session recording",
@@ -8019,7 +8104,7 @@
         }
     },
     "view-create": {
-        "description": "Create a new data warehouse saved query (view). If a view with the same name already exists, it will be updated instead (upsert behavior). The query must be valid HogQL. After creation, the view can be referenced by name in other HogQL queries.",
+        "description": "Create a new data warehouse saved query (view). If a view with the same name already exists, it will be updated instead (upsert behavior). The query must be valid HogQL. After creation, the view can be referenced by name in other HogQL queries. Set `description` to record what the view represents (a semantic description surfaced to agents); per-column descriptions are set via the saved-query column annotation tools.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
         "summary": "Create saved query",
@@ -8047,7 +8132,7 @@
         }
     },
     "view-get": {
-        "description": "Get a specific data warehouse saved query (view) by ID. Returns the full view definition including the HogQL query, column schema, materialization status, sync frequency, and run history metadata.",
+        "description": "Get a specific data warehouse saved query (view) by ID. Returns the full view definition including the HogQL query, column schema, materialization status, sync frequency, and run history metadata. Also returns the view's semantic `description` and a `description` on each entry of `columns` when set — use this to see what a view and its columns mean.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
         "summary": "Get saved query",
@@ -8061,7 +8146,7 @@
         }
     },
     "view-list": {
-        "description": "List all data warehouse saved queries (views) in the project. Returns each view's name, materialization status, sync frequency, column schema, latest error, and last run timestamp. Use this to discover available views before querying them in HogQL.",
+        "description": "List all data warehouse saved queries (views) in the project. Returns each view's name, materialization status, sync frequency, column schema, latest error, and last run timestamp. Each view also includes its semantic `description` and a `description` on each entry of `columns` when set. Use this to discover available views and what they mean before querying them in HogQL.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
         "summary": "List saved queries",
@@ -8131,7 +8216,7 @@
         }
     },
     "view-update": {
-        "description": "Update an existing data warehouse saved query (view). Can change the name, HogQL query, or sync frequency. Changing the query triggers column re-inference and sets the status to 'modified'. Use sync_frequency to control materialization schedule: '15min' (the fastest cadence), '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. IMPORTANT: when updating the query field, you must first retrieve the view to get its latest_history_id, then pass that value as edited_history_id for conflict detection.",
+        "description": "Update an existing data warehouse saved query (view). Can change the name, HogQL query, sync frequency, or `description`. To set what the view represents (the semantic description surfaced to agents), pass `description` — an empty string clears it; per-column descriptions are set via the saved-query column annotation tools. Changing the query triggers column re-inference and sets the status to 'modified'. Use sync_frequency to control materialization schedule: '15min' (the fastest cadence), '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. IMPORTANT: when updating the query field, you must first retrieve the view to get its latest_history_id, then pass that value as edited_history_id for conflict detection.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
         "summary": "Update saved query",

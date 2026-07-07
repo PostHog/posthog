@@ -48,6 +48,13 @@
     }
 }
 
+// Paused rather than removed, so the arc keeps the keyframes' resting shape ("both" fill)
+// while staying deterministic for screenshots.
+.Spinner--frozen .Spinner__layer,
+.Spinner--frozen .Spinner__layer > circle {
+    animation-play-state: paused;
+}
+
 @keyframes Spinner__writhe {
     0%,
     100% {
