@@ -1,6 +1,7 @@
 import uuid
 
 import pytest
+from unittest.mock import MagicMock, patch
 
 from posthog.models import DuckgresSinkSchemaState, Organization, Team
 
@@ -224,3 +225,75 @@ class TestBootstrapV3SourceGate:
         primed = set(DuckgresSinkSchemaState.objects.filter(team=team).values_list("schema_id", flat=True))
         assert v3_schema.id in primed
         assert non_v3_schema.id not in primed
+
+
+@pytest.mark.django_db
+class TestGenerationPinnedPromotions:
+    def _team(self) -> Team:
+        return Team.objects.create(organization=Organization.objects.create(name="org"), name="t")
+
+    def _backfilling_state(self, run_uuid: str | None, chunk_count: int = 2) -> DuckgresSinkSchemaState:
+        return DuckgresSinkSchemaState.objects.create(
+            team=self._team(),
+            schema_id=uuid.uuid4(),
+            state=DuckgresSinkSchemaState.State.BACKFILLING,
+            backfill_run_uuid=run_uuid,
+            chunk_count=chunk_count,
+            chunks_applied=0,
+        )
+
+    def test_mark_primed_ignores_stale_generation(self):
+        # A replan can retire run R1 and plan R2 while R1's final swap is still
+        # committing; R1's late mark_primed must not promote R2's row.
+        row = self._backfilling_state("run-r2")
+
+        backfill_module.mark_primed(str(row.schema_id), run_uuid="run-r1", chunks_applied=2)
+        row.refresh_from_db()
+        assert row.state == DuckgresSinkSchemaState.State.BACKFILLING
+
+        backfill_module.mark_primed(str(row.schema_id), run_uuid="run-r2", chunks_applied=2)
+        row.refresh_from_db()
+        assert row.state == DuckgresSinkSchemaState.State.PRIMED
+        assert row.chunks_applied == 2
+
+    def test_reconcile_promotion_ignores_stale_generation(self):
+        # The reconciler's applied-count evidence belongs to the run it read at
+        # the top of the pass; a replan swapping generations mid-pass must not
+        # be promoted on the old run's counts.
+        row = self._backfilling_state("run-r1")
+        stale_snapshot = DuckgresSinkSchemaState.objects.get(id=row.id)
+        DuckgresSinkSchemaState.objects.filter(id=row.id).update(backfill_run_uuid="run-r2")
+
+        conn = MagicMock()
+        conn.execute.return_value.fetchone.return_value = (stale_snapshot.chunk_count,)
+        backfill_module._reconcile_one(conn, stale_snapshot)
+
+        row.refresh_from_db()
+        assert row.state == DuckgresSinkSchemaState.State.BACKFILLING
+        assert row.backfill_run_uuid == "run-r2"
+
+    def test_plan_one_defers_while_replace_run_inflight(self):
+        team = self._team()
+        source = ExternalDataSource.objects.create(
+            team=team, source_id="s", connection_id="c", source_type="Stripe", status="Running"
+        )
+        schema = ExternalDataSchema.objects.create(team=team, source=source, name="customers")
+        row = DuckgresSinkSchemaState.objects.create(
+            team=team,
+            schema_id=schema.id,
+            state=DuckgresSinkSchemaState.State.BACKFILLING,
+            backfill_run_uuid=None,
+        )
+
+        with (
+            patch.object(backfill_module, "_has_inflight_replace_run", return_value=True),
+            patch.object(backfill_module, "resolve_snapshot_plan") as resolve,
+            patch.object(backfill_module.psycopg, "connect") as connect,
+        ):
+            connect.return_value.__enter__.return_value = MagicMock()
+            backfill_module._plan_one(row)
+
+        resolve.assert_not_called()
+        row.refresh_from_db()
+        assert row.backfill_run_uuid is None
+        assert row.state == DuckgresSinkSchemaState.State.BACKFILLING
