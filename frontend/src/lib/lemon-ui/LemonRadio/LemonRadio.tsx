@@ -42,10 +42,10 @@ export function LemonRadio<T extends React.Key>({
                     <label
                         key={value}
                         className={clsx(
-                            'grid items-center gap-x-2 grid-cols-[min-content_auto] text-sm',
+                            'grid gap-x-2 grid-cols-[min-content_auto] text-sm',
                             disabledReason ? 'text-secondary cursor-not-allowed' : 'cursor-pointer',
                             {
-                                'items-baseline': radioPosition === 'top',
+                                'items-start': radioPosition === 'top',
                                 'items-center': radioPosition === 'center' || !radioPosition,
                             }
                         )}
