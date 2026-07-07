@@ -91,6 +91,7 @@ async fn adapt_blocks(
 /// or derived, and either way the remedy is the same); the root error carries the
 /// internal detail for `status_message` and logs.
 fn plaintext_ceiling_error(total: u64, max_plaintext_bytes: u64) -> Error {
+    crate::metrics::staged_plaintext_ceiling_tripped();
     const GIB: f64 = (1024 * 1024 * 1024) as f64;
     let user_msg = format!(
         "Import part decompressed to {:.2} GiB, exceeding the {:.2} GiB maximum for a \
