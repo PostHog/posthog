@@ -23,9 +23,7 @@ export interface UrlScrubOptions {
     collapseHost?: boolean
 }
 
-// Spec-defined, entropy-free literals (rrweb's blank/srcdoc iframe placeholders): redacting them
-// only costs replay fidelity. Exact matches only.
-export const PASSTHROUGH_URLS = ['about:blank', 'about:srcdoc']
+export const URL_ALLOWLIST = ['about:blank', 'about:srcdoc']
 
 const SIMPLE = /^[A-Za-z0-9]*$/ // 100% alphanumeric (empty allowed)
 const NUMERIC = /^[0-9]+$/ // a bare number
@@ -44,7 +42,7 @@ function renderToken(ctx: ScrubContext, t: string): string | null {
 }
 
 export function scrubUrl(ctx: ScrubContext, input: string, opts?: UrlScrubOptions): ScrubResult {
-    if (PASSTHROUGH_URLS.includes(input)) {
+    if (URL_ALLOWLIST.includes(input)) {
         return { value: input, changed: false }
     }
     const tailIdx = input.search(/[?#]/)
@@ -148,13 +146,6 @@ function scrubTail(ctx: ScrubContext, tail: string): string {
     return out
 }
 
-/**
- * Registrable-domain patterns from a team's `recording_domains` origins. Scheme, path, port,
- * and every subdomain (including `*.` wildcards) are dropped via the public-suffix list, so
- * recording on `www.example.com` also collapses `app.example.com:5000`. Hosts without a
- * registrable domain (IPs, `localhost`) keep the full host. Unparseable and bare `*` entries
- * are ignored.
- */
 export function firstPartyHostPatterns(recordingDomains: string[] | null | undefined): string[] {
     const patterns: string[] = []
     for (const domain of recordingDomains ?? []) {
@@ -179,7 +170,6 @@ export function firstPartyHostPatterns(recordingDomains: string[] | null | undef
     return patterns
 }
 
-// Every pattern is a registrable domain, matched with all its subdomains.
 function isFirstPartyHost(ctx: ScrubContext, hostPort: string): boolean {
     const patterns = ctx.firstPartyHosts
     if (!patterns || patterns.length === 0) {
@@ -200,14 +190,7 @@ function collapsedHost(ctx: ScrubContext, hostPort: string): string {
 
 const SCHEME_NO_SLASHES = /^[A-Za-z][A-Za-z0-9+.-]*:/ // RFC 3986 scheme, e.g. `mailto:`, `tel:`
 
-/**
- * Schemes that survive (name only, value still scrubbed) when written without slashes.
- * `scheme://` URLs keep any scheme unconditionally, so this list only gates the slashless form,
- * where an arbitrary token before a colon (`user:secret`) must not pass through as a "scheme" —
- * anything not listed redacts whole like a relative path. Web platform schemes plus common
- * app deep links; extend freely, entries carry no user data.
- */
-export const KNOWN_SLASHLESS_SCHEMES = new Set([
+export const URL_SCHEME_ALLOWLIST = new Set([
     // Web platform
     'about',
     'blob',
@@ -300,7 +283,7 @@ function splitUrl(s: string): { scheme: string; authority: string; path: string 
         rest = s.slice(2)
     } else {
         const m = SCHEME_NO_SLASHES.exec(s)
-        if (m && KNOWN_SLASHLESS_SCHEMES.has(m[0].slice(0, -1).toLowerCase())) {
+        if (m && URL_SCHEME_ALLOWLIST.has(m[0].slice(0, -1).toLowerCase())) {
             // No slashes, no authority: everything after the scheme scrubs as a path.
             return { scheme: m[0], authority: '', path: s.slice(m[0].length) }
         }

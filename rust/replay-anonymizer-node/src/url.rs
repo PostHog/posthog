@@ -14,9 +14,8 @@
 use crate::allow_lists::AllowLists;
 use crate::context::Ctx;
 
-// Spec-defined, entropy-free literals (rrweb's blank/srcdoc iframe placeholders): redacting them
-// only costs replay fidelity. Exact matches only.
-pub const PASSTHROUGH_URLS: &[&str] = &["about:blank", "about:srcdoc"];
+// Mirrors `URL_ALLOWLIST` in `anonymize/url.ts`.
+pub const URL_ALLOWLIST: &[&str] = &["about:blank", "about:srcdoc"];
 
 fn strip_port(host: &mut String) {
     if let Some(ci) = host.rfind(':') {
@@ -27,8 +26,6 @@ fn strip_port(host: &mut String) {
     }
 }
 
-// Every pattern is a registrable domain (computed TS-side from the team's recording domains via
-// the public-suffix list), matched with all its subdomains.
 fn is_first_party_host(ctx: &Ctx<'_>, host_port: &str) -> bool {
     if ctx.first_party_hosts.is_empty() {
         return false;
@@ -49,7 +46,7 @@ pub fn scrub_url(ctx: &Ctx<'_>, input: &str) -> Option<String> {
 
 pub fn scrub_url_opts(ctx: &Ctx<'_>, input: &str, collapse_host: bool) -> Option<String> {
     let allow = ctx.allow;
-    if PASSTHROUGH_URLS.contains(&input) {
+    if URL_ALLOWLIST.contains(&input) {
         return None;
     }
     let tail_idx = input.find(['?', '#']);
@@ -192,12 +189,8 @@ fn collapsed_host(allow: &AllowLists, host_port: &str) -> String {
     }
 }
 
-/// Schemes that survive (name only, value still scrubbed) when written without slashes.
-/// `scheme://` URLs keep any scheme unconditionally, so this list only gates the slashless form,
-/// where an arbitrary token before a colon (`user:secret`) must not pass through as a "scheme" —
-/// anything not listed redacts whole like a relative path. Mirrors `KNOWN_SLASHLESS_SCHEMES`
-/// in `anonymize/url.ts`.
-pub const KNOWN_SLASHLESS_SCHEMES: &[&str] = &[
+// Mirrors `URL_SCHEME_ALLOWLIST` in `anonymize/url.ts`.
+pub const URL_SCHEME_ALLOWLIST: &[&str] = &[
     // Web platform
     "about",
     "blob",
@@ -277,7 +270,7 @@ pub const KNOWN_SLASHLESS_SCHEMES: &[&str] = &[
 fn scheme_without_slashes(s: &str) -> Option<usize> {
     let colon = s.find(':')?;
     let prefix = &s[..colon];
-    if KNOWN_SLASHLESS_SCHEMES
+    if URL_SCHEME_ALLOWLIST
         .iter()
         .any(|scheme| prefix.eq_ignore_ascii_case(scheme))
     {
