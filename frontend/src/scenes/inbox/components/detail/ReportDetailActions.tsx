@@ -62,6 +62,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
     const { reportArchived } = useActions(inboxBulkActionsLogic)
     const { activeTab } = useValues(inboxSceneLogic)
+    const { loadSelectedReport } = useActions(inboxSceneLogic)
     const [isRestoring, setIsRestoring] = useState(false)
 
     const showCreatePr = canCreateImplementationPr(report)
@@ -91,6 +92,10 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
             reportArchived()
             if (report.status !== SignalReportStatus.RESOLVED) {
                 router.actions.push(urls.inbox(activeTab))
+            } else {
+                // Resolved reports stay on this page, so refetch: the fresh copy carries `refund`,
+                // which surfaces the Refunded badge and drops Refund from the actions.
+                loadSelectedReport({ id: report.id })
             }
         },
     })

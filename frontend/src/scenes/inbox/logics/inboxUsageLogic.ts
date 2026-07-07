@@ -14,6 +14,7 @@ import { BillingProductV2Type } from '~/types'
 import { signalsReportsRefundSummaryRetrieve } from 'products/signals/frontend/generated/api'
 import type { SignalReportRefundSummaryResponseApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import type { inboxUsageLogicType } from './inboxUsageLogicType'
 
 // The inbox/signals billing product type (a flat per-PR credit charge). This is the identifier
@@ -243,6 +244,10 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
             // Seed the field with the current limit (or the free allowance when uncapped).
             actions.setLimitFormValue('prs', values.limitPrs ?? values.freePrs)
         },
+        // Refunds broadcast `reportArchived` after archiving server-side; reload the summary so
+        // the widget's netted PR count updates in-session (mirrors the reportListLogic reconcile
+        // listener — a plain archive just makes this a cheap no-op reload).
+        [inboxBulkActionsLogic.actionTypes.reportArchived]: () => actions.loadRefundSummary(),
     })),
     afterMount(({ actions, values }) => {
         if (!values.billing) {

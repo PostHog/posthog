@@ -117,17 +117,33 @@ def sync_signals_refund_credit(self, refund_id: str) -> None:
             countdown = min(_REFUND_SYNC_RETRY_BASE_SECONDS * (2**self.request.retries), _REFUND_SYNC_RETRY_MAX_SECONDS)
             raise self.retry(exc=exc, countdown=countdown)
         # Terminal for this delivery — record the error for the weekly review; the hourly sweeper
-        # keeps re-enqueueing the row for up to 7 days, after which recovery is operational.
-        refund.billing_sync_error = str(exc)[:4000]
-        refund.save(update_fields=["billing_sync_error"])
+        # keeps re-enqueueing the row for up to 7 days, after which recovery is operational. The
+        # conditional update mirrors the success-path claim below: never stamp an error (or emit
+        # the failed event) onto a row a concurrent delivery already synced.
+        recorded = (
+            # nosemgrep: idor-lookup-without-team (id comes from the sanctioned unscoped lookup above; system task, no user input)
+            SignalReportRefund.objects.unscoped()
+            .filter(id=refund.id, billing_synced_at__isnull=True)
+            .update(billing_sync_error=str(exc)[:4000])
+        )
         capture_exception(exc, {"refund_id": str(refund.id), "team_id": refund.team_id})
-        _capture_refund_sync_event(refund, "signals_pr_refund_credit_failed", {"error": str(exc)[:1000]})
+        if recorded:
+            _capture_refund_sync_event(refund, "signals_pr_refund_credit_failed", {"error": str(exc)[:1000]})
         return
 
-    refund.credit_amount_usd = credit_amount_usd
-    refund.billing_synced_at = timezone.now()
-    refund.billing_sync_error = None
-    refund.save(update_fields=["credit_amount_usd", "billing_synced_at", "billing_sync_error"])
+    # Atomic claim: the on-commit enqueue and the hourly sweeper can race two deliveries for the
+    # same refund past the billing_synced_at gate above while the billing call is in flight
+    # (billing stays idempotent, so the credit itself is issued once). Only the delivery that
+    # flips the row records the sync and emits the issued event, keeping the weekly-review
+    # analytics single-counted.
+    claimed = (
+        # nosemgrep: idor-lookup-without-team (id comes from the sanctioned unscoped lookup above; system task, no user input)
+        SignalReportRefund.objects.unscoped()
+        .filter(id=refund.id, billing_synced_at__isnull=True)
+        .update(credit_amount_usd=credit_amount_usd, billing_synced_at=timezone.now(), billing_sync_error=None)
+    )
+    if not claimed:
+        return
     _capture_refund_sync_event(
         refund,
         "signals_pr_refund_credit_issued",

@@ -368,6 +368,29 @@ class TestSyncSignalsRefundCredit(BaseTest):
             sync_signals_refund_credit(str(refund.id))
         mock_dispute.assert_not_called()
 
+    def test_delivery_losing_the_sync_race_does_not_rerecord_or_emit(self):
+        # The on-commit enqueue and the hourly sweeper can both deliver the same refund; if a
+        # concurrent delivery commits the sync while this one's billing call is in flight, this
+        # one must not overwrite the row or emit a second issued event.
+        refund = self._credited_refund()
+        concurrent_synced_at = timezone.now()
+
+        def _concurrent_delivery_wins(*args, **kwargs):
+            SignalReportRefund.objects.filter(id=refund.id).update(
+                credit_amount_usd=Decimal("15.00"), billing_synced_at=concurrent_synced_at
+            )
+            return {"credit_amount_usd": "15.00", "credit_id": "c1", "already_processed": True}
+
+        with patch(
+            "ee.billing.billing_manager.BillingManager.dispute_signals_pr", side_effect=_concurrent_delivery_wins
+        ):
+            with patch("products.signals.backend.tasks.ph_scoped_capture") as mock_capture_cm:
+                sync_signals_refund_credit(str(refund.id))
+
+        refund.refresh_from_db()
+        assert refund.billing_synced_at == concurrent_synced_at
+        mock_capture_cm.assert_not_called()
+
     def test_excluded_refund_never_calls_billing(self):
         report = _make_report(self.team)
         refund = _make_refund(report, billing_path=SignalReportRefund.BillingPath.EXCLUDED)

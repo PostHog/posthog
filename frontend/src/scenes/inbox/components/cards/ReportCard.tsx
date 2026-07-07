@@ -166,7 +166,7 @@ export function ReportCard({
 }): JSX.Element {
     const isArchived = tabKey === 'archived'
     // Resolved reports are terminal (their implementation PR merged) – shown for reference in the
-    // Archive tab but with no row action: they can't be restored or re-archived.
+    // Archive tab. They can't be restored or re-archived, but their PR can still be refunded.
     const isResolved = report.status === SignalReportStatus.RESOLVED
     const prUrl = safeHttpUrl(report.implementation_pr_url)
     const prUrlParts = prUrl ? parsePrUrlParts(prUrl) : null
@@ -307,9 +307,10 @@ export function ReportCard({
                 </div>
             </Link>
 
-            {/* Terminal resolved reports carry no row action; a refunded archived report can't be
-                restored or re-refunded, so it carries none either – skip the column (and divider). */}
-            {!isResolved && !(isArchived && isRefunded) && (
+            {/* Terminal resolved reports carry only the Refund action (their merged PR can still be
+                refunded, matching the detail pane); a refunded archived report can't be restored or
+                re-refunded, so it carries none – skip the column (and divider). */}
+            {(canRefund || (!isResolved && !(isArchived && isRefunded))) && (
                 <div className="flex items-center justify-end gap-2.5 shrink-0 @lg:self-stretch @lg:border-l @lg:border-primary @lg:pl-3">
                     {canRefund && (
                         <LemonButton
@@ -324,7 +325,7 @@ export function ReportCard({
                             Refund
                         </LemonButton>
                     )}
-                    {isArchived ? (
+                    {isResolved ? null : isArchived ? (
                         // A refunded report can't be restored (its PR can never be billed again).
                         !isRefunded && (
                             <LemonButton
