@@ -475,29 +475,34 @@ class BillingManager:
 
         customer_trust_scores = data.get("customer_trust_scores", {})
 
-        product_key_to_usage_key = {
-            product["type"]: product["usage_key"]
-            for product in (
-                billing_status["customer"].get("products") or self.get_default_products(organization)["products"]
-            )
-        }
-        org_customer_trust_scores = {}
-        for product_key in customer_trust_scores:
-            if product_key in product_key_to_usage_key:
-                org_customer_trust_scores[product_key_to_usage_key[product_key]] = customer_trust_scores[product_key]
+        if customer_trust_scores:
+            product_key_to_usage_key = {
+                product["type"]: product["usage_key"]
+                for product in (
+                    billing_status["customer"].get("products") or self.get_default_products(organization)["products"]
+                )
+            }
+            org_customer_trust_scores = {}
+            for product_key in customer_trust_scores:
+                if product_key in product_key_to_usage_key:
+                    org_customer_trust_scores[product_key_to_usage_key[product_key]] = customer_trust_scores[
+                        product_key
+                    ]
 
-        if org_customer_trust_scores != organization.customer_trust_scores:
-            organization.customer_trust_scores = {
-                **(organization.customer_trust_scores or {}),
+            current_customer_trust_scores = organization.customer_trust_scores or {}
+            updated_customer_trust_scores = {
+                **current_customer_trust_scores,
                 **org_customer_trust_scores,
             }
-            org_modified = True
-
-        if should_update_org_billing_quotas:
-            update_org_billing_quotas(organization)
+            if updated_customer_trust_scores != current_customer_trust_scores:
+                organization.customer_trust_scores = updated_customer_trust_scores
+                org_modified = True
 
         if org_modified:
             organization.save()
+
+        if should_update_org_billing_quotas:
+            update_org_billing_quotas(organization)
 
         return organization
 
