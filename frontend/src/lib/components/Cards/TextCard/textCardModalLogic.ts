@@ -4,10 +4,17 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
 
 import type { textCardModalLogicType } from './textCardModalLogicType'
+
+// Matches the text-tile defaults in `calculateLayouts` (tileLayouts.ts) so the tile is created at the
+// size the grid would give it anyway.
+const NEW_TEXT_TILE_WIDTH = 2
+const NEW_TEXT_TILE_HEIGHT = 2
 
 export interface TextTileForm {
     body: string
@@ -34,7 +41,10 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
     path(['scenes', 'dashboard', 'dashboardTextTileModal', 'logic']),
     props({} as TextCardModalProps),
     key((props) => `textCardModalLogic-${props.dashboard.id}-${props.textTileId}`),
-    connect(() => ({ actions: [dashboardsModel, ['updateDashboard']] })),
+    connect((props: TextCardModalProps) => ({
+        actions: [dashboardsModel, ['updateDashboard']],
+        values: [dashboardLogic({ id: props.dashboard.id }), ['pendingInsertion']],
+    })),
     listeners(({ props, actions, values }) => ({
         submitTextTileFailure: (error) => {
             if (props.dashboard && props.textTileId) {
@@ -79,7 +89,7 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
             })
         },
     })),
-    forms(({ props, actions }) => ({
+    forms(({ props, actions, values }) => ({
         textTile: {
             defaults: (props.textTileId && props.textTileId !== 'new'
                 ? getExistingTextTile(props.dashboard, props.textTileId)
@@ -102,12 +112,28 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
                 }))
 
                 if (props.textTileId === 'new') {
+                    // When inserted via the inline "+" bar, create the tile at the chosen slot instead of
+                    // letting the backend default it to an empty column (which the grid floats to the top).
+                    // Existing tiles are shifted down afterwards by dashboardLogic's applyPendingInsertion.
+                    const slot = values.pendingInsertion
+                    const layouts = slot
+                        ? {
+                              sm: {
+                                  x: slot.x,
+                                  y: slot.y,
+                                  w: slot.w ?? NEW_TEXT_TILE_WIDTH,
+                                  h: NEW_TEXT_TILE_HEIGHT,
+                              },
+                          }
+                        : undefined
+
                     actions.updateDashboard({
                         id: props.dashboard.id,
                         tiles: [
                             {
                                 text: { body: formValues.body },
                                 transparent_background: formValues.transparent_background,
+                                ...(layouts ? { layouts } : {}),
                             },
                         ],
                     })
