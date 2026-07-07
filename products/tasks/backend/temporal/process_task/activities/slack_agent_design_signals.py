@@ -14,6 +14,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
     get_task_run_stream_key,
 )
 from products.tasks.backend.models import TaskRun as TaskRunModel
+from products.tasks.backend.redis import run_uses_dedicated_stream
 
 from ee.hogai.sandbox import is_turn_complete
 
@@ -101,9 +102,11 @@ async def relay_agent_design_signals(input: RelayAgentDesignSignalsInput) -> Non
         return
 
     emitter = SlackAgentDesignSignalEmitter(input.slack_thread_context)
-    # Match the ingest endpoint's stream construction (default, non-dedicated client) so we
-    # read from exactly the key the sandbox events are written to.
-    redis_stream = TaskRunRedisStream(get_task_run_stream_key(input.run_id))
+    # Read from the same Redis instance the run is pinned to. The UI SSE reader and the SSE relay
+    # writer both key off run_uses_dedicated_stream; reading the shared instance while events land
+    # on the dedicated one leaves the tailer starved and the Slack thread silent.
+    state = await TaskRunModel.objects.filter(id=input.run_id).values_list("state", flat=True).afirst()
+    redis_stream = TaskRunRedisStream(get_task_run_stream_key(input.run_id), run_uses_dedicated_stream(state))
 
     try:
         async for item in redis_stream.read_stream_entries(

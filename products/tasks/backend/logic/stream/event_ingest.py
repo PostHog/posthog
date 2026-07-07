@@ -28,6 +28,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
 )
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.push_dispatcher import notify_task_run_awaiting_input
+from products.tasks.backend.redis import run_uses_dedicated_stream
 
 from ee.hogai.sandbox import is_turn_complete
 
@@ -116,7 +117,9 @@ async def handle_task_run_event_ingest(scope: ASGIMessage, receive: ASGIReceive,
         await _send_json(send, error.status_code, error.payload)
         return True
 
-    redis_stream = TaskRunRedisStream(get_task_run_stream_key(claims.run_id))
+    # Write to the instance the run is pinned to so its SSE reader and relay tail the same stream.
+    state = await TaskRun.objects.filter(id=claims.run_id).values_list("state", flat=True).afirst()
+    redis_stream = TaskRunRedisStream(get_task_run_stream_key(claims.run_id), run_uses_dedicated_stream(state))
 
     try:
         result = await _ingest_event_lines(
