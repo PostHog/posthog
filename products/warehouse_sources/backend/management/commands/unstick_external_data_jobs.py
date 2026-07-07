@@ -17,7 +17,7 @@ and optionally triggers a fresh sync. Dry-run by default.
 import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
@@ -52,9 +52,12 @@ WEDGED_MIN_WFT_ATTEMPT = 3
 TERMINATE_REASON = "Wedged workflow terminated by unstick_external_data_jobs"
 
 
+ClassificationKind = Literal["wedged", "terminal", "gone", "healthy", "ambiguous"]
+
+
 @dataclass(frozen=True)
 class Classification:
-    kind: str  # "wedged" | "terminal" | "gone" | "healthy" | "ambiguous"
+    kind: ClassificationKind
     detail: str
 
 
@@ -242,7 +245,7 @@ class Command(BaseCommand):
             elif get_v3_pipeline_lock_holder(job.team_id, str(job.schema_id)) is not None:
                 self.stdout.write("  redis lock: held by a different token - left in place")
 
-        if job.schema_id and is_latest:
+        if is_latest:
             schema_updated = ExternalDataSchema.objects.filter(
                 id=job.schema_id, team_id=job.team_id, status=ExternalDataSchema.Status.RUNNING
             ).update(status=ExternalDataSchema.Status.FAILED, latest_error=reason, updated_at=now)
@@ -254,6 +257,9 @@ class Command(BaseCommand):
                 logger.exception("unstick_external_data_jobs_row_tracking_failed", job_id=str(job.id))
 
     def _terminate_workflow(self, temporal: Client, job: ExternalDataJob) -> None:
+        if not job.workflow_id or not job.workflow_run_id:
+            self.stdout.write(self.style.WARNING("  temporal: no workflow id on the job - terminate skipped"))
+            return
         handle: WorkflowHandle[Any, Any] = temporal.get_workflow_handle(job.workflow_id, run_id=job.workflow_run_id)
         try:
             async_to_sync(handle.terminate)(reason=TERMINATE_REASON)

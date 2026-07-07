@@ -174,6 +174,12 @@ class TestClassificationOutcomes:
         [
             pytest.param(_wedged(), True, True, id="wedged_is_terminated_and_failed"),
             pytest.param(_terminated(), True, False, id="already_terminal_fixed_without_terminate"),
+            pytest.param(
+                RPCError("not found", RPCStatusCode.NOT_FOUND, b""),
+                True,
+                False,
+                id="gone_out_of_retention_fixed_without_terminate",
+            ),
             pytest.param(_healthy(), False, False, id="healthy_is_skipped"),
             pytest.param(RPCError("boom", RPCStatusCode.UNAVAILABLE, b""), False, False, id="ambiguous_is_skipped"),
         ],
