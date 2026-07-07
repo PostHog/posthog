@@ -325,10 +325,9 @@ export function createScales(
         /** Applied to the primary y-axis only — goal lines (`{ include }`) render against the
          *  primary axis, so secondary axes keep their own data-derived scale. */
         valueDomain?: ValueDomain
-        /** Per-axis overrides keyed by axis id. When an axis is listed its `scaleType` and
-         *  `position` win; otherwise it falls back to `options.scaleType` and the alternating-side
-         *  default from {@link orderedAxisPositions}. */
-        axes?: { id: string; position?: 'left' | 'right'; scaleType?: 'linear' | 'log' }[]
+        /** Per-axis overrides — explicit values win over the alternating-side default and the
+         *  scalar `scaleType`/`floatBaseline` options (which only reach the primary axis). */
+        axes?: { id: string; position?: 'left' | 'right'; scaleType?: 'linear' | 'log'; startAtZero?: boolean }[]
         /** Float the primary axis to its data range instead of clamping the baseline to 0. Applied to
          *  the primary axis only, like `valueDomain`. See {@link buildValueScale}. */
         floatBaseline?: boolean
@@ -363,7 +362,12 @@ export function createScales(
             scaleType: override?.scaleType ?? options.scaleType,
             percentStack: options.percentStack,
             valueDomain: axisIndex === 0 ? options.valueDomain : undefined,
-            floatBaseline: axisIndex === 0 ? options.floatBaseline : undefined,
+            floatBaseline:
+                override?.startAtZero != null
+                    ? override.startAtZero === false
+                    : axisIndex === 0
+                      ? options.floatBaseline
+                      : undefined,
         })
         yAxes[axisId] = { scale, position: override?.position ?? position }
     })
