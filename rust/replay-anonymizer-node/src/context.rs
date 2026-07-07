@@ -20,6 +20,9 @@ const CV_MESSAGE_DECOMPRESSION_BUDGET: usize = 256 * 1024 * 1024;
 
 pub struct Ctx<'a> {
     pub allow: &'a AllowLists,
+    /// Lowercase first-party host patterns (from the team's recording domains; `*.` wildcards
+    /// allowed). Matching hosts collapse to example.com in the URL scrub.
+    pub first_party_hosts: Vec<String>,
     pub cv_budget: Cell<usize>,
     // key: the original data URI (data-image blur), or `raw:{w}x{h}:{base64}` (raw RGBA pixelate).
     // value: the blurred result, or `None` when blurring failed (caller falls back to a blank pixel).
@@ -28,8 +31,13 @@ pub struct Ctx<'a> {
 
 impl<'a> Ctx<'a> {
     pub fn new(allow: &'a AllowLists) -> Self {
+        Self::with_first_party_hosts(allow, Vec::new())
+    }
+
+    pub fn with_first_party_hosts(allow: &'a AllowLists, first_party_hosts: Vec<String>) -> Self {
         Self {
             allow,
+            first_party_hosts,
             cv_budget: Cell::new(CV_MESSAGE_DECOMPRESSION_BUDGET),
             blur_cache: RefCell::new(HashMap::new()),
         }

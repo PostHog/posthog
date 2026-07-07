@@ -10,8 +10,9 @@
  * - Fragment: kept only if it is an allow-listed alphanumeric token; numbers and everything else dropped.
  * - Userinfo (`user:pass@`) is always stripped from the authority.
  * - A scheme without slashes (`mailto:`, `tel:`) is kept; the rest is scrubbed as a path.
- * - With `{ collapseHost: true }` it additionally drops the port and
- *   collapses the host to `example.com` (keeping a leading allow-listed subdomain label).
+ * - With `{ collapseHost: true }`, or when the host matches the context's first-party host
+ *   patterns (the team's recording domains), it additionally drops the port and collapses the
+ *   host to `example.com` (keeping a leading allow-listed subdomain label).
  */
 import { ScrubContext } from './config'
 import { ScrubResult } from './text'
@@ -57,7 +58,7 @@ export function scrubUrl(ctx: ScrubContext, input: string, opts?: UrlScrubOption
             changed = true
         }
         const hostPort = authority.slice(at + 1)
-        if (opts?.collapseHost) {
+        if (opts?.collapseHost || isFirstPartyHost(ctx, hostPort)) {
             const collapsed = collapsedHost(ctx, hostPort)
             if (collapsed !== hostPort) {
                 changed = true
@@ -143,6 +144,44 @@ function scrubTail(ctx: ScrubContext, tail: string): string {
         out += '#' + frag
     }
     return out
+}
+
+/**
+ * Lowercase host patterns from a team's `recording_domains` origins: scheme, path, and port are
+ * dropped; `*.`-prefixed entries stay wildcards. Bare `*` (match-everything) entries are ignored.
+ */
+export function firstPartyHostPatterns(recordingDomains: string[] | null | undefined): string[] {
+    const patterns: string[] = []
+    for (const domain of recordingDomains ?? []) {
+        let host = domain.trim().toLowerCase()
+        const schemeEnd = host.indexOf('://')
+        if (schemeEnd !== -1) {
+            host = host.slice(schemeEnd + 3)
+        }
+        host = host.split('/')[0].replace(/:\d+$/, '')
+        if (host !== '' && host !== '*' && host !== '*.') {
+            patterns.push(host)
+        }
+    }
+    return patterns
+}
+
+function isFirstPartyHost(ctx: ScrubContext, hostPort: string): boolean {
+    const patterns = ctx.firstPartyHosts
+    if (!patterns || patterns.length === 0) {
+        return false
+    }
+    const host = hostPort.replace(/:\d+$/, '').toLowerCase()
+    for (const pattern of patterns) {
+        if (pattern.startsWith('*.')) {
+            if (host === pattern.slice(2) || host.endsWith(pattern.slice(1))) {
+                return true
+            }
+        } else if (host === pattern) {
+            return true
+        }
+    }
+    return false
 }
 
 // Drop the port and rewrite the host to example.com. Keep a leading *subdomain* label

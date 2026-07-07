@@ -119,6 +119,10 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
         .argument_opt(1)
         .and_then(|v| v.downcast::<JsString, _>(&mut cx).ok())
         .map(|s| s.value(&mut cx));
+    let recording_domains_json: Option<String> = cx
+        .argument_opt(2)
+        .and_then(|v| v.downcast::<JsString, _>(&mut cx).ok())
+        .map(|s| s.value(&mut cx));
     let promise = cx
         .task(move || -> TaskOutcome {
             // Contain any panic on untrusted input so it fails closed (the caller drops the message)
@@ -130,12 +134,26 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
                 let allow = guard.as_ref().ok_or_else(|| {
                     "anonymizer not initialized (call initAnonymizer first)".to_string()
                 })?;
+                // A malformed domains list fails closed (message dropped), never silently unscrubbed.
+                let first_party_hosts = match &recording_domains_json {
+                    Some(json) => {
+                        let domains: Vec<String> = serde_json::from_str(json)
+                            .map_err(|e| format!("invalid recording domains json: {e}"))?;
+                        url::first_party_host_patterns(&domains)
+                    }
+                    None => Vec::new(),
+                };
                 let mut payload =
                     match snapshot::decompress_payload(raw, content_encoding.as_deref()) {
                         Ok(p) => p,
                         Err(f) => return Ok(Err((f.kind.reason(), f.detail))),
                     };
-                match snapshot::anonymize_kafka_payload(allow, &mut payload) {
+                match snapshot::anonymize_kafka_payload_opts(
+                    allow,
+                    &mut payload,
+                    snapshot::AnonymizeOpts::default(),
+                    first_party_hosts,
+                ) {
                     Ok(out) => {
                         let meta = serde_json::to_string(&out.meta)
                             .map_err(|e| format!("serialize meta: {e}"))?;

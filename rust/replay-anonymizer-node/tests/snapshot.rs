@@ -372,7 +372,12 @@ fn assert_stream_matches_tree(allow: &AllowLists, inner_json: &str, label: &str)
     // the simd path.
     for byte_walk in [true, false] {
         let mut bytes = payload.as_bytes().to_vec();
-        let stream = anonymize_kafka_payload_opts(allow, &mut bytes, AnonymizeOpts { byte_walk });
+        let stream = anonymize_kafka_payload_opts(
+            allow,
+            &mut bytes,
+            AnonymizeOpts { byte_walk },
+            Vec::new(),
+        );
         match (&stream, &tree) {
             (Ok(s), Ok(t)) => {
                 let s_lines = parse_lines(&s.lines);

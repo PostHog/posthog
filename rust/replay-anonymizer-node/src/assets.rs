@@ -68,7 +68,7 @@ pub fn apply_blur(ctx: &Ctx<'_>, attrs: &mut Object<'_>) -> bool {
         } else {
             // Host-scrubbed too so a CDN host can't leak; stashed under a namespaced attr that won't
             // collide with an app `data-original-*`.
-            let scrubbed = scrub_url_opts(ctx.allow, &existing, true).unwrap_or(existing);
+            let scrubbed = scrub_url_opts(ctx, &existing, true).unwrap_or(existing);
             attrs.insert(
                 Cow::Borrowed(*key),
                 Value::String(Cow::Borrowed(PLACEHOLDER_SRC)),

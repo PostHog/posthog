@@ -177,5 +177,44 @@
     "input": "mailto:john.fakename@example.com?subject=hello%20there",
     "collapseHost": true,
     "expected": "mailto:[redacted]"
+  },
+  {
+    "name": "first-party host from recording domains collapses without the collapseHost flag",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "recordingDomains": [
+      "https://app.customer-site.test"
+    ],
+    "input": "https://app.customer-site.test/settings/billing",
+    "collapseHost": false,
+    "expected": "https://example.com/[redacted]/[redacted]"
+  },
+  {
+    "name": "wildcard recording domain matches subdomains and ignores the port",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "recordingDomains": [
+      "https://*.customer-site.test"
+    ],
+    "input": "https://static.customer-site.test:8443/logo.png",
+    "collapseHost": false,
+    "expected": "https://example.com/[redacted]"
+  },
+  {
+    "name": "third-party host keeps its hostname despite recording domains",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "recordingDomains": [
+      "https://app.customer-site.test"
+    ],
+    "input": "https://js.payment-vendor.test/v3",
+    "collapseHost": false,
+    "expected": "https://js.payment-vendor.test/[redacted]"
   }
 ]

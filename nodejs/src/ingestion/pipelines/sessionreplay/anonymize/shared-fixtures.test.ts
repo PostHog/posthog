@@ -9,7 +9,7 @@ import { AllowLists } from './allow-lists'
 import { anonymizeEvent } from './anonymize-event'
 import { ScrubContext } from './config'
 import { scrubText } from './text'
-import { scrubUrl } from './url'
+import { firstPartyHostPatterns, scrubUrl } from './url'
 
 // shared fixtures to guarantee identical behaviour between implementations
 const FIXTURE_DIR = path.resolve(__dirname, '../../../../../../rust/replay-anonymizer-node/tests/fixtures')
@@ -26,6 +26,7 @@ interface TextCase {
 }
 interface UrlCase extends TextCase {
     collapseHost?: boolean
+    recordingDomains?: string[]
 }
 interface EventCase {
     name: string
@@ -82,7 +83,8 @@ describe('anonymize shared fixtures', () => {
         })
 
         test.each(urlCases.map((c) => [c.name, c] as const))('url: %s', (_name, c) => {
-            expect(scrubUrl(ctxOf(c.allow), c.input, { collapseHost: c.collapseHost }).value).toEqual(c.expected)
+            const ctx = { ...ctxOf(c.allow), firstPartyHosts: firstPartyHostPatterns(c.recordingDomains) }
+            expect(scrubUrl(ctx, c.input, { collapseHost: c.collapseHost }).value).toEqual(c.expected)
         })
 
         test.each(eventCases.map((c) => [c.name, c] as const))('event: %s', (_name, c) => {
@@ -161,6 +163,36 @@ describe('anonymize shared fixtures', () => {
                 expect(result.failed).toBe(false)
                 expect(parseLines(result.lines!)).toEqual(expected)
             }
+        })
+
+        it('collapses first-party hosts from recording domains passed per call', async () => {
+            const event = {
+                type: 2,
+                data: {
+                    node: {
+                        type: 0,
+                        childNodes: [
+                            {
+                                type: 2,
+                                tagName: 'a',
+                                attributes: { href: 'https://app.customer-site.test/settings' },
+                                childNodes: [],
+                            },
+                        ],
+                    },
+                    initialOffset: { top: 0, left: 0 },
+                },
+            }
+            rustAddon!.initAnonymizer({ text: [], url: [] })
+            const result = await rustAddon!.anonymizeKafkaPayload(payloadOf('w', [event]), undefined, [
+                'https://*.customer-site.test',
+            ])
+            expect(result.failed).toBe(false)
+            const line = parseLines(result.lines!)[0] as [
+                string,
+                { data: { node: { childNodes: { attributes: Record<string, string> }[] } } },
+            ]
+            expect(line[1].data.node.childNodes[0].attributes.href).toBe('https://example.com/[redacted]')
         })
 
         // fixtures are plain text, convert to gzip bytes for this test

@@ -7,20 +7,66 @@
 //! - Fragment: kept only if it is an allow-listed alphanumeric token.
 //! - Userinfo (`user:pass@`) is always stripped from the authority.
 //! - A scheme without slashes (`mailto:`, `tel:`) is kept; the rest is scrubbed as a path.
-//! - With `collapse_host` it additionally drops the port and collapses the host to
+//! - With `collapse_host`, or when the host matches the context's first-party host patterns
+//!   (the team's recording domains), it additionally drops the port and collapses the host to
 //!   `example.com` (keeping a leading allow-listed subdomain label).
 
 use crate::allow_lists::AllowLists;
+use crate::context::Ctx;
 
 // Spec-defined, entropy-free literals (rrweb's blank/srcdoc iframe placeholders): redacting them
 // only costs replay fidelity. Exact matches only.
 pub const PASSTHROUGH_URLS: &[&str] = &["about:blank", "about:srcdoc"];
 
-pub fn scrub_url(allow: &AllowLists, input: &str) -> Option<String> {
-    scrub_url_opts(allow, input, false)
+/// Lowercase host patterns from a team's `recording_domains` origins: scheme, path, and port are
+/// dropped; `*.`-prefixed entries stay wildcards. Bare `*` (match-everything) entries are ignored.
+pub fn first_party_host_patterns(recording_domains: &[String]) -> Vec<String> {
+    let mut patterns = Vec::new();
+    for domain in recording_domains {
+        let mut host = domain.trim().to_ascii_lowercase();
+        if let Some(scheme_end) = host.find("://") {
+            host = host[scheme_end + 3..].to_string();
+        }
+        if let Some(path_start) = host.find('/') {
+            host.truncate(path_start);
+        }
+        strip_port(&mut host);
+        if !host.is_empty() && host != "*" && host != "*." {
+            patterns.push(host);
+        }
+    }
+    patterns
 }
 
-pub fn scrub_url_opts(allow: &AllowLists, input: &str, collapse_host: bool) -> Option<String> {
+fn strip_port(host: &mut String) {
+    if let Some(ci) = host.rfind(':') {
+        let after = &host[ci + 1..];
+        if !after.is_empty() && after.bytes().all(|b| b.is_ascii_digit()) {
+            host.truncate(ci);
+        }
+    }
+}
+
+fn is_first_party_host(ctx: &Ctx<'_>, host_port: &str) -> bool {
+    if ctx.first_party_hosts.is_empty() {
+        return false;
+    }
+    let mut host = host_port.to_ascii_lowercase();
+    strip_port(&mut host);
+    ctx.first_party_hosts
+        .iter()
+        .any(|pattern| match pattern.strip_prefix("*.") {
+            Some(base) => host == base || host.ends_with(&pattern[1..]),
+            None => host == *pattern,
+        })
+}
+
+pub fn scrub_url(ctx: &Ctx<'_>, input: &str) -> Option<String> {
+    scrub_url_opts(ctx, input, false)
+}
+
+pub fn scrub_url_opts(ctx: &Ctx<'_>, input: &str, collapse_host: bool) -> Option<String> {
+    let allow = ctx.allow;
     if PASSTHROUGH_URLS.contains(&input) {
         return None;
     }
@@ -42,7 +88,7 @@ pub fn scrub_url_opts(allow: &AllowLists, input: &str, collapse_host: bool) -> O
             }
             None => authority,
         };
-        if collapse_host {
+        if collapse_host || is_first_party_host(ctx, host_port) {
             let collapsed = collapsed_host(allow, host_port);
             if collapsed != host_port {
                 changed = true;

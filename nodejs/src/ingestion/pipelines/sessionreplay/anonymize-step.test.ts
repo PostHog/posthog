@@ -6,6 +6,7 @@ import { ParsedMessageData } from './kafka/types'
 
 describe('anonymize-step', () => {
     const step = createAnonymizeStep({ scrubContext: { allow: defaultAllowLists() } })
+    const team = { teamId: 1, consoleLogIngestionEnabled: true, aiTrainingOptedIn: true, recordingDomains: null }
 
     const parsedMessageWith = (eventsByWindowId: Record<string, any[]>): ParsedMessageData =>
         ({ eventsByWindowId }) as unknown as ParsedMessageData
@@ -16,7 +17,7 @@ describe('anonymize-step', () => {
             win2: [{ type: 4, timestamp: 2, data: { href: 'https://example.com/user/abc/edit', width: 1, height: 1 } }],
         })
 
-        const result = await step({ parsedMessage })
+        const result = await step({ parsedMessage, team })
 
         expect(result.type).toBe(PipelineResultType.OK)
         expect((parsedMessage.eventsByWindowId.win1[0] as any).data.text).toBe('Hello **********')
@@ -49,7 +50,7 @@ describe('anonymize-step', () => {
             ],
         })
 
-        await step({ parsedMessage })
+        await step({ parsedMessage, team })
 
         const src = (parsedMessage.eventsByWindowId.win1[0] as any).data.node.childNodes[0].attributes.src
         // Blurred into a fresh PNG, not left as the placeholder or the original.
@@ -62,7 +63,7 @@ describe('anonymize-step', () => {
             win1: [{ type: 3, timestamp: 1, data: { source: 1, positions: [] } }],
         })
 
-        const result = await step({ parsedMessage })
+        const result = await step({ parsedMessage, team })
 
         expect(result.type).toBe(PipelineResultType.OK)
         expect((parsedMessage.eventsByWindowId.win1[0] as any).data.source).toBe(1)
@@ -74,7 +75,7 @@ describe('anonymize-step', () => {
             win1: [{ type: 2, timestamp: 1, cv: '2024-10', data: 'not-Ā-gzip' }],
         })
 
-        const result = await step({ parsedMessage })
+        const result = await step({ parsedMessage, team })
 
         expect(result.type).toBe(PipelineResultType.DROP)
         expect(result.type === PipelineResultType.DROP && result.reason).toBe('anonymize_failed')
