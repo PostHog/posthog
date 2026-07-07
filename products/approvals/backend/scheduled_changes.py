@@ -218,7 +218,11 @@ def apply_gated_scheduled_change(scheduled_change: "ScheduledChange") -> bool:
     # this CR PENDING→APPROVED between the sweep's SELECT and here would otherwise be read as
     # still-PENDING and wrongly expired below — dropping a valid approval. Locking blocks until any
     # in-flight approve() commits and reads its result (approve() takes the same CR lock first).
-    change_request = ChangeRequest.objects.select_for_update().get(pk=scheduled_change.change_request_id)
+    # Scope to the schedule's team: the bound CR always shares its team, and it keeps the lookup
+    # tenant-isolated (idor-lookup-without-team).
+    change_request = ChangeRequest.objects.select_for_update().get(
+        pk=scheduled_change.change_request_id, team_id=scheduled_change.team_id
+    )
 
     if (
         change_request.state == ChangeRequestState.APPROVED
