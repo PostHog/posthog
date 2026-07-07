@@ -283,15 +283,21 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
         # Gate at scheduling time: if the change would flip a policy-gated field, create a pending
         # ChangeRequest now and bind it so the applier only applies once approved (see
         # process_scheduled_changes). NULL change_request means no policy applies — apply as before.
-        validated_data["change_request"] = _gate_scheduled_change_at_creation(
-            validated_data.get("model_name"),
-            validated_data.get("record_id"),
-            validated_data["team_id"],
-            validated_data.get("payload", {}),
-            validated_data["created_by"],
-        )
+        #
+        # Create the CR and the ScheduledChange row in one transaction: the applier defers a bound CR
+        # to fire time only while its schedule row exists (approve() keys off scheduled_changes.exists()).
+        # If the row insert failed after the CR was created, the CR would be orphaned and a later
+        # approval would auto-apply it immediately, bypassing the schedule.
+        with transaction.atomic():
+            validated_data["change_request"] = _gate_scheduled_change_at_creation(
+                validated_data.get("model_name"),
+                validated_data.get("record_id"),
+                validated_data["team_id"],
+                validated_data.get("payload", {}),
+                validated_data["created_by"],
+            )
 
-        return super().create(validated_data)
+            return super().create(validated_data)
 
     def update(self, instance: ScheduledChange, validated_data: dict) -> ScheduledChange:
         # Enforce the same edit-permission check on updates. record_id/model_name can't be changed

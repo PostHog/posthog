@@ -205,10 +205,20 @@ def apply_gated_scheduled_change(scheduled_change: "ScheduledChange") -> bool:
     - Bound CR is in any other terminal state (APPLIED/REJECTED/EXPIRED/FAILED): do not re-apply;
       return ``False``.
     - No bound CR: return ``True`` so the caller dispatches as before (ungated).
+
+    Must be called inside the sweep's ``transaction.atomic()``: the bound CR is re-fetched under a
+    row lock so this decision reads the latest committed state and serializes with
+    ``ChangeRequestService.approve()``.
     """
-    change_request = scheduled_change.change_request
-    if change_request is None:
+    if scheduled_change.change_request_id is None:
         return True
+
+    # Re-fetch under a row lock rather than trusting the prefetched copy. The sweep locks only the
+    # ScheduledChange rows (select_for_update(of=("self",))), so a concurrent approve() that flips
+    # this CR PENDING→APPROVED between the sweep's SELECT and here would otherwise be read as
+    # still-PENDING and wrongly expired below — dropping a valid approval. Locking blocks until any
+    # in-flight approve() commits and reads its result (approve() takes the same CR lock first).
+    change_request = ChangeRequest.objects.select_for_update().get(pk=scheduled_change.change_request_id)
 
     if (
         change_request.state == ChangeRequestState.APPROVED
