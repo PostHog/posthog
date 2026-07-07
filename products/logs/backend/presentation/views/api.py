@@ -5,13 +5,14 @@ import datetime as dt
 
 from django.utils import timezone
 
+import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from opentelemetry import trace
 from pydantic import ValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ParseError
+from rest_framework.exceptions import APIException, ParseError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -25,12 +26,16 @@ from posthog.schema import (
     PropertyGroupFilter,
 )
 
+from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
 from posthog.models import User
@@ -58,6 +63,7 @@ from products.logs.backend.sparkline_query_runner import SparklineQueryRunner
 
 __all__ = ["LogsViewSet", "LogExplainViewSet", "LogsAlertViewSet", "LogsSamplingRuleViewSet", "LogsViewViewSet"]
 
+logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 LOGS_MAX_EXPORT_ROWS = 10_000
 
@@ -1019,10 +1025,23 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             facet_resource_attribute=facet_resource_attribute or None,
             facet_search=query_data.get("facetSearch"),
         )
-        response = runner.run(
-            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-            analytics_props=get_request_analytics_properties(request),
-        )
+        try:
+            response = runner.run(
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                analytics_props=get_request_analytics_properties(request),
+            )
+        except (ExposedHogQLError, ExposedCHQueryError, ResolutionError) as e:
+            # User-fixable query failures (bad HogQL, or the column-facet read-byte cap tripping) map to
+            # a 4xx with a useful message rather than an opaque 500. The message tells the caller to
+            # narrow the time range or filters. ClickHouseQueryTimeOut and other APIException-based CH
+            # errors (e.g. timeouts, at-capacity) already carry their own status codes and pass through.
+            raise ParseError(str(e))
+        except InternalCHQueryError as e:
+            # ClickHouse-side failure we can't attribute to user input: capture for observability and
+            # return a clear 5xx instead of DRF's generic "A server error occurred."
+            logger.exception("logs_facet_values_query_failed", team_id=self.team.pk)
+            capture_exception(e)
+            raise APIException("ClickHouse error while executing logs facet query.")
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
         return Response({"results": response.results}, status=status.HTTP_200_OK)
 

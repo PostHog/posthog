@@ -2,11 +2,17 @@ import os
 import json
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.hogql.errors import QueryError
+
 from posthog.clickhouse.client import sync_execute
+from posthog.errors import CHQueryErrorTooManyBytes, InternalCHQueryError
+
+from products.logs.backend.log_facet_values_query_runner import LogFacetValuesQueryRunner
 
 
 class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
@@ -157,6 +163,25 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
 
     def test_resource_facet_search_no_match_returns_empty(self):
         self.assertEqual(self._facet_attr("k8s.namespace.name", facetSearch="no-such-namespace-xyz"), {})
+
+    @parameterized.expand(
+        [
+            # User-fixable failures (bad HogQL, or the column-facet read-byte cap tripping) must not
+            # surface as opaque 500s — they become a 4xx the caller (or the MCP tool) can act on.
+            ("hogql_error", QueryError("invalid facet expression"), status.HTTP_400_BAD_REQUEST),
+            ("read_byte_cap", CHQueryErrorTooManyBytes("read too many bytes"), status.HTTP_400_BAD_REQUEST),
+            # A genuine ClickHouse-side failure still returns a 5xx, but with a clear message rather
+            # than DRF's generic "A server error occurred."
+            ("internal_ch_error", InternalCHQueryError("something broke"), status.HTTP_500_INTERNAL_SERVER_ERROR),
+        ]
+    )
+    def test_query_execution_errors_are_not_opaque_500s(self, _name, raised, expected_status):
+        body = {"query": {"facetField": "service_name", "dateRange": self.DATE_RANGE}}
+        with patch.object(LogFacetValuesQueryRunner, "run", side_effect=raised):
+            response = self.client.post(f"/api/projects/{self.team.pk}/logs/facet_values", body, format="json")
+        self.assertEqual(response.status_code, expected_status)
+        # The generic DRF 500 body carries no useful detail; ours always does.
+        self.assertNotEqual(response.json().get("detail"), "A server error occurred.")
 
     def test_requires_exactly_one_facet_target(self):
         for query in (
