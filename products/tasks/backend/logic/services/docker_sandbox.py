@@ -927,6 +927,7 @@ class DockerSandbox(SandboxBase):
                 run_id,
                 mode,
                 create_pr,
+                auto_publish,
                 interaction_origin,
                 branch=None,
                 runtime_adapter=runtime_adapter,

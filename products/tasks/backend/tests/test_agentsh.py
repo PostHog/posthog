@@ -290,21 +290,30 @@ class TestModalSandboxAgentShWrapping(TestCase):
         self.assertIn("env -0 > /tmp/agent-env", cmd)
         self.assertNotIn(ENV_WRAPPER_SCRIPT, cmd)
         self.assertIn("nohup", cmd)
-        self.assertIn("--autoPublish false", cmd)
 
-    def test_command_includes_auto_publish_flag(self):
+    @parameterized.expand(
+        [
+            ("modal", True, "--autoPublish true"),
+            ("modal", False, "--autoPublish false"),
+            ("docker", True, "--autoPublish true"),
+            ("docker", False, "--autoPublish false"),
+        ]
+    )
+    def test_command_includes_auto_publish_flag(self, provider, auto_publish, expected_flag):
+        from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
         from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 
-        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox_cls = ModalSandbox if provider == "modal" else DockerSandbox
+        sandbox = sandbox_cls.__new__(sandbox_cls)
         cmd = sandbox._build_agent_server_command(
             repo_path="/tmp/workspace/repos/org/repo",
             task_id="test-task",
             run_id="test-run",
             mode="background",
             create_pr=True,
-            auto_publish=True,
+            auto_publish=auto_publish,
         )
-        self.assertIn("--autoPublish true", cmd)
+        self.assertIn(expected_flag, cmd)
 
     def test_command_includes_allowed_domains(self):
         from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
