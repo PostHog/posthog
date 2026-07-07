@@ -50,13 +50,14 @@ def test_rel_identity_cache_matches_unpatched_django():
     assert len(rels) >= 2, "Team has no reverse relations — pick another model for this canary"
     orig_eq = _unpatched(ForeignObjectRel.__eq__)
     for rel in rels[:5]:
-        cached_identity = rel.identity  # via the cached_property installed by conftest
+        # identity is an undocumented Django internal, absent from django-stubs.
+        cached_identity = rel.identity  # type: ignore[attr-defined] # via the cached_property installed by conftest
         cached_hash = hash(rel)
         # Recompute from the original property fget (cached_property.func). Subclass fgets
         # (ManyToOneRel etc.) internally do `super().identity`, which routes through the
         # base class's cached_property and leaves the partial base tuple in the instance
         # dict — so clear the instance cache before and after to keep the rel pristine.
-        descriptor = type(rel).identity
+        descriptor = type(rel).identity  # type: ignore[attr-defined]
         rel.__dict__.pop("identity", None)
         try:
             fresh_identity = descriptor.func(rel)
