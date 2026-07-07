@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconArchive, IconCode, IconCopy, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDivider, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -380,6 +380,11 @@ export function SurveyViewRedesign(): JSX.Element {
                 <LemonTabs size="small" activeKey={panelTabKey} onChange={(key) => setPanelTab(key)} tabs={panelTabs} />
             </ScenePanel>
 
+            {survey.archived && (
+                <LemonBanner type="warning" className="mb-4">
+                    This survey is archived and is no longer collecting responses.
+                </LemonBanner>
+            )}
             <SceneTitleSection
                 name={survey.name}
                 description={survey.description}
