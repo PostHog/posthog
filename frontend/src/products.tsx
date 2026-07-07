@@ -766,7 +766,11 @@ export const productConfiguration: Record<string, any> = {
         activityScope: ActivityScope.LOG,
         layout: 'app-container',
     },
-    ManagedMigration: { name: 'Managed migrations', projectBased: true },
+    ManagedMigration: {
+        name: 'Managed migrations',
+        description: 'Managed migrations provide an automated way to migrate your historical data into PostHog.',
+        projectBased: true,
+    },
     ManagedMigrationNew: { name: 'Managed migrations', projectBased: true },
     MCPAnalytics: {
         projectBased: true,
@@ -2404,6 +2408,14 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         href: urls.ingestionWarnings(),
         sceneKey: 'IngestionWarnings',
         sceneKeys: ['IngestionWarnings'],
+    },
+    {
+        path: 'Managed migrations',
+        category: 'Pipeline',
+        iconType: 'data_pipeline_metadata',
+        href: urls.managedMigration(),
+        sceneKey: 'ManagedMigration',
+        sceneKeys: ['ManagedMigration', 'ManagedMigrationNew'],
     },
     {
         path: 'Managed viewsets',
