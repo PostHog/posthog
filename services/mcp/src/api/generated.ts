@@ -35490,6 +35490,8 @@ export namespace Schemas {
       readonly github_repo: string | null;
       /** @nullable */
       readonly github_issue_number: number | null;
+      /** @nullable */
+      readonly zendesk_ticket_id: number | null;
       /**
          * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
          * @nullable
@@ -42912,6 +42914,8 @@ export namespace Schemas {
       readonly github_repo?: string | null;
       /** @nullable */
       readonly github_issue_number?: number | null;
+      /** @nullable */
+      readonly zendesk_ticket_id?: number | null;
       /**
          * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
          * @nullable
@@ -55247,6 +55251,95 @@ export namespace Schemas {
       agent_md: string;
       tools?: WriteToolRequest[];
       spec: WriteTypedBundleRequestSpec;
+    }
+
+    export interface ZendeskImportError {
+      /** Human-readable error message. */
+      detail: string;
+    }
+
+    /**
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed
+     */
+    export type ZendeskImportJobStatusEnum = typeof ZendeskImportJobStatusEnum[keyof typeof ZendeskImportJobStatusEnum];
+
+
+    export const ZendeskImportJobStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface ZendeskImportJob {
+      /** Unique identifier for the import job. */
+      readonly id: string;
+      /** Current job state: pending, running, completed, or failed.
+       *
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      readonly status: ZendeskImportJobStatusEnum;
+      /**
+         * Zendesk subdomain used for this import job.
+         * @nullable
+         */
+      readonly subdomain: string | null;
+      /** Whether stored Zendesk credentials exist for this job (the token/email are never returned). */
+      readonly has_credentials: boolean;
+      /** Total number of tickets discovered for import. */
+      readonly total_tickets: number;
+      /** Number of tickets processed so far. */
+      readonly processed_tickets: number;
+      /** Number of tickets successfully imported. */
+      readonly imported_tickets: number;
+      /** Number of tickets skipped because they were already imported. */
+      readonly skipped_tickets: number;
+      /** Number of tickets that failed to import. */
+      readonly failed_tickets: number;
+      /**
+         * When the import started running.
+         * @nullable
+         */
+      readonly started_at: string | null;
+      /**
+         * When the import reached a terminal state.
+         * @nullable
+         */
+      readonly finished_at: string | null;
+      /**
+         * Generic, user-safe error message when the job failed.
+         * @nullable
+         */
+      readonly latest_error: string | null;
+      /** When the import job was created. */
+      readonly created_at: string;
+      /** When the import job was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface ZendeskImportStart {
+      /**
+         * Zendesk subdomain (e.g. 'acme' from acme.zendesk.com).
+         * @maxLength 255
+         */
+      subdomain: string;
+      /** Zendesk agent email tied to the API token. */
+      email_address: string;
+      /**
+         * Zendesk API token with ticket read access.
+         * @maxLength 500
+         */
+      api_token: string;
+      /**
+         * Optional fallback email channel for tickets whose original Zendesk recipient doesn't match a configured support address (or isn't an email). Omit or null to leave those tickets without an email channel.
+         * @nullable
+         */
+      default_email_channel_id?: string | null;
     }
 
     export interface _CompareFilter {
