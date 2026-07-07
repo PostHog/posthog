@@ -27,7 +27,6 @@ def create_clickhouse_tables():
     # Create clickhouse tables to default before running test
     # Mostly so that test runs locally work correctly
     from posthog.clickhouse.schema import (
-        CREATE_DATA_QUERIES,
         CREATE_DICTIONARY_QUERIES,
         CREATE_DISTRIBUTED_TABLE_QUERIES,
         CREATE_KAFKA_TABLE_QUERIES,
@@ -76,19 +75,26 @@ def create_clickhouse_tables():
 
     # Building the exchange-rate INSERT parses a 9 MB CSV and renders a ~100k-row VALUES
     # string on every pytest invocation. With a reused database the seed data is already
-    # there, so skip the reload when both seed tables are populated (mirroring the
-    # `missing()` check above for tables). TRUNCATE-based resets go through
-    # reset_clickhouse_tables, which still reloads unconditionally.
-    from posthog.models.channel_type.sql import CHANNEL_DEFINITION_TABLE_NAME
-    from posthog.models.exchange_rate.sql import EXCHANGE_RATE_TABLE_NAME
+    # there, so skip the reload per-table (mirroring the `missing()` check above for tables).
+    # Gated per-table so a new entry in CREATE_DATA_QUERIES is never silently skipped.
+    # TRUNCATE-based resets go through reset_clickhouse_tables, which reloads unconditionally.
+    from posthog.models.channel_type.sql import (  # noqa: PLC0415
+        CHANNEL_DEFINITION_DATA_SQL,
+        CHANNEL_DEFINITION_TABLE_NAME,
+    )
+    from posthog.models.exchange_rate.sql import (  # noqa: PLC0415
+        EXCHANGE_RATE_DATA_BACKFILL_SQL,
+        EXCHANGE_RATE_TABLE_NAME,
+    )
 
-    seed_counts = sync_execute(
-        f"SELECT (SELECT count() FROM {CHANNEL_DEFINITION_TABLE_NAME}),"
-        f" (SELECT count() FROM {EXCHANGE_RATE_TABLE_NAME})"
-    )[0]
-    if not all(seed_counts):
-        data_queries = list(map(build_query, CREATE_DATA_QUERIES()))
-        run_clickhouse_statement_in_parallel(data_queries)
+    seed_table_queries = [
+        (CHANNEL_DEFINITION_TABLE_NAME, CHANNEL_DEFINITION_DATA_SQL),
+        (EXCHANGE_RATE_TABLE_NAME, EXCHANGE_RATE_DATA_BACKFILL_SQL),
+    ]
+    for table_name, query_fn in seed_table_queries:
+        count = sync_execute(f"SELECT count() FROM {table_name}")[0][0]
+        if not count:
+            run_clickhouse_statement_in_parallel([build_query(query_fn)])
 
 
 def reset_clickhouse_tables():

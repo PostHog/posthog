@@ -82,6 +82,9 @@ def _cache_reverse_rel_identity() -> None:
             entry = cache[id(other)] = (other, orig_eq(self, other))
         return entry[1]
 
+    # _eq_cache is per-instance and per-session (unbounded), holding strong refs to every
+    # object each rel is ever compared with. Bounded by schema size, not test count, so
+    # harmless in practice — but don't mistake it for a per-test cache.
     ForeignObjectRel.__eq__ = cached_eq  # type: ignore[method-assign, assignment]
 
 
@@ -153,9 +156,13 @@ def _cache_url_resolution() -> None:
             hit = orig_resolve(self, path)
             by_path[str(path)] = hit
         # ResolverMatch blocks copy.copy via __reduce_ex__, so clone through __dict__.
+        # Copy every mutable attribute so consumers can mutate the match freely without
+        # poisoning the cached original for subsequent tests.
         match = object.__new__(type(hit))
         match.__dict__.update(hit.__dict__)
         match.kwargs = dict(hit.kwargs)
+        match.captured_kwargs = dict(getattr(hit, "captured_kwargs", {}))
+        match.extra_kwargs = dict(getattr(hit, "extra_kwargs", {}))
         return match
 
     resolvers.URLResolver.resolve = resolve  # type: ignore[method-assign]

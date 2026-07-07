@@ -16,6 +16,7 @@ from posthog.clickhouse.query_tagging import (
     _PROJECT_ROOT_PREFIX,
     _SOURCE_SKIP_PREFIXES,
     AccessMethod,
+    DagsterTags,
     Feature,
     HogQLFeatures,
     Product,
@@ -139,6 +140,27 @@ def test_tags_context():
 
     # Verify tags are restored
     assert get_query_tags() == create_base_tags(team_id=123)
+
+
+def test_tags_context_snapshot_isolation():
+    # Shallow-copy invariant: mutations through public helpers must not corrupt the
+    # saved snapshot that tags_context restores. Regression guard for the switch from
+    # deep to shallow model_copy in update_tags/tag_queries.
+    reset_query_tags()
+    tag_queries(team_id=1)
+
+    with tags_context(user_id=42):
+        snapshot = get_query_tags()
+        # Drive every public mutation helper after the snapshot is taken.
+        tag_queries(team_id=2)
+        update_tags(create_base_tags(cohort_id=99))
+        clear_tag("user_id")
+        qt = get_query_tags()
+        qt.with_temporal(TemporalTags(workflow_type="wt"))
+        qt.with_dagster(DagsterTags(run_id="run-1"))
+
+    # The snapshot taken inside tags_context must be untouched by all mutations above.
+    assert snapshot == create_base_tags(team_id=1, user_id=42)
 
 
 @pytest.mark.asyncio
@@ -312,7 +334,7 @@ def test_tag_contains_user_hogql_is_idempotent():
 
 def test_tag_contains_user_hogql_short_circuits_after_first_call():
     # Repeated calls (recursive property_to_expr, breakdown loops, @property accessors)
-    # must skip the model_copy(deep=True) inside tag_queries after the first call.
+    # must skip the model_copy() inside tag_queries after the first call.
     reset_query_tags()
     tag_contains_user_hogql()
     first_tags = get_query_tags()
