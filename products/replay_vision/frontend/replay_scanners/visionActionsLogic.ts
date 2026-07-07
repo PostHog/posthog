@@ -1,5 +1,4 @@
 import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
-import { forms } from 'kea-forms'
 
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -13,8 +12,7 @@ import {
 } from '../generated/api'
 import { DeliveryTargetTypeEnumApi } from '../generated/api.schemas'
 import type { VisionActionApi } from '../generated/api.schemas'
-import { CadenceState, cadenceToRrule, DEFAULT_CADENCE, parseRruleToCadence } from './cadence'
-import { visionActionRunsLogic } from './visionActionRunsLogic'
+import { CadenceState, cadenceToRrule, DEFAULT_CADENCE } from './cadence'
 import type { visionActionsLogicType } from './visionActionsLogicType'
 
 export interface VisionActionsLogicProps {
@@ -31,7 +29,7 @@ export interface VisionActionForm {
     channel: string
 }
 
-const NEW_ACTION_FORM = (): VisionActionForm => ({
+export const NEW_ACTION_FORM = (): VisionActionForm => ({
     name: '',
     cadence: { ...DEFAULT_CADENCE },
     timezone: dayjs.tz.guess(),
@@ -78,9 +76,6 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
         toggleActionEnabledDone: (id: string) => ({ id }),
         deleteAction: (id: string) => ({ id }),
         deleteActionSuccess: (id: string) => ({ id }),
-        openCreateForm: true,
-        openEditForm: (action: VisionActionApi) => ({ action }),
-        closeForm: true,
     }),
 
     reducers({
@@ -112,51 +107,7 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
                 revertActionEnabled: (state, { id }) => state.filter((i) => i !== id),
             },
         ],
-        formVisible: [
-            false,
-            {
-                openCreateForm: () => true,
-                openEditForm: () => true,
-                closeForm: () => false,
-            },
-        ],
-        editingAction: [
-            null as VisionActionApi | null,
-            {
-                openCreateForm: () => null,
-                openEditForm: (_, { action }) => action,
-                closeForm: () => null,
-            },
-        ],
     }),
-
-    forms(({ props, values }) => ({
-        visionActionForm: {
-            defaults: NEW_ACTION_FORM(),
-            errors: ({ name, cadence, integration_id, channel }) => ({
-                name: !name?.trim() ? 'Give this action a name' : undefined,
-                // weekdays is a number[], which kea-forms can't carry a string error on, so we hang
-                // the "pick a day" error on the cadence object via `hour` to mark the form invalid.
-                // This blocks Enter-to-submit (enableFormOnSubmit); the user-facing message is the
-                // inline danger text + the submit button's disabledReason.
-                cadence: cadence.weekdays.length === 0 ? { hour: 'Pick at least one day' } : undefined,
-                channel: integration_id && !channel ? 'Pick a channel' : undefined,
-            }),
-            submit: async (form) => {
-                const teamId = teamLogic.values.currentTeamId
-                if (!teamId) {
-                    throw new Error('No team selected')
-                }
-                const body = buildActionBody(form, props.scannerId)
-                const editing = values.editingAction
-                if (editing) {
-                    await visionActionsPartialUpdate(String(teamId), editing.id, body)
-                } else {
-                    await visionActionsCreate(String(teamId), body)
-                }
-            },
-        },
-    })),
 
     listeners(({ actions, props, values }) => ({
         loadActions: async () => {
@@ -203,44 +154,6 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
             } catch (error: any) {
                 lemonToast.error(`Failed to delete action${error.detail ? `: ${error.detail}` : ''}`)
             }
-        },
-
-        openCreateForm: () => {
-            actions.resetVisionActionForm(NEW_ACTION_FORM())
-        },
-
-        openEditForm: ({ action }) => {
-            actions.setVisionActionFormValues({
-                name: action.name,
-                cadence: parseRruleToCadence(action.trigger_config?.rrule),
-                timezone: action.trigger_config?.timezone || dayjs.tz.guess(),
-                prompt_guide: action.synthesis_config?.prompt_guide ?? '',
-                integration_id: action.delivery_config?.[0]?.integration_id ?? null,
-                channel: action.delivery_config?.[0]?.channel ?? '',
-            })
-        },
-
-        closeForm: () => {
-            actions.resetVisionActionForm(NEW_ACTION_FORM())
-        },
-
-        submitVisionActionFormSuccess: () => {
-            // Capture before closeForm() clears editingAction.
-            const edited = values.editingAction
-            lemonToast.success(edited ? 'Action updated' : 'Action created')
-            actions.closeForm()
-            actions.loadActions()
-            // If this edit came from the action's own page, refresh it in place. findMounted acts only
-            // when that page is open (returns null otherwise) — no key coupling, no accidental mount.
-            if (edited) {
-                const runsLogic = visionActionRunsLogic.findMounted({ actionId: edited.id })
-                runsLogic?.actions.loadAction()
-                runsLogic?.actions.loadRuns()
-            }
-        },
-
-        submitVisionActionFormFailure: ({ error }: { error?: Error & { detail?: string } }) => {
-            lemonToast.error(`Failed to save action${error?.detail ? `: ${error.detail}` : ''}`)
         },
     })),
 

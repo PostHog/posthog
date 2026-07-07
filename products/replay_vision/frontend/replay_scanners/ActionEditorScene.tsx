@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useMemo } from 'react'
 
-import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -12,9 +12,22 @@ import { LemonSearchableSelect } from 'lib/lemon-ui/LemonSelect/LemonSearchableS
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { timeZoneLabel } from 'lib/utils/timezones'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
-import { DEFAULT_CADENCE, humanizeCadence } from '../cadence'
-import { visionActionsLogic } from '../visionActionsLogic'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
+
+import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
+import { actionEditorSceneLogic } from './actionEditorSceneLogic'
+import { DEFAULT_CADENCE, humanizeCadence } from './cadence'
+
+export const scene: SceneExport = {
+    component: ActionEditorSceneComponent,
+    logic: actionEditorSceneLogic,
+    productKey: ProductKey.REPLAY_VISION,
+}
 
 // 0=Mon … 6=Sun, matching CadenceState.weekdays.
 const WEEKDAY_PILLS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
@@ -43,13 +56,13 @@ function TimezoneSelect({ value, onChange }: { value: string; onChange: (tz: str
 }
 
 function ScheduleSection(): JSX.Element {
-    const { visionActionForm } = useValues(visionActionsLogic)
-    const { setVisionActionFormValue } = useActions(visionActionsLogic)
-    const { cadence, timezone } = visionActionForm
+    const { actionForm } = useValues(actionEditorSceneLogic)
+    const { setActionFormValue } = useActions(actionEditorSceneLogic)
+    const { cadence, timezone } = actionForm
 
     const timeValue = `${cadence.hour.toString().padStart(2, '0')}:${cadence.minute.toString().padStart(2, '0')}`
 
-    const setWeekdays = (weekdays: number[]): void => setVisionActionFormValue('cadence', { ...cadence, weekdays })
+    const setWeekdays = (weekdays: number[]): void => setActionFormValue('cadence', { ...cadence, weekdays })
 
     const toggleWeekday = (day: number): void =>
         setWeekdays(
@@ -107,7 +120,7 @@ function ScheduleSection(): JSX.Element {
                         const [h, m] = (val || '').split(':').map((n) => parseInt(n, 10))
                         // isFinite (not isNaN) so a cleared/partial input — where h or m is `undefined`,
                         // which isNaN() does not catch — falls back to the default rather than undefined.
-                        setVisionActionFormValue('cadence', {
+                        setActionFormValue('cadence', {
                             ...cadence,
                             hour: Number.isFinite(h) ? h : DEFAULT_CADENCE.hour,
                             minute: Number.isFinite(m) ? m : DEFAULT_CADENCE.minute,
@@ -118,7 +131,7 @@ function ScheduleSection(): JSX.Element {
 
             <div>
                 <label className="text-sm font-semibold">Timezone</label>
-                <TimezoneSelect value={timezone} onChange={(tz) => setVisionActionFormValue('timezone', tz)} />
+                <TimezoneSelect value={timezone} onChange={(tz) => setActionFormValue('timezone', tz)} />
             </div>
 
             <span className="text-xs text-muted">{humanizeCadence(cadence)}</span>
@@ -131,10 +144,10 @@ function ScheduleSection(): JSX.Element {
 }
 
 function DeliverySection(): JSX.Element {
-    const { visionActionForm } = useValues(visionActionsLogic)
-    const { setVisionActionFormValue } = useActions(visionActionsLogic)
+    const { actionForm } = useValues(actionEditorSceneLogic)
+    const { setActionFormValue } = useActions(actionEditorSceneLogic)
     const { slackIntegrations } = useValues(integrationsLogic)
-    const { integration_id } = visionActionForm
+    const { integration_id } = actionForm
 
     if (!slackIntegrations?.length) {
         return <SlackNotConfiguredBanner />
@@ -148,8 +161,8 @@ function DeliverySection(): JSX.Element {
                 integration="slack"
                 value={integration_id ?? undefined}
                 onChange={(value) => {
-                    setVisionActionFormValue('integration_id', value)
-                    setVisionActionFormValue('channel', '')
+                    setActionFormValue('integration_id', value)
+                    setActionFormValue('channel', '')
                 }}
             />
             {selectedIntegration && (
@@ -167,70 +180,93 @@ function DeliverySection(): JSX.Element {
     )
 }
 
-export function VisionActionForm({ scannerId }: { scannerId: string }): JSX.Element {
-    const { formVisible, editingAction, isVisionActionFormSubmitting, visionActionForm } = useValues(visionActionsLogic)
-    const { closeForm } = useActions(visionActionsLogic)
+export function ActionEditorSceneComponent(): JSX.Element {
+    const { isNew, actionLoading, loadedAction, actionForm, isActionFormSubmitting, effectiveScannerId } =
+        useValues(actionEditorSceneLogic)
 
-    const noDays = visionActionForm.cadence.weekdays.length === 0
+    if (!isNew && actionLoading && !loadedAction) {
+        return (
+            <SceneContent>
+                <SceneTitleSection name="Loading…" resourceType={{ type: 'replay_vision' }} />
+            </SceneContent>
+        )
+    }
+
+    const title = isNew ? 'New action' : loadedAction?.name || 'Edit action'
+    const noDays = actionForm.cadence.weekdays.length === 0
+    const backTo = isNew
+        ? `${urls.replayVision(effectiveScannerId)}?tab=actions`
+        : urls.replayVisionAction(loadedAction?.id ?? '')
 
     return (
-        <LemonModal
-            isOpen={formVisible}
-            onClose={closeForm}
-            width={640}
-            title={editingAction ? 'Edit action' : 'New action'}
-            description="Schedule an AI summary of this scanner's observations and deliver it to Slack."
-            footer={
-                <div className="flex gap-2 justify-end">
-                    <LemonButton type="secondary" onClick={closeForm}>
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        htmlType="submit"
-                        form="vision-action-form"
-                        loading={isVisionActionFormSubmitting}
-                        disabledReason={noDays ? 'Pick at least one day to run on' : undefined}
-                    >
-                        {editingAction ? 'Save' : 'Create action'}
-                    </LemonButton>
-                </div>
-            }
-        >
-            <Form
-                logic={visionActionsLogic}
-                props={{ scannerId }}
-                formKey="visionActionForm"
-                id="vision-action-form"
-                enableFormOnSubmit
-                className="flex flex-col gap-4"
-            >
-                <LemonField name="name" label="Name">
-                    <LemonInput placeholder="Daily checkout summary" autoFocus />
-                </LemonField>
-
-                <div>
-                    <h4 className="mb-1">Schedule</h4>
-                    <ScheduleSection />
-                </div>
-
-                <LemonField name="prompt_guide" label="Guidance" info="Optional. Steers how the AI writes the summary.">
-                    <LemonTextArea
-                        placeholder="Optional. e.g. focus on issues, bugs, and friction users face — or focus on general user behavior and flows."
-                        maxLength={500}
+        <SceneContent>
+            <div className="flex flex-col items-center pt-8 pb-8">
+                <div className="w-full max-w-3xl px-4 flex flex-col gap-6">
+                    <SceneTitleSection
+                        name={title}
+                        description="Schedule an AI summary of this scanner's observations and deliver it to Slack."
+                        resourceType={{ type: 'replay_vision' }}
+                        actions={<ReplayVisionFeedbackButton />}
                     />
-                </LemonField>
+                    <Form
+                        logic={actionEditorSceneLogic}
+                        formKey="actionForm"
+                        id="action-editor-form"
+                        enableFormOnSubmit
+                        className="w-full"
+                    >
+                        <div className="bg-bg-light border rounded-lg shadow-sm p-6 flex flex-col gap-4">
+                            <LemonField name="name" label="Name">
+                                <LemonInput placeholder="Daily checkout summary" autoFocus />
+                            </LemonField>
 
-                <div>
-                    <h4 className="mb-1">Deliver to Slack</h4>
-                    <DeliverySection />
-                </div>
+                            <div>
+                                <h4 className="mb-1">Schedule</h4>
+                                <ScheduleSection />
+                            </div>
 
-                <div className="text-xs text-muted">
-                    Each scheduled run generates an AI summary using your PostHog AI credits. Runs are skipped while
-                    you're over your AI-credit budget.
+                            <LemonField
+                                name="prompt_guide"
+                                label="Guidance"
+                                info="Optional. Steers how the AI writes the summary."
+                            >
+                                <LemonTextArea
+                                    placeholder="Optional. e.g. focus on issues, bugs, and friction users face — or focus on general user behavior and flows."
+                                    maxLength={500}
+                                />
+                            </LemonField>
+
+                            <div>
+                                <h4 className="mb-1">Deliver to Slack</h4>
+                                <DeliverySection />
+                            </div>
+
+                            <div className="text-xs text-muted">
+                                Each scheduled run generates an AI summary using your PostHog AI credits. Runs are
+                                skipped while you're over your AI-credit budget.
+                            </div>
+
+                            <div className="flex gap-2 justify-end border-t pt-4">
+                                <LemonButton type="secondary" to={backTo} data-attr="vision-action-editor-cancel">
+                                    Cancel
+                                </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    htmlType="submit"
+                                    form="action-editor-form"
+                                    loading={isActionFormSubmitting}
+                                    disabledReason={noDays ? 'Pick at least one day to run on' : undefined}
+                                    data-attr="vision-action-editor-save"
+                                >
+                                    {isNew ? 'Create action' : 'Save'}
+                                </LemonButton>
+                            </div>
+                        </div>
+                    </Form>
                 </div>
-            </Form>
-        </LemonModal>
+            </div>
+        </SceneContent>
     )
 }
+
+export default ActionEditorSceneComponent

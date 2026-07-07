@@ -17,7 +17,6 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import type { VisionActionApi } from '../../generated/api.schemas'
 import { humanizeCadence, parseRruleToCadence } from '../cadence'
 import { visionActionsLogic } from '../visionActionsLogic'
-import { VisionActionForm } from './VisionActionForm'
 
 function humanizeSchedule(action: VisionActionApi): string {
     const rrule = action.trigger_config?.rrule
@@ -64,15 +63,14 @@ function deliverySummary(action: VisionActionApi): string {
 export function VisionActionsTab({ scannerId }: { scannerId: string }): JSX.Element {
     return (
         <BindLogic logic={visionActionsLogic} props={{ scannerId }}>
-            <VisionActionsTable />
-            <VisionActionForm scannerId={scannerId} />
+            <VisionActionsTable scannerId={scannerId} />
         </BindLogic>
     )
 }
 
-function VisionActionsTable(): JSX.Element {
+function VisionActionsTable({ scannerId }: { scannerId: string }): JSX.Element {
     const { visionActions, visionActionsLoading, togglingIds } = useValues(visionActionsLogic)
-    const { toggleActionEnabled, deleteAction, openCreateForm, openEditForm } = useActions(visionActionsLogic)
+    const { toggleActionEnabled, deleteAction } = useActions(visionActionsLogic)
 
     if (!visionActionsLoading && visionActions.length === 0) {
         return (
@@ -87,7 +85,7 @@ function VisionActionsTable(): JSX.Element {
                         <LemonButton
                             type="primary"
                             icon={<IconPlus />}
-                            onClick={() => openCreateForm()}
+                            to={urls.replayVisionActionNew(scannerId)}
                             data-attr="vision-action-new-empty"
                         >
                             New action
@@ -173,7 +171,7 @@ function VisionActionsTable(): JSX.Element {
                             icon={<IconPencil />}
                             tooltip="Edit"
                             data-attr="vision-action-edit"
-                            onClick={() => openEditForm(action)}
+                            to={urls.replayVisionActionEdit(action.id)}
                         />
                     </EditorGate>
                     <EditorGate>
@@ -211,7 +209,7 @@ function VisionActionsTable(): JSX.Element {
                     <LemonButton
                         type="primary"
                         icon={<IconPlus />}
-                        onClick={() => openCreateForm()}
+                        to={urls.replayVisionActionNew(scannerId)}
                         data-attr="vision-action-new"
                     >
                         New action
