@@ -40,6 +40,18 @@ _RE_LINK_TRAILING_MARKER = re.compile(r"(?<![*_~])(\*+|_+|~+)<([^<>]+?)\1>(?![*_
 # left alone.
 _RE_BARE_URL_IN_EMPHASIS = re.compile(r"(?<![*_~])(\*+|_+|~+)(https?://[^\s<>]+?)\1(?![*_~])")
 
+# A lone ``~`` directly in front of a quantity (``~$36k``, ``~2pm``, ``~10%``) is the agent
+# writing "approximately". In Markdown a single tilde is a literal character, but Slack mrkdwn
+# uses a single tilde as its strikethrough delimiter, so two such approximations on one line
+# pair up and strike through everything between them. The negative lookbehind skips the first
+# ``~`` of a ``~~strikethrough~~`` run (its neighbour is a tilde, not a quantity), and the
+# lookahead leaves paths (``~/dir``) and standalone tildes alone.
+_RE_APPROX_TILDE = re.compile(r"(?<!~)~(?=[$€£¥₹]?\d)")
+
+# Unicode "tilde operator" — visually a tilde, but not the ASCII strikethrough delimiter, so
+# Slack renders it literally.
+_APPROX_TILDE = "∼"
+
 
 class _RelayAlreadyRecorded(Exception):
     """Raised when a relay was already recorded while holding the row lock."""
@@ -52,13 +64,13 @@ def _markdown_to_slack_mrkdwn(text: str) -> str:
     Slack ``mrkdwn`` is rendered in a proportional font — pipe-separated rows do
     not line up. A fenced code block forces monospace and the columns align.
 
-    Misplaced link markers (e.g. ``**<url**>``) and bare URLs wrapped in
-    emphasis (e.g. ``**https://example.com**``) are normalized first so the
-    converter sees well-formed input.
+    Misplaced link markers (e.g. ``**<url**>``), bare URLs wrapped in emphasis
+    (e.g. ``**https://example.com**``), and "approximately" tildes (e.g. ``~$36k``)
+    are normalized first so the converter sees well-formed input.
     """
     if not text:
         return text
-    repaired = _wrap_bare_urls_in_emphasis(_repair_link_trailing_markers(text))
+    repaired = _neutralize_approx_tildes(_wrap_bare_urls_in_emphasis(_repair_link_trailing_markers(text)))
     return _CONVERTER.convert(_tables_to_fenced_code_blocks(repaired))
 
 
@@ -82,6 +94,18 @@ def _wrap_bare_urls_in_emphasis(text: str) -> str:
     are left untouched because the URL group rejects ``<`` and ``[``.
     """
     return _RE_BARE_URL_IN_EMPHASIS.sub(r"\1<\2>\1", text)
+
+
+def _neutralize_approx_tildes(text: str) -> str:
+    """Replace "approximately" tildes in front of a quantity with the tilde operator.
+
+    ``~$36k`` / ``~2pm`` / ``~10%`` becomes ``∼$36k`` / ``∼2pm`` / ``∼10%``. The agent
+    means "approximately", but Slack mrkdwn reads a single ``~`` as a strikethrough
+    delimiter, so two of them on one line strike through the text in between. The tilde
+    operator looks the same and carries no formatting meaning. ``~~strikethrough~~``,
+    paths (``~/dir``), and standalone tildes are left alone.
+    """
+    return _RE_APPROX_TILDE.sub(_APPROX_TILDE, text)
 
 
 def _tables_to_fenced_code_blocks(text: str) -> str:

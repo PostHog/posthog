@@ -18,6 +18,7 @@ from products.tasks.backend.temporal.slack_relay.activities import (
     SLACK_MESSAGE_TEXT_LIMIT,
     RelaySlackMessageInput,
     _markdown_to_slack_mrkdwn,
+    _neutralize_approx_tildes,
     _repair_link_trailing_markers,
     _split_markdown_for_slack,
     _wrap_bare_urls_in_emphasis,
@@ -153,6 +154,14 @@ class TestMarkdownToSlackMrkdwn(unittest.TestCase):
             ("italic_underscore", "_italic_", "_italic_"),
             ("bold_italic", "***boldit***", "*_boldit_*"),
             ("strikethrough", "~~removed~~", "~removed~"),
+            # "Approximately" tildes in front of a quantity would otherwise pair up as
+            # Slack strikethrough delimiters and strike through the text between them.
+            # The tilde operator (∼) looks the same but carries no formatting meaning.
+            (
+                "approx_tildes_do_not_strike_through",
+                "**~$36.0k**, averaging **~$5.1k/day** by ~2pm",
+                "*∼$36.0k*, averaging *∼$5.1k/day* by ∼2pm",
+            ),
             ("link", "[Click here](https://example.com)", "<https://example.com|Click here>"),
             ("h1", "# Title", "*Title*"),
             ("h3", "### Section", "*Section*"),
@@ -298,6 +307,30 @@ class TestWrapBareUrlsInEmphasis(unittest.TestCase):
     )
     def test_wrap(self, _name, text, expected):
         assert _wrap_bare_urls_in_emphasis(text) == expected
+
+
+class TestNeutralizeApproxTildes(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("dollar", "~$36.0k", "∼$36.0k"),
+            ("bare_number", "~5.1k/day", "∼5.1k/day"),
+            ("time", "roughly ~2pm PT", "roughly ∼2pm PT"),
+            ("percent", "up ~10% MoM", "up ∼10% MoM"),
+            ("euro", "~€40", "∼€40"),
+            ("multiple_on_one_line", "~$5k then ~$9k", "∼$5k then ∼$9k"),
+            # A genuine ``~~strikethrough~~`` run must survive untouched — its tildes are
+            # adjacent to each other, not to a quantity.
+            ("strikethrough_run_preserved", "~~$5 off~~", "~~$5 off~~"),
+            # Paths, standalone tildes, and non-quantity tildes are literal characters that
+            # never form an accidental strikethrough, so they are left alone.
+            ("path_left_alone", "see ~/notes/report.md", "see ~/notes/report.md"),
+            ("tilde_before_letter_left_alone", "~foo", "~foo"),
+            ("tilde_before_space_left_alone", "~ $5", "~ $5"),
+            ("plain_text_unchanged", "no tildes here", "no tildes here"),
+        ]
+    )
+    def test_neutralize(self, _name, text, expected):
+        assert _neutralize_approx_tildes(text) == expected
 
 
 class TestSplitTextForSlack(TestCase):
