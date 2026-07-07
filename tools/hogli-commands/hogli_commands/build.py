@@ -16,13 +16,16 @@ TRIGGERS: dict[str, tuple[str, ...]] = {
         "frontend/src/queries/schema/*",
         "posthog/schema_migrations/*",
     ),
+    # Python-only globs on the api/presentation trees: OpenAPI is generated from
+    # code, so metadata files that live alongside it (owners.yaml) must not
+    # trigger a regen.
     "build:openapi": (
-        "posthog/api/*",
+        "posthog/api/*.py",
         "posthog/scopes.py",
-        "ee/api/*",
-        "products/*/backend/api/*",
-        "products/*/backend/presentation/*",
-        "products/*/backend/widget_specs/*",
+        "ee/api/*.py",
+        "products/*/backend/api/*.py",
+        "products/*/backend/presentation/*.py",
+        "products/*/backend/widget_specs/*.py",
         "products/*/mcp/tools.yaml",
         "services/mcp/definitions/*",
     ),
