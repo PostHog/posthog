@@ -528,8 +528,18 @@ class TestFetchAverageRowSize:
         # The unquotable column is neither quoted nor spliced in raw.
         assert "Ach:CompanyId" not in sql
 
-    def test_returns_none_on_exception(self, impl, cursor, logger):
-        cursor.execute.side_effect = RuntimeError("boom")
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            RuntimeError("boom"),
+            # pymysql raises InterfaceError(0, "") when the connection socket was already closed —
+            # a transient drop. Row-size sampling is best-effort, so it's swallowed and the caller
+            # falls back to the default chunk size rather than surfacing error-tracking noise.
+            pymysql.err.InterfaceError(0, ""),
+        ],
+    )
+    def test_returns_none_on_exception(self, exc, impl, cursor, logger):
+        cursor.execute.side_effect = exc
         result = impl.fetch_average_row_size(cursor, "db", "t", "SELECT 1", {}, logger)
         assert result is None
 
