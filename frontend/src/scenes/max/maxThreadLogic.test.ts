@@ -30,7 +30,7 @@ import {
 import { initKeaTests } from '~/test/init'
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
-import { runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
+import { attachedContextLogic, runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import { EnhancedToolCall, TOOL_DEFINITIONS } from './max-constants'
 import { maxContextLogic } from './maxContextLogic'
@@ -3584,6 +3584,29 @@ describe('maxThreadLogic', () => {
 
             expect(openSpy).not.toHaveBeenCalled()
             expect(maxLogicInstance.values.activeStreamingThreads).toEqual(0)
+        })
+
+        it('degrades a keyed non-allowlisted context item to a text attachment instead of dropping it', async () => {
+            const openSpy = jest.spyOn(api.conversations, 'open').mockResolvedValue(sandboxRunResponse)
+            // initKeaTests() in beforeEach resets the kea context, so no explicit unmount is needed
+            attachedContextLogic.mount()
+            attachedContextLogic.actions.registerContext('test-provider', [
+                { type: 'trace', key: '0189-abc', label: 'LLM trace' },
+            ])
+
+            await expectLogic(logic, () => {
+                logic.actions.streamConversation(
+                    { agent_mode: null, is_sandbox: true, content: 'hello', conversation: MOCK_CONVERSATION_ID },
+                    0
+                )
+            }).toDispatchActions(['openSandboxSse'])
+
+            expect(openSpy).toHaveBeenCalledWith(
+                MOCK_CONVERSATION_ID,
+                expect.objectContaining({
+                    attached_context: expect.arrayContaining([{ type: 'text', value: 'trace 0189-abc ("LLM trace")' }]),
+                })
+            )
         })
     })
 

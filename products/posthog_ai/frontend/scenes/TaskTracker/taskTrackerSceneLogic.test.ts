@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { attachedContextLogic } from '../../api/logics'
 import { OriginProduct, Task, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
 import { taskTrackerSceneLogic } from './taskTrackerSceneLogic'
 
@@ -82,6 +83,28 @@ describe('taskTrackerSceneLogic', () => {
             pending_user_message: 'do the thing',
         })
         expect(router.values.location.pathname).toContain('/tasks/new-task')
+    })
+
+    // The seeded first message wraps the on-screen context, and the wrapped non-text refs must be marked
+    // sent under the created task's id — otherwise the run's first follow-up (sent via
+    // `runInteractionLogic`, which prunes against the task-scoped store) re-wraps the same refs.
+    it('marks seeded context sent for the created task so the first follow-up will not re-wrap it', async () => {
+        logic.mount()
+        attachedContextLogic().actions.registerContext('scene', [
+            { type: 'insight', key: 'sig', label: 'Signups' },
+            { type: 'text', value: 'always resend me' },
+        ])
+
+        logic.actions.setNewTaskData({ description: 'why the drop?' })
+        logic.actions.submitNewTask()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // The message sent to the agent is wrapped; the task description stays raw.
+        expect(runBody?.pending_user_message).toContain('<posthog_context>')
+        expect(runBody?.pending_user_message).toContain('- insight sig ("Signups")')
+        expect(createBody?.description).toBe('why the drop?')
+        // Only the entity ref is marked sent (text items always resend), under the created task's id.
+        expect(attachedContextLogic().values.sentContextKeysByTask).toEqual({ 'new-task': ['insight:sig'] })
     })
 
     // The repo picker only renders once `repositoryConfig.integrationId` is set (auto-selected from the

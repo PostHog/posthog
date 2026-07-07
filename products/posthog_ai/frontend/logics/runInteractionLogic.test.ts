@@ -275,7 +275,7 @@ describe('runInteractionLogic', () => {
         expect(logic.values.composerForm.draft).toBe('continue from here')
     })
 
-    it('wraps outgoing content with the attached-context block while echoing the raw text, and dedupes per run', async () => {
+    it('wraps outgoing content with the attached-context block while echoing the raw text, and dedupes per task', async () => {
         attachedContextLogic().actions.registerContext('scene', [
             { type: 'insight', key: 'sig', label: 'Signups' },
             { type: 'text', value: 'always resend me' },
@@ -299,7 +299,7 @@ describe('runInteractionLogic', () => {
                 action.type === stream.actionTypes.pushHumanMessage && action.payload.content === 'why the drop?',
         ])
 
-        // A second send in the same run must not re-inflate already-sent entity refs — but `text`
+        // A second send on the same task must not re-inflate already-sent entity refs — but `text`
         // items are never deduped (repeated text is intentional, mirroring the backend).
         ;(tasksRunsCommandCreate as jest.Mock).mockClear()
         logic.actions.setComposerFormValues({ draft: 'follow up' })
@@ -313,6 +313,43 @@ describe('runInteractionLogic', () => {
         expect(secondSend.params.content).not.toContain('- insight sig')
         expect(secondSend.params.content).toContain('- text: "always resend me"')
         expect(secondSend.params.content.endsWith('follow up')).toBe(true)
+    })
+
+    it('keeps pruning context sent by a terminal-run send after re-pointing to the fresh run', async () => {
+        attachedContextLogic().actions.registerContext('scene', [{ type: 'insight', key: 'sig', label: 'Signups' }])
+
+        // A send on a finished run starts a fresh run, wrapping the pending context into its seed message.
+        setStatus('completed')
+        logic.actions.setComposerFormValues({ draft: 'continue from here' })
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        const createRequest = (tasksRunCreate as jest.Mock).mock.calls[0][2] as { pending_user_message: string }
+        expect(createRequest.pending_user_message).toContain('- insight sig ("Signups")')
+        expect(onRunStarted).toHaveBeenCalledWith('run-2')
+
+        // The consumer re-points to the new run: a fresh logic instance keyed by the new runId, same task.
+        // Sent-context bookkeeping is task-scoped, so the first follow-up must not re-wrap the same ref.
+        const nextStream = runStreamLogic({ streamKey: 'run-2' })
+        nextStream.mount()
+        const nextLogic = runInteractionLogic({ taskId: TASK_ID, runId: 'run-2', onRunStarted })
+        nextLogic.mount()
+        try {
+            nextLogic.actions.setComposerFormValues({ draft: 'follow up' })
+            await expectLogic(nextLogic, () => {
+                nextLogic.actions.submitComposerForm()
+            }).toFinishAllListeners()
+
+            const followUp = (tasksRunsCommandCreate as jest.Mock).mock.calls[0][3] as {
+                params: { content: string }
+            }
+            // The only attached item was already sent this task, so no context block is prepended at all.
+            expect(followUp.params.content).toBe('follow up')
+        } finally {
+            nextLogic.unmount()
+            nextStream.unmount()
+        }
     })
 
     const setProjectId = (id: number | null): void =>
