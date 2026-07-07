@@ -5,7 +5,10 @@ user, scout, and server. After the provider OAuth completes, mcp_store redirects
 refresh the fleet-reveal message (⚠️ → ✅) and bounce the user straight back into Slack.
 """
 
+import hashlib
+
 from django.core import signing
+from django.core.cache import cache
 from django.http import HttpRequest, HttpResponse
 from django.utils.html import escape
 
@@ -45,6 +48,13 @@ def slack_mcp_connected(request: HttpRequest) -> HttpResponse:
     except signing.BadSignature:
         return HttpResponse("This link is invalid or has expired.", status=400)
     success = request.GET.get("status", "success") != "error"
+    # The signed state is reusable for its whole 30-day life, so a back-button or reload re-hits
+    # this GET. Fire the connect-conversion event once per state token (hashed — raw tokens make
+    # poor cache keys) so replays don't inflate the metric; the fleet refresh stays idempotent.
+    token_hash = hashlib.sha256(state_token.encode()).hexdigest()
+    first_visit = cache.add(
+        f"slack_mcp_connect_event:{token_hash}", 1, timeout=persona_onboarding.CONNECT_STATE_MAX_AGE_SECONDS
+    )
     deep_link = persona_onboarding.handle_mcp_connect_return(
         workspace_id=str(payload.get("w") or ""),
         slack_user_id=str(payload.get("u") or ""),
@@ -52,6 +62,7 @@ def slack_mcp_connected(request: HttpRequest) -> HttpResponse:
         template_name=str(payload.get("t") or ""),
         success=success,
         error=str(request.GET.get("error") or ""),
+        capture_event=first_visit,
     )
     server = escape(str(payload.get("t") or "MCP server"))
     if success:

@@ -987,7 +987,9 @@ def _handle_connect_click(payload: dict, action: dict) -> None:
     # URL button — the browser already navigated; just ack + record the click.
     ctx = _load_context(payload)
     if ctx is not None:
-        scout_key, _, server_name = str(action.get("value") or "").rpartition(":")
+        # Values are "<readiness_key>:<server>"; readiness_key is colon-free, so split on the
+        # first colon to keep server names that themselves contain colons intact.
+        scout_key, _, server_name = str(action.get("value") or "").partition(":")
         capture_slack_event(
             ctx.integration,
             EVENT_CONNECT_CLICKED,
@@ -1005,9 +1007,14 @@ def handle_mcp_connect_return(
     template_name: str,
     success: bool,
     error: str = "",
+    capture_event: bool = True,
 ) -> str:
     """Post-OAuth landing for a Connect button: refresh the fleet-reveal message with fresh
-    readiness and return the Slack deep link that sends the user back to the conversation."""
+    readiness and return the Slack deep link that sends the user back to the conversation.
+
+    ``capture_event`` gates only the connect-conversion analytics: the signed state is reusable,
+    so the caller dedupes it per token. The fleet refresh below is DB-recomputed and idempotent,
+    so it always runs regardless."""
     row = SlackSettings.objects.filter(slack_workspace_id=workspace_id, slack_user_id=slack_user_id).first()
     state = row.onboarding_state if row is not None and isinstance(row.onboarding_state, dict) else None
     integration = None
@@ -1016,15 +1023,16 @@ def handle_mcp_connect_return(
         if integration is not None and integration.integration_id != workspace_id:
             integration = None
     if integration is not None:
-        capture_slack_event(
-            integration,
-            EVENT_MCP_CONNECTED,
-            slack_user_id=slack_user_id,
-            server_name=template_name,
-            scout_readiness_key=readiness_key,
-            success=success,
-            error=error or None,
-        )
+        if capture_event:
+            capture_slack_event(
+                integration,
+                EVENT_MCP_CONNECTED,
+                slack_user_id=slack_user_id,
+                server_name=template_name,
+                scout_readiness_key=readiness_key,
+                success=success,
+                error=error or None,
+            )
         if row is not None and state is not None and success:
             _refresh_fleet_reveal(integration, row, state, workspace_id, slack_user_id)
     dm_channel_id = str(state.get("dm_channel_id") or "") if state else ""
