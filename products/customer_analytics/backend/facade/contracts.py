@@ -56,27 +56,6 @@ class AccountRelationship:
 
 
 @dataclass(frozen=True)
-class AccountRelationshipDefinition:
-    """A team-defined account relationship type (CSM, Onboarding manager, ...)."""
-
-    id: UUID
-    name: str
-    description: str | None
-    is_single_holder: bool
-
-
-@dataclass(frozen=True)
-class AccountRelationship:
-    """One assignment of a user to an account relationship, with its effective range."""
-
-    id: UUID
-    definition: AccountRelationshipDefinition
-    user: AccountAssignment | None
-    started_at: datetime
-    ended_at: datetime | None
-
-
-@dataclass(frozen=True)
 class AccountProperties:
     """Typed account properties — assignment roles and external-system identifiers.
 
