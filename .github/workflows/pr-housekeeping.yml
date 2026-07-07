@@ -1,0 +1,52 @@
+name: PR housekeeping
+
+# One dispatch per PR event instead of four. GitHub's run-queue cap
+# (500 runs/10s/repo) counts workflow runs, and a run that calls reusable
+# workflows counts once — so folding the small always-fire PR workflows
+# under this parent divides the burst budget every push consumes.
+# See docs/internal/ci-capacity-limits.md for the capacity analysis.
+
+on:
+    pull_request:
+        types: [opened, synchronize, reopened, edited, ready_for_review, review_requested, converted_to_draft]
+
+# Keyed by event action so a new push (synchronize) cancels the previous
+# push's run without cancelling runs fired by other event types on the PR.
+concurrency:
+    group: pr-housekeeping-${{ github.event.action }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: true
+
+# Union of the callees' needs; a called workflow can only downgrade these.
+permissions:
+    contents: read
+    pull-requests: read
+
+jobs:
+    lint-pr:
+        if: contains(fromJSON('["opened", "edited", "synchronize"]'), github.event.action)
+        uses: ./.github/workflows/pr-updated.yml
+
+    turbo:
+        if: contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action)
+        uses: ./.github/workflows/ci-turbo.yml
+
+    rate-limit-monitor:
+        if: contains(fromJSON('["opened", "synchronize"]'), github.event.action)
+        uses: ./.github/workflows/monitor-github-rate-limit.yml
+        secrets:
+            POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+            GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+            GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+
+    flags-project-board:
+        if: github.event.action != 'edited' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: PostHog/.github/.github/workflows/flags-project-board.yml@69336b569d22687f8982eea6ff7d450a885cda05
+        with:
+            pr_number: ${{ github.event.pull_request.number }}
+            pr_node_id: ${{ github.event.pull_request.node_id }}
+            is_draft: ${{ github.event.pull_request.draft }}
+        # The called workflow lives in PostHog/.github and only declares `inputs:` (no `secrets:`) under
+        # workflow_call, so scoped secret passing isn't possible until that reusable workflow adds a
+        # secrets: block too.
+        # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit
+        secrets: inherit

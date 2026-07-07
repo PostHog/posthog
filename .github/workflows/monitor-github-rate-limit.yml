@@ -7,7 +7,8 @@ name: Monitor GitHub Rate Limit
 # Trigger strategy: ride real PR/master events for density (synchronize fires
 # on every PR push and is the dominant signal source on this repo), with a
 # 30-minute schedule as a quiet-time floor. A delayed scheduled tick is fine
-# here — events fill the gap.
+# here — events fill the gap. PR events arrive via pr-housekeeping.yml
+# (workflow_call) so they share that workflow's single run dispatch.
 #
 # Alerting belongs downstream in PostHog (windowed thresholds, attribution by
 # repo) — not in the workflow itself. Keep this file focused on emission.
@@ -24,8 +25,14 @@ name: Monitor GitHub Rate Limit
 # To change the threshold/window, edit the insight + alert in PostHog, not here.
 
 on:
-    pull_request:
-        types: [opened, synchronize]
+    workflow_call:
+        secrets:
+            POSTHOG_DEVEX_PROJECT_API_TOKEN:
+                required: false
+            GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID:
+                required: false
+            GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY:
+                required: false
     push:
         branches: [master]
     schedule:
