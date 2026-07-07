@@ -6,7 +6,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { useStorybookMocks } from '~/mocks/browser'
 
-import { EndpointSceneHeader } from './EndpointHeader'
+import { EndpointConfiguration } from './endpoint-tabs/EndpointConfiguration'
 import { endpointLogic } from './endpointLogic'
 import { endpointSceneLogic } from './endpointSceneLogic'
 import type { EndpointMaterializationSuggestionApi } from './generated/api.schemas'
@@ -91,7 +91,7 @@ const suggestionFailed: EndpointMaterializationSuggestionApi = {
 
 const meta: Meta = {
     title: 'Products/Endpoints/MaterializationSuggestion',
-    component: EndpointSceneHeader,
+    component: EndpointConfiguration,
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
@@ -129,18 +129,18 @@ const Template: StoryFn<StoryProps> = ({ suggestion, openModal }) => {
         }
     }, [openModal, endpoint, openMaterializationSuggestionModal])
 
-    return <EndpointSceneHeader />
+    return <EndpointConfiguration />
 }
 
-export const FixWithAIButton: StoryFn<StoryProps> = Template.bind({})
-FixWithAIButton.args = { suggestion: suggestionOk, openModal: false }
-FixWithAIButton.parameters = {
-    testOptions: { waitForSelector: '[data-attr="endpoint-materialization-fix-with-ai"]' },
+export const OptimizeWithAIButton: StoryFn<StoryProps> = Template.bind({})
+OptimizeWithAIButton.args = { suggestion: suggestionOk, openModal: false }
+OptimizeWithAIButton.parameters = {
+    testOptions: { waitForSelector: '[data-attr="endpoint-optimize-with-ai"]' },
 }
 
 export const SuggestionReady: StoryFn<StoryProps> = Template.bind({})
 SuggestionReady.args = { suggestion: suggestionOk, openModal: true }
-SuggestionReady.parameters = { testOptions: { waitForSelector: '.CodeSnippet' } }
+SuggestionReady.parameters = { testOptions: { waitForSelector: '.LemonModal .CodeSnippet' } }
 
 export const SuggestionCannotFix: StoryFn<StoryProps> = Template.bind({})
 SuggestionCannotFix.args = { suggestion: suggestionCannotFix, openModal: true }
@@ -148,4 +148,4 @@ SuggestionCannotFix.parameters = { testOptions: { waitForSelector: '.LemonModal 
 
 export const SuggestionFailedValidation: StoryFn<StoryProps> = Template.bind({})
 SuggestionFailedValidation.args = { suggestion: suggestionFailed, openModal: true }
-SuggestionFailedValidation.parameters = { testOptions: { waitForSelector: '.CodeSnippet' } }
+SuggestionFailedValidation.parameters = { testOptions: { waitForSelector: '.LemonModal .CodeSnippet' } }

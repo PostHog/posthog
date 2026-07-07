@@ -15,7 +15,8 @@ export function MaterializationSuggestionModal(): JSX.Element {
         materializationSuggestionLoading,
         suggestionMatchesCurrentQuery,
     } = useValues(endpointSceneLogic)
-    const { closeMaterializationSuggestionModal, applyMaterializationSuggestion } = useActions(endpointSceneLogic)
+    const { closeMaterializationSuggestionModal, applyMaterializationSuggestion, regenerateMaterializationSuggestion } =
+        useActions(endpointSceneLogic)
 
     const suggestion = materializationSuggestion
     const hasValidatedSuggestion = suggestion?.suggestion_status === 'ok' && !!suggestion.suggested_query
@@ -31,6 +32,15 @@ export function MaterializationSuggestionModal(): JSX.Element {
                 <>
                     <LemonButton type="secondary" onClick={closeMaterializationSuggestionModal}>
                         Close
+                    </LemonButton>
+                    <LemonButton
+                        type="secondary"
+                        onClick={regenerateMaterializationSuggestion}
+                        loading={materializationSuggestionLoading}
+                        disabledReason={materializationSuggestionLoading ? 'Waiting for the suggestion' : undefined}
+                        tooltip="Ask the AI for a fresh rewrite, replacing this suggestion"
+                    >
+                        Regenerate
                     </LemonButton>
                     <LemonButton
                         type="primary"
