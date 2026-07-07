@@ -1,16 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
-import { IconChevronDown, IconList, IconListTree, IconRefresh } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonCheckbox,
-    LemonDropdown,
-    LemonInput,
-    LemonSegmentedButton,
-    LemonSwitch,
-    LemonTag,
-} from '@posthog/lemon-ui'
+import { IconChevronDown, IconRefresh } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
 import { DateRangePickerWithZoom } from 'lib/components/DateFilter/DateRangePicker'
 import { InfiniteSelectResults } from 'lib/components/TaxonomicFilter/InfiniteSelectResults'
@@ -34,7 +26,7 @@ import {
 
 import { SavedViewsButton } from './savedViews/SavedViewsButton'
 import { tracingDataLogic } from './tracingDataLogic'
-import { tracingFiltersLogic, type TracingViewMode } from './tracingFiltersLogic'
+import { tracingFiltersLogic } from './tracingFiltersLogic'
 import { tracingServiceFilterLogic, TracingServiceFilterLogicProps } from './tracingServiceFilterLogic'
 
 const taxonomicFilterLogicKey = 'tracing'
@@ -48,9 +40,8 @@ export function TracingFilterBar(): JSX.Element {
     const { spansLoading } = useValues(tracingDataLogic())
     const { runQuery } = useActions(tracingDataLogic())
     const { filters, utcDateRange, timezone } = useValues(tracingFiltersLogic())
-    const { setDateRange, setTimezone, setServiceNames, setFilterGroup, setViewMode, setCompareMode } =
-        useActions(tracingFiltersLogic())
-    const { dateRange, serviceNames, filterGroup, viewMode, compareMode } = filters
+    const { setDateRange, setTimezone, setServiceNames, setFilterGroup } = useActions(tracingFiltersLogic())
+    const { dateRange, serviceNames, filterGroup } = filters
 
     return (
         <TracingFilterGroup filterGroup={filterGroup} onFilterGroupChange={setFilterGroup}>
@@ -73,36 +64,6 @@ export function TracingFilterBar(): JSX.Element {
                             setDateRange={setDateRange}
                             timezone={timezone}
                             onTimezoneChange={setTimezone}
-                        />
-                        {!compareMode && (
-                            <LemonSegmentedButton<TracingViewMode>
-                                size="small"
-                                value={viewMode}
-                                onChange={setViewMode}
-                                options={[
-                                    {
-                                        value: 'traces',
-                                        label: 'Traces',
-                                        icon: <IconListTree />,
-                                        tooltip: 'Group matching spans by trace — one row per trace (its root span)',
-                                        'data-attr': 'tracing-view-mode-traces',
-                                    },
-                                    {
-                                        value: 'spans',
-                                        label: 'Spans',
-                                        icon: <IconList />,
-                                        tooltip: 'Show every matching span individually, including child spans',
-                                        'data-attr': 'tracing-view-mode-spans',
-                                    },
-                                ]}
-                            />
-                        )}
-                        <LemonSwitch
-                            label="Compare"
-                            checked={compareMode}
-                            onChange={setCompareMode}
-                            bordered
-                            size="small"
                         />
                         <LemonButton
                             size="small"

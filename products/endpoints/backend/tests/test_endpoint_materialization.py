@@ -27,14 +27,14 @@ from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyErro
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, Node
 from products.data_warehouse.backend.facade.api import get_saved_query_schedule
-from products.endpoints.backend.materialization_transforms import build_endpoint_hogql
-from products.endpoints.backend.models import EndpointVersion
-from products.endpoints.backend.services.execution import EndpointExecutionService
-from products.endpoints.backend.services.materialization import (
+from products.endpoints.backend.logic.execution import EndpointExecutionService
+from products.endpoints.backend.logic.materialization import (
     EndpointMaterializationService,
     OrphanedEndpointSavedQueryError,
     prepare_executable_query,
 )
+from products.endpoints.backend.materialization_transforms import build_endpoint_hogql
+from products.endpoints.backend.models import EndpointVersion
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -662,7 +662,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         saved_query.save()
 
         with mock.patch(
-            "products.endpoints.backend.services.execution.EndpointExecutionService._execute_query_and_respond"
+            "products.endpoints.backend.logic.execution.EndpointExecutionService._execute_query_and_respond"
         ) as mock_execute:
             old_cache_time = timezone.now() - timedelta(minutes=30)
             old_cached_response = Response(
@@ -707,7 +707,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         new_saved_query.save()
 
         with mock.patch(
-            "products.endpoints.backend.services.execution.EndpointExecutionService._execute_query_and_respond"
+            "products.endpoints.backend.logic.execution.EndpointExecutionService._execute_query_and_respond"
         ) as mock_execute:
             new_cache_time = timezone.now() - timedelta(minutes=5)
             new_cached_response = Response(

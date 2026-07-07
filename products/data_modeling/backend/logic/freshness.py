@@ -5,7 +5,7 @@ extracts the graph (node ids, edges, declared targets, source intervals) from th
 `Node`/`Edge` models and feeds it here. Keeping this pure keeps it the cheapest
 rung to test and lets the whole model be validated before any scheduling changes.
 
-Model (see products/data_modeling/dev/freshness-targets-and-consistency.md):
+Model:
 - A node's declared *target* is optional ("data no older than X").
 - A node's *effective* cadence = min(own target, tightest of everything downstream).
 - A legal target sits in [max(ancestor source intervals) … min(descendant targets)]:
@@ -28,7 +28,8 @@ STREAMING = timedelta(0)
 
 # Intervals build_schedule_spec can realize exactly (minute buckets must divide 60, hour
 # buckets 24, then weekly/monthly); anything else silently degrades or crashes there.
-# Mirrors sync_frequency_to_sync_frequency_interval's label set.
+# Spelled out literally so this module stays Django-free; a test pins each value to the
+# canonical sync-frequency buckets in warehouse_sources.
 SUPPORTED_TARGETS: frozenset[timedelta] = frozenset(
     {
         timedelta(minutes=1),
@@ -51,6 +52,18 @@ class UnsatisfiableFrequencyError(ValueError):
 
 class UnsupportedFrequencyTargetError(ValueError):
     """A target is not one of the schedulable cadence buckets (SUPPORTED_TARGETS)."""
+
+
+def format_cadence(interval: timedelta) -> str:
+    """Human label for a cadence, matching the sync-frequency bucket names ("15min", "6hour", "7day")."""
+    seconds = int(interval.total_seconds())
+    if seconds >= 86400 and seconds % 86400 == 0:
+        return f"{seconds // 86400}day"
+    if seconds >= 3600 and seconds % 3600 == 0:
+        return f"{seconds // 3600}hour"
+    if seconds >= 60 and seconds % 60 == 0:
+        return f"{seconds // 60}min"
+    return str(interval)
 
 
 def _adjacency(edges: list[tuple[str, str]]) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
@@ -136,18 +149,23 @@ def validate_frequency_target(
 ) -> None:
     """Raise if `target` is not a supported bucket or falls outside the node's [floor, ceiling]."""
     if target not in SUPPORTED_TARGETS:
+        supported = ", ".join(format_cadence(interval) for interval in sorted(SUPPORTED_TARGETS))
         raise UnsupportedFrequencyTargetError(
-            f"target {target} is not a supported cadence; pick one of the standard buckets"
+            f"Requested freshness ({format_cadence(target)}) is not a schedulable cadence; pick one of: {supported}"
         )
     floor, ceiling = frequency_target_bounds(
         node_id=node_id, edges=edges, targets=targets, source_intervals=source_intervals
     )
     if target < floor:
         raise UnsatisfiableFrequencyError(
-            f"target {target} is fresher than the tightest ancestor source can deliver ({floor})"
+            f"Requested freshness ({format_cadence(target)}) is more frequent than this node's sources can deliver;"
+            f" the slowest upstream source syncs every {format_cadence(floor)}"
         )
     if ceiling is not None and target > ceiling:
-        raise UnsatisfiableFrequencyError(f"target {target} is staler than a downstream consumer requires ({ceiling})")
+        raise UnsatisfiableFrequencyError(
+            f"Requested freshness ({format_cadence(target)}) is less frequent than a downstream consumer requires"
+            f" (tightest downstream target: {format_cadence(ceiling)})"
+        )
 
 
 @dataclasses.dataclass

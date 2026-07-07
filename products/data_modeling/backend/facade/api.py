@@ -21,6 +21,8 @@ _LAZY = {
     "start_node_materialization": "logic.node_materialization",
     "apply_saved_query_frequency_target": "logic.schedule_reconcile",
     "tiered_schedules_enabled": "logic.schedule_reconcile",
+    "compute_enrichment_hash": "logic.enrich_view_semantics",
+    "enrich_view_semantics_sync": "logic.enrich_view_semantics",
 }
 
 __all__ = sorted(_LAZY)

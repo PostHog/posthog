@@ -230,13 +230,14 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
                     let now = tokio::time::Instant::now();
                     if now >= commit_deadline {
                         fsync_then_commit(
-                            self.dispatcher.store(),
+                            self.dispatcher.handle(),
                             &self.consumer,
                             self.tracker(),
                             self.owned_committable_offsets(),
                             &self.topic,
                             CommitMode::Async,
-                        );
+                        )
+                        .await;
                         commit_deadline = now + self.offset_commit_interval;
                     }
                 }
@@ -246,13 +247,14 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
         // Final sync commit runs before the events consumer's shutdown; workers may still be marking
         // offsets at this point, but follower offsets are independent.
         fsync_then_commit(
-            self.dispatcher.store(),
+            self.dispatcher.handle(),
             &self.consumer,
             self.tracker(),
             self.owned_committable_offsets(),
             &self.topic,
             CommitMode::Sync,
-        );
+        )
+        .await;
         info!(topic = %self.topic, "follower consume loop stopped");
     }
 
@@ -265,6 +267,10 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
             counter!(R::DESERIALIZE_ERRORS_TOTAL).increment(outcome.deserialize_errors);
         }
 
+        // Follower keeps the blocking dispatch on purpose: merges/transfers/cascades are low-volume, so
+        // a full channel here can await a drain without risking the heartbeat — unlike the events
+        // consumer's non-blocking, partition-pausing path (`EventDispatcher::dispatch_events_nonblocking`).
+        // Port that path here if any of these topics ever approaches events-topic volume.
         R::dispatch(&self.dispatcher, outcome.messages).await;
 
         if outcome.transport_error {

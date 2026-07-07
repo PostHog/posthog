@@ -214,6 +214,54 @@ class TestGetRowsFanOut:
         assert "page=1" in session.urls[1]
 
 
+class TestGetRowsCampaignFanOut:
+    def test_fan_out_over_campaigns_injects_campaign_id(self) -> None:
+        manager = _manager()
+        responses = [
+            _make_response([{"CampaignID": "c1"}, {"CampaignID": "c2"}]),  # campaigns.json
+            _make_response({"Results": [{"EmailAddress": "a@x.com"}], "NumberOfPages": 1, "PageNumber": 1}),  # c1
+            _make_response({"Results": [{"EmailAddress": "b@x.com"}], "NumberOfPages": 1, "PageNumber": 1}),  # c2
+        ]
+        session, batches = _drive("campaign_opens", responses, manager)
+
+        assert batches == [
+            [{"EmailAddress": "a@x.com", "CampaignID": "c1"}],
+            [{"EmailAddress": "b@x.com", "CampaignID": "c2"}],
+        ]
+        assert session.urls[0].endswith("clients/client-abc/campaigns.json")
+        assert "campaigns/c1/opens.json" in session.urls[1]
+        assert "campaigns/c2/opens.json" in session.urls[2]
+
+    def test_campaign_summary_yields_object_per_campaign_and_advances_bookmark(self) -> None:
+        manager = _manager()
+        responses = [
+            _make_response([{"CampaignID": "c1"}, {"CampaignID": "c2"}]),
+            _make_response({"Name": "Newsletter", "Recipients": 100, "UniqueOpened": 40}),  # c1 summary
+            _make_response({"Name": "Promo", "Recipients": 50, "UniqueOpened": 10}),  # c2 summary
+        ]
+        session, batches = _drive("campaign_summary", responses, manager)
+
+        assert batches == [
+            [{"Name": "Newsletter", "Recipients": 100, "UniqueOpened": 40, "CampaignID": "c1"}],
+            [{"Name": "Promo", "Recipients": 50, "UniqueOpened": 10, "CampaignID": "c2"}],
+        ]
+        assert "campaigns/c1/summary.json" in session.urls[1]
+        assert "campaigns/c2/summary.json" in session.urls[2]
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert saved == [CampaignMonitorResumeConfig(campaign_id="c2", page=1)]
+
+    def test_fan_out_resumes_into_correct_campaign(self) -> None:
+        manager = _manager(can_resume=True, state=CampaignMonitorResumeConfig(campaign_id="c2", page=1))
+        responses = [
+            _make_response([{"CampaignID": "c1"}, {"CampaignID": "c2"}]),
+            _make_response({"Results": [{"EmailAddress": "b@x.com"}], "NumberOfPages": 1, "PageNumber": 1}),  # c2 only
+        ]
+        session, batches = _drive("campaign_opens", responses, manager)
+
+        assert batches == [[{"EmailAddress": "b@x.com", "CampaignID": "c2"}]]
+        assert "campaigns/c2/opens.json" in session.urls[1]
+
+
 class TestCampaignMonitorSourceResponse:
     @pytest.mark.parametrize("endpoint", list(CAMPAIGN_MONITOR_ENDPOINTS.keys()))
     def test_source_response_primary_keys_match_settings(self, endpoint: str) -> None:
@@ -236,6 +284,8 @@ class TestCampaignMonitorSourceResponse:
             ("campaigns", "SentDate"),
             ("suppression_list", "Date"),
             ("active_subscribers", "Date"),
+            ("campaign_opens", "Date"),
+            ("campaign_summary", None),
             ("clients", None),
             ("lists", None),
         ],

@@ -130,6 +130,14 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         null=True, blank=True, help_text="When this test view should be automatically deleted."
     )
 
+    semantic_enrichment_hash = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text="Fingerprint of the view definition and column set used to skip AI semantic-description "
+        "regeneration when nothing relevant changed. Not user-facing.",
+    )
+
     def save(self, *args, **kwargs):
         if self.is_test and not self.expires_at:
             from django.utils import timezone

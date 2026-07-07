@@ -52,6 +52,7 @@ from products.data_modeling.backend.logic.freshness import (
     UnsupportedFrequencyTargetError,
     compute_effective_cadences,
     find_invalid_targets,
+    format_cadence,
     frequency_target_bounds,
     validate_frequency_target,
 )
@@ -212,8 +213,8 @@ def preview_dag_schedules(dag: DAG, *, seed: bool = False) -> DagSchedulePreview
 
     Reads the graph and lists the DAG's current schedules; never writes. This is the dry-run
     behind the preview management command. With `seed`, nodes lacking an explicit target fall
-    back in memory to `seed_targets(dag)` — modelling the go-live plan after the PR B backfill,
-    without persisting anything (explicit targets still win).
+    back in memory to `seed_targets(dag)`, modelling the go-live plan once targets are
+    backfilled, without persisting anything (explicit targets still win).
     """
     graph = build_frequency_graph(dag)
     targets = {**seed_targets(dag), **graph.targets} if seed else graph.targets
@@ -270,8 +271,9 @@ async def _apply_reconciliation(
 ) -> None:
     unsupported = sorted(interval for interval in desired_tiers if interval not in SUPPORTED_TARGETS)
     if unsupported:
+        tiers = ", ".join(format_cadence(interval) for interval in unsupported)
         raise UnsupportedFrequencyTargetError(
-            f"refusing to reconcile DAG {dag_id}: tiers {unsupported} are not schedulable cadence buckets"
+            f"refusing to reconcile DAG {dag_id}: tiers ({tiers}) are not schedulable cadence buckets"
         )
 
     temporal = await async_connect()

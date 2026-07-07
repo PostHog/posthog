@@ -263,6 +263,10 @@ _CUSTOM_PROPERTIES_ERROR_RESPONSES = {
         "Failed to update custom properties",
         status.HTTP_500_INTERNAL_SERVER_ERROR,
     ),
+    contracts.ExternalAccountCustomPropertiesError.SOURCE_MANAGED: (
+        "This custom property is managed by a data warehouse source and can't be set manually",
+        status.HTTP_400_BAD_REQUEST,
+    ),
 }
 
 

@@ -28,12 +28,14 @@ from posthog.temporal.common.search_attributes import (
     POSTHOG_TEAM_ID_KEY,
 )
 
+from products.data_modeling.backend.logic.cohort_scheduling import dag_id_from_schedule_id
 from products.data_modeling.backend.models.node import Node
 
 if TYPE_CHECKING:
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
-# v2 (DAG-based) schedules run this workflow; their schedule id is the DAG id. The v1 backend
+# v2 (DAG-based) schedules run this workflow; their schedule id is the bare DAG id, or
+# "{dag_id}:{interval_seconds}" for a per-cadence-tier schedule. The v1 backend
 # (`data-modeling-run`, one schedule per saved query) is frozen and being migrated away from.
 DATA_MODELING_EXECUTE_DAG_WORKFLOW = "data-modeling-execute-dag"
 
@@ -84,7 +86,7 @@ async def get_v2_scheduled_dag_ids(candidate_dag_ids: Collection[str] | None = N
             isinstance(action, ScheduleListActionStartWorkflow)
             and action.workflow == DATA_MODELING_EXECUTE_DAG_WORKFLOW
         ):
-            dag_ids.add(listing.id)
+            dag_ids.add(dag_id_from_schedule_id(listing.id))
     return dag_ids
 
 

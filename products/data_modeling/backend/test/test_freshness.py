@@ -6,6 +6,7 @@ from parameterized import parameterized
 
 from products.data_modeling.backend.logic.freshness import (
     STREAMING,
+    SUPPORTED_TARGETS,
     InvalidTarget,
     UnsatisfiableFrequencyError,
     UnsupportedFrequencyTargetError,
@@ -139,14 +140,23 @@ class TestValidateFrequencyTarget(TestCase):
             ("on_imported_floor_ok", "a", H6, [("src", "a")], {}, {"src": H6}, True),
             # exactly on a descendant ceiling -> ok (bounds are inclusive at both ends)
             ("on_descendant_ceiling_ok", "a", M15, [("a", "ep")], {"ep": M15}, {}, True),
+            # floor 6h > ceiling 15min: no target is accepted, at either end of the range
+            ("unsatisfiable_rejects_floor_end", "a", H6, [("src", "a"), ("a", "ep")], {"ep": M15}, {"src": H6}, False),
+            (
+                "unsatisfiable_rejects_ceiling_end",
+                "a",
+                M15,
+                [("src", "a"), ("a", "ep")],
+                {"ep": M15},
+                {"src": H6},
+                False,
+            ),
         ]
     )
     def test_validate(self, _name, node_id, target, edges, targets, source_intervals, ok):
         if ok:
-            self.assertIsNone(
-                validate_frequency_target(
-                    node_id=node_id, target=target, edges=edges, targets=targets, source_intervals=source_intervals
-                )
+            validate_frequency_target(
+                node_id=node_id, target=target, edges=edges, targets=targets, source_intervals=source_intervals
             )
         else:
             with self.assertRaises(UnsatisfiableFrequencyError):
@@ -166,20 +176,17 @@ class TestValidateFrequencyTarget(TestCase):
         with self.assertRaises(UnsupportedFrequencyTargetError):
             validate_frequency_target(node_id="a", target=target, edges=[], targets={}, source_intervals={})
 
-    def test_unsatisfiable_node_rejects_both_ends(self):
-        edges = [("src", "a"), ("a", "ep")]
-        targets = {"ep": M15}
-        source_intervals = {"src": H6}
-        # floor 6h > ceiling 15min: the floor value is too stale for the consumer and the
-        # ceiling value is too fresh for the source, so no target is accepted.
-        with self.assertRaises(UnsatisfiableFrequencyError):
-            validate_frequency_target(
-                node_id="a", target=H6, edges=edges, targets=targets, source_intervals=source_intervals
-            )
-        with self.assertRaises(UnsatisfiableFrequencyError):
-            validate_frequency_target(
-                node_id="a", target=M15, edges=edges, targets=targets, source_intervals=source_intervals
-            )
+    def test_supported_targets_are_canonical_sync_frequency_buckets(self):
+        from products.warehouse_sources.backend.facade.models import (  # noqa: PLC0415 - keeps Django off this pure test module's import path
+            sync_frequency_interval_to_sync_frequency,
+            sync_frequency_to_sync_frequency_interval,
+        )
+
+        for interval in SUPPORTED_TARGETS:
+            label = sync_frequency_interval_to_sync_frequency(interval)
+            self.assertIsNotNone(label, f"{interval} is not a canonical sync-frequency bucket")
+            assert label is not None
+            self.assertEqual(sync_frequency_to_sync_frequency_interval(label), interval)
 
 
 class TestFindInvalidTargets(TestCase):
