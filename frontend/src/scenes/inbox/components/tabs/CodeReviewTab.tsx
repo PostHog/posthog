@@ -542,17 +542,19 @@ function FindingCard({ finding, dismissed }: { finding: ReviewFindingApi; dismis
                     {
                         key: 'description',
                         header: 'Description',
-                        content: <p className="m-0 text-sm text-secondary">{finding.body}</p>,
+                        content: <LemonMarkdown className="text-sm text-secondary">{finding.body}</LemonMarkdown>,
                     },
                     {
                         key: 'suggestion',
                         header: 'Suggested fix',
-                        content: <p className="m-0 text-sm text-secondary">{finding.suggestion}</p>,
+                        content: <LemonMarkdown className="text-sm text-secondary">{finding.suggestion}</LemonMarkdown>,
                     },
                     {
                         key: 'validator',
                         header: dismissed ? 'Why it was dismissed' : "Why we think it's a valid issue",
-                        content: <p className="m-0 text-sm text-secondary">{finding.validator_note}</p>,
+                        content: (
+                            <LemonMarkdown className="text-sm text-secondary">{finding.validator_note}</LemonMarkdown>
+                        ),
                     },
                 ]}
             />
