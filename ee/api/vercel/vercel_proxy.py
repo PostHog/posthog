@@ -1,8 +1,6 @@
 import urllib.parse
 from typing import Any, cast
 
-from django.conf import settings as django_settings
-
 import requests
 import structlog
 from rest_framework import serializers, status, viewsets
@@ -31,10 +29,6 @@ ALLOWED_VERCEL_PATH_PREFIXES = (
 
 VERCEL_API_BASE_URL = "https://api.vercel.com"
 REQUEST_TIMEOUT_SECONDS = 30
-CROSS_REGION_PROXY_TIMEOUT_SECONDS = 10
-
-DEFAULT_US_DOMAIN = "us.posthog.com"
-DEFAULT_EU_DOMAIN = "eu.posthog.com"
 
 
 class VercelProxyRequestSerializer(serializers.Serializer):
@@ -116,10 +110,6 @@ class VercelProxyViewSet(viewsets.ViewSet):
 
         integration = self._get_integration(organization_id)
         if not integration:
-            eu_response = self._try_proxy_to_eu(request)
-            if eu_response is not None:
-                return eu_response
-
             return Response(
                 {"error": "No Vercel integration found for this organization"},
                 status=status.HTTP_404_NOT_FOUND,
@@ -133,69 +123,6 @@ class VercelProxyViewSet(viewsets.ViewSet):
             )
 
         return self._call_vercel(integration.integration_id, access_token, path, method, body)
-
-    @property
-    def _current_region(self) -> str | None:
-        site_url = django_settings.SITE_URL
-        us_domain = getattr(django_settings, "REGION_US_DOMAIN", DEFAULT_US_DOMAIN)
-        eu_domain = getattr(django_settings, "REGION_EU_DOMAIN", DEFAULT_EU_DOMAIN)
-        if site_url == f"https://{us_domain}":
-            return "us"
-        elif site_url == f"https://{eu_domain}":
-            return "eu"
-        return None
-
-    def _try_proxy_to_eu(self, request: Request) -> Response | None:
-        if self._current_region != "us":
-            return None
-
-        eu_domain = getattr(django_settings, "REGION_EU_DOMAIN", DEFAULT_EU_DOMAIN)
-        target_url = f"https://{eu_domain}/api/vercel/proxy/"
-
-        headers = {
-            "Authorization": request.headers.get("authorization", ""),
-            "Content-Type": "application/json",
-        }
-
-        try:
-            response = requests.post(
-                url=target_url,
-                headers=headers,
-                json=request.data,
-                timeout=CROSS_REGION_PROXY_TIMEOUT_SECONDS,
-            )
-        except requests.RequestException as e:
-            logger.warning(
-                "Cross-region proxy to EU failed",
-                error=str(e),
-            )
-            return None
-
-        logger.info(
-            "Cross-region proxy to EU completed",
-            status_code=response.status_code,
-        )
-
-        if response.status_code == 404:
-            return None
-
-        if response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN):
-            # EU rejects the US-signed billing JWT: HS256 tokens are signed with per-region
-            # license secrets, so EU can never validate a US-issued token. Treat this as
-            # "no integration anywhere" and let the US region return its own 404 instead of
-            # surfacing a misleading auth failure to the billing service.
-            logger.warning(
-                "Cross-region proxy to EU failed authentication; treating as no integration",
-                status_code=response.status_code,
-            )
-            return None
-
-        try:
-            data = response.json() if response.content else {}
-        except ValueError:
-            data = {"error": "Invalid response from EU region"}
-
-        return Response(data=data, status=response.status_code)
 
     def _get_integration(self, organization_id: str) -> OrganizationIntegration | None:
         try:
