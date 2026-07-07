@@ -5570,8 +5570,9 @@ class TestExperimentCRUD(APILicensedTest):
         )
         self.assertEqual(end_response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=True)
     @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=False)
-    def test_end_endpoint_cleanup_pr_requires_task_write_scope(self, _mock_flag):
+    def test_end_endpoint_cleanup_pr_requires_task_write_scope(self, _mock_flag, _mock_access):
         exp_deny = self._create_running_experiment(name="Cleanup Deny", flag_key="cleanup-deny-flag")["id"]
         exp_no_opt = self._create_running_experiment(name="Cleanup No Opt", flag_key="cleanup-no-opt-flag")["id"]
         exp_allow = self._create_running_experiment(name="Cleanup Allow", flag_key="cleanup-allow-flag")["id"]
@@ -5611,6 +5612,46 @@ class TestExperimentCRUD(APILicensedTest):
             headers={"authorization": f"Bearer {token}"},
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+
+    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=False)
+    def test_cleanup_pr_requires_code_access_for_session_users(self, _mock_flag):
+        exp_end = self._create_running_experiment(name="Cleanup Session End", flag_key="cleanup-session-end-flag")["id"]
+        exp_ship = self._create_running_experiment(name="Cleanup Session Ship", flag_key="cleanup-session-ship-flag")[
+            "id"
+        ]
+
+        # Scopes don't apply to session auth — without Code access, opting in must be rejected
+        # on both actions that can open a cleanup PR.
+        with patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=False):
+            resp = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/{exp_end}/end/",
+                {"conclusion": "won", "open_cleanup_pr": True},
+                format="json",
+            )
+            self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
+
+            resp = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/{exp_ship}/ship_variant/",
+                {"variant_key": "test", "conclusion": "won", "open_cleanup_pr": True},
+                format="json",
+            )
+            self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
+
+            # Not opting in still ends the experiment without Code access.
+            resp = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/{exp_end}/end/",
+                {"conclusion": "won", "open_cleanup_pr": False},
+                format="json",
+            )
+            self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+
+        with patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=True):
+            resp = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/{exp_ship}/ship_variant/",
+                {"variant_key": "test", "conclusion": "won", "open_cleanup_pr": True},
+                format="json",
+            )
+            self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
 
     def test_ship_variant_endpoint_default_preserves_groups(self):
         data = self._create_running_experiment(name="Ship Endpoint", flag_key="ship-endpoint-flag")
