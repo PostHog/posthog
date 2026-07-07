@@ -1,7 +1,6 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { useState } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
@@ -10,6 +9,8 @@ import { sceneLogic } from '~/scenes/sceneLogic'
 import { emptySceneParams } from '~/scenes/scenes'
 import { Scene, SceneTab } from '~/scenes/sceneTypes'
 import { urls } from '~/scenes/urls'
+
+import { homeViewToggleLogic } from './homeViewToggleLogic'
 
 export type HomeView = 'launchpad' | 'search' | 'apps' | 'files'
 
@@ -52,7 +53,8 @@ const homeViewTabs: Record<Exclude<HomeView, 'launchpad'>, SceneTab> = {
 
 /** Gear button in the top-left of the home views that expands into the homepage picker. */
 export function HomeViewToggle({ current }: { current: HomeView }): JSX.Element {
-    const [expanded, setExpanded] = useState(false)
+    const { expanded } = useValues(homeViewToggleLogic)
+    const { setExpanded } = useActions(homeViewToggleLogic)
     const { setHomepage } = useActions(sceneLogic)
 
     return (
