@@ -1,4 +1,4 @@
-# Repo ownership model: distributed `OWNERS.yaml`
+# Repo ownership model: distributed `owners.yaml`
 
 Status: proposal (draft)
 Branch: `feat/repo-ownership`
@@ -7,9 +7,9 @@ Design a single ownership source of truth that multiple consumers (review automa
 
 Scope decisions (locked):
 
-- `OWNERS.yaml` becomes the canonical ownership format.
+- `owners.yaml` becomes the canonical ownership format.
 - `.github/CODEOWNERS-soft` is deleted; the PR-assignment flow reads the new resolver instead.
-- `products/*/product.yaml` stays and is an **accepted alias** of `OWNERS.yaml` — its `owners:` key is a first-class ownership source, all other fields are ignored for ownership purposes.
+- `products/*/product.yaml` stays and is an **accepted alias** of `owners.yaml` — its `owners:` key is a first-class ownership source, all other fields are ignored for ownership purposes.
 - The hard `.github/CODEOWNERS` is left alone for now: hand-maintained, GitHub-enforced, out of the schema.
 - Everything lands in **one PR**.
 
@@ -61,12 +61,12 @@ The vendored matcher is `.github/scripts/codeowners.js` (a port of `hmarr/codeow
 - Consumers disagree about scope: the assigner and pr-approval-agent ignore the hard file; only the skill layers all three sources.
 - No structured notion of generated/vendored/deprecated code — the assigner hardcodes an ignore list (`frontend/src/generated/**`, `*.ambr`, lockfiles, …).
 
-## 3. Proposed canonical format: `OWNERS.yaml`
+## 3. Proposed canonical format: `owners.yaml`
 
 One schema, distributed per directory. Under `products/`, the existing `product.yaml` **is** the ownership file (see the alias rule below) — no new files needed there.
 
 ```yaml
-# OWNERS.yaml — full form; every field except `owners` is optional
+# owners.yaml — full form; every field except `owners` is optional
 version: 1
 
 # The one required field, same key and semantics as product.yaml.
@@ -88,7 +88,7 @@ contact:
 status: active
 
 # When true (default), fields not set here fall through to the nearest
-# ancestor OWNERS.yaml. false = Gerrit's `set noparent`.
+# ancestor owners.yaml. false = Gerrit's `set noparent`.
 inherit: true
 
 # Per-path overrides inside this directory, evaluated last-match-wins
@@ -106,17 +106,17 @@ rules:
 The 90% case is two lines:
 
 ```yaml
-# rust/OWNERS.yaml
+# rust/owners.yaml
 version: 1
 owners: [team-ingestion]
 ```
 
 ### `product.yaml` as an accepted alias
 
-`products/<name>/product.yaml` with an `owners:` key is read by the resolver as an `OWNERS.yaml` with that same `owners:` list. Every other field in `product.yaml` (`name:` today, anything added later) is ignored for ownership purposes — `product.yaml` remains free to grow product metadata without touching the ownership schema. Rules:
+`products/<name>/product.yaml` with an `owners:` key is read by the resolver as an `owners.yaml` with that same `owners:` list. Every other field in `product.yaml` (`name:` today, anything added later) is ignored for ownership purposes — `product.yaml` remains free to grow product metadata without touching the ownership schema. Rules:
 
-- A directory may have `product.yaml`-with-`owners` **or** `OWNERS.yaml`, never both — lint error.
-- Sub-folder overrides inside a product use nested `OWNERS.yaml` as anywhere else (e.g. `products/x/backend/migrations/OWNERS.yaml`).
+- A directory may have `product.yaml`-with-`owners` **or** `owners.yaml`, never both — lint error.
+- Sub-folder overrides inside a product use nested `owners.yaml` as anywhere else (e.g. `products/x/backend/migrations/owners.yaml`).
 - The `team-CHANGEME` scaffold placeholder resolves to unowned, as all consumers already treat it.
 
 This keeps all 68 products at zero migration cost and preserves `hogli product:lint:owners` unchanged.
@@ -148,7 +148,7 @@ There is no `OWNERS_ALIASES` file. `owners:` takes GitHub team slugs or `@handle
 
 For a path `P`:
 
-1. Walk from the repo root toward `P`, collecting every `OWNERS.yaml` (or aliased `product.yaml`) on the way. If a file sets `inherit: false`, drop everything collected above it.
+1. Walk from the repo root toward `P`, collecting every `owners.yaml` (or aliased `product.yaml`) on the way. If a file sets `inherit: false`, drop everything collected above it.
 2. Effective config = shallow merge, nearest file winning per field (lists replace, never merge — predictability over cleverness).
 3. Within the nearest file that has `rules:`, apply the last rule whose `match` glob (gitignore-style semantics, documented with the schema) matches `P` relative to that file's directory. Rule fields override the merged config.
 4. Review tagging = resolved `owners`. Primary owner = its first entry.
@@ -162,7 +162,7 @@ The stability guarantee is architectural: **consumers never parse ownership file
 
 - **Resolver**: single implementation in hogli — a Python module at `tools/hogli-commands/hogli_commands/owners/` exposing `resolve(path)`, `map()`, `unowned()` as a library, and `hogli owners:resolve --json <path...>` (paths also accepted on stdin) as the CLI. Rationale: hogli already lints ownership, and two of the four consumers are Python, so this makes lint, lookup, and the pr-approval agent native library callers with zero subprocess hops. Glob matching for `rules:` uses gitignore-style semantics implemented (and documented) here — the vendored JS matcher stays only for the hard-CODEOWNERS overlay parsing, or is replaced by an equivalent Python CODEOWNERS parser.
 - **JS consumers** shell out to the CLI and read JSON — `assign-reviewers.js` feeds the PR's changed files in and gets resolved owners back; the `establishing-code-ownership` skill does the same. The auto-assign workflow gains a Python/uv setup step (it is node-only today). `gates.py` imports the library directly. No committed lock file, so no freshness-check machinery; if one is ever wanted (offline consumers, Backstage `catalog-info.yaml` emitters), it is a trivial fold over `map()` added later.
-- **Validator**: `hogli owners:lint` — schema check, team slugs and `@handles` against the live GitHub org (reusing `product/gh.py`), dead `rules:` globs (match zero files), same-directory `product.yaml`/`OWNERS.yaml` conflicts, and full-tree coverage (every `git ls-files` path resolves or is `owners: null`).
+- **Validator**: `hogli owners:lint` — schema check, team slugs and `@handles` against the live GitHub org (reusing `product/gh.py`), dead `rules:` globs (match zero files), same-directory `product.yaml`/`owners.yaml` conflicts, and full-tree coverage (every `git ls-files` path resolves or is `owners: null`).
 - **Lookup**: `hogli owners:who <path>` / `owners:team <slug>` / `owners:unowned` — thin wrappers over the library; the `establishing-code-ownership` skill's `ownership.js` becomes a shim over the CLI (or is deleted in favor of it).
 
 One tradeoff to acknowledge: today `.github/scripts/` sits behind the blocking `CODEOWNERS` (`team-security`), so changes to assignment logic require their approval. Moving the resolver into hogli takes it out of that gate. If that matters, the fix is a one-line addition to the hard file covering `tools/hogli-commands/hogli_commands/owners/` — a deliberate exception to "leave CODEOWNERS alone", to be decided at review.
@@ -173,9 +173,9 @@ If the first consumer (say the auto-assigner) is ever replaced, the resolver, sc
 
 Everything lands atomically. The delivery order below is a review guide, not a merge sequence.
 
-1. **Resolver + schema.** `hogli_commands/owners/` (resolution per §4), `hogli owners:resolve --json`, JSON-schema for `OWNERS.yaml`.
-2. **Convert `CODEOWNERS-soft` → distributed `OWNERS.yaml`.** Mechanical translation of the 383 lines into per-directory files under `posthog/`, `frontend/src/scenes/`, `nodejs/`, `rust/`, `services/`, `ee/`, plugin-server, etc. Where the soft file relied on last-match ordering (e.g. the trailing managed-reverse-proxy block overriding a broad settings-scene rule), that intent becomes an explicit nested file or `rules:` entry — order-independence is the point.
-3. **Equivalence proof.** A differ resolves every `git ls-files` path under (old: soft + product.yaml) and (new: OWNERS.yaml + product.yaml) and asserts identical reviewer sets. It runs as a test in the PR; intentional divergences (there will be a few — dead globs, stale teams the 422 fallback already skips) are listed explicitly in the PR description rather than slipping through.
+1. **Resolver + schema.** `hogli_commands/owners/` (resolution per §4), `hogli owners:resolve --json`, JSON-schema for `owners.yaml`.
+2. **Convert `CODEOWNERS-soft` → distributed `owners.yaml`.** Mechanical translation of the 383 lines into per-directory files under `posthog/`, `frontend/src/scenes/`, `nodejs/`, `rust/`, `services/`, `ee/`, plugin-server, etc. Where the soft file relied on last-match ordering (e.g. the trailing managed-reverse-proxy block overriding a broad settings-scene rule), that intent becomes an explicit nested file or `rules:` entry — order-independence is the point.
+3. **Equivalence proof.** A differ resolves every `git ls-files` path under (old: soft + product.yaml) and (new: owners.yaml + product.yaml) and asserts identical reviewer sets. It runs as a test in the PR; intentional divergences (there will be a few — dead globs, stale teams the 422 fallback already skips) are listed explicitly in the PR description rather than slipping through.
 4. **Flip consumers.**
    - `assign-reviewers.js`: replace soft-file parsing + `loadProductYamlRules` with a call to `hogli owners:resolve --json` (workflow gains a Python setup step). Substantive-owner thresholds, 5-team cap, comment/label behavior unchanged; `@handle` owners become individual review requests instead of being skipped. `status: generated` replaces the hardcoded ignore list.
    - `gates.py`: replace the private CODEOWNERS-soft parser with a direct library import.
