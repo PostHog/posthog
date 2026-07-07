@@ -2683,6 +2683,8 @@ class FeatureFlagViewSet(
     """
 
     scope_object = "feature_flag"
+    # Record a tags change per flag when bulk_update_tags mutates it, matching the single-object path.
+    bulk_tag_activity_scope = "FeatureFlag"
     psak_allowed_actions = ["remote_config"]
     # Opt the shared TaggedItemViewSetMixin action into feature_flag:write.
     # Other inheritors of the mixin don't extend write actions and so still
