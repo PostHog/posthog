@@ -1,4 +1,5 @@
 import json
+import dataclasses
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -19,6 +20,22 @@ POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE = (
     'You can also add routing rules with `@PostHog rules add "description" [org/repo]`.'
 )
 POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE = "Select the repository for this routing rule."
+
+
+def coerce_mention_inputs(inputs: Any) -> PostHogCodeSlackMentionWorkflowInputs:
+    """Rebuild the mention-inputs dataclass when Temporal hands it over as a raw dict.
+
+    Temporal reconstructs a dataclass activity argument from its JSON payload only when the
+    activity is invoked with as many positional arguments as it declares. An activity called
+    with fewer (e.g. a caller that omits a trailing defaulted parameter) receives ``inputs`` as
+    a plain dict, so the first attribute access raises ``AttributeError``. Filtering to declared
+    fields keeps the reconstruction safe across a rolling deploy that adds or removes a field on
+    the dataclass, where an older history's payload can carry keys the current class no longer has.
+    """
+    if isinstance(inputs, PostHogCodeSlackMentionWorkflowInputs):
+        return inputs
+    field_names = {field.name for field in dataclasses.fields(PostHogCodeSlackMentionWorkflowInputs)}
+    return PostHogCodeSlackMentionWorkflowInputs(**{key: inputs[key] for key in inputs if key in field_names})
 
 
 @activity.defn
@@ -163,6 +180,12 @@ def block_posthog_code_task_if_no_personal_github_activity(
     PostHog app identity instead of the user's. Rather than degrading silently, hold
     the task and surface the one-click path to the personal integration setup.
     """
+    # The workflow invokes this activity without the trailing ``allow_bot_prs`` (relying on its
+    # default), so Temporal delivers ``inputs`` as a raw dict rather than the dataclass; rebuild it
+    # here instead of making the parameter required, which would break in-flight histories already
+    # scheduled with the shorter arg list. See ``coerce_mention_inputs`` for the full rationale.
+    inputs = coerce_mention_inputs(inputs)
+
     from django.conf import settings
 
     from posthog.models.integration import Integration, SlackIntegration

@@ -1,3 +1,6 @@
+import dataclasses
+from typing import Any
+
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
@@ -13,6 +16,7 @@ from posthog.temporal.ai.slack_app import (
     PostHogCodeSlackMentionWorkflowInputs,
     block_posthog_code_task_if_no_personal_github_activity,
 )
+from posthog.temporal.ai.slack_app.activities.messaging import coerce_mention_inputs
 
 
 def _make_inputs(integration_id: int, slack_team_id: str = "T_SLACK") -> PostHogCodeSlackMentionWorkflowInputs:
@@ -30,14 +34,26 @@ class TestBlockPostHogCodeTaskIfNoPersonalGitHub(TestCase):
         self.user = User.objects.create(email="alice@test.com")
         self.integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
 
+    @parameterized.expand(
+        [
+            ("dataclass_inputs", False),
+            # Temporal skips dataclass reconstruction when the workflow invokes this activity with
+            # fewer positional args than it declares (it omits the trailing ``allow_bot_prs``), so
+            # ``inputs`` arrives as a raw dict. This case guards the coercion: without it the
+            # activity crashes on ``inputs.integration_id`` and the mention fails with an internal
+            # error instead of posting the Connect GitHub prompt.
+            ("dict_inputs", True),
+        ]
+    )
     @patch("posthog.models.integration.SlackIntegration")
-    def test_returns_true_and_posts_block_when_user_has_no_personal_github(self, mock_slack_cls):
+    def test_returns_true_and_posts_block_when_user_has_no_personal_github(self, _name, inputs_as_dict, mock_slack_cls):
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
 
-        blocked = block_posthog_code_task_if_no_personal_github_activity(
-            _make_inputs(self.integration.id), "C123", "1234.5678", self.user.id
-        )
+        built = _make_inputs(self.integration.id)
+        inputs: Any = dataclasses.asdict(built) if inputs_as_dict else built
+
+        blocked = block_posthog_code_task_if_no_personal_github_activity(inputs, "C123", "1234.5678", self.user.id)
 
         assert blocked is True
         mock_slack.client.chat_postMessage.assert_called_once()
@@ -138,3 +154,22 @@ class TestBlockPostHogCodeTaskIfNoPersonalGitHub(TestCase):
 
         assert blocked is True
         mock_slack.client.chat_postMessage.assert_called_once()
+
+
+class TestCoerceMentionInputs(TestCase):
+    @parameterized.expand(
+        [
+            ("known_fields_only", {}),
+            # A rolling deploy that drops a field leaves older histories carrying a key the current
+            # dataclass no longer declares; reconstruction must ignore it rather than raise TypeError.
+            ("tolerates_unknown_field", {"stale_removed_field": "x"}),
+        ]
+    )
+    def test_rebuilds_dataclass_from_temporal_dict_payload(self, _name, extra_keys):
+        payload = {**dataclasses.asdict(_make_inputs(123, slack_team_id="T_X")), **extra_keys}
+
+        result = coerce_mention_inputs(payload)
+
+        assert isinstance(result, PostHogCodeSlackMentionWorkflowInputs)
+        assert result.integration_id == 123
+        assert result.slack_team_id == "T_X"
