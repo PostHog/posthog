@@ -97,6 +97,14 @@ def postgres_error_to_message(error: Exception) -> str:
     return message.splitlines()[0]
 
 
+def is_postwh_host(host: str | None) -> bool:
+    # Hostnames are case-insensitive and may carry a trailing root-zone dot, so
+    # normalize before matching to keep the sslmode enforcement bypass-proof.
+    if host is None:
+        return False
+    return host.lower().rstrip(".").endswith(".postwh.com")
+
+
 def direct_postgres_session_setup_sql(
     schema: str | None,
     connection_metadata: dict[str, object] | None = None,
@@ -106,7 +114,7 @@ def direct_postgres_session_setup_sql(
     database = connection_metadata.get("database") if isinstance(connection_metadata, dict) else None
     normalized_schema = schema.strip() if isinstance(schema, str) and schema.strip() else None
 
-    if engine == "duckdb" or (host is not None and host.endswith(".postwh.com")):
+    if engine == "duckdb" or is_postwh_host(host):
         if normalized_schema:
             quoted_schema = escape_postgres_identifier(normalized_schema)
             return f"USE {quoted_schema}"
@@ -257,7 +265,7 @@ class PostgresAdapter:
                         "sslkey": "/tmp/no.txt",
                         "sslrootcert": "/tmp/no.txt",
                     }
-                    if host.endswith(".postwh.com"):
+                    if is_postwh_host(host):
                         # DuckLake hosts (any region: .us/.eu/.dev.postwh.com) require SSL
                         # but do not use certificate-based auth.
                         connection_kwargs["sslmode"] = "require"

@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework.response import Response
 
 from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam
@@ -75,17 +76,16 @@ def test_provision_sends_default_team_id_to_control_plane(mock_request: MagicMoc
     assert json_body["default_team_id"] == team.id
 
 
-@pytest.mark.django_db
-@pytest.mark.parametrize(
-    "deployment,cp_bucket,expected_region",
+@parameterized.expand(
     [
         ("US", "posthog-duckling-0194d6405db400006cde48d6114c0f99-mw-prod-us", "us-east-1"),
         ("EU", "posthog-duckling-0194d6405db400006cde48d6114c0f99-mw-prod-eu", "eu-central-1"),
-    ],
+    ]
 )
+@pytest.mark.django_db
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
 def test_provision_persists_bucket_returned_by_control_plane(
-    mock_request: MagicMock, deployment: str, cp_bucket: str, expected_region: str
+    deployment: str, cp_bucket: str, expected_region: str, mock_request: MagicMock
 ) -> None:
     # When the control plane returns the authoritative bucket name, persist it
     # verbatim instead of re-deriving — the CP owns the naming rule (it pins the

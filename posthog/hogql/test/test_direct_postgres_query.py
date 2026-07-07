@@ -84,9 +84,15 @@ class TestDirectPostgresQuery(APIBaseTest):
             "USE system",
         )
 
-    def test_direct_postgres_session_setup_sql_treats_postwh_hosts_as_duckdb(self):
+    @parameterized.expand(
+        [
+            ("lowercase", "db.eu.postwh.com"),
+            ("uppercase_trailing_dot", "DB.EU.POSTWH.COM."),
+        ]
+    )
+    def test_direct_postgres_session_setup_sql_treats_postwh_hosts_as_duckdb(self, _name, host):
         self.assertEqual(
-            direct_postgres_session_setup_sql("posthog", host="db.eu.postwh.com"),
+            direct_postgres_session_setup_sql("posthog", host=host),
             "USE posthog",
         )
 
@@ -1683,6 +1689,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         [
             ("us", "db.us.postwh.com"),
             ("eu", "db.eu.postwh.com"),
+            ("eu_uppercase_trailing_dot", "DB.EU.POSTWH.COM."),
         ]
     )
     @override_settings(DEBUG=False, TEST=False)
