@@ -118,12 +118,12 @@ export interface MaxBillingContext {
 export const billingToMaxContext = (
     billing: BillingType | null,
     featureFlags: Record<string, any>,
-    currentTeam: TeamType,
+    currentTeam: TeamType | null,
     destinations: HogFunctionType[],
     usageResponse?: BillingUsageResponse | null,
     spendResponse?: BillingSpendResponse | null
 ): MaxBillingContext | null => {
-    if (!billing) {
+    if (!billing || !currentTeam) {
         return null
     }
 
@@ -291,7 +291,7 @@ export const maxBillingContextLogic = kea<maxBillingContextLogicType>([
                 billingUsageResponse: BillingUsageResponse | null,
                 billingSpendResponse: BillingSpendResponse | null,
                 isAdminOrOwner: boolean,
-                currentTeam: TeamType,
+                currentTeam: TeamType | null,
                 featureFlags: Record<string, any>,
                 destinations: HogFunctionType[]
             ): MaxBillingContext | null => {
