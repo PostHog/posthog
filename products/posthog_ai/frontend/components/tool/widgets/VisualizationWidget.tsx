@@ -44,6 +44,15 @@ export interface VisualizationWidgetProps {
     embedded?: boolean
 }
 
+/** Fallback CTA for ephemeral visualizations: open the rendered query as a new unsaved insight. */
+export function getQueryOpenTarget(content: VisualizationArtifactContent): { url: string | null; tooltip: string } {
+    const query = visualizationTypeToQuery(content)
+    return {
+        url: query ? urls.insightNew({ query: query as InsightVizNode | DataVisualizationNode }) : null,
+        tooltip: 'Open as new insight',
+    }
+}
+
 /** Resolves the "Open as insight" CTA target for a visualization artifact. */
 export function getArtifactOpenTarget(
     envelope: ArtifactMessage,
@@ -52,11 +61,7 @@ export function getArtifactOpenTarget(
     if (envelope.source === ArtifactSource.Insight) {
         return { url: urls.insightView(envelope.artifact_id as InsightShortId), tooltip: 'Open insight' }
     }
-    const query = visualizationTypeToQuery(content)
-    return {
-        url: query ? urls.insightNew({ query: query as InsightVizNode | DataVisualizationNode }) : null,
-        tooltip: 'Open as new insight',
-    }
+    return getQueryOpenTarget(content)
 }
 
 /**
