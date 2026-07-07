@@ -122,7 +122,10 @@ export class PluginServer implements NodeServer {
             cdpQuotaServices = this.createCdpQuotaServices(teamManager)
         }
 
-        // Build typed deps objects for consumers
+        // Build typed deps objects for consumers. `emailValidationValkey` is null in
+        // the shared deps and set only by the cyclotron workers that run the hogflow
+        // email action (see `withEmailValidationValkey` at their loaders below) — no
+        // other consumer touches the SES Valkey.
         const cdpDeps: CdpConsumerBaseDeps | undefined = needsCdp
             ? {
                   postgres: this.postgres!,
@@ -136,6 +139,7 @@ export class PluginServer implements NodeServer {
                   geoipService: cdpServices!.geoipService,
                   groupRepository: cdpServices!.groupRepository,
                   quotaLimiting: cdpQuotaServices!.quotaLimiting,
+                  emailValidationValkey: null,
               }
             : undefined
 
@@ -266,7 +270,11 @@ export class PluginServer implements NodeServer {
                 // instances naturally; locally we'd silently double-process when
                 // both capabilities are enabled in the same process.
                 const queue = new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
-                const worker = new CdpCyclotronWorkerHogFlow(this.config, cdpDeps!, queue)
+                const worker = new CdpCyclotronWorkerHogFlow(
+                    this.config,
+                    this.withEmailValidationValkey(cdpDeps!),
+                    queue
+                )
                 await worker.start()
                 return worker.service
             })
@@ -287,7 +295,11 @@ export class PluginServer implements NodeServer {
         if (capabilities.cdpCyclotronWorkerHogFlowLegacyPg) {
             serviceLoaders.push(async () => {
                 const legacyQueue = new CyclotronJobQueuePostgres(this.config.CONSUMER_BATCH_SIZE, this.config)
-                const worker = new CdpCyclotronWorkerHogFlow(this.config, cdpDeps!, legacyQueue)
+                const worker = new CdpCyclotronWorkerHogFlow(
+                    this.config,
+                    this.withEmailValidationValkey(cdpDeps!),
+                    legacyQueue
+                )
                 await worker.start()
                 return worker.service
             })
@@ -298,7 +310,11 @@ export class PluginServer implements NodeServer {
         if (capabilities.cdpCyclotronWorkerEmailLegacyPg) {
             serviceLoaders.push(async () => {
                 const legacyQueue = new CyclotronJobQueuePostgres(this.config.CONSUMER_BATCH_SIZE, this.config)
-                const worker = new CdpCyclotronWorkerEmail(this.config, cdpDeps!, legacyQueue)
+                const worker = new CdpCyclotronWorkerEmail(
+                    this.config,
+                    this.withEmailValidationValkey(cdpDeps!),
+                    legacyQueue
+                )
                 await worker.start()
                 return worker.service
             })
@@ -325,7 +341,7 @@ export class PluginServer implements NodeServer {
                           throttledPollDelayMs: this.config.CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS,
                       })
                     : new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
-                const worker = new CdpCyclotronWorkerEmail(this.config, cdpDeps!, queue)
+                const worker = new CdpCyclotronWorkerEmail(this.config, this.withEmailValidationValkey(cdpDeps!), queue)
                 await worker.start()
                 return worker.service
             })
@@ -402,6 +418,21 @@ export class PluginServer implements NodeServer {
 
         const readyServices = await Promise.all(serviceLoaders.map((loader) => loader()))
         this.lifecycle.services.push(...readyServices)
+    }
+
+    /**
+     * Grants the SES Valkey pool that backs the shared MX-verdict cache to a worker's
+     * deps. Only the cyclotron workers that run the hogflow email action call this, so
+     * the pool is never opened on other CDP consumers or cdp-api — an idle Valkey sized
+     * for the SES rate limiter shouldn't hold connections from pods that never validate.
+     * Null (the shared-deps default) when the kill switch is off, in which case
+     * EmailValidationService degrades to its local cache + DNS.
+     */
+    private withEmailValidationValkey(deps: CdpConsumerBaseDeps): CdpConsumerBaseDeps {
+        if (!this.config.CDP_EMAIL_MX_VALIDATION_ENABLED) {
+            return deps
+        }
+        return { ...deps, emailValidationValkey: createSesRateLimiterValkeyPool(this.config, 'email-mx-validation') }
     }
 
     private getCleanupResources(): CleanupResources {
