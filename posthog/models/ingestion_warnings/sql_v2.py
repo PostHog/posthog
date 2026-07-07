@@ -18,18 +18,18 @@ KAFKA_TABLE_NAME = f"kafka_{TABLE_NAME}"
 MV_NAME = f"{TABLE_NAME}_mv"
 DISTRIBUTED_TABLE_NAME = f"{TABLE_NAME}_distributed"
 
-# Storage columns for the data + distributed tables. Entity ids are MATERIALIZED from the
-# raw `details` JSON; the JSON key names must match what the producers emit (verify before
-# relying on them — a mismatch just yields NULL, it does not break ingestion).
+# Storage columns for the data + distributed tables. Derived dimensions and entity ids are
+# MATERIALIZED from the raw `details` JSON; the JSON key names must match what the producers
+# emit (verify before relying on them — a mismatch just yields NULL, it does not break ingestion).
 INGESTION_WARNINGS_V2_COLUMNS = """
     team_id Int64,
     source LowCardinality(String),
-    category LowCardinality(String),
     type LowCardinality(String),
-    severity LowCardinality(String),
-    pipeline_step LowCardinality(String),
-    details String CODEC(ZSTD(3)),
+    details String,
     timestamp DateTime64(6, 'UTC'),
+    category LowCardinality(String) MATERIALIZED coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown'),
+    severity LowCardinality(String) MATERIALIZED coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning'),
+    pipeline_step LowCardinality(String) MATERIALIZED coalesce(nullIf(JSONExtractString(details, 'pipeline_step'), ''), 'unknown'),
     event_uuid Nullable(UUID) MATERIALIZED toUUIDOrNull(JSONExtractString(details, 'eventUuid')),
     distinct_id Nullable(String) MATERIALIZED nullIf(JSONExtractString(details, 'distinctId'), ''),
     group_key Nullable(String) MATERIALIZED nullIf(JSONExtractString(details, 'groupKey'), ''),
@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
 (
     {columns}
 ) ENGINE = {engine}
-PARTITION BY toYear(timestamp)
+PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, type, timestamp)
 TTL toDateTime(timestamp) + INTERVAL 90 DAY
 """.format(
@@ -91,10 +91,7 @@ TO {database}.{target_table}
 AS SELECT
     team_id,
     source,
-    coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown') AS category,
     type,
-    coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning') AS severity,
-    coalesce(nullIf(JSONExtractString(details, 'pipeline_step'), ''), 'unknown') AS pipeline_step,
     details,
     timestamp,
     _timestamp,
