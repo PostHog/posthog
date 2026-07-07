@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 logger = structlog.get_logger(__name__)
 
 DUCKGRES_APPLY_TABLE = "_posthog_source_batch_duckgres_apply"
+DUCKGRES_WRITER_TABLE = "_posthog_source_batch_duckgres_writer"
 
 # Duckgres-side apply markers older than this are pruned opportunistically at the
 # start of each run. Must comfortably exceed the queue's eligibility window
@@ -268,7 +269,7 @@ def _process_batch(
     if batch.sync_type == "cdc":
         raise ValueError("Duckgres batch sink does not support CDC batches yet")
 
-    _ensure_duckgres_apply_table(conn, duckgres_schema)
+    _ensure_duckgres_apply_table(conn, duckgres_schema, schema_id=batch.schema_id)
     if batch.batch_index == 0 and not batch.is_final_batch:
         _prune_duckgres_apply_markers(conn, duckgres_schema)
     if _has_duckgres_batch_applied(conn, duckgres_schema, batch=batch):
@@ -335,7 +336,7 @@ def _process_backfill_batch(
     is_last = chunk_count > 0 and batch.batch_index == chunk_count - 1
 
     conn.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(duckgres_schema)))
-    _ensure_duckgres_apply_table(conn, duckgres_schema)
+    _ensure_duckgres_apply_table(conn, duckgres_schema, schema_id=batch.schema_id)
 
     if _has_duckgres_batch_applied(conn, duckgres_schema, batch=batch):
         logger.info(
@@ -523,7 +524,7 @@ def _create_table_from_parquet(
     )
 
 
-def _ensure_duckgres_apply_table(conn: psycopg.Connection[Any], duckgres_schema: str) -> None:
+def _ensure_duckgres_apply_table(conn: psycopg.Connection[Any], duckgres_schema: str, *, schema_id: str) -> None:
     conn.execute(
         sql.SQL(
             """
@@ -541,6 +542,50 @@ def _ensure_duckgres_apply_table(conn: psycopg.Connection[Any], duckgres_schema:
             sql.Identifier(DUCKGRES_APPLY_TABLE),
         )
     )
+    # Writer-slot table: one row per external-data schema, UPDATEd inside every
+    # apply transaction (see _mark_duckgres_batch_applied). DuckLake treats
+    # concurrent same-row UPDATEs as a commit conflict, which is the only
+    # serialization it gives us: concurrent INSERTs merge as appends, so the
+    # marker PK alone does NOT stop two overlapping applies from both
+    # committing. Duplicate slot rows from racing ensures are harmless: the
+    # slot UPDATE matches by schema_id, so writers still contend on shared rows.
+    conn.execute(
+        sql.SQL(
+            """
+            CREATE TABLE IF NOT EXISTS {}.{} (
+                schema_id VARCHAR NOT NULL,
+                last_run_uuid VARCHAR,
+                last_batch_index BIGINT,
+                updated_at TIMESTAMPTZ NOT NULL,
+                PRIMARY KEY (schema_id)
+            )
+            """
+        ).format(
+            sql.Identifier(duckgres_schema),
+            sql.Identifier(DUCKGRES_WRITER_TABLE),
+        )
+    )
+    cursor = conn.execute(
+        sql.SQL("SELECT 1 FROM {}.{} WHERE schema_id = %s LIMIT 1").format(
+            sql.Identifier(duckgres_schema),
+            sql.Identifier(DUCKGRES_WRITER_TABLE),
+        ),
+        [schema_id],
+    )
+    if cursor.fetchone() is None:
+        conn.execute(
+            sql.SQL(
+                """
+                INSERT INTO {}.{} (schema_id, last_run_uuid, last_batch_index, updated_at)
+                VALUES (%s, NULL, NULL, now())
+                ON CONFLICT (schema_id) DO NOTHING
+                """
+            ).format(
+                sql.Identifier(duckgres_schema),
+                sql.Identifier(DUCKGRES_WRITER_TABLE),
+            ),
+            [schema_id],
+        )
 
 
 def _has_duckgres_batch_applied(conn: psycopg.Connection[Any], duckgres_schema: str, *, batch: PendingBatch) -> bool:
@@ -564,6 +609,30 @@ def _has_duckgres_batch_applied(conn: psycopg.Connection[Any], duckgres_schema: 
 
 
 def _mark_duckgres_batch_applied(conn: psycopg.Connection[Any], duckgres_schema: str, *, batch: PendingBatch) -> None:
+    # Serialize concurrent applies for this schema: DuckLake merges concurrent
+    # appends (two transactions can both insert the same marker PK and both
+    # commit), so the marker insert alone cannot arbitrate overlapping writers.
+    # A same-row UPDATE is a DuckLake write-write conflict: the losing
+    # transaction fails at commit and its data write rolls back with it, after
+    # which the retry sees the winner's marker and no-ops.
+    updated = conn.execute(
+        sql.SQL(
+            """
+            UPDATE {}.{}
+            SET last_run_uuid = %s, last_batch_index = %s, updated_at = now()
+            WHERE schema_id = %s
+            """
+        ).format(
+            sql.Identifier(duckgres_schema),
+            sql.Identifier(DUCKGRES_WRITER_TABLE),
+        ),
+        [batch.run_uuid, batch.batch_index, batch.schema_id],
+    ).rowcount
+    if not updated:
+        # _ensure_duckgres_apply_table creates the slot before any apply; a
+        # missing slot means this transaction cannot be serialized, so fail
+        # loudly rather than fall back to the append-merge hole.
+        raise RuntimeError(f"duckgres writer slot missing for schema {batch.schema_id}")
     cursor = conn.execute(
         sql.SQL(
             """
@@ -582,8 +651,10 @@ def _mark_duckgres_batch_applied(conn: psycopg.Connection[Any], duckgres_schema:
     )
     if not cursor.rowcount:
         # The marker insert shares the data write's transaction, so raising here
-        # rolls the data write back: the marker table is the arbiter that makes
-        # concurrent double-apply impossible regardless of advisory-lock state.
+        # rolls the data write back. Sequential re-processing is arbitrated here
+        # (rowcount 0); concurrent overlap is arbitrated by the writer-slot
+        # UPDATE above, since DuckLake does not enforce the marker PK across
+        # concurrent transactions.
         raise DuckgresBatchAlreadyAppliedError(
             f"batch {batch.schema_id}/{batch.run_uuid}/{batch.batch_index} already applied"
         )

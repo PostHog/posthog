@@ -434,8 +434,8 @@ def test_duckgres_apply_marker_is_scoped_by_schema_id() -> None:
     conn = _make_conn()
     batch = _make_batch(schema_id="schema-1", run_uuid="run-1", batch_index=2)
 
-    _ensure_duckgres_apply_table(conn, "warehouse")
-    create_query = conn.execute.call_args.args[0]
+    _ensure_duckgres_apply_table(conn, "warehouse", schema_id="schema-1")
+    create_query = conn.execute.call_args_list[0].args[0]
 
     assert "schema_id" in repr(create_query)
     assert "PRIMARY KEY (schema_id, run_uuid, batch_index)" in repr(create_query)
@@ -450,6 +450,32 @@ def test_duckgres_apply_marker_is_scoped_by_schema_id() -> None:
         2,
         "00000000-0000-0000-0000-000000000001",
     ]
+
+
+def test_apply_marker_updates_writer_slot_before_marker_insert() -> None:
+    # DuckLake merges concurrent marker INSERTs (appends), so the same-row slot
+    # UPDATE is the only thing that makes overlapping applies conflict at commit.
+    # If it is removed or reordered after the insert, concurrent double-apply
+    # returns.
+    conn = _make_conn()
+    batch = _make_batch(schema_id="schema-1", run_uuid="run-1", batch_index=2)
+
+    _mark_duckgres_batch_applied(conn, "warehouse", batch=batch)
+
+    statements = [repr(c.args[0]) for c in conn.execute.call_args_list]
+    update_pos = next(i for i, s in enumerate(statements) if "_posthog_source_batch_duckgres_writer" in s)
+    insert_pos = next(i for i, s in enumerate(statements) if "ON CONFLICT (schema_id, run_uuid, batch_index)" in s)
+    assert update_pos < insert_pos
+    assert conn.execute.call_args_list[update_pos].args[1] == ["run-1", 2, "schema-1"]
+
+
+def test_apply_marker_fails_loudly_when_writer_slot_missing() -> None:
+    conn = _make_conn()
+    conn.execute.return_value.rowcount = 0
+    batch = _make_batch(schema_id="schema-1", run_uuid="run-1", batch_index=2)
+
+    with pytest.raises(RuntimeError, match="writer slot missing"):
+        _mark_duckgres_batch_applied(conn, "warehouse", batch=batch)
 
 
 def _make_backfill_batch(**overrides: Any) -> PendingBatch:
