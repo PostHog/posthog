@@ -141,7 +141,9 @@ class ChannelsAPITestCase(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
-class ThreadMessagesAPITestCase(TestCase):
+class ChannelTaskAPITestCase(TestCase):
+    """Shared fixture: an org with two members, a public channel, and a task in it."""
+
     def setUp(self) -> None:
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Growth Team")
@@ -171,6 +173,8 @@ class ThreadMessagesAPITestCase(TestCase):
         self.peer_client = APIClient()
         self.peer_client.force_authenticate(self.peer)
 
+
+class ThreadMessagesAPITestCase(ChannelTaskAPITestCase):
     def _thread_url(self) -> str:
         return f"/api/projects/{self.team.id}/tasks/{self.task.id}/thread_messages/"
 
@@ -234,36 +238,7 @@ class ThreadMessagesAPITestCase(TestCase):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
-class TaskMentionsAPITestCase(TestCase):
-    def setUp(self) -> None:
-        self.organization = Organization.objects.create(name="Test Org")
-        self.team = Team.objects.create(organization=self.organization, name="Growth Team")
-        self.author = User.objects.create_user(email="author@example.com", first_name="Ann", password="password")
-        self.peer = User.objects.create_user(email="peer@example.com", first_name="Bob", password="password")
-        for user in (self.author, self.peer):
-            self.organization.members.add(user)
-            OrganizationMembership.objects.filter(user=user, organization=self.organization).update(
-                level=OrganizationMembership.Level.ADMIN
-            )
-
-        # Direct instantiation sidesteps the fail-closed TeamScopedManager so
-        # setUp doesn't need a team_scope wrapper (see test_presence.py).
-        self.channel = Channel(team=self.team, name="growth", created_by=self.author)
-        self.channel.save()
-        self.task = Task.objects.create(
-            team=self.team,
-            created_by=self.author,
-            channel=self.channel,
-            title="A Task",
-            description="d",
-            origin_product=Task.OriginProduct.USER_CREATED,
-        )
-
-        self.author_client = APIClient()
-        self.author_client.force_authenticate(self.author)
-        self.peer_client = APIClient()
-        self.peer_client.force_authenticate(self.peer)
-
+class TaskMentionsAPITestCase(ChannelTaskAPITestCase):
     def _mentions_url(self) -> str:
         return f"/api/projects/{self.team.id}/task_mentions/"
 

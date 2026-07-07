@@ -1,7 +1,6 @@
 from django.db import migrations
-from django.db.models.functions import Lower
 
-from products.tasks.backend.mentions import extract_mention_emails
+from products.tasks.backend.mentions import resolve_mentioned_user_ids
 
 BATCH_SIZE = 1000
 
@@ -13,7 +12,7 @@ def backfill_thread_message_mentions(apps, schema_editor):
 
     last_pk = None
     while True:
-        batch_qs = TaskThreadMessage.objects.order_by("pk").select_related("team")
+        batch_qs = TaskThreadMessage.objects.order_by("pk")
         if last_pk is not None:
             batch_qs = batch_qs.filter(pk__gt=last_pk)
         batch = list(batch_qs[:BATCH_SIZE])
@@ -21,28 +20,19 @@ def backfill_thread_message_mentions(apps, schema_editor):
             break
         last_pk = batch[-1].pk
 
-        rows = []
-        for message in batch:
-            emails = extract_mention_emails(message.content)
-            if not emails:
-                continue
-            member_ids = (
-                User.objects.annotate(_email_lower=Lower("email"))
-                .filter(organizations__id=message.team.organization_id, _email_lower__in=list(emails))
-                .values_list("pk", flat=True)
-                .distinct()
+        rows = [
+            TaskThreadMessageMention(
+                team_id=message.team_id,
+                message_id=message.pk,
+                task_id=message.task_id,
+                mentioned_user_id=user_id,
+                created_at=message.created_at,
             )
-            rows.extend(
-                TaskThreadMessageMention(
-                    team_id=message.team_id,
-                    message_id=message.pk,
-                    task_id=message.task_id,
-                    mentioned_user_id=user_id,
-                    created_at=message.created_at,
-                )
-                for user_id in member_ids
-                if user_id != message.author_id
+            for message in batch
+            for user_id in resolve_mentioned_user_ids(
+                User, message.content, team_id=message.team_id, author_id=message.author_id
             )
+        ]
         if rows:
             TaskThreadMessageMention.objects.bulk_create(rows, batch_size=BATCH_SIZE, ignore_conflicts=True)
 

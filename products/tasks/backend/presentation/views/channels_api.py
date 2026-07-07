@@ -1,9 +1,6 @@
 from uuid import UUID
 
-from django.utils.dateparse import parse_datetime
-
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -11,6 +8,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission
@@ -19,6 +17,7 @@ from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.presentation.serializers import (
     ChannelSerializer,
     ChannelWriteSerializer,
+    TaskMentionQuerySerializer,
     TaskMentionSerializer,
     TaskThreadMessageSerializer,
     TaskThreadMessageWriteSerializer,
@@ -115,28 +114,16 @@ class TaskMentionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _user_id(self) -> int | None:
         return getattr(self.request.user, "id", None)
 
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                "since",
-                OpenApiTypes.DATETIME,
-                description="Only return mentions created after this ISO 8601 timestamp.",
-            )
-        ],
+    @validated_request(
+        query_serializer=TaskMentionQuerySerializer,
         responses={
             200: OpenApiResponse(response=TaskMentionSerializer(many=True), description="Mentions, newest first"),
-            400: OpenApiResponse(description="Unparseable since timestamp"),
         },
         summary="List mentions of the requester",
         description="Thread messages that @-mention the requester, newest first, restricted to tasks they can see.",
     )
     def list(self, request, *args, **kwargs):
-        since = None
-        since_param = request.query_params.get("since")
-        if since_param:
-            since = parse_datetime(since_param)
-            if since is None:
-                return Response({"detail": "Invalid since timestamp"}, status=status.HTTP_400_BAD_REQUEST)
+        since = request.validated_query_data.get("since")
         mentions = tasks_facade.list_mentions(self.team_id, self._user_id(), since=since)
         return Response(TaskMentionSerializer(mentions, many=True).data)
 

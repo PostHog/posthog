@@ -26,7 +26,6 @@ from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import CharField, Count, Exists, F, Min, OuterRef, Q, QuerySet, Subquery
 from django.db.models.fields.json import KeyTextTransform
-from django.db.models.functions import Lower
 from django.utils import timezone as django_timezone
 
 import posthoganalytics
@@ -38,7 +37,7 @@ from posthog.models.integration import Integration
 from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS, is_blocked_sandbox_env_key
 from products.tasks.backend.logic.code_workstreams.default_workflow import build_default_bindings
 from products.tasks.backend.logic.code_workstreams.validation import validate_bindings
-from products.tasks.backend.mentions import extract_mention_emails
+from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     Channel,
     CodeInvite,
@@ -4193,14 +4192,8 @@ def _index_thread_message_mentions(message: TaskThreadMessage) -> None:
     Emails resolve case-insensitively, only to members of the team's organization;
     self-mentions are skipped (they are never notifications).
     """
-    emails = extract_mention_emails(message.content)
-    if not emails:
-        return
-    mentioned_user_ids = (
-        User.objects.annotate(_email_lower=Lower("email"))
-        .filter(organizations__team__id=message.team_id, _email_lower__in=list(emails))
-        .values_list("id", flat=True)
-        .distinct()
+    mentioned_user_ids = resolve_mentioned_user_ids(
+        User, message.content, team_id=message.team_id, author_id=message.author_id
     )
     TaskThreadMessageMention.objects.bulk_create(
         [
@@ -4212,7 +4205,6 @@ def _index_thread_message_mentions(message: TaskThreadMessage) -> None:
                 created_at=message.created_at,
             )
             for mentioned_user_id in mentioned_user_ids
-            if mentioned_user_id != message.author_id
         ],
         ignore_conflicts=True,
     )

@@ -1071,6 +1071,14 @@ class TaskThreadMessageWriteSerializer(serializers.Serializer):
     content = serializers.CharField(help_text="Message text.")
 
 
+class TaskMentionQuerySerializer(serializers.Serializer):
+    """Query parameters for listing mentions."""
+
+    since = serializers.DateTimeField(
+        required=False, help_text="Only return mentions created after this ISO 8601 timestamp."
+    )
+
+
 class TaskMentionSerializer(DataclassSerializer):
     """Response shape for one @-mention of the requester in a task's thread."""
 
