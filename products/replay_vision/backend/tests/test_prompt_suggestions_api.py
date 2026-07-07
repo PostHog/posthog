@@ -159,6 +159,17 @@ class TestPromptSuggestions(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["status"], "dismissed")
 
+    def test_apply_rejects_prompt_failing_scanner_config_validation(self) -> None:
+        self._create_rated_observation("sess-1", False, "should be yes")
+        self.mock_generate.return_value = _LlmPromptSuggestion(suggested_prompt="x" * 20_001, rationale="too long")
+        suggestion_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
+        prompt_before = ReplayScanner.objects.get(id=self.scanner.id).scanner_config.get("prompt")
+
+        # The edit endpoint caps prompt length; this write boundary must enforce the same rules.
+        resp = self.client.post(self._suggestions_url(f"{suggestion_id}/apply/"))
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(ReplayScanner.objects.get(id=self.scanner.id).scanner_config.get("prompt"), prompt_before)
+
     def test_dismiss_rejects_applied_suggestion(self) -> None:
         self._create_rated_observation("sess-1", False, "should be yes")
         suggestion_id = self.client.post(self._suggestions_url("generate/")).json()["id"]

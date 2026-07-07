@@ -189,11 +189,11 @@ def _build_user_content(scanner: ReplayScanner, base_prompt: str, observations: 
     ]
     if wrong:
         lines.append("")
-        lines.append(f"Sessions it got WRONG ({len(wrong)}) — fix these:")
+        lines.append(f"Sessions it got WRONG ({len(wrong)}), fix these:")
         lines.extend(_example_line(o) for o in wrong)
     if right:
         lines.append("")
-        lines.append(f"Sessions it got RIGHT ({len(right)}) — keep these passing:")
+        lines.append(f"Sessions it got RIGHT ({len(right)}), keep these passing:")
         lines.extend(_example_line(o) for o in right)
     lines.extend(_dismissed_lines(scanner))
     lines.extend(_version_trend_lines(scanner))
@@ -257,6 +257,8 @@ def generate_prompt_suggestion(scanner: ReplayScanner, user: User | None = None)
     status = SuggestionStatus.NO_CHANGE if suggested_prompt == base_prompt.strip() else SuggestionStatus.PENDING
     up = len([o for o in observations if _label(o).is_correct])
     with transaction.atomic():
+        # Serialize per scanner: a manual generate racing the sweep refresh must not leave two pending rows.
+        ReplayScanner.objects.select_for_update().filter(team_id=scanner.team_id, pk=scanner.pk).first()
         ReplayScannerPromptSuggestion.objects.filter(
             scanner=scanner, team_id=scanner.team_id, status=SuggestionStatus.PENDING
         ).update(status=SuggestionStatus.SUPERSEDED)

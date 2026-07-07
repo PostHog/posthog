@@ -195,7 +195,7 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
         ],
     }),
 
-    listeners(({ actions, props, values }) => ({
+    listeners(({ actions, props, values, cache }) => ({
         loadObservations: async (_, breakpoint) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
@@ -247,32 +247,43 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
             actions.loadCurrentSuggestion()
         },
 
-        loadLabelStats: async () => {
+        loadLabelStats: async (_, breakpoint) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
                 return
             }
+            let response
             try {
-                const response = await visionScannersObservationsStatsRetrieve(String(teamId), props.scannerId, {
+                response = await visionScannersObservationsStatsRetrieve(String(teamId), props.scannerId, {
                     recent_days: LABEL_CHART_DAYS,
                 })
-                actions.loadLabelStatsSuccess(response.labels)
             } catch {
                 actions.loadLabelStatsFailure()
+                return
             }
+            breakpoint()
+            actions.loadLabelStatsSuccess(response.labels)
         },
 
-        loadCurrentSuggestion: async () => {
+        loadCurrentSuggestion: async (_, breakpoint) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
                 return
             }
+            const epoch = cache.suggestionEpoch ?? 0
+            let response
             try {
-                const response = await visionScannersPromptSuggestionsCurrentRetrieve(String(teamId), props.scannerId)
-                actions.loadCurrentSuggestionSuccess(response)
+                response = await visionScannersPromptSuggestionsCurrentRetrieve(String(teamId), props.scannerId)
             } catch {
                 actions.loadCurrentSuggestionFailure()
+                return
             }
+            breakpoint()
+            // A generate/apply/dismiss landed while this read was in flight; its result is newer.
+            if ((cache.suggestionEpoch ?? 0) !== epoch) {
+                return
+            }
+            actions.loadCurrentSuggestionSuccess(response)
         },
 
         generateSuggestion: async () => {
@@ -283,6 +294,7 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
             }
             try {
                 const suggestion = await visionScannersPromptSuggestionsGenerateCreate(String(teamId), props.scannerId)
+                cache.suggestionEpoch = (cache.suggestionEpoch ?? 0) + 1
                 actions.generateSuggestionSuccess(suggestion)
             } catch (error: any) {
                 lemonToast.error(`Couldn't generate a recommendation${error.detail ? `: ${error.detail}` : ''}`)
@@ -302,6 +314,7 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                     props.scannerId,
                     suggestionId
                 )
+                cache.suggestionEpoch = (cache.suggestionEpoch ?? 0) + 1
                 actions.applySuggestionSuccess(suggestion)
                 lemonToast.success('Prompt applied to the scanner as a new version')
                 // The scanner's prompt and version changed, so refresh it wherever the scene shows it.
@@ -324,6 +337,7 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                     props.scannerId,
                     suggestionId
                 )
+                cache.suggestionEpoch = (cache.suggestionEpoch ?? 0) + 1
                 actions.dismissSuggestionSuccess(suggestion)
             } catch (error: any) {
                 lemonToast.error(`Failed to dismiss the recommendation${error.detail ? `: ${error.detail}` : ''}`)
