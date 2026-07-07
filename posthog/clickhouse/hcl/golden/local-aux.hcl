@@ -370,31 +370,31 @@ database "posthog" {
     }
     column "category" {
       type         = "LowCardinality(String)"
-      materialized = "coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown')"
+      default      = "coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown')"
     }
     column "severity" {
       type         = "LowCardinality(String)"
-      materialized = "coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning')"
+      default      = "coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning')"
     }
     column "pipeline_step" {
       type         = "LowCardinality(String)"
-      materialized = "coalesce(nullIf(JSONExtractString(details, 'pipeline_step'), ''), 'unknown')"
+      default      = "coalesce(nullIf(JSONExtractString(details, 'pipelineStep'), ''), 'unknown')"
     }
     column "event_uuid" {
       type         = "Nullable(UUID)"
-      materialized = "toUUIDOrNull(JSONExtractString(details, 'eventUuid'))"
+      default      = "toUUIDOrNull(JSONExtractString(details, 'eventUuid'))"
     }
     column "distinct_id" {
       type         = "Nullable(String)"
-      materialized = "nullIf(JSONExtractString(details, 'distinctId'), '')"
+      default      = "nullIf(JSONExtractString(details, 'distinctId'), '')"
     }
     column "group_key" {
       type         = "Nullable(String)"
-      materialized = "nullIf(JSONExtractString(details, 'groupKey'), '')"
+      default      = "nullIf(JSONExtractString(details, 'groupKey'), '')"
     }
     column "person_id" {
       type         = "Nullable(UUID)"
-      materialized = "toUUIDOrNull(JSONExtractString(details, 'personId'))"
+      default      = "toUUIDOrNull(JSONExtractString(details, 'personId'))"
     }
     column "_timestamp" {
       type = "DateTime"
@@ -429,31 +429,31 @@ database "posthog" {
     }
     column "category" {
       type         = "LowCardinality(String)"
-      materialized = "coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown')"
+      default      = "coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown')"
     }
     column "severity" {
       type         = "LowCardinality(String)"
-      materialized = "coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning')"
+      default      = "coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning')"
     }
     column "pipeline_step" {
       type         = "LowCardinality(String)"
-      materialized = "coalesce(nullIf(JSONExtractString(details, 'pipeline_step'), ''), 'unknown')"
+      default      = "coalesce(nullIf(JSONExtractString(details, 'pipelineStep'), ''), 'unknown')"
     }
     column "event_uuid" {
       type         = "Nullable(UUID)"
-      materialized = "toUUIDOrNull(JSONExtractString(details, 'eventUuid'))"
+      default      = "toUUIDOrNull(JSONExtractString(details, 'eventUuid'))"
     }
     column "distinct_id" {
       type         = "Nullable(String)"
-      materialized = "nullIf(JSONExtractString(details, 'distinctId'), '')"
+      default      = "nullIf(JSONExtractString(details, 'distinctId'), '')"
     }
     column "group_key" {
       type         = "Nullable(String)"
-      materialized = "nullIf(JSONExtractString(details, 'groupKey'), '')"
+      default      = "nullIf(JSONExtractString(details, 'groupKey'), '')"
     }
     column "person_id" {
       type         = "Nullable(UUID)"
-      materialized = "toUUIDOrNull(JSONExtractString(details, 'personId'))"
+      default      = "toUUIDOrNull(JSONExtractString(details, 'personId'))"
     }
     column "_timestamp" {
       type = "DateTime"

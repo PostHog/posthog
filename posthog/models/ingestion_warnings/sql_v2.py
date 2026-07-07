@@ -9,31 +9,32 @@ from posthog.kafka_client.topics import KAFKA_INGESTION_WARNINGS
 # as v1 through a dedicated consumer group, so it receives the full stream independently
 # without touching the legacy path.
 #
-# Structured dimensions (category, severity, pipeline_step) are parsed from the `details`
-# JSON in the MV, defaulting until producers emit them explicitly. Entity ids are
-# MATERIALIZED from `details` so agents/MCP can filter without re-parsing JSON at query time.
+# Structured dimensions (category, severity, pipeline_step) and entity ids are DEFAULT
+# expressions parsing the `details` JSON, so agents/MCP can filter without re-parsing JSON
+# at query time. DEFAULT rather than MATERIALIZED: the MV (or producers) can later set the
+# columns explicitly without a schema change, which MATERIALIZED would forbid.
 
 TABLE_NAME = "ingestion_warnings_v2"
 KAFKA_TABLE_NAME = f"kafka_{TABLE_NAME}"
 MV_NAME = f"{TABLE_NAME}_mv"
 DISTRIBUTED_TABLE_NAME = f"{TABLE_NAME}_distributed"
 
-# Storage columns for the data + distributed tables. Derived dimensions and entity ids are
-# MATERIALIZED from the raw `details` JSON; the JSON key names must match what the producers
-# emit (verify before relying on them — a mismatch just yields NULL, it does not break ingestion).
+# Storage columns for the data + distributed tables. Derived dimensions and entity ids have
+# DEFAULT expressions over the raw `details` JSON; the JSON key names must match what the
+# producers emit (a mismatch just yields the default/NULL, it does not break ingestion).
 INGESTION_WARNINGS_V2_COLUMNS = """
     team_id Int64,
     source LowCardinality(String),
     type LowCardinality(String),
     details String,
     timestamp DateTime64(6, 'UTC'),
-    category LowCardinality(String) MATERIALIZED coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown'),
-    severity LowCardinality(String) MATERIALIZED coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning'),
-    pipeline_step LowCardinality(String) MATERIALIZED coalesce(nullIf(JSONExtractString(details, 'pipelineStep'), ''), 'unknown'),
-    event_uuid Nullable(UUID) MATERIALIZED toUUIDOrNull(JSONExtractString(details, 'eventUuid')),
-    distinct_id Nullable(String) MATERIALIZED nullIf(JSONExtractString(details, 'distinctId'), ''),
-    group_key Nullable(String) MATERIALIZED nullIf(JSONExtractString(details, 'groupKey'), ''),
-    person_id Nullable(UUID) MATERIALIZED toUUIDOrNull(JSONExtractString(details, 'personId')),
+    category LowCardinality(String) DEFAULT coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown'),
+    severity LowCardinality(String) DEFAULT coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning'),
+    pipeline_step LowCardinality(String) DEFAULT coalesce(nullIf(JSONExtractString(details, 'pipelineStep'), ''), 'unknown'),
+    event_uuid Nullable(UUID) DEFAULT toUUIDOrNull(JSONExtractString(details, 'eventUuid')),
+    distinct_id Nullable(String) DEFAULT nullIf(JSONExtractString(details, 'distinctId'), ''),
+    group_key Nullable(String) DEFAULT nullIf(JSONExtractString(details, 'groupKey'), ''),
+    person_id Nullable(UUID) DEFAULT toUUIDOrNull(JSONExtractString(details, 'personId')),
     _timestamp DateTime,
     _offset UInt64,
     _partition UInt64
