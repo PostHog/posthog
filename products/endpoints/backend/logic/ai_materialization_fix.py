@@ -316,7 +316,9 @@ def suggest_materialization_fix(
     attempts_made = 0
     while attempts_made < max_attempts:
         remaining_budget = deadline - time.monotonic()
-        if attempts_made > 0 and remaining_budget <= 0:
+        # Don't start a repair round with (almost) no budget left — the sub-second timeout it
+        # would get is a guaranteed-wasted call, and flooring it instead would exceed the budget.
+        if attempts_made > 0 and remaining_budget <= 1.0:
             break
         user_prompt = build_user_prompt(
             query=query,
@@ -329,7 +331,7 @@ def suggest_materialization_fix(
             team_id=team_id,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
-            timeout=min(PER_CALL_TIMEOUT_SECONDS, max(remaining_budget, 1.0)),
+            timeout=min(PER_CALL_TIMEOUT_SECONDS, remaining_budget),
         )
         attempts_made += 1
         parsed = extract_json_object(raw)
