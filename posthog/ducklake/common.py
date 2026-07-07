@@ -540,18 +540,23 @@ def duckgres_data_imports_schema(team_id: int) -> str:
 
 
 def duckgres_data_imports_table_name(schema: ExternalDataSchema) -> str:
-    """Resolve the duckgres table name the data-import copy workflow writes a schema's snapshot into.
+    """Resolve the duckgres table name for a data-import schema (copy workflow writer,
+    DuckLake read binding).
 
-    Must stay byte-identical to what the copy workflow computes so the reader resolves to the same
-    table the writer produced.
+    Delegates to the v3 sink's naming so writer and readers stay byte-identical:
+    the previous sanitize_ducklake_identifier normalization disagreed with the
+    sink's NamingConvention on camel-hump source types (MySQL -> mysql_* vs
+    my_sql_*) and >63-char truncation, which would freeze reads for those
+    schemas the moment the sink takes ownership and the copy workflow stops.
     """
-    source_type = schema.source.source_type
-    prefix = schema.source.prefix
-    normalized_name = schema.normalized_name
-    return sanitize_ducklake_identifier(
-        f"{source_type}_{prefix}_{normalized_name}" if prefix else f"{source_type}_{normalized_name}",
-        default_prefix="data_import",
+    # noqa comment applies to the deferred import below: posthog.ducklake is
+    # imported by the product at runtime, so a module-level facade import here
+    # would be circular.
+    from products.warehouse_sources.backend.facade.api import (  # noqa: PLC0415 — breaks core<->product facade import cycle
+        duckgres_sink_table_name,
     )
+
+    return duckgres_sink_table_name(schema.source.source_type, schema.source.prefix, schema.normalized_name)
 
 
 def duckgres_data_modeling_schema(team_id: int) -> str:

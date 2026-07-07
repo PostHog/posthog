@@ -22,8 +22,6 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema as _ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource as _ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable as _DataWarehouseTable
-
-# Framework-free helper transforms — re-exported as the public helper surface.
 from products.warehouse_sources.backend.models.util import (
     mysql_column_to_dwh_column,
     mysql_columns_to_dwh_columns,
@@ -32,6 +30,11 @@ from products.warehouse_sources.backend.models.util import (
     snowflake_columns_to_dwh_columns,
     validate_source_prefix,
     validate_warehouse_table_url_pattern,
+)
+
+# Framework-free helper transforms — re-exported as the public helper surface.
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import (
+    duckgres_sink_table_name as duckgres_sink_table_name,
 )
 
 from . import contracts

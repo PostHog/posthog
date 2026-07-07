@@ -420,3 +420,34 @@ class TestDuckgresDataImportsSchema:
         self._server_team(team, table_suffix="a;drop")
         with pytest.raises(ValueError):
             duckgres_data_imports_schema(team.id)
+
+
+class TestDuckgresDataImportsTableName:
+    def _schema(self, source_type: str, name: str, prefix: str | None = None):
+        from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+
+        return ExternalDataSchema(name=name, source=ExternalDataSource(source_type=source_type, prefix=prefix))
+
+    def test_reader_names_pin_the_sink_normalization(self):
+        # The v3 sink writes NamingConvention names; this function is what the
+        # DuckLake read binding and the copy workflow resolve. The camel-hump
+        # pins catch a regression back to sanitize_ducklake_identifier, which
+        # produces mysql_orders / mongodb_users and silently freezes reads on a
+        # table the sink never writes. Full writer<->reader parity across every
+        # source type is asserted product-side in test_naming_convention.py.
+        from posthog.ducklake.common import duckgres_data_imports_table_name
+
+        assert duckgres_data_imports_table_name(self._schema("MySQL", "orders")) == "my_sql_orders"
+        assert duckgres_data_imports_table_name(self._schema("MongoDB", "users")) == "mongo_db_users"
+        assert duckgres_data_imports_table_name(self._schema("BigQuery", "events")) == "big_query_events"
+        assert duckgres_data_imports_table_name(self._schema("Stripe", "charges")) == "stripe_charges"
+
+    def test_long_names_use_tagged_truncation(self):
+        from posthog.ducklake.common import duckgres_data_imports_table_name
+
+        name = duckgres_data_imports_table_name(self._schema("Postgres", "a" * 90))
+        assert len(name) <= 63
+        # NamingConvention truncation embeds a hash tag instead of a plain cut,
+        # so distinct long names cannot silently collide.
+        other = duckgres_data_imports_table_name(self._schema("Postgres", "a" * 89 + "b"))
+        assert name != other

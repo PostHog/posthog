@@ -116,3 +116,18 @@ def _trim_and_tag(identifier: str, tag: str, max_length: int) -> str:
     )
     assert len(trimmed) == max_length
     return trimmed
+
+
+def duckgres_sink_table_name(source_type: str, prefix: str | None, normalized_name: str) -> str:
+    """The duckgres table name the v3 sink writes a schema into.
+
+    Single source of truth, re-exported through the facade for the DuckLake
+    read binding and the copy workflow: writer and readers must stay
+    byte-identical, or reads resolve to a table the sink never writes and
+    serve frozen data. NamingConvention (not sanitize_ducklake_identifier)
+    is canonical because existing sink-written tables carry these names —
+    the two normalizers disagree on camel-hump source types (MySQL ->
+    my_sql_*) and >63-char truncation.
+    """
+    raw_name = f"{source_type}_{prefix}_{normalized_name}" if prefix else f"{source_type}_{normalized_name}"
+    return NamingConvention.normalize_identifier(raw_name, max_length=63)
