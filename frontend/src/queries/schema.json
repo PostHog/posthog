@@ -17342,6 +17342,13 @@
                 "name": {
                     "type": "string"
                 },
+                "optional_breakdown_properties": {
+                    "description": "Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of that breakdown.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "query": {
                     "anyOf": [
                         {

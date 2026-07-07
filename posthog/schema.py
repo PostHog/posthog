@@ -25336,6 +25336,13 @@ class EndpointRequest(BaseModel):
         description="Whether this endpoint's query results are materialized to S3",
     )
     name: str | None = None
+    optional_breakdown_properties: list[str] | None = Field(
+        default=None,
+        description=(
+            "Breakdown property names that may be omitted on /run. Omitted ones return"
+            " data aggregated across all values of that breakdown."
+        ),
+    )
     query: HogQLQuery | TrendsQuery | RetentionQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery | None = (
         None
     )
