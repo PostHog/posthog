@@ -447,6 +447,23 @@ Moreover, notice that in the workflow every trigger step comes after a check ste
 > [!NOTE]
 > Temporal workers stop polling for new tasks when a shutdown is initiated, and the deployments can configure a timeout for the shutdown, which can give time for all workflows currently running to finish. Configuring this correctly can minimize the disruption caused by triggering new deployments, but it can be hard to find the right timeout that ensures everything has time to finish without waiting forever.
 
+### Version workflow code that has running executions
+
+Once a workflow is in production, changing the body of its `@workflow.defn` class is no longer a regular code change. Temporal replays in-flight executions against the current code — after every deploy, worker restart, or long activity completing — and expects the code to issue the exact command sequence recorded in the execution's history. If your change adds, removes, or reorders `execute_activity` / `start_child_workflow` / timer calls, or changes a child workflow's id, replay fails with `NondeterminismError` and the execution wedges in Running: the workflow task retries forever, and cancel requests can't even be processed. For long-running workflows (data imports, batch exports, CDC), some executions are always in flight, so an ungated change is guaranteed to wedge them — this took down all scheduled external data syncs on 2026-07-01.
+
+Gate such changes with [`workflow.patched()`](https://docs.temporal.io/develop/python/versioning):
+
+```python
+if workflow.patched("my-change-id"):
+    await workflow.execute_activity(new_activity, ...)
+else:
+    await workflow.execute_activity(old_activity, ...)  # what the old code issued, exactly
+```
+
+Old executions replay down the `else` branch; new executions record the patch marker and take the new path. Changes to activity input payloads, timeouts, retry policies, logging, or anything inside an _activity_ do not need gating — only the command sequence matters. See the `versioning-temporal-workflows` skill (`.agents/skills/versioning-temporal-workflows/SKILL.md`) for the decision table, the patch lifecycle (`deprecate_patch` and removal timing), and how to recover if production is already wedged.
+
+Long-running workflows are protected by a command-sequence fingerprint baseline: files registered in `posthog/temporal/common/workflow_fingerprints.py` are checked by `test_workflow_fingerprints.py`, and any sequence-affecting edit fails CI until the baseline is regenerated with `python posthog/temporal/common/workflow_fingerprints.py` — which should only happen once the change is properly gated. If your workflow's executions routinely span deploys, register its file there.
+
 ### Execute workflows
 
 The most straight-forward way to execute a workflow is with the `execute_temporal_workflow` command:

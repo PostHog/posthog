@@ -197,3 +197,4 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/sending-notifications` — adding notification support
 - `/writing-skills` — creating or updating skills in `.agents/skills/`
 - `/gating-production-deploys` — any workflow that builds and pushes a production image or dispatches a deploy
+- `/versioning-temporal-workflows` — editing the body of an existing `@workflow.defn` class (activity/child-workflow/timer calls added, removed, or reordered)

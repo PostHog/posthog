@@ -1,0 +1,26 @@
+{
+    "products/warehouse_sources/backend/temporal/data_imports/cdc/workflows.py": {
+        "cdc-extraction": ["execute_activity(cdc_extract_activity)"],
+        "cdc-slot-cleanup": ["execute_activity(cleanup_orphan_slots_activity)"]
+    },
+    "products/warehouse_sources/backend/temporal/data_imports/external_data_job.py": {
+        "external-data-job": [
+            "execute_activity(check_pipeline_version_activity)",
+            "execute_activity(acquire_v3_pipeline_lock_activity)",
+            "execute_activity(create_external_data_job_model_activity)",
+            "execute_activity(check_billing_limits_activity)",
+            "execute_activity(maybe_repartition_table_activity)",
+            "execute_activity(import_data_activity_sync)",
+            "start_child_workflow('dwh-cdp-producer-job') id=f'dwh-cdp-producer-job-{job_id}'",
+            "start_child_workflow('emit-data-import-signals') id=f'emit-data-import-signals-{job_id}'",
+            "start_child_workflow(EnrichTableSemanticsWorkflow.run) id=f'enrich-warehouse-table-semantics-{inputs.external_data_schema_id}'",
+            "start_child_workflow(ComputeTableStatisticsWorkflow.run) id=f'compute-warehouse-table-statistics-{inputs.external_data_schema_id}'",
+            "execute_activity(create_source_templates)",
+            "execute_activity(calculate_table_size_activity)",
+            "start_child_workflow(DuckLakeCopyDataImportsWorkflow.run) id=f'ducklake-copy-data-imports-{inputs.team_id}-{inputs.external_data_schema_id}'",
+            "execute_activity(trigger_schedule_buffer_one_activity)",
+            "execute_activity(update_external_data_job_model)",
+            "execute_activity(release_v3_pipeline_lock_activity)"
+        ]
+    }
+}

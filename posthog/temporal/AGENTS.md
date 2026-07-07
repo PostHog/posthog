@@ -6,6 +6,10 @@ Pointers, not content. Read the linked docs before changing code or tests in thi
 
 - [Temporal at PostHog](./README.md) — concepts, workflows, activities, the conventions we use, common pitfalls, links to the upstream Temporal SDK docs.
 
+## Changing an existing `@workflow.defn` body
+
+- Adding, removing, or reordering activity/child-workflow/timer calls in a deployed workflow breaks replay for in-flight executions (`NondeterminismError`, execution wedges in Running) unless gated with `workflow.patched()`. Read [Version workflow code that has running executions](./README.md#version-workflow-code-that-has-running-executions) and use the `versioning-temporal-workflows` skill before editing. Long-running workflows are guarded by a fingerprint baseline in [`posthog/temporal/common/workflow_fingerprints.py`](./common/workflow_fingerprints.py).
+
 ## Writing or modifying tests in this tree
 
 - [Testing patterns](./README.md#testing-patterns) — when to use real Worker vs `ActivityEnvironment` vs no harness, why some files need `@pytest.mark.django_db(transaction=True)`, the module-scoped Worker pattern that avoids booting the temporal-test-server per test, the `connection.connect()` monkeypatch escape hatch, and the parametrize-don't-copy-paste rule.

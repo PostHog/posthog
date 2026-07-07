@@ -1,5 +1,9 @@
 # Data Stack - Import Pipeline
 
+## Changing the workflows in this directory
+
+`ExternalDataJobWorkflow` and the CDC workflows are long-running: executions are always in flight across deploys (activity timeouts go up to 1 week, plus retries). Any change to their command sequence — adding, removing, or reordering `execute_activity` / `start_child_workflow` calls, or changing a child workflow id — must be gated with `workflow.patched()`, or every in-flight execution wedges in Running with `NondeterminismError` on replay (this blocked all scheduled syncs on 2026-07-01). Use the `versioning-temporal-workflows` skill (`.agents/skills/versioning-temporal-workflows/SKILL.md`). A fingerprint baseline (`posthog/temporal/common/workflow_fingerprints.py`) fails CI on ungated sequence changes; regenerate it with `python posthog/temporal/common/workflow_fingerprints.py` once your change is gated.
+
 ## How to detect a OOM:
 
 In the logs, you'll often see the last operation of the job being a delta merge - such as `Merging partition=...`. Followed by heartbeat logs. There will then be a 2-min gap between the last heartbeat and the start of the next retry, or if its the last attempt, then you'll see a 2-min gap before a `activity Heartbeat timeout` error log. The 2-mins (as of Oct 2025) comes from the current `heartbeat_timeout` set on the `import_data_activity` in the workflow.
