@@ -129,15 +129,14 @@ class DashboardExportInsightsField(serializers.Field):
 
 
 class AIWindowConfigSerializer(serializers.Serializer):
-    """Analysis window for an AI report run. The write-side schema for ai_prompt_config["window"]."""
-
     mode = serializers.ChoiceField(
         choices=Subscription.AIWindowMode.choices,
         default=Subscription.AIWindowMode.SINCE_LAST_SENT,
         help_text=(
-            "'since_last_sent' (default) analyzes everything since the previous successful delivery "
-            "(gap-free); 'last_n_days' analyzes a fixed trailing window of start_days_ago days; "
-            "'days_ago_range' analyzes the explicit range from start_days_ago to end_days_ago days ago."
+            "What the report analyzes each run:\n"
+            "* `since_last_sent` (default) — everything since the previous successful delivery (gap-free)\n"
+            "* `last_n_days` — a fixed trailing window of start_days_ago days\n"
+            "* `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago"
         ),
     )
     start_days_ago = serializers.IntegerField(
@@ -162,9 +161,6 @@ class AIWindowConfigSerializer(serializers.Serializer):
     )
 
     def to_representation(self, instance: Any) -> dict:
-        # Reads route through the model's fail-soft normalization: the JSONField can carry any shape
-        # if edited out-of-band, and the typed fields would otherwise crash on it (DRF's
-        # IntegerField.to_representation is `int(value)`), 500ing every list/detail read for the team.
         return Subscription.normalize_ai_window(instance)
 
     def validate(self, attrs: dict) -> dict:
@@ -193,9 +189,6 @@ class AIWindowConfigSerializer(serializers.Serializer):
 
 
 class AIPromptConfigSerializer(serializers.Serializer):
-    """Schema for Subscription.ai_prompt_config — a config bag for AI report subscriptions, so new
-    knobs become keys here instead of model columns. Replaced wholesale on writes (no deep merge)."""
-
     window = AIWindowConfigSerializer(
         required=False,
         help_text="Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous delivery).",

@@ -169,10 +169,8 @@ class Subscription(ModelActivityMixin, models.Model):
 
     prompt = models.TextField(null=True, blank=True)
 
-    # Config bag for AI prompt subscriptions, so future knobs don't each need a migration. The
-    # serializer (AIPromptConfigSerializer) is the write-side schema; readers go through the
-    # fail-soft properties below, never raw key access. Current shape:
-    #   {"window": {"mode": <AIWindowMode>, "start_days_ago": int|None, "end_days_ago": int|None}}
+    # Source of truth for the shape: ee.api.subscription.AIPromptConfigSerializer (writes) and
+    # normalize_ai_window below (reads).
     ai_prompt_config = models.JSONField(default=dict, blank=True)
 
     # Subscription type (email, slack etc.)
@@ -330,29 +328,30 @@ class Subscription(ModelActivityMixin, models.Model):
         """Days of history an AI report for this subscription should analyse, derived from its cadence."""
         return self._AI_REPORT_WINDOW_DAYS.get(self.frequency, self.DEFAULT_AI_REPORT_WINDOW_DAYS)
 
-    # ai_prompt_config readers. Fail-soft on any shape the serializer wouldn't have written (a row
-    # edited out-of-band must degrade to the default window, not crash a delivery run). Values are
-    # range-checked too: a negative day count would otherwise invert the window or extend it into
-    # the future, which is exactly what these readers exist to prevent.
-
     AI_WINDOW_MAX_DAYS = 365
 
     @classmethod
-    def normalize_ai_window(cls, window: object) -> dict:
-        """Coerce an arbitrary ai_prompt_config["window"] shape to the serializer's contract.
-        Shared by the model readers and the API read path so both fail soft the same way."""
+    def normalize_ai_window(cls, window: Any) -> dict:
+        """Coerce an arbitrary ai_prompt_config["window"] shape to the serializer's contract —
+        the JSONField is untyped at runtime, so a row edited out-of-band can carry anything and
+        must degrade to the default window instead of crashing reads or delivery runs. Shared by
+        the model readers and the API read path."""
 
-        def day_bound(value: object, minimum: int) -> Optional[int]:
+        def day_bound(value: Any, minimum: int) -> Optional[int]:
             if isinstance(value, bool) or not isinstance(value, int):
                 return None
             return value if minimum <= value <= cls.AI_WINDOW_MAX_DAYS else None
 
         raw = window if isinstance(window, dict) else {}
         mode = raw.get("mode")
+        start = day_bound(raw.get("start_days_ago"), 1)
+        end = day_bound(raw.get("end_days_ago"), 0)
+        if start is not None and end is not None and end >= start:
+            start, end = None, None
         return {
             "mode": mode if mode in cls.AIWindowMode.values else cls.AIWindowMode.SINCE_LAST_SENT,
-            "start_days_ago": day_bound(raw.get("start_days_ago"), 1),
-            "end_days_ago": day_bound(raw.get("end_days_ago"), 0),
+            "start_days_ago": start,
+            "end_days_ago": end,
         }
 
     @property
@@ -458,6 +457,7 @@ class Subscription(ModelActivityMixin, models.Model):
             "byweekday": self.byweekday,
             "bysetpos": self.bysetpos,
             "prompt_length": len(self.prompt or ""),
+            "ai_window_mode": self.ai_window_mode,
         }
 
 
@@ -571,6 +571,8 @@ class SubscriptionDelivery(UUIDModel):
         indexes = [
             models.Index(fields=["subscription", "-created_at"], name="posthog_subdel_sub_crtd"),
             models.Index(fields=["team", "-created_at"], name="posthog_subdel_team_crtd"),
+            # Serves the per-run "last successful delivery" anchor lookup.
+            models.Index(fields=["subscription", "status", "-finished_at"], name="posthog_subdel_sub_fin"),
         ]
         ordering = ["-created_at"]
 

@@ -1,39 +1,10 @@
-import re
-
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import (
-    HOGQL_FIX_PROMPT,
-    PLAN_GENERATION_PROMPT,
-    resolve_prompt,
-)
+from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import resolve_prompt
 
 _P = "products.exports.backend.temporal.subscriptions.ai_subscription.prompts"
-
-
-class TestPlannerWindowInstruction:
-    """The window-determinism fix lives in the prompt's example patterns — the planner copies them.
-    These guard against re-introducing the `now()`-relative date math that caused timezone query
-    errors and run-to-run drift."""
-
-    @parameterized.expand(
-        [
-            ("planner", PLAN_GENERATION_PROMPT),
-            ("hogql_fix", HOGQL_FIX_PROMPT),
-        ]
-    )
-    def test_instructs_explicit_window_and_forbids_now_interval(self, _name: str, prompt: str) -> None:
-        # The half-open `toDateTime(...)` filter is the template the model must copy/preserve.
-        assert "toDateTime(" in prompt
-        # `now()` may appear only in the prohibition prose (`now()` / `now() - INTERVAL …` / `today()`).
-        # A *usable* example — `now()` wired into concrete date-math or time-bucketing that the model
-        # would copy verbatim — must not appear anywhere, or the planner reintroduces the run-to-run
-        # drift the fix removes. Guard both shapes rather than two exact literals, since the last such
-        # example (`toStartOfDay(now())`) slipped through a literal-match guard.
-        assert not re.search(r"toStartOf\w+\(\s*now\(\)", prompt)
-        assert not re.search(r"now\(\)\s*[-+]\s*INTERVAL\s+\d", prompt)
 
 
 @patch(f"{_P}.ph_scoped_capture")

@@ -73,19 +73,12 @@ class PromptRejectedError(ValueError):
 
 @dataclass(frozen=True)
 class ReportWindow:
-    """Code-computed, timezone-aware analysis bounds for a report run.
+    """Half-open `[start, end)` analysis bounds for a report run, tz-aware in the team timezone.
 
-    `start`/`end` are tz-aware in the team's timezone so the planner never has to do timezone math
-    in HogQL. The half-open convention is `timestamp >= start AND timestamp < end` — `start_literal`/
-    `end_literal` render the bounds as `YYYY-MM-DD HH:MM:SS` (project-tz wall clock, no offset) for
-    both the planner context and the query filter. HogQL resolves a bare datetime literal against the
-    project timezone, so the offset is implied; this also keeps the filter on the stricter, faster
-    `toDateTime` path rather than the best-effort parser an offset suffix would force.
-
-    `compare_start` is the equal-length period immediately before the window, so a period-over-period
-    query filters the wider `[compare_start, end)` range and splits at `start`. It tracks the window's
-    actual length: for a regular send that's roughly the prior cadence period (last week / yesterday),
-    but a short re-fire window yields a correspondingly short, noisier comparison slice.
+    The literals render as project-tz wall clock without an offset: HogQL resolves bare datetime
+    literals against the project timezone, which keeps the LLM out of timezone math entirely.
+    `compare_start` is the equal-length period immediately before the window, for
+    period-over-period queries.
     """
 
     start: datetime
@@ -123,23 +116,14 @@ def compute_report_window(
     start_days_ago: Optional[int] = None,
     end_days_ago: Optional[int] = None,
 ) -> ReportWindow:
-    """Compute the `[start, end)` analysis window for a report run, timezone-aware in the team's tz.
+    """Compute the `[start, end)` analysis window for a run. Pure — callers resolve the delivery
+    anchor and `now` and pass them in.
 
-    The subscription's `ai_window_mode` picks the shape:
-    - SINCE_LAST_SENT (default): `end` is the run's "now"; `start` is the last SUCCESSFUL delivery's
-      `finished_at`, falling back to `end - window_days` when there's no prior successful delivery.
-      This is gap-free modulo the prior run's own generation+send latency (its `finished_at` trails
-      its window `end` by that much), which is seconds to low minutes and errs toward re-covering
-      rather than dropping data.
-    - LAST_N_DAYS: `[now - start_days_ago, now)` — a fixed trailing window independent of send timing.
-    - DAYS_AGO_RANGE: `[now - start_days_ago, now - end_days_ago)` — an explicit historical range.
-
-    A day-based mode with missing or inverted day values (a bad row) degrades to a bounded window
-    rather than failing the run: a range missing `end_days_ago` is treated as ending now, and
-    anything else falls through to the default branch — which, since callers pass no delivery
-    anchor for day-based modes, is the cadence-derived `end - window_days` trailing window. The
-    degrade is logged. Both bounds are returned in the team timezone. Pure (no DB / no
-    `datetime.now`) so it's unit-testable — callers resolve the anchor and `now` and pass them in.
+    Mode shapes and defaults are documented on `AIPromptConfigSerializer` (the write-side schema);
+    day values arrive pre-validated via `Subscription.normalize_ai_window`. SINCE_LAST_SENT anchors
+    to the last successful delivery (gap-free "since last send"), falling back to
+    `end - window_days`; a day-based mode missing its values degrades to that same fallback, with
+    a warning so the ignored config is diagnosable.
     """
     tz = team.timezone_info
     run_now = _in_tz(now, tz)
@@ -148,15 +132,12 @@ def compute_report_window(
         return ReportWindow(start=run_now - timedelta(days=start_days_ago), end=run_now)
 
     if mode == Subscription.AIWindowMode.DAYS_AGO_RANGE and start_days_ago:
-        end = run_now - timedelta(days=end_days_ago or 0)
-        start = run_now - timedelta(days=start_days_ago)
-        # The serializer enforces start > end; clamp anyway so a bad row can't invert the range.
-        if start < end:
-            return ReportWindow(start=start, end=end)
+        return ReportWindow(
+            start=run_now - timedelta(days=start_days_ago),
+            end=run_now - timedelta(days=end_days_ago or 0),
+        )
 
     if mode != Subscription.AIWindowMode.SINCE_LAST_SENT:
-        # A day-based row the API can't produce (out-of-band edit or a serializer regression).
-        # Degrading silently would be indistinguishable from the user choosing the default window.
         logger.warning(
             "ai_report.window_config_invalid_fallback",
             team_id=team.pk,
@@ -166,16 +147,8 @@ def compute_report_window(
         )
 
     end = run_now
-    if last_successful_delivery_at is not None:
-        # "Since last send": a re-fire shortly after a successful delivery yields a small window (and
-        # a short report) because there's genuinely little new data — we don't pad it back to
-        # `window_days`, which would double-report data already sent.
-        start = _in_tz(last_successful_delivery_at, tz)
-        # A clock skew or a stale finished_at could land start after end; clamp to the fallback
-        # window so we never hand the planner an inverted range.
-        if start >= end:
-            start = end - timedelta(days=window_days)
-    else:
+    start = _in_tz(last_successful_delivery_at, tz) if last_successful_delivery_at is not None else None
+    if start is None or start >= end:
         start = end - timedelta(days=window_days)
 
     return ReportWindow(start=start, end=end)

@@ -26,6 +26,13 @@ _RP = "products.exports.backend.temporal.subscriptions.ai_subscription.report_pi
 # (no wall-clock race) — the events sit squarely inside the computed window.
 _EVENT_TS = datetime(2026, 6, 20, 12, 0, tzinfo=UTC)
 _WINDOW_NOW = datetime(2026, 6, 25, 12, 0, tzinfo=UTC)
+# Anchor scenario: a prior successful delivery, with one event before it and one after. The window
+# start must follow the delivery (not now - window_days), so the pre-delivery event is filtered out
+# by the real ClickHouse query while the post-delivery one survives.
+_ANCHOR_LAST_DELIVERY = datetime(2026, 6, 22, 12, 0, tzinfo=UTC)
+_ANCHOR_NOW = datetime(2026, 6, 25, 12, 0, tzinfo=UTC)
+_PRE_ANCHOR_TS = datetime(2026, 6, 20, 12, 0, tzinfo=UTC)
+_POST_ANCHOR_TS = datetime(2026, 6, 23, 12, 0, tzinfo=UTC)
 
 
 class _WindowPipelineHelpers:
@@ -137,15 +144,6 @@ class TestAIReportPipelineIntegration(_WindowPipelineHelpers, ClickhouseTestMixi
 
         assert report.markdown == "# First occurrence report"
         assert report.diagnostics and all(d.ok for d in report.diagnostics)
-
-
-# Anchor scenario: a prior successful delivery, with one event before it and one after. The window
-# start must follow the delivery (not now - window_days), so the pre-delivery event is filtered out
-# by the real ClickHouse query while the post-delivery one survives.
-_ANCHOR_LAST_DELIVERY = datetime(2026, 6, 22, 12, 0, tzinfo=UTC)
-_ANCHOR_NOW = datetime(2026, 6, 25, 12, 0, tzinfo=UTC)
-_PRE_ANCHOR_TS = datetime(2026, 6, 20, 12, 0, tzinfo=UTC)
-_POST_ANCHOR_TS = datetime(2026, 6, 23, 12, 0, tzinfo=UTC)
 
 
 class TestAIReportWindowAnchor(_WindowPipelineHelpers, ClickhouseTestMixin, NonAtomicBaseTest):

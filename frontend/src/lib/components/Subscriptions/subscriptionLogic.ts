@@ -38,9 +38,6 @@ function validatePrompt(
 
 const AI_WINDOW_MAX_DAYS = 365
 
-// Errors mirror the form value's nesting (ai_prompt_config.window.*) so LemonField picks them up
-// by path. Typed loosely for the same reason as the `as any` on dashboard_export_insights below:
-// kea-forms' DeepPartialMap collapses nullable scalar fields to `{}`, rejecting string errors.
 function validateAiWindow(subscription: Partial<SubscriptionType>): {
     ai_prompt_config?: { window: { start_days_ago?: any; end_days_ago?: any } }
 } {
@@ -53,7 +50,7 @@ function validateAiWindow(subscription: Partial<SubscriptionType>): {
         return {}
     }
     const start = window?.start_days_ago
-    if (!start) {
+    if (start === null || start === undefined) {
         return { ai_prompt_config: { window: { start_days_ago: 'Set how many days back the report should look' } } }
     }
     if (start < 1 || start > AI_WINDOW_MAX_DAYS) {
@@ -73,6 +70,16 @@ function validateAiWindow(subscription: Partial<SubscriptionType>): {
         return { ai_prompt_config: { window: { end_days_ago: 'Must be closer to now than the start of the range' } } }
     }
     return {}
+}
+
+function validateTargetValue(target_type: string, target_value: string | undefined): string | undefined {
+    if (!target_value) {
+        return 'This field is required.'
+    }
+    if (target_type === 'email' && !target_value.split(',').every((email) => isEmail(email))) {
+        return 'All emails must be valid'
+    }
+    return undefined
 }
 
 function subscriptionSaveErrorMessage(error: unknown): string {
@@ -193,19 +200,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     : undefined,
                 prompt: validatePrompt(subscription.resource_type, subscription.prompt),
                 ...validateAiWindow(subscription),
-                target_value: !subscription.target_value
-                    ? 'This field is required.'
-                    : subscription.target_type == 'email'
-                      ? !subscription.target_value
-                          ? 'At least one email is required'
-                          : !subscription.target_value.split(',').every((email) => isEmail(email))
-                            ? 'All emails must be valid'
-                            : undefined
-                      : subscription.target_type == 'slack'
-                        ? !subscription.target_value
-                            ? 'A channel is required'
-                            : undefined
-                        : undefined,
+                target_value: validateTargetValue(subscription.target_type, subscription.target_value),
                 dashboard_export_insights:
                     subscription.resource_type !== SubscriptionResourceTypes.AiPrompt &&
                     props.dashboardId &&
@@ -227,7 +222,6 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     // Only AI subscriptions carry a prompt; a stale one on a non-AI sub (e.g. after
                     // toggling resource_type back) would be rejected by the backend, so drop it.
                     prompt: isAi ? subscription.prompt?.trim() : undefined,
-                    // Same for the AI config — the backend rejects it on non-AI subs.
                     ai_prompt_config: isAi ? subscription.ai_prompt_config : undefined,
                 }
 
@@ -314,12 +308,10 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
 
             const path = Array.isArray(name) ? name.join('.') : name
             if (path === 'ai_prompt_config.window.mode') {
-                // The reducer has already applied the new mode, so read the pre-action config to tell
-                // a real mode switch from a same-mode re-select (which must keep the entered days).
+                // Reducers run before listeners, so previousState tells a real mode switch (reset the
+                // day bounds) apart from a same-mode re-select (keep them).
                 const previousConfig = selectors.subscription(previousState)?.ai_prompt_config
                 if (value !== previousConfig?.window?.mode) {
-                    // Replace only the window — stale day bounds from the previous mode would confuse
-                    // validation and the backend, but future sibling config keys must survive.
                     actions.setSubscriptionValues({
                         ai_prompt_config: { ...previousConfig, window: { mode: value } },
                     })

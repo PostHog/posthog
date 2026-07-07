@@ -71,11 +71,6 @@ function AiConsentGateMessage(): JSX.Element {
     )
 }
 
-// Concrete starter prompts — each one maps cleanly to a flat HogQL pattern the
-// planner already knows (see PLAN_GENERATION_PROMPT reference patterns). Click
-// populates the textarea verbatim so users can tweak rather than start cold.
-// Presets that imply a timeframe also prefill the analysis window (the window
-// setting owns the time range now, so the prompt copy stays range-agnostic).
 const AI_PROMPT_EXAMPLES: { label: string; prompt: string; window?: AIWindowConfigApi }[] = [
     {
         label: 'Top events',
@@ -167,9 +162,6 @@ function FreeTierCreateGate(props: EditSubscriptionProps): JSX.Element {
     return <EditSubscriptionForm {...props} />
 }
 
-// What the report analyzes each run. "Since last report" is gap-free (each run picks up exactly
-// where the previous successful one ended); the day-based options pin an explicit range so the
-// window doesn't depend on send timing.
 const AI_WINDOW_MODE_OPTIONS = [
     {
         value: 'since_last_sent' as const,

@@ -98,18 +98,22 @@ def _split_text_into_chunks(text: str, limit: int = SLACK_MRKDWN_SECTION_LIMIT) 
 
 
 def _last_successful_delivery_finished_at(subscription: Subscription) -> datetime | None:
-    # The gap-free "since last send" anchor: the most recent COMPLETED delivery's finish time.
-    # None on the first run (no prior success) → compute_report_window falls back to window_days.
-    return (
-        SubscriptionDelivery.objects.filter(
-            subscription_id=subscription.id,
-            status=SubscriptionDelivery.Status.COMPLETED,
-            finished_at__isnull=False,
+    try:
+        return (
+            SubscriptionDelivery.objects.filter(
+                subscription_id=subscription.id,
+                status=SubscriptionDelivery.Status.COMPLETED,
+                finished_at__isnull=False,
+            )
+            .order_by("-finished_at")
+            .values_list("finished_at", flat=True)
+            .first()
         )
-        .order_by("-finished_at")
-        .values_list("finished_at", flat=True)
-        .first()
-    )
+    except Exception:
+        # A transient DB error on this one lookup shouldn't fail the whole delivery — None falls
+        # back to the cadence window (which may re-cover already-sent data, never drop any).
+        logger.warning("ai_report.last_delivery_lookup_failed", subscription_id=subscription.id, exc_info=True)
+        return None
 
 
 def _resolve_subscription_context(subscription: Subscription) -> tuple[Team, User | None, ReportWindow]:

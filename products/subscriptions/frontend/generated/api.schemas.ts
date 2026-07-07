@@ -33,11 +33,11 @@ export const AIWindowConfigModeEnumApi = {
     DaysAgoRange: 'days_ago_range',
 } as const
 
-/**
- * Analysis window for an AI report run. The write-side schema for ai_prompt_config["window"].
- */
 export interface AIWindowConfigApi {
-    /** 'since_last_sent' (default) analyzes everything since the previous successful delivery (gap-free); 'last_n_days' analyzes a fixed trailing window of start_days_ago days; 'days_ago_range' analyzes the explicit range from start_days_ago to end_days_ago days ago.
+    /** What the report analyzes each run:
+     * * `since_last_sent` (default) — everything since the previous successful delivery (gap-free)
+     * * `last_n_days` — a fixed trailing window of start_days_ago days
+     * * `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago
      *
      * * `since_last_sent` - Since last report
      * * `last_n_days` - Last N days
@@ -59,10 +59,6 @@ export interface AIWindowConfigApi {
     end_days_ago?: number | null
 }
 
-/**
- * Schema for Subscription.ai_prompt_config — a config bag for AI report subscriptions, so new
- * knobs become keys here instead of model columns. Replaced wholesale on writes (no deep merge).
- */
 export interface AIPromptConfigApi {
     /** Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous delivery). */
     window?: AIWindowConfigApi

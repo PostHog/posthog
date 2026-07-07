@@ -34,7 +34,6 @@ _SG = "products.exports.backend.temporal.subscriptions.ai_subscription.spec_gene
 
 
 def _window(days: int = 7) -> ReportWindow:
-    # A simple window for context-blob tests: end = now, start = now - days.
     end = datetime.now(tz=UTC)
     return ReportWindow(start=end - timedelta(days=days), end=end)
 
@@ -235,6 +234,12 @@ class TestAIWindowConfigProperties:
                 "last_n_days",
             ),
             (
+                # An inverted range would hand the planner a window that ends before it starts.
+                "inverted_range",
+                {"window": {"mode": "days_ago_range", "start_days_ago": 3, "end_days_ago": 5}},
+                "days_ago_range",
+            ),
+            (
                 "over_max_days",
                 {"window": {"mode": "last_n_days", "start_days_ago": 9000, "end_days_ago": 400}},
                 "last_n_days",
@@ -272,7 +277,13 @@ class TestComputeReportWindow:
         now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
         last = datetime(2026, 6, 28, 16, 0, tzinfo=UTC)
 
-        window = compute_report_window(self._team(), last_successful_delivery_at=last, now=now, window_days=1)
+        window = compute_report_window(
+            self._team(),
+            last_successful_delivery_at=last,
+            now=now,
+            window_days=1,
+            mode=Subscription.AIWindowMode.SINCE_LAST_SENT,
+        )
 
         # Gap-free: start is exactly the previous send, not now - window_days (which would be identical
         # here, but the next case proves they diverge when the prior send drifted).
@@ -285,7 +296,13 @@ class TestComputeReportWindow:
         now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
         last = datetime(2026, 6, 19, 16, 0, tzinfo=UTC)
 
-        window = compute_report_window(self._team(), last_successful_delivery_at=last, now=now, window_days=7)
+        window = compute_report_window(
+            self._team(),
+            last_successful_delivery_at=last,
+            now=now,
+            window_days=7,
+            mode=Subscription.AIWindowMode.SINCE_LAST_SENT,
+        )
 
         assert window.start == last
         assert (window.end - window.start) == timedelta(days=10)
@@ -298,7 +315,13 @@ class TestComputeReportWindow:
         now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
         last = datetime(2026, 6, 19, 16, 0, tzinfo=UTC)
 
-        window = compute_report_window(self._team(), last_successful_delivery_at=last, now=now, window_days=7)
+        window = compute_report_window(
+            self._team(),
+            last_successful_delivery_at=last,
+            now=now,
+            window_days=7,
+            mode=Subscription.AIWindowMode.SINCE_LAST_SENT,
+        )
 
         assert (window.start - window.compare_start) == (window.end - window.start)
         assert window.compare_start == datetime(2026, 6, 9, 16, 0, tzinfo=UTC)
@@ -307,7 +330,13 @@ class TestComputeReportWindow:
     def test_falls_back_to_window_days_without_prior_delivery(self) -> None:
         now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
 
-        window = compute_report_window(self._team(), last_successful_delivery_at=None, now=now, window_days=7)
+        window = compute_report_window(
+            self._team(),
+            last_successful_delivery_at=None,
+            now=now,
+            window_days=7,
+            mode=Subscription.AIWindowMode.SINCE_LAST_SENT,
+        )
 
         assert window.end == now
         assert window.start == now - timedelta(days=7)
@@ -370,16 +399,14 @@ class TestComputeReportWindow:
         [
             ("last_n_days_missing_start", Subscription.AIWindowMode.LAST_N_DAYS, None, None),
             ("range_missing_start", Subscription.AIWindowMode.DAYS_AGO_RANGE, None, 3),
-            ("range_inverted", Subscription.AIWindowMode.DAYS_AGO_RANGE, 3, 5),
         ]
     )
     def test_bad_day_mode_config_falls_back_to_trailing_window(
         self, _name: str, mode: str, start_days_ago: int | None, end_days_ago: int | None
     ) -> None:
-        # The serializer prevents these rows, but a bad row must degrade to a bounded window rather
-        # than fail the run or hand the planner an inverted range. The anchor is None because the
-        # production caller (delivery.py) skips the last-delivery lookup for day-based modes, so the
-        # reachable degrade is the cadence-derived trailing window.
+        # normalize_ai_window nulls out bad day values, so what reaches compute is a day mode with
+        # missing values; it must degrade to the cadence trailing window (anchor is None because
+        # delivery.py skips the last-delivery lookup for day-based modes).
         now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
 
         window = compute_report_window(
@@ -419,7 +446,13 @@ class TestComputeReportWindow:
         now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
         last = datetime(2026, 6, 30, 16, 0, tzinfo=UTC)
 
-        window = compute_report_window(self._team(), last_successful_delivery_at=last, now=now, window_days=1)
+        window = compute_report_window(
+            self._team(),
+            last_successful_delivery_at=last,
+            now=now,
+            window_days=1,
+            mode=Subscription.AIWindowMode.SINCE_LAST_SENT,
+        )
 
         assert window.start == now - timedelta(days=1)
         assert window.end == now
