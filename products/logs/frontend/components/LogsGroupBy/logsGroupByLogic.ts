@@ -113,9 +113,12 @@ export const logsGroupByLogic = kea<logsGroupByLogicType>([
     }),
 
     selectors({
+        // Clear groups when the load fails so LemonTable's emptyState (and the error) shows
+        // instead of stale rows — kea-loaders leaves groupByResponse untouched on failure.
         groups: [
-            (s) => [s.groupByResponse],
-            (response: _LogsGroupByResponseApi): _LogsGroupByGroupApi[] => response.groups,
+            (s) => [s.groupByResponse, s.groupByError],
+            (response: _LogsGroupByResponseApi, error: string | null): _LogsGroupByGroupApi[] =>
+                error ? [] : response.groups,
         ],
     }),
 
