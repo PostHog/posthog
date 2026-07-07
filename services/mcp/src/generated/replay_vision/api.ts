@@ -455,7 +455,7 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = /* @__PURE__ *
 })
 
 /**
- * Apply this suggestion: write its prompt to the scanner (bumping the scanner version) and mark the suggestion applied. Requires session recording edit access.
+ * Apply this suggestion: write its prompt to the scanner (bumping the scanner version) and mark the suggestion applied. Only the current pending suggestion can be applied. Requires session recording edit access.
  */
 export const VisionScannersPromptSuggestionsApplyCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this replay scanner prompt suggestion.'),
@@ -468,7 +468,7 @@ export const VisionScannersPromptSuggestionsApplyCreateParams = /* @__PURE__ */ 
 })
 
 /**
- * Dismiss this suggestion without applying it. Requires session recording edit access.
+ * Dismiss this suggestion without applying it. Only the current pending suggestion can be dismissed. Requires session recording edit access.
  */
 export const VisionScannersPromptSuggestionsDismissCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this replay scanner prompt suggestion.'),
