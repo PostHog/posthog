@@ -1,3 +1,5 @@
+import { LRUCache } from 'lru-cache'
+
 import { MemoryRateLimiter } from '~/ingestion/common/overflow-redirect/overflow-detector'
 import { Component } from '~/ingestion/common/scopes'
 import { HealthCheckResult } from '~/types'
@@ -16,16 +18,17 @@ import { OverflowRedisRepository, OverflowType, memberKey } from './overflow-red
 export interface MainLaneOverflowRedirectConfig {
     redisRepository: OverflowRedisRepository
     localCacheTTLSeconds: number
+    /** Max entries in the in-memory flagged/not-flagged cache before LRU eviction. */
+    localCacheMaxSize?: number
     bucketCapacity: number
     replenishRate: number
     /** Redis keyspace this service operates on. Fixed per pipeline. */
     overflowType: OverflowType
 }
 
-interface CacheEntry {
-    value: boolean | null // true = flagged, null = known not in Redis
-    expiresAt: number
-}
+// Bounds the in-memory cache so a flood of unique token:distinct_id keys cannot
+// grow it without limit; evicted keys simply re-check Redis on the next lookup.
+const DEFAULT_LOCAL_CACHE_MAX_SIZE = 1_000_000
 
 /**
  * Main lane implementation of overflow redirect.
@@ -40,17 +43,18 @@ interface CacheEntry {
  * Uses individual Redis keys with native TTL expiry (no ZSET).
  */
 export class MainLaneOverflowRedirect implements OverflowRedirectService {
-    private localCache: Map<string, CacheEntry>
+    private localCache: LRUCache<string, boolean>
     private rateLimiter: MemoryRateLimiter
-    private localCacheTTLSeconds: number
     private redisRepository: OverflowRedisRepository
     private overflowType: OverflowType
 
     constructor(config: MainLaneOverflowRedirectConfig) {
         this.redisRepository = config.redisRepository
-        this.localCache = new Map()
+        this.localCache = new LRUCache({
+            max: config.localCacheMaxSize ?? DEFAULT_LOCAL_CACHE_MAX_SIZE,
+            ttl: config.localCacheTTLSeconds * 1000,
+        })
         this.rateLimiter = new MemoryRateLimiter(config.bucketCapacity, config.replenishRate)
-        this.localCacheTTLSeconds = config.localCacheTTLSeconds
         this.overflowType = config.overflowType
     }
 
@@ -58,23 +62,14 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
         return `${type}:${token}:${distinctId}`
     }
 
-    private getCachedValue(key: string): boolean | null | undefined {
-        const entry = this.localCache.get(key)
-        if (!entry) {
-            return undefined // cache miss
-        }
-        if (Date.now() > entry.expiresAt) {
-            this.localCache.delete(key)
-            return undefined // expired
-        }
-        return entry.value
+    // true = flagged in Redis, false = known not in Redis, undefined = cache miss.
+    // TTL expiry and size-bounded LRU eviction are handled by the cache itself.
+    private getCachedValue(key: string): boolean | undefined {
+        return this.localCache.get(key)
     }
 
-    private setCachedValue(key: string, value: boolean | null): void {
-        this.localCache.set(key, {
-            value,
-            expiresAt: Date.now() + this.localCacheTTLSeconds * 1000,
-        })
+    private setCachedValue(key: string, value: boolean): void {
+        this.localCache.set(key, value)
     }
 
     async handleEventBatch(batch: OverflowEventBatch[]): Promise<Set<string>> {
@@ -96,7 +91,7 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
                 toRedirect.add(mKey)
                 redirectSource.set(mKey, 'redis')
                 overflowRedirectCacheHitsTotal.labels(type, 'hit_flagged').inc()
-            } else if (cached === null) {
+            } else if (cached === false) {
                 // Known not in Redis - check rate limit only
                 needsRateLimitCheck.push(event)
                 overflowRedirectCacheHitsTotal.labels(type, 'hit_not_flagged').inc()
@@ -124,8 +119,8 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
                     redirectSource.set(mKey, 'redis')
                     this.setCachedValue(cacheKey, true)
                 } else {
-                    // Not in Redis - cache null and check rate limit
-                    this.setCachedValue(cacheKey, null)
+                    // Not in Redis - cache false and check rate limit
+                    this.setCachedValue(cacheKey, false)
                     needsRateLimitCheck.push(event)
                 }
             }
