@@ -7,3 +7,12 @@ SKIP_ASYNC_MIGRATIONS_SETUP = get_from_env("SKIP_ASYNC_MIGRATIONS_SETUP", True, 
 ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS = get_from_env(
     "ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS", 2 * 60 * 60, type_cast=int
 )
+
+# Boot-time resilience for setup_async_migrations() when Postgres is briefly unreachable
+# (DNS not yet resolving, or the DB replaying WAL in recovery mode after a restart/failover).
+# We retry with exponential backoff and, if still unreachable, log and continue so the worker
+# boots instead of crash-looping.
+ASYNC_MIGRATIONS_SETUP_MAX_ATTEMPTS = get_from_env("ASYNC_MIGRATIONS_SETUP_MAX_ATTEMPTS", 5, type_cast=int)
+ASYNC_MIGRATIONS_SETUP_RETRY_BASE_DELAY_SECONDS = get_from_env(
+    "ASYNC_MIGRATIONS_SETUP_RETRY_BASE_DELAY_SECONDS", 1.0, type_cast=float
+)

@@ -126,12 +126,13 @@ class PostHogConfig(AppConfig):
         if not posthoganalytics.disabled and posthoganalytics.feature_flag_definitions() is None:
             posthoganalytics.load_feature_flags()
 
-        from posthog.async_migrations.setup import setup_async_migrations
+        from posthog.async_migrations.setup import setup_async_migrations_with_retry
 
         if settings.SKIP_ASYNC_MIGRATIONS_SETUP:
             logger.warning("Skipping async migrations setup. This is unsafe in production!")
         else:
-            setup_async_migrations()
+            # Tolerate transient Postgres unreachability at boot instead of crash-looping.
+            setup_async_migrations_with_retry()
 
         from posthog.api.file_system import registrations as file_system_registrations
 

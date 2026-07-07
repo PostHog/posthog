@@ -1,7 +1,11 @@
+import time
 from typing import Optional
 
+from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
+from django.db import OperationalError
 
+import structlog
 from infi.clickhouse_orm.utils import import_submodules
 from semantic_version.base import Version
 
@@ -10,6 +14,8 @@ from posthog.constants import FROZEN_POSTHOG_VERSION
 from posthog.models.async_migration import AsyncMigration, get_all_completed_async_migrations
 from posthog.models.instance_setting import get_instance_setting
 from posthog.settings import TEST
+
+logger = structlog.get_logger(__name__)
 
 
 def reload_migration_definitions():
@@ -60,6 +66,54 @@ def setup_async_migrations(ignore_posthog_version: bool = False):
 
     if get_instance_setting("AUTO_START_ASYNC_MIGRATIONS") and first_migration is not None:
         kickstart_migration_if_possible(first_migration, applied_migrations)
+
+
+def setup_async_migrations_with_retry(ignore_posthog_version: bool = False) -> bool:
+    """
+    Boot-time wrapper around setup_async_migrations() that tolerates transient Postgres
+    unreachability at worker startup (DNS not yet resolving, or the DB replaying WAL in
+    recovery mode after a restart/failover).
+
+    setup_async_migrations() runs a synchronous Postgres query. Called from
+    PostHogConfig.ready() on every process boot, an unhandled OperationalError crashes the
+    worker, which then crash-loops until the DB recovers - and with exception autocapture on,
+    every attempt surfaces as a tracked exception and floods error tracking.
+
+    We retry on OperationalError with exponential backoff, and if the database is still
+    unreachable after the final attempt we log and continue so the worker boots. Non-
+    connectivity failures (e.g. ImproperlyConfigured for a genuinely missing required
+    migration) are not caught and still fail fast.
+
+    Returns True if setup completed, False if it was skipped after exhausting retries.
+    """
+    max_attempts = max(1, settings.ASYNC_MIGRATIONS_SETUP_MAX_ATTEMPTS)
+    base_delay = settings.ASYNC_MIGRATIONS_SETUP_RETRY_BASE_DELAY_SECONDS
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            setup_async_migrations(ignore_posthog_version=ignore_posthog_version)
+            return True
+        except OperationalError as err:
+            if attempt >= max_attempts:
+                logger.warning(
+                    "async_migrations_setup_skipped_db_unavailable",
+                    attempts=max_attempts,
+                    error=str(err),
+                    exc_info=True,
+                )
+                return False
+
+            delay = base_delay * (2 ** (attempt - 1))
+            logger.warning(
+                "async_migrations_setup_retry_db_unavailable",
+                attempt=attempt,
+                max_attempts=max_attempts,
+                retry_in_seconds=delay,
+                error=str(err),
+            )
+            time.sleep(delay)
+
+    return False
 
 
 def setup_model(migration_name: str, migration: AsyncMigrationDefinition) -> AsyncMigration:
