@@ -635,6 +635,8 @@ mod tests {
     use super::*;
     use futures::stream;
     use http_body_util::{Empty, StreamBody};
+    use personhog_proto::personhog::types::v1::GetPersonRequest;
+    use prost::Message;
 
     #[test]
     fn known_method_lookup() {
@@ -682,6 +684,57 @@ mod tests {
             known, proto_methods,
             "KNOWN_METHODS is out of sync with service.proto — add/remove entries to match"
         );
+    }
+
+    /// A well-formed frame yields exactly the message bytes, decodable as
+    /// the original proto.
+    #[test]
+    fn strip_grpc_frame_returns_message_slice() {
+        let msg = GetPersonRequest {
+            team_id: 1,
+            person_id: 42,
+            read_options: None,
+        };
+        let encoded = msg.encode_to_vec();
+        let mut buf = Vec::with_capacity(5 + encoded.len());
+        buf.push(0); // not compressed
+        buf.extend_from_slice(&(encoded.len() as u32).to_be_bytes());
+        buf.extend_from_slice(&encoded);
+
+        let body = Bytes::from(buf);
+        let message = strip_grpc_frame(&body).expect("valid frame");
+        assert_eq!(message, &encoded[..]);
+
+        let decoded = GetPersonRequest::decode(message).expect("decodable");
+        assert_eq!(decoded.team_id, 1);
+        assert_eq!(decoded.person_id, 42);
+    }
+
+    /// Each malformed-frame branch fails closed with its own status:
+    /// too short and truncated are Internal (the frame never left the
+    /// router intact), compressed is Unimplemented (a client capability
+    /// the leader path deliberately rejects).
+    #[test]
+    fn strip_grpc_frame_rejects_malformed_frames() {
+        let cases: [(&[u8], Code, &str); 3] = [
+            (&[0, 0, 0, 0], Code::Internal, "frame shorter than 5 bytes"),
+            (&[1, 0, 0, 0, 0], Code::Unimplemented, "compressed flag set"),
+            (
+                &[0, 0, 0, 0, 10],
+                Code::Internal,
+                "declared length exceeds remaining bytes",
+            ),
+        ];
+
+        for (bytes, expected, why) in cases {
+            let resp = strip_grpc_frame(&Bytes::from_static(bytes))
+                .expect_err(&format!("must reject: {why}"));
+            assert_eq!(
+                resp.headers().get("grpc-status").unwrap(),
+                &format!("{}", expected as i32),
+                "wrong status for: {why}"
+            );
+        }
     }
 
     #[tokio::test]
