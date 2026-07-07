@@ -356,7 +356,7 @@ class EndpointExecutionService(PydanticModelMixin):
         Returns False if:
         - Not materialized
         - Materialization incomplete/failed
-        - Materialized data is stale (older than sync frequency)
+        - Materialized data is stale (older than the version's data freshness target)
         - User overrides present (variables, query)
         - 'direct' mode requested (explicitly bypass materialization)
         """
@@ -370,9 +370,11 @@ class EndpointExecutionService(PydanticModelMixin):
         if not saved_query.table:
             return False
 
-        # Check if materialized data is stale
-        if saved_query.last_run_at and saved_query.sync_frequency_interval:
-            next_refresh_due = saved_query.last_run_at + saved_query.sync_frequency_interval
+        # Check if materialized data is stale. Keyed on the version's freshness target, not
+        # saved_query.sync_frequency_interval — the v2 schedule migration nulls that field.
+        materialized_at = saved_query_materialized_at(saved_query)
+        if materialized_at and version.data_freshness_seconds:
+            next_refresh_due = materialized_at + timedelta(seconds=version.data_freshness_seconds)
             if timezone.now() >= next_refresh_due:
                 return False
 
