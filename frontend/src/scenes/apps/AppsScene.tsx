@@ -41,8 +41,17 @@ export function AppsScene(): JSX.Element {
         return Math.max(columns, 1)
     }
 
-    // Arrow keys move the selection while the search field keeps focus, so you can keep typing
+    // Arrow keys move the selection while the search field keeps focus, so you can keep typing.
+    // Enter is handled here too: LemonInput's own Enter handling (onPressEnter) is overridden
+    // the moment a custom onKeyDown prop is passed, as the props spread replaces it.
     function handleSearchKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
+        if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+            const selected = filteredAppItems[selectedIndex]
+            if (selected?.href) {
+                router.actions.push(selected.href)
+            }
+            return
+        }
         let next: number
         switch (e.key) {
             case 'ArrowRight':
@@ -80,12 +89,6 @@ export function AppsScene(): JSX.Element {
                     placeholder="Search apps"
                     value={searchTerm}
                     onChange={setSearchTerm}
-                    onPressEnter={() => {
-                        const selected = filteredAppItems[selectedIndex]
-                        if (selected?.href) {
-                            router.actions.push(selected.href)
-                        }
-                    }}
                     onKeyDown={handleSearchKeyDown}
                     autoFocus
                     data-attr="apps-scene-search"
