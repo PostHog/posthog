@@ -50,6 +50,11 @@ logger = structlog.get_logger(__name__)
 SLACK_DOWNLOAD_TIMEOUT_SECONDS = 10
 MAX_REDIRECTS = 5
 
+# Slack message subtypes that are edits, deletions, or channel system messages
+# ("<user> has joined/left the channel"). None of these should create or update a
+# support ticket.
+IGNORED_MESSAGE_SUBTYPES = frozenset({"message_changed", "message_deleted", "channel_join", "channel_leave"})
+
 # Slack ID shapes — guard against malformed payloads before interpolating into mrkdwn.
 # Permissive on charset (underscores allowed) but blocks angle brackets, @, #, and spaces.
 _SLACK_USER_ID_RE = re.compile(r"^[UW][A-Z0-9_]+$")
@@ -576,8 +581,8 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
     if not channel:
         return
 
-    # Always skip non-message subtypes
-    if event.get("subtype") in ("message_changed", "message_deleted"):
+    # Always skip edits, deletions, and channel join/leave system messages
+    if event.get("subtype") in IGNORED_MESSAGE_SUBTYPES:
         return
 
     is_bot = bool(event.get("bot_id") or event.get("subtype") == "bot_message")
@@ -787,7 +792,7 @@ def _backfill_thread_replies(
     team_message_count = 0
 
     for reply in thread_replies:
-        if reply.get("subtype") in ("message_changed", "message_deleted"):
+        if reply.get("subtype") in IGNORED_MESSAGE_SUBTYPES:
             continue
 
         # Skip our own bot's messages to prevent loops, but allow other bots

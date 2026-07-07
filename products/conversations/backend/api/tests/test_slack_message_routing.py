@@ -250,6 +250,31 @@ class TestSlackMessageRouting(BaseTest):
 
         mock_create_or_update.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("channel_join",),
+            ("channel_leave",),
+            ("message_changed",),
+            ("message_deleted",),
+        ]
+    )
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_system_message_subtype_does_not_create_ticket(self, subtype, mock_create_or_update):
+        handle_support_message(
+            {
+                "type": "message",
+                "subtype": subtype,
+                "channel": "C_CONFIG",
+                "ts": "1700000000.000100",
+                "user": "U123",
+                "text": "<@U123> has joined the channel",
+            },
+            self.team,
+            "T123",
+        )
+
+        mock_create_or_update.assert_not_called()
+
     @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
     @patch(f"{MODULE}.get_slack_client")
     @patch(f"{MODULE}.create_or_update_slack_ticket")
