@@ -1,4 +1,5 @@
 import os
+import uuid
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -14,101 +15,69 @@ SLACK_DOWNLOAD_TIMEOUT_SECONDS = 15
 MAX_SLACK_DOWNLOAD_REDIRECTS = 5
 
 _ALLOWED_SLACK_FILE_HOST_SUFFIXES = ("slack.com", "slack-edge.com", "slack-files.com")
-_DANGEROUS_EXTENSIONS = frozenset(
+
+# Allowlist, not denylist: a wrongly blocked file produces a visible "skipped
+# because…" note the user can act on, while a wrongly allowed file is silent.
+# The realistic Slack-attachment set is small — images, PDFs, and plain-text
+# data formats. Anything executable, scripted, or macro-capable stays out.
+_ALLOWED_EXTENSIONS = frozenset(
     {
-        ".app",
-        ".apk",
-        ".bat",
-        ".bin",
-        ".bash",
-        ".cmd",
-        ".com",
-        ".cpl",
-        ".csh",
-        ".dll",
-        ".dmg",
-        ".elf",
-        ".exe",
-        ".fish",
-        ".hta",
-        ".jar",
-        ".js",
-        ".jse",
-        ".ksh",
-        ".lnk",
-        ".mjs",
-        ".msi",
-        ".pkg",
-        ".pif",
-        ".ps1",
-        ".psd1",
-        ".psm1",
-        ".py",
-        ".rb",
-        ".reg",
-        ".run",
-        ".scr",
-        ".sh",
-        ".vb",
-        ".vbe",
-        ".vbs",
-        ".wsf",
-        ".wsh",
-        ".zsh",
+        ".bmp",
+        ".csv",
+        ".gif",
+        ".jpeg",
+        ".jpg",
+        ".json",
+        ".log",
+        ".markdown",
+        ".md",
+        ".pdf",
+        ".png",
+        ".tsv",
+        ".txt",
+        ".webp",
+        ".yaml",
+        ".yml",
     }
 )
-_DANGEROUS_MIME_TYPES = frozenset(
+_ALLOWED_MIME_TYPES = frozenset(
     {
-        "application/bat",
-        "application/cmd",
-        "application/com",
-        "application/dos-exe",
-        "application/exe",
-        "application/javascript",
-        "application/java-archive",
-        "application/msdos-windows",
-        "application/octet-stream-executable",
-        "application/vnd.microsoft.portable-executable",
-        "application/x-apple-diskimage",
-        "application/x-bat",
-        "application/x-csh",
-        "application/x-dosexec",
-        "application/x-executable",
-        "application/x-ms-dos-executable",
-        "application/x-msdownload",
-        "application/x-msi",
-        "application/x-powershell",
-        "application/x-python",
-        "application/x-ruby",
-        "application/x-sh",
-        "application/x-shellscript",
-        "application/x-zsh",
-        "text/javascript",
-        "text/x-python",
-        "text/x-ruby",
-        "text/x-script.python",
-        "text/x-shellscript",
-        "text/x-sh",
+        "application/json",
+        "application/pdf",
+        "application/x-yaml",
+        "application/yaml",
+        "image/bmp",
+        "image/gif",
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "text/csv",
+        "text/markdown",
+        "text/plain",
+        "text/tab-separated-values",
+        "text/yaml",
     }
 )
-_DANGEROUS_SLACK_FILETYPES = frozenset(
+_ALLOWED_SLACK_FILETYPES = frozenset(
     {
-        "applescript",
-        "binary",
-        "csh",
-        "executable",
-        "javascript",
-        "js",
-        "ksh",
-        "powershell",
-        "python",
-        "ruby",
-        "shell",
-        "sh",
-        "vb",
-        "vbscript",
-        "zsh",
+        "bmp",
+        "csv",
+        "gif",
+        "jpeg",
+        "jpg",
+        "json",
+        "markdown",
+        "pdf",
+        "png",
+        "text",
+        "tsv",
+        "webp",
+        "yaml",
     }
+)
+
+_ATTACHMENT_TYPE_SKIP_REASON = (
+    "only image, PDF, and plain-text attachments (logs, markdown, CSV, JSON, YAML) are supported"
 )
 
 _EXECUTABLE_MAGIC_PREFIXES = (
@@ -163,13 +132,26 @@ def _is_allowed_slack_file_url(url: str) -> bool:
     return any(hostname == suffix or hostname.endswith(f".{suffix}") for suffix in _ALLOWED_SLACK_FILE_HOST_SUFFIXES)
 
 
-def _is_dangerous_metadata(filename: str, content_type: str, slack_filetype: Any) -> bool:
+def _is_allowed_metadata(filename: str, content_type: str, slack_filetype: Any) -> bool:
+    """Every signal present must be allowed, and at least one positive signal must exist.
+
+    Fails closed on contradiction (a ``.png`` name with a script mimetype) and on
+    files with no recognizable signal. ``application/octet-stream`` is treated as
+    "no mimetype" — Slack falls back to it for perfectly safe uploads, so it neither
+    allows nor blocks on its own.
+    """
     extension = os.path.splitext(filename.lower())[1]
-    if extension in _DANGEROUS_EXTENSIONS:
-        return True
-    if content_type in _DANGEROUS_MIME_TYPES:
-        return True
-    return isinstance(slack_filetype, str) and slack_filetype.lower() in _DANGEROUS_SLACK_FILETYPES
+    filetype = slack_filetype.lower() if isinstance(slack_filetype, str) else ""
+    extension_allowed = extension in _ALLOWED_EXTENSIONS
+    mime_allowed = content_type in _ALLOWED_MIME_TYPES
+    filetype_allowed = filetype in _ALLOWED_SLACK_FILETYPES
+    if extension and not extension_allowed:
+        return False
+    if content_type and content_type != "application/octet-stream" and not mime_allowed:
+        return False
+    if filetype and not filetype_allowed:
+        return False
+    return extension_allowed or mime_allowed or filetype_allowed
 
 
 def _is_dangerous_payload(payload: bytes) -> bool:
@@ -221,6 +203,15 @@ def _download_slack_file(url: str, bot_token: str) -> bytes | None:
 
             if response.status_code != 200:
                 logger.warning("slack_attachment_download_failed_status", status_code=response.status_code)
+                return None
+
+            # Slack answers HTTP 200 with an HTML login/interstitial page when the
+            # token lacks files:read or the file is access-restricted. HTML is never
+            # an allowed attachment type, so an HTML body is always the interstitial
+            # — forwarding it would silently hand the agent a login page as the file.
+            response_content_type = _normalize_content_type(response.headers.get("Content-Type"))
+            if response_content_type in ("text/html", "application/xhtml+xml"):
+                logger.warning("slack_attachment_download_html_interstitial", content_type=response_content_type)
                 return None
 
             content_length = response.headers.get("Content-Length")
@@ -277,8 +268,8 @@ def prepare_slack_file_artifacts(files: Any, bot_token: str | None) -> PreparedS
 
         filename = _safe_filename(file)
         content_type = _normalize_content_type(file.get("mimetype")) or "application/octet-stream"
-        if _is_dangerous_metadata(filename, content_type, file.get("filetype")):
-            skipped_messages.append(f"{filename} was skipped because executable or script attachments are not allowed.")
+        if not _is_allowed_metadata(filename, content_type, file.get("filetype")):
+            skipped_messages.append(f"{filename} was skipped because {_ATTACHMENT_TYPE_SKIP_REASON}.")
             continue
 
         size = _file_size(file)
@@ -304,18 +295,23 @@ def prepare_slack_file_artifacts(files: Any, bot_token: str | None) -> PreparedS
             skipped_messages.append(f"{filename} was skipped because it could not be downloaded from Slack.")
             continue
         if _is_dangerous_payload(payload):
-            skipped_messages.append(f"{filename} was skipped because executable or script attachments are not allowed.")
+            skipped_messages.append(f"{filename} was skipped because its content looks like an executable or script.")
             continue
 
-        artifacts.append(
-            {
-                "name": filename,
-                "type": "user_attachment",
-                "source": "slack_user_attachment",
-                "content_type": content_type,
-                "content_bytes": payload,
-            }
-        )
+        artifact: dict[str, Any] = {
+            "name": filename,
+            "type": "user_attachment",
+            "source": "slack_user_attachment",
+            "content_type": content_type,
+            "content_bytes": payload,
+        }
+        # A deterministic id (keyed on Slack's globally-unique file id) makes the
+        # manifest append an upsert: activity retries after a partial failure
+        # re-upload to the same id instead of appending duplicate entries.
+        file_id = file.get("id")
+        if isinstance(file_id, str) and file_id:
+            artifact["id"] = uuid.uuid5(uuid.NAMESPACE_URL, f"posthog:slack_user_attachment:{file_id}").hex
+        artifacts.append(artifact)
 
     return PreparedSlackAttachments(
         artifacts=artifacts,
