@@ -109,6 +109,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             "resource_name": data["resource_name"],
             "dashboard_export_insights": [],
             "prompt": None,
+            "ai_prompt_config": {},
             "target_type": "email",
             "target_value": "test@posthog.com",
             "frequency": "weekly",
