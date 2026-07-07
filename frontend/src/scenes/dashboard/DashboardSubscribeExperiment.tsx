@@ -24,12 +24,12 @@ function SubscribeIcon({ dashboardId }: { dashboardId: number }): JSX.Element {
     const { subscriptions } = useValues(subscriptionsLogic({ dashboardId }))
 
     if (!hasAvailableFeature(AvailableFeature.SUBSCRIPTIONS)) {
-        return <IconBell />
+        return <IconBell fontSize="16" />
     }
 
     return (
         <IconWithCount count={subscriptions?.length} showZero={false}>
-            <IconBell />
+            <IconBell fontSize="16" />
         </IconWithCount>
     )
 }
