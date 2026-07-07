@@ -258,6 +258,7 @@ class TestRelationshipFacade(BaseTest):
         definition = facade.create_account_relationship_definition(
             team_id=self.team.id, name="CSM", created_by=self.user
         )
+        assert definition.id is not None
         assigned = facade.assign_account_relationship(
             team_id=self.team.id,
             account_id=self.account.id,
@@ -284,6 +285,7 @@ class TestRelationshipFacade(BaseTest):
         definition = facade.create_account_relationship_definition(
             team_id=self.team.id, name="CSM", created_by=self.user
         )
+        assert definition.id is not None
         outsider = User.objects.create_user("outsider@example.com", None, "")
         with self.assertRaises(facade.AccountRelationshipDefinitionNotFound):
             facade.assign_account_relationship(
@@ -306,6 +308,7 @@ class TestRelationshipFacade(BaseTest):
         definition = facade.create_account_relationship_definition(
             team_id=self.team.id, name="CSM", created_by=self.user
         )
+        assert definition.id is not None
         other_account = Account.objects.create_account(team=self.team, name="Other")
         assigned = facade.assign_account_relationship(
             team_id=self.team.id,

@@ -1816,7 +1816,7 @@ def assign_account_relationship(
     Raises ``Account_DoesNotExist`` (→ 404), ``AccountRelationshipDefinitionNotFound`` and
     ``AccountRelationshipAssigneeNotInOrganization`` (→ 400).
     """
-    account = Account.objects.for_team(team_id).get(id=account_id)
+    account = Account.objects.for_team(team_id).select_related("team").get(id=account_id)
     definition = AccountRelationshipDefinition.objects.for_team(team_id).filter(id=definition_id).first()
     if definition is None:
         raise AccountRelationshipDefinitionNotFound(str(definition_id))

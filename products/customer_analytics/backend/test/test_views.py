@@ -2288,3 +2288,37 @@ class TestAccountRelationshipViewSet(APIBaseTest):
         self.assertEqual(status.HTTP_200_OK, ended.status_code, ended.json())
         self.assertIsNotNone(ended.json()["ended_at"])
         self.assertEqual([], self.client.get(self.endpoint).json())
+
+    def test_assign_with_unknown_definition_returns_400(self):
+        response = self.client.post(
+            self.endpoint, {"definition": "00000000-0000-0000-0000-000000000000", "user": self.user.id}
+        )
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        data = response.json()
+        self.assertEqual(data["attr"], "definition")
+        self.assertEqual(data["type"], "validation_error")
+
+    def test_assign_to_user_outside_organization_returns_400(self):
+        definition = self._create_relationship_definition()
+        outsider = User.objects.create_user("outsider@example.com", None, "")
+
+        response = self.client.post(self.endpoint, {"definition": str(definition.id), "user": outsider.id})
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        data = response.json()
+        self.assertEqual(data["attr"], "user")
+        self.assertEqual(data["type"], "validation_error")
+
+    def test_end_already_ended_relationship_returns_404(self):
+        definition = self._create_relationship_definition()
+        rel = relationships_logic.assign(
+            team_id=self.team.id, account=self.account, definition=definition, user=self.user, created_by=self.user
+        )
+        relationships_logic.end_relationship(
+            team_id=self.team.id, account_id=self.account.id, relationship_id=str(rel.id)
+        )
+
+        response = self.client.post(f"{self.endpoint}{rel.id}/end/")
+
+        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
