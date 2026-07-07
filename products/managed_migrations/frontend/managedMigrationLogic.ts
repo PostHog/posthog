@@ -24,16 +24,24 @@ import { urls } from 'scenes/urls'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { Breadcrumb, ProjectTreeRef } from '~/types'
 
-import { managedMigrationsPromoteCreate, managedMigrationsTrialRecordsRetrieve } from './generated/api'
-import type { TrialRecordsResponseApi } from './generated/api.schemas'
+import {
+    managedMigrationsAwsIamSetupRetrieve,
+    managedMigrationsPromoteCreate,
+    managedMigrationsTrialRecordsRetrieve,
+} from './generated/api'
+import type { BatchImportAWSIAMSetupApi, TrialRecordsResponseApi } from './generated/api.schemas'
 import { ManagedMigration } from './types'
+
+export const S3_ROLE_ARN_REGEX = /^arn:aws:iam::\d{12}:role\/.+$/
 
 export interface ManagedMigrationForm {
     source_type: 's3' | 's3_gzip' | 'mixpanel' | 'amplitude'
-    access_key: string
-    secret_key: string
+    access_key?: string
+    secret_key?: string
     content_type: 'captured' | 'mixpanel' | 'amplitude'
     // s3 specific fields
+    s3_auth_method?: 'iam_role' | 'access_keys'
+    role_arn?: string
     s3_region?: string
     s3_bucket?: string
     s3_prefix?: string
@@ -59,6 +67,8 @@ const NEW_MANAGED_MIGRATION: ManagedMigrationForm = {
     source_type: 's3',
     access_key: '',
     secret_key: '',
+    s3_auth_method: 'iam_role',
+    role_arn: '',
     s3_region: '',
     s3_bucket: '',
     s3_prefix: '',
@@ -300,6 +310,15 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                 closeTrialResults: () => null,
             },
         ],
+        awsIamSetup: [
+            null as BatchImportAWSIAMSetupApi | null,
+            {
+                loadAwsIamSetup: async () => {
+                    const projectId = ApiConfig.getCurrentProjectId()
+                    return await managedMigrationsAwsIamSetupRetrieve(String(projectId))
+                },
+            },
+        ],
     })),
     forms({
         managedMigration: {
@@ -309,6 +328,8 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                 content_type,
                 access_key,
                 secret_key,
+                s3_auth_method,
+                role_arn,
                 s3_region,
                 s3_bucket,
                 start_date,
@@ -319,12 +340,15 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                 is_trial,
                 trial_record_limit,
             }: ManagedMigrationForm) => {
+                const usesIamRole = (source_type === 's3' || source_type === 's3_gzip') && s3_auth_method === 'iam_role'
+
                 const errors: Record<string, string | null> = {
-                    secret_key: !secret_key
-                        ? source_type === 'mixpanel'
-                            ? 'Project secret is required'
-                            : 'Secret key is required'
-                        : null,
+                    secret_key:
+                        !secret_key && !usesIamRole
+                            ? source_type === 'mixpanel'
+                                ? 'Project secret is required'
+                                : 'Secret key is required'
+                            : null,
                 }
 
                 if (is_trial) {
@@ -335,8 +359,16 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                 }
 
                 // Mixpanel authenticates with the project secret alone — no access key.
-                if (source_type !== 'mixpanel') {
+                if (source_type !== 'mixpanel' && !usesIamRole) {
                     errors.access_key = !access_key ? 'Access key is required' : null
+                }
+
+                if (usesIamRole) {
+                    errors.role_arn = !role_arn
+                        ? 'IAM role ARN is required'
+                        : !S3_ROLE_ARN_REGEX.test(role_arn)
+                          ? 'Enter a valid IAM role ARN, e.g. arn:aws:iam::123456789012:role/posthog-import'
+                          : null
                 }
 
                 if (source_type === 's3' || source_type === 's3_gzip') {
@@ -382,12 +414,16 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
             },
             submit: async (values: ManagedMigrationForm) => {
                 const projectId = ApiConfig.getCurrentProjectId()
+                const usesIamRole =
+                    (values.source_type === 's3' || values.source_type === 's3_gzip') &&
+                    values.s3_auth_method === 'iam_role'
                 let payload: ManagedMigrationForm = {
                     source_type: values.source_type,
-                    access_key: values.access_key,
-                    secret_key: values.secret_key,
                     content_type: values.content_type,
                     ...(values.is_trial ? { is_trial: true, trial_record_limit: values.trial_record_limit } : {}),
+                    ...(usesIamRole
+                        ? { role_arn: values.role_arn }
+                        : { access_key: values.access_key, secret_key: values.secret_key }),
                 }
                 if (values.source_type === 's3' || values.source_type === 's3_gzip') {
                     payload = {
@@ -395,7 +431,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                         s3_region: values.s3_region,
                         s3_bucket: values.s3_bucket,
                         s3_prefix: values.s3_prefix,
-                        ...(values.endpoint_url ? { endpoint_url: values.endpoint_url } : {}),
+                        ...(values.endpoint_url && !usesIamRole ? { endpoint_url: values.endpoint_url } : {}),
                     }
 
                     if (values.content_type === 'amplitude') {
@@ -432,6 +468,12 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
         },
     }),
     listeners(({ actions, values, cache }) => ({
+        loadAwsIamSetupSuccess: ({ awsIamSetup }) => {
+            // Role auth needs the deployment's import role - fall back to keys when unavailable
+            if (!awsIamSetup?.available) {
+                actions.setManagedMigrationValue('s3_auth_method', 'access_keys')
+            }
+        },
         submitManagedMigrationSuccess: async ({ managedMigration }) => {
             if (managedMigration?.is_trial) {
                 lemonToast.success('Trial run started — results will appear here when it completes')
@@ -580,6 +622,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadMigrations()
+        actions.loadAwsIamSetup()
     }),
     beforeUnmount(({ actions }) => {
         actions.stopPolling()
