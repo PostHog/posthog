@@ -290,6 +290,12 @@ def _has_personal_github(user_id: int) -> bool:
     return UserIntegration.objects.filter(user_id=user_id, kind=UserIntegration.IntegrationKind.GITHUB).exists()
 
 
+def is_github_connected(team_id: int, user_id: int | None) -> bool:
+    """GitHub counts as connected only when the team install and the user's personal GitHub link
+    both exist; an unresolved user waives the personal half."""
+    return (user_id is None or _has_personal_github(user_id)) and _has_team_github(team_id)
+
+
 def _has_ai_approval(team_id: int) -> bool:
     org_approved = (
         Team.objects.filter(id=team_id).values_list("organization__is_ai_data_processing_approved", flat=True).first()
@@ -333,7 +339,6 @@ def _onboarding_status(
 ) -> tuple[int | None, dict[OnboardingStep, bool]]:
     """Resolve the user and evaluate each step's done/not-done — the source of truth for what's left.
     Pass ``user_id`` when the caller already resolved it, to skip the repeat lookup."""
-    # GitHub is done only when both the team install and the user's personal GitHub exist.
     if user_id is None:
         user_id = _resolve_onboarding_user(slack, integration, slack_user_id)
     team_id = integration.team_id
@@ -342,7 +347,7 @@ def _onboarding_status(
     return user_id, {
         OnboardingStep.AI_APPROVAL: _has_ai_approval(team_id),
         OnboardingStep.CHANNEL: in_channel,
-        OnboardingStep.GITHUB: (user_id is None or _has_personal_github(user_id)) and _has_team_github(team_id),
+        OnboardingStep.GITHUB: is_github_connected(team_id, user_id),
         OnboardingStep.SOURCES: _has_enabled_source(team_id),
     }
 

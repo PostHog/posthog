@@ -140,6 +140,10 @@ class SlackSettings(UUIDModel):
     onboarded_at = models.DateTimeField(null=True, blank=True)
     # Transient step state for the persona-onboarding DM flow; cleared on completion.
     onboarding_state = models.JSONField(null=True, blank=True)
+    # Pointer to the onboarding message whose Connect GitHub offer is still open, so the
+    # post-OAuth signal can flip it to "connected" and confirm in the thread. Cleared once
+    # resolved; see persona_onboarding.resolve_github_connect_followups.
+    github_connect_followup = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

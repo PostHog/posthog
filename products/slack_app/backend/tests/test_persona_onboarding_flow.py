@@ -14,6 +14,7 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.models.user_integration import UserIntegration
 
 from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo, TemplateInfo
 from products.signals.backend.facade.api import ScoutProvisionResult
@@ -82,7 +83,8 @@ def _inline_background_work():
 
 class _FlowTestBase:
     @pytest.fixture(autouse=True)
-    def setup(self, db):
+    def setup(self, db, django_capture_on_commit_callbacks):
+        self.capture_on_commit = django_capture_on_commit_callbacks
         cache.clear()
         self.organization = Organization.objects.create(name="Org")
         self.team = Team.objects.create(organization=self.organization, name="Team")
@@ -271,9 +273,15 @@ class TestPersonaSelection(_FlowTestBase):
         action = {"action_id": persona_onboarding.PERSONA_SELECT_ACTION_ID, "value": value}
         persona_onboarding.handle_block_action(self._payload(action), action)
 
+    @parameterized.expand([("github_missing", False), ("github_connected", True)])
     @patch(WEBCLIENT)
-    def test_engineer_select_completes_onboarding(self, mock_webclient):
+    def test_engineer_select_completes_onboarding(self, _name, github_connected, mock_webclient):
         client = self._client(mock_webclient)
+        if github_connected:
+            Integration.objects.create(team=self.team, kind="github", integration_id="789", config={})
+            UserIntegration.objects.create(
+                user=self.user, kind=UserIntegration.IntegrationKind.GITHUB, integration_id="789"
+            )
         row = self._seed_state(persona_onboarding.STEP_AWAITING_PERSONA)
 
         self._select("engineer")
@@ -282,7 +290,53 @@ class TestPersonaSelection(_FlowTestBase):
         assert row.persona == "engineer"
         assert row.onboarded_at is not None
         assert row.onboarding_state is None
-        assert persona_onboarding.ENGINEER_COMPLETION_TEXT in self._posted_text(client)
+        connect_urls = [
+            str(element.get("url"))
+            for call in client.chat_postMessage.call_args_list
+            for block in call.kwargs.get("blocks") or []
+            for element in block.get("elements", [])
+            if "/integrations/connect/github/" in str(element.get("url"))
+        ]
+        if github_connected:
+            assert persona_onboarding.ENGINEER_GITHUB_CONNECTED_TEXT in self._posted_text(client)
+            assert connect_urls == []
+            assert row.github_connect_followup is None
+        else:
+            assert persona_onboarding.ENGINEER_GITHUB_NEEDED_TEXT in self._posted_text(client)
+            assert any(f"project_id={self.team.id}" in url and "connect_from=slack" in url for url in connect_urls)
+            assert row.github_connect_followup["message_ts"] == "111.222"
+
+    @parameterized.expand([("fully_connected", True), ("personal_link_only", False)])
+    @patch(WEBCLIENT)
+    def test_github_connect_resolves_engineer_followup(self, _name, with_team_install, mock_webclient):
+        client = self._client(mock_webclient)
+        self._seed_state(persona_onboarding.STEP_AWAITING_PERSONA)
+        self._select("engineer")
+        client.chat_postMessage.reset_mock()
+        client.chat_update.reset_mock()
+
+        with self.capture_on_commit(execute=True):
+            if with_team_install:
+                Integration.objects.create(team=self.team, kind="github", integration_id="789", config={})
+            UserIntegration.objects.create(
+                user=self.user, kind=UserIntegration.IntegrationKind.GITHUB, integration_id="789"
+            )
+
+        row = self._row()
+        if with_team_install:
+            # Resolved exactly once even though both integration rows fired a signal.
+            assert row.github_connect_followup is None
+            assert client.chat_update.call_count == 1
+            update_kwargs = client.chat_update.call_args.kwargs
+            assert update_kwargs["channel"] == DM_CHANNEL
+            assert update_kwargs["ts"] == "111.222"
+            assert persona_onboarding.GITHUB_CONNECTED_NOTE in str(update_kwargs["blocks"])
+            assert persona_onboarding.GITHUB_CONNECTED_FOLLOWUP_TEXT in self._posted_text(client)
+        else:
+            # Half-connected (no team install yet): the offer must stay open and stay quiet.
+            assert row.github_connect_followup is not None
+            client.chat_update.assert_not_called()
+            client.chat_postMessage.assert_not_called()
 
     @patch(WEBCLIENT)
     def test_csm_select_reveals_fleet_then_asks_for_channel(self, mock_webclient):
