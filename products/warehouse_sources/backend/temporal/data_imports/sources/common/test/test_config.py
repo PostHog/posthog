@@ -1,3 +1,4 @@
+import json
 import typing
 
 import pytest
@@ -462,14 +463,16 @@ def test_to_config_scalar_under_nested_config_key(
     assert cfg.account_id == expected_account_id
 
 
-@pytest.mark.parametrize("bad_input", ["not a mapping", '{"key_file": {}}', b"bytes", 5, ["a", "b"], None])
+@pytest.mark.parametrize("bad_input", ["not a mapping", '"scalar"', "[1, 2, 3]", b"bytes", 5, ["a", "b"], None])
 def test_from_dict_with_non_mapping_raises_clear_error(bad_input):
     """A non-mapping input must raise an actionable error, not the opaque builtin `TypeError`.
 
     Stored config can come back as a non-mapping (e.g. a double-encoded string from an
     `EncryptedJSONField`). Indexing into it deep inside `to_config` raised
     `TypeError: string indices must be integers`, which is impossible to triage from the
-    source alone. `from_dict` must reject it up front with the config class name in the message.
+    source alone. A string that decodes to a mapping is recovered, but any other shape
+    (unparseable text, or JSON that decodes to a scalar/list) must be rejected up front with
+    the config class name in the message.
     """
 
     @config.config
@@ -484,6 +487,24 @@ def test_from_dict_with_non_mapping_raises_clear_error(bad_input):
 
     with pytest.raises(TypeError, match="Cannot build 'SourceConfig'"):
         SourceConfig.from_dict(bad_input)
+
+
+def test_from_dict_recovers_double_encoded_json_string():
+    """A config stored as a JSON string (double-encoded by `EncryptedJSONField`) must be
+    decoded back into a working config instead of crashing the sync with `Cannot build ...`.
+    """
+
+    @config.config
+    class SourceConfig(config.Config):
+        host: str
+        port: int = 0
+
+    config_dict = {"host": "example", "port": 5432}
+
+    cfg = SourceConfig.from_dict(json.dumps(config_dict))
+
+    assert cfg.host == "example"
+    assert cfg.port == 5432
 
 
 def test_to_config_optional_config_does_not_retain_unparseable_dict():

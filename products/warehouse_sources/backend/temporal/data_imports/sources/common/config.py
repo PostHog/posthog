@@ -1,3 +1,4 @@
+import json
 import types
 import typing
 import reprlib
@@ -583,11 +584,19 @@ def config(
 
     def wrap(cls: type[_T]) -> type[_T]:
         def from_dict(cls, d: dict[str, typing.Any]):
+            if isinstance(d, str):
+                # Stored config (an `EncryptedJSONField`) can come back double-encoded: a JSON
+                # string holding the mapping rather than the mapping itself. Recover by decoding
+                # it once so the sync proceeds instead of crashing.
+                try:
+                    d = json.loads(d)
+                except json.JSONDecodeError:
+                    pass
+
             if not isinstance(d, dict):
-                # Stored config (e.g. an `EncryptedJSONField`) can occasionally come back as a
-                # non-mapping (a double-encoded string). Fail with an actionable message instead
-                # of the opaque `TypeError: string indices must be integers` raised when `to_config`
-                # tries to index into it.
+                # Anything still not a mapping (a non-object JSON value, bytes, ...) can't build a
+                # config. Fail with an actionable message instead of the opaque
+                # `TypeError: string indices must be integers` raised when `to_config` indexes it.
                 raise TypeError(f"Cannot build '{cls.__name__}' from {type(d).__name__}; expected a mapping")
 
             if prefix:
