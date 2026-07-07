@@ -1,0 +1,93 @@
+import { expectLogic } from 'kea-test-utils'
+
+import api from 'lib/api'
+
+import { initKeaTests } from '~/test/init'
+
+import { notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
+
+describe('notebookNodeSQLV2Logic', () => {
+    let logic: ReturnType<typeof notebookNodeSQLV2Logic.build>
+    let updateAttributes: jest.Mock
+    let runSpy: jest.SpyInstance
+    let resultSpy: jest.SpyInstance
+
+    const mount = (props: Record<string, unknown> = {}): void => {
+        logic = notebookNodeSQLV2Logic({ nodeId: 'n1', notebookShortId: 'nb1', updateAttributes, ...props })
+        logic.mount()
+    }
+
+    beforeEach(() => {
+        initKeaTests()
+        updateAttributes = jest.fn()
+        runSpy = jest.spyOn(api.notebooks, 'sqlV2Run').mockResolvedValue({ run_id: 'r1' })
+        // Default: the run is still executing, so polling continues without resolving.
+        resultSpy = jest
+            .spyOn(api.notebooks, 'sqlV2RunResult')
+            .mockResolvedValue({ status: 'running', result: null, error: null })
+    })
+
+    afterEach(() => {
+        logic?.unmount()
+        jest.restoreAllMocks()
+    })
+
+    it('rejects blank code before dispatching a run', async () => {
+        mount()
+        logic.actions.runQuery('   ')
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ runError: 'Query is empty — type some HogQL first.', isRunning: false })
+        expect(runSpy).not.toHaveBeenCalled()
+    })
+
+    it('dispatches the run, persists the run id, and starts polling', async () => {
+        mount()
+        logic.actions.runQuery('select 1')
+        await expectLogic(logic).toDispatchActions(['runQuery', 'startPolling', 'pollResult'])
+        expect(runSpy).toHaveBeenCalledWith('nb1', { node_id: 'n1', code: 'select 1' })
+        // The run id is persisted so a reload/remount can recover the in-flight run.
+        expect(updateAttributes).toHaveBeenCalledWith({ runId: 'r1', result: null })
+    })
+
+    it('maps a done envelope into the node result and stops the spinner', async () => {
+        resultSpy.mockResolvedValue({
+            status: 'done',
+            result: { columns: ['a'], first_page: [[1]], row_count: 1 },
+            error: null,
+        })
+        mount({ runId: 'r1', hasResult: false })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(updateAttributes).toHaveBeenCalledWith({
+            result: { columns: ['a'], types: [], row_count: 1, first_page: [[1]] },
+        })
+        expect(logic.values.isRunning).toBe(false)
+    })
+
+    it('surfaces a failed run as an error', async () => {
+        resultSpy.mockResolvedValue({ status: 'failed', result: null, error: 'no such table' })
+        mount({ runId: 'r1', hasResult: false })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.runError).toBe('no such table')
+        expect(logic.values.isRunning).toBe(false)
+    })
+
+    it('surfaces a run dispatch failure as an error', async () => {
+        runSpy.mockRejectedValue(new Error('network down'))
+        mount()
+        logic.actions.runQuery('select 1')
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ runError: 'network down', isRunning: false })
+    })
+
+    it('resumes polling a persisted un-finished run on mount', async () => {
+        mount({ runId: 'r1', hasResult: false })
+        await expectLogic(logic).toDispatchActions(['startPolling', 'pollResult'])
+        expect(resultSpy).toHaveBeenCalledWith('nb1', 'r1')
+    })
+
+    it('does not poll a persisted run that already has a result', async () => {
+        mount({ runId: 'r1', hasResult: true })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(resultSpy).not.toHaveBeenCalled()
+    })
+})

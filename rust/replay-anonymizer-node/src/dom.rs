@@ -219,7 +219,7 @@ fn scrub_attrs(ctx: &Ctx<'_>, attrs: &mut Object<'_>, kind: TagKind) -> bool {
             continue;
         };
         let result = if is_url_attr(name) {
-            scrub_url(ctx.allow, current)
+            scrub_url(ctx, current)
         } else if is_user_text_attr(name) {
             scrub_text(ctx.allow, current)
         } else if is_data_attr(name) {
@@ -283,6 +283,7 @@ pub(crate) fn is_url_attr(name: &str) -> bool {
         name,
         "href"
             | "src"
+            | "rr_src"
             | "srcset"
             | "action"
             | "formaction"
