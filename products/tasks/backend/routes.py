@@ -13,9 +13,13 @@ def register_routes(routers: RouterRegistry) -> None:
         r"thread_messages", channels.TaskThreadMessageViewSet, "project_task_thread_messages", ["team_id", "task_id"]
     )
     routers.projects.register(r"task_channels", channels.ChannelViewSet, "project_task_channels", ["team_id"])
+    routers.projects.register(r"task_mentions", channels.TaskMentionViewSet, "project_task_mentions", ["team_id"])
     routers.projects.register(r"task_automations", tasks.TaskAutomationViewSet, "project_task_automations", ["team_id"])
     routers.projects.register(
         r"sandbox_environments", tasks.SandboxEnvironmentViewSet, "project_sandbox_environments", ["team_id"]
+    )
+    routers.projects.register(
+        r"sandbox_custom_images", tasks.SandboxCustomImageViewSet, "project_sandbox_custom_images", ["team_id"]
     )
     routers.projects.register(r"code_workflow", code_home.CodeWorkflowViewSet, "project_code_workflow", ["team_id"])
     routers.projects.register(r"code_home", code_home.CodeHomeViewSet, "project_code_home", ["team_id"])

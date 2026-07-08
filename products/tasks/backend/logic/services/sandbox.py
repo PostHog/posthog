@@ -25,13 +25,14 @@ from typing import TYPE_CHECKING, Protocol, Self
 from django.conf import settings
 
 import structlog
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, SNAPSHOT_KIND_FILESYSTEM, SnapshotKind
 from products.tasks.backend.logic.services.sandbox_config import (
     BURSTABLE_REQUEST_CPU_CORES,
     BURSTABLE_REQUEST_MEMORY_MB,
     SANDBOX_TTL_SECONDS,
+    VM_SANDBOX_CPU_CORES,
 )
 
 if TYPE_CHECKING:
@@ -108,6 +109,22 @@ class SandboxConfig(BaseModel):
     vm_runtime: bool = False
     # gVisor only — Modal rejects this under vm_runtime.
     outbound_domain_allowlist: list[str] | None = None
+    # VM runtime only — custom images layer on the VM base; snapshot restores take precedence.
+    custom_image_name: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _default_vm_cpu(cls, data: object) -> object:
+        if (
+            isinstance(data, dict)
+            and "cpu_cores" not in data
+            and (
+                data.get("vm_runtime")
+                or data.get("template") in (SandboxTemplate.VM_BASE, SandboxTemplate.VM_BASE.value)
+            )
+        ):
+            return {**data, "cpu_cores": VM_SANDBOX_CPU_CORES}
+        return data
 
     @property
     def is_vm(self) -> bool:
@@ -204,6 +221,13 @@ class SandboxBase(ABC):
     @abstractmethod
     def write_file(self, path: str, payload: bytes) -> ExecutionResult: ...
 
+    def agent_server_supports_auto_publish(self) -> bool:
+        """Sandboxes restored from old snapshots can carry an agent-server that rejects unknown
+        CLI options, so probe the installed binary before passing --autoPublish; unsupported
+        binaries degrade to review-first instead of crashing at launch."""
+        result = self.execute("grep -q autoPublish /scripts/node_modules/.bin/agent-server", timeout_seconds=10)
+        return result.exit_code == 0
+
     def clone_repository(self, repository: str, github_token: str | None = "", shallow: bool = True) -> ExecutionResult:
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
@@ -263,6 +287,7 @@ class SandboxBase(ABC):
         run_id: str,
         mode: str = "background",
         create_pr: bool = True,
+        auto_publish: bool = False,
         interaction_origin: str | None = None,
         branch: str | None = None,
         runtime_adapter: str | None = None,
@@ -397,10 +422,13 @@ SandboxClass = type[SandboxBase]
 
 
 def _get_docker_sandbox_class() -> SandboxClass:
-    if not settings.DEBUG:
+    # Allow TEST too: the guard runs at module import, and pytest loads settings with
+    # DEBUG off in some paths — blocking there would kill collection, not production.
+    if not (settings.DEBUG or settings.TEST):
         raise RuntimeError(
-            "DockerSandbox cannot be used in production. "
-            "Set DEBUG=True for local development or remove SANDBOX_PROVIDER=docker."
+            "DockerSandbox is for local development only. Set DEBUG=1 (the flox env sets this "
+            "automatically — are you outside 'flox activate'?) or unset SANDBOX_PROVIDER "
+            "(check .env/.env.local and your shell)."
         )
     from .docker_sandbox import DockerSandbox
 
@@ -414,8 +442,14 @@ def _get_modal_docker_sandbox_class() -> SandboxClass:
     local image builds with LOCAL_POSTHOG_CODE_MONOREPO_ROOT don't
     pollute the production app's image cache.
     """
-    if not settings.DEBUG:
-        raise RuntimeError("MODAL_DOCKER sandbox is for local development only (DEBUG=True).")
+    # Allow TEST too: the guard runs at module import, and pytest loads settings with
+    # DEBUG off in some paths — blocking there would kill collection, not production.
+    if not (settings.DEBUG or settings.TEST):
+        raise RuntimeError(
+            "MODAL_DOCKER sandbox is for local development only. Set DEBUG=1 (the flox env sets "
+            "this automatically — are you outside 'flox activate'?) or unset SANDBOX_PROVIDER "
+            "(check .env/.env.local and your shell)."
+        )
     from .modal_sandbox import ModalSandbox
 
     class ModalDockerSandbox(ModalSandbox):
@@ -452,7 +486,24 @@ def get_sandbox_class_for_backend(backend: str) -> SandboxClass:
     raise RuntimeError(f"Unsupported sandbox backend: {backend}")
 
 
-Sandbox: SandboxClass = get_sandbox_class()
+if TYPE_CHECKING:
+    # Declared for type-checkers only; resolved at runtime by __getattr__ -> get_sandbox_class().
+    Sandbox: SandboxClass
+else:
+
+    def __getattr__(name: str) -> object:
+        # Resolve `Sandbox` lazily. Computing it at import time calls get_sandbox_class(),
+        # which for the docker / modal_docker providers imports a sibling module
+        # (docker_sandbox / modal_sandbox). When that sibling is the first of the pair to be
+        # imported (e.g. test_docker_sandbox.py imports docker_sandbox, which imports this
+        # module), the eager call reaches back into the still-initializing sibling and fails
+        # as a circular import. Deferring to first attribute access breaks the cycle.
+        if name == "Sandbox":
+            sandbox_class = get_sandbox_class()
+            globals()["Sandbox"] = sandbox_class  # cache so later lookups skip __getattr__
+            return sandbox_class
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "AgentServerResult",

@@ -85,6 +85,11 @@ class MetricQuality(StrEnum):
     PARTIAL = "partial"
 
 
+class WorkflowHealthRunScope(StrEnum):
+    ALL = "all"
+    PULL_REQUEST = "pull_request"
+
+
 class PRLifecycleEventKind(StrEnum):
     OPENED = "opened"
     CI_STARTED = "ci_started"
@@ -423,19 +428,28 @@ class CIFailureLogs:
     truncated: bool
 
 
+# The one caveat that governs every flaky figure — defined once here (the canonical-types home)
+# so the API/MCP description and any other consumer-facing copy read from it instead of drifting.
+FLAKY_TEST_SIGNAL_CAVEAT = (
+    "All figures are absolute counts, never rates: fast passing runs are not emitted, so denominators "
+    "are biased. Pass-on-retry counts only flow from CI lanes running with reruns enabled; in other "
+    "lanes a flake surfaces as a plain failure, which the distinct-PR count catches."
+)
+
+
 @dataclass(frozen=True)
 class FlakyTestItem:
     """One flaky-test leaderboard row, aggregated from the per-test CI spans in the Traces store.
 
-    Counts are absolute signal counts, never rates: the emitter drops fast passing tests
-    (``--min-duration-seconds``) while always emitting failures/errors/xfails/reruns, so any
-    denominator would be biased. ``rerun_passed_count`` (pass-on-retry, the strongest flaky
-    signal) only flows from CI lanes running with reruns enabled; lanes without reruns surface
-    a flake as a plain failure, which is what ``failed_pr_count`` (distinct PRs hit) catches.
+    See ``FLAKY_TEST_SIGNAL_CAVEAT`` for why these are absolute counts and how the two signals
+    (pass-on-retry vs distinct-PR failures) divide the rerun-enabled and no-rerun lanes.
     """
 
     # Reconstructed pytest nodeid (the span name), e.g. 'posthog/api/test/test_x/TestX::test_y'.
     nodeid: str
+    # Runnable pytest selector ('posthog/api/test/test_x.py::TestX::test_y'). Exact when the CI
+    # reporter stamped it; reconstructed from the nodeid (file/class boundary guessed) for older spans.
+    selector: str
     # Spans where the test failed first, then passed on an automatic retry.
     rerun_passed_count: int
     # Spans with outcome 'failed' or 'error' (the final outcome after any retries).
@@ -626,8 +640,10 @@ class QuarantineRequestResult:
 
 @dataclass(frozen=True)
 class WorkflowHealthItem:
-    """Per-workflow CI health over a window. Rates and percentiles are over
-    completed runs only, so they are ``None`` when the window has none.
+    """Per-workflow CI health over a window. ``success_rate`` is over completed runs;
+    ``p50_seconds``/``p95_seconds`` are over successful runs only (cancelled, skipped,
+    and failed runs end early and would bias a duration percentile low). Each is
+    ``None`` when the window has no qualifying runs.
     """
 
     repo: RepoRef
@@ -751,8 +767,9 @@ class RunFailureLogs:
 class WorkflowJobAggregate:
     """Per-job aggregates for one workflow over a window, one row per de-sharded job name
     (matrix ``(G/N)`` suffix stripped; unexpanded ``${{ matrix.* }}`` templates collapsed).
-    Rates and percentiles are over completed jobs; cost is None when every instance ran on
-    an unknown tier."""
+    ``failure_rate`` is over completed jobs; ``p50_seconds``/``p95_seconds`` are over
+    successful jobs only (cancelled and failed instances end early and would bias a
+    duration percentile low); cost is None when every instance ran on an unknown tier."""
 
     job_name: str
     # Job instances observed in the window (all shards, all attempts).

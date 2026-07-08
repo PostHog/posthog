@@ -80,7 +80,7 @@ export function TraceTimeline({
     // Rendered inline (capped height) and inside the full-screen modal (viewport height).
     const renderCanvas = (maxHeight: number | string): JSX.Element => (
         <div className="px-3 pb-2">
-            <div className="relative h-4 mb-1.5 text-[10px] leading-4 text-muted">
+            <div className="relative h-4 mb-1.5 mr-4 text-[10px] leading-4 text-muted">
                 {ticks.map((tick) => (
                     <span
                         key={tick}
@@ -104,7 +104,7 @@ export function TraceTimeline({
                 style={{ maxHeight }}
             >
                 {/* eslint-disable-next-line react/forbid-dom-props */}
-                <div className="relative" style={{ height: chartHeight }}>
+                <div className="relative mr-4" style={{ height: chartHeight }}>
                     {ticks.slice(1).map((tick) => (
                         <div
                             key={tick}

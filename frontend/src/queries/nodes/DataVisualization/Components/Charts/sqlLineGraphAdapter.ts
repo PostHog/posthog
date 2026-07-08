@@ -1,5 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import {
+    type AxisLinesConfig,
     type ChartLegendConfig,
     type Series,
     type SeriesType,
@@ -366,6 +367,14 @@ function buildLegendConfig(chartSettings: ChartSettings): ChartLegendConfig {
     return { show: chartSettings.showLegend ?? false, position: 'top', interactive: true }
 }
 
+/** The X/Y axis-border toggles map onto quill's per-edge axis lines — undefined when both are on
+ *  (the default), so the app-level style default still applies. */
+function buildAxisLinesConfig(chartSettings: ChartSettings): AxisLinesConfig | undefined {
+    const x = chartSettings.showXAxisBorder ?? true
+    const y = chartSettings.showYAxisBorder ?? true
+    return x && y ? undefined : { x, y }
+}
+
 /**
  * "Show values on series" — each on-series label formats with its own column's settings, reusing the
  * tooltip's {@link formatSqlSeriesValue} path so labels read identically to the tooltip. `seriesIndex`
@@ -416,6 +425,7 @@ export function buildLineChartConfig({
                   ]
                 : buildYAxisConfig(chartSettings.leftYAxisSettings, leftSeries, chartSettings.yAxisAtZero),
         goalLines: schemaGoalLinesToConfigs(goalLines),
+        showAxisLines: buildAxisLinesConfig(chartSettings),
         trendLines: buildTrendLineConfigs(ySeriesData),
         legend: buildLegendConfig(chartSettings),
         valueLabels: buildValueLabelsConfig(chartSettings, ySeriesData),
@@ -459,13 +469,20 @@ export function buildBarChartConfig({
                       forceLinear: barLayout === 'percent',
                   }),
         goalLines: schemaGoalLinesToConfigs(goalLines),
+        showAxisLines: buildAxisLinesConfig(chartSettings),
         barLayout,
+        // Stacked bars must preserve negative values (SQL results can be negative) so they render
+        // below the zero baseline instead of being clamped to 0. Only the stacked layout stacks.
+        divergingStack: barLayout === 'stacked',
         // Percent bars scale against a [0, 1] domain; trend lines plot raw series values, so they'd
         // render off-scale and invisible.
         trendLines: barLayout === 'percent' ? [] : buildTrendLineConfigs(ySeriesData),
         legend: buildLegendConfig(chartSettings),
         valueLabels: buildValueLabelsConfig(chartSettings, ySeriesData),
-        tooltip: { enabled: true, pinnable: true, placement: 'cursor', ...(labelFormatter ? { labelFormatter } : {}) },
+        tooltip: {
+            ...buildSqlTooltipConfig(chartSettings, ySeriesData),
+            ...(labelFormatter ? { labelFormatter } : {}),
+        },
     }
 }
 
@@ -504,6 +521,7 @@ export function buildComboChartConfig({
                       forceLinear: isPercent,
                   }),
         goalLines: schemaGoalLinesToConfigs(goalLines),
+        showAxisLines: buildAxisLinesConfig(chartSettings),
         barLayout,
         // Percent bars scale against a [0, 1] domain; trend lines plot raw series values, so they'd
         // render off-scale and invisible.

@@ -55,6 +55,9 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     sanitize_prompt,
 )
 from products.exports.backend.temporal.subscriptions.types import (
+    AI_REPORT_DIAGNOSTICS_KEY,
+    AI_REPORT_PROMPT_SNAPSHOT_KEY,
+    AI_REPORT_SNAPSHOT_KEY,
     ProcessSubscriptionWorkflowInputs,
     SubscriptionTriggerType,
 )
@@ -125,6 +128,73 @@ class DashboardExportInsightsField(serializers.Field):
         return data
 
 
+class AIWindowConfigSerializer(serializers.Serializer):
+    mode = serializers.ChoiceField(
+        choices=Subscription.AIWindowMode.choices,
+        default=Subscription.AIWindowMode.SINCE_LAST_SENT,
+        help_text=(
+            "What the report analyzes each run:\n"
+            "* `since_last_sent` (default) — everything since the previous successful scheduled delivery (gap-free; test/manual sends don't move the anchor)\n"
+            "* `last_n_days` — a fixed trailing window of start_days_ago days\n"
+            "* `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago"
+        ),
+    )
+    start_days_ago = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=365,
+        help_text=(
+            "Lower bound of the analysis window, in days before the run. Required for 'last_n_days' "
+            "(the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365."
+        ),
+    )
+    end_days_ago = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=365,
+        help_text=(
+            "Upper bound of the analysis window, in days before the run (0 = now). Required for "
+            "'days_ago_range' and must be less than start_days_ago; ignored for other modes. 0-365."
+        ),
+    )
+
+    def to_representation(self, instance: Any) -> dict:
+        return Subscription.normalize_ai_window(instance)
+
+    def validate(self, attrs: dict) -> dict:
+        mode = attrs.get("mode") or Subscription.AIWindowMode.SINCE_LAST_SENT
+        start = attrs.get("start_days_ago")
+        end = attrs.get("end_days_ago")
+
+        if mode == Subscription.AIWindowMode.SINCE_LAST_SENT:
+            # Day bounds are meaningless here; normalise them away so a later mode switch starts clean.
+            attrs["start_days_ago"] = None
+            attrs["end_days_ago"] = None
+            return attrs
+        if not start:
+            raise ValidationError({"start_days_ago": [f"Required when mode is '{mode}'."]})
+        if mode == Subscription.AIWindowMode.LAST_N_DAYS:
+            attrs["end_days_ago"] = None
+            return attrs
+        # DAYS_AGO_RANGE
+        if end is None:
+            raise ValidationError({"end_days_ago": [f"Required when mode is '{mode}'."]})
+        if end >= start:
+            raise ValidationError(
+                {"end_days_ago": ["Must be less than start_days_ago (the window must end after it starts)."]}
+            )
+        return attrs
+
+
+class AIPromptConfigSerializer(serializers.Serializer):
+    window = AIWindowConfigSerializer(
+        required=False,
+        help_text="Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous scheduled delivery).",
+    )
+
+
 class SubscriptionSerializer(serializers.ModelSerializer):
     """Standard Subscription serializer."""
 
@@ -154,6 +224,13 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         required=False,
         help_text="List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.",
     )
+    ai_prompt_config = AIPromptConfigSerializer(
+        required=False,
+        help_text=(
+            "Configuration for AI report subscriptions (analysis window, future knobs). Only valid "
+            "when resource_type is 'ai_prompt'. Replaced wholesale on writes."
+        ),
+    )
     insight_short_id = serializers.SerializerMethodField()
     resource_name = serializers.SerializerMethodField()
     resource_type = serializers.ChoiceField(
@@ -178,6 +255,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "resource_name",
             "dashboard_export_insights",
             "prompt",
+            "ai_prompt_config",
             "target_type",
             "target_value",
             "frequency",
@@ -354,6 +432,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # diagnosable, an unhandled KeyError surfaces as a 500.
         if validate_for_resource_type is None:
             raise ValidationError({"resource_type": [f"Unsupported resource_type: {resource_type}."]})
+        if resource_type != Subscription.ResourceType.AI_PROMPT and attrs.get("ai_prompt_config"):
+            raise ValidationError({"ai_prompt_config": ["AI report settings only apply to AI subscriptions."]})
         validate_for_resource_type(attrs, existing)
 
         self._validate_dashboard_export_subscription(attrs)
@@ -1089,11 +1169,46 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         return Response(status=status.HTTP_202_ACCEPTED)
 
 
+class AIReportQueryDiagnosticSerializer(serializers.Serializer):
+    # Per-step query diagnostics persisted alongside the report markdown. Query-derived (the generated
+    # HogQL is here), so it is scrubbed for callers without query access — never shipped to recipients.
+    description = serializers.CharField(help_text="What this query step was meant to compute.")
+    hogql = serializers.CharField(help_text="The HogQL the assistant generated for this step.")
+    ok = serializers.BooleanField(help_text="Whether the query ran successfully.")
+    error_type = serializers.CharField(
+        allow_null=True, help_text="Exception class name when the query failed; null on success."
+    )
+    human_readable_error = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Human-readable failure reason, present only for query errors safe to surface to the "
+        "subscription owner (e.g. an unresolved field name); null on success and for internal errors, "
+        "which expose error_type only.",
+    )
+
+
 class SubscriptionDeliverySerializer(serializers.ModelSerializer):
     # Delivery fields that embed the query-derived AI report, mapped to the value each returns when
-    # scrubbed for a caller without query access (content_snapshot is a non-null object, change_summary
-    # nullable text). Single source of truth — keep in sync when adding AI-derived delivery fields.
-    AI_REPORT_SCRUBBED: ClassVar[dict[str, dict | None]] = {"content_snapshot": {}, "change_summary": None}
+    # scrubbed for a caller without query access (content_snapshot is a non-null object, the rest
+    # nullable). Single source of truth — keep in sync when adding AI-derived delivery fields.
+    # ai_report_prompt is user-authored (not query-derived) and already readable on the parent
+    # subscription, so it is intentionally not scrubbed.
+    AI_REPORT_SCRUBBED: ClassVar[dict[str, object | None]] = {
+        "content_snapshot": {},
+        "change_summary": None,
+        "ai_report": None,
+        "ai_report_diagnostics": None,
+    }
+
+    ai_report = serializers.SerializerMethodField(
+        help_text="AI-generated report markdown delivered by this run. Null for non-AI deliveries or runs without a persisted report."
+    )
+    ai_report_diagnostics = serializers.SerializerMethodField(
+        help_text="Per-step query diagnostics (generated HogQL + failure type) for this report. Null for non-AI deliveries or runs without persisted diagnostics."
+    )
+    ai_report_prompt = serializers.SerializerMethodField(
+        help_text="The subscription's prompt as it was when this report was generated. Null for older deliveries and non-AI deliveries."
+    )
 
     class Meta:
         model = SubscriptionDelivery
@@ -1115,6 +1230,9 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "last_updated_at",
             "finished_at",
             "change_summary",
+            "ai_report",
+            "ai_report_diagnostics",
+            "ai_report_prompt",
         ]
         read_only_fields = fields
         extra_kwargs = {
@@ -1144,13 +1262,52 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "change_summary": {"help_text": "AI-generated summary included in this delivery, when one was produced."},
         }
 
+    def _content_snapshot_text(self, delivery: SubscriptionDelivery, key: str) -> Optional[str]:
+        snapshot = delivery.content_snapshot
+        if not isinstance(snapshot, dict):
+            return None
+        value = snapshot.get(key)
+        return value if isinstance(value, str) and value else None
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_ai_report(self, delivery: SubscriptionDelivery) -> Optional[str]:
+        return self._content_snapshot_text(delivery, AI_REPORT_SNAPSHOT_KEY)
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_ai_report_prompt(self, delivery: SubscriptionDelivery) -> Optional[str]:
+        return self._content_snapshot_text(delivery, AI_REPORT_PROMPT_SNAPSHOT_KEY)
+
+    @extend_schema_field(AIReportQueryDiagnosticSerializer(many=True, allow_null=True))
+    def get_ai_report_diagnostics(self, delivery: SubscriptionDelivery) -> Optional[list[dict]]:
+        snapshot = delivery.content_snapshot
+        if not isinstance(snapshot, dict):
+            return None
+        diagnostics = snapshot.get(AI_REPORT_DIAGNOSTICS_KEY)
+        return diagnostics if isinstance(diagnostics, list) else None
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
         # The viewset sets this flag when an AI prompt delivery is read by a caller without query
         # access; scrub the query-derived report so subscription:read (or a self-granted query:read
-        # scope) can't read analytics the user isn't allowed to run themselves.
+        # scope) can't read analytics the user isn't allowed to run themselves. ai_report_prompt is
+        # user-authored and already readable on the subscription, so it is deliberately not scrubbed.
         if self.context.get("hide_ai_report"):
             data.update(self.AI_REPORT_SCRUBBED)
+            return data
+        # The AI report now ships via the typed ai_report / ai_report_diagnostics / ai_report_prompt
+        # fields, so drop the same keys from content_snapshot to avoid shipping the report twice.
+        # The non-AI scaffold (insights, dashboard, total_insight_count) stays intact.
+        snapshot = data.get("content_snapshot")
+        if isinstance(snapshot, dict) and (
+            AI_REPORT_SNAPSHOT_KEY in snapshot
+            or AI_REPORT_PROMPT_SNAPSHOT_KEY in snapshot
+            or AI_REPORT_DIAGNOSTICS_KEY in snapshot
+        ):
+            data["content_snapshot"] = {
+                key: value
+                for key, value in snapshot.items()
+                if key not in (AI_REPORT_SNAPSHOT_KEY, AI_REPORT_PROMPT_SNAPSHOT_KEY, AI_REPORT_DIAGNOSTICS_KEY)
+            }
         return data
 
 

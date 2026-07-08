@@ -6,10 +6,11 @@ import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { HedgehogJudge } from '@posthog/brand/hoggies'
+import * as judge from '@posthog/brand/hoggies/png/judge'
 import { IconDocument } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { StarHog } from 'lib/components/hedgehogs'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -38,6 +39,8 @@ import { CodeSeatsSection } from './CodeSeatsSection'
 import { CreditCTAHero } from './CreditCTAHero'
 import { StripePortalButton } from './StripePortalButton'
 import { UnsubscribeCard } from './UnsubscribeCard'
+
+const HedgehogJudge = pngHoggie(judge)
 
 export const scene: SceneExport = {
     component: Billing,

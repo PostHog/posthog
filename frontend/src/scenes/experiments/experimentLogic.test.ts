@@ -1399,6 +1399,7 @@ describe('experimentLogic', () => {
             expect(createSpy).toHaveBeenCalledWith(expect.stringContaining(`/experiments/${experiment.id}/end`), {
                 conclusion: 'won',
                 conclusion_comment: 'Test variant won clearly',
+                open_cleanup_pr: false,
             })
 
             // Post-condition: experiment is ended
@@ -1493,6 +1494,7 @@ describe('experimentLogic', () => {
                     release_to_everyone: false,
                     conclusion: 'won',
                     conclusion_comment: 'Test variant won clearly',
+                    open_cleanup_pr: false,
                 }
             )
 
@@ -1655,19 +1657,24 @@ describe('experimentLogic', () => {
             expect(api.update).toHaveBeenCalledWith(
                 expect.stringContaining('/experiments/'),
                 expect.objectContaining({
-                    parameters: expect.objectContaining({
-                        feature_flag_variants: [
-                            { key: 'control', rollout_percentage: 75 },
-                            { key: 'test', rollout_percentage: 25 },
-                        ],
-                    }),
+                    feature_flag: {
+                        filters: {
+                            multivariate: {
+                                variants: [
+                                    { key: 'control', rollout_percentage: 75 },
+                                    { key: 'test', rollout_percentage: 25 },
+                                ],
+                            },
+                        },
+                    },
                     holdout_id: experiment.holdout_id,
                     update_feature_flag_params: true,
                 })
             )
-            // Should not send rollout_percentage — it's not editable in the distribution modal
-            const sentParams = (api.update.mock.calls[0][1] as Record<string, any>).parameters
-            expect(sentParams).not.toHaveProperty('rollout_percentage')
+            // No rollout group when the caller omits rolloutPercentage (the modal itself always
+            // passes one; this covers the omit branch)
+            const sentFlagFilters = (api.update.mock.calls[0][1] as Record<string, any>).feature_flag.filters
+            expect(sentFlagFilters).not.toHaveProperty('groups')
         })
 
         it('does not call feature flag API directly', async () => {

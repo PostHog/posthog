@@ -20,12 +20,15 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import TypedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import (
+    FLAKY_TEST_SIGNAL_CAVEAT,
     GitHubSourceNotConnectedError,
     QuarantineRequest,
     QuarantineWriteError,
+    WorkflowHealthRunScope,
 )
 from products.engineering_analytics.backend.presentation.serializers import (
     CICardSummarySerializer,
@@ -87,6 +90,17 @@ _BRANCH = OpenApiParameter(
     "Omit or leave blank to aggregate across all branches.",
 )
 
+_RUN_SCOPE = OpenApiParameter(
+    name="run_scope",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    enum=[scope.value for scope in WorkflowHealthRunScope],
+    description="Run scope for workflow health: 'all' (default) includes every run; 'pull_request' includes runs "
+    "attributed to pull requests, excluding default-branch (master/main) runs. Fork PRs carry no PR attribution "
+    "(a GitHub limitation), so 'pull_request' covers same-repo PRs only. Any other value is a 400.",
+)
+
 _SOURCE_ID = OpenApiParameter(
     name="source_id",
     type=OpenApiTypes.UUID,
@@ -128,6 +142,9 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     """PR and CI lifecycle analytics over the GitHub warehouse data."""
 
     scope_object = "engineering_analytics"
+    # Same rollout flag as the UI scene and the MCP tools, so the product is gated end to end.
+    permission_classes = [PostHogFeatureFlagPermission]
+    posthog_feature_flag = "engineering-analytics"
     scope_object_read_actions = [
         "sources",
         "ci_cards",
@@ -243,19 +260,20 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
     @extend_schema(
         operation_id="engineering_analytics_workflow_health",
-        parameters=[_WORKFLOW_DATE_FROM, _DATE_TO, _BRANCH, _SOURCE_ID],
+        parameters=[_WORKFLOW_DATE_FROM, _DATE_TO, _BRANCH, _RUN_SCOPE, _SOURCE_ID],
         responses={
             200: WorkflowHealthItemSerializer(many=True),
             400: OpenApiResponse(
-                description="Invalid date_from, date_to, or source_id, or a window longer than 366 days."
+                description="Invalid date_from, date_to, run_scope, or source_id, or a window longer than 366 days."
             ),
         },
         description=(
             "Per-workflow CI health over a window (default last 24 hours, maximum 366 days): run count, success "
-            "rate, p50/p95 duration over completed runs, last failure time, latest-run status, and a zero-filled "
-            "run history bucketed by hour/day/week to fit the window. Optionally scope to a single git branch via "
-            "`branch`. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two "
-            "windows to get a trend."
+            "rate, p50/p95 duration, last failure time, latest-run status, and a zero-filled run history bucketed "
+            "by hour/day/week to fit the window. p50/p95 are over successful runs only, so cancelled (superseded) "
+            "and failed runs never bias the duration trend. Optionally scope to a single git branch via `branch`, "
+            "or to attributed pull-request runs via `run_scope=pull_request`. Use this for 'is CI getting slower' "
+            "and 'which workflow is the long pole'; compare two windows to get a trend."
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -266,6 +284,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 date_from=request.query_params.get("date_from") or None,
                 date_to=request.query_params.get("date_to") or None,
                 branch=request.query_params.get("branch") or None,
+                run_scope=request.query_params.get("run_scope") or None,
                 source_id=request.query_params.get("source_id") or None,
                 user_access_control=self.user_access_control,
             )
@@ -800,10 +819,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         description=(
             "The flaky-test leaderboard: backend tests ranked by flakiness signal from the per-test CI spans, "
             "over a window (default -7d, maximum 30 days). A test qualifies by passing on retry at least "
-            "min_rerun_passes times OR failing on at least min_failed_prs distinct PRs. All figures are "
-            "absolute counts, never rates: fast passing runs are not emitted, so denominators are biased. "
-            "Pass-on-retry counts only flow from CI lanes running with reruns enabled; in other lanes a "
-            "flake surfaces as a plain failure, which the distinct-PR count catches."
+            "min_rerun_passes times OR failing on at least min_failed_prs distinct PRs. " + FLAKY_TEST_SIGNAL_CAVEAT
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)

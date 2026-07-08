@@ -1,13 +1,16 @@
 import Vapi from '@vapi-ai/web'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 
-import { HedgehogRoboHog } from '@posthog/brand/hoggies'
+import * as roboHogPng from '@posthog/brand/hoggies/png/robo-hog'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { Logo } from 'lib/brand/Logo'
+import { Logo } from 'lib/brand'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 
 import { InterviewExportPayload } from '../types'
+
+const HedgehogRoboHog = pngHoggie(roboHogPng)
 
 // Vapi surfaces several normal-completion signals through its `error` channel because
 // the underlying Daily.co transport reports the local participant being evicted as
@@ -407,7 +410,7 @@ export default function ExporterInterviewScene({
         <div className="max-w-2xl mx-auto px-4 py-12">
             <HogfettiComponent />
             <div className="mb-8">
-                <Logo className="text-lg" />
+                <Logo size="md" />
             </div>
 
             <div className="flex flex-col md:flex-row md:items-start gap-6 md:gap-8 mb-8">

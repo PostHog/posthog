@@ -1,4 +1,5 @@
 import os
+from enum import StrEnum
 
 import structlog
 
@@ -63,6 +64,29 @@ OTLP_LOGS_INGEST_ENDPOINT = os.getenv("OTLP_LOGS_INGEST_ENDPOINT", "")
 CAPTURE_INTERNAL_MAX_WORKERS = get_from_env("CAPTURE_INTERNAL_MAX_WORKERS", type_cast=int, default=8)
 
 NEW_ANALYTICS_CAPTURE_ENDPOINT = os.getenv("NEW_CAPTURE_ENDPOINT", "/i/v0/e/")
+
+
+# Cumulative rollout of the dedicated AI ingestion pipeline for our own `$ai_*` events: each stage
+# also routes the stages before it. Chart-toggled so we can advance or roll back without a deploy.
+class DedicatedAIEndpointRollout(StrEnum):
+    OFF = "off"
+    RUNNER = "runner"
+    ALL = "all"
+
+
+def _parse_dedicated_ai_rollout(value: str) -> "DedicatedAIEndpointRollout":
+    try:
+        return DedicatedAIEndpointRollout(value.strip().lower())
+    except ValueError:
+        logger.warning("invalid_dedicated_ai_endpoint_rollout", value=value)
+        return DedicatedAIEndpointRollout.OFF
+
+
+POSTHOG_DEDICATED_AI_ENDPOINT_ROLLOUT = get_from_env(
+    "POSTHOG_DEDICATED_AI_ENDPOINT_ROLLOUT",
+    DedicatedAIEndpointRollout.OFF,
+    type_cast=_parse_dedicated_ai_rollout,
+)
 
 CAPTURE_V1_INTERNAL_ENDPOINT = os.getenv("CAPTURE_V1_INTERNAL_ENDPOINT", "/i/v1/analytics/events")
 CAPTURE_V1_INTERNAL_MAX_ATTEMPTS = get_from_env("CAPTURE_V1_INTERNAL_MAX_ATTEMPTS", type_cast=int, default=4)

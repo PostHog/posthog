@@ -30,26 +30,20 @@ from products.signals.backend.artefact_schemas import (
     parse_artefact_content,
     task_run_identifier_for_legacy_relationship,
 )
+from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_CHOICES, SignalSourceProduct
 
 logger = logging.getLogger(__name__)
 
 
 class SignalSourceConfig(UUIDModel):
-    class SourceProduct(models.TextChoices):
-        SESSION_REPLAY = "session_replay", "Session replay"
-        LLM_ANALYTICS = "llm_analytics", "LLM analytics"
-        GITHUB = "github", "GitHub"
-        LINEAR = "linear", "Linear"
-        ZENDESK = "zendesk", "Zendesk"
-        CONVERSATIONS = "conversations", "Conversations"
-        ERROR_TRACKING = "error_tracking", "Error tracking"
-        PGANALYZE = "pganalyze", "pganalyze"
-        SIGNALS_SCOUT = "signals_scout", "Signals scout"
-        LOGS = "logs", "Logs"
-        HEALTH_CHECKS = "health_checks", "Health checks"
-        ENDPOINTS = "endpoints", "Endpoints"
-        REPLAY_VISION = "replay_vision", "Replay Vision"
+    # Source-product taxonomy is owned by products.signals.backend.enums (the same StrEnum the payload
+    # contracts and frontend codegen use). Aliased here so `SignalSourceConfig.SourceProduct.X` keeps
+    # working; choices are frozen-equivalent to the prior nested TextChoices, so no migration is needed.
+    SourceProduct = SignalSourceProduct
 
+    # Source-type choices are intentionally a *subset* of the full SignalSourceType taxonomy: only the
+    # types that carry a per-team config row live here (e.g. session_problem / evaluation_report gate via
+    # other configs and are deliberately absent).
     class SourceType(models.TextChoices):
         SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
         EVALUATION = "evaluation", "Evaluation"
@@ -67,7 +61,7 @@ class SignalSourceConfig(UUIDModel):
         SCANNER_FINDING = "scanner_finding", "Scanner finding"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
-    source_product = models.CharField(max_length=100, choices=SourceProduct)
+    source_product = models.CharField(max_length=100, choices=SIGNAL_SOURCE_PRODUCT_CHOICES)
     source_type = models.CharField(max_length=100, choices=SourceType)
     enabled = models.BooleanField(default=True)
     config = models.JSONField(default=dict)

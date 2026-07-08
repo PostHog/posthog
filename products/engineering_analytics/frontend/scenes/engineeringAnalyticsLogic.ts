@@ -405,8 +405,10 @@ export type FlakyTestWindow = '-7d' | '-14d' | '-30d'
 export const DEFAULT_FLAKY_TEST_WINDOW: FlakyTestWindow = '-7d'
 
 export interface FlakyTestRow {
-    /** Reconstructed pytest nodeid (the CI span name) — not a runnable selector as-is. */
+    /** Reconstructed pytest nodeid (the CI span name) — a stable grouping/display key. */
     nodeid: string
+    /** Runnable pytest selector for the quarantine action; exact when the CI reporter emitted it. */
+    selector: string
     /** Failed, then passed on an automatic retry — the strongest flaky signal (rerun-enabled lanes only). */
     rerunPassedCount: number
     /** Spans whose final outcome was failed/error. Absolute count, never a rate (denominators are biased). */
@@ -425,25 +427,6 @@ export interface FlakyTestsData {
     /** True when more tests qualified than the cap; rows are the strongest `limit`. */
     truncated: boolean
     limit: number
-}
-
-/**
- * Best-effort pytest selector from a span nodeid, to pre-fill the quarantine modal
- * (confirm-then-edit). The emitter folds the file/class boundary into '/' and drops '.py'
- * ('posthog/api/test/test_x/TestX::test_y'), so this re-splits on the convention that class
- * segments are CamelCase and everything before them is the module file.
- */
-export function pytestSelectorFromNodeid(nodeid: string): string {
-    const [classPath, ...testParts] = nodeid.split('::')
-    if (testParts.length === 0 || !classPath.includes('/')) {
-        return nodeid
-    }
-    const segments = classPath.split('/')
-    let moduleEnd = segments.length
-    while (moduleEnd > 1 && /^[A-Z]/.test(segments[moduleEnd - 1])) {
-        moduleEnd--
-    }
-    return [`${segments.slice(0, moduleEnd).join('/')}.py`, ...segments.slice(moduleEnd), ...testParts].join('::')
 }
 
 export type QuarantineRequestAction = 'quarantine' | 'extend' | 'remove'
@@ -679,6 +662,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                             rows: data.items.map(
                                 (it): FlakyTestRow => ({
                                     nodeid: it.nodeid,
+                                    selector: it.selector,
                                     rerunPassedCount: it.rerun_passed_count,
                                     failedCount: it.failed_count,
                                     failedPrCount: it.failed_pr_count,
@@ -810,14 +794,14 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 DEFAULT_FLAKY_TEST_WINDOW as FlakyTestWindow,
                 { setFlakyTestWindow: (_, { window }) => window },
             ],
-            // Any failure hides the leaderboard behind a banner; a 400 (no source) also fails the
-            // quarantine loader, which owns the tab-level "connect a source" state.
-            flakyTestsLoadFailed: [
-                false,
+            // Same tri-state as the other loaders: 'notConnected' (no source) defers to the tab-level
+            // "connect a source" gate; only a real 'error' surfaces the leaderboard's own banner.
+            flakyTestsStatus: [
+                'ok' as LoaderStatus,
                 {
-                    loadFlakyTests: () => false,
-                    loadFlakyTestsSuccess: () => false,
-                    loadFlakyTestsFailure: () => true,
+                    loadFlakyTests: () => 'ok',
+                    loadFlakyTestsSuccess: () => 'ok',
+                    loadFlakyTestsFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
                 },
             ],
             quarantineModal: [

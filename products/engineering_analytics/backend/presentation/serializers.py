@@ -371,8 +371,13 @@ class FlakyTestItemSerializer(DataclassSerializer):
         extra_kwargs = {
             "nodeid": {
                 "help_text": "Reconstructed pytest nodeid (the CI span name), e.g. "
-                "'posthog/api/test/test_event/TestEvents::test_x'. Best-effort: the file/class boundary "
-                "and the '.py' suffix are not recoverable from JUnit, so it is not a runnable selector as-is.",
+                "'posthog/api/test/test_event/TestEvents::test_x'. A stable grouping key, not a runnable "
+                "selector — use `selector` to run or quarantine the test.",
+            },
+            "selector": {
+                "help_text": "Runnable pytest selector, e.g. "
+                "'posthog/api/test/test_event.py::TestEvents::test_x'. Exact when the CI reporter emitted it; "
+                "otherwise reconstructed from the nodeid, where the file/class boundary is a best-effort guess.",
             },
             "rerun_passed_count": {
                 "help_text": "Times the test failed, then passed on an automatic retry — the strongest flaky "
@@ -650,11 +655,14 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "p50_seconds": {
-                "help_text": "Median duration of completed runs, in seconds. Null if none completed.",
+                "help_text": "Median duration in seconds over successful runs only — cancelled (superseded) and "
+                "failed runs end early and would bias the percentile. Null if no run succeeded in the window.",
                 "allow_null": True,
             },
             "p95_seconds": {
-                "help_text": "95th-percentile duration of completed runs, in seconds. Null if none completed.",
+                "help_text": "95th-percentile duration in seconds over successful runs only — cancelled "
+                "(superseded) and failed runs end early and would bias the percentile. Null if no run succeeded "
+                "in the window.",
                 "allow_null": True,
             },
             "last_failure_at": {
@@ -834,11 +842,13 @@ class WorkflowJobAggregateSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "p50_seconds": {
-                "help_text": "Median duration of completed job instances, in seconds. Null if none completed.",
+                "help_text": "Median duration of successful job instances, in seconds — cancelled and failed "
+                "instances end early and would bias the percentile. Null if none succeeded.",
                 "allow_null": True,
             },
             "p95_seconds": {
-                "help_text": "95th-percentile duration of completed job instances, in seconds. Null if none completed.",
+                "help_text": "95th-percentile duration of successful job instances, in seconds — cancelled and "
+                "failed instances end early and would bias the percentile. Null if none succeeded.",
                 "allow_null": True,
             },
             "failure_rate": {

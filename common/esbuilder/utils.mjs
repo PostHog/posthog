@@ -193,6 +193,35 @@ export const commonConfig = {
     // no hashes in dev mode for faster reloads --> we save the old hash in index.html otherwise
     entryNames: isDev ? '[dir]/[name]' : '[dir]/[name]-[hash]',
     plugins: [
+        // @posthog/brand's PNG stubs locate their image via `new URL("./x.png", import.meta.url)`,
+        // which esbuild leaves verbatim in the output: the URL then resolves relative to the
+        // built chunk's URL, where the PNG doesn't exist (404), and IIFE builds like the toolbar
+        // have no import.meta at all. Rewrite the stub to a static import so the `.png` file
+        // loader emits the image with a hashed name and a correct publicPath URL.
+        {
+            name: 'brand-png-asset-urls',
+            setup(build) {
+                build.onLoad(
+                    { filter: /@posthog[\\/]brand[\\/]dist[\\/].*[\\/]png[\\/][^\\/]+\.mjs$/ },
+                    async (args) => {
+                        const source = await fs.readFile(args.path, 'utf8')
+                        if (!source.includes('.png')) {
+                            // png/index.mjs barrels only re-export the leaf stubs - nothing to rewrite.
+                            return undefined
+                        }
+                        const contents = source.replace(
+                            /const src = new URL\((".*?\.png"), import\.meta\.url\)\.href;?/,
+                            'import src from $1;'
+                        )
+                        if (contents === source) {
+                            // Stub shape changed upstream - fail loudly rather than shipping 404ing URLs.
+                            throw new Error(`brand-png-asset-urls: no rewritable URL stub found in ${args.path}`)
+                        }
+                        return { contents, loader: 'js' }
+                    }
+                )
+            },
+        },
         // monaco-vim imports monaco-editor internals without .js extensions (e.g. monaco-editor/esm/vs/editor/editor.api)
         // which esbuild can't resolve through monaco-editor's package.json exports map
         {

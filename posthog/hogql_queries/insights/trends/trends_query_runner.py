@@ -57,7 +57,10 @@ from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
-from posthog.hogql_queries.insights.trends.trend_validation_rules import ValidateDataWarehouseBreakdown
+from posthog.hogql_queries.insights.trends.trend_validation_rules import (
+    DisallowUnsupportedPropertyMathForHistogramBreakdown,
+    ValidateDataWarehouseBreakdown,
+)
 from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
 from posthog.hogql_queries.insights.utils.breakdowns import (
@@ -151,6 +154,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             RequireAtLeastOneSeries(),
             DisallowUnsupportedDataWarehouseSettings(),
             ValidateDataWarehouseBreakdown(),
+            DisallowUnsupportedPropertyMathForHistogramBreakdown(),
         )
 
     def _refresh_frequency(self):
@@ -531,12 +535,12 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         # Hiding weekends is purely a display concern: we keep weekend events in the aggregation
         # (so windowed math like WAU/MAU, cumulative, and smoothing stay correct) and only drop the
         # weekend date buckets from the response so the chart x-axis shows weekdays.
-        # For week/month intervals we keep all buckets since they span multiple days.
+        # For week and longer intervals we keep all buckets since they span multiple days.
         # For hour/minute intervals we skip bucket removal to avoid discarding all data on weekends.
         if (
             self.query.trendsFilter
             and self.query.trendsFilter.hideWeekends
-            and self.query_date_range.interval_name not in ("hour", "minute", "week", "month")
+            and self.query_date_range.interval_name not in ("hour", "minute", "week", "month", "quarter", "year")
         ):
             final_result = self._filter_weekend_buckets(final_result)
 

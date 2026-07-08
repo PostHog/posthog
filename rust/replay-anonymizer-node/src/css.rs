@@ -4,11 +4,15 @@
 
 use std::borrow::Cow;
 
-use simd_json::borrowed::Object;
+use simd_json::borrowed::{Object, Value};
 
 use crate::blur::{blank_image_data_uri, is_image_data_uri};
 use crate::context::Ctx;
-use crate::json::{as_str, string_value};
+use crate::json::{as_array_mut, as_object_mut, as_str, string_value};
+
+// rrweb inlines a same-origin/CORS-readable `<link rel="stylesheet">` into this attribute
+// at snapshot time, so it holds full stylesheet text and needs the same CSS treatment as `style`.
+pub const INLINED_STYLESHEET_ATTR: &str = "_cssText";
 
 /// Scrub `container[key]` if it is a CSS string; returns whether it changed.
 pub fn scrub_css_images(ctx: &Ctx<'_>, container: &mut Object<'_>, key: &str) -> bool {
@@ -22,6 +26,50 @@ pub fn scrub_css_images(ctx: &Ctx<'_>, container: &mut Object<'_>, key: &str) ->
         }
         None => false,
     }
+}
+
+/// rrweb StyleSheetRule (source 8): CSS lives in `adds[].rule` and whole-sheet `replace`/`replaceSync`.
+pub fn scrub_style_sheet_rule(ctx: &Ctx<'_>, data: &mut Object<'_>) -> bool {
+    let mut changed = scrub_css_images(ctx, data, "replace");
+    changed |= scrub_css_images(ctx, data, "replaceSync");
+    if let Some(adds) = data.get_mut("adds").and_then(as_array_mut) {
+        changed |= scrub_rule_list(ctx, adds);
+    }
+    changed
+}
+
+/// rrweb StyleDeclaration (source 13): CSS value lives in `set.value`.
+pub fn scrub_style_declaration(ctx: &Ctx<'_>, data: &mut Object<'_>) -> bool {
+    match data.get_mut("set").and_then(as_object_mut) {
+        Some(set) => scrub_css_images(ctx, set, "value"),
+        None => false,
+    }
+}
+
+/// rrweb AdoptedStyleSheet (source 15): CSS lives in `styles[].rules[].rule`.
+pub fn scrub_adopted_style_sheet(ctx: &Ctx<'_>, data: &mut Object<'_>) -> bool {
+    let Some(styles) = data.get_mut("styles").and_then(as_array_mut) else {
+        return false;
+    };
+    let mut changed = false;
+    for style in styles.iter_mut() {
+        if let Some(style) = as_object_mut(style) {
+            if let Some(rules) = style.get_mut("rules").and_then(as_array_mut) {
+                changed |= scrub_rule_list(ctx, rules);
+            }
+        }
+    }
+    changed
+}
+
+fn scrub_rule_list(ctx: &Ctx<'_>, rules: &mut Vec<Value<'_>>) -> bool {
+    let mut changed = false;
+    for rule in rules.iter_mut() {
+        if let Some(rule) = as_object_mut(rule) {
+            changed |= scrub_css_images(ctx, rule, "rule");
+        }
+    }
+    changed
 }
 
 pub(crate) fn rewrite(ctx: &Ctx<'_>, css: &str) -> Option<String> {

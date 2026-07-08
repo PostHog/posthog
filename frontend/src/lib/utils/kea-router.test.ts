@@ -13,6 +13,22 @@ describe('router-utils', () => {
         const altered = addProjectIdIfMissing('/project/phc_gE7SWBNBgFbA4eQ154KPXebyB8KyLJuypR8jg1DSo9Z/replay', 123)
         expect(altered).toEqual('/project/phc_gE7SWBNBgFbA4eQ154KPXebyB8KyLJuypR8jg1DSo9Z/replay')
     })
+    it('does not redirect the instance-level feature flags staff tools URL to a project URL', () => {
+        const altered = addProjectIdIfMissing('/feature_flags/staff', 123)
+        expect(altered).toEqual('/feature_flags/staff')
+    })
+    it('does not redirect the staff tools URL when it carries a query string', () => {
+        const altered = addProjectIdIfMissing('/feature_flags/staff?team_id=456', 123)
+        expect(altered).toEqual('/feature_flags/staff?team_id=456')
+    })
+    it('does not redirect the staff tools URL when it carries a hash', () => {
+        const altered = addProjectIdIfMissing('/feature_flags/staff#cache', 123)
+        expect(altered).toEqual('/feature_flags/staff#cache')
+    })
+    it('still adds a project id to other feature flags URLs', () => {
+        const altered = addProjectIdIfMissing('/feature_flags/123', 123)
+        expect(altered).toEqual('/project/123/feature_flags/123')
+    })
 
     describe('relative path normalization', () => {
         it('normalizes ../ prefix to absolute path with project id', () => {

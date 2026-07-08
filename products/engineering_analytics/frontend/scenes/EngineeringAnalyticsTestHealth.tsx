@@ -35,7 +35,6 @@ import {
     QuarantineModeFilter,
     engineeringAnalyticsLogic,
     flakyEvidenceReason,
-    pytestSelectorFromNodeid,
 } from './engineeringAnalyticsLogic'
 
 function relativeExpiry(daysUntilExpiry: number): string {
@@ -82,8 +81,7 @@ function ModeTag({ mode }: { mode: QuarantineEntryRow['mode'] }): JSX.Element {
 }
 
 function FlakyTestLeaderboard(): JSX.Element {
-    const { flakyTests, flakyTestsLoading, flakyTestsLoadFailed, flakyTestWindow } =
-        useValues(engineeringAnalyticsLogic)
+    const { flakyTests, flakyTestsLoading, flakyTestsStatus, flakyTestWindow } = useValues(engineeringAnalyticsLogic)
     const { setFlakyTestWindow, openQuarantineModal } = useActions(engineeringAnalyticsLogic)
 
     const columns: LemonTableColumns<FlakyTestRow> = [
@@ -171,7 +169,7 @@ function FlakyTestLeaderboard(): JSX.Element {
                     onClick={() =>
                         openQuarantineModal({
                             action: 'quarantine',
-                            selector: pytestSelectorFromNodeid(row.nodeid),
+                            selector: row.selector,
                             // The evidence is the reason; the cause is the tracking issue's job to find.
                             reason: flakyEvidenceReason(row, flakyTestWindow),
                             owner: '',
@@ -209,7 +207,7 @@ function FlakyTestLeaderboard(): JSX.Element {
                     ]}
                 />
             </div>
-            {flakyTestsLoadFailed ? (
+            {flakyTestsStatus === 'error' ? (
                 <LemonBanner type="warning">Couldn't load flaky test data. Try refreshing.</LemonBanner>
             ) : (
                 <>
