@@ -5,6 +5,9 @@ import React, { useContext } from 'react'
 
 import { IconChevronDown, IconChevronRight, IconExternal } from '@posthog/icons'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { shitpostify } from 'lib/shitpost/shitpostCopy'
+
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
 import { INTERACTIVE_CLOSE_DELAY_MS } from '../LemonInput/LemonInput'
 import { Link } from '../Link'
@@ -180,6 +183,11 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             const [, parentPopoverLevel] = useContext(PopoverOverlayContext)
             const within3000PageHeader = useContext(WithinPageHeaderContext)
 
+            // Shitpost mode: rewrite plain-string labels to shitpost-y copy. Only the rendered
+            // text is swapped; the original `children` still drives layout logic below.
+            const shitpostMode = useFeatureFlag('SHITPOST_MODE')
+            const content = shitpostMode && typeof children === 'string' ? shitpostify(children) : children
+
             if (!active && popoverVisibility) {
                 active = true
             }
@@ -278,7 +286,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 >
                     <span className="LemonButton__chrome">
                         {icon ? <span className="LemonButton__icon">{icon}</span> : null}
-                        {children ? <span className="LemonButton__content">{children}</span> : null}
+                        {children ? <span className="LemonButton__content">{content}</span> : null}
                         {sideIcon ? (
                             <span className="LemonButton__icon">{sideIcon}</span>
                         ) : targetBlank && !hideExternalLinkIcon && !icon ? (
