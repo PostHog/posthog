@@ -221,7 +221,6 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
         return createSessionReplayPipeline({
             outputs,
             eventIngestionRestrictionManager: {} as unknown as EventIngestionRestrictionManager,
-            overflowEnabled: false,
             promiseScheduler: new PromiseScheduler(),
             teamService: {
                 getTeamByToken: jest.fn().mockResolvedValue(team),
