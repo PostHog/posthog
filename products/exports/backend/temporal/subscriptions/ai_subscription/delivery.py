@@ -26,6 +26,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     ReportWindow,
     compute_report_window,
 )
+from products.exports.backend.temporal.subscriptions.types import AI_REPORT_WINDOW_END_KEY, SubscriptionTriggerType
 
 from ee.tasks.subscriptions.slack_subscriptions import (
     UTM_TAGS_BASE,
@@ -98,18 +99,34 @@ def _split_text_into_chunks(text: str, limit: int = SLACK_MRKDWN_SECTION_LIMIT) 
     return chunks
 
 
-def _last_successful_delivery_finished_at(subscription: Subscription) -> datetime | None:
+def _last_scheduled_report_cutoff(subscription: Subscription) -> datetime | None:
     try:
-        return (
+        row = (
             SubscriptionDelivery.objects.filter(
                 subscription_id=subscription.id,
                 status=SubscriptionDelivery.Status.COMPLETED,
+                # Only real scheduled sends move the anchor: a manual "Test delivery" (or an immediate
+                # target-change confirmation) right before a run would otherwise shrink its window to
+                # near-empty — a test is a preview, not a send.
+                trigger_type=SubscriptionTriggerType.SCHEDULED,
                 finished_at__isnull=False,
             )
             .order_by("-finished_at")
-            .values_list("finished_at", flat=True)
+            .values_list("finished_at", "content_snapshot")
             .first()
         )
+        if row is None:
+            return None
+        finished_at, snapshot = row
+        # Prefer the run's persisted window end: anchoring on finished_at leaves the run's own
+        # generation+send time uncovered. Rows written before the key existed fall back.
+        window_end = (snapshot or {}).get(AI_REPORT_WINDOW_END_KEY)
+        if isinstance(window_end, str):
+            try:
+                return datetime.fromisoformat(window_end)
+            except ValueError:
+                pass
+        return finished_at
     except Exception as exc:
         # A transient DB error on this one lookup shouldn't fail the whole delivery — None falls
         # back to the cadence window (which may re-cover already-sent data, never drop any).
@@ -128,14 +145,14 @@ def _resolve_subscription_context(subscription: Subscription) -> tuple[Team, Use
     # here keeps all ORM access (and the timezone math) off the event loop in one sync hop.
     team = subscription.team
     # Day-based window modes don't anchor to delivery history — skip the lookup for them.
-    last_successful_delivery_at = (
-        _last_successful_delivery_finished_at(subscription)
+    last_scheduled_cutoff = (
+        _last_scheduled_report_cutoff(subscription)
         if subscription.ai_window_mode == Subscription.AIWindowMode.SINCE_LAST_SENT
         else None
     )
     window = compute_report_window(
         team=team,
-        last_successful_delivery_at=last_successful_delivery_at,
+        last_scheduled_cutoff=last_scheduled_cutoff,
         now=datetime.now(tz=UTC),
         window_days=subscription.ai_report_window_days,
         mode=subscription.ai_window_mode,

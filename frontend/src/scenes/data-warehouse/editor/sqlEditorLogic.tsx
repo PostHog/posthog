@@ -61,11 +61,12 @@ import {
 import {
     AccessControlResourceType,
     ChartDisplayType,
+    DataModelingEdge,
+    DataModelingNode,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
     ExportContext,
     ExternalDataSource,
-    LineageGraph,
     QueryBasedInsightModel,
 } from '~/types'
 
@@ -701,10 +702,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
     }),
     loaders(() => ({
         upstream: [
-            null as LineageGraph | null,
+            null as { nodes: DataModelingNode[]; edges: DataModelingEdge[] } | null,
             {
                 loadUpstream: async (payload: { modelId: string }) => {
-                    return await api.upstream.get(payload.modelId)
+                    return await api.dataModelingNodes.lineage({ savedQueryId: payload.modelId })
                 },
             },
         ],

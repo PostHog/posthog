@@ -156,20 +156,14 @@ describe('IngestionWarningHandlingBatchPipeline', () => {
             expect(results![0].context.sideEffects).toHaveLength(2)
 
             expect(mockEmitIngestionWarning).toHaveBeenCalledTimes(2)
-            expect(mockEmitIngestionWarning).toHaveBeenCalledWith(
-                mockOutputs,
-                team.id,
-                'test_warning',
-                { field: 'value' },
-                { key: undefined, alwaysSend: undefined }
-            )
-            expect(mockEmitIngestionWarning).toHaveBeenCalledWith(
-                mockOutputs,
-                team.id,
-                'another_warning',
-                { error: 'something' },
-                { key: undefined, alwaysSend: undefined }
-            )
+            expect(mockEmitIngestionWarning).toHaveBeenCalledWith(mockOutputs, team.id, {
+                type: 'test_warning',
+                details: { field: 'value' },
+            })
+            expect(mockEmitIngestionWarning).toHaveBeenCalledWith(mockOutputs, team.id, {
+                type: 'another_warning',
+                details: { error: 'something' },
+            })
         })
 
         it('should handle warning with alwaysSend flag', async () => {
@@ -193,13 +187,11 @@ describe('IngestionWarningHandlingBatchPipeline', () => {
             pipeline.feed(batch)
             const results = await pipeline.next()
 
-            expect(mockEmitIngestionWarning).toHaveBeenCalledWith(
-                mockOutputs,
-                team.id,
-                'critical_warning',
-                { urgent: true },
-                { key: undefined, alwaysSend: true }
-            )
+            expect(mockEmitIngestionWarning).toHaveBeenCalledWith(mockOutputs, team.id, {
+                type: 'critical_warning',
+                details: { urgent: true },
+                alwaysSend: true,
+            })
             expect(results![0].context.warnings).toEqual([])
         })
 
@@ -322,20 +314,14 @@ describe('IngestionWarningHandlingBatchPipeline', () => {
             pipeline.feed(batch)
             await pipeline.next()
 
-            expect(mockEmitIngestionWarning).toHaveBeenCalledWith(
-                mockOutputs,
-                team1.id,
-                'warning_team1',
-                { team: 1 },
-                { key: undefined, alwaysSend: undefined }
-            )
-            expect(mockEmitIngestionWarning).toHaveBeenCalledWith(
-                mockOutputs,
-                team2.id,
-                'warning_team2',
-                { team: 2 },
-                { key: undefined, alwaysSend: undefined }
-            )
+            expect(mockEmitIngestionWarning).toHaveBeenCalledWith(mockOutputs, team1.id, {
+                type: 'warning_team1',
+                details: { team: 1 },
+            })
+            expect(mockEmitIngestionWarning).toHaveBeenCalledWith(mockOutputs, team2.id, {
+                type: 'warning_team2',
+                details: { team: 2 },
+            })
         })
     })
 

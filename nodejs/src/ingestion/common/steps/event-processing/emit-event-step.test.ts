@@ -129,9 +129,16 @@ describe('emit-event-step', () => {
             // The event was not ingested, so the promise resolves with null
             await expect(result.sideEffects[0]).resolves.toBeNull()
 
-            expect(mockEmitIngestionWarning).toHaveBeenCalledWith(mockOutputs, 1, 'message_size_too_large', {
-                eventUuid: 'test-uuid',
-                distinctId: 'test-distinct-id',
+            expect(mockEmitIngestionWarning).toHaveBeenCalledWith(mockOutputs, 1, {
+                type: 'message_size_too_large',
+                details: {
+                    eventUuid: 'test-uuid',
+                    distinctId: 'test-distinct-id',
+                    personId: 'person-uuid',
+                },
+                category: 'size',
+                severity: 'error',
+                pipelineStep: 'emit-event',
             })
             // Metric should not be incremented when there's an error
             expect(mockEventProcessedAndIngestedCounter.inc).not.toHaveBeenCalled()

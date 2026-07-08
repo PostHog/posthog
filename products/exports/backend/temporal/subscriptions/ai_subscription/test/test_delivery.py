@@ -1,17 +1,22 @@
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import pytest
+from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 
+from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     SLACK_MRKDWN_SECTION_LIMIT,
     _build_ai_slack_message,
+    _last_scheduled_report_cutoff,
     _split_text_into_chunks,
     render_ai_email_html,
     send_email_ai_subscription_report,
 )
+from products.exports.backend.temporal.subscriptions.types import AI_REPORT_WINDOW_END_KEY, SubscriptionTriggerType
 
 from ee.tasks.subscriptions.slack_subscriptions import SlackMessageData
 
@@ -277,3 +282,82 @@ class TestFeedbackFooter:
             )
         context = email_message.call_args.kwargs["template_context"]
         assert context[f"feedback_{feedback}_url"] == _feedback_url(feedback, "email")
+
+
+class TestLastSuccessfulDeliveryAnchor(APIBaseTest):
+    def _delivery(
+        self, trigger_type: str, status: str, finished_at: datetime | None, snapshot: dict | None = None
+    ) -> None:
+        SubscriptionDelivery.objects.create(
+            subscription=self.subscription,
+            team=self.team,
+            temporal_workflow_id="wf",
+            idempotency_key=str(uuid.uuid4()),
+            trigger_type=trigger_type,
+            target_type="email",
+            target_value="a@posthog.com",
+            status=status,
+            finished_at=finished_at,
+            content_snapshot=snapshot or {},
+        )
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.subscription = Subscription.objects.create(
+            team=self.team,
+            prompt="p?",
+            target_type="email",
+            target_value="a@posthog.com",
+            frequency="weekly",
+            interval=1,
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+
+    def test_non_scheduled_deliveries_do_not_move_the_anchor(self) -> None:
+        # Only completed SCHEDULED sends move the anchor: a manual "Test delivery" or a target-change
+        # confirmation right before a run must not shrink its window to near-empty.
+        scheduled_at = datetime(2026, 6, 22, 12, 0, tzinfo=UTC)
+        self._delivery(SubscriptionTriggerType.SCHEDULED, SubscriptionDelivery.Status.COMPLETED, scheduled_at)
+        self._delivery(
+            SubscriptionTriggerType.MANUAL, SubscriptionDelivery.Status.COMPLETED, scheduled_at + timedelta(days=1)
+        )
+        self._delivery(
+            SubscriptionTriggerType.TARGET_CHANGE,
+            SubscriptionDelivery.Status.COMPLETED,
+            scheduled_at + timedelta(days=2),
+        )
+
+        assert _last_scheduled_report_cutoff(self.subscription) == scheduled_at
+
+    def test_anchor_prefers_the_persisted_window_end(self) -> None:
+        # finished_at trails the run's window end by the generation+send time; anchoring there leaves
+        # that interval uncovered. The persisted window end closes the gap exactly.
+        window_end = datetime(2026, 6, 22, 12, 0, tzinfo=UTC)
+        finished_at = window_end + timedelta(minutes=3)
+        self._delivery(
+            SubscriptionTriggerType.SCHEDULED,
+            SubscriptionDelivery.Status.COMPLETED,
+            finished_at,
+            snapshot={AI_REPORT_WINDOW_END_KEY: window_end.isoformat()},
+        )
+
+        assert _last_scheduled_report_cutoff(self.subscription) == window_end
+
+    def test_anchor_falls_back_to_finished_at_without_window_end(self) -> None:
+        # Rows written before the key existed (or with a garbled value) anchor on finished_at as before.
+        finished_at = datetime(2026, 6, 22, 12, 3, tzinfo=UTC)
+        self._delivery(
+            SubscriptionTriggerType.SCHEDULED,
+            SubscriptionDelivery.Status.COMPLETED,
+            finished_at,
+            snapshot={AI_REPORT_WINDOW_END_KEY: "not-a-date"},
+        )
+
+        assert _last_scheduled_report_cutoff(self.subscription) == finished_at
+
+    def test_no_scheduled_delivery_yields_none(self) -> None:
+        self._delivery(
+            SubscriptionTriggerType.MANUAL, SubscriptionDelivery.Status.COMPLETED, datetime(2026, 6, 22, tzinfo=UTC)
+        )
+
+        assert _last_scheduled_report_cutoff(self.subscription) is None

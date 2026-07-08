@@ -80,7 +80,7 @@ class TestAIReportPipelineIntegration(_WindowPipelineHelpers, ClickhouseTestMixi
         flush_persons_and_events()
 
     def _window(self) -> ReportWindow:
-        return compute_report_window(self.team, last_successful_delivery_at=None, now=_WINDOW_NOW, window_days=7)
+        return compute_report_window(self.team, last_scheduled_cutoff=None, now=_WINDOW_NOW, window_days=7)
 
     # Combined into a single test method: NonAtomicBaseTest doesn't roll back Postgres state
     # between test methods in the same class, so per-method org/membership creates collide.
@@ -169,7 +169,7 @@ class TestAIReportWindowAnchor(_WindowPipelineHelpers, ClickhouseTestMixin, NonA
         self, mock_bep: MagicMock, mock_chat: MagicMock
     ) -> None:
         window = compute_report_window(
-            self.team, last_successful_delivery_at=_ANCHOR_LAST_DELIVERY, now=_ANCHOR_NOW, window_days=7
+            self.team, last_scheduled_cutoff=_ANCHOR_LAST_DELIVERY, now=_ANCHOR_NOW, window_days=7
         )
         # Window follows the delivery gap (3 days), not the 7-day cadence — the anchor, not window_days.
         assert window.start == _ANCHOR_LAST_DELIVERY

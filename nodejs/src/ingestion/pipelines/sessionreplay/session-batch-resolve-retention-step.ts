@@ -8,9 +8,9 @@ import { RetentionService } from '~/ingestion/pipelines/sessionreplay/shared/ret
 import { SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
+import { SessionReplayHeaders } from './pipeline-types'
 import { SessionBatchMetrics } from './sessions/metrics'
 import { SessionBatchManager } from './sessions/session-batch-manager'
-import { SessionReplayHeaders } from './validate-headers-step'
 
 /**
  * Record-phase batch step: resolve per-session retention for the whole batch and attach it to each

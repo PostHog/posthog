@@ -34,4 +34,14 @@ export const intervals: Intervals = {
         label: 'month',
         newDateFrom: '-90d',
     },
+    quarter: {
+        label: 'quarter',
+        newDateFrom: '-3y',
+        hidden: true,
+    },
+    year: {
+        label: 'year',
+        newDateFrom: '-5y',
+        hidden: true,
+    },
 }
