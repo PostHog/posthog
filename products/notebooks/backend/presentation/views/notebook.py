@@ -4,6 +4,7 @@ from datetime import timedelta
 from typing import Any, cast
 
 from django.conf import settings
+from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Q, QuerySet
@@ -52,8 +53,18 @@ from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_con
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
 from products.notebooks.backend.query_validation import InvalidNotebookQueryError, normalize_notebook_query_nodes
-from products.notebooks.backend.sql_v2 import is_sql_v2_enabled
-from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2RunRequestSerializer
+from products.notebooks.backend.sql_v2 import (
+    PAGE_LOCK_TTL_SECONDS,
+    SQLV2KernelNotRunning,
+    SQLV2PageError,
+    fetch_sql_v2_page,
+    is_sql_v2_enabled,
+    sql_v2_page_lock_key,
+)
+from products.notebooks.backend.sql_v2_serializers import (
+    NotebookSQLV2PageRequestSerializer,
+    NotebookSQLV2RunRequestSerializer,
+)
 from products.notebooks.backend.temporal.client import start_sql_v2_run_workflow
 from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput
 from products.tasks.backend.facade.exceptions import SandboxProvisionError
@@ -912,6 +923,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             team_id=self.team_id,
             notebook=notebook,
             node_id=serializer.validated_data["node_id"],
+            code=serializer.validated_data["code"],
             status=NotebookNodeRun.Status.RUNNING,
         )
 
@@ -968,6 +980,86 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 "error": run.error or None,
             }
         )
+
+    @extend_schema(exclude=True)
+    @action(
+        methods=["GET"],
+        url_path="sql_v2/runs/(?P<run_id>[^/.]+)/page",
+        detail=True,
+        required_scopes=["notebook:read", "query:read"],
+    )
+    def sql_v2_run_page(self, request: Request, run_id: str | None = None, **kwargs):
+        # A page fetch is not a run (see sql_v2_result_delivery.md): a bounded synchronous
+        # re-query of the run's code with LIMIT/OFFSET, proxied through the running kernel.
+        user = self._current_user()
+        if not (settings.DEBUG or is_sql_v2_enabled(user)) or run_id is None:
+            raise Http404()
+
+        serializer = NotebookSQLV2PageRequestSerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        notebook = self._get_notebook_for_kernel()
+        # Paging re-queries ClickHouse and returns analytics rows, so gate it on query access
+        # too — a notebook editor whose query access is denied must not read rows through it.
+        self._require_query_access()
+
+        try:
+            run = NotebookNodeRun.objects.for_team(self.team_id).filter(id=run_id, notebook=notebook).first()
+        except DjangoValidationError:  # malformed run_id (not a UUID)
+            raise Http404()
+        if run is None:
+            raise Http404()
+        if run.status != NotebookNodeRun.Status.DONE:
+            return Response({"detail": "Run has no result to page."}, status=400)
+
+        # Stale run: the node produced a newer result since — the client must reload from
+        # the new envelope rather than mix pages from two executions.
+        is_stale = (
+            NotebookNodeRun.objects.for_team(self.team_id)
+            .filter(
+                notebook=notebook,
+                node_id=run.node_id,
+                status=NotebookNodeRun.Status.DONE,
+                created_at__gt=run.created_at,
+            )
+            .exists()
+        )
+        if is_stale:
+            return Response({"detail": "stale"}, status=409)
+
+        # Runs recorded before the code column existed (default "") have no query to page.
+        # Send that to the kernel and it round-trips into an opaque "page fetch failed"; catch
+        # it here with guidance instead.
+        if not run.code.strip():
+            return Response(
+                {"detail": "This result predates page support — re-run the query to page through it."},
+                status=400,
+            )
+
+        # An out-of-cache page holds this worker synchronously for up to the kernel timeout,
+        # so cap each user at one in-flight page fetch — otherwise parallel paging requests
+        # could occupy many web workers at once.
+        lock_key = sql_v2_page_lock_key(self.team_id, user.id if isinstance(user, User) else None)
+        if not cache.add(lock_key, True, timeout=PAGE_LOCK_TTL_SECONDS):
+            return Response({"detail": "Another page fetch is already in progress — try again shortly."}, status=429)
+        try:
+            page = fetch_sql_v2_page(
+                notebook,
+                user if isinstance(user, User) else None,
+                run,
+                offset=serializer.validated_data["offset"],
+                limit=serializer.validated_data["limit"],
+            )
+        except SQLV2KernelNotRunning:
+            return Response({"detail": "Kernel is not running. Re-run the query first."}, status=503)
+        except SQLV2PageError as e:
+            return Response({"detail": str(e)}, status=400)
+        except Exception:
+            logger.exception("notebook_sql_v2_page_failed", notebook_short_id=notebook.short_id)
+            return Response({"detail": "Failed to fetch page."}, status=503)
+        finally:
+            cache.delete(lock_key)
+
+        return Response(page)
 
     @extend_schema(request=NotebookCollabSaveSerializer)
     @action(methods=["POST"], url_path="collab/save", detail=True, required_scopes=["notebook:write"])

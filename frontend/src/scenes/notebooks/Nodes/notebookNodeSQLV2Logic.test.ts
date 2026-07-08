@@ -53,13 +53,13 @@ describe('notebookNodeSQLV2Logic', () => {
     it('maps a done envelope into the node result and stops the spinner', async () => {
         resultSpy.mockResolvedValue({
             status: 'done',
-            result: { columns: ['a'], first_page: [[1]], row_count: 1 },
+            result: { columns: ['a'], first_page: [[1]], row_count: 1, has_more: false },
             error: null,
         })
         mount({ runId: 'r1', hasResult: false })
         await expectLogic(logic).toFinishAllListeners()
         expect(updateAttributes).toHaveBeenCalledWith({
-            result: { columns: ['a'], types: [], row_count: 1, first_page: [[1]] },
+            result: { columns: ['a'], types: [], row_count: 1, first_page: [[1]], has_more: false },
         })
         expect(logic.values.isRunning).toBe(false)
     })
@@ -89,5 +89,121 @@ describe('notebookNodeSQLV2Logic', () => {
         mount({ runId: 'r1', hasResult: true })
         await expectLogic(logic).toFinishAllListeners()
         expect(resultSpy).not.toHaveBeenCalled()
+    })
+
+    it('a second sequential run replaces the first run result', async () => {
+        resultSpy.mockImplementation((_s: string, runId: string) =>
+            Promise.resolve(
+                runId === 'r1'
+                    ? { status: 'done', result: { columns: ['a'], first_page: [[1]], row_count: 1 }, error: null }
+                    : { status: 'done', result: { columns: ['b'], first_page: [[2]], row_count: 1 }, error: null }
+            )
+        )
+        mount()
+        logic.actions.runQuery('select 1')
+        await expectLogic(logic).toFinishAllListeners()
+        runSpy.mockResolvedValueOnce({ run_id: 'r2' })
+        logic.actions.runQuery('select 2')
+        await expectLogic(logic).toFinishAllListeners()
+        const resultWrites = updateAttributes.mock.calls.map((c) => c[0]).filter((a) => a.result)
+        expect(resultWrites.at(-1).result).toEqual(expect.objectContaining({ columns: ['b'], first_page: [[2]] }))
+    })
+
+    it('ignores a stale poll from a previous run', async () => {
+        // r1's poll stays in flight until we resolve it — after r2 has become the active run.
+        let resolveR1: (value: unknown) => void = () => {}
+        const r1Poll = new Promise((resolve) => {
+            resolveR1 = resolve
+        })
+        resultSpy.mockImplementation((_shortId: string, runId: string) =>
+            runId === 'r1' ? r1Poll : Promise.resolve({ status: 'running', result: null, error: null })
+        )
+        runSpy.mockResolvedValue({ run_id: 'r2' })
+
+        // afterMount starts polling r1; wait until its poll is actually in flight.
+        mount({ runId: 'r1', hasResult: false })
+        await expectLogic(logic).toDispatchActions(['startPolling', 'pollResult'])
+
+        // Start a new run while r1's poll is still pending — r2 becomes the active run.
+        logic.actions.runQuery('select 2')
+        await expectLogic(logic).toDispatchActions(['runQuery', 'startPolling'])
+
+        // r1's stale poll now resolves with the OLD query's result.
+        resolveR1({
+            status: 'done',
+            result: { columns: ['old'], first_page: [[1]], row_count: 1, has_more: false },
+            error: null,
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        // The stale result must not overwrite the node, and r2's run must keep polling (not stopped).
+        expect(updateAttributes).not.toHaveBeenCalledWith(
+            expect.objectContaining({ result: expect.objectContaining({ columns: ['old'] }) })
+        )
+        expect(logic.values.isRunning).toBe(true)
+    })
+
+    it('blocks a second node while another node has a run in flight', async () => {
+        // Default resultSpy keeps r1 'running', so the notebook stays busy after n1 dispatches.
+        mount()
+        const other = notebookNodeSQLV2Logic({ nodeId: 'n2', notebookShortId: 'nb1', updateAttributes })
+        other.mount()
+        logic.actions.runQuery('select 1')
+        await expectLogic(logic).toFinishAllListeners()
+        other.actions.runQuery('select 2')
+        await expectLogic(other).toFinishAllListeners()
+        expect(runSpy).toHaveBeenCalledTimes(1)
+        expect(other.values.isRunning).toBe(false)
+        expect(other.values.operationBlockReason).toBeTruthy()
+        other.unmount()
+    })
+
+    it('blocks page fetches while another node is busy', async () => {
+        const pageSpy = jest.spyOn(api.notebooks, 'sqlV2RunPage')
+        mount()
+        logic.actions.runQuery('select 1')
+        await expectLogic(logic).toFinishAllListeners()
+        const other = notebookNodeSQLV2Logic({
+            nodeId: 'n2',
+            notebookShortId: 'nb1',
+            updateAttributes,
+            runId: 'r9',
+            hasResult: true,
+        })
+        other.mount()
+        other.actions.setPage(2)
+        await expectLogic(other).toFinishAllListeners()
+        expect(pageSpy).not.toHaveBeenCalled()
+        other.unmount()
+    })
+
+    it('releases the notebook when a run finishes so the next run can proceed', async () => {
+        resultSpy.mockResolvedValue({
+            status: 'done',
+            result: { columns: ['a'], first_page: [[1]], row_count: 1 },
+            error: null,
+        })
+        mount()
+        const other = notebookNodeSQLV2Logic({ nodeId: 'n2', notebookShortId: 'nb1', updateAttributes })
+        other.mount()
+        logic.actions.runQuery('select 1')
+        await expectLogic(logic).toFinishAllListeners()
+        other.actions.runQuery('select 2')
+        await expectLogic(other).toFinishAllListeners()
+        expect(runSpy).toHaveBeenCalledTimes(2)
+        other.unmount()
+    })
+
+    it('unmounting a busy node releases the notebook', async () => {
+        mount()
+        logic.actions.runQuery('select 1')
+        await expectLogic(logic).toFinishAllListeners()
+        logic.unmount()
+        const other = notebookNodeSQLV2Logic({ nodeId: 'n2', notebookShortId: 'nb1', updateAttributes })
+        other.mount()
+        logic = other // afterEach unmounts this one; n1 is already unmounted
+        other.actions.runQuery('select 2')
+        await expectLogic(other).toFinishAllListeners()
+        expect(runSpy).toHaveBeenCalledTimes(2)
     })
 })

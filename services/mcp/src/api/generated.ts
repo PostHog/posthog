@@ -2261,6 +2261,8 @@ export namespace Schemas {
       Day: 'day',
       Week: 'week',
       Month: 'month',
+      Quarter: 'quarter',
+      Year: 'year',
     } as const;
 
     export interface PropertyGroupFilter {
@@ -12225,6 +12227,32 @@ export namespace Schemas {
       failing_workflows?: string[];
     }
 
+    /**
+     * * `evaluation` - evaluation
+     * * `definitions` - definitions
+     * * `definitions_no_cohorts` - definitions_no_cohorts
+     */
+    export type CacheEnum = typeof CacheEnum[keyof typeof CacheEnum];
+
+
+    export const CacheEnum = {
+      Evaluation: 'evaluation',
+      Definitions: 'definitions',
+      DefinitionsNoCohorts: 'definitions_no_cohorts',
+    } as const;
+
+    /**
+     * * `evaluation` - evaluation
+     * * `definitions` - definitions
+     */
+    export type CachesEnum = typeof CachesEnum[keyof typeof CachesEnum];
+
+
+    export const CachesEnum = {
+      Evaluation: 'evaluation',
+      Definitions: 'definitions',
+    } as const;
+
     export interface EventsHeatMapColumnAggregationResult {
       column: number;
       value: number;
@@ -14384,6 +14412,64 @@ export namespace Schemas {
       target_display_name: string;
       /** canonical or team_custom */
       source: string;
+    }
+
+    /**
+     * * `pending` - Pending
+     * * `applied` - Applied
+     * * `dismissed` - Dismissed
+     * * `superseded` - Superseded
+     * * `no_change` - No change
+     */
+    export type ReplayScannerPromptSuggestionStatusEnum = typeof ReplayScannerPromptSuggestionStatusEnum[keyof typeof ReplayScannerPromptSuggestionStatusEnum];
+
+
+    export const ReplayScannerPromptSuggestionStatusEnum = {
+      Pending: 'pending',
+      Applied: 'applied',
+      Dismissed: 'dismissed',
+      Superseded: 'superseded',
+      NoChange: 'no_change',
+    } as const;
+
+    export interface ReplayScannerPromptSuggestion {
+      readonly id: string;
+      /** pending (current), applied, dismissed, or superseded by a newer suggestion.
+       *
+       * * `pending` - Pending
+       * * `applied` - Applied
+       * * `dismissed` - Dismissed
+       * * `superseded` - Superseded
+       * * `no_change` - No change */
+      readonly status: ReplayScannerPromptSuggestionStatusEnum;
+      /** The full rewritten prompt, ready to apply to the scanner. */
+      readonly suggested_prompt: string;
+      /** The scanner prompt this suggestion was generated against, for diffing. */
+      readonly base_prompt: string;
+      /** What the rewrite changed and why, grounded in the ratings. */
+      readonly rationale: string;
+      /** Thumbs-up ratings the suggestion was based on. */
+      readonly based_on_up: number;
+      /** Thumbs-down ratings the suggestion was based on. */
+      readonly based_on_down: number;
+      /** The scanner version whose prompt this suggestion was generated against. */
+      readonly scanner_version: number;
+      readonly created_at: string;
+      /** User who requested this suggestion; null for automatic refreshes. */
+      readonly created_by: UserBasic | null;
+      /** @nullable */
+      readonly applied_at: string | null;
+      /** User who applied this suggestion to the scanner; null unless applied. */
+      readonly applied_by: UserBasic | null;
+    }
+
+    export interface CurrentPromptSuggestion {
+      /** The newest suggestion for this scanner, or null when none has been generated yet. */
+      suggestion: ReplayScannerPromptSuggestion | null;
+      /** True when the team's ratings changed since the newest suggestion was generated. */
+      stale: boolean;
+      /** Number of rated (thumbs up or down) succeeded observations available to generate from. */
+      rated_count: number;
     }
 
     /**
@@ -18962,7 +19048,7 @@ export namespace Schemas {
          * @nullable
          */
       conclusion_comment?: string | null;
-      /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Only acts for allowlisted teams; ignored otherwise. */
+      /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
       open_cleanup_pr?: boolean;
     }
 
@@ -28798,6 +28884,12 @@ export namespace Schemas {
       /** Prompt payload as JSON or string data. */
       prompt: unknown;
       readonly version: number;
+      /**
+         * Optional note describing what changed in this version. Set when the version is published.
+         * @maxLength 400
+         * @nullable
+         */
+      version_description?: string | null;
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
@@ -28831,6 +28923,11 @@ export namespace Schemas {
       /** Prompt payload as JSON or string data. */
       readonly prompt: unknown;
       readonly version: number;
+      /**
+         * Optional note describing what changed in this version. Set when the version is published.
+         * @nullable
+         */
+      readonly version_description: string | null;
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
@@ -28866,6 +28963,8 @@ export namespace Schemas {
     export interface LLMPromptVersionSummary {
       readonly id: string;
       readonly version: number;
+      /** @nullable */
+      readonly version_description: string | null;
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly is_latest: boolean;
@@ -31156,6 +31255,41 @@ export namespace Schemas {
       event_definition_id?: string | null;
     }
 
+    export interface ObservationLabelDayCount {
+      /** Day (UTC) the observed sessions were scanned. */
+      date: string;
+      /** Observations scanned this day labeled correct (thumbs up). */
+      up: number;
+      /** Observations scanned this day labeled incorrect (thumbs down). */
+      down: number;
+    }
+
+    export interface ObservationVersionMarker {
+      /** First day (UTC) this prompt version produced observations. */
+      date: string;
+      /** The scanner (prompt) version number. */
+      version: number;
+      /** The prompt text this version ran with, taken from the observation run snapshots. */
+      prompt: string;
+      /** Thumbs-up ratings on this version's observations. */
+      up: number;
+      /** Thumbs-down ratings on this version's observations. */
+      down: number;
+    }
+
+    export interface ObservationLabelStats {
+      /** Observations in the filtered set labeled correct (thumbs up). */
+      up_total: number;
+      /** Observations in the filtered set labeled incorrect (thumbs down). */
+      down_total: number;
+      /** Daily label counts over the last `recent_days` days, bucketed by the day the session was scanned so the series tracks scanner quality over time. Days without labels are omitted. */
+      by_day: ObservationLabelDayCount[];
+      /** Daily label counts over the last `recent_days` days, bucketed by the day the rating was last set or changed: the team's rating activity. Days without rating changes are omitted. */
+      by_rating_day: ObservationLabelDayCount[];
+      /** Each scanner (prompt) version that produced observations (all-time), with its first day, prompt, and rating counts, for chart markers and the prompt version history. */
+      version_markers: ObservationVersionMarker[];
+    }
+
     export interface ObservationStatusCounts {
       /** Total observations in the filtered set. */
       total: number;
@@ -31210,6 +31344,8 @@ export namespace Schemas {
       status_counts: ObservationStatusCounts;
       /** Session-level scanner coverage. */
       coverage: CoverageStats;
+      /** Team label (thumbs up/down) aggregates over the filtered set. */
+      labels: ObservationLabelStats;
       /** All distinct tags (fixed + freeform) emitted by succeeded observations in the filtered set. */
       available_tags: string[];
       /** Monitor-type aggregates; null when the scanner is not a monitor. */
@@ -33522,6 +33658,19 @@ export namespace Schemas {
       signals_count: number;
     }
 
+    /**
+     * The team's shared judgement on whether the scanner scored this session correctly.
+     */
+    export interface ReplayObservationLabel {
+      /** True if the scanner scored this session correctly, false if not. */
+      is_correct: boolean;
+      /**
+         * Optional written context on the rating, for thumbs-up and thumbs-down alike: what the scanner got right or wrong, or what it should have concluded.
+         * @maxLength 5000
+         */
+      feedback?: string;
+    }
+
     export interface ReplayObservation {
       readonly id: string;
       /** The scanner that produced this observation. */
@@ -33571,6 +33720,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly next_observation_id: string | null;
+      /** The team's shared label on this observation (correct/incorrect + feedback), or null if unlabeled. */
+      readonly label: ReplayObservationLabel | null;
       /** @nullable */
       started_at?: string | null;
       /** @nullable */
@@ -33679,6 +33830,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ReplayScanner[];
+    }
+
+    export interface PaginatedReplayScannerPromptSuggestionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ReplayScannerPromptSuggestion[];
     }
 
     export type RepoBaselineFilePaths = {[key: string]: string};
@@ -39550,6 +39710,11 @@ export namespace Schemas {
          * @minimum 1
          */
       base_version?: number;
+      /**
+         * Optional note describing what changed in this version. Shown in the version history.
+         * @maxLength 400
+         */
+      version_description?: string;
     }
 
     export interface PatchedLLMProviderKey {
@@ -49798,7 +49963,7 @@ export namespace Schemas {
          * @nullable
          */
       conclusion_comment?: string | null;
-      /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Only acts for allowlisted teams; ignored otherwise. */
+      /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
       open_cleanup_pr?: boolean;
       /** The key of the variant to ship. */
       variant_key: string;
@@ -52595,6 +52760,111 @@ export namespace Schemas {
       Severity: 'severity',
       Service: 'service',
     } as const;
+
+    /**
+     * Raw cached payload as stored in Redis, or null on a miss.
+     * @nullable
+     */
+    export type StaffCacheEntryResponseData = { [key: string]: unknown } | null;
+
+    /**
+     * * `redis` - redis
+     * * `miss` - miss
+     */
+    export type StaffCacheSourceEnum = typeof StaffCacheSourceEnum[keyof typeof StaffCacheSourceEnum];
+
+
+    export const StaffCacheSourceEnum = {
+      Redis: 'redis',
+      Miss: 'miss',
+    } as const;
+
+    export interface StaffCacheEntryResponse {
+      /** Team id. */
+      team_id: number;
+      /** Which cache this entry is for.
+       *
+       * * `evaluation` - evaluation
+       * * `definitions` - definitions
+       * * `definitions_no_cohorts` - definitions_no_cohorts */
+      cache: CacheEnum;
+      /** 'redis' when a warm entry is cached, or 'miss' when nothing is cached in Redis.
+       *
+       * * `redis` - redis
+       * * `miss` - miss */
+      source: StaffCacheSourceEnum;
+      /**
+         * Raw cached payload as stored in Redis, or null on a miss.
+         * @nullable
+         */
+      data: StaffCacheEntryResponseData;
+    }
+
+    export interface StaffCacheEntryStatus {
+      /** 'redis' when a warm entry is cached, or 'miss' when nothing is cached in Redis.
+       *
+       * * `redis` - redis
+       * * `miss` - miss */
+      source: StaffCacheSourceEnum;
+      /**
+         * Number of flags in the cached payload, or null on a miss.
+         * @nullable
+         */
+      flag_count: number | null;
+    }
+
+    export interface StaffCacheMutation {
+      /**
+         * Team ids to act on (max 50 per request).
+         * @maxItems 50
+         */
+      team_ids: number[];
+      /** Which logical caches to act on: 'evaluation' (the /flags cache) and/or 'definitions' (the /flags/definitions local-eval cache). Defaults to both. */
+      caches?: CachesEnum[];
+    }
+
+    export interface StaffCacheMutationResponse {
+      /** Team ids for which the requested action's tasks were enqueued. */
+      queued_team_ids: number[];
+      /** Requested team ids that do not exist. */
+      not_found_team_ids: number[];
+    }
+
+    export interface StaffCacheTeamStatus {
+      /** Team id. */
+      team_id: number;
+      /** Status of the /flags evaluation cache. */
+      evaluation: StaffCacheEntryStatus;
+      /** Status of the /flags/definitions local-eval cache (with-cohorts variant). */
+      definitions: StaffCacheEntryStatus;
+      /** Status of the /flags/definitions local-eval cache (without-cohorts variant, cohort filters transformed to properties for simple SDK clients). */
+      definitions_no_cohorts: StaffCacheEntryStatus;
+    }
+
+    export interface StaffCacheStatusResponse {
+      /** Per-team cache status. */
+      results: StaffCacheTeamStatus[];
+    }
+
+    export interface StaffTeamResult {
+      /** Team id. */
+      id: number;
+      /** Team name. */
+      name: string;
+      /** Team api_token (used as the flags evaluation cache key). */
+      api_token: string;
+      /** Organization uuid that owns the team. */
+      organization_id: string;
+      /** Organization name that owns the team. */
+      organization_name: string;
+      /** Project id the team belongs to. */
+      project_id: number;
+    }
+
+    export interface StaffTeamSearchResponse {
+      /** Matching teams. */
+      results: StaffTeamResult[];
+    }
 
     /**
      * Response containing a JWT token (and resolved base URL) for reading a task run's live event stream
@@ -61487,6 +61757,10 @@ export namespace Schemas {
 
     export type EnvironmentsVisionScannersObservationsListParams = {
     /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -61526,6 +61800,10 @@ export namespace Schemas {
 
     export type EnvironmentsVisionScannersObservationsStatsRetrieveParams = {
     /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: string;
+    /**
      * Window size in days for the coverage `recent_sessions` count. Clamped to [1, 365]. Defaults to 14 when omitted.
      */
     recent_days?: number;
@@ -61553,6 +61831,17 @@ export namespace Schemas {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
+    };
+
+    export type EnvironmentsVisionScannersPromptSuggestionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type EnvironmentsWarehouseSavedQueriesListParams = {
@@ -61665,6 +61954,53 @@ export namespace Schemas {
     };
 
     export type EnvironmentsWebVitalsRetrieve200 = { [key: string]: unknown };
+
+    export type FeatureFlagsStaffCacheListParams = {
+    /**
+     * Team ids to report cache status for (max 50 per request). Repeat the param, e.g. ?team_ids=1&team_ids=2.
+     * @maxItems 50
+     */
+    team_ids: number[];
+    };
+
+    export type FeatureFlagsStaffCacheEntryRetrieveParams = {
+    /**
+     * Which cache to fetch: 'evaluation' (the /flags cache), 'definitions' (the /flags/definitions local-eval cache, with-cohorts variant), or 'definitions_no_cohorts' (the without-cohorts variant served to simple SDK clients).
+     *
+     * * `evaluation` - evaluation
+     * * `definitions` - definitions
+     * * `definitions_no_cohorts` - definitions_no_cohorts
+     * @minLength 1
+     */
+    cache: FeatureFlagsStaffCacheEntryRetrieveCache;
+    /**
+     * Team id to fetch the cache entry for.
+     */
+    team_id: number;
+    };
+
+    export type FeatureFlagsStaffCacheEntryRetrieveCache = typeof FeatureFlagsStaffCacheEntryRetrieveCache[keyof typeof FeatureFlagsStaffCacheEntryRetrieveCache];
+
+
+    export const FeatureFlagsStaffCacheEntryRetrieveCache = {
+      Evaluation: 'evaluation',
+      Definitions: 'definitions',
+      DefinitionsNoCohorts: 'definitions_no_cohorts',
+    } as const;
+
+    export type FeatureFlagsStaffTeamsListParams = {
+    /**
+     * Maximum number of teams to return (default 25, max 100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Search string matched against team id (exact), api_token (exact), team name (partial), or organization name (partial). Non-numeric queries must be at least 2 characters so an empty or single-letter query never returns half the table; a numeric team-id lookup is allowed at a single digit.
+     * @minLength 1
+     */
+    search: string;
+    };
 
     export type LlmAnalyticsPersonalSpendListParams = {
     /**
@@ -62331,6 +62667,7 @@ export namespace Schemas {
      * * `ExternalDataSchema` - ExternalDataSchema
      * * `Evaluation` - Evaluation
      * * `LLMTrace` - LLMTrace
+     * * `AIGatewayCredit` - AIGatewayCredit
      * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
      * * `CustomerProfileConfig` - CustomerProfileConfig
      * * `Log` - Log
@@ -62413,6 +62750,7 @@ export namespace Schemas {
       ExternalDataSchema: 'ExternalDataSchema',
       Evaluation: 'Evaluation',
       LLMTrace: 'LLMTrace',
+      AIGatewayCredit: 'AIGatewayCredit',
       WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
       CustomerProfileConfig: 'CustomerProfileConfig',
       Log: 'Log',
@@ -62481,6 +62819,7 @@ export namespace Schemas {
      * * `ExternalDataSchema` - ExternalDataSchema
      * * `Evaluation` - Evaluation
      * * `LLMTrace` - LLMTrace
+     * * `AIGatewayCredit` - AIGatewayCredit
      * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
      * * `CustomerProfileConfig` - CustomerProfileConfig
      * * `Log` - Log
@@ -62551,6 +62890,7 @@ export namespace Schemas {
       ExternalDataSchema: 'ExternalDataSchema',
       Evaluation: 'Evaluation',
       LLMTrace: 'LLMTrace',
+      AIGatewayCredit: 'AIGatewayCredit',
       WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
       CustomerProfileConfig: 'CustomerProfileConfig',
       Log: 'Log',
@@ -69419,6 +69759,10 @@ export namespace Schemas {
 
     export type VisionScannersObservationsListParams = {
     /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -69458,6 +69802,10 @@ export namespace Schemas {
 
     export type VisionScannersObservationsStatsRetrieveParams = {
     /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: string;
+    /**
      * Window size in days for the coverage `recent_sessions` count. Clamped to [1, 365]. Defaults to 14 when omitted.
      */
     recent_days?: number;
@@ -69485,6 +69833,17 @@ export namespace Schemas {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
+    };
+
+    export type VisionScannersPromptSuggestionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type VisualReviewReposListParams = {

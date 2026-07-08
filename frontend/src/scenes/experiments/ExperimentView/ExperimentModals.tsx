@@ -3,7 +3,16 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconCheckCircle, IconGlobe, IconList } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonLabel, LemonModal, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCheckbox,
+    LemonLabel,
+    LemonModal,
+    LemonSelect,
+    LemonTextArea,
+    Link,
+} from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -209,19 +218,32 @@ export function FinishExperimentModal(): JSX.Element {
 
     const [selectedVariantKey, setSelectedVariantKey] = useState<string | null>()
     const [releaseToEveryone, setReleaseToEveryone] = useState<boolean>(false)
+    const [openCleanupPr, setOpenCleanupPr] = useState<boolean>(false)
+
+    // The cleanup PR runs as a PostHog Code task, so the user needs Code access on top of the rollout flag.
+    const cleanupPrAvailable =
+        !!featureFlags[FEATURE_FLAGS.EXPERIMENT_FLAG_CLEANUP_PR] && !!featureFlags[FEATURE_FLAGS.TASKS]
 
     const aggregationTargetName =
         experiment.filters.aggregation_group_type_index != null
             ? aggregationLabel(experiment.filters.aggregation_group_type_index).plural
             : 'users'
 
+    const handleClose = (): void => {
+        setOpenCleanupPr(false)
+        restoreUnmodifiedExperiment()
+        closeFinishExperimentModal()
+    }
+
     const handleEndExperiment = (): void => {
+        const withCleanupPr = cleanupPrAvailable && openCleanupPr
         if (isSingleVariantShipped || !selectedVariantKey) {
-            endExperimentWithoutShipping()
+            endExperimentWithoutShipping(withCleanupPr)
         } else {
             finishExperiment({
                 selectedVariantKey,
                 releaseToEveryone,
+                openCleanupPr: withCleanupPr,
             })
         }
     }
@@ -247,21 +269,12 @@ export function FinishExperimentModal(): JSX.Element {
         <>
             <LemonModal
                 isOpen={isFinishExperimentModalOpen}
-                onClose={() => {
-                    restoreUnmodifiedExperiment()
-                    closeFinishExperimentModal()
-                }}
+                onClose={handleClose}
                 width={600}
                 title="End experiment"
                 footer={
                     <div className="flex items-center gap-2">
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => {
-                                restoreUnmodifiedExperiment()
-                                closeFinishExperimentModal()
-                            }}
-                        >
+                        <LemonButton type="secondary" onClick={handleClose}>
                             Cancel
                         </LemonButton>
                         <LemonButton
@@ -383,6 +396,18 @@ export function FinishExperimentModal(): JSX.Element {
                         </>
                     )}
                     {!conclusionFirst && <ConclusionForm />}
+                    {cleanupPrAvailable && (
+                        <LemonCheckbox
+                            checked={openCleanupPr}
+                            onChange={setOpenCleanupPr}
+                            data-attr="experiment-open-cleanup-pr"
+                            label={
+                                <span>
+                                    Open a draft PR removing <code>{experiment.feature_flag?.key}</code> from your code
+                                </span>
+                            }
+                        />
+                    )}
                     {!isSingleVariantShipped && (
                         <LemonBanner type="info" className="mb-4">
                             For more precise control over your release, adjust the rollout percentage and release

@@ -7,4 +7,7 @@ importing the view modules directly.
 """
 
 from ..sql_v2_callback import notebook_sql_v2_callback as notebook_sql_v2_callback
-from ..sql_v2_data_plane import notebook_sql_v2_data_plane as notebook_sql_v2_data_plane
+from ..sql_v2_data_plane import (
+    notebook_sql_v2_data_plane as notebook_sql_v2_data_plane,
+    notebook_sql_v2_data_plane_status as notebook_sql_v2_data_plane_status,
+)
