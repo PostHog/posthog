@@ -32,7 +32,10 @@ from products.exports.backend.temporal.subscriptions.activities import (
     update_delivery_record,
     validate_subscription_for_delivery,
 )
-from products.exports.backend.temporal.subscriptions.ai_subscription.activities import generate_ai_subscription_report
+from products.exports.backend.temporal.subscriptions.ai_subscription.activities import (
+    generate_ai_subscription_preview,
+    generate_ai_subscription_report,
+)
 from products.exports.backend.temporal.subscriptions.retry_policy import (
     SUBSCRIPTION_DELIVER_RETRY_POLICY,
     SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
@@ -48,6 +51,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     DeliveryStatus,
     FetchDueSubscriptionsActivityInputs,
     GenerateAIReportInputs,
+    PreviewAISubscriptionWorkflowInputs,
     ProcessSubscriptionWorkflowInputs,
     RecipientResult,
     ScheduleAllSubscriptionsWorkflowInputs,
@@ -596,6 +600,62 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
 
         # Re-raise after cleanup completes — Temporal blocks activity scheduling in the
         # finally block while an exception is propagating.
+        if caught_error:
+            raise caught_error
+
+
+@temporalio.workflow.defn(name="preview-ai-subscription")
+class PreviewAISubscriptionWorkflow(PostHogWorkflow):
+    """One-off in-app preview of an AI report: generate only — no delivery, no schedule advance,
+    no subscription mutation. The API pre-creates the delivery row (trigger_type=preview) so it can
+    return the id for the frontend to poll; this workflow only fills it in and closes it out.
+    """
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> PreviewAISubscriptionWorkflowInputs:
+        loaded = json.loads(inputs[0])
+        return PreviewAISubscriptionWorkflowInputs(**loaded)
+
+    @temporalio.workflow.run
+    async def run(self, inputs: PreviewAISubscriptionWorkflowInputs) -> None:
+        final_status = DeliveryStatus.FAILED
+        error: dict | None = None
+        caught_error: BaseException | None = None
+
+        try:
+            generate_result = await temporalio.workflow.execute_activity(
+                generate_ai_subscription_preview,
+                GenerateAIReportInputs(subscription_id=inputs.subscription_id, delivery_id=inputs.delivery_id),
+                start_to_close_timeout=dt.timedelta(minutes=10),
+                retry_policy=temporalio.common.RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=30),
+                    maximum_interval=dt.timedelta(minutes=5),
+                    maximum_attempts=3,
+                ),
+            )
+            # Same fully-degraded judgement as delivery: every query failed → FAILED with the reason.
+            final_status, error = generate_result.delivered_status()
+        except Exception as e:
+            if isinstance(e, ActivityError) and isinstance(e.cause, ApplicationError):
+                # Non-retryable generation errors (consent revoked, prompt rejected) carry a
+                # user-facing message — surface it on the row the frontend is polling.
+                error = {"message": str(e.cause.message)[:500], "type": "PreviewFailed"}
+            else:
+                error = {"message": str(e)[:500], "type": type(e).__name__}
+            caught_error = e
+        finally:
+            await temporalio.workflow.execute_activity(
+                update_delivery_record,
+                UpdateDeliveryRecordInputs(
+                    delivery_id=inputs.delivery_id,
+                    status=final_status,
+                    error=error,
+                    finished=True,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=2),
+                retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+            )
+
         if caught_error:
             raise caught_error
 
