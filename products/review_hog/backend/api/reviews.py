@@ -1,10 +1,12 @@
 import uuid
 import logging
+import operator
 from dataclasses import dataclass
 from datetime import timedelta
+from functools import reduce
 from typing import Any, get_args
 
-from django.db.models import Func, IntegerField, JSONField, Max, QuerySet
+from django.db.models import Func, IntegerField, JSONField, Max, Q, QuerySet
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
 from django.utils import timezone
@@ -266,38 +268,39 @@ def _content_json() -> Cast:
     return Cast("content", JSONField())
 
 
+def _turn_scope_q(head_by_report: dict[str, str | None]) -> Q | None:
+    """OR of (report, head_sha) pairs, so artefact reads stay scoped to each report's reviewed turn
+    instead of scanning the report's whole append-only history. None when no report has a head yet."""
+    pairs = [(report_id, head_sha) for report_id, head_sha in head_by_report.items() if head_sha]
+    if not pairs:
+        return None
+    return reduce(operator.or_, (Q(report_id=report_id, head_sha=head_sha) for report_id, head_sha in pairs))
+
+
 def _snapshot_stats(team_id: int, reports: list[ReviewReport]) -> dict[str, _SnapshotStats]:
     """The latest snapshot's PR metadata per report, extracted DB-side.
 
     `pr_snapshot` content embeds the PR's full files payload (easily hundreds of KB), so the
-    jsonb extraction pulls only `pr_metadata` and the `pr_files` length across the wire. Prefers
-    the snapshot matching the report's reviewed head, falling back to the newest one.
+    jsonb extraction pulls only `pr_metadata` and the `pr_files` length across the wire, and the
+    `head_sha` column keeps the jsonb work off prior turns' rows. Prefers the snapshot matching
+    the report's reviewed head, falling back to the newest one.
     """
     stats: dict[str, _SnapshotStats] = {}
     head_by_report = {str(report.id): report.head_sha for report in reports}
-    rows = (
-        ReviewReportArtefact.objects.for_team(team_id)
-        .filter(report_id__in=list(head_by_report), type=ReviewReportArtefact.ArtefactType.PR_SNAPSHOT)
-        .annotate(
+    snapshots = ReviewReportArtefact.objects.for_team(team_id).filter(
+        report_id__in=list(head_by_report), type=ReviewReportArtefact.ArtefactType.PR_SNAPSHOT
+    )
+
+    def _annotated(qs: QuerySet) -> QuerySet:
+        return qs.annotate(
             meta=KeyTransform("pr_metadata", _content_json()),
-            snapshot_head_sha=KeyTextTransform("head_sha", _content_json()),
             files_reviewed=Func(
                 KeyTransform("pr_files", _content_json()), function="jsonb_array_length", output_field=IntegerField()
             ),
-        )
-        .order_by("created_at", "id")
-        .values("report_id", "meta", "snapshot_head_sha", "files_reviewed")
-    )
-    matched_head: set[str] = set()
-    for row in rows:
+        ).values("report_id", "meta", "files_reviewed")
+
+    def _ingest(row: dict[str, Any], *, head_matched: bool) -> None:
         report_id = str(row["report_id"])
-        # Rows come oldest-first: a later row always wins, but a head-matching row is never
-        # displaced by a newer non-matching one (e.g. a fetch for a head that never finished).
-        is_match = row["snapshot_head_sha"] == head_by_report[report_id]
-        if not is_match and report_id in matched_head:
-            continue
-        if is_match:
-            matched_head.add(report_id)
         raw_meta = row["meta"]
         try:
             # Depending on the driver the jsonb expression may land as a decoded dict or a string.
@@ -311,37 +314,50 @@ def _snapshot_stats(team_id: int, reports: list[ReviewReport]) -> dict[str, _Sna
         except ValidationError as e:
             logger.warning("Skipping unparseable pr_snapshot metadata for report %s: %s", report_id, e)
             meta = None
-        stats[report_id] = _SnapshotStats(meta=meta, files_reviewed=row["files_reviewed"], head_matched=is_match)
+        stats[report_id] = _SnapshotStats(meta=meta, files_reviewed=row["files_reviewed"], head_matched=head_matched)
+
+    head_q = _turn_scope_q(head_by_report)
+    if head_q is not None:
+        for row in _annotated(snapshots.filter(head_q).order_by("created_at", "id")):
+            _ingest(row, head_matched=True)  # oldest-first, so the turn's latest snapshot wins
+    missing = [report_id for report_id in head_by_report if report_id not in stats]
+    if missing:
+        # No snapshot at the reviewed head (degraded fetch, or fetch not run yet): newest one wins.
+        fallback = (
+            _annotated(snapshots.filter(report_id__in=missing))
+            .order_by("report_id", "-created_at", "-id")
+            .distinct("report_id")
+        )
+        for row in fallback:
+            _ingest(row, head_matched=False)
     return stats
 
 
 def _turn_stats(team_id: int, reports: list[ReviewReport]) -> dict[str, _TurnStats]:
     """Chunk/perspective shape of each report's latest turn, extracted DB-side (counts only)."""
     stats = {str(report.id): _TurnStats() for report in reports}
-    head_by_report = {str(report.id): report.head_sha for report in reports}
+    head_q = _turn_scope_q({str(report.id): report.head_sha for report in reports})
+    if head_q is None:
+        return stats
 
     chunk_rows = (
         ReviewReportArtefact.objects.for_team(team_id)
-        .filter(report_id__in=list(head_by_report), type=ReviewReportArtefact.ArtefactType.CHUNK_SET)
+        .filter(head_q, type=ReviewReportArtefact.ArtefactType.CHUNK_SET)
         .annotate(
-            chunk_head_sha=KeyTextTransform("head_sha", _content_json()),
             chunk_count=Func(
                 KeyTransform("chunks", _content_json()), function="jsonb_array_length", output_field=IntegerField()
             ),
         )
         .order_by("created_at", "id")
-        .values("report_id", "chunk_head_sha", "chunk_count")
+        .values("report_id", "chunk_count")
     )
     for row in chunk_rows:  # oldest-first, so the turn's latest chunking wins
-        report_id = str(row["report_id"])
-        if row["chunk_head_sha"] == head_by_report[report_id]:
-            stats[report_id].chunk_count = row["chunk_count"]
+        stats[str(row["report_id"])].chunk_count = row["chunk_count"]
 
     result_rows = (
         ReviewReportArtefact.objects.for_team(team_id)
-        .filter(report_id__in=list(head_by_report), type=ReviewReportArtefact.ArtefactType.PERSPECTIVE_RESULT)
+        .filter(head_q, type=ReviewReportArtefact.ArtefactType.PERSPECTIVE_RESULT)
         .annotate(
-            result_head_sha=KeyTextTransform("head_sha", _content_json()),
             pass_number=Cast(KeyTextTransform("pass_number", _content_json()), IntegerField()),
             chunk_id=Cast(KeyTextTransform("chunk_id", _content_json()), IntegerField()),
             issue_count=Func(
@@ -351,12 +367,12 @@ def _turn_stats(team_id: int, reports: list[ReviewReport]) -> dict[str, _TurnSta
             ),
         )
         .order_by("created_at", "id")
-        .values("report_id", "result_head_sha", "pass_number", "chunk_id", "issue_count")
+        .values("report_id", "pass_number", "chunk_id", "issue_count")
     )
     # Selection artefacts are small (names + one-line reasons), so full content comes across the wire.
     selection_rows = (
         ReviewReportArtefact.objects.for_team(team_id)
-        .filter(report_id__in=list(head_by_report), type=ReviewReportArtefact.ArtefactType.PERSPECTIVE_SELECTION)
+        .filter(head_q, type=ReviewReportArtefact.ArtefactType.PERSPECTIVE_SELECTION)
         .order_by("created_at", "id")
         .values("report_id", "content")
     )
@@ -367,16 +383,13 @@ def _turn_stats(team_id: int, reports: list[ReviewReport]) -> dict[str, _TurnSta
         except ValidationError as e:
             logger.warning("Skipping unparseable perspective_selection for report %s: %s", report_id, e)
             continue
-        if artefact.head_sha == head_by_report[report_id]:
-            stats[report_id].selection_roster = artefact.roster
-            stats[report_id].selection_chunks = artefact.selection.chunks
+        stats[report_id].selection_roster = artefact.roster
+        stats[report_id].selection_chunks = artefact.selection.chunks
 
     # Latest-wins per (pass, chunk) within the turn, mirroring how the pipeline resumes them.
-    issues_by_unit: dict[str, dict[tuple[int, int], int]] = {report_id: {} for report_id in head_by_report}
+    issues_by_unit: dict[str, dict[tuple[int, int], int]] = {report_id: {} for report_id in stats}
     for row in result_rows:
-        report_id = str(row["report_id"])
-        if row["result_head_sha"] == head_by_report[report_id]:
-            issues_by_unit[report_id][(row["pass_number"], row["chunk_id"])] = row["issue_count"]
+        issues_by_unit[str(row["report_id"])][(row["pass_number"], row["chunk_id"])] = row["issue_count"]
     for report_id, units in issues_by_unit.items():
         wave_units = {unit: count for unit, count in units.items() if unit[0] != BLIND_SPOT_PASS_NUMBER}
         blind_units = {unit: count for unit, count in units.items() if unit[0] == BLIND_SPOT_PASS_NUMBER}
