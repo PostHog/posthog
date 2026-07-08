@@ -324,6 +324,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 'group/4': [],
                 session: [],
             }
+            const unknownTypeProperties: PropertyDefinitionStorage = {}
             for (const key of allPending) {
                 let [type, ...rest] = key.split('/')
 
@@ -335,8 +336,14 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 if (isKeyOf(type, pendingByType)) {
                     pendingByType[type].push(rest.join('/'))
                 } else {
-                    throw new Error(`Unknown property definition type: ${type}`)
+                    // Types without a definitions endpoint (e.g. product-seeded ones like
+                    // account_custom_property) can't be fetched — mark them missing instead of
+                    // throwing, or one stray key would wedge the pending queue for every type.
+                    unknownTypeProperties[key] = PropertyDefinitionState.Missing
                 }
+            }
+            if (Object.keys(unknownTypeProperties).length > 0) {
+                actions.updatePropertyDefinitions(unknownTypeProperties)
             }
             try {
                 // since this is a unique query, there is no breakpoint here to prevent out of order replies
