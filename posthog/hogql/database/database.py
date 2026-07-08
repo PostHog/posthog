@@ -1994,7 +1994,12 @@ def _setup_group_key_fields(database: Database, group_types: list[dict[str, Any]
             raw_field_name = f"_{field_name}_raw"
             table.fields[raw_field_name] = original_field.model_copy(update={"hidden": True})
 
-            created_at_str = group_mapping["created_at"].strftime("%Y-%m-%d %H:%M:%S")
+            # Must stay a datetime constant: a naive string literal would be parsed by ClickHouse in the
+            # project's timezone (the comparison is against toTimeZone(timestamp, <project tz>)), shifting
+            # the cutoff by the project's UTC offset.
+            created_at = group_mapping["created_at"]
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=UTC)
 
             table.fields[field_name] = ExpressionField(
                 name=field_name,
@@ -2004,7 +2009,7 @@ def _setup_group_key_fields(database: Database, group_types: list[dict[str, Any]
                         ast.CompareOperation(
                             left=ast.Field(chain=["timestamp"]),
                             op=ast.CompareOperationOp.Lt,
-                            right=ast.Constant(value=created_at_str),
+                            right=ast.Constant(value=created_at),
                         ),
                         ast.Constant(value=""),
                         ast.Field(chain=[raw_field_name]),
