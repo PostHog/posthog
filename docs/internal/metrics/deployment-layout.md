@@ -12,7 +12,7 @@ Why this is safe and correct for a days-to-alpha timeline:
 - The streams layout is the _eventual_ target (Snuffle benchmarks ~89.5% less disk, ~31→3 bytes/sample) but it changes the ingestion write path + adds a backfill — too much risk to land under an alpha deadline.
 - The `attribute_field()` helper (P0) is the migration seam: when storage moves to streams, only that one function changes, not every query call site.
 
-**Action when we do the storage track:** model `metrics_series` keyed by a full series fingerprint — Snuffle computes it as `cityHash64(metric_name, service_name, mapSort(resource_attributes), mapSort(attributes_map_str))`. We already materialize a partial `resource_fingerprint = cityHash64(resource_attributes)` on `metrics1`; the full series identity adds metric_name + service_name + sorted data-point attributes.
+**Update (2026-07):** the series identity question is settled differently than sketched here. The `metric_series` / `metric_samples` split shipped as the events-model drill-down track (posthog#66163/#66169/#66183, live in prod both regions since 2026-07-02), and the series fingerprint is **assigned at ingest in capture-logs (SipHash-1-3, includes `metric_type`)** rather than computed in ClickHouse with cityHash64 (posthog#67195/#67196). The passthrough MVs drop rows with a NULL fingerprint. `metrics1` remains the pre-aggregated TSDB read path; its streams-table rewrite is still the deferred post-alpha track, with `attribute_field()` as the seam.
 
 ## The full data path (all environments)
 
@@ -20,63 +20,56 @@ Why this is safe and correct for a days-to-alpha timeline:
 producers ─► capture-logs /i/v1/metrics ─► Kafka (WarpStream "metrics") ─► metrics-ingestion consumer ─► ClickHouse metrics1 (logs cluster)
    │                                                                                                              │
    ├─ app SDKs (OTLP, customer traffic)                                                                           ▼
-   └─ infra/service metrics via vmagent ─► otel-collector bridge (prometheusremotewrite→OTLP)         products/metrics (HogQL) + prom-compat (PromQL)
+   └─ infra/service metrics ─► metrics-bridge scrape collector (prometheus receiver → OTLP)           products/metrics (HogQL) + prom-compat (PromQL)
 ```
 
 Two producer classes:
 
 1. **Customer OTLP** — apps push OTLP straight to `/i/v1/metrics`. Already works in every env where the ingest path is live.
-2. **Our own infra/service metrics** — vmagent already scrapes them; the otel-collector bridge (INFRA-A) fans a copy into `/i/v1/metrics`. This is the "pipe our logs services through" path.
+2. **Our own infra/service metrics** — the dedicated `metrics-bridge` collector scrapes the dashboard targets and pushes OTLP into `/i/v1/metrics`. (The original vmagent remote-write design was scrapped: vmagent only speaks Remote Write 1.0, the OTel receiver only accepts 2.0.)
 
 ## Status matrix — what exists where
 
 Legend: ✅ live · ⏳ in-flight (PR) · ➕ this stack adds it · — n/a
 
-| Layer                                                    | local             | dev               | prod-us       | prod-eu       | Where it lives                                 |
-| -------------------------------------------------------- | ----------------- | ----------------- | ------------- | ------------- | ---------------------------------------------- |
-| Kafka topics (`ingestion_metrics`, `clickhouse_metrics`) | ✅ (compose)      | ✅                | ✅            | ✅            | cloud-infra #8321                              |
-| WarpStream metrics cluster + S3 + IRSA                   | —                 | ✅                | ⏳            | ⏳            | charts `warpstream-metrics`; cloud-infra #8322 |
-| CH named collection `warpstream_metrics`                 | —                 | ✅                | ✅            | ✅            | cloud-infra #8415/#8489                        |
-| metrics-ingestion Postgres app user                      | ✅                | ✅                | ✅            | ✅            | cloud-infra #8434                              |
-| capture-logs `kafka.metricsBrokers`/`metricsTopic`       | ✅ (compose)      | ✅                | ⏳            | ⏳            | charts `capture-logs` (global in rollout)      |
-| Contour ingress `/i/v1/metrics`                          | ✅ (caddy)        | ✅                | ⏳            | ⏳            | charts `contour-ingress`                       |
-| metrics-ingestion consumer deploy                        | ✅ (mprocs)       | ✅                | ⏳            | ⏳            | charts `logs/metrics-ingestion`                |
-| ClickHouse `metrics1` + MVs                              | ✅ (CH bootstrap) | ✅                | ⏳ direct SQL | ⏳ direct SQL | `posthog/clickhouse/metrics/`                  |
-| **otel-collector bridge** (infra→metrics1)               | ➕ local recipe   | ➕ INFRA-A #11808 | ➕ INFRA-D    | ➕ INFRA-D    | charts `otel-collector` + `vmagent`            |
-| Rate-limit/quota exemption for internal-infra token      | —                 | ➕ INFRA-B        | ➕ INFRA-D    | ➕ INFRA-D    | `nodejs/.../metrics-rate-limiter.service.ts`   |
-| Feature flag `METRICS` + `metrics:read` scope            | ✅ code           | ✅ code           | ✅ code       | ✅ code       | posthog repo (all envs share)                  |
-| Query layer (filters/group-by/rate/hist/formula)         | ➕ this stack     | ➕                | ➕            | ➕            | `products/metrics/backend`                     |
+| Layer                                                    | local             | dev             | prod-us         | prod-eu         | Where it lives                                                                    |
+| -------------------------------------------------------- | ----------------- | --------------- | --------------- | --------------- | --------------------------------------------------------------------------------- |
+| Kafka topics (`ingestion_metrics`, `clickhouse_metrics`) | ✅ (compose)      | ✅              | ✅              | ✅              | cloud-infra #8321                                                                 |
+| WarpStream metrics cluster + S3 + IRSA                   | —                 | ✅              | ✅              | ✅              | charts `warpstream-metrics`; cloud-infra #8322                                    |
+| CH named collection `warpstream_metrics`                 | —                 | ✅              | ✅              | ✅              | cloud-infra #8415/#8489                                                           |
+| metrics-ingestion Postgres app user                      | ✅                | ✅              | ✅              | ✅              | cloud-infra #8434                                                                 |
+| capture-logs `kafka.metricsBrokers`/`metricsTopic`       | ✅ (compose)      | ✅              | ✅              | ✅              | charts `capture-logs`; rollout charts#11702                                       |
+| Contour ingress `/i/v1/metrics`                          | ✅ (caddy)        | ✅              | ✅              | ✅              | charts `contour-ingress`                                                          |
+| metrics-ingestion consumer deploy                        | ✅ (mprocs)       | ✅              | ✅              | ✅              | charts `logs/metrics-ingestion`                                                   |
+| ClickHouse `metrics1` + MVs + samples/series             | ✅ (CH bootstrap) | ✅              | ✅ direct SQL   | ✅ direct SQL   | `posthog/clickhouse/metrics/`, `bin/clickhouse-metrics.sql`                       |
+| **metrics-bridge** scrape collector (infra→metrics1)     | ✅ dev collector  | ✅ charts#12239 | ✅ charts#12440 | ✅ charts#12440 | charts `metrics-bridge` ArgoCD app                                                |
+| Rate-limit/quota exemption for internal-infra token      | —                 | ❌ not built    | ❌ not built    | ❌ not built    | `nodejs/src/ingestion/pipelines/metrics/services/metrics-rate-limiter.service.ts` |
+| Feature flag `METRICS` + `metrics:read` scope            | ✅ code           | ✅ code         | ✅ code         | ✅ code         | posthog repo (all envs share)                                                     |
+| Query layer (filters/group-by/rate/hist/formula)         | ✅ shipped        | ✅              | ✅              | ✅              | `products/metrics/backend`                                                        |
 
-**Read:** the ingestion data plane is **done in dev**, and **pending in prod** behind `daniel/metrics-prod-rollout` (charts) + the post-merge `metrics1` SQL apply on the prod-us/prod-eu logs CH clusters. cloud-infra scaffolding (topics/S3/IRSA/CH collection/PG user) is **merged in all three envs**.
+**Read (2026-07-08):** the ingestion data plane is **live end-to-end in dev, prod-us, and prod-eu**, including the events-model tables with ingest-assigned fingerprints (rollout completed 2026-07-02). The two open items are the internal-infra quota exemption (INFRA-B, never built) and retention: `metrics1` and `metric_attributes` still have **no TTL**.
 
 ## What still has to be added, by repo
 
 ### posthog (this stack)
 
-- Query layer: `MetricQueryRequest`/`MetricSeries` contracts → endpoint → shared metric-math library (filters, group-by, rate, increase, histogram_quantile, formula). **This is the product gap; nothing else replaces it.**
-- INFRA-B: internal-infra token quota exemption in `MetricsRateLimiterService`.
-- (Post-alpha) Alerting on the shared math library; streams-table storage migration.
+- ~~Query layer~~ **shipped**: `MetricQueryRequest`/`MetricSeries` contracts, filters, group-by, rate, increase, histogram_quantile, formula, all live behind `POST .../metrics/query/`.
+- INFRA-B: internal-infra token quota exemption in `MetricsRateLimiterService`. **Still open, never implemented.**
+- Retention: `MODIFY TTL` migration for `metrics1` + `metric_attributes` (use `materialize_ttl_after_modify = 0`). **Still open.**
+- (Post-alpha) Alerting on the shared math library; `metrics1` streams-table storage migration; dashboard insight tiles (see `dashboard-mvp.md` Phase 3 revised).
 
-### charts
+### charts — done
 
-- INFRA-A (#11808, dev): otel-collector `prometheusremotewrite` bridge + vmagent second remote-write. **Draft up.**
-- INFRA-C (dev): drop the `debug` exporter once metrics1 arrival is confirmed.
-- INFRA-D (prod-us + prod-eu): replicate the bridge after `metrics-prod-rollout` merges and prod `metrics1` SQL is applied. Decide internal-infra project here.
-- INFRA-E: broaden the bridge filter beyond the initial dashboard metric set once the query layer can render more.
-- (Merge) `daniel/metrics-prod-rollout`: takes the ingestion data plane to prod-us + prod-eu.
+The remote-write bridge plan (INFRA-A/#11808) was reverted after a hard vmagent RW-1.0 vs receiver RW-2.0 protocol incompatibility. What shipped instead: a dedicated `metrics-bridge` scrape collector, dev (charts#12239) and prod-us + prod-eu (charts#12440), with a scrape memory bound (charts#12493). The ingestion data plane reached prod via charts#11702.
 
 ### posthog-cloud-infra
 
 - **Nothing new required** for alpha — topics/S3/IRSA/CH collection/PG user are all merged in every env.
-- Open decision (INFRA-D): provision a dedicated `posthog-internal-infra` project + token per env so scraped infra metrics don't flip `team_has_metrics` on the dogfood team and so internal-infra volume is billed/quota'd separately.
+- Decision made: scraped infra metrics land in PostHog's internal project per environment (no dedicated project). The separate-quota half of the intent is unmet until INFRA-B ships.
 
-### Per-env "go live" checklist for prod
+### Per-env "go live" checklist for prod — ✅ completed 2026-07
 
-1. Merge `daniel/metrics-prod-rollout` (charts).
-2. Apply `metrics1` + MV DDL to prod-us and prod-eu logs CH clusters (direct SQL, as in dev).
-3. Point a smoke OTLP producer at the prod `/i/v1/metrics`; confirm rows in `metrics1`.
-4. Land INFRA-D (bridge) per env; confirm vmagent → bridge → metrics1 for the dashboard metric set.
-5. Verify `team_has_metrics` + the query layer against real prod series.
+All five steps are done in both regions: charts rollout merged, `metrics1` + samples/series DDL applied (fingerprint cutover 2026-07-02), smoke OTLP verified, scrape collector live, query layer verified against real prod series.
 
 ## Local validation (the priority) — fully functional metrics on a laptop
 
