@@ -11,7 +11,7 @@ from django.core.management.base import CommandError
 from temporalio.client import ScheduleListActionStartWorkflow
 
 from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
-from products.data_modeling.backend.logic.node_frequency import get_frequency_target
+from products.data_modeling.backend.logic.node_frequency import get_declared_target
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import Node, NodeType
@@ -65,7 +65,7 @@ class TestReconcileFreshnessSchedules(BaseTest):
             call_command("reconcile_freshness_schedules", "--team-id", str(self.team.pk), stdout=StringIO())
 
         node.refresh_from_db()
-        self.assertEqual(get_frequency_target(node), H6)
+        self.assertEqual(get_declared_target(node), H6)
         assert node.saved_query is not None
         node.saved_query.refresh_from_db()
         self.assertIsNone(node.saved_query.sync_frequency_interval)
@@ -91,7 +91,7 @@ class TestReconcileFreshnessSchedules(BaseTest):
             call_command("reconcile_freshness_schedules", "--team-id", str(self.team.pk), "--dry-run", stdout=out)
 
         node.refresh_from_db()
-        self.assertIsNone(get_frequency_target(node))
+        self.assertIsNone(get_declared_target(node))
         assert node.saved_query is not None
         node.saved_query.refresh_from_db()
         self.assertEqual(node.saved_query.sync_frequency_interval, H6)

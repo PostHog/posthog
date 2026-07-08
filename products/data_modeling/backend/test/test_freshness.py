@@ -5,15 +5,15 @@ from unittest import TestCase
 from parameterized import parameterized
 
 from products.data_modeling.backend.logic.freshness import (
+    SCHEDULABLE_BUCKETS,
     STREAMING,
-    SUPPORTED_TARGETS,
     InvalidTarget,
     UnsatisfiableFrequencyError,
     UnsupportedFrequencyTargetError,
     compute_effective_cadences,
+    declared_target_bounds,
     find_invalid_targets,
-    frequency_target_bounds,
-    validate_frequency_target,
+    validate_declared_target,
 )
 
 M5 = timedelta(minutes=5)
@@ -63,20 +63,20 @@ class TestComputeEffectiveCadences(TestCase):
         ]
     )
     def test_effective_cadence(self, _name, nodes, edges, targets, expected):
-        self.assertEqual(compute_effective_cadences(nodes=nodes, edges=edges, targets=targets), expected)
+        self.assertEqual(compute_effective_cadences(nodes=nodes, edges=edges, declared_targets=targets), expected)
 
     def test_deep_chain_does_not_overflow(self):
         # prod DAGs can chain far past Python's recursion limit; propagation must stay iterative
         depth = 5000
         nodes = {f"n{i}" for i in range(depth)}
         edges = [(f"n{i}", f"n{i + 1}") for i in range(depth - 1)]
-        result = compute_effective_cadences(nodes=nodes, edges=edges, targets={f"n{depth - 1}": H1})
+        result = compute_effective_cadences(nodes=nodes, edges=edges, declared_targets={f"n{depth - 1}": H1})
         self.assertEqual(result["n0"], H1)
 
     def test_cycle_raises_instead_of_hanging(self):
         # corrupt graphs exist in prod; a cycle must fail loud, not loop or overflow
         with self.assertRaisesRegex(ValueError, "cycle"):
-            compute_effective_cadences(nodes={"a", "b"}, edges=[("a", "b"), ("b", "a")], targets={"a": H1})
+            compute_effective_cadences(nodes={"a", "b"}, edges=[("a", "b"), ("b", "a")], declared_targets={"a": H1})
 
 
 class TestFrequencyTargetBounds(TestCase):
@@ -122,7 +122,9 @@ class TestFrequencyTargetBounds(TestCase):
     )
     def test_bounds(self, _name, node_id, edges, targets, source_intervals, expected):
         self.assertEqual(
-            frequency_target_bounds(node_id=node_id, edges=edges, targets=targets, source_intervals=source_intervals),
+            declared_target_bounds(
+                node_id=node_id, edges=edges, declared_targets=targets, source_intervals=source_intervals
+            ),
             expected,
         )
 
@@ -155,13 +157,17 @@ class TestValidateFrequencyTarget(TestCase):
     )
     def test_validate(self, _name, node_id, target, edges, targets, source_intervals, ok):
         if ok:
-            validate_frequency_target(
-                node_id=node_id, target=target, edges=edges, targets=targets, source_intervals=source_intervals
+            validate_declared_target(
+                node_id=node_id, target=target, edges=edges, declared_targets=targets, source_intervals=source_intervals
             )
         else:
             with self.assertRaises(UnsatisfiableFrequencyError):
-                validate_frequency_target(
-                    node_id=node_id, target=target, edges=edges, targets=targets, source_intervals=source_intervals
+                validate_declared_target(
+                    node_id=node_id,
+                    target=target,
+                    edges=edges,
+                    declared_targets=targets,
+                    source_intervals=source_intervals,
                 )
 
     @parameterized.expand(
@@ -174,7 +180,7 @@ class TestValidateFrequencyTarget(TestCase):
     )
     def test_non_bucket_target_is_rejected(self, _name, target):
         with self.assertRaises(UnsupportedFrequencyTargetError):
-            validate_frequency_target(node_id="a", target=target, edges=[], targets={}, source_intervals={})
+            validate_declared_target(node_id="a", target=target, edges=[], declared_targets={}, source_intervals={})
 
     def test_supported_targets_are_canonical_sync_frequency_buckets(self):
         from products.warehouse_sources.backend.facade.models import (  # noqa: PLC0415 - keeps Django off this pure test module's import path
@@ -182,7 +188,7 @@ class TestValidateFrequencyTarget(TestCase):
             sync_frequency_to_sync_frequency_interval,
         )
 
-        for interval in SUPPORTED_TARGETS:
+        for interval in SCHEDULABLE_BUCKETS:
             label = sync_frequency_interval_to_sync_frequency(interval)
             self.assertIsNotNone(label, f"{interval} is not a canonical sync-frequency bucket")
             assert label is not None
@@ -198,7 +204,7 @@ class TestFindInvalidTargets(TestCase):
                 [("src", "a"), ("a", "ep")],
                 {"a": H6, "ep": M15},
                 {"src": STREAMING},
-                [InvalidTarget(node_id="a", target=H6, floor=STREAMING, ceiling=M15)],
+                [InvalidTarget(node_id="a", declared=H6, source_floor=STREAMING, consumer_ceiling=M15)],
             ),
             # a source slowing down (6h import) pushes the floor above an existing 15min target
             (
@@ -206,7 +212,7 @@ class TestFindInvalidTargets(TestCase):
                 [("src", "a")],
                 {"a": M15},
                 {"src": H6},
-                [InvalidTarget(node_id="a", target=M15, floor=H6, ceiling=None)],
+                [InvalidTarget(node_id="a", declared=M15, source_floor=H6, consumer_ceiling=None)],
             ),
             # everything within bounds -> nothing flagged
             (
@@ -220,5 +226,5 @@ class TestFindInvalidTargets(TestCase):
     )
     def test_find_invalid_targets(self, _name, edges, targets, source_intervals, expected):
         self.assertEqual(
-            find_invalid_targets(edges=edges, targets=targets, source_intervals=source_intervals), expected
+            find_invalid_targets(edges=edges, declared_targets=targets, source_intervals=source_intervals), expected
         )

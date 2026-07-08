@@ -11,7 +11,7 @@ import temporalio.service
 from temporalio.client import ScheduleListActionStartWorkflow
 
 from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
-from products.data_modeling.backend.logic.node_frequency import get_frequency_target
+from products.data_modeling.backend.logic.node_frequency import get_declared_target
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import Node, NodeType
@@ -88,7 +88,7 @@ class TestMigrateTeamsToDagSchedulesTiered(BaseTest):
         for name, interval in (("fast", M15), ("slow", DAY)):
             node = nodes[name]
             node.refresh_from_db()
-            self.assertEqual(get_frequency_target(node), interval)
+            self.assertEqual(get_declared_target(node), interval)
             assert node.saved_query is not None
             node.saved_query.refresh_from_db()
             self.assertIsNone(node.saved_query.sync_frequency_interval)

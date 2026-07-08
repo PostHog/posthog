@@ -679,12 +679,12 @@ class TestSavedQuery(APIBaseTest):
     def test_update_sync_frequency_on_tiered_v2_writes_target_through(
         self, sync_frequency: str, expected_target: timedelta | None
     ):
-        from products.data_modeling.backend.logic.node_frequency import get_frequency_target, set_frequency_target
+        from products.data_modeling.backend.logic.node_frequency import get_declared_target, set_declared_target
         from products.data_modeling.backend.models import Node
 
         saved_query = self._create_saved_query_for_frequency_tests()
         node = Node.objects.get(saved_query_id=saved_query["id"])
-        set_frequency_target(node, timedelta(hours=12))
+        set_declared_target(node, timedelta(hours=12))
         reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
 
         with (
@@ -708,7 +708,7 @@ class TestSavedQuery(APIBaseTest):
         updated = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
         self.assertIsNone(updated.sync_frequency_interval)
         node.refresh_from_db()
-        self.assertEqual(get_frequency_target(node), expected_target)
+        self.assertEqual(get_declared_target(node), expected_target)
         reconcile.assert_called_once()
         # a stale v1 schedule from a half-finished migration must not be revived by the PATCH
         v1_exists.assert_not_called()

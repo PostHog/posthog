@@ -8,7 +8,7 @@ from rest_framework import status
 
 from posthog.models import Team
 
-from products.data_modeling.backend.logic.node_frequency import set_frequency_target
+from products.data_modeling.backend.logic.node_frequency import set_declared_target
 from products.data_modeling.backend.models import DAG, Edge, Node, NodeType
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
@@ -133,7 +133,7 @@ class TestNodeViewSet(APIBaseTest):
         self.saved_query.sync_frequency_interval = saved_query_interval
         self.saved_query.save(update_fields=["sync_frequency_interval"])
         if target is not None:
-            set_frequency_target(self.view_node, target)
+            set_declared_target(self.view_node, target)
 
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/")
 

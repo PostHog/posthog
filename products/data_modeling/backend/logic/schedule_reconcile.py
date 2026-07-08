@@ -47,20 +47,21 @@ from products.data_modeling.backend.logic.cohort_scheduling import (
     tier_schedule_id,
 )
 from products.data_modeling.backend.logic.freshness import (
-    SUPPORTED_TARGETS,
+    SCHEDULABLE_BUCKETS,
     InvalidTarget,
     UnsupportedFrequencyTargetError,
     compute_effective_cadences,
+    declared_target_bounds,
     find_invalid_targets,
     format_cadence,
-    frequency_target_bounds,
-    validate_frequency_target,
+    is_finer_than,
+    validate_declared_target,
 )
 from products.data_modeling.backend.logic.node_frequency import (
     FrequencyGraph,
     build_frequency_graph,
     seed_targets,
-    set_frequency_target,
+    set_declared_target,
 )
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.node import Node
@@ -121,7 +122,7 @@ def _warn_on_invalid_targets(dag: DAG) -> None:
     """Surface declared targets that drifted outside their bounds; never blocks the mutation."""
     graph = build_frequency_graph(dag)
     for invalid in find_invalid_targets(
-        edges=graph.edges, targets=graph.targets, source_intervals=graph.source_intervals
+        edges=graph.edges, declared_targets=graph.declared_targets, source_intervals=graph.source_intervals
     ):
         logger.warning(
             "Declared freshness target outside its legal range",
@@ -147,17 +148,17 @@ def apply_saved_query_frequency_target(
     """
     for node in Node.objects.filter(saved_query=saved_query).select_related("dag", "dag__team"):
         if target is None:
-            set_frequency_target(node, None)
+            set_declared_target(node, None)
         else:
             graph = build_frequency_graph(node.dag)
-            validate_frequency_target(
+            validate_declared_target(
                 node_id=str(node.id),
                 target=target,
                 edges=graph.edges,
-                targets=graph.targets,
+                declared_targets=graph.declared_targets,
                 source_intervals=graph.source_intervals,
             )
-            set_frequency_target(node, target)
+            set_declared_target(node, target)
         if reconcile:
             maybe_reconcile_dag(node.dag)
 
@@ -172,7 +173,9 @@ def reconcile_dag_schedules(dag: DAG, *, allow_unschedule: bool = False, require
     """
     team = dag.team
     graph = build_frequency_graph(dag)
-    effective = compute_effective_cadences(nodes=graph.nodes, edges=graph.edges, targets=graph.targets)
+    effective = compute_effective_cadences(
+        nodes=graph.nodes, edges=graph.edges, declared_targets=graph.declared_targets
+    )
     desired_tiers = bucket_into_cadence_tiers(effective)
     _apply_reconciliation(
         dag_id=str(dag.id),
@@ -191,7 +194,7 @@ class UnsatisfiableTier:
 
     node_id: str
     effective: timedelta  # cadence it would be scheduled at
-    floor: timedelta  # coarsest cadence its sources can actually deliver
+    source_floor: timedelta  # slowest cadence its sources can actually deliver
 
 
 @dataclasses.dataclass
@@ -217,8 +220,8 @@ def preview_dag_schedules(dag: DAG, *, seed: bool = False) -> DagSchedulePreview
     backfilled, without persisting anything (explicit targets still win).
     """
     graph = build_frequency_graph(dag)
-    targets = {**seed_targets(dag), **graph.targets} if seed else graph.targets
-    effective = compute_effective_cadences(nodes=graph.nodes, edges=graph.edges, targets=targets)
+    declared = {**seed_targets(dag), **graph.declared_targets} if seed else graph.declared_targets
+    effective = compute_effective_cadences(nodes=graph.nodes, edges=graph.edges, declared_targets=declared)
     desired_tiers = bucket_into_cadence_tiers(effective)
     existing_ids = _list_existing_schedule_ids(str(dag.id))
     plan = plan_schedule_reconciliation(str(dag.id), desired_tiers, existing_ids)
@@ -227,28 +230,31 @@ def preview_dag_schedules(dag: DAG, *, seed: bool = False) -> DagSchedulePreview
         desired_tiers=desired_tiers,
         plan=plan,
         best_effort_source_ids=graph.best_effort_source_ids,
-        unsatisfiable=_find_unsatisfiable(graph, effective, targets),
+        unsatisfiable=_find_unsatisfiable(graph, effective, declared),
         invalid_targets=find_invalid_targets(
-            edges=graph.edges, targets=targets, source_intervals=graph.source_intervals
+            edges=graph.edges, declared_targets=declared, source_intervals=graph.source_intervals
         ),
-        unsupported_tiers=sorted(interval for interval in desired_tiers if interval not in SUPPORTED_TARGETS),
+        unsupported_tiers=sorted(interval for interval in desired_tiers if interval not in SCHEDULABLE_BUCKETS),
         seeded=seed,
     )
 
 
 def _find_unsatisfiable(
-    graph: FrequencyGraph, effective: dict[str, timedelta | None], targets: dict[str, timedelta]
+    graph: FrequencyGraph, effective: dict[str, timedelta | None], declared_targets: dict[str, timedelta]
 ) -> list[UnsatisfiableTier]:
     """Flag nodes whose scheduled cadence is finer than their ancestor sources can deliver."""
     flagged: list[UnsatisfiableTier] = []
     for node_id, node_effective in effective.items():
         if node_effective is None:
             continue
-        floor, _ceiling = frequency_target_bounds(
-            node_id=node_id, edges=graph.edges, targets=targets, source_intervals=graph.source_intervals
+        source_floor, _consumer_ceiling = declared_target_bounds(
+            node_id=node_id,
+            edges=graph.edges,
+            declared_targets=declared_targets,
+            source_intervals=graph.source_intervals,
         )
-        if node_effective < floor:
-            flagged.append(UnsatisfiableTier(node_id=node_id, effective=node_effective, floor=floor))
+        if is_finer_than(node_effective, source_floor):
+            flagged.append(UnsatisfiableTier(node_id=node_id, effective=node_effective, source_floor=source_floor))
     return flagged
 
 
@@ -269,7 +275,7 @@ async def _apply_reconciliation(
     allow_unschedule: bool = False,
     require_tiered: bool = False,
 ) -> None:
-    unsupported = sorted(interval for interval in desired_tiers if interval not in SUPPORTED_TARGETS)
+    unsupported = sorted(interval for interval in desired_tiers if interval not in SCHEDULABLE_BUCKETS)
     if unsupported:
         tiers = ", ".join(format_cadence(interval) for interval in unsupported)
         raise UnsupportedFrequencyTargetError(
@@ -290,6 +296,8 @@ async def _apply_reconciliation(
         return
     plan = plan_schedule_reconciliation(dag_id, desired_tiers, existing_ids)
 
+    # Includes the schedule-type tag: get_v2_scheduled_dag_ids' unscoped sweep filters on
+    # it server-side, so an untagged tier schedule would make its DAG look un-migrated.
     search_attributes = dag_schedule_search_attributes(team_id=team_id, organization_id=organization_id, dag_id=dag_id)
 
     # Create/update every desired tier before deleting stale schedules so nodes are never left

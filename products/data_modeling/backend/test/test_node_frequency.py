@@ -11,15 +11,15 @@ from products.data_modeling.backend.logic.freshness import (
     STREAMING,
     UnsatisfiableFrequencyError,
     compute_effective_cadences,
-    frequency_target_bounds,
-    validate_frequency_target,
+    declared_target_bounds,
+    validate_declared_target,
 )
 from products.data_modeling.backend.logic.node_frequency import (
     build_frequency_graph,
-    get_frequency_target,
+    get_declared_target,
     resolve_source_intervals,
     seed_targets,
-    set_frequency_target,
+    set_declared_target,
 )
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -81,25 +81,25 @@ class TestFrequencyTargetAccessors(BaseTest):
 
     def test_round_trip(self):
         node = self._node()
-        set_frequency_target(node, M15)
+        set_declared_target(node, M15)
         node.refresh_from_db()
-        self.assertEqual(get_frequency_target(node), M15)
+        self.assertEqual(get_declared_target(node), M15)
 
     def test_none_clears_the_target(self):
         node = self._node()
-        set_frequency_target(node, M15)
-        set_frequency_target(node, None)
+        set_declared_target(node, M15)
+        set_declared_target(node, None)
         node.refresh_from_db()
-        self.assertIsNone(get_frequency_target(node))
+        self.assertIsNone(get_declared_target(node))
 
     def test_setting_target_preserves_sibling_system_state(self):
         node = self._node()
         node.properties = {"system": {"suspended": {"duckdb": True}}}
         node.save(update_fields=["properties"])
-        set_frequency_target(node, H1)
+        set_declared_target(node, H1)
         node.refresh_from_db()
         self.assertEqual(node.properties["system"]["suspended"], {"duckdb": True})
-        self.assertEqual(get_frequency_target(node), H1)
+        self.assertEqual(get_declared_target(node), H1)
 
 
 @pytest.mark.django_db
@@ -148,16 +148,18 @@ class TestBuildFrequencyGraph(BaseTest):
         endpoint = _saved_query_node(self.team, dag, "ep", NodeType.ENDPOINT)
         Edge.objects.create(team=self.team, dag=dag, source=source, target=matview)
         Edge.objects.create(team=self.team, dag=dag, source=matview, target=endpoint)
-        set_frequency_target(endpoint, M15)
+        set_declared_target(endpoint, M15)
 
         graph = build_frequency_graph(dag)
-        effective = compute_effective_cadences(nodes=graph.nodes, edges=graph.edges, targets=graph.targets)
+        effective = compute_effective_cadences(
+            nodes=graph.nodes, edges=graph.edges, declared_targets=graph.declared_targets
+        )
 
         self.assertEqual(effective[str(matview.id)], M15)
-        floor, _ceiling = frequency_target_bounds(
+        floor, _ceiling = declared_target_bounds(
             node_id=str(matview.id),
             edges=graph.edges,
-            targets=graph.targets,
+            declared_targets=graph.declared_targets,
             source_intervals=graph.source_intervals,
         )
         self.assertEqual(floor, STREAMING)
@@ -169,19 +171,19 @@ class TestBuildFrequencyGraph(BaseTest):
         Edge.objects.create(team=self.team, dag=dag, source=source, target=matview)
 
         graph = build_frequency_graph(dag)
-        floor, _ceiling = frequency_target_bounds(
+        floor, _ceiling = declared_target_bounds(
             node_id=str(matview.id),
             edges=graph.edges,
-            targets=graph.targets,
+            declared_targets=graph.declared_targets,
             source_intervals=graph.source_intervals,
         )
         self.assertEqual(floor, H6)
         with self.assertRaises(UnsatisfiableFrequencyError):
-            validate_frequency_target(
+            validate_declared_target(
                 node_id=str(matview.id),
                 target=M15,
                 edges=graph.edges,
-                targets=graph.targets,
+                declared_targets=graph.declared_targets,
                 source_intervals=graph.source_intervals,
             )
 

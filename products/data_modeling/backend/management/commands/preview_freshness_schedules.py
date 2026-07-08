@@ -59,17 +59,17 @@ class Command(BaseCommand):
         for tier in sorted(preview.unsatisfiable, key=lambda t: names.get(t.node_id, t.node_id)):
             self.stdout.write(
                 f"  ⚠ unsatisfiable: {names.get(tier.node_id, tier.node_id)} would run every {tier.effective} "
-                f"but its sources only deliver every {tier.floor}"
+                f"but its sources only deliver every {tier.source_floor}"
             )
 
         for interval in preview.unsupported_tiers:
             self.stdout.write(f"  ⚠ unsupported tier: {interval} is not a schedulable bucket — reconcile would refuse")
 
         for invalid in sorted(preview.invalid_targets, key=lambda t: names.get(t.node_id, t.node_id)):
-            ceiling = str(invalid.ceiling) if invalid.ceiling is not None else "none"
+            ceiling = str(invalid.consumer_ceiling) if invalid.consumer_ceiling is not None else "none"
             self.stdout.write(
                 f"  ⚠ invalid declared target: {names.get(invalid.node_id, invalid.node_id)} declares "
-                f"{invalid.target} but its legal range is [{invalid.floor} … {ceiling}]"
+                f"{invalid.declared} but its legal range is [{invalid.source_floor} … {ceiling}]"
             )
 
         if preview.best_effort_source_ids:

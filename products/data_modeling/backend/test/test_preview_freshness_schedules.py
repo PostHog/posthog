@@ -7,7 +7,7 @@ from unittest import mock
 
 from django.core.management import call_command
 
-from products.data_modeling.backend.logic.node_frequency import set_frequency_target
+from products.data_modeling.backend.logic.node_frequency import set_declared_target
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
@@ -50,7 +50,7 @@ class TestPreviewFreshnessSchedules(BaseTest):
         endpoint = _saved_query_node(self.team, dag, "ep", NodeType.ENDPOINT)
         Edge.objects.create(team=self.team, dag=dag, source=source, target=matview)
         Edge.objects.create(team=self.team, dag=dag, source=matview, target=endpoint)
-        set_frequency_target(endpoint, M15)
+        set_declared_target(endpoint, M15)
 
         async def fake_list_schedules(*_args, **_kwargs):
             async def gen():
@@ -120,8 +120,8 @@ class TestPreviewFreshnessSchedules(BaseTest):
         matview = _saved_query_node(self.team, dag, "mv", NodeType.MAT_VIEW)
         endpoint = _saved_query_node(self.team, dag, "ep", NodeType.ENDPOINT)
         Edge.objects.create(team=self.team, dag=dag, source=matview, target=endpoint)
-        set_frequency_target(matview, H6)
-        set_frequency_target(endpoint, M15)
+        set_declared_target(matview, H6)
+        set_declared_target(endpoint, M15)
 
         module = "products.data_modeling.backend.logic.schedule_reconcile"
         out = StringIO()
