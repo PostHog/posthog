@@ -28,17 +28,15 @@ dayjs.extend(quarterOfYear)
 dayjs.extend(weekOfYear)
 dayjs.extend(updateLocale)
 
-/** dayjs's add/subtract typings split units across two overloads (base ManipulateType has week
- * but not quarter; quarterOfYear's QUnitType has quarter but not week), so a union spanning both
- * (e.g. IntervalType) satisfies neither. Quarter is the only such unit — normalize it to 3 months,
- * which is exactly what the quarterOfYear plugin does at runtime anyway. */
-export function dayjsAdd(date: Dayjs, value: number, unit: ManipulateType | 'quarter'): Dayjs {
-    return unit === 'quarter' ? date.add(value * 3, 'month') : date.add(value, unit)
-}
-
-/** See {@link dayjsAdd} for why this exists. */
-export function dayjsSubtract(date: Dayjs, value: number, unit: ManipulateType | 'quarter'): Dayjs {
-    return unit === 'quarter' ? date.subtract(value * 3, 'month') : date.subtract(value, unit)
+// The base add/subtract accept ManipulateType (has week, no quarter) and the quarterOfYear plugin
+// adds a QUnitType overload (has quarter, no week). Neither alone accepts a union spanning both
+// (e.g. IntervalType), so merge one overload that takes both. Casting to a single side instead
+// would be unsound: `x as QUnitType` lies when x is 'week'. Types are declared lower in this file.
+declare module 'dayjs' {
+    interface Dayjs {
+        add(value: number, unit?: ManipulateType | QUnitType): DayjsOriginal
+        subtract(value: number, unit?: ManipulateType | QUnitType): DayjsOriginal
+    }
 }
 
 const now = (): Dayjs => dayjs()

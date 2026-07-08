@@ -4,7 +4,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { dayjs, dayjsAdd, dayjsSubtract } from 'lib/dayjs'
+import { dayjs } from 'lib/dayjs'
 import { dateStringToComponents, dateStringToDayJs, getDefaultInterval } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -313,7 +313,7 @@ export function buildBucketKeys(dateFilter: DateFilter, timezone: string, interv
     // Bounded dashboard windows keep this small; the cap is just a guard against a pathological range.
     for (let i = 0; cursor.valueOf() <= last && i < 100000; i++) {
         keys.push(cursor.format(BUCKET_FORMAT))
-        cursor = dayjsAdd(cursor, 1, interval)
+        cursor = cursor.add(1, interval)
     }
     return keys
 }
@@ -365,7 +365,7 @@ export function buildKpiWindow(dateFilter: DateFilter, timezone: string, interva
     // end.diff(start). Step the prior window back by that same count so the two
     // halves of the comparison span an equal number of buckets.
     const selectedBuckets = Math.max(1, end.diff(start, interval) + 1)
-    const priorStart = dayjsSubtract(start, selectedBuckets, interval)
+    const priorStart = start.subtract(selectedBuckets, interval)
     return {
         dateFrom: priorStart.toISOString(),
         dateTo: end.toISOString(),
