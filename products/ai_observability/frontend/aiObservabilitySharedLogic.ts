@@ -26,7 +26,9 @@ export const AI_OBSERVABILITY_DATA_COLLECTION_NODE_ID = 'ai-observability-data'
 // Params this logic owns and rewrites when its state changes. Everything else is
 // passed through untouched — other logics (e.g. reviews' `review_*`, queues'
 // `queue_*`) own their params, so an allowlist here must never strip them.
-const SHARED_PARAMS = new Set(['filters', 'date_from', 'date_to', 'filter_test_accounts'])
+// `trace_search`, not `search`: the trace view owns `search` for its in-trace
+// search, and back navigation would leak it into the list's content filter.
+const SHARED_PARAMS = new Set(['filters', 'date_from', 'date_to', 'filter_test_accounts', 'trace_search'])
 // Params from the trace view that must not linger on list-tab URLs.
 const STALE_PARAMS = new Set(['event', 'timestamp', 'msg'])
 
@@ -71,6 +73,7 @@ export interface ApplyUrlStatePayload {
     dateFrom: string | null
     dateTo: string | null
     shouldFilterTestAccounts: boolean
+    searchQuery?: string
     datesChanged: boolean
 }
 
@@ -79,6 +82,7 @@ interface BuildApplyUrlStatePayloadInput {
     dateTo: string | null
     shouldFilterTestAccounts: boolean
     propertyFilters: AnyPropertyFilter[]
+    searchQuery?: string
     currentDateFilter: { dateFrom: string | null; dateTo: string | null }
     currentPropertyFilters: AnyPropertyFilter[]
 }
@@ -94,6 +98,7 @@ export function buildApplyUrlStatePayload({
     dateTo,
     shouldFilterTestAccounts,
     propertyFilters,
+    searchQuery,
     currentDateFilter,
     currentPropertyFilters,
 }: BuildApplyUrlStatePayloadInput): ApplyUrlStatePayload {
@@ -104,6 +109,7 @@ export function buildApplyUrlStatePayload({
         dateFrom,
         dateTo,
         shouldFilterTestAccounts,
+        searchQuery,
         datesChanged: dateFrom !== currentDateFilter.dateFrom || dateTo !== currentDateFilter.dateTo,
     }
 }
@@ -134,6 +140,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setShouldFilterSupportTraces: (shouldFilterSupportTraces: boolean) => ({ shouldFilterSupportTraces }),
         setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
+        setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         // Batched action for URL-to-state sync. Dispatched once from urlToAction
         // or scene-level setQuery handlers instead of multiple individual actions,
         // producing a single actionToUrl URL change instead of 3-4 separate ones.
@@ -184,6 +191,14 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             {
                 setPropertyFilters: (_, { propertyFilters }) => propertyFilters,
                 applyUrlState: (_, { propertyFilters }) => propertyFilters,
+            },
+        ],
+
+        searchQuery: [
+            '' as string,
+            {
+                setSearchQuery: (_, { searchQuery }) => searchQuery,
+                applyUrlState: (state, { searchQuery }) => searchQuery ?? state,
             },
         ],
     }),
@@ -263,7 +278,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
 
     urlToAction(({ actions, values, cache }) => {
         function applySearchParams(searchParams: Record<string, unknown>): void {
-            const { filters, date_from, date_to, filter_test_accounts } = searchParams
+            const { filters, date_from, date_to, filter_test_accounts, trace_search } = searchParams
 
             const parsedFilters = isAnyPropertyFilters(filters) ? filters : []
             const newDateFrom = (date_from as string | null) || INITIAL_EVENTS_DATE_FROM
@@ -271,12 +286,14 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             const filterTestAccountsValue = [true, 'true', 1, '1'].includes(
                 filter_test_accounts as string | number | boolean
             )
+            const newSearchQuery = typeof trace_search === 'string' ? trace_search : ''
 
             const filtersChanged = !objectsEqual(parsedFilters, values.propertyFilters)
             const datesChanged = newDateFrom !== values.dateFilter.dateFrom || newDateTo !== values.dateFilter.dateTo
             const testAccountsChanged = filterTestAccountsValue !== values.shouldFilterTestAccounts
+            const searchQueryChanged = newSearchQuery !== values.searchQuery
 
-            if (filtersChanged || datesChanged || testAccountsChanged) {
+            if (filtersChanged || datesChanged || testAccountsChanged || searchQueryChanged) {
                 // Dispatch a single batched action so actionToUrl produces one URL
                 // change instead of up to 3 separate ones. The actionToUrl handler
                 // for applyUrlState rewrites the shared params and drops stale
@@ -286,6 +303,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                     dateFrom: newDateFrom,
                     dateTo: newDateTo,
                     shouldFilterTestAccounts: filterTestAccountsValue,
+                    searchQuery: newSearchQuery,
                     datesChanged,
                 })
             } else {
@@ -361,12 +379,12 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
         }
 
         function sharedSearchParams(): Record<string, unknown> {
-            const { filters, date_from, date_to, filter_test_accounts } = router.values.searchParams
-            return { ...passthroughSearchParams(), filters, date_from, date_to, filter_test_accounts }
+            const { filters, date_from, date_to, filter_test_accounts, trace_search } = router.values.searchParams
+            return { ...passthroughSearchParams(), filters, date_from, date_to, filter_test_accounts, trace_search }
         }
 
         return {
-            applyUrlState: ({ propertyFilters, dateFrom, dateTo, shouldFilterTestAccounts }) => [
+            applyUrlState: ({ propertyFilters, dateFrom, dateTo, shouldFilterTestAccounts, searchQuery }) => [
                 router.values.location.pathname,
                 {
                     ...passthroughSearchParams(),
@@ -374,6 +392,8 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                     date_from: dateFrom === INITIAL_EVENTS_DATE_FROM ? undefined : dateFrom || undefined,
                     date_to: dateTo || undefined,
                     filter_test_accounts: shouldFilterTestAccounts ? 'true' : undefined,
+                    trace_search:
+                        (searchQuery ?? (router.values.searchParams.trace_search as string | undefined)) || undefined,
                 },
             ],
             setPropertyFilters: ({ propertyFilters }) => [
@@ -396,6 +416,13 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                 {
                     ...sharedSearchParams(),
                     filter_test_accounts: shouldFilterTestAccounts ? 'true' : undefined,
+                },
+            ],
+            setSearchQuery: ({ searchQuery }) => [
+                router.values.location.pathname,
+                {
+                    ...sharedSearchParams(),
+                    trace_search: searchQuery || undefined,
                 },
             ],
         }
