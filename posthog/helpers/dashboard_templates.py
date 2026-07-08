@@ -534,7 +534,7 @@ def create_from_template(
                 transparent_background=template_tile.get("transparent_background"),
             )
         elif tile_type == "BUTTON":
-            button = {**(template_tile.get("button_tile") or {}), **template_tile}
+            button = {**template_tile, **(template_tile.get("button_tile") or {})}
             _create_tile_for_button(
                 dashboard,
                 color=template_tile.get("color"),
