@@ -17,7 +17,7 @@
         "cf-typegen": "wrangler types",
         "test": "vitest",
         "test:watch": "vitest watch",
-        "typecheck": "tsc --noEmit"
+        "typecheck": "tsgo --noEmit"
     },
     "devDependencies": {
         "@cloudflare/workers-types": "^4.20260120.0",

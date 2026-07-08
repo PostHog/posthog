@@ -64,6 +64,7 @@
         "@parcel/transformer-typescript-types": "catalog:",
         "@playwright/test": "catalog:",
         "@tailwindcss/postcss": "4.3.0",
+        "@typescript/native-preview": "7.0.0-dev.20260707.2",
         "autoprefixer": "^10.4.13",
         "cssnano": "^7.0.6",
         "markdownlint-cli2": "^0.18.1",
@@ -77,9 +78,7 @@
         "stylelint-config-standard-scss": "^11.1.0",
         "stylelint-order": "^6.0.4",
         "syncpack": "^15.3.1",
-        "turbo": "^2.9.14",
-        "typescript": "catalog:",
-        "typescript-7": "npm:typescript@^7.0.0"
+        "turbo": "^2.9.14"
     },
     "optionalDependencies": {
         "fsevents": "^2.3.3"
@@ -141,7 +140,7 @@
             "react": "18.3.1",
             "react-dom": "18.3.1",
             "sha.js": ">=2.4.12",
-            "typescript": "npm:@typescript/typescript6@^6.0.0",
+            "typescript": "6.0.3",
             "ultimate-express>uWebSockets.js": "-",
             "fast-xml-parser@^4": ">=4.5.4",
             "fast-xml-parser@^5": ">=5.3.5",

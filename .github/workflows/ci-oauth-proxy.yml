@@ -54,7 +54,7 @@ jobs:
               with:
                   install-command: pnpm --filter=@posthog/auth-proxy... install --frozen-lockfile
 
-            - name: Type check (tsc)
+            - name: Type check (tsgo)
               run: cd services/oauth-proxy && pnpm typecheck
 
             - name: Run tests

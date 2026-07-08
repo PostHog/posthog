@@ -11,8 +11,8 @@
         "build:source": "echo \"Building source\" && node build.mjs",
         "build:types": "echo \"Building types\" && tsup src/index.ts --dts-only",
         "prepublishOnly": "pnpm build",
-        "typecheck": "tsc6 --noEmit",
-        "typecheck:tsc": "tsc --noEmit"
+        "typecheck": "tsc --noEmit",
+        "typecheck:tsgo": "tsgo --noEmit"
     },
     "dependencies": {
         "kea": "^4.0.0-pre.3",

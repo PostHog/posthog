@@ -50,11 +50,7 @@ catalog:
     # Build tools
     '@parcel/packager-ts': 2.16.4
     '@parcel/transformer-typescript-types': 2.16.4
-    # 6.0 API compat package (bin `tsc6`), kept for programmatic-API consumers
-    # (kea-typegen, Parcel, ts-node/ts-jest, ts-json-schema-generator, typescript-eslint)
-    # until TS 7.1 ships a stable API. The 7.0 native checker is the `typescript-7`
-    # alias (bin `tsc`) declared in the root package.json. See issue #59093.
-    typescript: 'npm:@typescript/typescript6@^6.0.0'
+    typescript: 6.0.3
     oxfmt: ^0.35.0
     # Testing
     jest: ^29.7.0
@@ -102,10 +98,9 @@ minimumReleaseAgeExclude:
     - mermaid@11.15.0
     - '@mermaid-js/*'
     - kea-typegen
-    # TS 7.0 (native `tsc`) and the 6.0 API compat package ship platform-specific
-    # binary subpackages under @typescript/*; exclude the whole scope so a fresh
-    # release is installable without waiting out the release-age window.
-    - typescript
+    # The TS 7.0 native compiler ships as daily builds under @typescript/native-preview
+    # (main + per-platform binary subpackages). We track it closely, so exempt the whole
+    # scope from the release-age window.
     - '@typescript/*'
     - shiki
     - shadcn
