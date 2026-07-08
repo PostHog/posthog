@@ -15,6 +15,7 @@ from dagster import build_asset_context
 from parameterized import parameterized
 
 from posthog.dags.events_backfill_to_duckling import (
+    DUCKGRES_BUCKET_REGION,
     DucklingTarget,
     _fixup_partition_values_for_added_files,
     _resolve_duckling_target,
@@ -50,17 +51,23 @@ class TestResolveDucklingTarget:
         [
             # The control plane wins over a stored DuckgresServer bucket — a stale,
             # locally-derived stored value must never beat the authoritative name.
-            ("server_present_but_stale", _FakeRow("stale-stored-bucket", "eu-west-1")),
-            ("no_server", None),
-            ("server_blank", _FakeRow("", "eu-west-1")),
+            # bucket_region still comes from the stored row: cp_bucket_for() just
+            # reconciled it from this same CP response, so it's the org's real
+            # region — even when the row's bucket name is stale or blank.
+            ("server_present_but_stale", _FakeRow("stale-stored-bucket", "eu-west-1"), "eu-west-1"),
+            ("no_server", None, DUCKGRES_BUCKET_REGION),
+            ("server_blank", _FakeRow("", "eu-west-1"), "eu-west-1"),
         ]
     )
-    def test_control_plane_wins_over_stored_server(self, _name: str, server: "_FakeRow | None") -> None:
+    def test_control_plane_wins_over_stored_server(
+        self, _name: str, server: "_FakeRow | None", expected_region: str
+    ) -> None:
         target, mock_cp = self._resolve(server=server, cp_bucket="cp-bucket")
 
         mock_cp.assert_called_once_with("org-1")
         assert target.bucket == "cp-bucket"
         assert target.organization_id == "org-1"
+        assert target.bucket_region == expected_region
 
     def test_falls_back_to_stored_server_when_control_plane_unavailable(self) -> None:
         # CP returns nothing (unreachable/unconfigured) — use the known-good stored row.

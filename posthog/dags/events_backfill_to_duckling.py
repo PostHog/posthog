@@ -217,7 +217,9 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
          BEFORE the stored DuckgresServer row on purpose: a row provisioned before the
          naming fix carries a stale, locally-derived bucket that names an object store
          that doesn't exist, and that stale value must not win. cp_bucket_for() also
-         reconciles the row so it converges for next time.
+         reconciles the row (bucket AND bucket_region) so it converges for next time —
+         the region is re-read from that reconciled row rather than assumed from this
+         deployment's default, since a bucket can live outside it.
       2. The stored DuckgresServer.bucket, only as a fallback when the control plane is
          unreachable/unconfigured — so a transient CP outage doesn't fail a run whose
          bucket is already known-good.
@@ -240,11 +242,17 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
             organization_id=org_id,
             bucket=cp_bucket,
         )
+        # cp_bucket_for() reconciles DuckgresServer.bucket_region from this same
+        # CP response before returning, so re-reading it here picks up the org's
+        # real region (which may differ from this deployment's default — e.g. an
+        # EU-provisioned bucket) instead of assuming the deployment default.
+        server = get_duckgres_server_for_organization(org_id)
+        bucket_region = (server.bucket_region if server else None) or DUCKGRES_BUCKET_REGION
         return DucklingTarget(
             team_id=team_id,
             organization_id=org_id,
             bucket=cp_bucket,
-            bucket_region=DUCKGRES_BUCKET_REGION,
+            bucket_region=bucket_region,
             events_table=events_table,
             persons_table=persons_table,
         )
