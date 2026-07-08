@@ -3314,7 +3314,7 @@ class TickTickSourceConfig(config.Config):
 
 @config.config
 class TicketTailorSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
