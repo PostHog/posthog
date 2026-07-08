@@ -223,7 +223,7 @@ class TestRunEvaluationWorkflow:
         ],
     )
     @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity_bounds_oversized_input(self, oversized_input, setup_data):
+    def test_execute_llm_judge_activity_bounds_oversized_input(self, oversized_input, setup_data, grandfathered):
         team = setup_data["team"]
         evaluation_obj = setup_data["evaluation"]
 
