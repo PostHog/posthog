@@ -415,7 +415,10 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                         'Tri-state test-account override. Null/absent = inherit; true = force on; false = force off.'
                     ),
                 interval: zod
-                    .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                    .union([
+                        zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month', 'quarter', 'year']),
+                        zod.null(),
+                    ])
                     .optional()
                     .describe('Time granularity forced onto every insight that supports one. Absent/null = inherit.'),
                 properties: zod

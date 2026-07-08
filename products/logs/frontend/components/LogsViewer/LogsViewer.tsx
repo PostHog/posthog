@@ -344,13 +344,13 @@ function LogsViewerContent({
     // Gate on the flag too, so the patterns query stays unreachable when the flag is off regardless
     // of the (non-persisted) viewMode state.
     const inPatternsMode = showPatternsView && viewMode === 'patterns'
-    // Group-by (prototype, logs-group-by flag): an active grouping swaps the Logs lens's results
+    // Group-by (logs-group-by flag): an active grouping swaps the Logs lens's results
     // for the grouped table. Double-gated like Patterns so it's unreachable with the flag off.
     const inGroupByMode = showGroupBy && !inPatternsMode && groupBy !== null
     const resultsRegion = inPatternsMode ? (
         <LogsPatterns id={id} />
     ) : inGroupByMode && groupBy ? (
-        <LogsGroupByResults groupBy={groupBy} />
+        <LogsGroupByResults id={id} />
     ) : (
         logList
     )
