@@ -27,7 +27,9 @@
 # ---
 # name: TestEventsQueryRunner.test_absolute_date_range[new_events_schema]
   '''
-  SELECT tuple(events.uuid, events.event, concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), ','), '}'), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
+  SELECT tuple(events.uuid, events.event, concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null'
+                                                                                                                                          AND NOT (kv.2 = '[]'
+                                                                                                                                                   AND has(['$active_feature_flags', '$exception_functions', '$exception_sources', '$exception_types', '$exception_values'], kv.1)), JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), ','), '}'), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), in(events.uuid,
                                                 (SELECT events.uuid AS uuid
@@ -943,7 +945,9 @@
 # ---
 # name: TestEventsQueryRunner.test_cursor_with_star_select[new_events_schema]
   '''
-  SELECT tuple(events.uuid, events.event, concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), ','), '}'), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
+  SELECT tuple(events.uuid, events.event, concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null'
+                                                                                                                                          AND NOT (kv.2 = '[]'
+                                                                                                                                                   AND has(['$active_feature_flags', '$exception_functions', '$exception_sources', '$exception_types', '$exception_values'], kv.1)), JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), ','), '}'), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), in(events.uuid,
                                                 (SELECT events.uuid AS uuid
@@ -1043,7 +1047,9 @@
 # ---
 # name: TestEventsQueryRunner.test_element_chain_property_filter[new_events_schema]
   '''
-  SELECT tuple(events.uuid, events.event, concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), ','), '}'), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
+  SELECT tuple(events.uuid, events.event, concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null'
+                                                                                                                                          AND NOT (kv.2 = '[]'
+                                                                                                                                                   AND has(['$active_feature_flags', '$exception_functions', '$exception_sources', '$exception_types', '$exception_values'], kv.1)), JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), ','), '}'), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), in(events.uuid,
                                                 (SELECT events.uuid AS uuid
@@ -1095,7 +1101,9 @@
 # ---
 # name: TestEventsQueryRunner.test_presorted_events_table[new_events_schema]
   '''
-  SELECT tuple(events.uuid, events.event, concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), ','), '}'), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
+  SELECT tuple(events.uuid, events.event, concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null'
+                                                                                                                                          AND NOT (kv.2 = '[]'
+                                                                                                                                                   AND has(['$active_feature_flags', '$exception_functions', '$exception_sources', '$exception_types', '$exception_values'], kv.1)), JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), ','), '}'), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), in(events.uuid,
                                                 (SELECT events.uuid AS uuid
@@ -1147,7 +1155,9 @@
 # ---
 # name: TestEventsQueryRunner.test_presorted_events_table_multiple_order_by[new_events_schema]
   '''
-  SELECT tuple(events.uuid, events.event, concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), ','), '}'), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
+  SELECT tuple(events.uuid, events.event, concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null'
+                                                                                                                                          AND NOT (kv.2 = '[]'
+                                                                                                                                                   AND has(['$active_feature_flags', '$exception_functions', '$exception_sources', '$exception_types', '$exception_values'], kv.1)), JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), ','), '}'), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), in(events.uuid,
                                                 (SELECT events.uuid AS uuid
@@ -1199,7 +1209,9 @@
 # ---
 # name: TestEventsQueryRunner.test_presorted_events_table_order_by_event[new_events_schema]
   '''
-  SELECT tuple(events.uuid, events.event, concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), ','), '}'), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
+  SELECT tuple(events.uuid, events.event, concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null'
+                                                                                                                                          AND NOT (kv.2 = '[]'
+                                                                                                                                                   AND has(['$active_feature_flags', '$exception_functions', '$exception_sources', '$exception_types', '$exception_values'], kv.1)), JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), ','), '}'), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), in(events.uuid,
                                                 (SELECT events.uuid AS uuid
@@ -1251,7 +1263,9 @@
 # ---
 # name: TestEventsQueryRunner.test_presorted_events_table_order_by_property[new_events_schema]
   '''
-  SELECT tuple(events.uuid, events.event, concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), ','), '}'), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
+  SELECT tuple(events.uuid, events.event, concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null'
+                                                                                                                                          AND NOT (kv.2 = '[]'
+                                                                                                                                                   AND has(['$active_feature_flags', '$exception_functions', '$exception_sources', '$exception_types', '$exception_values'], kv.1)), JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), ','), '}'), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), in(events.uuid,
                                                 (SELECT events.uuid AS uuid

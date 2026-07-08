@@ -162,8 +162,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop)))) AS random_prop
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop))))), ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop))))), '%qw%'), 0))
-  ORDER BY length(toString(if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop)))))) ASC
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop))))))
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -183,7 +182,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop)))) AS random_prop
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop))))), ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop))))), '%QW%'), 0))
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop))))), ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop))))), '%qw%'), 0))
   ORDER BY length(toString(if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop)))))) ASC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -204,7 +203,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop)))) AS random_prop
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop))))), ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop))))), '%6%'), 0))
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop))))), ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop))))), '%QW%'), 0))
   ORDER BY length(toString(if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop)))))) ASC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -225,7 +224,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop)))) AS random_prop
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop))))), equals(events.event, 'random event'), ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop))))), '%6%'), 0))
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop))))), ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop))))), '%6%'), 0))
   ORDER BY length(toString(if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop)))))) ASC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -246,7 +245,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop)))) AS random_prop
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop))))), or(equals(events.event, 'foo'), equals(events.event, 'random event')), ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop))))), '%6%'), 0))
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop))))), equals(events.event, 'random event'), ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop))))), '%6%'), 0))
   ORDER BY length(toString(if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop)))))) ASC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -263,6 +262,27 @@
   '''
 # ---
 # name: TestEvents.test_event_property_values[new_events_schema.6]
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT DISTINCT if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop)))) AS random_prop
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop))))), or(equals(events.event, 'foo'), equals(events.event, 'random event')), ifNull(ilike(toString(if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop))))), '%6%'), 0))
+  ORDER BY length(toString(if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop)))))) ASC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestEvents.test_event_property_values[new_events_schema.7]
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop)))) AS random_prop
@@ -285,22 +305,14 @@
 # ---
 # name: TestEvents.test_event_property_values[new_events_schema]
   '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT DISTINCT if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop)))) AS random_prop
-  FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(if(notEquals(toJSONString(events.properties.^random_prop), '{}'), toJSONString(events.properties.^random_prop), if(isNull(events.properties.random_prop), NULL, if(startsWith(dynamicType(events.properties.random_prop), 'DateTime'), replaceOne(toString(events.properties.random_prop), ' ', 'T'), toString(events.properties.random_prop))))))
-  LIMIT 10 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    optimize_rewrite_aggregate_function_with_if=0,
-                    optimize_min_inequality_conjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events_json
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
   '''
 # ---
 # name: TestEvents.test_event_property_values_materialized

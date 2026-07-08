@@ -1581,3 +1581,1050 @@
            metric
   '''
 # ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.10]
+  '''
+  
+  SELECT team_id,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         count(1) as count
+  FROM events_json PREWHERE timestamp >= '2022-01-10 20:00:00'
+  AND timestamp < '2022-01-10 22:00:00'
+  WHERE (event LIKE 'helicone%'
+         OR event LIKE 'langfuse%'
+         OR event LIKE 'keywords_ai%'
+         OR event LIKE 'traceloop%'
+         OR ifNull(properties.`$lib`, '') IN ('web',
+                                              'js',
+                                              'posthog-node',
+                                              'posthog-edge',
+                                              'posthog-convex',
+                                              'posthog-android',
+                                              'posthog-flutter',
+                                              'posthog-ios',
+                                              'posthog-go',
+                                              'posthog-java',
+                                              'posthog-server',
+                                              'posthog-react-native',
+                                              'posthog-ruby',
+                                              'posthog-python',
+                                              'posthog-php',
+                                              'posthog-dotnet',
+                                              'posthog-elixir',
+                                              'posthog-unity',
+                                              'posthog-rs'))
+  GROUP BY team_id,
+           metric
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.11]
+  '''
+  
+  SELECT team_id,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         count(1) as count
+  FROM events_json PREWHERE timestamp >= '2022-01-10 22:00:00'
+  AND timestamp < '2022-01-10 23:59:59'
+  WHERE (event LIKE 'helicone%'
+         OR event LIKE 'langfuse%'
+         OR event LIKE 'keywords_ai%'
+         OR event LIKE 'traceloop%'
+         OR ifNull(properties.`$lib`, '') IN ('web',
+                                              'js',
+                                              'posthog-node',
+                                              'posthog-edge',
+                                              'posthog-convex',
+                                              'posthog-android',
+                                              'posthog-flutter',
+                                              'posthog-ios',
+                                              'posthog-go',
+                                              'posthog-java',
+                                              'posthog-server',
+                                              'posthog-react-native',
+                                              'posthog-ruby',
+                                              'posthog-python',
+                                              'posthog-php',
+                                              'posthog-dotnet',
+                                              'posthog-elixir',
+                                              'posthog-unity',
+                                              'posthog-rs'))
+  GROUP BY team_id,
+           metric
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.12]
+  '''
+  
+  SELECT team_id,
+         replaceRegexpAll(JSONExtractRaw(toJSONString(properties), '$ai_lib'), '^"|"$', '') AS ai_lib,
+         count(1) as count
+  FROM events_json PREWHERE timestamp >= '2022-01-10 00:00:00'
+  AND timestamp < '2022-01-10 02:00:00'
+  AND ifNull(properties.`$lib`, '') IN ('posthog-node')
+  AND startsWith(event, '$ai_')
+  WHERE replaceRegexpAll(JSONExtractRaw(toJSONString(properties), '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
+                                                                                               '@posthog/pi',
+                                                                                               'posthog-ai')
+  GROUP BY team_id,
+           ai_lib
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.13]
+  '''
+  
+  SELECT team_id,
+         replaceRegexpAll(JSONExtractRaw(toJSONString(properties), '$ai_lib'), '^"|"$', '') AS ai_lib,
+         count(1) as count
+  FROM events_json PREWHERE timestamp >= '2022-01-10 02:00:00'
+  AND timestamp < '2022-01-10 04:00:00'
+  AND ifNull(properties.`$lib`, '') IN ('posthog-node')
+  AND startsWith(event, '$ai_')
+  WHERE replaceRegexpAll(JSONExtractRaw(toJSONString(properties), '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
+                                                                                               '@posthog/pi',
+                                                                                               'posthog-ai')
+  GROUP BY team_id,
+           ai_lib
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.14]
+  '''
+  
+  SELECT team_id,
+         replaceRegexpAll(JSONExtractRaw(toJSONString(properties), '$ai_lib'), '^"|"$', '') AS ai_lib,
+         count(1) as count
+  FROM events_json PREWHERE timestamp >= '2022-01-10 04:00:00'
+  AND timestamp < '2022-01-10 06:00:00'
+  AND ifNull(properties.`$lib`, '') IN ('posthog-node')
+  AND startsWith(event, '$ai_')
+  WHERE replaceRegexpAll(JSONExtractRaw(toJSONString(properties), '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
+                                                                                               '@posthog/pi',
+                                                                                               'posthog-ai')
+  GROUP BY team_id,
+           ai_lib
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.15]
+  '''
+  
+  SELECT team_id,
+         replaceRegexpAll(JSONExtractRaw(toJSONString(properties), '$ai_lib'), '^"|"$', '') AS ai_lib,
+         count(1) as count
+  FROM events_json PREWHERE timestamp >= '2022-01-10 06:00:00'
+  AND timestamp < '2022-01-10 08:00:00'
+  AND ifNull(properties.`$lib`, '') IN ('posthog-node')
+  AND startsWith(event, '$ai_')
+  WHERE replaceRegexpAll(JSONExtractRaw(toJSONString(properties), '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
+                                                                                               '@posthog/pi',
+                                                                                               'posthog-ai')
+  GROUP BY team_id,
+           ai_lib
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.16]
+  '''
+  
+  SELECT team_id,
+         replaceRegexpAll(JSONExtractRaw(toJSONString(properties), '$ai_lib'), '^"|"$', '') AS ai_lib,
+         count(1) as count
+  FROM events_json PREWHERE timestamp >= '2022-01-10 08:00:00'
+  AND timestamp < '2022-01-10 10:00:00'
+  AND ifNull(properties.`$lib`, '') IN ('posthog-node')
+  AND startsWith(event, '$ai_')
+  WHERE replaceRegexpAll(JSONExtractRaw(toJSONString(properties), '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
+                                                                                               '@posthog/pi',
+                                                                                               'posthog-ai')
+  GROUP BY team_id,
+           ai_lib
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.17]
+  '''
+  
+  SELECT team_id,
+         replaceRegexpAll(JSONExtractRaw(toJSONString(properties), '$ai_lib'), '^"|"$', '') AS ai_lib,
+         count(1) as count
+  FROM events_json PREWHERE timestamp >= '2022-01-10 10:00:00'
+  AND timestamp < '2022-01-10 12:00:00'
+  AND ifNull(properties.`$lib`, '') IN ('posthog-node')
+  AND startsWith(event, '$ai_')
+  WHERE replaceRegexpAll(JSONExtractRaw(toJSONString(properties), '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
+                                                                                               '@posthog/pi',
+                                                                                               'posthog-ai')
+  GROUP BY team_id,
+           ai_lib
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.18]
+  '''
+  
+  SELECT team_id,
+         replaceRegexpAll(JSONExtractRaw(toJSONString(properties), '$ai_lib'), '^"|"$', '') AS ai_lib,
+         count(1) as count
+  FROM events_json PREWHERE timestamp >= '2022-01-10 12:00:00'
+  AND timestamp < '2022-01-10 14:00:00'
+  AND ifNull(properties.`$lib`, '') IN ('posthog-node')
+  AND startsWith(event, '$ai_')
+  WHERE replaceRegexpAll(JSONExtractRaw(toJSONString(properties), '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
+                                                                                               '@posthog/pi',
+                                                                                               'posthog-ai')
+  GROUP BY team_id,
+           ai_lib
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.19]
+  '''
+  
+  SELECT team_id,
+         replaceRegexpAll(JSONExtractRaw(toJSONString(properties), '$ai_lib'), '^"|"$', '') AS ai_lib,
+         count(1) as count
+  FROM events_json PREWHERE timestamp >= '2022-01-10 14:00:00'
+  AND timestamp < '2022-01-10 16:00:00'
+  AND ifNull(properties.`$lib`, '') IN ('posthog-node')
+  AND startsWith(event, '$ai_')
+  WHERE replaceRegexpAll(JSONExtractRaw(toJSONString(properties), '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
+                                                                                               '@posthog/pi',
+                                                                                               'posthog-ai')
+  GROUP BY team_id,
+           ai_lib
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.1]
+  '''
+  
+  SELECT team_id,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         count(1) as count
+  FROM events_json PREWHERE timestamp >= '2022-01-10 02:00:00'
+  AND timestamp < '2022-01-10 04:00:00'
+  WHERE (event LIKE 'helicone%'
+         OR event LIKE 'langfuse%'
+         OR event LIKE 'keywords_ai%'
+         OR event LIKE 'traceloop%'
+         OR ifNull(properties.`$lib`, '') IN ('web',
+                                              'js',
+                                              'posthog-node',
+                                              'posthog-edge',
+                                              'posthog-convex',
+                                              'posthog-android',
+                                              'posthog-flutter',
+                                              'posthog-ios',
+                                              'posthog-go',
+                                              'posthog-java',
+                                              'posthog-server',
+                                              'posthog-react-native',
+                                              'posthog-ruby',
+                                              'posthog-python',
+                                              'posthog-php',
+                                              'posthog-dotnet',
+                                              'posthog-elixir',
+                                              'posthog-unity',
+                                              'posthog-rs'))
+  GROUP BY team_id,
+           metric
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.20]
+  '''
+  
+  SELECT team_id,
+         replaceRegexpAll(JSONExtractRaw(toJSONString(properties), '$ai_lib'), '^"|"$', '') AS ai_lib,
+         count(1) as count
+  FROM events_json PREWHERE timestamp >= '2022-01-10 16:00:00'
+  AND timestamp < '2022-01-10 18:00:00'
+  AND ifNull(properties.`$lib`, '') IN ('posthog-node')
+  AND startsWith(event, '$ai_')
+  WHERE replaceRegexpAll(JSONExtractRaw(toJSONString(properties), '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
+                                                                                               '@posthog/pi',
+                                                                                               'posthog-ai')
+  GROUP BY team_id,
+           ai_lib
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.21]
+  '''
+  
+  SELECT team_id,
+         replaceRegexpAll(JSONExtractRaw(toJSONString(properties), '$ai_lib'), '^"|"$', '') AS ai_lib,
+         count(1) as count
+  FROM events_json PREWHERE timestamp >= '2022-01-10 18:00:00'
+  AND timestamp < '2022-01-10 20:00:00'
+  AND ifNull(properties.`$lib`, '') IN ('posthog-node')
+  AND startsWith(event, '$ai_')
+  WHERE replaceRegexpAll(JSONExtractRaw(toJSONString(properties), '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
+                                                                                               '@posthog/pi',
+                                                                                               'posthog-ai')
+  GROUP BY team_id,
+           ai_lib
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.22]
+  '''
+  
+  SELECT team_id,
+         replaceRegexpAll(JSONExtractRaw(toJSONString(properties), '$ai_lib'), '^"|"$', '') AS ai_lib,
+         count(1) as count
+  FROM events_json PREWHERE timestamp >= '2022-01-10 20:00:00'
+  AND timestamp < '2022-01-10 22:00:00'
+  AND ifNull(properties.`$lib`, '') IN ('posthog-node')
+  AND startsWith(event, '$ai_')
+  WHERE replaceRegexpAll(JSONExtractRaw(toJSONString(properties), '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
+                                                                                               '@posthog/pi',
+                                                                                               'posthog-ai')
+  GROUP BY team_id,
+           ai_lib
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.23]
+  '''
+  
+  SELECT team_id,
+         replaceRegexpAll(JSONExtractRaw(toJSONString(properties), '$ai_lib'), '^"|"$', '') AS ai_lib,
+         count(1) as count
+  FROM events_json PREWHERE timestamp >= '2022-01-10 22:00:00'
+  AND timestamp < '2022-01-10 23:59:59'
+  AND ifNull(properties.`$lib`, '') IN ('posthog-node')
+  AND startsWith(event, '$ai_')
+  WHERE replaceRegexpAll(JSONExtractRaw(toJSONString(properties), '$ai_lib'), '^"|"$', '') IN ('posthog-openclaw',
+                                                                                               '@posthog/pi',
+                                                                                               'posthog-ai')
+  GROUP BY team_id,
+           ai_lib
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.24]
+  '''
+  
+  SELECT team_id,
+         multiIf(ifNull(properties.`$lib`, '') = 'web', 'web', ifNull(properties.`$lib`, '') = 'js', 'web_lite', ifNull(properties.`$lib`, '') = 'posthog-node', 'node', ifNull(properties.`$lib`, '') = 'posthog-edge', 'node', ifNull(properties.`$lib`, '') = 'posthog-android', 'android', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios', ifNull(properties.`$lib`, '') = 'posthog-go', 'go', ifNull(properties.`$lib`, '') = 'posthog-java', 'java', ifNull(properties.`$lib`, '') = 'posthog-server', 'java', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby', ifNull(properties.`$lib`, '') = 'posthog-python', 'python', 'unknown') AS library,
+         count(1) as total
+  FROM events_json
+  WHERE event = '$exception'
+    AND timestamp >= '2022-01-10 00:00:00'
+    AND timestamp < '2022-01-10 23:59:59'
+  GROUP BY team_id,
+           library
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.25]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 00:00:00'
+    AND timestamp < '2022-01-10 02:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.26]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 02:00:00'
+    AND timestamp < '2022-01-10 04:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.27]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 04:00:00'
+    AND timestamp < '2022-01-10 06:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.28]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 06:00:00'
+    AND timestamp < '2022-01-10 08:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.29]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 08:00:00'
+    AND timestamp < '2022-01-10 10:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.2]
+  '''
+  
+  SELECT team_id,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         count(1) as count
+  FROM events_json PREWHERE timestamp >= '2022-01-10 04:00:00'
+  AND timestamp < '2022-01-10 06:00:00'
+  WHERE (event LIKE 'helicone%'
+         OR event LIKE 'langfuse%'
+         OR event LIKE 'keywords_ai%'
+         OR event LIKE 'traceloop%'
+         OR ifNull(properties.`$lib`, '') IN ('web',
+                                              'js',
+                                              'posthog-node',
+                                              'posthog-edge',
+                                              'posthog-convex',
+                                              'posthog-android',
+                                              'posthog-flutter',
+                                              'posthog-ios',
+                                              'posthog-go',
+                                              'posthog-java',
+                                              'posthog-server',
+                                              'posthog-react-native',
+                                              'posthog-ruby',
+                                              'posthog-python',
+                                              'posthog-php',
+                                              'posthog-dotnet',
+                                              'posthog-elixir',
+                                              'posthog-unity',
+                                              'posthog-rs'))
+  GROUP BY team_id,
+           metric
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.30]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 10:00:00'
+    AND timestamp < '2022-01-10 12:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.31]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 12:00:00'
+    AND timestamp < '2022-01-10 14:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.32]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 14:00:00'
+    AND timestamp < '2022-01-10 16:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.33]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 16:00:00'
+    AND timestamp < '2022-01-10 18:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.34]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 18:00:00'
+    AND timestamp < '2022-01-10 20:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.35]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 20:00:00'
+    AND timestamp < '2022-01-10 22:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.36]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 22:00:00'
+    AND timestamp < '2022-01-10 23:59:59'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.37]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 00:00:00'
+    AND timestamp < '2022-01-10 02:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND person_mode IN ('full',
+                        'force_upgrade')
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.38]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 02:00:00'
+    AND timestamp < '2022-01-10 04:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND person_mode IN ('full',
+                        'force_upgrade')
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.39]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 04:00:00'
+    AND timestamp < '2022-01-10 06:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND person_mode IN ('full',
+                        'force_upgrade')
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.3]
+  '''
+  
+  SELECT team_id,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         count(1) as count
+  FROM events_json PREWHERE timestamp >= '2022-01-10 06:00:00'
+  AND timestamp < '2022-01-10 08:00:00'
+  WHERE (event LIKE 'helicone%'
+         OR event LIKE 'langfuse%'
+         OR event LIKE 'keywords_ai%'
+         OR event LIKE 'traceloop%'
+         OR ifNull(properties.`$lib`, '') IN ('web',
+                                              'js',
+                                              'posthog-node',
+                                              'posthog-edge',
+                                              'posthog-convex',
+                                              'posthog-android',
+                                              'posthog-flutter',
+                                              'posthog-ios',
+                                              'posthog-go',
+                                              'posthog-java',
+                                              'posthog-server',
+                                              'posthog-react-native',
+                                              'posthog-ruby',
+                                              'posthog-python',
+                                              'posthog-php',
+                                              'posthog-dotnet',
+                                              'posthog-elixir',
+                                              'posthog-unity',
+                                              'posthog-rs'))
+  GROUP BY team_id,
+           metric
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.40]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 06:00:00'
+    AND timestamp < '2022-01-10 08:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND person_mode IN ('full',
+                        'force_upgrade')
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.41]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 08:00:00'
+    AND timestamp < '2022-01-10 10:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND person_mode IN ('full',
+                        'force_upgrade')
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.42]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 10:00:00'
+    AND timestamp < '2022-01-10 12:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND person_mode IN ('full',
+                        'force_upgrade')
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.43]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 12:00:00'
+    AND timestamp < '2022-01-10 14:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND person_mode IN ('full',
+                        'force_upgrade')
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.44]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 14:00:00'
+    AND timestamp < '2022-01-10 16:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND person_mode IN ('full',
+                        'force_upgrade')
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.45]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 16:00:00'
+    AND timestamp < '2022-01-10 18:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND person_mode IN ('full',
+                        'force_upgrade')
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.46]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 18:00:00'
+    AND timestamp < '2022-01-10 20:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND person_mode IN ('full',
+                        'force_upgrade')
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.47]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 20:00:00'
+    AND timestamp < '2022-01-10 22:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND person_mode IN ('full',
+                        'force_upgrade')
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.48]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 22:00:00'
+    AND timestamp < '2022-01-10 23:59:59'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND person_mode IN ('full',
+                        'force_upgrade')
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.49]
+  '''
+  
+  SELECT team_id,
+         count(1) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 00:00:00'
+    AND timestamp < '2022-01-10 23:59:59'
+    AND ($group_0 != ''
+         OR $group_1 != ''
+         OR $group_2 != ''
+         OR $group_3 != ''
+         OR $group_4 != '')
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.4]
+  '''
+  
+  SELECT team_id,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         count(1) as count
+  FROM events_json PREWHERE timestamp >= '2022-01-10 08:00:00'
+  AND timestamp < '2022-01-10 10:00:00'
+  WHERE (event LIKE 'helicone%'
+         OR event LIKE 'langfuse%'
+         OR event LIKE 'keywords_ai%'
+         OR event LIKE 'traceloop%'
+         OR ifNull(properties.`$lib`, '') IN ('web',
+                                              'js',
+                                              'posthog-node',
+                                              'posthog-edge',
+                                              'posthog-convex',
+                                              'posthog-android',
+                                              'posthog-flutter',
+                                              'posthog-ios',
+                                              'posthog-go',
+                                              'posthog-java',
+                                              'posthog-server',
+                                              'posthog-react-native',
+                                              'posthog-ruby',
+                                              'posthog-python',
+                                              'posthog-php',
+                                              'posthog-dotnet',
+                                              'posthog-elixir',
+                                              'posthog-unity',
+                                              'posthog-rs'))
+  GROUP BY team_id,
+           metric
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.50]
+  '''
+  
+  SELECT team_id,
+         count(distinct uuid) as count
+  FROM events_json
+  WHERE event = '$recording_observed'
+    AND timestamp >= '2022-01-10 00:00:00'
+    AND timestamp < '2022-01-10 23:59:59'
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.51]
+  '''
+  
+  SELECT distinct_id as team,
+         sum(JSONExtractInt(toJSONString(properties), 'count')) as sum
+  FROM events_json
+  WHERE team_id = 99999
+    AND event='decide usage'
+    AND timestamp >= '2022-01-10 00:00:00'
+    AND timestamp < '2022-01-10 23:59:59'
+    AND has(['correct'], replaceRegexpAll(JSONExtractRaw(toJSONString(properties), 'token'), '^"|"$', ''))
+  GROUP BY team
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.52]
+  '''
+  
+  SELECT distinct_id as team,
+         sum(JSONExtractInt(toJSONString(properties), 'count')) as sum
+  FROM events_json
+  WHERE team_id = 99999
+    AND event='local evaluation usage'
+    AND timestamp >= '2022-01-10 00:00:00'
+    AND timestamp < '2022-01-10 23:59:59'
+    AND has(['correct'], replaceRegexpAll(JSONExtractRaw(toJSONString(properties), 'token'), '^"|"$', ''))
+  GROUP BY team
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.53]
+  '''
+  
+  SELECT team_id,
+         COUNT() as count
+  FROM events_json
+  WHERE event = 'survey sent'
+    AND timestamp >= '2022-01-10 00:00:00'
+    AND timestamp < '2022-01-10 23:59:59'
+    AND uuid IN
+      (SELECT argMax(uuid, timestamp)
+       FROM events_json
+       WHERE timestamp >= '2022-01-10 00:00:00'
+         AND timestamp < '2022-01-10 23:59:59'
+         AND event = 'survey sent'
+       GROUP BY team_id,
+                ifNull(properties.`$survey_id`, ''),
+                CASE
+                    WHEN COALESCE(replaceRegexpAll(JSONExtractRaw(toJSONString(properties), '$survey_submission_id'), '^"|"$', ''), '') = '' THEN toString(uuid)
+                    ELSE replaceRegexpAll(JSONExtractRaw(toJSONString(properties), '$survey_submission_id'), '^"|"$', '')
+                END)
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.54]
+  '''
+  
+  SELECT team_id,
+         COUNT() - uniqExactIf(request_id, verified
+                               AND request_id != '') as count
+  FROM
+    (SELECT team_id,
+            JSONExtractBool(toJSONString(properties), '$ai_gateway_verified') as verified,
+            if(verified, JSONExtractString(toJSONString(properties), '$ai_gateway_request_id'), '') as request_id
+     FROM events_json
+     WHERE event IN ['$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
+       AND timestamp >= '2022-01-10 00:00:00'
+       AND timestamp < '2022-01-10 23:59:59')
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.5]
+  '''
+  
+  SELECT team_id,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         count(1) as count
+  FROM events_json PREWHERE timestamp >= '2022-01-10 10:00:00'
+  AND timestamp < '2022-01-10 12:00:00'
+  WHERE (event LIKE 'helicone%'
+         OR event LIKE 'langfuse%'
+         OR event LIKE 'keywords_ai%'
+         OR event LIKE 'traceloop%'
+         OR ifNull(properties.`$lib`, '') IN ('web',
+                                              'js',
+                                              'posthog-node',
+                                              'posthog-edge',
+                                              'posthog-convex',
+                                              'posthog-android',
+                                              'posthog-flutter',
+                                              'posthog-ios',
+                                              'posthog-go',
+                                              'posthog-java',
+                                              'posthog-server',
+                                              'posthog-react-native',
+                                              'posthog-ruby',
+                                              'posthog-python',
+                                              'posthog-php',
+                                              'posthog-dotnet',
+                                              'posthog-elixir',
+                                              'posthog-unity',
+                                              'posthog-rs'))
+  GROUP BY team_id,
+           metric
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.6]
+  '''
+  
+  SELECT team_id,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         count(1) as count
+  FROM events_json PREWHERE timestamp >= '2022-01-10 12:00:00'
+  AND timestamp < '2022-01-10 14:00:00'
+  WHERE (event LIKE 'helicone%'
+         OR event LIKE 'langfuse%'
+         OR event LIKE 'keywords_ai%'
+         OR event LIKE 'traceloop%'
+         OR ifNull(properties.`$lib`, '') IN ('web',
+                                              'js',
+                                              'posthog-node',
+                                              'posthog-edge',
+                                              'posthog-convex',
+                                              'posthog-android',
+                                              'posthog-flutter',
+                                              'posthog-ios',
+                                              'posthog-go',
+                                              'posthog-java',
+                                              'posthog-server',
+                                              'posthog-react-native',
+                                              'posthog-ruby',
+                                              'posthog-python',
+                                              'posthog-php',
+                                              'posthog-dotnet',
+                                              'posthog-elixir',
+                                              'posthog-unity',
+                                              'posthog-rs'))
+  GROUP BY team_id,
+           metric
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.7]
+  '''
+  
+  SELECT team_id,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         count(1) as count
+  FROM events_json PREWHERE timestamp >= '2022-01-10 14:00:00'
+  AND timestamp < '2022-01-10 16:00:00'
+  WHERE (event LIKE 'helicone%'
+         OR event LIKE 'langfuse%'
+         OR event LIKE 'keywords_ai%'
+         OR event LIKE 'traceloop%'
+         OR ifNull(properties.`$lib`, '') IN ('web',
+                                              'js',
+                                              'posthog-node',
+                                              'posthog-edge',
+                                              'posthog-convex',
+                                              'posthog-android',
+                                              'posthog-flutter',
+                                              'posthog-ios',
+                                              'posthog-go',
+                                              'posthog-java',
+                                              'posthog-server',
+                                              'posthog-react-native',
+                                              'posthog-ruby',
+                                              'posthog-python',
+                                              'posthog-php',
+                                              'posthog-dotnet',
+                                              'posthog-elixir',
+                                              'posthog-unity',
+                                              'posthog-rs'))
+  GROUP BY team_id,
+           metric
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.8]
+  '''
+  
+  SELECT team_id,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         count(1) as count
+  FROM events_json PREWHERE timestamp >= '2022-01-10 16:00:00'
+  AND timestamp < '2022-01-10 18:00:00'
+  WHERE (event LIKE 'helicone%'
+         OR event LIKE 'langfuse%'
+         OR event LIKE 'keywords_ai%'
+         OR event LIKE 'traceloop%'
+         OR ifNull(properties.`$lib`, '') IN ('web',
+                                              'js',
+                                              'posthog-node',
+                                              'posthog-edge',
+                                              'posthog-convex',
+                                              'posthog-android',
+                                              'posthog-flutter',
+                                              'posthog-ios',
+                                              'posthog-go',
+                                              'posthog-java',
+                                              'posthog-server',
+                                              'posthog-react-native',
+                                              'posthog-ruby',
+                                              'posthog-python',
+                                              'posthog-php',
+                                              'posthog-dotnet',
+                                              'posthog-elixir',
+                                              'posthog-unity',
+                                              'posthog-rs'))
+  GROUP BY team_id,
+           metric
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.9]
+  '''
+  
+  SELECT team_id,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         count(1) as count
+  FROM events_json PREWHERE timestamp >= '2022-01-10 18:00:00'
+  AND timestamp < '2022-01-10 20:00:00'
+  WHERE (event LIKE 'helicone%'
+         OR event LIKE 'langfuse%'
+         OR event LIKE 'keywords_ai%'
+         OR event LIKE 'traceloop%'
+         OR ifNull(properties.`$lib`, '') IN ('web',
+                                              'js',
+                                              'posthog-node',
+                                              'posthog-edge',
+                                              'posthog-convex',
+                                              'posthog-android',
+                                              'posthog-flutter',
+                                              'posthog-ios',
+                                              'posthog-go',
+                                              'posthog-java',
+                                              'posthog-server',
+                                              'posthog-react-native',
+                                              'posthog-ruby',
+                                              'posthog-python',
+                                              'posthog-php',
+                                              'posthog-dotnet',
+                                              'posthog-elixir',
+                                              'posthog-unity',
+                                              'posthog-rs'))
+  GROUP BY team_id,
+           metric
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema]
+  '''
+  
+  SELECT team_id,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', ifNull(properties.`$lib`, '') = 'web', 'web_events', ifNull(properties.`$lib`, '') = 'js', 'web_lite_events', ifNull(properties.`$lib`, '') = 'posthog-node', 'node_events', ifNull(properties.`$lib`, '') = 'posthog-edge', 'edge_events', ifNull(properties.`$lib`, '') = 'posthog-convex', 'convex_events', ifNull(properties.`$lib`, '') = 'posthog-android', 'android_events', ifNull(properties.`$lib`, '') = 'posthog-flutter', 'flutter_events', ifNull(properties.`$lib`, '') = 'posthog-ios', 'ios_events', ifNull(properties.`$lib`, '') = 'posthog-go', 'go_events', ifNull(properties.`$lib`, '') = 'posthog-java', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-server', 'java_events', ifNull(properties.`$lib`, '') = 'posthog-react-native', 'react_native_events', ifNull(properties.`$lib`, '') = 'posthog-ruby', 'ruby_events', ifNull(properties.`$lib`, '') = 'posthog-python', 'python_events', ifNull(properties.`$lib`, '') = 'posthog-php', 'php_events', ifNull(properties.`$lib`, '') = 'posthog-dotnet', 'dotnet_events', ifNull(properties.`$lib`, '') = 'posthog-elixir', 'elixir_events', ifNull(properties.`$lib`, '') = 'posthog-unity', 'unity_events', ifNull(properties.`$lib`, '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         count(1) as count
+  FROM events_json PREWHERE timestamp >= '2022-01-10 00:00:00'
+  AND timestamp < '2022-01-10 02:00:00'
+  WHERE (event LIKE 'helicone%'
+         OR event LIKE 'langfuse%'
+         OR event LIKE 'keywords_ai%'
+         OR event LIKE 'traceloop%'
+         OR ifNull(properties.`$lib`, '') IN ('web',
+                                              'js',
+                                              'posthog-node',
+                                              'posthog-edge',
+                                              'posthog-convex',
+                                              'posthog-android',
+                                              'posthog-flutter',
+                                              'posthog-ios',
+                                              'posthog-go',
+                                              'posthog-java',
+                                              'posthog-server',
+                                              'posthog-react-native',
+                                              'posthog-ruby',
+                                              'posthog-python',
+                                              'posthog-php',
+                                              'posthog-dotnet',
+                                              'posthog-elixir',
+                                              'posthog-unity',
+                                              'posthog-rs'))
+  GROUP BY team_id,
+           metric
+  '''
+# ---
