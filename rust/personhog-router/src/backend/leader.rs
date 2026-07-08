@@ -220,7 +220,7 @@ impl LeaderBackend {
         // steady-state forward path copies nothing.
         match self
             .stash
-            .enqueue_or_forward(partition, &frame, &headers, key)
+            .enqueue_or_forward(partition, method, &frame, &headers, key)
             .await
         {
             StashDecision::Stashed(rx) => {
