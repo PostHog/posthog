@@ -342,6 +342,10 @@ class TestProductionModeContinueAsNew(SimpleTestCase):
         result = await workflow._run_production_mode(ConversationsSlackEnrichmentInputs(batch_size=100, state=state))
 
         assert mock_workflow.execute_activity.call_count == 3
+        # The rewarm must force a rebuild — reusing an existing (possibly unreadable)
+        # list would make the retry read the same bad data.
+        rewarm_call = mock_workflow.execute_activity.call_args_list[1]
+        assert rewarm_call.kwargs["args"] == [True]
         # The retried page must target the same offset and page size as the failed one.
         retried_call = mock_workflow.execute_activity.call_args_list[2]
         assert retried_call.kwargs["args"] == [10000, 10000, 100]

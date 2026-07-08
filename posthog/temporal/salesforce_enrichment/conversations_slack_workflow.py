@@ -271,10 +271,11 @@ class SalesforceConversationsSlackEnrichmentWorkflow(PostHogWorkflow):
         except ActivityError as e:
             if not (isinstance(e.cause, ApplicationError) and e.cause.type == ORG_MAPPINGS_CACHE_MISSING_ERROR_TYPE):
                 raise
-            # The org mappings cache can expire mid-run; rebuild it once and retry the
-            # page instead of silently truncating the sync. A second miss propagates.
+            # The org mappings cache can expire or turn unreadable mid-run; force a
+            # rebuild once and retry the page instead of silently truncating the sync.
+            # A second miss propagates.
             logger.warning("org_mappings_cache_missing_rebuilding", page_offset=state.page_offset)
-            cache_result = await self._warm_org_mappings_cache()
+            cache_result = await self._warm_org_mappings_cache(force_rebuild=True)
             if not cache_result.get("total_mappings"):
                 logger.info("no_salesforce_accounts_found")
                 return self._build_result(state)
@@ -306,9 +307,10 @@ class SalesforceConversationsSlackEnrichmentWorkflow(PostHogWorkflow):
         return self._build_result(state)  # type: ignore[unreachable]
 
     @staticmethod
-    async def _warm_org_mappings_cache() -> dict[str, Any]:
+    async def _warm_org_mappings_cache(force_rebuild: bool = False) -> dict[str, Any]:
         return await workflow.execute_activity(
             cache_org_mappings_activity,
+            args=[force_rebuild],
             start_to_close_timeout=dt.timedelta(minutes=10),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )

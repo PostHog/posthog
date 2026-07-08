@@ -92,17 +92,24 @@ def prepare_salesforce_update_record(salesforce_account_id: str, signals: UsageS
 
 
 @activity.defn
-async def cache_org_mappings_activity() -> dict[str, Any]:
-    """Cache all Salesforce org mappings in Redis (reuses existing cache if available)."""
+async def cache_org_mappings_activity(force_rebuild: bool = False) -> dict[str, Any]:
+    """Cache all Salesforce org mappings in Redis (reuses existing cache if available).
+
+    ``force_rebuild`` skips cache reuse and replaces the list unconditionally.
+    Recovery from unreadable cache entries needs this: the key still exists, so
+    the count check alone would reuse the same bad data.
+    """
     close_old_connections()
     logger = LOGGER.bind()
 
-    cached_count = await get_cached_org_mappings_count()
-    if cached_count is not None:
-        logger.info("cache_hit_skipping_salesforce_query", cached_total=cached_count)
-        return {"success": True, "total_mappings": cached_count, "cache_reused": True}
-
-    logger.info("cache_miss_querying_salesforce", action="org_mappings")
+    if force_rebuild:
+        logger.info("cache_force_rebuild_querying_salesforce", action="org_mappings")
+    else:
+        cached_count = await get_cached_org_mappings_count()
+        if cached_count is not None:
+            logger.info("cache_hit_skipping_salesforce_query", cached_total=cached_count)
+            return {"success": True, "total_mappings": cached_count, "cache_reused": True}
+        logger.info("cache_miss_querying_salesforce", action="org_mappings")
 
     sf = get_salesforce_client()
     # POSTHOG_ORG_ID_FIELD is a trusted constant defined in constants.py, not user input.
@@ -319,10 +326,11 @@ class SalesforceUsageEnrichmentWorkflow(PostHogWorkflow):
         except ActivityError as e:
             if not (isinstance(e.cause, ApplicationError) and e.cause.type == ORG_MAPPINGS_CACHE_MISSING_ERROR_TYPE):
                 raise
-            # The org mappings cache can expire mid-run; rebuild it once and retry the
-            # page instead of failing the enrichment. A second miss propagates.
+            # The org mappings cache can expire or turn unreadable mid-run; force a
+            # rebuild once and retry the page instead of failing the enrichment.
+            # A second miss propagates.
             logger.warning("org_mappings_cache_missing_rebuilding", page_offset=state.page_offset)
-            cache_result = await self._warm_org_mappings_cache()
+            cache_result = await self._warm_org_mappings_cache(force_rebuild=True)
             if not cache_result.get("total_mappings"):
                 logger.info("no_salesforce_accounts_found")
                 return self._build_result(state)
@@ -355,9 +363,10 @@ class SalesforceUsageEnrichmentWorkflow(PostHogWorkflow):
         )
 
     @staticmethod
-    async def _warm_org_mappings_cache() -> dict[str, Any]:
+    async def _warm_org_mappings_cache(force_rebuild: bool = False) -> dict[str, Any]:
         return await workflow.execute_activity(
             cache_org_mappings_activity,
+            args=[force_rebuild],
             start_to_close_timeout=dt.timedelta(minutes=10),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )

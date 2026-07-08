@@ -199,6 +199,26 @@ class TestCacheOrgMappingsActivity(TestCase):
         assert stored_mappings[0]["posthog_org_id"] == "org-uuid-1"
         assert stored_mappings[1]["posthog_org_id"] == "org-uuid-2"
 
+    @pytest.mark.asyncio
+    @patch(f"{WORKFLOW_MODULE}.store_org_mappings_in_redis", new_callable=AsyncMock)
+    @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
+    @patch(f"{WORKFLOW_MODULE}.get_cached_org_mappings_count", new_callable=AsyncMock, return_value=100)
+    @patch(f"{WORKFLOW_MODULE}.close_old_connections")
+    async def test_force_rebuild_replaces_existing_cache(
+        self, _mock_close, _mock_cache_count, mock_sf_client, mock_store
+    ):
+        mock_sf = MagicMock()
+        mock_sf.query_all.return_value = {"records": [{"Id": "001ABC", "Posthog_Org_ID__c": "org-uuid-1"}]}
+        mock_sf_client.return_value = mock_sf
+
+        with patch(f"{WORKFLOW_MODULE}.asyncio.to_thread", side_effect=mock_to_thread):
+            result = await cache_org_mappings_activity(force_rebuild=True)
+
+        # A positive cached count must not short-circuit a forced rebuild.
+        assert result["total_mappings"] == 1
+        assert "cache_reused" not in result
+        mock_store.assert_called_once()
+
 
 class TestEnrichOrgPageActivity(TestCase):
     @pytest.mark.asyncio
@@ -407,6 +427,10 @@ class TestProductionModeContinueAsNew(TestCase):
         result = await wf._run_production_mode(UsageEnrichmentInputs(batch_size=100, state=state))
 
         assert mock_workflow.execute_activity.call_count == 3
+        # The rewarm must force a rebuild — reusing an existing (possibly unreadable)
+        # list would make the retry read the same bad data.
+        rewarm_call = mock_workflow.execute_activity.call_args_list[1]
+        assert rewarm_call.kwargs["args"] == [True]
         # The retried page must target the same offset and page size as the failed one.
         retried_call = mock_workflow.execute_activity.call_args_list[2]
         assert retried_call.kwargs["args"] == [10000, 10000, 100]
