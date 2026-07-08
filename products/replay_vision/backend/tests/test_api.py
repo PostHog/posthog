@@ -1,3 +1,4 @@
+from collections.abc import AsyncIterator
 from datetime import timedelta
 from typing import Any
 
@@ -821,6 +822,23 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp["content-type"], "text/event-stream")
         mock_stream.assert_called_once()
+
+    @override_settings(SERVER_GATEWAY_INTERFACE="WSGI")
+    @patch("products.replay_vision.backend.api.observations.stream_observation_progress")
+    def test_progress_endpoint_streams_under_wsgi(self, mock_stream: MagicMock) -> None:
+        # WSGI is the stack default and can't drive an `async def` generator directly. The view must bridge
+        # it to a sync iterator rather than raising, or live progress 500s on every request that lands on WSGI.
+        async def fake_stream() -> AsyncIterator[str]:
+            yield "event: observation-complete\ndata: {}\n\n"
+
+        mock_stream.return_value = fake_stream()
+        obs = self._create_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
+        url = f"/api/projects/{self.team.id}/vision/observations/{obs.id}/progress/"
+        resp = self.client.get(url, HTTP_ACCEPT="text/event-stream")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp["content-type"], "text/event-stream")
+        # Drain the bridged sync stream to prove the async generator's event actually reaches the client.
+        self.assertIn(b"observation-complete", b"".join(resp.streaming_content))
 
     def test_malformed_scanner_id_returns_404(self) -> None:
         resp = self.client.get(self.observations_url("not-a-uuid"))

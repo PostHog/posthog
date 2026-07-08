@@ -44,6 +44,8 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner, 
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
 
+from ee.hogai.utils.aio import async_to_sync as async_generator_to_sync
+
 logger = structlog.get_logger(__name__)
 
 
@@ -780,8 +782,12 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         `get_object()` applies the same RBAC scoping as retrieve, so this can't leak observations the caller
         can't read. The stream self-terminates once the observation reaches a terminal state.
         """
-        # The generator is `async def` — WSGI can't consume an async iterator, so fail loudly there.
-        if getattr(settings, "SERVER_GATEWAY_INTERFACE", "ASGI") != "ASGI":
-            raise RuntimeError("observation progress stream requires ASGI.")
         observation = self.get_object()
-        return sse_streaming_response(stream_observation_progress(observation), endpoint="replay_vision_observation")
+        # `stream_observation_progress` is an `async def` generator. ASGI consumes it directly; WSGI (the stack
+        # default) can't drive an async iterator, so bridge it to a sync generator. Mirrors ee/api/session_summaries.py.
+        stream: Any = (
+            stream_observation_progress(observation)
+            if settings.SERVER_GATEWAY_INTERFACE == "ASGI"
+            else async_generator_to_sync(lambda: stream_observation_progress(observation))
+        )
+        return sse_streaming_response(stream, endpoint="replay_vision_observation")
