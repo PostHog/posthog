@@ -112,7 +112,7 @@ class TestGetRows:
 
     def test_resumes_from_saved_token(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager(RocketlaneResumeConfig(page_token="t2"))
-        pages = {
+        pages: dict[str | None, dict] = {
             # The first page (token None) must never be fetched on resume.
             "t2": _page([{"projectId": 2}], has_more=True, next_token="t3"),
             "t3": _page([{"projectId": 3}], has_more=False, next_token=None),
