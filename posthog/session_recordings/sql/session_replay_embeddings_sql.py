@@ -1,6 +1,5 @@
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
-from posthog.settings import CLICKHOUSE_IS_IN_CLUSTER
 
 """
 We want to use ML to convert session replay data to embeddings, these will let us check similarity between sessions
@@ -91,5 +90,5 @@ def DROP_SESSION_REPLAY_EMBEDDINGS_TABLE_SQL():
     return f"DROP TABLE IF EXISTS {SESSION_REPLAY_EMBEDDINGS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
 
 
-def TRUNCATE_SESSION_REPLAY_EMBEDDINGS_TABLE_SQL(on_cluster: bool = CLICKHOUSE_IS_IN_CLUSTER):
-    return f"TRUNCATE TABLE IF EXISTS {SESSION_REPLAY_EMBEDDINGS_DATA_TABLE()} {ON_CLUSTER_CLAUSE(on_cluster)}"
+def TRUNCATE_SESSION_REPLAY_EMBEDDINGS_TABLE_SQL():
+    return f"TRUNCATE TABLE IF EXISTS {SESSION_REPLAY_EMBEDDINGS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
