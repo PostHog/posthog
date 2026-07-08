@@ -221,6 +221,7 @@ rules:
                               |ReviewReportArtefact
                               |ReviewSkillConfig
                               |ReviewUserSettings
+                              |SandboxCustomImage
                               |SandboxEnvironment
                               |ScoreDefinition
                               |SavedHeatmap
@@ -505,6 +506,7 @@ rules:
                         |ReviewReportArtefact
                         |ReviewSkillConfig
                         |ReviewUserSettings
+                        |SandboxCustomImage
                         |SandboxEnvironment
                         |ScoreDefinition
                         |SavedHeatmap

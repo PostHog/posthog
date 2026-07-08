@@ -149,6 +149,13 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert len(results) == 1
         assert results[0]["content"][0]["github_login"] == "alice"
 
+    @parameterized.expand([("sig_praise",), ("bulk_download",), ("not-a-uuid",)])
+    def test_list_non_uuid_report_id_returns_404_not_500(self, report_id):
+        # Agents whose prompt only carries a signal_id pass it as report_id; it can never be a
+        # report UUID, so this must 404 rather than 500 from the ORM coercing it to a UUID.
+        response = self.client.get(self._list_url(report_id))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     # --- GET retrieve ---
 
     def test_retrieve_returns_single_enriched_artefact(self):
@@ -707,6 +714,15 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         assert artefact.report_id == report.id
         assert artefact.team_id == self.team.id
         assert json.loads(artefact.content) == _CODE_REFERENCE_CONTENT
+
+    def test_post_non_uuid_report_id_returns_404_not_500(self):
+        # The create guard has its own report lookup, distinct from the read path's queryset.
+        response = self.client.post(
+            self._list_url("sig_praise"),
+            data=json.dumps({"artefact_type": "note", "content": {"note": "x"}}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     @parameterized.expand(
         [

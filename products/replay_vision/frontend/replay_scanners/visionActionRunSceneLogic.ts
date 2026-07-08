@@ -79,7 +79,7 @@ export const visionActionRunSceneLogic = kea<visionActionRunSceneLogicType>([
                 }
                 breadcrumbs.push({
                     key: actionId ? `action-${actionId}` : 'action',
-                    name: action?.name || 'Action',
+                    name: action?.name || 'Summary',
                     path: urls.replayVisionAction(actionId),
                 })
                 breadcrumbs.push({

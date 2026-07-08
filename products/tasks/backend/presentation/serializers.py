@@ -18,6 +18,7 @@ from posthog.models.user_integration import UserIntegration
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import (
     ChannelDTO,
+    SandboxCustomImageDTO,
     SandboxEnvironmentDTO,
     TaskAutomationDTO,
     TaskDetailDTO,
@@ -544,6 +545,12 @@ class TaskWriteSerializer(serializers.Serializer):
             raise serializers.ValidationError("User integration must belong to the authenticated user")
         return value
 
+    def validate_origin_product(self, value):
+        """Reject internal-only origins that are set by server-side flows, never by API callers."""
+        if value == tasks_facade.TaskOriginProduct.IMAGE_BUILDER:
+            raise serializers.ValidationError("origin_product 'image_builder' is reserved for image-builder sessions")
+        return value
+
     def validate_repository(self, value):
         """Validate repository configuration"""
         if not value:
@@ -1005,7 +1012,7 @@ class TaskSummarySerializer(DataclassSerializer):
 
     class Meta:
         dataclass = TaskSummaryDTO
-        fields = ["id", "title", "repository", "created_at", "updated_at", "latest_run"]
+        fields = ["id", "title", "repository", "created_at", "updated_at", "origin_product", "latest_run"]
 
 
 class TaskListQuerySerializer(serializers.Serializer):
@@ -1238,6 +1245,12 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         default=None,
         help_text="Optional sandbox environment to apply for this cloud run.",
     )
+    custom_image_id = serializers.UUIDField(
+        required=False,
+        default=None,
+        help_text="Optional custom base image for this cloud run's sandbox (Modal VM runtime only); "
+        "takes precedence over the environment's image.",
+    )
     pr_authorship_mode = serializers.ChoiceField(
         choices=PR_AUTHORSHIP_MODE_CHOICES,
         required=False,
@@ -1398,6 +1411,12 @@ class TaskRunBootstrapCreateRequestSerializer(serializers.Serializer):
         required=False,
         default=None,
         help_text="Optional sandbox environment to apply for this cloud run.",
+    )
+    custom_image_id = serializers.UUIDField(
+        required=False,
+        default=None,
+        help_text="Optional custom base image for this cloud run's sandbox (Modal VM runtime only); "
+        "takes precedence over the environment's image.",
     )
     pr_authorship_mode = serializers.ChoiceField(
         choices=PR_AUTHORSHIP_MODE_CHOICES,
@@ -1682,6 +1701,12 @@ class TaskRunResumeRequestSchemaSerializer(serializers.Serializer):
         default=None,
         help_text="Optional sandbox environment to apply for this cloud run.",
     )
+    custom_image_id = serializers.UUIDField(
+        required=False,
+        default=None,
+        help_text="Optional custom base image for this cloud run's sandbox (Modal VM runtime only); "
+        "takes precedence over the environment's image.",
+    )
     pr_authorship_mode = serializers.ChoiceField(
         choices=TaskRunCreateRequestSerializer.PR_AUTHORSHIP_MODE_CHOICES,
         required=False,
@@ -1957,6 +1982,9 @@ class SandboxEnvironmentSerializer(DataclassSerializer):
             "created_by",
             "created_at",
             "updated_at",
+            "custom_image_id",
+            "custom_image_name",
+            "custom_image_status",
         ]
 
 
@@ -1978,6 +2006,9 @@ class SandboxEnvironmentListSerializer(DataclassSerializer):
             "created_by",
             "created_at",
             "updated_at",
+            "custom_image_id",
+            "custom_image_name",
+            "custom_image_status",
         ]
 
 
@@ -2019,6 +2050,11 @@ class SandboxEnvironmentWriteSerializer(serializers.Serializer):
         default=True,
         help_text="If true, only the creator can see this environment; otherwise the whole team can.",
     )
+    custom_image_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Custom base image for this environment's sandboxes (Modal VM runtime only); null uses the default base.",
+    )
 
     def validate_environment_variables(self, value):
         if value:
@@ -2037,6 +2073,70 @@ class SandboxEnvironmentWriteSerializer(serializers.Serializer):
                         f"Environment variable key {key!r} is reserved and managed by PostHog; it cannot be set."
                     )
         return value
+
+
+class SandboxCustomImageSerializer(DataclassSerializer):
+    """Detail response for a custom sandbox base image."""
+
+    created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+
+    class Meta:
+        dataclass = SandboxCustomImageDTO
+        fields = [
+            "id",
+            "name",
+            "description",
+            "repository",
+            "private",
+            "status",
+            "version",
+            "modal_image_name",
+            "spec",
+            "spec_yaml",
+            "scan_result",
+            "build_log",
+            "error",
+            "builder_task_id",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class SandboxCustomImageWriteSerializer(serializers.Serializer):
+    """Request body for creating a custom sandbox base image."""
+
+    name = serializers.CharField(max_length=255, help_text="Display name for the custom image.")
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="What should go into the image; seeds the image-builder agent conversation.",
+    )
+    repository = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        max_length=255,
+        help_text="Optional 'org/repo' the builder session clones so it can verify the image "
+        "brings up that repository's dependencies.",
+    )
+    private = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="If true, only you can see and use this image; otherwise the whole team can.",
+    )
+
+
+class SandboxCustomImageBuildSerializer(serializers.Serializer):
+    """Request body for scanning and building a custom sandbox base image."""
+
+    spec_yaml = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Image spec YAML to build. When omitted, the spec is read from the builder agent's live sandbox.",
+    )
 
 
 class TaskPresenceBeaconRequestSerializer(serializers.Serializer):

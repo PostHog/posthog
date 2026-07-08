@@ -522,6 +522,9 @@ SPECTACULAR_SETTINGS = {
         # Disambiguates from the same-valued inline enum on the signals LogsAlertStateChangeSignalExtra contract.
         "LogsAlertThresholdOperatorEnum": "products.logs.backend.models.LogsAlertConfiguration.ThresholdOperator",
         "LLMProviderEnum": "products.ai_observability.backend.models.provider_keys.LLMProvider",
+        "EvaluationReportFrequencyEnum": (
+            "products.ai_observability.backend.models.evaluation_reports.EvaluationReport.Frequency"
+        ),
         "HogFlowStatusEnum": "products.workflows.backend.models.hog_flow.hog_flow.HogFlow.State",
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
         "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",

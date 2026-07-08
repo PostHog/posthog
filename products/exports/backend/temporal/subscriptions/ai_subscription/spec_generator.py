@@ -7,6 +7,7 @@ from typing import Optional, Union
 from django.db.models import F, Q
 
 import structlog
+from pydantic import ValidationError
 
 from posthog.schema import CachedTeamTaxonomyQueryResponse, SubscriptionAIPromptMaxLength, TeamTaxonomyQuery
 
@@ -72,6 +73,23 @@ MAX_PINNED_EVENTS = 25
 # or 'event name'. The capture groups are non-greedy so adjacent quotes don't merge into one token.
 _QUOTED_TOKEN_RE = re.compile(r"`([^`]+)`|\"([^\"]+)\"|'([^']+)'")
 
+# Placeholder tokens the planner writes instead of concrete dates, so frozen HogQL stays
+# window-agnostic; ReportWindow.render_window_filter substitutes the run's fresh bounds.
+DATE_RANGE_PLACEHOLDER = "{{date_range}}"
+COMPARE_DATE_RANGE_PLACEHOLDER = "{{compare_date_range}}"
+WINDOW_START_PLACEHOLDER = "{{window_start}}"
+WINDOW_END_PLACEHOLDER = "{{window_end}}"
+WINDOW_PLACEHOLDERS = (
+    DATE_RANGE_PLACEHOLDER,
+    COMPARE_DATE_RANGE_PLACEHOLDER,
+    WINDOW_START_PLACEHOLDER,
+    WINDOW_END_PLACEHOLDER,
+)
+# Bumping invalidates every frozen plan (they lazily re-plan on next delivery), so prompt/harness
+# improvements reach existing subscriptions instead of only new ones.
+AI_QUERY_PLAN_VERSION = 1
+
+
 DEFAULT_PLANNER_MODEL = "gpt-4.1"
 DEFAULT_SYNTHESIS_MODEL = "gpt-4.1"
 _PLANNER_LLM_TIMEOUT_SECONDS = 90.0
@@ -79,6 +97,14 @@ _EVENT_SELECTION_LLM_TIMEOUT_SECONDS = 30.0
 
 
 class PromptRejectedError(ValueError):
+    pass
+
+
+class StoredPlanInvalidError(Exception):
+    """A persisted query plan no longer validates (e.g. the `QueryPlan` schema changed since it was
+    frozen). The caller should self-heal by re-planning live rather than failing the delivery — unlike
+    `PromptRejectedError` (bad user input), this is recoverable and must not auto-disable the sub."""
+
     pass
 
 
@@ -105,11 +131,31 @@ class ReportWindow:
 
     @property
     def compare_start(self) -> datetime:
+        # The equal-length period immediately before the window, for period-over-period queries.
         return self.start - (self.end - self.start)
 
     @property
     def compare_start_literal(self) -> str:
         return self.compare_start.strftime("%Y-%m-%d %H:%M:%S")
+
+    @property
+    def window_filter_sql(self) -> str:
+        return f"timestamp >= toDateTime('{self.start_literal}') AND timestamp < toDateTime('{self.end_literal}')"
+
+    @property
+    def compare_filter_sql(self) -> str:
+        return (
+            f"timestamp >= toDateTime('{self.compare_start_literal}') AND timestamp < toDateTime('{self.end_literal}')"
+        )
+
+    def render_window_filter(self, hogql: str) -> str:
+        # str.replace is non-recursive, and the substituted SQL contains no tokens, so nothing re-expands.
+        return (
+            hogql.replace(DATE_RANGE_PLACEHOLDER, self.window_filter_sql)
+            .replace(COMPARE_DATE_RANGE_PLACEHOLDER, self.compare_filter_sql)
+            .replace(WINDOW_START_PLACEHOLDER, f"toDateTime('{self.start_literal}')")
+            .replace(WINDOW_END_PLACEHOLDER, f"toDateTime('{self.end_literal}')")
+        )
 
 
 def _in_tz(dt: datetime, tz: tzinfo) -> datetime:
@@ -396,17 +442,19 @@ def build_context_blob(team: Team, window: ReportWindow, relevant_events: Sequen
     team_name = sanitize_user_text(team.name, EVENT_NAME_MAX_LENGTH) or "(unnamed)"
     org_name = sanitize_user_text(team.organization.name, EVENT_NAME_MAX_LENGTH) or "(unnamed)"
 
-    # Exact, code-computed bounds in the project timezone — the planner filters on these literals
-    # instead of writing its own `now() - INTERVAL`, so there's no timezone math in HogQL and the
-    # window is gap-free run-to-run. Half-open: include `start`, exclude `end`.
+    # The planner must NOT write its own date bounds — it emits the `{{date_range}}` placeholder and the
+    # executor substitutes the run's code-computed window. That keeps a frozen plan window-agnostic (the
+    # window advances every run) and keeps timezone math out of HogQL. The concrete bounds are still
+    # shown for context (so the planner understands the period the prompt refers to), but as
+    # informational lines the planner copies the PLACEHOLDER, not the literals, into its filter.
     lines = [
         f"- Project: {team_name}",
         f"- Organization: {org_name}",
         f"- Project timezone: {team.timezone}",
         f"- Analysis window start (inclusive, project timezone): {window.start_literal}",
         f"- Analysis window end (exclusive, project timezone): {window.end_literal}",
-        f"- Filter timestamps with: timestamp >= toDateTime('{window.start_literal}') "
-        f"AND timestamp < toDateTime('{window.end_literal}')",
+        f"- Filter timestamps with the placeholder token (verbatim, do NOT substitute the dates yourself): "
+        f"{DATE_RANGE_PLACEHOLDER}",
         f"- Previous-period start (for period-over-period comparisons only, project timezone): "
         f"{window.compare_start_literal}",
     ]
@@ -513,4 +561,28 @@ def build_enriched_prompt(
         user=user,
         trace_correlation_id=trace_correlation_id,
     )
+    return EnrichedPromptSpec(cleaned_prompt=cleaned, context_blob=context_blob, plan=plan)
+
+
+def build_frozen_prompt(
+    *,
+    team: Team,
+    prompt: Optional[str],
+    window: ReportWindow,
+    ai_query_plan: dict,
+) -> EnrichedPromptSpec:
+    """Rebuild the spec from a persisted plan without either LLM pass — the deterministic reuse path.
+
+    Any invalid stored plan (stale version or bad shape) raises `StoredPlanInvalidError` so the caller
+    re-plans live: a plan-schema or prompt-harness change must invalidate frozen plans, never brick
+    the subscription.
+    """
+    cleaned = sanitize_prompt(prompt)
+    if ai_query_plan.get("version") != AI_QUERY_PLAN_VERSION:
+        raise StoredPlanInvalidError("Stored query plan version is stale.")
+    try:
+        plan = QueryPlan.model_validate(ai_query_plan.get("plan"))
+    except ValidationError as exc:
+        raise StoredPlanInvalidError("Stored query plan is malformed.") from exc
+    context_blob = build_context_blob(team, window)
     return EnrichedPromptSpec(cleaned_prompt=cleaned, context_blob=context_blob, plan=plan)
