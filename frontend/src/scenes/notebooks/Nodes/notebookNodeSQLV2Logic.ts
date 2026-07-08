@@ -1,11 +1,28 @@
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { NotebookOperation, notebookOperationsLogic } from '../Notebook/notebookOperationsLogic'
+import { collectSqlV2Nodes } from './notebookNodeContent'
 import { NotebookNodeSQLV2Result } from './NotebookNodeSQLV2'
 import type { notebookNodeSQLV2LogicType } from './notebookNodeSQLV2LogicType'
+
+// Map every SQLV2 sibling's dataframe name -> node id, excluding the running node itself.
+// Delegates to collectSqlV2Nodes so duplicate names get the same disambiguated form the
+// dependency graph shows (sql_df, sql_df_2, …) — raw attributes would let a later duplicate
+// silently shadow the node the user actually referenced. The backend resolves each referenced
+// node to its last-run query and inlines it as a CTE — the frontend only supplies the wiring.
+export function collectSqlV2Refs(doc: JSONContent | null | undefined, selfNodeId: string): Record<string, string> {
+    const refs: Record<string, string> = {}
+    for (const node of collectSqlV2Nodes(doc)) {
+        if (node.nodeId && node.nodeId !== selfNodeId) {
+            refs[node.returnVariable] = node.nodeId
+        }
+    }
+    return refs
+}
 
 const POLL_INTERVAL_MS = 1000
 const MAX_POLL_ATTEMPTS = 150 // ~2.5 minutes at 1s
@@ -25,7 +42,11 @@ export interface NotebookNodeSQLV2LogicProps {
     // Current node attributes, so a fresh mount can recover an in-flight/finished run by its runId.
     runId?: string | null
     hasResult?: boolean
-    updateAttributes: (attrs: { runId?: string | null; result?: NotebookNodeSQLV2Result | null }) => void
+    updateAttributes: (attrs: {
+        nodeId?: string
+        runId?: string | null
+        result?: NotebookNodeSQLV2Result | null
+    }) => void
 }
 
 export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
@@ -40,7 +61,9 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
         ],
     })),
     actions({
-        runQuery: (code: string) => ({ code }),
+        // refs maps each named sibling node's dataframe name to its HogQL; the backend
+        // inlines the ones this query references as CTEs (Journey 3).
+        runQuery: (code: string, refs: Record<string, string> = {}) => ({ code, refs }),
         startPolling: (runId: string) => ({ runId }),
         pollResult: (runId: string) => ({ runId }),
         stopPolling: true,
@@ -162,7 +185,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
         return {
             setPage: loadCurrentPage,
             setPageSize: loadCurrentPage,
-            runQuery: async ({ code }) => {
+            runQuery: async ({ code, refs }) => {
                 if (!code.trim()) {
                     actions.setRunError('Query is empty — type some HogQL first.')
                     actions.setIsRunning(false)
@@ -180,11 +203,15 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     const { run_id } = await api.notebooks.sqlV2Run(props.notebookShortId, {
                         node_id: props.nodeId,
                         code,
+                        refs,
                     })
                     // Mark this as the active run so a still-in-flight poll from a previous run
                     // can't overwrite this result or stop this run's poller once it resolves.
                     cache.activeRunId = run_id
-                    props.updateAttributes({ runId: run_id, result: null })
+                    // Persisting nodeId pins the cell's identity: markdown-notebook cell ids are
+                    // content fingerprints otherwise, so without the pin any later prop change
+                    // would orphan this run's node_id and break refs to this cell.
+                    props.updateAttributes({ nodeId: props.nodeId, runId: run_id, result: null })
                     actions.startPolling(run_id)
                 } catch (error) {
                     actions.setRunError(error instanceof Error ? error.message : 'Failed to run query')
