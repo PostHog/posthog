@@ -491,17 +491,6 @@ def dashboard_template_from_creation_payload(template: dict[str, Any]) -> Dashbo
     )
 
 
-def _resolve_template_tile_type(template_tile: dict[str, Any]) -> Optional[str]:
-    # Tiles saved from an existing dashboard omit `type` and nest their fields under `button_tile`,
-    # so infer the type rather than indexing `["type"]` (which used to KeyError mid-creation).
-    explicit_type = template_tile.get("type")
-    if explicit_type:
-        return explicit_type
-    if template_tile.get("button_tile") is not None:
-        return "BUTTON"
-    return None
-
-
 def create_from_template(
     dashboard: Dashboard,
     template: DashboardTemplate,
@@ -524,7 +513,9 @@ def create_from_template(
     dashboard.save()
 
     for template_tile in template.tiles or []:
-        tile_type = _resolve_template_tile_type(template_tile)
+        # Read `type` rather than indexing it: unknown or typeless tiles are logged and skipped below,
+        # not fatal (that used to KeyError mid-creation and leave a half-populated dashboard).
+        tile_type = template_tile.get("type")
         if tile_type == "INSIGHT":
             query = template_tile.get("query", None)
             _create_tile_for_insight(

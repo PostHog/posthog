@@ -2693,11 +2693,12 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("explicit_type", {"type": "BUTTON", "url": "/replay/home", "text": "Watch replays", "layouts": {}}),
-            # Nested shape with no `type` - used to raise KeyError: 'type' mid-creation.
+            # Backend seed templates inline the button fields.
+            ("inline_fields", {"type": "BUTTON", "url": "/replay/home", "text": "Watch replays", "layouts": {}}),
+            # Save-as-template nests them under `button_tile`.
             (
-                "nested_button_tile_shape",
-                {"button_tile": {"url": "/replay/home", "text": "Watch replays"}, "layouts": {}},
+                "nested_button_tile",
+                {"type": "BUTTON", "button_tile": {"url": "/replay/home", "text": "Watch replays"}, "layouts": {}},
             ),
         ]
     )
