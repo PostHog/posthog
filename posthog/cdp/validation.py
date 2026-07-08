@@ -240,6 +240,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "choice",
             "json",
             "integration",
+            "integration_multi",
             "integration_field",
             "email",
             "native_email",
@@ -331,6 +332,9 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "integration":
             if not isinstance(value, int):
                 raise serializers.ValidationError({"input": f"Value must be an Integration ID."})
+        elif item_type == "integration_multi":
+            if not isinstance(value, list) or not all(isinstance(v, int) and not isinstance(v, bool) for v in value):
+                raise serializers.ValidationError({"input": "Value must be a list of Integration IDs."})
         elif item_type == "email" or item_type == "native_email":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be an email object."})

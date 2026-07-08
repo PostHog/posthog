@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
 import { IconCheck } from '@posthog/icons'
-import { LemonBanner, LemonButton, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCollapse, Link, Spinner } from '@posthog/lemon-ui'
 
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -39,6 +39,7 @@ export function HogFlowFunctionConfiguration({
 
     const template = hogFunctionTemplatesById[templateId]
     const isEmailStep = templateId === 'template-email'
+    const isPushStep = templateId === 'template-native-push'
     const engagementEventsAvailable = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_ENGAGEMENT_EVENTS]
     const engagementEventsEnabled = !!currentTeam?.workflows_config?.capture_workflows_engagement_events
     useEffect(() => {
@@ -125,18 +126,47 @@ export function HogFlowFunctionConfiguration({
         }
     }
 
+    // Native push carries a long tail of optional Android/iOS override fields. Keep the core message
+    // fields inline and tuck the platform-specific ones into collapsed sections so the form stays flat.
+    const inputsSchema = template.inputs_schema ?? []
+    const isPlatformInput = (key: string): boolean => key.startsWith('android_') || key.startsWith('ios_')
+    const coreInputsSchema = isPushStep ? inputsSchema.filter((s) => !isPlatformInput(s.key)) : inputsSchema
+    const androidInputsSchema = isPushStep ? inputsSchema.filter((s) => s.key.startsWith('android_')) : []
+    const iosInputsSchema = isPushStep ? inputsSchema.filter((s) => s.key.startsWith('ios_')) : []
+
+    const renderInputs = (schema: typeof inputsSchema): JSX.Element => (
+        <CyclotronJobInputs
+            errors={errors}
+            configuration={{ inputs: inputs as Record<string, CyclotronJobInputType>, inputs_schema: schema }}
+            showSource={false}
+            sampleGlobalsWithInputs={sampleGlobals}
+            onInputChange={(key, value) => setInputs({ ...inputs, [key]: value })}
+        />
+    )
+
     return (
         <>
-            <CyclotronJobInputs
-                errors={errors}
-                configuration={{
-                    inputs: inputs as Record<string, CyclotronJobInputType>,
-                    inputs_schema: template?.inputs_schema ?? [],
-                }}
-                showSource={false}
-                sampleGlobalsWithInputs={sampleGlobals}
-                onInputChange={(key, value) => setInputs({ ...inputs, [key]: value })}
-            />
+            {renderInputs(coreInputsSchema)}
+            {isPushStep && (androidInputsSchema.length > 0 || iosInputsSchema.length > 0) && (
+                <LemonCollapse
+                    className="mt-2"
+                    multiple
+                    panels={[
+                        ...(androidInputsSchema.length > 0
+                            ? [
+                                  {
+                                      key: 'android',
+                                      header: 'Android options',
+                                      content: renderInputs(androidInputsSchema),
+                                  },
+                              ]
+                            : []),
+                        ...(iosInputsSchema.length > 0
+                            ? [{ key: 'ios', header: 'iOS options', content: renderInputs(iosInputsSchema) }]
+                            : []),
+                    ]}
+                />
+            )}
             {isEmailStep && engagementEventsAvailable ? (
                 engagementEventsEnabled ? (
                     <div className="flex items-center gap-1.5 mt-2 text-xs text-muted-alt">
@@ -195,7 +225,7 @@ export function HogFlowFunctionConfiguration({
                 )
             ) : null}
             <HogFlowFunctionMappings
-                useMapping={Array.isArray(mappings) || (template?.mapping_templates?.length ?? 0) > 0}
+                useMapping={!isPushStep && (Array.isArray(mappings) || (template?.mapping_templates?.length ?? 0) > 0)}
                 inputs={inputs}
                 inputs_schema={template?.inputs_schema ?? []}
                 mappings={mappings ?? []}

@@ -1,5 +1,8 @@
+// Side-effect import: register all integration setups
+import './integrationSetups'
+
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { IconExternal, IconTrash, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
@@ -12,9 +15,6 @@ import { urls } from 'scenes/urls'
 
 import { findIntegrationByFormValue, matchesIntegrationIdValue } from './integrationLookup'
 import { getAllRegisteredIntegrationSetups, getIntegrationSetup } from './integrationSetupRegistry'
-
-// Side-effect import: register all integration setups
-import './integrationSetups'
 
 export type IntegrationConfigureProps = {
     value?: number
@@ -47,8 +47,14 @@ export function IntegrationChoice({
     // saves. The UI surfaces a warning below instead so the user picks explicitly.
     const valueIsMissing = !integrationsLoading && !!value && !!integrations && !integrationKind
 
+    // Auto-select the first integration of this kind when none is chosen. Guarded to fire at most
+    // once: the selected value can round-trip back asynchronously (e.g. workflow mapping edits
+    // rebuild the editor nodes behind an async layout pass), so re-firing on every render until the
+    // value settles overflows React's update depth. Fire once, then let the value arrive.
+    const hasAutoSelectedRef = useRef(false)
     useEffect(() => {
-        if (!integrationsLoading && !value && integrationsOfKind?.length) {
+        if (!integrationsLoading && !value && integrationsOfKind?.length && !hasAutoSelectedRef.current) {
+            hasAutoSelectedRef.current = true
             onChange?.(integrationsOfKind[0].id)
         }
     }, [integrationsLoading, onChange, integrationsOfKind?.length, value, integrationsOfKind])

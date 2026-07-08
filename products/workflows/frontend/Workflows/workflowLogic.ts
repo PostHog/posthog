@@ -565,6 +565,17 @@ export const workflowLogic = kea<workflowLogicType>([
                                     email: combinedErrors,
                                 }
                             }
+                        } else if (isFunctionAction(action) && action.config.template_id === 'template-native-push') {
+                            // Native push needs at least one delivery channel; without one the runtime
+                            // throws "No push channel configured" at send time. Block publish instead.
+                            const channels = action.config.inputs?.channels?.value
+                            if (!Array.isArray(channels) || channels.length === 0) {
+                                result.valid = false
+                                result.errors = {
+                                    ...result.errors,
+                                    channels: 'Select at least one channel to send this notification',
+                                }
+                            }
                         }
 
                         if (

@@ -118,7 +118,7 @@ export class HogInputsService {
 
     private resolvePushSubscriptionInputs(
         hogFunction: HogFunctionType,
-        integrationInputs: Record<string, { value: Record<string, any> | null }>,
+        integrationInputs: Record<string, { value: Record<string, any> | Record<string, any>[] | null }>,
         newGlobals: HogFunctionInvocationGlobalsWithInputs
     ): Record<string, { value: string | null }> {
         const result: Record<string, { value: string | null }> = {}
@@ -152,8 +152,10 @@ export class HogInputsService {
     public async loadIntegrationInputs(
         hogFunction: HogFunctionType,
         newGlobals?: HogFunctionInvocationGlobalsWithInputs
-    ): Promise<Record<string, { value: Record<string, any> | null }>> {
-        const inputsToLoad: Record<string, number> = {}
+    ): Promise<Record<string, { value: Record<string, any> | Record<string, any>[] | null }>> {
+        // Single integration inputs map a key to one id; integration_multi maps a key to a list of ids.
+        const singleInputsToLoad: Record<string, number> = {}
+        const multiInputsToLoad: Record<string, number[]> = {}
 
         const allSchemas = [
             ...(hogFunction.inputs_schema ?? []),
@@ -167,42 +169,55 @@ export class HogInputsService {
         }
 
         allSchemas.forEach((schema) => {
+            const value = allInputs[schema.key]?.value
             if (schema.type === 'integration') {
-                const input = allInputs[schema.key]
-                const value = input?.value
                 if (value && typeof value === 'number') {
-                    inputsToLoad[schema.key] = value
+                    singleInputsToLoad[schema.key] = value
+                }
+            } else if (schema.type === 'integration_multi') {
+                if (Array.isArray(value)) {
+                    const ids = value.filter((v): v is number => typeof v === 'number')
+                    if (ids.length > 0) {
+                        multiInputsToLoad[schema.key] = ids
+                    }
                 }
             }
         })
 
-        if (Object.keys(inputsToLoad).length === 0) {
+        const allIds = [...Object.values(singleInputsToLoad), ...Object.values(multiInputsToLoad).flat()]
+        if (allIds.length === 0) {
             return {}
         }
 
-        const integrations = await this.integrationManager.getMany(Object.values(inputsToLoad))
-        const returnInputs: Record<string, { value: Record<string, any> | null }> = {}
+        const integrations = await this.integrationManager.getMany(allIds)
+        const returnInputs: Record<string, { value: Record<string, any> | Record<string, any>[] | null }> = {}
 
-        Object.entries(inputsToLoad).forEach(([key, value]) => {
-            returnInputs[key] = { value: null }
-            const integration = integrations[value]
-            // IMPORTANT: Check the team ID is correct
-            if (integration && integration.team_id === hogFunction.team_id) {
-                returnInputs[key] = {
-                    value: {
-                        $integration_id: integration.id,
-                        ...integration.config,
-                        ...integration.sensitive_config,
-                        ...(integration.sensitive_config.access_token || integration.config.access_token
-                            ? {
-                                  access_token: ACCESS_TOKEN_PLACEHOLDER + integration.id,
-                                  access_token_raw:
-                                      integration.sensitive_config.access_token ?? integration.config.access_token,
-                              }
-                            : {}),
-                    },
-                }
+        // IMPORTANT: Check the team ID is correct — never resolve an integration from another team.
+        const resolveIntegration = (id: number): Record<string, any> | null => {
+            const integration = integrations[id]
+            if (!integration || integration.team_id !== hogFunction.team_id) {
+                return null
             }
+            return {
+                $integration_id: integration.id,
+                ...integration.config,
+                ...integration.sensitive_config,
+                ...(integration.sensitive_config.access_token || integration.config.access_token
+                    ? {
+                          access_token: ACCESS_TOKEN_PLACEHOLDER + integration.id,
+                          access_token_raw:
+                              integration.sensitive_config.access_token ?? integration.config.access_token,
+                      }
+                    : {}),
+            }
+        }
+
+        Object.entries(singleInputsToLoad).forEach(([key, id]) => {
+            returnInputs[key] = { value: resolveIntegration(id) }
+        })
+
+        Object.entries(multiInputsToLoad).forEach(([key, ids]) => {
+            returnInputs[key] = { value: ids.map(resolveIntegration).filter((v) => v !== null) }
         })
 
         if (newGlobals) {
@@ -302,11 +317,11 @@ export const formatLiquidInput = (
  * integration inputs. Used to key the $device_push_subscription_<appIdentifier> person property.
  */
 export function getAppIdentifierForPush(
-    integrationInputs: Record<string, { value: Record<string, any> | null }>
+    integrationInputs: Record<string, { value: Record<string, any> | Record<string, any>[] | null }>
 ): string | null {
     for (const input of Object.values(integrationInputs)) {
         const value = input?.value
-        if (!value) {
+        if (!value || Array.isArray(value)) {
             continue
         }
         const appId = value.project_id ?? value.bundle_id
