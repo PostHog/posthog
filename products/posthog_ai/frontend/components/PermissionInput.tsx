@@ -126,14 +126,22 @@ export function PermissionInput({ streamKey, request }: PermissionInputProps): J
                     <span>Sending response…</span>
                 </div>
             ) : (
-                <QuestionField
-                    question={toPermissionQuestion(prompt, buttonOptions, allowFeedback)}
-                    value={undefined}
-                    onAnswer={handleAnswer}
-                    onChange={ignoreMultiSelectChange}
-                    onSubmit={ignoreMultiSelectSubmit}
-                    submitLabel="Send"
-                />
+                <>
+                    <QuestionField
+                        question={toPermissionQuestion(prompt, buttonOptions, allowFeedback)}
+                        value={undefined}
+                        onAnswer={handleAnswer}
+                        onChange={ignoreMultiSelectChange}
+                        onSubmit={ignoreMultiSelectSubmit}
+                        submitLabel="Send"
+                    />
+                    {(hasOneClickDecline || allowFeedback) && (
+                        <p className="text-xs text-secondary m-0">
+                            Add a note when declining so the agent can adjust and continue, instead of stopping this
+                            turn.
+                        </p>
+                    )}
+                </>
             )}
         </div>
     )

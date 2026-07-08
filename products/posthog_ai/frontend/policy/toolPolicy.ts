@@ -75,6 +75,28 @@ export function defaultPermissionDecision(record: PermissionRequestRecord): Perm
     return toolName ? 'auto_allow' : 'prompt'
 }
 
+/**
+ * Create-family persist sub-tools that must prompt when (and only when) the run is the foreground
+ * stream (the run rendered in the side panel the user is watching, see `foregroundStreamLogic`).
+ * These aren't destructive, so `defaultPermissionDecision` still auto-approves them everywhere else
+ * (background runs, headless runs, replays); the call site in `runStreamLogic`'s
+ * `routePermissionRequest` forces the prompt path for the foreground stream. Scoped to the five
+ * product families from the apply-back migration plan; add a sub-tool name here to extend it.
+ */
+const PERSIST_PROMPT_SUB_TOOLS = new Set([
+    'dashboard-create',
+    'create-feature-flag',
+    'survey-create',
+    'cdp-functions-create',
+    'workflows-create-email-template',
+])
+
+/** Whether a permission request resolves to a create-family persist tool from `PERSIST_PROMPT_SUB_TOOLS`. */
+export function isPersistPromptTool(record: PermissionRequestRecord): boolean {
+    const { innerToolName } = resolveToolCall(record.rawToolCall)
+    return innerToolName != null && PERSIST_PROMPT_SUB_TOOLS.has(innerToolName)
+}
+
 /** The optionId to auto-send when allowing — prefers the one-shot allow over `allow_always`. */
 export function findAllowOptionId(record: PermissionRequestRecord): string | null {
     const allowOnce = record.options.find((o) => o.kind === 'allow_once')

@@ -28,7 +28,7 @@ import type { TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi } from '
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { UserType } from '../../../../frontend/src/types'
 import { parseSandboxQuestions } from '../policy/questionUtils'
-import { defaultPermissionDecision, findAllowOptionId } from '../policy/toolPolicy'
+import { defaultPermissionDecision, findAllowOptionId, isPersistPromptTool } from '../policy/toolPolicy'
 import type {
     ContextUsage,
     PermissionRequestRecord,
@@ -68,6 +68,7 @@ import {
 } from '../types/wireTypes'
 import { getClaudeCodeMeta, resolveToolCall } from '../utils/toolResolver'
 import { debugLogsLogic } from './debugLogsLogic'
+import { foregroundStreamLogic } from './foregroundStreamLogic'
 import { hasReplayListener, toolStreamEventsLogic } from './toolStreamEventsLogic'
 import type { ToolStreamSubscription } from './toolStreamEventsLogic'
 
@@ -1251,6 +1252,7 @@ function rendersThreadItemContent(item: ThreadItem): boolean {
 export interface runStreamLogicValues {
     showDebugLogs: boolean // debugLogsLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    foregroundStreamKey: string | null // foregroundStreamLogic
     isDev: boolean | undefined // preflightLogic
     currentProjectId: number | null // projectLogic
     toolListeners: Record<string, ToolStreamSubscription> // toolStreamEventsLogic
@@ -1551,6 +1553,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
             ['showDebugLogs'],
             toolStreamEventsLogic,
             ['toolListeners'],
+            foregroundStreamLogic,
+            ['foregroundStreamKey'],
         ],
         actions: [toolStreamEventsLogic, ['emitToolEvent', 'emitTurnCompleteEvent', 'emitRunLifecycleEvent']],
     })),
@@ -2633,7 +2637,17 @@ export const runStreamLogic = kea<runStreamLogicType>([
         },
         routePermissionRequest: ({ record, replayedFromHistory }) => {
             // Replayed history is a read-only restore — never auto-approve (the run may be terminal).
-            if (!replayedFromHistory && defaultPermissionDecision(record) === 'auto_allow') {
+            // Create-family persist tools (dashboards, feature flags, surveys, hog functions, email
+            // templates) must still prompt when this run is the foreground stream (the run rendered in
+            // the side panel the user is watching), even though `defaultPermissionDecision` would
+            // auto-approve them as non-destructive. Background and headless runs keep auto-approving.
+            const isForegroundStream = props.streamKey === values.foregroundStreamKey
+            const forcePromptForForeground = isForegroundStream && isPersistPromptTool(record)
+            if (
+                !replayedFromHistory &&
+                !forcePromptForForeground &&
+                defaultPermissionDecision(record) === 'auto_allow'
+            ) {
                 const optionId = findAllowOptionId(record)
                 if (optionId) {
                     actions.autoApprovePermissionRequest(record, optionId)

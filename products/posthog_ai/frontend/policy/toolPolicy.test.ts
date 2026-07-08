@@ -4,6 +4,7 @@ import type { AgentQuestion } from './questionUtils'
 import {
     defaultPermissionDecision,
     findAllowOptionId,
+    isPersistPromptTool,
     isPostHogDestructiveSubTool,
     isPostHogExecTool,
     type PermissionDecision,
@@ -128,6 +129,25 @@ describe('toolPolicy', () => {
             ],
         ])('%s → %s', (_case, record, expected) => {
             expect(defaultPermissionDecision(record)).toEqual(expected)
+        })
+    })
+
+    describe('isPersistPromptTool', () => {
+        // Proves the set resolves through `resolveToolCall` and matches a real generated create-family
+        // sub-tool name; a regression here (e.g. a typo'd set entry, or `resolveToolCall` changing its
+        // resolution shape) would silently drop the foreground prompt gate for that product family.
+        it.each<[string, PermissionRequestRecord, boolean]>([
+            [
+                'dashboard-create',
+                makeRecord({ input: { command: 'call dashboard-create {"name":"My dashboard"}' } }),
+                true,
+            ],
+            // A read-only query wrapper must never be swept in by an over-broad set/match.
+            ['query-trends (read-only)', makeRecord({ input: { command: 'call query-trends {}' } }), false],
+            // An exec call that can't resolve to a concrete sub-tool has no `innerToolName` to match on.
+            ['unresolvable exec call', makeRecord({ input: { command: 'call --json' } }), false],
+        ])('%s → %s', (_case, record, expected) => {
+            expect(isPersistPromptTool(record)).toEqual(expected)
         })
     })
 

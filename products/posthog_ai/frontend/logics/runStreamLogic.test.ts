@@ -12,6 +12,7 @@ import { initKeaTests } from '~/test/init'
 import { tasksRunsCommandCreate, tasksRunsStreamTokenRetrieve } from 'products/tasks/frontend/generated/api'
 
 import type { PermissionRequestFrame, StoredLogEntry } from '../types/wireTypes'
+import { foregroundStreamLogic } from './foregroundStreamLogic'
 import {
     extractRunArtifacts,
     mapHttpStatusToStreamError,
@@ -3068,6 +3069,55 @@ describe('runStreamLogic', () => {
                 jsonrpc: '2.0',
                 method: 'permission_response',
                 params: { requestId: 'req-bash', optionId: 'allow' },
+            })
+        })
+
+        describe('foreground gate for create-family persist tools', () => {
+            // `defaultPermissionDecision` alone auto-approves `dashboard-create` everywhere (it isn't
+            // destructive). The product requirement is that this run must still prompt when it's the
+            // foreground stream (the run rendered in the side panel the user is watching). Proving this
+            // needs the call site (`routePermissionRequest` consulting `foregroundStreamKey`), not just
+            // the pure `isPersistPromptTool` helper.
+            it('prompts for a create-family persist tool when this run is the foreground stream', async () => {
+                foregroundStreamLogic.actions.setForegroundStream('test-conversation')
+                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+                await flushPromises()
+                const source = MockStream.latest()
+
+                await source.emitMessage({
+                    ...permissionFrame,
+                    requestId: 'req-dashboard-fg',
+                    toolCall: {
+                        ...permissionFrame.toolCall,
+                        rawInput: { command: 'call dashboard-create {"name":"New dashboard"}' },
+                    },
+                })
+
+                expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-dashboard-fg')
+                expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+            })
+
+            it('still auto-approves a create-family persist tool when this run is not the foreground stream', async () => {
+                // `foregroundStreamKey` defaults to null; no surface is watching this run in the panel.
+                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+                await flushPromises()
+                const source = MockStream.latest()
+
+                await source.emitMessage({
+                    ...permissionFrame,
+                    requestId: 'req-dashboard-bg',
+                    toolCall: {
+                        ...permissionFrame.toolCall,
+                        rawInput: { command: 'call dashboard-create {"name":"New dashboard"}' },
+                    },
+                })
+
+                expect(logic.values.pendingPermissionRequest).toBeNull()
+                expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-1', 'run-1', {
+                    jsonrpc: '2.0',
+                    method: 'permission_response',
+                    params: { requestId: 'req-dashboard-bg', optionId: 'allow_once' },
+                })
             })
         })
 
