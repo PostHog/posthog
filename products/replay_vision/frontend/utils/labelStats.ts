@@ -63,10 +63,10 @@ export function versionAccuracyStrip(
             }
         })
         .filter((entry) => entry.pct !== null || entry.version === activeVersion)
-        .sort((a, b) => a.version - b.version)
     if (activeVersion !== undefined && !markers.some((marker) => marker.version === activeVersion)) {
         entries.push({ version: activeVersion, rated: 0, scanned: 0, pct: null, isCurrent: false })
     }
+    entries.sort((a, b) => a.version - b.version)
     if (entries.length < 2) {
         return []
     }
