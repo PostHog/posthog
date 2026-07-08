@@ -66,15 +66,15 @@
 - Do NOT claim manual testing you haven't done.
 - GitHub PR descriptions render markdown, not fixed-width text. Do not hard-wrap prose at a column width or use space-aligned tables — use real markdown tables, headings, and fenced code blocks, and let GitHub flow the text.
 - Use GitHub's rich markdown when it makes review faster, never as decoration:
-  - If the change alters a flow or topology (CI wiring, pipelines, state machines, request paths), include before/after mermaid diagrams as two separate `flowchart` blocks, with the before diagram first. Pick the direction that reads best (`TD` for tall pipelines, `LR` for wide request paths). Keep them simple: a syntax error renders as an error block. Skip diagrams for trivial changes.
-    - Brand the nodes with PostHog colors (mermaid can't read CSS vars, so use the hex directly). Define classes once and always pair a `fill` with an explicit text `color` so nodes stay legible on both GitHub light and dark themes:
+  - If the change alters a flow or topology (CI wiring, pipelines, state machines, request paths), include before/after mermaid diagrams as two separate `flowchart` blocks, before first. Pick `TD` (tall pipelines) or `LR` (wide paths). Keep them simple; a syntax error renders as an error block. Skip for trivial changes.
+    - Brand the nodes with PostHog colors: use the hex directly (mermaid can't read CSS vars), and pair every `fill` with a text `color` so nodes stay legible in GitHub light and dark.
       ```
       classDef phBlue fill:#1d4aff,stroke:#1d4aff,color:#fff;
       classDef phRed fill:#f54e00,stroke:#f54e00,color:#fff;
       classDef phYellow fill:#f9bd2b,stroke:#f9bd2b,color:#000;
       classDef phGray fill:#e5e7eb,stroke:#c7ccd1,color:#000;
       ```
-      Assign by role with `class NodeA,NodeB phBlue;`. Use `phBlue` for the primary path and agents, `phRed` for external calls and APIs, `phYellow` for entry and exit nodes, `phGray` for neutral data and artifacts. Distinguish node kinds by shape too (`{{hexagon}}` for agents, `[rect]` for steps).
+      Assign by role (`class NodeA,NodeB phBlue;`): `phBlue` agents/primary, `phRed` APIs/external, `phYellow` entry+exit, `phGray` data/artifacts. Shape by kind: `{{hexagon}}` agents, `[rect]` steps.
   - Use alerts (`> [!WARNING]`, `> [!NOTE]`) for behavior changes and risk callouts.
   - If you have to include long supporting content (test output, logs), collapse it in `<details>` blocks.
   - Use fenced `diff` code blocks for config before/after.
