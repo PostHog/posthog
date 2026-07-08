@@ -1,8 +1,6 @@
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -31,8 +29,6 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
             ['dateFilter', 'shouldFilterTestAccounts', 'shouldFilterSupportTraces', 'propertyFilters'],
             groupsModel,
             ['groupsTaxonomicTypes'],
-            featureFlagLogic,
-            ['featureFlags'],
             userLogic,
             ['user'],
         ],
@@ -82,7 +78,6 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
                 (_, props) => props.personId,
                 (_, props) => props.group,
                 s.groupsTaxonomicTypes,
-                s.featureFlags,
                 s.user,
                 s.showInputOutputColumns,
                 s.showSentimentColumn,
@@ -95,7 +90,6 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
                 personId: string | undefined,
                 group: { groupKey: string; groupTypeIndex: number } | undefined,
                 groupsTaxonomicTypes: TaxonomicFilterGroupType[],
-                featureFlags: { [flag: string]: boolean | string | undefined },
                 user: { is_impersonated?: boolean } | null,
                 showInputOutputColumns: boolean,
                 showSentimentColumn: boolean
@@ -124,9 +118,7 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
                     columns: [
                         'id',
                         'traceName',
-                        ...(featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT] && showInputOutputColumns
-                            ? ['inputState', 'outputState']
-                            : []),
+                        ...(showInputOutputColumns ? ['inputState', 'outputState'] : []),
                         'person',
                         ...(showSentimentColumn ? ['__llm_sentiment'] : []),
                         '__llm_tools',
