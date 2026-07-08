@@ -8,7 +8,8 @@ from django.test import SimpleTestCase
 
 from boto3 import resource
 from botocore.client import Config
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, HTTPClientError
+from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 
 import posthog.storage.object_storage as object_storage_module
@@ -34,6 +35,18 @@ from posthog.storage.object_storage import (
 )
 
 TEST_BUCKET = "test_storage_bucket"
+
+
+def _raise_soft_time_limit(*args, **kwargs):
+    raise SoftTimeLimitExceeded()
+
+
+def _raise_soft_time_limit_wrapped_by_botocore(*args, **kwargs):
+    # botocore wraps a signal raised mid-request in HTTPClientError, chaining the original via __context__
+    try:
+        raise SoftTimeLimitExceeded()
+    except SoftTimeLimitExceeded as inner:
+        raise HTTPClientError(error=inner)
 
 
 class TestStorage(APIBaseTest):
@@ -235,6 +248,32 @@ class TestStorage(APIBaseTest):
         assert mock_client.delete_objects.call_count == 2
         assert len(mock_client.delete_objects.call_args_list[0].kwargs["Delete"]["Objects"]) == 1000
         assert len(mock_client.delete_objects.call_args_list[1].kwargs["Delete"]["Objects"]) == 1
+
+    @parameterized.expand(
+        [
+            ("raised_directly", _raise_soft_time_limit),
+            ("wrapped_by_botocore", _raise_soft_time_limit_wrapped_by_botocore),
+        ]
+    )
+    @patch("posthog.storage.object_storage.capture_exception")
+    def test_write_lets_celery_soft_timeout_propagate_uncaptured(self, _name, side_effect, mock_capture) -> None:
+        mock_client = MagicMock()
+        mock_client.put_object.side_effect = side_effect
+        storage = ObjectStorage(mock_client)
+
+        with self.assertRaises(SoftTimeLimitExceeded):
+            storage.write("test-bucket", "test-key", b"content", None)
+        mock_capture.assert_not_called()
+
+    @patch("posthog.storage.object_storage.capture_exception")
+    def test_write_still_captures_and_wraps_ordinary_failures(self, mock_capture) -> None:
+        mock_client = MagicMock()
+        mock_client.put_object.side_effect = ValueError("boom")
+        storage = ObjectStorage(mock_client)
+
+        with self.assertRaises(ObjectStorageError):
+            storage.write("test-bucket", "test-key", b"content", None)
+        mock_capture.assert_called_once()
 
 
 class TestObjectStorageClientFactory(SimpleTestCase):

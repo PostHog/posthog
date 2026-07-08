@@ -9,6 +9,7 @@ import structlog
 from boto3 import client
 from botocore.client import Config
 from botocore.exceptions import ClientError
+from celery.exceptions import SoftTimeLimitExceeded
 
 from posthog.exceptions_capture import capture_exception
 
@@ -17,6 +18,24 @@ logger = structlog.get_logger(__name__)
 
 class ObjectStorageError(Exception):
     pass
+
+
+def _reraise_if_soft_time_limit_exceeded(e: BaseException) -> None:
+    """Let a Celery soft-timeout propagate instead of being captured as a handled error.
+
+    `SoftTimeLimitExceeded` subclasses `Exception`, so our broad `except Exception` handlers
+    would otherwise report a task timeout to error tracking as if it were an S3 failure. When
+    the signal fires mid-request, botocore wraps it in `HTTPClientError`, so we walk the
+    cause/context chain rather than relying on a top-level `isinstance`, and re-raise the
+    original timeout untouched.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = e
+    while current is not None and id(current) not in seen:
+        if isinstance(current, SoftTimeLimitExceeded):
+            raise current
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
 
 
 class ObjectStorageClient(metaclass=abc.ABCMeta):
@@ -191,6 +210,7 @@ class ObjectStorage(ObjectStorageClient):
                 HttpMethod="GET",
             )
         except Exception as e:
+            _reraise_if_soft_time_limit_exceeded(e)
             logger.exception("object_storage.get_presigned_url_failed", file_name=file_key, error=e)
             capture_exception(e)
             return None
@@ -203,6 +223,7 @@ class ObjectStorage(ObjectStorageClient):
                 bucket, file_key, Conditions=conditions, ExpiresIn=expiration
             )
         except Exception as e:
+            _reraise_if_soft_time_limit_exceeded(e)
             logger.exception("object_storage.get_presigned_post_failed", file_name=file_key, error=e)
             capture_exception(e)
             return None
@@ -220,6 +241,7 @@ class ObjectStorage(ObjectStorageClient):
                 logger.info("object_storage.no_contents_found_list_objects_in_bucket", bucket=bucket, prefix=prefix)
                 return None
         except Exception as e:
+            _reraise_if_soft_time_limit_exceeded(e)
             logger.exception(
                 "object_storage.list_objects_failed",
                 bucket=bucket,
@@ -255,6 +277,7 @@ class ObjectStorage(ObjectStorageClient):
             capture_exception(e)
             raise ObjectStorageError("read failed") from e
         except Exception as e:
+            _reraise_if_soft_time_limit_exceeded(e)
             logger.exception(
                 "object_storage.read_failed",
                 bucket=bucket,
@@ -273,6 +296,7 @@ class ObjectStorage(ObjectStorageClient):
                 Tagging={"TagSet": [{"Key": k, "Value": v} for k, v in tags.items()]},
             )
         except Exception as e:
+            _reraise_if_soft_time_limit_exceeded(e)
             logger.exception("object_storage.tag_failed", bucket=bucket, file_name=key, error=e)
             capture_exception(e)
             raise ObjectStorageError("tag failed") from e
@@ -282,6 +306,7 @@ class ObjectStorage(ObjectStorageClient):
         try:
             s3_response = self.aws_client.put_object(Bucket=bucket, Body=content, Key=key, **(extras or {}))
         except Exception as e:
+            _reraise_if_soft_time_limit_exceeded(e)
             logger.exception(
                 "object_storage.write_failed",
                 bucket=bucket,
@@ -307,6 +332,7 @@ class ObjectStorage(ObjectStorageClient):
                 ExtraArgs=extras or {},
             )
         except Exception as e:
+            _reraise_if_soft_time_limit_exceeded(e)
             logger.exception(
                 "object_storage.write_stream_failed",
                 bucket=bucket,
@@ -321,6 +347,7 @@ class ObjectStorage(ObjectStorageClient):
         try:
             self.aws_client.upload_file(Filename=file_path, Bucket=bucket, Key=key)
         except Exception as e:
+            _reraise_if_soft_time_limit_exceeded(e)
             logger.exception(
                 "object_storage.write_from_file_failed",
                 bucket=bucket,
@@ -342,6 +369,7 @@ class ObjectStorage(ObjectStorageClient):
 
             return len(source_objects)
         except Exception as e:
+            _reraise_if_soft_time_limit_exceeded(e)
             logger.exception(
                 "object_storage.copy_objects_failed",
                 source_prefix=source_prefix,
@@ -355,6 +383,7 @@ class ObjectStorage(ObjectStorageClient):
         try:
             self.aws_client.copy({"Bucket": bucket, "Key": source_key}, bucket, target_key)
         except Exception as e:
+            _reraise_if_soft_time_limit_exceeded(e)
             logger.exception(
                 "object_storage.copy_failed",
                 bucket=bucket,
@@ -370,6 +399,7 @@ class ObjectStorage(ObjectStorageClient):
         try:
             response = self.aws_client.delete_object(Bucket=bucket, Key=key)
         except Exception as e:
+            _reraise_if_soft_time_limit_exceeded(e)
             logger.exception("object_storage.delete_failed", bucket=bucket, key=key, error=e, s3_response=response)
             capture_exception(e)
             raise ObjectStorageError("delete failed") from e
@@ -390,6 +420,7 @@ class ObjectStorage(ObjectStorageClient):
                 )
                 failed_keys.extend(error["Key"] for error in response.get("Errors", []))
             except Exception as e:
+                _reraise_if_soft_time_limit_exceeded(e)
                 logger.exception(
                     "object_storage.delete_objects_failed",
                     bucket=bucket,
@@ -591,6 +622,7 @@ def get_accelerated_presigned_post(file_key: str, conditions: list[Any], expirat
                 settings.OBJECT_STORAGE_BUCKET, file_key, Conditions=conditions, ExpiresIn=expiration
             )
         except Exception as e:
+            _reraise_if_soft_time_limit_exceeded(e)
             logger.exception("object_storage.get_accelerated_presigned_post_failed", file_name=file_key, error=e)
             capture_exception(e)
     return get_presigned_post(file_key=file_key, conditions=conditions, expiration=expiration)
