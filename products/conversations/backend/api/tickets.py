@@ -1173,6 +1173,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 "ai_product": "conversations",
                 "ticket_id": str(ticket.id),
                 "message_id": data["message_id"],
+                "ai_triage_result": ai_triage.get("result"),
+                "confidence": ai_triage.get("confidence"),
             }
             if trace_id:
                 feedback_properties["$ai_trace_id"] = trace_id

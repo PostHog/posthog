@@ -660,28 +660,29 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             if (!ticket) {
                 return
             }
-
-            if (feedbackText) {
-                if (rating !== 'bad') {
+            try {
+                if (feedbackText) {
+                    if (rating !== 'bad') {
+                        return
+                    }
+                    await api.conversationsTickets.submitAiFeedback(ticket.id, {
+                        message_id: messageId,
+                        rating,
+                        feedback_text: feedbackText,
+                    })
+                    return
+                }
+                if (values.feedbackByMessageId[messageId]) {
                     return
                 }
                 await api.conversationsTickets.submitAiFeedback(ticket.id, {
                     message_id: messageId,
                     rating,
-                    feedback_text: feedbackText,
                 })
-                return
+                actions.recordAiReplyFeedback(messageId, rating)
+            } catch {
+                lemonToast.error('Failed to submit feedback')
             }
-
-            if (values.feedbackByMessageId[messageId]) {
-                return
-            }
-
-            await api.conversationsTickets.submitAiFeedback(ticket.id, {
-                message_id: messageId,
-                rating,
-            })
-            actions.recordAiReplyFeedback(messageId, rating)
         },
     })),
     afterMount(({ actions, props }) => {
