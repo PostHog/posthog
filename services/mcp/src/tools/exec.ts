@@ -48,6 +48,13 @@ export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallP
 
 export interface ExecToolOptions {
     requireDestructiveConfirmation?: boolean
+    /**
+     * Client is an inline-exec UI-app host that renders MCP UI apps on the exec
+     * response (Claude Code, Cowork). Gets the same UI-app payload treatment as the
+     * PostHog Code consumer: structuredContent suppressed toward the model, app data
+     * re-homed onto `_meta`. Computed from the client profile at the call site.
+     */
+    isInlineExecUiHost?: boolean
 }
 
 function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodString }> {
@@ -451,7 +458,8 @@ export function createExecTool(
                     // ride on the per-call response. Gated on the consumer because other
                     // single-exec callers (direct Claude Code, cline, Slack- and posthog_ai-launched
                     // runs, etc.) don't render UI apps — they should see plain text.
-                    if (tool._meta?.ui?.resourceUri && isPostHogCodeConsumer(mcpConsumer)) {
+                    const isInlineUiAppHost = isPostHogCodeConsumer(mcpConsumer) || options.isInlineExecUiHost === true
+                    if (tool._meta?.ui?.resourceUri && isInlineUiAppHost) {
                         const isStringResult = typeof result === 'string'
                         const distinctId = isStringResult ? undefined : await context.getDistinctId()
                         const payload = markExecPayload(
@@ -460,13 +468,13 @@ export function createExecTool(
                                 toolMeta: tool._meta,
                                 toolName: tool.name,
                                 params: useJson ? { ...input, output_format: 'json' } : input,
-                                // PostHog Code is a coding-agent host: it surfaces
-                                // `structuredContent` to the model in preference to the text
-                                // content, which would bury the compact formatted table under
-                                // the raw JSON. Suppress it so the model reads the optimized
-                                // table; `buildToolResultPayload` re-homes the UI app's data
-                                // onto `_meta` (see APP_DATA_META_KEY) so the chart still renders.
-                                suppressStructuredContentForFormattedResults: true,
+                                // Inline-exec UI-app hosts (PostHog Code, Claude Code, Cowork)
+                                // surface `structuredContent` to the model in preference to the
+                                // text content, which would bury the compact formatted table
+                                // under the raw JSON. Always re-home the UI app's data onto
+                                // `_meta` (see APP_DATA_META_KEY) so the model reads the optimized
+                                // table (or the TOON text when unformatted) and the chart still renders.
+                                forceUiDataToMeta: true,
                                 distinctId,
                                 includeUiResponseMeta: true,
                             })

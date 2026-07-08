@@ -42,8 +42,21 @@ const mockContext = {
     getDistinctId: async () => 'test-distinct-id',
 } as unknown as Context
 
-function createExec(tools: Tool<ZodObjectAny>[] = [makeMockTool()], mcpConsumer?: string): Tool<any> {
-    return createExecTool(tools, mockContext, 'test description', 'test command reference', mcpConsumer)
+function createExec(
+    tools: Tool<ZodObjectAny>[] = [makeMockTool()],
+    mcpConsumer?: string,
+    options?: { isInlineExecUiHost?: boolean }
+): Tool<any> {
+    return createExecTool(
+        tools,
+        mockContext,
+        'test description',
+        'test command reference',
+        mcpConsumer,
+        undefined,
+        [],
+        options ?? {}
+    )
 }
 
 describe('exec tool', () => {
@@ -173,23 +186,28 @@ describe('exec tool', () => {
             )
         })
 
-        it('propagates _meta.ui.resourceUri and structuredContent when the inner tool has a UI app and consumer is posthog-code', async () => {
+        it('propagates the UI resource URI and exec brand when the inner tool has a UI app and consumer is posthog-code', async () => {
             const tool = makeMockTool({
                 _meta: { ui: { resourceUri: 'ui://posthog/mock-app.html' } },
             })
             const exec = createExec([tool], 'posthog-code')
             const result = (await exec.handler(mockContext, { command: 'call mock-tool' })) as {
                 content: { type: string; text: string }[]
-                structuredContent: { id: number; name: string; _analytics: { distinctId: string; toolName: string } }
+                structuredContent?: Record<string, unknown>
                 _meta: { ui: { resourceUri: string }; [key: string]: unknown }
                 __execBuiltPayload?: true
             }
 
             // Text content still includes the TOON-formatted result for model context
             expect(result.content[0]!.text).toContain('id: 1')
-            // structuredContent carries the raw object plus analytics for the UI app
-            expect(result.structuredContent.id).toBe(1)
-            expect(result.structuredContent._analytics).toEqual({
+            // structuredContent is dropped; the UI data (with analytics) rides on _meta.
+            expect(result.structuredContent).toBeUndefined()
+            const appData = result._meta[APP_DATA_META_KEY] as {
+                id: number
+                _analytics: { distinctId: string; toolName: string }
+            }
+            expect(appData.id).toBe(1)
+            expect(appData._analytics).toEqual({
                 distinctId: 'test-distinct-id',
                 toolName: 'mock-tool',
             })
@@ -205,34 +223,66 @@ describe('exec tool', () => {
             expect(result.__execBuiltPayload).toBe(true)
         })
 
-        it('suppresses structuredContent toward the model but re-homes UI data onto _meta when consumer is posthog-code and result has a formatted override', async () => {
+        // Inline-exec UI-app hosts: PostHog Code (via consumer) plus Claude Code and
+        // Cowork (via the client-profile flag). All three surface structuredContent to
+        // the model, so it must be dropped and the UI data re-homed onto _meta.
+        it.each([
+            ['posthog-code consumer', 'posthog-code', undefined],
+            ['claude-code client', undefined, { isInlineExecUiHost: true }],
+            ['cowork client', undefined, { isInlineExecUiHost: true }],
+        ])(
+            'suppresses structuredContent toward the model but re-homes UI data onto _meta for %s (with a formatted override)',
+            async (_label, consumer, options) => {
+                const tool = makeMockTool({
+                    _meta: { ui: { resourceUri: 'ui://posthog/mock-app.html' } },
+                    handler: async () => ({
+                        results: [{ data: [1, 2, 3], count: 6 }],
+                        _posthogUrl: 'http://localhost:8010/insights/new#q=...',
+                        [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: 'Date|count\n2026-05-07|6',
+                    }),
+                })
+                const exec = createExec([tool], consumer, options)
+                const result = (await exec.handler(mockContext, { command: 'call mock-tool' })) as {
+                    content: { type: string; text: string }[]
+                    structuredContent?: Record<string, unknown>
+                    _meta: { ui: { resourceUri: string }; [key: string]: unknown }
+                }
+
+                // Model sees ONLY the compact table, not the raw results JSON.
+                expect(result.content[0]!.text).toBe('Date|count\n2026-05-07|6')
+                // Top-level structuredContent is dropped so coding agents don't surface it.
+                expect(result.structuredContent).toBeUndefined()
+                // The UI app's data (with analytics) rides on _meta instead.
+                const appData = result._meta[APP_DATA_META_KEY] as {
+                    results: unknown
+                    _analytics: { distinctId: string; toolName: string }
+                }
+                expect(appData.results).toEqual([{ data: [1, 2, 3], count: 6 }])
+                expect(appData._analytics).toEqual({ distinctId: 'test-distinct-id', toolName: 'mock-tool' })
+                expect(result._meta.ui.resourceUri).toBe('ui://posthog/mock-app.html')
+            }
+        )
+
+        it('re-homes UI data onto _meta and gives the model TOON text even when there is no formatted override', async () => {
             const tool = makeMockTool({
                 _meta: { ui: { resourceUri: 'ui://posthog/mock-app.html' } },
                 handler: async () => ({
                     results: [{ data: [1, 2, 3], count: 6 }],
                     _posthogUrl: 'http://localhost:8010/insights/new#q=...',
-                    [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: 'Date|count\n2026-05-07|6',
                 }),
             })
             const exec = createExec([tool], 'posthog-code')
             const result = (await exec.handler(mockContext, { command: 'call mock-tool' })) as {
                 content: { type: string; text: string }[]
                 structuredContent?: Record<string, unknown>
-                _meta: { ui: { resourceUri: string }; [key: string]: unknown }
+                _meta: { [key: string]: unknown }
             }
 
-            // Model sees ONLY the compact table, not the raw results JSON.
-            expect(result.content[0]!.text).toBe('Date|count\n2026-05-07|6')
-            // Top-level structuredContent is dropped so coding agents don't surface it.
+            // Without a compact table the model reads TOON text, never verbose structuredContent.
             expect(result.structuredContent).toBeUndefined()
-            // The UI app's data (with analytics) rides on _meta instead.
-            const appData = result._meta[APP_DATA_META_KEY] as {
-                results: unknown
-                _analytics: { distinctId: string; toolName: string }
-            }
+            expect(result.content[0]!.text).toContain('_posthogUrl')
+            const appData = result._meta[APP_DATA_META_KEY] as { results: unknown }
             expect(appData.results).toEqual([{ data: [1, 2, 3], count: 6 }])
-            expect(appData._analytics).toEqual({ distinctId: 'test-distinct-id', toolName: 'mock-tool' })
-            expect(result._meta.ui.resourceUri).toBe('ui://posthog/mock-app.html')
         })
 
         // posthog_ai is sent as its own consumer for attribution but is NOT a UI-apps host.

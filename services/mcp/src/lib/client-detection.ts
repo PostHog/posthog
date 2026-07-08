@@ -174,6 +174,12 @@ export const VIBE_CODING_OAUTH_CLIENT_NAME_FRAGMENTS = ['lovable', 'replit', 'no
 // misclassify Claude Code as a UI host.
 export const ANTHROPIC_UI_HOST_VENDOR_FRAGMENTS = ['claudeai'] as const
 
+// Anthropic coding-agent surfaces that render MCP UI apps inline through the
+// single-exec `exec` tool. `ClaudeCode` and `Cowork` render UI apps on the exec
+// response itself (unlike `ClaudeAI`, which uses the separate `render-ui` tool),
+// so they get the same treatment as the PostHog Code consumer.
+export const INLINE_EXEC_UI_APP_VENDOR_FRAGMENTS = ['claudecode', 'cowork'] as const
+
 // User-Agent Anthropic clients send when they connect without the
 // `x-anthropic-client` header (Claude.ai web/desktop and internal Anthropic
 // tooling). It's a generic Anthropic signal — Claude Code and Cowork can send it
@@ -282,6 +288,16 @@ export class MCPClientProfile {
             return matchesAnyFragment(this.vendorClient, ANTHROPIC_UI_HOST_VENDOR_FRAGMENTS)
         }
         return matchesAnyFragment(this.userAgent, ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS)
+    }
+
+    isInlineExecUiHost(): boolean {
+        // Anthropic coding-agent surfaces that render MCP UI apps inline through the
+        // single-exec `exec` tool (Claude Code, Cowork) — as opposed to Claude.ai
+        // web/desktop, which renders via the separate `render-ui` tool. Like PostHog
+        // Code, these hosts surface `structuredContent` to the model, so the exec
+        // UI-app branch suppresses it and re-homes the app data onto `_meta`. The
+        // per-request vendor header (`ClaudeCode` / `Cowork`) is the reliable signal.
+        return matchesAnyFragment(this.vendorClient, INLINE_EXEC_UI_APP_VENDOR_FRAGMENTS)
     }
 
     get capabilities(): ClientCapabilities {
