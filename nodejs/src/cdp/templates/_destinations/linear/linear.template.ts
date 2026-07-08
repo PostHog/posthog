@@ -10,10 +10,10 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/services/linear.png',
     category: ['Error tracking'],
     code_language: 'hog',
-    code: `fun query(mutation) {
+    code: `fun query(operation) {
     return fetch('https://api.linear.app/graphql', {
         'body': {
-            'query': mutation,
+            'query': operation,
         },
         'method': 'POST',
         'headers': {
@@ -21,6 +21,21 @@ export const template: HogFunctionTemplate = {
             'Content-Type': 'application/json'
         }
     })
+}
+
+let attachment_url := f'{project.url}/error_tracking/{inputs.posthog_issue_id}';
+
+// Deduplicate per PostHog error tracking issue. Every exception on the same issue
+// triggers this destination, but we only want one Linear issue per PostHog issue.
+// We link the Linear issue back to PostHog with an attachment carrying the issue URL,
+// so we can ask Linear whether one already exists rather than keeping our own state.
+if (notEmpty(inputs.posthog_issue_id)) {
+    let existing_query := f'query AttachmentsForURL \\{ attachmentsForURL(url: {jsonStringify(attachment_url)}) \\{ nodes \\{ id } } }';
+    let existing_response := query(existing_query);
+    if (existing_response.status == 200 and notEmpty(existing_response.body.data.attachmentsForURL.nodes)) {
+        print(f'A Linear issue already exists for PostHog issue {inputs.posthog_issue_id}, skipping creation.');
+        return;
+    }
 }
 
 let issue_mutation := f'mutation IssueCreate \\{ issueCreate(input: \\{ title: {jsonStringify(inputs.title)} description: {jsonStringify(inputs.description)} teamId: "{inputs.team}" }) \\{ success issue \\{ identifier } } }';
@@ -33,8 +48,10 @@ if (issue_response.status != 200) {
 
 let linear_issue_id := issue_response.body.data.issueCreate.issue.identifier;
 
-let attachment_url := f'{project.url}/error_tracking/{inputs.posthog_issue_id}';
-let attachment_mutation := f'mutation AttachmentCreate \\{ attachmentCreate(input: \\{ issueId: "{linear_issue_id}", title: "PostHog issue", url: "{attachment_url}" }) \\{ success } }';
+// Name the attachment after the originating PostHog project so a Linear workspace wired
+// into several projects makes it obvious which project each issue came from.
+let attachment_title := notEmpty(project.name) ? f'PostHog issue ({project.name})' : 'PostHog issue';
+let attachment_mutation := f'mutation AttachmentCreate \\{ attachmentCreate(input: \\{ issueId: "{linear_issue_id}", title: {jsonStringify(attachment_title)}, url: "{attachment_url}" }) \\{ success } }';
 
 query(attachment_mutation);`,
     inputs_schema: [
