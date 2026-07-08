@@ -13,6 +13,9 @@ from products.review_hog.backend.reviewer.tools.github_client import (
 
 logger = logging.getLogger(__name__)
 
+# GitHub's compare endpoint returns at most this many files, with no way to page the remainder.
+GITHUB_COMPARE_FILES_CAP = 300
+
 
 def _format_diff_section(filename: str, status: str, patch: str) -> str:
     """One reviewed file's raw GitHub patch behind a clear header, for the point-in-time snapshot.
@@ -279,9 +282,18 @@ def fetch_branch_compare(
         installation_id=installation_id,
         endpoint="/repos/{owner}/{repo}/compare/{basehead}",
     ).json()
-    # GitHub caps the compare payload at 300 files with no pagination — same as the PyGithub-era
-    # behavior; truncation detection is a known follow-up.
+    # GitHub caps the compare payload at 300 files with no pagination, so a wider branch diff gets
+    # reviewed against only the first 300 changed files — warn so the gap is never silent.
     files: list[dict[str, Any]] = comparison.get("files") or []
+    if len(files) >= GITHUB_COMPARE_FILES_CAP:
+        logger.warning(
+            "Branch compare %s %s...%s hit GitHub's %d-file cap; the review covers only the first %d changed files",
+            repository,
+            base_branch,
+            head_branch,
+            GITHUB_COMPARE_FILES_CAP,
+            GITHUB_COMPARE_FILES_CAP,
+        )
 
     pr_filter = PRFilter()
     pr_parser = PRParser()
