@@ -2245,7 +2245,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 h
             )
 
-            // The inline insert has landed at the line — report it (outcome, vs the option-clicked intent).
             const insertedTileType = newTile.text
                 ? 'text_card'
                 : newTile.button_tile
@@ -2255,7 +2254,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     : 'insight'
             eventUsageLogic.actions.reportDashboardTileInsertedInline(insertedTileType, slot.x, slot.y, slot.w != null)
 
-            // Already at the slot with nothing to displace — the created position stands, no follow-up needed.
             if (newTileAlreadyAtSlot && tilesToUpdate.length === 0) {
                 return
             }
@@ -2276,8 +2274,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return
             }
 
-            // Persist the reflow (same raw-PATCH shape as duplicateTile / saveEditModeChanges). The new tile's
-            // own layout only rides along when we had to place it (insights); text/widget tiles already carry it.
             const tilesToPersist = newTileAlreadyAtSlot
                 ? tilesToUpdate
                 : [...tilesToUpdate, { id: newTile.id, layouts: newTileLayout }]
