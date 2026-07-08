@@ -1227,6 +1227,30 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         tile = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id)
         self.assertEqual(tile.layouts, layout)
 
+    def test_adding_insight_to_multiple_dashboards_applies_each_dashboards_own_layout(self) -> None:
+        # Guards layouts_by_dashboard_id keying: a mixup (e.g. applying the first entry to every
+        # dashboard) would silently place one of the two tiles at the wrong slot.
+        dashboard_a_id, _ = self.dashboard_api.create_dashboard({})
+        dashboard_b_id, _ = self.dashboard_api.create_dashboard({})
+        layout_a = {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}
+        layout_b = {"sm": {"x": 6, "y": 3, "w": 3, "h": 4}}
+
+        insight_id, _ = self.dashboard_api.create_insight(
+            {
+                "filters": {"events": [{"id": "$pageview"}]},
+                "dashboards": [dashboard_a_id, dashboard_b_id],
+                "new_dashboard_tile_layouts": [
+                    {"dashboard_id": dashboard_a_id, "layouts": layout_a},
+                    {"dashboard_id": dashboard_b_id, "layouts": layout_b},
+                ],
+            }
+        )
+
+        tile_a = DashboardTile.objects.get(dashboard__id=dashboard_a_id, insight__id=insight_id)
+        tile_b = DashboardTile.objects.get(dashboard__id=dashboard_b_id, insight__id=insight_id)
+        self.assertEqual(tile_a.layouts, layout_a)
+        self.assertEqual(tile_b.layouts, layout_b)
+
     def test_insight_items_on_a_dashboard_ignore_deleted_dashboards(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({})
         deleted_dashboard_id, _ = self.dashboard_api.create_dashboard({})
