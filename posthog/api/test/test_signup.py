@@ -31,6 +31,7 @@ from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.utils import get_instance_realm
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.growth.backend.models import OrganizationEnrichment
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -142,7 +143,8 @@ class TestSignupAPI(APIBaseTest):
         user = cast(User, User.objects.order_by("-pk")[0])
         organization = cast(Organization, user.organization)
 
-        self.assertEqual(organization.enrichment_record.data, {"company_type_deterministic": "yc"})
+        enrichment = OrganizationEnrichment.objects.get(organization=organization)
+        self.assertEqual(enrichment.data, {"company_type_deterministic": "yc"})
 
         me = self.client.get("/api/users/@me/")
         self.assertEqual(me.json()["organization"]["enrichment"], {"company_type_deterministic": "yc"})
