@@ -307,6 +307,19 @@ async def _emit_opportunity_signal(
 
 
 @temporalio.activity.defn
+async def mark_brief_quiet_activity(inputs: MarkBriefFailedInputs) -> None:
+    """Quiet-week cheap path: no seeds means no sandbox and no LLM spend. Reuses
+    MarkBriefFailedInputs for its team/brief coordinates; `error` is ignored."""
+
+    def _mark_quiet() -> None:
+        ProductBrief.objects.for_team(inputs.team_id).filter(id=inputs.brief_id).update(
+            status=ProductBrief.Status.QUIET
+        )
+
+    await database_sync_to_async(_mark_quiet, thread_sensitive=False)()
+
+
+@temporalio.activity.defn
 async def mark_brief_failed_activity(inputs: MarkBriefFailedInputs) -> None:
     logger.error("pulse_brief_generation_failed", team_id=inputs.team_id, brief_id=inputs.brief_id, error=inputs.error)
     # The workflow sandbox can't reach error tracking, so failure volume is captured here.
