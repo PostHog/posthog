@@ -4,9 +4,10 @@ This file is the committed source of truth for the toolbar bundle modernization 
 
 ## Status
 
-- **Current step**: Step 1 (implemented, PR pending review); next up Step 2
+- **Current step**: Step 3 (products split) — deliberately landing BEFORE Step 2, see reorder note below. Step 2 (loader + splitting) is implemented and stashed (`toolbar-step2-loader-esm-wip`), gated on the reorder.
 - **Last updated**: 2026-07-07
-- **PRs**: Step 1 — branch `rafa/toolbar-migration-1-graph-guard`
+- **PRs**: Step 1 — `rafa/toolbar-migration-1-graph-guard` (#69045); Step 3 — `rafa/toolbar-migration-2-products-urls-split` (stacked on Step 1)
+- **Reorder note**: a trial Step 2 build emitted **487 dead chunks** — with `products.tsx` reachable, every product scene's dynamic import becomes a real chunk in `dist/toolbar/`, bloating dist, CI artifacts, and the posthog-js release (all uploaded at 3 CDN prefixes). So the graph cuts that disconnect `products.tsx` land first. After the products split, `products.tsx` is still reachable through exactly two chain families (verified from the metafile): `experimentsTabLogic → scenes/experiments/experimentsLogic → featureFlagsLogic → ProductSetup → products.tsx` (Step 5 cut) and `Elements → HeatmapCanvas → HeatmapEventsPanel → scenes/persons/PersonDisplay → PersonPreview → {personLogic → scenes.ts, NotebookSelectButton → notebooksModel → projectTreeLogic} → products.tsx` (Step 6 cut). Flip the format (Step 2) only once `check-toolbar-graph` shows `src/products.tsx` out of the graph.
 - **posthog-js prerequisite**: DONE — release pipeline is layout-agnostic and verified as a no-op against today's build. Nothing blocks any step. See Step 0 for the constraints it imposes on the build here.
 
 ## Why
@@ -56,7 +57,9 @@ Work one step per PR (Graphite stack via `gt`; keep the stack shallow — merge 
 
 Done when: CI runs the graph check green with the baseline allowlist.
 
-### Step 2 — loader + ESM code splitting (no import-graph changes)
+### Step 2 — loader + ESM code splitting (GATED: land after `src/products.tsx` leaves the toolbar graph, see reorder note in Status)
+
+Implementation is done and stashed as `toolbar-step2-loader-esm-wip` (loader.ts, two-config build, esbuilder `esbuildBuild` re-export, globals.d.ts). Known adjustments still needed when unstashing: esbuild 0.25 DOES emit per-chunk CSS files — drop the single-CSS assertion in `finalizeToolbarBuild` and instead require the entry CSS (it holds all statically-reachable styles; chunk CSS is dead weight for lazy scenes, but toolbar features must keep their styles statically imported — recheck at Step 7); surface `finalizeToolbarBuild` errors (buildInParallel's catch swallows them silently).
 
 Target layout: `dist/toolbar.js` (~1-2KB classic loader) + `dist/toolbar.css` (single file, esbuild doesn't split CSS) + `dist/toolbar/toolbar-app-<hash>.js` + `dist/toolbar/toolbar-app.js` (hashless fallback) + `dist/toolbar/chunk-*-<hash>.js`.
 
@@ -72,11 +75,14 @@ Target layout: `dist/toolbar.js` (~1-2KB classic loader) + `dist/toolbar.css` (s
 
 Done when: ~30% of the bundle is deferred with no source changes and all guards are green. Known-unsupported: exact-path CSP allowlists (`script-src .../toolbar.js`) — document in the PR.
 
-### Step 3 — split the generated products manifest (biggest graph cut; helps the main app too)
+### Step 3 — toolbar-owned `urls` duplicate (landed before Step 2, see reorder note)
 
-- [ ] `frontend/build-products.mjs`: emit `frontend/src/products-urls.tsx` (only `productUrls` + the per-property imports it already tracks via `keepOnlyImport`) separately from `products.tsx` (scenes/routes/redirects/configuration; re-export `productUrls` for compat)
-- [ ] Repoint `frontend/src/scenes/urls.ts` to `~/products-urls`; strip its value imports (`fileSystemTypes` href loop moves out; `OutputTab` from data-warehouse editor and `DataPipelinesNewSceneKind` become leaf enums or literals)
-- [ ] Delete the retired edges from the Step 1 allowlist; coordinate with the `check-eager-graph.mjs` owners (this also shrinks the app's eager path)
+Approach (revised on review): rather than restructuring the generated products manifest so `scenes/urls` stops dragging it in, the toolbar gets its own deliberately duplicated `frontend/src/toolbar/urls.ts` with only the url helpers it links to, and a parity test keeps it honest. A first version of this PR split `products-urls.tsx` out of the generator; that was reverted as over-engineered — the duplicate + test is simpler to review and keeps the generator untouched.
+
+- [x] `frontend/src/toolbar/urls.ts`: the 12 helpers toolbar code uses (`action(s)`, `experiment(s)`, `featureFlag(s)`, `productTour`, `sessionProfile`, `settings`, `survey(s)`, `webAnalyticsWebVitals`), plus a documented `urlToResource` null stub (the real one walks a matcher tree built from every product manifest; its only toolbar-shipped consumer is Link's drag-to-notebook annotation, inert on customer pages)
+- [x] `frontend/src/toolbar/urls.test.ts`: parity test asserting each helper matches `scenes/urls` byte-for-byte over sample args (the test deliberately crosses the boundary — that's its job); a helper without samples fails
+- [x] All 11 toolbar files import `~/toolbar/urls`; their `-> src/scenes/urls.ts` baseline edges are deleted (47 → 36)
+- [ ] The 3 lib files shipped in the toolbar (`TZLabel`, `HeatmapEventsPanel`, `Link`) still import `scenes/urls` — they're shared with the app and can't be repointed; the shim added in the next PR resolves `scenes/urls` to the toolbar duplicate at build time, which removes their edges and takes the products manifest out of the toolbar graph entirely
 
 ### Step 4 — `~/types` hygiene
 

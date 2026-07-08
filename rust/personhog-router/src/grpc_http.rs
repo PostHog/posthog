@@ -40,6 +40,18 @@ pub(crate) fn is_grpc_error_response(response: &http::Response<BoxBody>) -> bool
         .is_some_and(|s| s != "0")
 }
 
+/// The `grpc-status` code carried in a response's HTTP headers, if any.
+/// Only trailers-only (error) responses expose their status here; a
+/// successful response carries its status in the trailers and yields
+/// `None`.
+pub(crate) fn grpc_status_code(response: &http::Response<BoxBody>) -> Option<i32> {
+    response
+        .headers()
+        .get("grpc-status")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<i32>().ok())
+}
+
 /// Percent-encode a gRPC status message so it is safe to carry in the
 /// ASCII-only `grpc-message` header.
 fn percent_encode_grpc(s: &str) -> String {
