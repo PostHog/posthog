@@ -2,7 +2,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 
 import { isPersonPropertyFilter, parseProperties } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { Dayjs, dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs, dayjsAdd } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { groupBy } from 'lib/utils/arrays'
 import { parseDateInTimezone } from 'lib/utils/datetime'
@@ -151,7 +151,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                     return null
                 }
                 const first = parseDateInTimezone(dates[0], timezone)
-                const last = parseDateInTimezone(dates[dates.length - 1], timezone).add(1, intervalUnit)
+                const last = dayjsAdd(parseDateInTimezone(dates[dates.length - 1], timezone), 1, intervalUnit)
                 return [first, last]
             },
         ],
@@ -275,8 +275,8 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                     .map(([dateKey, annotations]) => {
                         const date = annotations[0].date_marker.startOf(getGroupingUnit(intervalUnit))
                         const wholeIndex = date.diff(firstDate, intervalUnit)
-                        const intervalStart = firstDate.add(wholeIndex, intervalUnit)
-                        const intervalEnd = intervalStart.add(1, intervalUnit)
+                        const intervalStart = dayjsAdd(firstDate, wholeIndex, intervalUnit)
+                        const intervalEnd = dayjsAdd(intervalStart, 1, intervalUnit)
                         const intervalSpanMs = intervalEnd.valueOf() - intervalStart.valueOf()
                         const fraction =
                             intervalSpanMs > 0 ? (date.valueOf() - intervalStart.valueOf()) / intervalSpanMs : 0
