@@ -16,6 +16,33 @@ from posthog.exceptions import (
     ClickHouseQueryTimeOut,
 )
 
+# The logs and traces HogQL tables (see posthog/hogql/database/schema/logs.py and spans.py) print
+# `*_distributed` ClickHouse read tables that only exist where the LOGS node role has run migration
+# 0223 (`0223_logs_distributed_tables.py`). In an environment without that cluster provisioned, a
+# `SELECT ... FROM logs` HogQL query still compiles and reaches ClickHouse, which then fails with a
+# raw UNKNOWN_IDENTIFIER error naming the distributed table. We translate that into an actionable,
+# user-safe message instead of leaking the internal identifier.
+LOGS_CLUSTER_DISTRIBUTED_READ_TABLES = frozenset(
+    {
+        "logs_distributed",
+        "log_attributes_distributed",
+        "logs_kafka_metrics_distributed",
+        "trace_spans_distributed",
+        "trace_attributes_distributed",
+    }
+)
+
+_UNKNOWN_TABLE_IDENTIFIER_RE = re.compile(r"Unknown table expression identifier '([\w.]+)'")
+
+
+def _logs_cluster_table_from_error(message: str) -> Optional[str]:
+    "Return the LOGS-cluster read table an UNKNOWN_IDENTIFIER error references, if any."
+    match = _UNKNOWN_TABLE_IDENTIFIER_RE.search(message)
+    if match is None:
+        return None
+    table = match.group(1).rsplit(".", 1)[-1]
+    return table if table in LOGS_CLUSTER_DISTRIBUTED_READ_TABLES else None
+
 
 class QueryErrorCategory(StrEnum):
     SUCCESS = "success"
@@ -135,6 +162,14 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
             err.message, code=err.code, code_name="number_of_arguments_doesnt_match"
         )
     elif name == "UNKNOWN_IDENTIFIER":
+        if missing_table := _logs_cluster_table_from_error(err.message):
+            return CHQueryErrorLogsClusterUnavailable(
+                f"The `{missing_table}` table is not queryable via SQL in this environment. "
+                "The logs and traces tables live on a separate ClickHouse cluster that is not "
+                "reachable here; read this data through the logs product instead.",
+                code=err.code,
+                code_name="logs_cluster_unavailable",
+            )
         return CHQueryErrorUnknownIdentifier(err.message, code=err.code, code_name="unknown_identifier")
     elif name == "TOO_MANY_BYTES":
         return CHQueryErrorTooManyBytes(err.message, code=err.code, code_name="too_many_bytes")
@@ -231,6 +266,10 @@ class CHQueryErrorNumberOfArgumentsDoesntMatch(InternalCHQueryError):
 
 
 class CHQueryErrorUnknownIdentifier(InternalCHQueryError):
+    pass
+
+
+class CHQueryErrorLogsClusterUnavailable(ExposedCHQueryError):
     pass
 
 
