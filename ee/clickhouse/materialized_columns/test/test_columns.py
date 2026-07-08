@@ -91,6 +91,14 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         super().tearDown()
 
     def recreate_database(self):
+        from ee.clickhouse.materialized_columns.columns import (  # noqa: PLC0415
+            MATERIALIZATION_VALID_TABLES,
+            _clear_materialized_columns_cache,
+        )
+
+        # Dropping the database removes materialized columns behind the metadata cache's back.
+        for table in MATERIALIZATION_VALID_TABLES:
+            _clear_materialized_columns_cache(table)
         sync_execute(f"DROP DATABASE {CLICKHOUSE_DATABASE} SYNC")
         sync_execute(f"CREATE DATABASE {CLICKHOUSE_DATABASE}")
         create_clickhouse_tables()

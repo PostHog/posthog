@@ -14,6 +14,13 @@ from posthog.hogql.parser import HogQLParserShadowMismatch, _resolve_parser_mode
 
 
 class TestParserMode(BaseTest):
+    def setUp(self):
+        super().setUp()
+        # These tests patch the shadow leg to simulate divergences/failures for
+        # statements that may already sit in the agreed-statement dedup set, so
+        # the shadow must actually run again here.
+        parser_module._shadow_agreed_in_tests.clear()
+
     @parameterized.expand(
         [
             # No mode + no explicit backend → new shadow default (rust-py primary, cpp shadow).

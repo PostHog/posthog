@@ -1,6 +1,7 @@
 import sys
 import copy
 import random
+import hashlib
 import threading
 import importlib.metadata
 from collections.abc import Callable
@@ -251,6 +252,17 @@ _SHADOW_COMPARISONS = Counter(
 )
 
 
+# Tests shadow-compare every parse (sample rate 1.0), and the same in-code
+# statements recur across tests thousands of times per process. Both backends
+# are deterministic functions of (rule, statement, start), so a comparison
+# that already agreed can never disagree on repeat — remember agreed keys (by
+# statement digest) and skip the redundant shadow parse. A divergence still
+# raises the first time the statement is seen. TEST-only: prod samples 0.1%
+# and its telemetry should keep counting every sampled run.
+_shadow_agreed_in_tests: set[tuple[str, str, str, int | None, bytes]] = set()
+_SHADOW_AGREED_MAX_ENTRIES = 100_000
+
+
 def _run_shadow_comparison(
     rule: ParseRule,
     statement: str,
@@ -274,6 +286,17 @@ def _run_shadow_comparison(
     if random.random() >= _shadow_sample_rate():
         return
     test_mode = settings.TEST
+    dedup_key = None
+    if test_mode:
+        dedup_key = (
+            str(rule),
+            str(primary_backend),
+            str(shadow_backend),
+            start,
+            hashlib.sha256(statement.encode()).digest(),
+        )
+        if dedup_key in _shadow_agreed_in_tests:
+            return
     rule_label = str(rule)
     primary_version = _BACKEND_VERSION.get(primary_backend, "unknown")
     shadow_version = _BACKEND_VERSION.get(shadow_backend, "unknown")
@@ -312,6 +335,8 @@ def _run_shadow_comparison(
     # (`float("nan") != float("nan")`); repr is stable for NaN, so treat repr-equal as agreement too.
     if primary_node == shadow_node or repr(primary_node) == repr(shadow_node):
         _count("agree")
+        if dedup_key is not None and len(_shadow_agreed_in_tests) < _SHADOW_AGREED_MAX_ENTRIES:
+            _shadow_agreed_in_tests.add(dedup_key)
         return
     primary_cleared = clear_locations(primary_node)
     shadow_cleared = clear_locations(shadow_node)

@@ -278,6 +278,7 @@ def get_restricted_properties_for_team(
     *,
     team_id: int,
     user: User | None,
+    team: Team | None = None,
 ) -> set[tuple[str, int]]:
     """
     Returns the set of (property_name, property_type) pairs that are restricted for the given user on the team.
@@ -291,6 +292,8 @@ def get_restricted_properties_for_team(
 
     :param team_id: The team whose property restrictions we are checking.
     :param user: (optional) The user making the query. When not provided, only the default (property-level) rules apply.
+    :param team: (optional) The already-loaded Team for ``team_id``; passing it skips the Team lookup the
+        feature-availability check would otherwise run per call.
 
     :returns: A set of (property_name, property_definition_type) tuples that are restricted.
     """
@@ -301,8 +304,11 @@ def get_restricted_properties_for_team(
         if cached is not None:
             return cached
 
+    if team is not None and team.pk != team_id:
+        raise ValueError(f"team {team.pk} does not match team_id {team_id}")
+
     # Short-circuit: no PROPERTY_ACCESS_CONTROL means no property access control rules exist
-    if not is_property_access_control_enabled(team_id=team_id):
+    if not is_property_access_control_enabled(team=team, team_id=team_id):
         empty_no_feature: set[tuple[str, int]] = set()
         if cache is not None:
             cache[cache_key] = empty_no_feature
