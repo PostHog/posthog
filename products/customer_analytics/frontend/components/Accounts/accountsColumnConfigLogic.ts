@@ -357,6 +357,16 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                 hideColumnConfigurator: () => false,
             },
         ],
+        // Queries wait for this so the list fetches once with its final columns,
+        // instead of fetching with the base columns and refetching after the
+        // definitions land (a wasted query and a visible column pop).
+        relationshipDefinitionsLoaded: [
+            false,
+            {
+                loadRelationshipDefinitionsSuccess: () => true,
+                loadRelationshipDefinitionsFailure: () => true,
+            },
+        ],
     }),
     loaders(({ values }) => ({
         customPropertyDefinitions: [

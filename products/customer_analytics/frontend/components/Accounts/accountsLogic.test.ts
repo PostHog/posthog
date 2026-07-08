@@ -130,6 +130,23 @@ describe('accountsLogic', () => {
         expect(logic.values.searchQuery).toBe('')
     })
 
+    it('withholds the list and metrics queries until relationship definitions settle', async () => {
+        logic.unmount()
+        let resolveDefinitions: (value: { count: number; results: AccountRelationshipDefinitionApi[] }) => void
+        mockDefinitionsList.mockReturnValue(new Promise((resolve) => (resolveDefinitions = resolve)))
+        logic = accountsLogic()
+        logic.mount()
+
+        expect(logic.values.accountsQuerySource).toBeNull()
+        expect(logic.values.metricsQuery).toBeNull()
+
+        resolveDefinitions!({ count: DEFINITIONS.length, results: DEFINITIONS })
+        await expectLogic(accountsColumnConfigLogic.findMounted()!).toFinishAllListeners()
+
+        expect(logic.values.accountsQuerySource).toEqual(logic.values.hogqlQuery.source)
+        expect(logic.values.metricsQuery).not.toBeNull()
+    })
+
     it('keeps the overview tile metrics off the list query so it loads independently', () => {
         const source = logic.values.hogqlQuery.source as AccountsQuery
         expect(source.metrics).toBeUndefined()

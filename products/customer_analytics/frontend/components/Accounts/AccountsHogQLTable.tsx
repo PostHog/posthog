@@ -420,11 +420,13 @@ function AccountsHogQLSkeleton(): JSX.Element {
 }
 
 export function AccountsHogQLTable(): JSX.Element {
-    const { hogqlQuery } = useValues(accountsLogic)
+    const { hogqlQuery, accountsQuerySource } = useValues(accountsLogic)
     const { responseLoading, response } = useValues(dataNodeLogic)
     const contextColumns = useContextColumns()
     const expandable = useExpandable()
-    if (responseLoading && !response) {
+    // A null source means the query is still waiting on the relationship
+    // definitions — same skeleton as the initial fetch, not an empty table.
+    if ((responseLoading || !accountsQuerySource) && !response) {
         return <AccountsHogQLSkeleton />
     }
     return (

@@ -154,6 +154,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 'visibleColumnNames',
                 'querySelectColumns',
                 'aliasToRelationshipDefinition',
+                'relationshipDefinitionsLoaded',
             ],
             accountsOverviewTilesLogic,
             ['metrics as overviewMetrics', 'tileFilter'],
@@ -410,6 +411,14 @@ export const accountsLogic = kea<accountsLogicType>([
                 }
             },
         ],
+        // What the list data node actually runs: null until the relationship
+        // definitions settle, so the list fetches once with its final columns
+        // instead of fetching base columns and refetching after the upgrade.
+        accountsQuerySource: [
+            (s) => [s.hogqlQuery, s.relationshipDefinitionsLoaded],
+            (hogqlQuery: DataTableNode, relationshipDefinitionsLoaded: boolean): AccountsQuery | null =>
+                relationshipDefinitionsLoaded ? (hogqlQuery.source as AccountsQuery) : null,
+        ],
         // The overview-tile aggregations run as their own metrics-only query (no
         // `select`), keyed to ACCOUNTS_METRICS_DATA_NODE_KEY, so they load
         // independently of the list rows. Null when there are no tiles — the
@@ -424,6 +433,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.assignedToFilter,
                 s.accountIdFilter,
                 s.tileFilter,
+                s.relationshipDefinitionsLoaded,
             ],
             (
                 overviewMetrics: string[],
@@ -432,9 +442,10 @@ export const accountsLogic = kea<accountsLogicType>([
                 allRolesUnassigned: boolean,
                 assignedToFilter: RoleFilterValue,
                 accountIdFilter: string | null,
-                tileFilter: TileFilter | null
+                tileFilter: TileFilter | null,
+                relationshipDefinitionsLoaded: boolean
             ): AccountsQuery | null => {
-                if (overviewMetrics.length === 0) {
+                if (overviewMetrics.length === 0 || !relationshipDefinitionsLoaded) {
                     return null
                 }
                 const source: AccountsQuery = {
