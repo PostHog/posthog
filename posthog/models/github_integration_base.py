@@ -840,34 +840,81 @@ class GitHubIntegrationBase:
     }
     """
 
+    # GitHub surfaces its own transient server errors not as a 5xx but as an HTTP 200 with
+    # ``data: null`` and an ``errors`` body — the documented "Something went wrong while
+    # executing your query" class, plus ``SERVICE_UNAVAILABLE``/timeout errors. Because the
+    # HTTP status is 200, :meth:`api_request`'s status-code retry never sees them, so we detect
+    # and retry them here. They are safe to repeat (GraphQL reads are idempotent and the query
+    # never executed); deterministic field-level errors (permissions, validation) are not.
+    _TRANSIENT_GRAPHQL_ERROR_TYPES = frozenset({"SERVICE_UNAVAILABLE"})
+    _TRANSIENT_GRAPHQL_ERROR_MESSAGES = ("something went wrong while executing your query",)
+    # Total GraphQL attempts (initial + retries) when GitHub returns a transient body error.
+    _GRAPHQL_TRANSIENT_ATTEMPTS = 3
+
+    @classmethod
+    def _graphql_errors_are_transient(cls, errors: list) -> bool:
+        """True when the GraphQL ``errors`` body is one of GitHub's retryable server-side failures.
+
+        Conservative: any single error that isn't a known transient class (e.g. a field-level
+        permission or validation error) makes the whole response non-retryable, so we never
+        loop on a deterministic failure.
+        """
+        if not errors:
+            return False
+        for error in errors:
+            if not isinstance(error, dict):
+                return False
+            if error.get("type") in cls._TRANSIENT_GRAPHQL_ERROR_TYPES:
+                continue
+            message = str(error.get("message", "")).lower()
+            if any(marker in message for marker in cls._TRANSIENT_GRAPHQL_ERROR_MESSAGES):
+                continue
+            return False
+        return True
+
     def _gh_graphql(self, query: str, variables: dict[str, Any], *, endpoint: str, timeout: int = 10) -> dict:
         """Authenticated POST to the GitHub GraphQL API. Returns the ``data`` object.
 
         GraphQL queries are read-only, so a POST retry on transient failures is safe —
-        hence ``retry_transient=True`` on the shared :meth:`api_request` lifecycle.
+        hence ``retry_transient=True`` on the shared :meth:`api_request` lifecycle, plus an
+        extra retry loop here for GitHub's 200-with-``errors`` transient server errors that
+        the status-code retry can't catch.
         """
-        response = self.api_request(
-            "POST",
-            "/graphql",
-            endpoint=endpoint,
-            json_body={"query": query, "variables": variables},
-            timeout=timeout,
-            retry_transient=True,
-        )
-        if response.status_code != 200:
-            raise GitHubIntegrationError(
-                f"GitHubIntegration: _gh_graphql {response.status_code} on {endpoint}: {response.text[:300]}",
-                status_code=response.status_code,
+        errors: list | None = None
+        for attempt in range(self._GRAPHQL_TRANSIENT_ATTEMPTS):
+            response = self.api_request(
+                "POST",
+                "/graphql",
+                endpoint=endpoint,
+                json_body={"query": query, "variables": variables},
+                timeout=timeout,
+                retry_transient=True,
             )
-        body = response.json()
-        data = body.get("data")
-        errors = body.get("errors")
-        if errors:
-            # GitHub can return useful partial data with field-level permission errors.
-            logger.warning("GitHubIntegration: GraphQL partial errors", endpoint=endpoint, errors=errors)
-            if not data:
-                raise GitHubIntegrationError(f"GitHubIntegration: GraphQL errors on {endpoint}: {errors}")
-        return data or {}
+            if response.status_code != 200:
+                raise GitHubIntegrationError(
+                    f"GitHubIntegration: _gh_graphql {response.status_code} on {endpoint}: {response.text[:300]}",
+                    status_code=response.status_code,
+                )
+            body = response.json()
+            data = body.get("data")
+            errors = body.get("errors")
+            if not errors:
+                return data or {}
+            if data:
+                # GitHub can return useful partial data with field-level permission errors.
+                logger.warning("GitHubIntegration: GraphQL partial errors", endpoint=endpoint, errors=errors)
+                return data
+            # No data — a hard failure. Retry GitHub's transient server errors; raise the rest.
+            if self._graphql_errors_are_transient(errors) and attempt < self._GRAPHQL_TRANSIENT_ATTEMPTS - 1:
+                logger.info(
+                    "GitHubIntegration: retrying transient GraphQL error",
+                    endpoint=endpoint,
+                    attempt=attempt,
+                    errors=errors,
+                )
+                continue
+            raise GitHubIntegrationError(f"GitHubIntegration: GraphQL errors on {endpoint}: {errors}")
+        raise GitHubIntegrationError(f"GitHubIntegration: GraphQL errors on {endpoint}: {errors}")
 
     @staticmethod
     def _map_pr_state(gql_state: str | None, is_draft: bool) -> str:
