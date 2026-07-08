@@ -4336,6 +4336,10 @@
                     "type": "string"
                 },
                 {
+                    "const": "FlintChart",
+                    "type": "string"
+                },
+                {
                     "not": {}
                 }
             ]
@@ -4434,7 +4438,8 @@
                         "CalendarHeatmap",
                         "TwoDimensionalHeatmap",
                         "BoxPlot",
-                        "SlopeGraph"
+                        "SlopeGraph",
+                        "FlintChart"
                     ],
                     "type": "string"
                 },
@@ -12819,7 +12824,8 @@
                 "CalendarHeatmap",
                 "TwoDimensionalHeatmap",
                 "BoxPlot",
-                "SlopeGraph"
+                "SlopeGraph",
+                "FlintChart"
             ],
             "type": "string"
         },

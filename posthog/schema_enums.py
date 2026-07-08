@@ -450,6 +450,7 @@ class Display(StrEnum):
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
     BOX_PLOT = "BoxPlot"
     SLOPE_GRAPH = "SlopeGraph"
+    FLINT_CHART = "FlintChart"
 
 
 class MetricSummary(StrEnum):
@@ -588,6 +589,7 @@ class ChartDisplayType(StrEnum):
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
     BOX_PLOT = "BoxPlot"
     SLOPE_GRAPH = "SlopeGraph"
+    FLINT_CHART = "FlintChart"
 
 
 class ColorMode(StrEnum):

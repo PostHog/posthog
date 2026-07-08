@@ -35,6 +35,7 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
         [ChartDisplayType.TwoDimensionalHeatmap]: '2d heatmap',
         [ChartDisplayType.BoxPlot]: 'Box plot',
         [ChartDisplayType.SlopeGraph]: 'Slope graph',
+        [ChartDisplayType.FlintChart]: 'Flint chart',
     }
 
     const renderDisplayTypeLabel = (displayType: ChartDisplayType): string => {
@@ -112,6 +113,17 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
                     value: ChartDisplayType.TwoDimensionalHeatmap,
                     icon: <IconHeatmap />,
                     label: '2d heatmap',
+                },
+            ],
+        },
+        {
+            title: 'Experimental',
+            options: [
+                {
+                    value: ChartDisplayType.FlintChart,
+                    icon: <IconAreaChart />,
+                    label: 'Flint chart',
+                    disabledReason: columns.length === 0 ? 'Run a query first' : undefined,
                 },
             ],
         },

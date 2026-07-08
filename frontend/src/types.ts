@@ -2946,6 +2946,8 @@ export enum ChartDisplayType {
     TwoDimensionalHeatmap = 'TwoDimensionalHeatmap',
     BoxPlot = 'BoxPlot',
     SlopeGraph = 'SlopeGraph',
+    /** Experimental: SQL editor results rendered through the flint-chart quill backend. */
+    FlintChart = 'FlintChart',
 }
 export enum ChartDisplayCategory {
     TimeSeries = 'TimeSeries',
