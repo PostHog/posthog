@@ -174,8 +174,12 @@ function TableRowRaw<T extends Record<string, any>>({
                                     {...extraCellProps}
                                 >
                                     {truncateCell ? (
+                                        // Single-line ellipsis only for plain text; element content keeps its own wrapping
                                         <div
-                                            className="LemonTable__cell-content"
+                                            className={clsx(
+                                                'LemonTable__cell-content',
+                                                cellTitle !== undefined && 'whitespace-nowrap'
+                                            )}
                                             title={cellTitle}
                                             // eslint-disable-next-line react/forbid-dom-props
                                             style={{ maxWidth: maxCellWidth }}
