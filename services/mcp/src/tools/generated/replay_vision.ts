@@ -157,6 +157,9 @@ const visionScannersCreate = (): ToolBase<typeof VisionScannersCreateSchema, Sch
         if (params.sampling_rate !== undefined) {
             body['sampling_rate'] = params.sampling_rate
         }
+        if (params.sampling_mode !== undefined) {
+            body['sampling_mode'] = params.sampling_mode
+        }
         if (params.provider !== undefined) {
             body['provider'] = params.provider
         }
@@ -209,6 +212,9 @@ const visionScannersEstimateCreate = (): ToolBase<
         }
         if (params.sampling_rate !== undefined) {
             body['sampling_rate'] = params.sampling_rate
+        }
+        if (params.sampling_mode !== undefined) {
+            body['sampling_mode'] = params.sampling_mode
         }
         if (params.scanner_id !== undefined) {
             body['scanner_id'] = params.scanner_id
@@ -474,6 +480,9 @@ const visionScannersUpdate = (): ToolBase<typeof VisionScannersUpdateSchema, Sch
         }
         if (params.sampling_rate !== undefined) {
             body['sampling_rate'] = params.sampling_rate
+        }
+        if (params.sampling_mode !== undefined) {
+            body['sampling_mode'] = params.sampling_mode
         }
         if (params.provider !== undefined) {
             body['provider'] = params.provider

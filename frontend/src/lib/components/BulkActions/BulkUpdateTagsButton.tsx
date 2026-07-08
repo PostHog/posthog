@@ -14,16 +14,17 @@ import { tagsModel } from '~/models/tagsModel'
 export type BulkTagAction = 'add' | 'remove' | 'set'
 
 export interface BulkUpdateTagsResult {
-    updated: Array<{ id: number; tags: string[] }>
-    skipped: Array<{ id: number; reason: string }>
+    updated: Array<{ id: number | string; tags: string[] }>
+    skipped: Array<{ id: number | string; reason: string }>
 }
 
-export type BulkTaggableResource = 'feature_flags' | 'dashboards' | 'insights'
+export type BulkTaggableResource = 'feature_flags' | 'dashboards' | 'insights' | 'event_definitions'
 
 interface BulkUpdateTagsButtonProps {
     resource: BulkTaggableResource
-    selectedIds: ReadonlyArray<number>
-    onSuccess?: () => void
+    // Integer PKs for most resources; event definitions are keyed by UUID strings.
+    selectedIds: ReadonlyArray<number | string>
+    onSuccess?: (result: BulkUpdateTagsResult) => void
 }
 
 export function BulkUpdateTagsButton({ resource, selectedIds, onSuccess }: BulkUpdateTagsButtonProps): JSX.Element {
@@ -65,7 +66,7 @@ export function BulkUpdateTagsButton({ resource, selectedIds, onSuccess }: BulkU
             }
             close()
             loadTags()
-            onSuccess?.()
+            onSuccess?.(response)
         } catch {
             lemonToast.error('Failed to update tags')
         } finally {

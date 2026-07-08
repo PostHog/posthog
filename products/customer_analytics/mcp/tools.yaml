@@ -12,6 +12,24 @@ tools:
     account-notes-list:
         operation: account_notes_list
         enabled: false
+    account-relationship-definitions-create:
+        operation: account_relationship_definitions_create
+        enabled: false
+    account-relationship-definitions-destroy:
+        operation: account_relationship_definitions_destroy
+        enabled: false
+    account-relationship-definitions-list:
+        operation: account_relationship_definitions_list
+        enabled: false
+    account-relationship-definitions-partial-update:
+        operation: account_relationship_definitions_partial_update
+        enabled: false
+    account-relationship-definitions-retrieve:
+        operation: account_relationship_definitions_retrieve
+        enabled: false
+    account-relationship-definitions-update:
+        operation: account_relationship_definitions_update
+        enabled: false
     accounts-create:
         operation: accounts_create
         enabled: true
@@ -202,6 +220,15 @@ tools:
                     Tag names to set on the account. Replaces the full existing tag set — pass the complete list, not a
                     delta. Tags are created on demand if they do not already exist for the team.
         feature_flag: customer-analytics-csp
+    accounts-relationships-create:
+        operation: accounts_relationships_create
+        enabled: false
+    accounts-relationships-end-create:
+        operation: accounts_relationships_end_create
+        enabled: false
+    accounts-relationships-list:
+        operation: accounts_relationships_list
+        enabled: false
     accounts-retrieve:
         operation: accounts_retrieve
         enabled: true

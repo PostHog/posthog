@@ -11,12 +11,15 @@ import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 import { drop, ok, redirect } from '~/ingestion/framework/results'
 import { SessionBatchManager } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-manager'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
+import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
+import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
 import {
     RetentionResolution,
     RetentionService,
 } from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
 import { SessionMap, SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
+import { createMockKeyStore, createMockSessionKey } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 
@@ -105,10 +108,29 @@ describe('session-replay-pipeline', () => {
         }),
     } as unknown as RetentionService
 
+    // Every session resolves as already-seen, unblocked, and with a cleartext key so messages flow
+    // through to recording.
+    const sessionTracker = {
+        hasSeen: jest.fn().mockImplementation((sessions: SessionSet) => {
+            const map = new SessionMap<boolean>()
+            for (const { teamId, sessionId } of sessions) {
+                map.set(teamId, sessionId, true)
+            }
+            return Promise.resolve(map)
+        }),
+        markSeen: jest.fn().mockResolvedValue(undefined),
+    } as unknown as SessionTracker
+    const sessionFilter = {
+        handleNewSessions: jest.fn().mockResolvedValue(new SessionSet()),
+        isBlocked: jest.fn().mockResolvedValue(new SessionSet()),
+    } as unknown as SessionFilter
+    const keyStore = createMockKeyStore()
+
     const defaultTeam: TeamForReplay = {
         teamId: 1,
         consoleLogIngestionEnabled: false,
         aiTrainingOptedIn: true,
+        firstPartyHosts: [],
     }
 
     const now = DateTime.now()
@@ -270,10 +292,14 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -301,10 +327,14 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -337,10 +367,14 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -360,14 +394,142 @@ describe('session-replay-pipeline', () => {
             expect(offsets).toEqual(new Map([[0, 3]]))
         })
 
+        it('tracks the offset of a rate-limited session even when it is the highest in the partition', async () => {
+            // Block session-3 — the highest offset — at the rate limiter, so nothing recorded advances the
+            // partition past it. That's what forces the blocked drop's own offset tracking to be exercised:
+            // if a lower-offset session were blocked, a later recorded message would move the offset anyway
+            // and mask a regression. Unlike the restriction/parse drops above, this drop happens on the
+            // session-key path (gate blocks it, mark-seen drops it), so it verifies that path is wired in too.
+            ;(sessionFilter.isBlocked as jest.Mock).mockImplementationOnce((sessions: SessionSet) => {
+                const blocked = new SessionSet()
+                for (const { teamId, sessionId } of sessions) {
+                    if (sessionId === 'session-3') {
+                        blocked.add(teamId, sessionId)
+                    }
+                }
+                return Promise.resolve(blocked)
+            })
+
+            const pipeline = createSessionReplayPipeline({
+                outputs,
+                eventIngestionRestrictionManager: mockRestrictionManager,
+                overflowMode: 'redirect',
+                promiseScheduler,
+                teamService: mockTeamService,
+                retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
+                topHog,
+                sessionBatchManager: mockSessionBatchManager,
+                isDebugLoggingEnabled,
+            })
+
+            const messages = [
+                createMessage(0, 1, 'session-1'),
+                createMessage(0, 2, 'session-2'),
+                createMessage(0, 3, 'session-3'),
+            ]
+
+            const offsets = await runSessionReplayPipeline(pipeline, messages)
+
+            expect(recordedSessionIds()).toEqual(['session-1', 'session-2'])
+            // The highest offset on the partition belongs to the blocked session; it must still be tracked
+            // or that partition would never commit past offset 2.
+            expect(offsets).toEqual(new Map([[0, 3]]))
+        })
+
+        // Offsets are tracked per partition. Each case drops the highest-offset message on partition 0 via
+        // a different mechanism while partition 1 records a higher offset. Every case must advance
+        // partition 0 to its dropped message's offset (3) AND partition 1 to 5 — proving the partitions
+        // are tracked independently and a dropped, highest message isn't masked by, or bled into, another
+        // partition's activity.
+        it.each<{ name: string; configure: () => void }>([
+            {
+                name: 'a rate-limited session blocked at the gate',
+                configure: () => {
+                    ;(sessionFilter.isBlocked as jest.Mock).mockResolvedValueOnce(new SessionSet().add(1, 'session-3'))
+                },
+            },
+            {
+                name: 'a session whose key was deleted, dropped at mark-seen',
+                configure: () => {
+                    ;(keyStore.getKey as jest.Mock).mockImplementation((sessionId: string) =>
+                        Promise.resolve(
+                            sessionId === 'session-3'
+                                ? createMockSessionKey({ sessionState: 'deleted', deletedAt: 1 })
+                                : createMockSessionKey()
+                        )
+                    )
+                },
+            },
+            {
+                name: 'a session dropped by an event restriction before parse',
+                configure: () => {
+                    mockCreateApplyEventRestrictionsStep.mockReturnValue(
+                        (input: { message: Message; headers: Record<string, string> }) =>
+                            Promise.resolve(
+                                input.message.partition === 0 && input.message.offset === 3
+                                    ? drop('blocked')
+                                    : ok(input)
+                            )
+                    )
+                },
+            },
+        ])('tracks the dropped highest offset per partition when it is $name', async ({ configure }) => {
+            // Re-establish the pass-throughs these cases override — getKey/isBlocked are shared across the
+            // describe and survive clearAllMocks, so without this a case could leak into the next.
+            ;(sessionFilter.isBlocked as jest.Mock).mockResolvedValue(new SessionSet())
+            ;(keyStore.getKey as jest.Mock).mockResolvedValue(createMockSessionKey())
+            configure()
+
+            const pipeline = createSessionReplayPipeline({
+                outputs,
+                eventIngestionRestrictionManager: mockRestrictionManager,
+                overflowMode: 'redirect',
+                promiseScheduler,
+                teamService: mockTeamService,
+                retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
+                topHog,
+                sessionBatchManager: mockSessionBatchManager,
+                isDebugLoggingEnabled,
+            })
+
+            const messages = [
+                createMessage(0, 1, 'session-1'),
+                createMessage(0, 2, 'session-2'),
+                createMessage(0, 3, 'session-3'), // dropped, highest offset on partition 0
+                createMessage(1, 5, 'session-4'), // recorded on partition 1 at a higher offset
+            ]
+
+            const offsets = await runSessionReplayPipeline(pipeline, messages)
+
+            expect(recordedSessionIds().sort()).toEqual(['session-1', 'session-2', 'session-4'])
+            expect(offsets).toEqual(
+                new Map([
+                    [0, 3],
+                    [1, 5],
+                ])
+            )
+        })
+
         it('filters out messages that fail to parse', async () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -398,10 +560,14 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -448,10 +614,14 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -480,10 +650,14 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -508,10 +682,14 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -552,10 +730,14 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -588,10 +770,14 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -627,10 +813,14 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: teamServiceThatDropsSecond,
                 retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -653,10 +843,14 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -676,10 +870,14 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -707,6 +905,8 @@ describe('session-replay-pipeline', () => {
             expect(parseJSON(messageValue.details)).toEqual({
                 libVersion: '1.74.0',
                 parsedVersion: { major: 1, minor: 74 },
+                category: 'replay',
+                severity: 'info',
             })
         })
 
@@ -714,10 +914,14 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -735,10 +939,14 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -756,10 +964,14 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -793,10 +1005,14 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -816,7 +1032,8 @@ describe('session-replay-pipeline', () => {
                         session_id: 'session-1',
                     }),
                 }),
-                '30d'
+                '30d',
+                expect.objectContaining({ sessionState: 'cleartext' })
             )
         })
 
@@ -824,10 +1041,14 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -852,10 +1073,14 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -879,10 +1104,14 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: teamServiceThatReturnsNull,
                 retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -902,10 +1131,14 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -929,10 +1162,14 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -956,10 +1193,14 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -983,10 +1224,14 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -1031,10 +1276,14 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -1078,10 +1327,14 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
