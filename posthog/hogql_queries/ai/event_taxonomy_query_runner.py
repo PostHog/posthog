@@ -1,3 +1,4 @@
+import re
 from typing import cast
 
 from posthog.schema import (
@@ -21,6 +22,47 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from products.actions.backend.models.action import Action
 
 DEFAULT_LIMIT = 500
+
+# Property keys that are not useful for AI taxonomy output: event metadata, privacy-related
+# keys, feature-flag/experiment/product-tour keys, survey internals, and plugin-internal keys.
+# Shared between the ClickHouse taxonomy query (as a `match` regex) and callers that source
+# property names elsewhere (e.g. the precomputed event-property mapping), so both apply the
+# exact same exclusions.
+OMITTED_TAXONOMY_PROPERTY_PATTERNS = [
+    # events
+    r"\$set",
+    r"\$time",
+    r"\$set_once",
+    r"\$sent_at",
+    "distinct_id",
+    # privacy-related
+    r"\$ip",
+    # feature flags and experiments
+    r"\$feature\/",
+    r"\$feature_enrollment\/",
+    r"\$feature_interaction\/",
+    # product tours
+    r"\$product_tour",
+    # flatten-properties-plugin
+    "__",
+    # surveys
+    "survey_dismiss",
+    "survey_responded",
+    # other metadata
+    "phjs",
+    "partial_filter_chosen",
+    "changed_action",
+    "window-id",
+    "changed_event",
+    "partial_filter",
+]
+
+_OMITTED_TAXONOMY_PROPERTY_RE = re.compile("(" + "|".join(OMITTED_TAXONOMY_PROPERTY_PATTERNS) + ")")
+
+
+def is_omitted_taxonomy_property(key: str) -> bool:
+    """Whether a property key should be hidden from AI taxonomy output."""
+    return _OMITTED_TAXONOMY_PROPERTY_RE.search(key) is not None
 
 
 class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTaxonomyQueryResponse]):
@@ -118,35 +160,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
         """
         Ignore properties that are not useful for AI.
         """
-        omit_list = [
-            # events
-            r"\$set",
-            r"\$time",
-            r"\$set_once",
-            r"\$sent_at",
-            "distinct_id",
-            # privacy-related
-            r"\$ip",
-            # feature flags and experiments
-            r"\$feature\/",
-            r"\$feature_enrollment\/",
-            r"\$feature_interaction\/",
-            # product tours
-            r"\$product_tour",
-            # flatten-properties-plugin
-            "__",
-            # surveys
-            "survey_dismiss",
-            "survey_responded",
-            # other metadata
-            "phjs",
-            "partial_filter_chosen",
-            "changed_action",
-            "window-id",
-            "changed_event",
-            "partial_filter",
-        ]
-        regex_conditions = "|".join(omit_list)
+        regex_conditions = "|".join(OMITTED_TAXONOMY_PROPERTY_PATTERNS)
 
         return ast.Not(
             expr=ast.Call(
