@@ -66,7 +66,7 @@
 - Do NOT claim manual testing you haven't done.
 - GitHub PR descriptions render markdown, not fixed-width text. Do not hard-wrap prose at a column width or use space-aligned tables — use real markdown tables, headings, and fenced code blocks, and let GitHub flow the text.
 - Use GitHub's rich markdown when it makes review faster, never as decoration:
-  - If the change alters a flow or topology (CI wiring, pipelines, state machines, request paths), include before/after mermaid diagrams as two separate `flowchart LR` blocks, with the before diagram first. Keep them simple: a syntax error renders as an error block. Skip diagrams for trivial changes.
+  - If the change alters a flow or topology (CI wiring, pipelines, state machines, request paths), include before/after mermaid diagrams as two separate `flowchart` blocks, with the before diagram first. Pick the direction that reads best (`TD` for tall pipelines, `LR` for wide request paths). Keep them simple: a syntax error renders as an error block. Skip diagrams for trivial changes.
     - Brand the nodes with PostHog colors (mermaid can't read CSS vars, so use the hex directly). Define classes once and always pair a `fill` with an explicit text `color` so nodes stay legible on both GitHub light and dark themes:
       ```
       classDef phBlue fill:#1d4aff,stroke:#1d4aff,color:#fff;
