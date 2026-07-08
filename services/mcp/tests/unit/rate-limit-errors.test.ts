@@ -167,6 +167,94 @@ describe('outbound 429 handling', () => {
         })
     })
 
+    describe('ApiClient on transient 5xx', () => {
+        const build5xx = (status: number, headers?: Record<string, string>): Response =>
+            new Response(JSON.stringify({ detail: 'Backend momentarily unavailable.' }), { status, headers })
+
+        const stubFetch = (...responses: Response[]): ReturnType<typeof vi.fn> => {
+            const mockFetch = vi.fn()
+            for (const response of responses) {
+                mockFetch.mockResolvedValueOnce(response)
+            }
+            // Persistent 503 once the scripted responses run out.
+            mockFetch.mockImplementation(() => Promise.resolve(build5xx(503)))
+            vi.stubGlobal('fetch', mockFetch)
+            return mockFetch
+        }
+
+        const buildClient = (): ApiClient => new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
+
+        const expectApiErrorFailure = (result: Result<unknown>): PostHogApiError => {
+            expect(result.success).toBe(false)
+            if (result.success) {
+                throw new Error('expected failure')
+            }
+            expect(result.error).toBeInstanceOf(PostHogApiError)
+            return result.error as PostHogApiError
+        }
+
+        beforeEach(() => {
+            vi.useFakeTimers()
+        })
+
+        afterEach(() => {
+            vi.useRealTimers()
+        })
+
+        it.each([502, 503, 504])('retries a transient %i on an idempotent GET and succeeds', async (status) => {
+            const mockFetch = stubFetch(build5xx(status), new Response('{}', { status: 200 }))
+
+            const resultPromise = buildClient().users().me()
+            // First-retry jittered backoff falls in [500, 1000]ms.
+            await vi.advanceTimersByTimeAsync(1000)
+            const result = await resultPromise
+
+            expect(result.success).toBe(true)
+            expect(mockFetch).toHaveBeenCalledTimes(2)
+        })
+
+        it('honors Retry-After on a transient 503 before retrying', async () => {
+            const mockFetch = stubFetch(build5xx(503, { 'Retry-After': '3' }), new Response('{}', { status: 200 }))
+
+            const resultPromise = buildClient().users().me()
+            await vi.advanceTimersByTimeAsync(3000)
+            const result = await resultPromise
+
+            expect(result.success).toBe(true)
+            expect(mockFetch).toHaveBeenCalledTimes(2)
+        })
+
+        it('surfaces the 5xx as a PostHogApiError once retries are exhausted', async () => {
+            const mockFetch = stubFetch()
+
+            const resultPromise = buildClient().users().me()
+            await vi.runAllTimersAsync()
+            const apiError = expectApiErrorFailure(await resultPromise)
+
+            expect(apiError.status).toBe(503)
+            // Initial attempt + TRANSIENT_SERVER_ERROR_MAX_RETRIES (2).
+            expect(mockFetch).toHaveBeenCalledTimes(3)
+        })
+
+        it('does not retry a bare 500 (only 502/503/504 are transient)', async () => {
+            const mockFetch = stubFetch(build5xx(500))
+
+            const apiError = expectApiErrorFailure(await buildClient().users().me())
+
+            expect(apiError.status).toBe(500)
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+        })
+
+        it('does not retry a 5xx on a non-idempotent POST', async () => {
+            const mockFetch = stubFetch(build5xx(503))
+
+            await expect(
+                buildClient().request({ method: 'POST', path: '/api/environments/2/query/' })
+            ).rejects.toBeInstanceOf(PostHogApiError)
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+        })
+    })
+
     describe('handleToolError on PostHogRateLimitError', () => {
         it('returns the retry hint to the agent without capturing an exception', () => {
             const error = new PostHogRateLimitError({

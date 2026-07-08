@@ -38,6 +38,19 @@ const RATE_LIMIT_MAX_RETRIES = 3
 const RATE_LIMIT_BASE_BACKOFF_MS = 2000
 const RATE_LIMIT_TOTAL_WAIT_BUDGET_MS = 30_000
 
+// Outbound transient-5xx retry policy for idempotent reads. When the backend is
+// momentarily unavailable — e.g. `ClickHouseAtCapacity` surfaces as a 503 — a
+// short backoff-and-retry turns most of these blips into a successful response
+// instead of a hard, agent-visible tool failure. Scoped to 502/503/504 (a bad
+// gateway, capacity, or gateway timeout are transient; a bare 500 is usually a
+// real bug not worth replaying) and only applied to GETs, since replaying a
+// mutation that may have partially applied is unsafe. Shares the same wall-clock
+// wait budget as the 429 path so a single call can't hold the request open
+// indefinitely by bouncing between throttling and transient failures.
+const TRANSIENT_SERVER_ERROR_STATUSES = new Set([502, 503, 504])
+const TRANSIENT_SERVER_ERROR_MAX_RETRIES = 2
+const TRANSIENT_SERVER_ERROR_BASE_BACKOFF_MS = 1000
+
 // Default overall timeout for an SSE stream (wall-clock cap from connect to close).
 // Sized to comfortably cover the slowest known caller (session summarization, ~5 min
 // average) with headroom for cold-cache LLM calls.
@@ -347,8 +360,19 @@ export class ApiClient {
     private async fetchJson<T>(url: string, options?: RequestInit): Promise<Result<T>> {
         const method = options?.method ?? 'GET'
         let waitBudgetMs = RATE_LIMIT_TOTAL_WAIT_BUDGET_MS
+        // Replaying a mutation that may have partially applied server-side is
+        // unsafe, so transient-5xx retries are gated to idempotent reads.
+        const canRetryServerError = method === 'GET'
+        let rateLimitRetries = 0
+        let serverErrorRetries = 0
 
-        for (let attempt = 0; attempt <= RATE_LIMIT_MAX_RETRIES; attempt++) {
+        // Overall loop guard: the initial attempt plus every retry either policy
+        // could grant. Per-policy counters below decide when each stops; this
+        // bound only keeps the loop finite (and lets TypeScript see a terminal
+        // return after it).
+        const maxAttempts = 1 + RATE_LIMIT_MAX_RETRIES + TRANSIENT_SERVER_ERROR_MAX_RETRIES
+
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
             try {
                 const response = await this.fetch(url, options)
 
@@ -364,14 +388,14 @@ export class ApiClient {
                         }),
                     })
 
-                    if (attempt === RATE_LIMIT_MAX_RETRIES) {
+                    if (rateLimitRetries >= RATE_LIMIT_MAX_RETRIES) {
                         console.error(`[API] Rate limit (429) retries exhausted on ${method} ${url}`)
                         return rateLimitFailure()
                     }
 
                     // DRF rejects throttled requests before the view executes,
                     // so retrying is safe for mutations too.
-                    const backoffMs = RATE_LIMIT_BASE_BACKOFF_MS * 2 ** attempt
+                    const backoffMs = RATE_LIMIT_BASE_BACKOFF_MS * 2 ** rateLimitRetries
                     const delayMs =
                         retryAfterSeconds !== null
                             ? retryAfterSeconds * 1000
@@ -386,11 +410,41 @@ export class ApiClient {
                     }
 
                     waitBudgetMs -= delayMs
+                    rateLimitRetries++
                     console.warn(
-                        `[API] Rate limited (429) on ${method} ${url}. Retrying in ${Math.round(delayMs)}ms (attempt ${attempt + 1}/${RATE_LIMIT_MAX_RETRIES})`
+                        `[API] Rate limited (429) on ${method} ${url}. Retrying in ${Math.round(delayMs)}ms (attempt ${rateLimitRetries}/${RATE_LIMIT_MAX_RETRIES})`
                     )
                     await new Promise((resolve) => setTimeout(resolve, delayMs))
                     continue
+                }
+
+                // Transient 5xx on an idempotent read: back off and retry, else
+                // fall through to the standard error path below (which throws a
+                // PostHogApiError, preserving 5xx visibility once retries or the
+                // shared wait budget are exhausted).
+                if (canRetryServerError && TRANSIENT_SERVER_ERROR_STATUSES.has(response.status)) {
+                    if (serverErrorRetries < TRANSIENT_SERVER_ERROR_MAX_RETRIES) {
+                        const retryAfterSeconds = parseRetryAfterSeconds(response.headers.get('Retry-After'))
+                        const backoffMs = TRANSIENT_SERVER_ERROR_BASE_BACKOFF_MS * 2 ** serverErrorRetries
+                        const delayMs =
+                            retryAfterSeconds !== null
+                                ? retryAfterSeconds * 1000
+                                : // Equal jitter so concurrent failures don't retry in lockstep.
+                                  backoffMs / 2 + Math.random() * (backoffMs / 2)
+
+                        if (delayMs <= waitBudgetMs) {
+                            waitBudgetMs -= delayMs
+                            serverErrorRetries++
+                            console.warn(
+                                `[API] Transient server error (${response.status}) on ${method} ${url}. Retrying in ${Math.round(delayMs)}ms (attempt ${serverErrorRetries}/${TRANSIENT_SERVER_ERROR_MAX_RETRIES})`
+                            )
+                            await new Promise((resolve) => setTimeout(resolve, delayMs))
+                            continue
+                        }
+                        console.warn(
+                            `[API] Transient server error (${response.status}) on ${method} ${url}. Requested wait of ${Math.round(delayMs / 1000)}s exceeds the remaining ${Math.round(waitBudgetMs / 1000)}s retry budget; not retrying.`
+                        )
+                    }
                 }
 
                 if (!response.ok) {
@@ -478,7 +532,7 @@ export class ApiClient {
 
         // Unreachable: the final attempt always returns above, but TypeScript
         // can't prove the loop is exhaustive.
-        return { success: false, error: new Error('Unexpected rate limit retry state') }
+        return { success: false, error: new Error('Unexpected retry state') }
     }
 
     organizations(): Endpoint {
