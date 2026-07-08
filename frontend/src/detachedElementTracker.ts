@@ -1,3 +1,5 @@
+import type { MemLensScanner } from '@memlab/lens/dist/memlens.lib.bundle.js'
+
 import { getAppContext } from 'lib/utils/getAppContext'
 
 const SCAN_INTERVAL_MS = 30_000
@@ -6,29 +8,6 @@ const IDLE_TIMEOUT_MS = 5_000
 
 interface Capturable {
     capture: (event: string, properties?: Record<string, unknown>) => void
-}
-
-interface MemLensScanResult {
-    totalElements: number
-    totalDetachedElements: number
-    detachedComponentToFiberNodeCount: Map<string, number>
-    componentToFiberNodeCount: Map<string, number>
-    start: number
-    end: number
-}
-
-interface MemLensDOMElementInfo {
-    element: WeakRef<Element>
-    componentStack: string[] | null | undefined
-}
-
-interface MemLensScanner {
-    subscribe: (callback: (result: MemLensScanResult) => void) => () => void
-    start: () => void
-    stop: () => void
-    dispose: () => void
-    scan: () => Omit<MemLensScanResult, 'start' | 'end'>
-    getDetachedDOMInfo: () => MemLensDOMElementInfo[]
 }
 
 export function shouldCaptureDetachedElements(currentCount: number, previousCount: number | null): boolean {
@@ -79,7 +58,7 @@ export function startDetachedElementTracking(posthog: Capturable): void {
 
             state = 'ready'
 
-            const scan: MemLensScanner = createReactMemoryScan({
+            const scan = createReactMemoryScan({
                 scanIntervalMs: SCAN_INTERVAL_MS,
                 trackEventListenerLeaks: false,
             })
