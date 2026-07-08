@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
@@ -77,6 +77,8 @@ export function ProjectsGrid(): JSX.Element {
     const { openBulkCopyModal } = useActions(flagSelectionLogic)
 
     const sentinelRef = useRef<HTMLDivElement>(null)
+    // State (not a ref) so the table re-renders once the toolbar slot mounts and the bar can portal into it
+    const [bulkBarTarget, setBulkBarTarget] = useState<HTMLDivElement | null>(null)
 
     useEffect(() => {
         const el = sentinelRef.current
@@ -165,7 +167,7 @@ export function ProjectsGrid(): JSX.Element {
             title="Feature flags across projects"
             description="Compare each flag's status, rollout, and recent usage across your organization's projects."
         >
-            <ProjectsGridToolbar />
+            <ProjectsGridToolbar bulkSelectionBarRef={setBulkBarTarget} />
             <BulkCopyFlagsModal />
             <LemonTable
                 columns={columns}
@@ -180,6 +182,7 @@ export function ProjectsGrid(): JSX.Element {
                     rowAriaLabel: (flag: OrganizationFeatureFlagRow) => `Select feature flag ${flag.key}`,
                     headerAriaLabel: 'Select all loaded feature flags',
                     noun: ['flag', 'flags'],
+                    barPortalTarget: bulkBarTarget,
                     renderActions: (ctx) => (
                         <LemonButton
                             type="secondary"
