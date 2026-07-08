@@ -74,6 +74,13 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
     is_legacy_hashing = serializers.SerializerMethodField(
         help_text="Whether this key uses legacy PBKDF2 hashing and should be rolled to upgrade."
     )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        max_length=1000,
+        help_text="Optional description of what the key is used for and where, e.g. a link to the integration that uses it.",
+    )
     scopes = serializers.ListField(child=serializers.CharField(required=True), allow_empty=False)
     scoped_teams = serializers.ListField(child=serializers.IntegerField(required=False))
     scoped_organizations = serializers.ListField(child=serializers.CharField(required=False))
@@ -83,6 +90,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "label",
+            "description",
             "value",
             "is_legacy_hashing",
             "mask_value",

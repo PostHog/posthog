@@ -29,7 +29,13 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         label = "Test key uno"
         response = self.client.post(
             "/api/personal_api_keys",
-            {"label": label, "scopes": ["insight:read"], "scoped_organizations": [], "scoped_teams": []},
+            {
+                "label": label,
+                "description": "Powers the weekly reports bot",
+                "scopes": ["insight:read"],
+                "scoped_organizations": [],
+                "scoped_teams": [],
+            },
         )
         assert response.status_code == 201
         data = response.json()
@@ -39,6 +45,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         assert response.json() == {
             "id": key.id,
             "label": label,
+            "description": "Powers the weekly reports bot",
             "created_at": data["created_at"],
             "last_used_at": None,
             "last_rolled_at": None,
