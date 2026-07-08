@@ -594,9 +594,17 @@ class TestExternalTicketAPI(BaseTest):
         assert activity is not None
         self.assertIsNone(activity.detail.get("trigger"))
 
-    def test_patch_tag_remove_logs_activity_with_workflow_trigger(self):
-        # Removals use a bulk delete that bypasses the TaggedItem activity signal, so without
-        # explicit logging they leave no trace. Assert the gap is filled and workflow-attributed.
+    @parameterized.expand(
+        [
+            ("add", {"tags": ["urgent"], "tags_mode": "add"}, "created", "after", "urgent"),
+            ("remove", {"tags": ["bug"], "tags_mode": "remove"}, "deleted", "before", "bug"),
+        ]
+    )
+    def test_patch_tag_changes_record_workflow_trigger(self, _name, payload, action, direction, tag_name):
+        # Both directions flow through the TaggedItem activity signal: adds fire it on save,
+        # removes only because the endpoint deletes per-instance (a bulk delete would skip it).
+        # The signal picks the workflow trigger up from ActivityTriggerContext; without that,
+        # workflow tag changes render as an anonymous "PostHog" on the ticket timeline.
         from posthog.models import Tag
 
         existing_tag = Tag.objects.create(name="bug", team_id=self.team.id)
@@ -604,7 +612,7 @@ class TestExternalTicketAPI(BaseTest):
 
         response = self.client.patch(
             self.url,
-            {"tags": ["bug"], "tags_mode": "remove"},
+            payload,
             content_type="application/json",
             **self._workflow_headers(),
         )
@@ -614,9 +622,49 @@ class TestExternalTicketAPI(BaseTest):
         assert activity is not None
         tag_change = next((c for c in activity.detail.get("changes", []) if c["field"] == "tag"), None)
         assert tag_change is not None
-        self.assertEqual(tag_change["action"], "deleted")
-        self.assertEqual(tag_change["before"], "bug")
+        self.assertEqual(tag_change["action"], action)
+        self.assertEqual(tag_change[direction], tag_name)
         self.assertEqual(activity.detail["trigger"]["job_type"], "hog_flow")
+
+    def test_patch_tag_changes_write_tag_audit_entries(self):
+        # Removals used to go through a bulk queryset delete, which skips the TaggedItem signal
+        # and left them out of the global Tag audit stream entirely. Both directions must now
+        # produce a TaggedItem-scope entry, attributed to the workflow.
+        response = self.client.patch(
+            self.url,
+            {"tags": ["urgent"], "tags_mode": "add"},
+            content_type="application/json",
+            **self._workflow_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response = self.client.patch(
+            self.url,
+            {"tags": ["urgent"], "tags_mode": "remove"},
+            content_type="application/json",
+            **self._workflow_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        audit_activities = {
+            entry.activity: entry for entry in ActivityLog.objects.filter(team_id=self.team.id, scope="TaggedItem")
+        }
+        self.assertIn("created", audit_activities)
+        self.assertIn("deleted", audit_activities)
+        self.assertEqual(audit_activities["deleted"].detail["trigger"]["job_type"], "hog_flow")
+
+    def test_workflow_trigger_does_not_leak_after_request(self):
+        # The trigger thread-local must be cleared by the context manager, or attribution
+        # would bleed into unrelated activity logged later on a reused worker thread.
+        from posthog.models.activity_logging.utils import activity_storage
+
+        response = self.client.patch(
+            self.url,
+            {"tags": ["urgent"], "tags_mode": "add"},
+            content_type="application/json",
+            **self._workflow_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(activity_storage.get_trigger())
 
     def test_patch_assignee_records_workflow_trigger(self):
         response = self.client.patch(
