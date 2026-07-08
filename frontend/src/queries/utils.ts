@@ -544,8 +544,9 @@ export function queryVizRendersToCanvas(query?: Node | null): boolean {
             return false
         }
         if (isFunnelsQuery(source)) {
-            // Every funnel viz paints a canvas except the SVG flow (Sankey) diagram.
-            return source.funnelsFilter?.funnelVizType !== FunnelVizType.Flow
+            // Steps (default) and Trends paint to canvas; Flow (Sankey) is SVG and TimeToConvert is a DOM table.
+            const vizType = source.funnelsFilter?.funnelVizType
+            return vizType !== FunnelVizType.Flow && vizType !== FunnelVizType.TimeToConvert
         }
         return CANVAS_CHART_DISPLAY_TYPES.has(getDisplay(source) ?? ChartDisplayType.Auto)
     }

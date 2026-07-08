@@ -290,6 +290,24 @@ describe('queryVizRendersToCanvas', () => {
             expected: false,
         },
         {
+            name: 'funnel time to convert (table)',
+            query: insightViz({
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: { funnelVizType: FunnelVizType.TimeToConvert },
+            } as InsightQueryNode),
+            expected: false,
+        },
+        {
+            name: 'funnel trends (line chart)',
+            query: insightViz({
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: { funnelVizType: FunnelVizType.Trends },
+            } as InsightQueryNode),
+            expected: true,
+        },
+        {
             name: 'retention',
             query: insightViz({ kind: NodeKind.RetentionQuery } as InsightQueryNode),
             expected: false,
