@@ -473,8 +473,13 @@ def parse_conventional_commit(subject: str) -> dict:
 # ── File classification ──────────────────────────────────────────
 
 
+# Directory matching is exact-segment only (__tests__/, test/, tests/, _tests/):
+# suffix matching like `*_tests/` catches runtime packages that merely end in
+# the word (destination_tests/ is API code, ingestion_acceptance_test/ is a
+# Temporal worker). Files inside looser test-tree layouts are still covered by
+# the filename branches (test_*.py, *.test.*, *_test.py).
 _TEST_FILE_RE = re.compile(
-    r"(?:^|/)(?:__tests__|tests?|[^/]*_tests?)/|(?:^|/)test_[^/]+\.py$|[_.](?:test|spec)\.[^/]+$|_test\.py$",
+    r"(?:^|/)(?:__tests__|tests?|_tests?)/|(?:^|/)test_[^/]+\.py$|[_.](?:test|spec)\.[^/]+$|_test\.py$",
     re.IGNORECASE,
 )
 

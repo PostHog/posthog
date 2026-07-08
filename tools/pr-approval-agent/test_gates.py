@@ -371,10 +371,21 @@ def test_dwh_source_mixed_still_denies() -> None:
         pytest.param("posthog/api/test/test_insight.py", True, id="test-dir-exempt"),
         pytest.param("frontend/src/scenes/insights/Insight.test.tsx", True, id="dot-test-exempt"),
         pytest.param("posthog/personhog_client/test_interceptor.py", True, id="bare-pytest-file-exempt"),
-        pytest.param("common/ingestion/acceptance_tests/test_basic_capture.py", True, id="suffixed-test-dir-exempt"),
+        pytest.param(
+            "common/ingestion/acceptance_tests/test_basic_capture.py", True, id="test-file-in-loose-test-tree-exempt"
+        ),
         pytest.param("nodejs/src/cdp/_tests/helpers.ts", True, id="underscore-tests-dir-exempt"),
         pytest.param("posthog/tasks/protest.py", False, id="test-suffix-substring-counted"),
         pytest.param("posthog/latest/models.py", False, id="latest-dir-counted"),
+        # Runtime packages that merely end in "_test(s)" must not classify as
+        # tests: via the shared predicate that would open the T0 auto-approve
+        # path, not just the size exemption.
+        pytest.param(
+            "products/batch_exports/backend/api/destination_tests/delta.py", False, id="runtime-dir-test-suffix-counted"
+        ),
+        pytest.param(
+            "posthog/temporal/ingestion_acceptance_test/worker.py", False, id="runtime-worker-test-suffix-counted"
+        ),
     ],
 )
 def test_is_size_exempt(path: str, exempt: bool) -> None:
