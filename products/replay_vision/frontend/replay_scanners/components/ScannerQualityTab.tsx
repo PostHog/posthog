@@ -38,6 +38,7 @@ import { ObservationResultSummary } from '../../components/ObservationCard'
 import type { ReplayObservationApi, ReplayScannerPromptSuggestionApi } from '../../generated/api.schemas'
 import { ObservationLabelControl, ObservationLabelFeedback } from '../../observations/ObservationLabelControl'
 import { fillLabelDays, versionAccuracyStrip } from '../../utils/labelStats'
+import { readConfidence } from '../../utils/observation'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ReplayScannerTab, replayScannerSceneLogic } from '../replayScannerSceneLogic'
 import { LABEL_CHART_DAYS, QUALITY_PAGE_SIZE, RatedFilterValue, scannerQualityLogic } from '../scannerQualityLogic'
@@ -642,8 +643,8 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
             tooltip:
                 'How sure the scanner was of this result. Rating low-confidence sessions first teaches the prompt the most.',
             render: (_, obs) => {
-                const confidence = (obs.scanner_result as Record<string, any> | null)?.model_output?.confidence
-                if (typeof confidence !== 'number') {
+                const confidence = readConfidence(obs)
+                if (confidence === null) {
                     return <span className="text-muted">—</span>
                 }
                 return <span className="tabular-nums">{Math.round(confidence * 100)}%</span>
