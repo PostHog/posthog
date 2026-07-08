@@ -618,19 +618,21 @@ class TestScheduledChangeGating(APIBaseTest):
         self._enable_policy()
         flag = self._disabled_flag()
 
+        # Fail the row insert (super().create) after the gate has minted the pending CR.
         with patch.object(serializers.ModelSerializer, "create", side_effect=IntegrityError("boom")):
-            with self.assertRaises(IntegrityError):
-                self.client.post(
-                    f"/api/projects/{self.team.id}/scheduled_changes/",
-                    {
-                        "record_id": str(flag.id),
-                        "model_name": "FeatureFlag",
-                        "payload": {"operation": "update_status", "value": True},
-                        "scheduled_at": (timezone.now() + timedelta(hours=1)).isoformat(),
-                    },
-                    format="json",
-                )
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/scheduled_changes/",
+                {
+                    "record_id": str(flag.id),
+                    "model_name": "FeatureFlag",
+                    "payload": {"operation": "update_status", "value": True},
+                    "scheduled_at": (timezone.now() + timedelta(hours=1)).isoformat(),
+                },
+                format="json",
+            )
 
+        assert response.status_code == 500, response.content
+        # The atomic wrap rolled the minted CR back with the failed row insert; neither survives.
         assert ChangeRequest.objects.count() == 0
         assert ScheduledChange.objects.filter(record_id=str(flag.id)).count() == 0
 
