@@ -1720,7 +1720,8 @@ class JotformSourceConfig(config.Config):
 
 @config.config
 class JudgeMeReviewsSourceConfig(config.Config):
-    pass
+    shop_domain: str
+    api_token: str
 
 
 @config.config
