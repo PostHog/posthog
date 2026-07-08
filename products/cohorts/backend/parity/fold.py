@@ -1,7 +1,9 @@
 """Fold a shadow-topic message stream into converged per-cohort membership state.
 
-Last message per (cohort_id, person_id) wins — messages are keyed by person_id, so one
-person's transitions live in one partition and arrive in offset order.
+Max last_updated per (cohort_id, person_id) wins, matching the argMax convergence of the
+old side's ClickHouse table. In practice that is also arrival order (messages are keyed
+by person_id, so one person's transitions live in one partition), but the timestamp rule
+keeps replays and clock regressions from shadowing a newer record.
 """
 
 from __future__ import annotations
@@ -75,7 +77,13 @@ def fold_membership_changes(
         if last_updated < since:
             stats.dropped_before_since += 1
             continue
-        state.setdefault(cohort_id, {})[person_id.lower()] = MembershipRecord(status=status, last_updated=last_updated)
+        # Match the old side's argMax(status, last_updated): timestamp order, not arrival
+        # order, so an out-of-order replay cannot shadow a newer record.
+        bucket = state.setdefault(cohort_id, {})
+        key = person_id.lower()
+        prior = bucket.get(key)
+        if prior is None or last_updated >= prior.last_updated:
+            bucket[key] = MembershipRecord(status=status, last_updated=last_updated)
         stats.cohorts_seen.add(cohort_id)
         stats.folded += 1
     return state, stats

@@ -15,16 +15,30 @@ from posthog.schema_enums import ProductKey
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 
 # Same argMax convergence the old pipeline itself uses to read cohort_membership
-# (realtime_cohort_calculation_workflow.py); paged to bound memory.
-_OLD_MEMBERS_SQL = """
+# (realtime_cohort_calculation_workflow.py), keyset-paged on person_id: OFFSET paging
+# would re-run the full aggregation per page, and each group's rows share one person_id
+# so a cursor never splits a group across pages.
+_OLD_MEMBERS_SQL_TEMPLATE = """
 SELECT person_id
 FROM cohort_membership
-WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
+WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s{cursor}
 GROUP BY person_id
 HAVING argMax(status, last_updated) = 'entered'
 ORDER BY person_id
-LIMIT %(limit)s OFFSET %(offset)s
+LIMIT %(limit)s
 """
+_OLD_MEMBERS_FIRST_PAGE_SQL = _OLD_MEMBERS_SQL_TEMPLATE.format(cursor="")
+_OLD_MEMBERS_NEXT_PAGE_SQL = _OLD_MEMBERS_SQL_TEMPLATE.format(cursor=" AND person_id > %(cursor)s")
+
+_OLD_MEMBERS_SETTINGS = {
+    # The old pipeline's own guards for this aggregation (EXTERNAL_GROUP_BY_MEMORY_RATIO):
+    # without spill, a large cohort's GROUP BY person_id can OOM the offline pool.
+    "max_bytes_ratio_before_external_group_by": 0.5,
+    "distributed_aggregation_memory_efficient": 1,
+    # person_id is a sort-key suffix under the two equality predicates, so aggregate in
+    # order and stream: LIMIT stops the scan instead of materializing every group first.
+    "optimize_aggregation_in_order": 1,
+}
 
 _ACTIVE_PERSONS_SQL = """
 SELECT DISTINCT person_id
@@ -56,18 +70,22 @@ def load_old_membership(team_id: int, cohort_id: int, *, page_size: int = 500_00
     """Converged entered-set of one cohort from ClickHouse cohort_membership (offline host)."""
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
     members: set[str] = set()
-    offset = 0
+    cursor: str | None = None
     while True:
+        params: dict[str, object] = {"team_id": team_id, "cohort_id": cohort_id, "limit": page_size}
+        if cursor is not None:
+            params["cursor"] = cursor
         rows = sync_execute(
-            _OLD_MEMBERS_SQL,
-            {"team_id": team_id, "cohort_id": cohort_id, "limit": page_size, "offset": offset},
+            _OLD_MEMBERS_FIRST_PAGE_SQL if cursor is None else _OLD_MEMBERS_NEXT_PAGE_SQL,
+            params,
+            settings=_OLD_MEMBERS_SETTINGS,
             workload=Workload.OFFLINE,
             team_id=team_id,
         )
         members.update(str(row[0]).lower() for row in rows)
         if len(rows) < page_size:
             return members
-        offset += page_size
+        cursor = str(rows[-1][0])
 
 
 def make_activity_probe(team_id: int) -> Callable[[Sequence[str], datetime], set[str]]:

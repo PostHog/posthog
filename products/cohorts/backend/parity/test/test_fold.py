@@ -36,6 +36,17 @@ class TestFold(SimpleTestCase):
         self.assertEqual(stats.folded, 5)
         self.assertEqual(stats.cohorts_seen, {10})
 
+    def test_out_of_order_older_record_does_not_shadow_newer(self) -> None:
+        state, _stats = fold_membership_changes(
+            [
+                _msg("entered", "2026-07-07 19:03:00.000001"),
+                _msg("left", "2026-07-07 19:02:00.000001"),
+            ],
+            team_id=2,
+            since=SINCE,
+        )
+        self.assertEqual(members(state[10]), {"p1"})
+
     def test_since_cutoff_drops_pre_wipe_messages(self) -> None:
         state, stats = fold_membership_changes(
             [

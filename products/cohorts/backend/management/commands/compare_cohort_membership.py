@@ -28,6 +28,13 @@ from products.cohorts.backend.parity.snapshots import load_old_membership, load_
 
 SHADOW_TOPIC_RETENTION_DAYS = 7
 
+# Deliberate coverage limits, restated with every report so a clean run is not over-read.
+COVERAGE_CAVEATS = (
+    "WARMUP cohorts are reported but never gated (their behavioral window predates the pipeline)",
+    "cohorts the old pipeline never recomputed count all only_new as fresh (residual_new is 0 there)",
+    "a partial drain (poll timeout or --max-messages) understates the new side and biases toward FAIL",
+)
+
 
 def _parse_since(raw: str) -> datetime:
     try:
@@ -163,6 +170,7 @@ class Command(BaseCommand):
                 "threshold_pct": options["threshold"],
                 "warmup_sample": options["warmup_sample"],
                 "classify": not options["no_classify"],
+                "caveats": list(COVERAGE_CAVEATS),
             }
             self.stdout.write(json.dumps(to_json(rows, summary, meta), indent=2))
         else:
@@ -173,6 +181,9 @@ class Command(BaseCommand):
                 self.stdout.write("\nnotes:\n" + notes)
             self.stdout.write("")
             self.stdout.write(format_summary(summary))
+            self.stdout.write("caveats:")
+            for caveat in COVERAGE_CAVEATS:
+                self.stdout.write(f"  {caveat}")
 
         if summary.failed:
             raise CommandError(f"{summary.failed} eligible cohort(s) FAIL the {options['threshold']}% residual gate")
