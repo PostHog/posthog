@@ -92,6 +92,19 @@ class AnthropicConfig:
         "claude-sonnet-4-0",
     ]
 
+    # Newer models reject the `temperature` parameter with a 400
+    # ("temperature is deprecated for this model"). Skip sending it for these.
+    MODELS_WITHOUT_TEMPERATURE: list[str] = [
+        "claude-opus-4-8",
+        "claude-opus-4-7",
+        "claude-sonnet-5",
+        "claude-fable-5",
+    ]
+
+    @classmethod
+    def supports_temperature(cls, model: str) -> bool:
+        return model not in cls.MODELS_WITHOUT_TEMPERATURE
+
 
 class AnthropicAdapter:
     """Anthropic provider implementing the unified Client interface."""
@@ -136,9 +149,13 @@ class AnthropicAdapter:
             "system": system_prompt,
             "messages": messages,
             "max_tokens": request.max_tokens or AnthropicConfig.MAX_TOKENS,
-            "temperature": request.temperature if request.temperature is not None else AnthropicConfig.TEMPERATURE,
             **(self._build_analytics_kwargs(analytics, client)),
         }
+
+        if AnthropicConfig.supports_temperature(request.model):
+            create_kwargs["temperature"] = (
+                request.temperature if request.temperature is not None else AnthropicConfig.TEMPERATURE
+            )
 
         if use_structured:
             assert request.response_format is not None
@@ -245,8 +262,10 @@ class AnthropicAdapter:
                 "model": model_id,
                 "system": system_prompt,
                 "stream": True,
-                "temperature": effective_temperature,
             }
+
+            if AnthropicConfig.supports_temperature(model_id):
+                common_kwargs["temperature"] = effective_temperature
 
             if analytics.capture:
                 common_kwargs["posthog_distinct_id"] = analytics.distinct_id
