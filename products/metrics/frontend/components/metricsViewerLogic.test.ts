@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { insightsApi } from 'scenes/insights/utils/api'
@@ -287,5 +288,54 @@ describe('metricsViewerLogic', () => {
             { key: 'env', label: 'env' },
             { key: 'service_name', label: 'service_name' },
         ])
+    })
+
+    it('applies viewer state from URL params', () => {
+        const filterGroup = filterGroupWith([{ key: 'env', operator: PropertyOperator.Exact, value: ['prod'] }])
+        router.actions.push('/metrics', {
+            metricName: 'queue_depth',
+            aggregation: 'rate',
+            dateFrom: '-24h',
+            filters: filterGroup,
+            groupBy: ['service.name'],
+            viewMode: 'stat',
+            statSummary: 'total',
+        })
+        expect(logic.values.metricName).toBe('queue_depth')
+        expect(logic.values.aggregation).toBe('rate')
+        expect(logic.values.dateFrom).toBe('-24h')
+        expect(logic.values.filterGroup).toEqual(filterGroup)
+        expect(logic.values.groupByKeys).toEqual(['service.name'])
+        expect(logic.values.viewMode).toBe('stat')
+        expect(logic.values.statSummary).toBe('total')
+    })
+
+    it('ignores invalid enum params from the URL', () => {
+        router.actions.push('/metrics', { aggregation: 'nonsense', viewMode: 'nonsense' })
+        expect(logic.values.aggregation).toBe('sum')
+        expect(logic.values.viewMode).toBe('chart')
+    })
+
+    it('writes state to the URL and omits defaults', () => {
+        router.actions.push('/metrics')
+        logic.actions.setMetricName('queue_depth')
+        expect(router.values.searchParams.metricName).toBe('queue_depth')
+        expect(router.values.searchParams.aggregation).toBe('avg')
+        expect('viewMode' in router.values.searchParams).toBe(false)
+        expect('dateFrom' in router.values.searchParams).toBe(false)
+    })
+
+    it('applies a saved state, letting an explicit aggregation win over the recommended one', () => {
+        const filterGroup = filterGroupWith([{ key: 'env', operator: PropertyOperator.Exact, value: ['prod'] }])
+        logic.actions.applySavedState({
+            metricName: 'queue_depth',
+            aggregation: 'p95',
+            filters: filterGroup,
+            viewMode: 'stat',
+        })
+        expect(logic.values.metricName).toBe('queue_depth')
+        expect(logic.values.aggregation).toBe('p95')
+        expect(logic.values.filterGroup).toEqual(filterGroup)
+        expect(logic.values.viewMode).toBe('stat')
     })
 })

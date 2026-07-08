@@ -409,3 +409,52 @@ export const MetricsSamplesCreateBody = /* @__PURE__ */ zod.object({
         })
         .describe('The raw-emissions query to execute.'),
 })
+
+export const metricsViewsCreateBodyNameMax = 400
+
+export const MetricsViewsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(metricsViewsCreateBodyNameMax)
+        .describe('Human-readable name shown in the saved views list.'),
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Saved viewer state — the frontend MetricsViewerSavedFilters shape. May contain metricName, aggregation, filters, groupBy, dateFrom, dateTo, viewMode, and statSummary.'
+        ),
+    pinned: zod.boolean().optional().describe('Whether the view is pinned for quick access.'),
+})
+
+export const metricsViewsUpdateBodyNameMax = 400
+
+export const MetricsViewsUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(metricsViewsUpdateBodyNameMax)
+        .describe('Human-readable name shown in the saved views list.'),
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Saved viewer state — the frontend MetricsViewerSavedFilters shape. May contain metricName, aggregation, filters, groupBy, dateFrom, dateTo, viewMode, and statSummary.'
+        ),
+    pinned: zod.boolean().optional().describe('Whether the view is pinned for quick access.'),
+})
+
+export const metricsViewsPartialUpdateBodyNameMax = 400
+
+export const MetricsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(metricsViewsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Human-readable name shown in the saved views list.'),
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Saved viewer state — the frontend MetricsViewerSavedFilters shape. May contain metricName, aggregation, filters, groupBy, dateFrom, dateTo, viewMode, and statSummary.'
+        ),
+    pinned: zod.boolean().optional().describe('Whether the view is pinned for quick access.'),
+})

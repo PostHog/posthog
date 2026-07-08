@@ -40,6 +40,7 @@ import {
     MetricsViewMode,
     RECOMMENDED_AGGREGATION_BY_TYPE,
 } from './metricsViewerLogic'
+import { SavedViewsButton } from './MetricsViews/SavedViewsButton'
 
 const VIEW_MODE_OPTIONS: { value: MetricsViewMode; label: string; 'data-attr': string }[] = [
     { value: 'chart', label: 'Chart', 'data-attr': 'metrics-viewer-view-mode-chart' },
@@ -312,6 +313,7 @@ export const MetricsViewer = (): JSX.Element => {
                 >
                     Add to dashboard
                 </LemonButton>
+                <SavedViewsButton />
             </div>
             {savedInsight && (
                 <AddToDashboardModal

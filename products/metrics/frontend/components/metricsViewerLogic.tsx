@@ -1,18 +1,22 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
 
 import { type MetricSummary } from 'lib/components/Metric/metricSummary'
 import { type SparklineTimeSeries } from 'lib/components/Sparkline'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { dayjs } from 'lib/dayjs'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { escapeRegex } from 'lib/utils/actions'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { objectsEqual } from 'lib/utils/objects'
+import { parseTagsFilter } from 'lib/utils/url'
 import { insightsApi } from 'scenes/insights/utils/api'
+import { Params } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -36,6 +40,13 @@ import type {
 import { metricNamePickerLogic } from './metricNamePickerLogic'
 import { formatSeriesName, seriesColor } from './metricsSeries'
 import type { metricsViewerLogicType } from './metricsViewerLogicType'
+import {
+    isValidAggregation,
+    isValidFilterGroup,
+    isValidStatSummary,
+    isValidViewMode,
+    MetricsViewerSavedFilters,
+} from './metricsViewerState'
 
 export type MetricAggregation = 'sum' | 'avg' | 'count' | 'p95' | 'rate' | 'increase'
 
@@ -149,6 +160,8 @@ const toKnownMetricType = (metricType: string | undefined): OtelMetricTypeEnumAp
     return metricType && known.includes(metricType) ? (metricType as OtelMetricTypeEnumApi) : null
 }
 
+const sameStrings = (a: string[], b: string[]): boolean => a.length === b.length && a.every((v, i) => v === b[i])
+
 export const metricsViewerLogic = kea<metricsViewerLogicType>([
     path(['products', 'metrics', 'frontend', 'components', 'metricsViewerLogic']),
     connect(() => ({
@@ -176,6 +189,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         openAddToDashboardModal: true,
         closeAddToDashboardModal: true,
         setLastSavedQueryNode: (query: MetricsQuery) => ({ query }),
+        applySavedState: (state: MetricsViewerSavedFilters) => ({ state }),
         // AbortController plumbing mirrors logsViewerDataLogic: a `cancelInProgress`
         // action aborts the previous controller before storing the new one.
         setQueryAbortController: (controller: AbortController | null) => ({ controller }),
@@ -307,6 +321,32 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 values.queryAbortController.abort(new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'))
             }
             actions.setQueryAbortController(controller)
+        },
+        applySavedState: ({ state }) => {
+            if (typeof state.metricName === 'string' && state.metricName !== values.metricName) {
+                actions.setMetricName(state.metricName)
+            }
+            if (isValidAggregation(state.aggregation) && state.aggregation !== values.aggregation) {
+                actions.setAggregation(state.aggregation)
+            }
+            if (state.dateFrom !== undefined && state.dateFrom !== values.dateFrom) {
+                actions.setDateFrom(state.dateFrom)
+            }
+            if (state.dateTo !== undefined && state.dateTo !== values.dateTo) {
+                actions.setDateTo(state.dateTo)
+            }
+            if (isValidFilterGroup(state.filters) && !objectsEqual(state.filters, values.filterGroup)) {
+                actions.setFilterGroup(state.filters)
+            }
+            if (Array.isArray(state.groupBy) && !sameStrings(state.groupBy, values.groupByKeys)) {
+                actions.setGroupByKeys(state.groupBy.map(String))
+            }
+            if (isValidViewMode(state.viewMode) && state.viewMode !== values.viewMode) {
+                actions.setViewMode(state.viewMode)
+            }
+            if (isValidStatSummary(state.statSummary) && state.statSummary !== values.statSummary) {
+                actions.setStatSummary(state.statSummary)
+            }
         },
         setLiveRefresh: ({ liveRefresh }) => {
             if (!liveRefresh) {
@@ -521,6 +561,37 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 ...(resolveDate(dateTo) ? { dateTo: resolveDate(dateTo) as string } : {}),
             }),
         ],
+        savedFilters: [
+            (s) => [
+                s.metricName,
+                s.aggregation,
+                s.dateFrom,
+                s.dateTo,
+                s.filterGroup,
+                s.groupByKeys,
+                s.viewMode,
+                s.statSummary,
+            ],
+            (
+                metricName,
+                aggregation,
+                dateFrom,
+                dateTo,
+                filterGroup,
+                groupByKeys,
+                viewMode,
+                statSummary
+            ): MetricsViewerSavedFilters => ({
+                metricName,
+                aggregation,
+                dateFrom,
+                dateTo,
+                filters: filterGroup,
+                groupBy: groupByKeys,
+                viewMode,
+                statSummary,
+            }),
+        ],
         // Metrics has no compare/previous-series concept, so "current" is simply the first series.
         currentSeries: [(s) => [s.queryResults], (results): MetricsViewerSeries | undefined => results[0]],
         // All series rendered as chart lines (a group-by query returns one series per label combination).
@@ -561,5 +632,78 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                       }
                     : null,
         ],
+    }),
+    urlToAction(({ actions, values, cache }) => ({
+        [urls.metrics()]: (_: any, params: Params): void => {
+            if (cache.isSyncingUrl) {
+                return
+            }
+            const metricName = typeof params.metricName === 'string' ? params.metricName : ''
+            if (metricName !== values.metricName) {
+                actions.setMetricName(metricName)
+            }
+            const aggregation = isValidAggregation(params.aggregation) ? params.aggregation : DEFAULT_AGGREGATION
+            if (aggregation !== values.aggregation) {
+                actions.setAggregation(aggregation)
+            }
+            const dateFrom = typeof params.dateFrom === 'string' ? params.dateFrom : DEFAULT_DATE_FROM
+            if (dateFrom !== values.dateFrom) {
+                actions.setDateFrom(dateFrom)
+            }
+            const dateTo = typeof params.dateTo === 'string' ? params.dateTo : null
+            if (dateTo !== values.dateTo) {
+                actions.setDateTo(dateTo)
+            }
+            const filters = isValidFilterGroup(params.filters) ? params.filters : DEFAULT_UNIVERSAL_GROUP_FILTER
+            if (!objectsEqual(filters, values.filterGroup)) {
+                actions.setFilterGroup(filters)
+            }
+            const groupBy = parseTagsFilter(params.groupBy) ?? []
+            if (!sameStrings(groupBy, values.groupByKeys)) {
+                actions.setGroupByKeys(groupBy)
+            }
+            const viewMode = isValidViewMode(params.viewMode) ? params.viewMode : 'chart'
+            if (viewMode !== values.viewMode) {
+                actions.setViewMode(viewMode)
+            }
+            const statSummary = isValidStatSummary(params.statSummary) ? params.statSummary : 'latest'
+            if (statSummary !== values.statSummary) {
+                actions.setStatSummary(statSummary)
+            }
+        },
+    })),
+    trackedActionToUrl(({ values, cache }) => {
+        // Guard to prevent infinite loops between actionToUrl and urlToAction.
+        // Uses setTimeout (macrotask) so the flag stays set until the router has
+        // fully processed the URL change, even in test environments with
+        // synchronously-resolving mocks.
+        const syncUrl = (): [string, Params, Record<string, any>, { replace: boolean }] => {
+            cache.isSyncingUrl = true
+            const result = syncSearchParams(router, (params: Params) => {
+                updateSearchParams(params, 'metricName', values.metricName, '')
+                updateSearchParams(params, 'aggregation', values.aggregation, DEFAULT_AGGREGATION)
+                updateSearchParams(params, 'dateFrom', values.dateFrom, DEFAULT_DATE_FROM)
+                updateSearchParams(params, 'dateTo', values.dateTo, null)
+                updateSearchParams(params, 'filters', values.filterGroup, DEFAULT_UNIVERSAL_GROUP_FILTER)
+                updateSearchParams(params, 'groupBy', values.groupByKeys, [])
+                updateSearchParams(params, 'viewMode', values.viewMode, 'chart')
+                updateSearchParams(params, 'statSummary', values.statSummary, 'latest')
+                return params
+            })
+            setTimeout(() => {
+                cache.isSyncingUrl = false
+            }, 0)
+            return result
+        }
+        return {
+            setMetricName: () => syncUrl(),
+            setAggregation: () => syncUrl(),
+            setDateFrom: () => syncUrl(),
+            setDateTo: () => syncUrl(),
+            setFilterGroup: () => syncUrl(),
+            setGroupByKeys: () => syncUrl(),
+            setViewMode: () => syncUrl(),
+            setStatSummary: () => syncUrl(),
+        }
     }),
 ])

@@ -32355,6 +32355,30 @@ export namespace Schemas {
       Retention: 'retention',
     } as const;
 
+    /**
+     * Saved viewer state — the frontend MetricsViewerSavedFilters shape. May contain metricName, aggregation, filters, groupBy, dateFrom, dateTo, viewMode, and statSummary.
+     */
+    export type MetricsViewFilters = { [key: string]: unknown };
+
+    export interface MetricsView {
+      readonly id: string;
+      readonly short_id: string;
+      /**
+         * Human-readable name shown in the saved views list.
+         * @maxLength 400
+         */
+      name: string;
+      /** Saved viewer state — the frontend MetricsViewerSavedFilters shape. May contain metricName, aggregation, filters, groupBy, dateFrom, dateTo, viewMode, and statSummary. */
+      filters?: MetricsViewFilters;
+      /** Whether the view is pinned for quick access. */
+      pinned?: boolean;
+      readonly created_at: string;
+      /** User who created the view. */
+      readonly created_by: UserBasic | null;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
     export interface MinimalPerson {
       /** Numeric person ID. */
       readonly id: number;
@@ -34639,6 +34663,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: MessageTemplate[];
+    }
+
+    export interface PaginatedMetricsViewList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MetricsView[];
     }
 
     export interface PaginatedNodeList {
@@ -41686,6 +41719,30 @@ export namespace Schemas {
       message_category?: string | null;
       /** Soft-delete flag. Set true to remove the template from the library. */
       deleted?: boolean;
+    }
+
+    /**
+     * Saved viewer state — the frontend MetricsViewerSavedFilters shape. May contain metricName, aggregation, filters, groupBy, dateFrom, dateTo, viewMode, and statSummary.
+     */
+    export type PatchedMetricsViewFilters = { [key: string]: unknown };
+
+    export interface PatchedMetricsView {
+      readonly id?: string;
+      readonly short_id?: string;
+      /**
+         * Human-readable name shown in the saved views list.
+         * @maxLength 400
+         */
+      name?: string;
+      /** Saved viewer state — the frontend MetricsViewerSavedFilters shape. May contain metricName, aggregation, filters, groupBy, dateFrom, dateTo, viewMode, and statSummary. */
+      filters?: PatchedMetricsViewFilters;
+      /** Whether the view is pinned for quick access. */
+      pinned?: boolean;
+      readonly created_at?: string;
+      /** User who created the view. */
+      readonly created_by?: UserBasic | null;
+      /** @nullable */
+      readonly updated_at?: string | null;
     }
 
     export interface PatchedMoveTileRequest {
@@ -70927,6 +70984,17 @@ export namespace Schemas {
      * @maxLength 255
      */
     value?: string;
+    };
+
+    export type MetricsViewsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type NotebooksListParams = {
