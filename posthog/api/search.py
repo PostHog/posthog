@@ -261,7 +261,11 @@ def class_queryset(
     if hasattr(klass, "created_by"):
         qs = qs.annotate(_created_by_id=F("created_by_id"))
     else:
-        qs = qs.annotate(_created_by_id=Value(None, output_field=BigIntegerField()))
+        # Explicitly cast rather than relying on Value(None, ...)'s output_field: Django
+        # renders untyped None values as a bare `NULL`, so if two or more such entities end
+        # up adjacent in the union, Postgres resolves their shared column as `text` and then
+        # fails to match it against a real integer `_created_by_id` column elsewhere.
+        qs = qs.annotate(_created_by_id=Cast(Value(None), output_field=BigIntegerField()))
 
     # Apply entity-specific filters
     if filters:
