@@ -118,10 +118,10 @@ export function AISection(): JSX.Element {
                 <LemonCard hoverEffect={false} className="flex flex-col gap-y-3 max-w-[800px] px-4 py-3">
                     <h4 className="font-semibold text-sm mb-0">External MCP tools</h4>
                     <p className="text-xs text-muted-alt mb-0">
-                        The support agent can use MCP Store integrations you install (e.g. Shopify, Linear). It picks
-                        the right tools based on each ticket. Install servers under your account in{' '}
-                        <Link to={urls.settings('mcp-servers')}>MCP servers</Link>; drafts run as you when AI
-                        suggestions are enabled.
+                        The support agent can use MCP Store integrations for the run-as user (e.g. Shopify, Linear). It
+                        picks the right tools based on each ticket. Install servers under that account in{' '}
+                        <Link to={urls.settings('mcp-servers')}>MCP servers</Link>. The first admin to enable AI
+                        suggestions becomes the run-as user.
                     </p>
                 </LemonCard>
             )}
