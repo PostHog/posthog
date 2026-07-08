@@ -6,10 +6,7 @@ from rest_framework import status
 
 from products.feature_flags.backend.api.staff_cache import MAX_TEAMS_PER_MUTATION, READABLE_CACHE_CHOICES
 from products.feature_flags.backend.flags_cache import flags_hypercache
-from products.feature_flags.backend.local_evaluation import (
-    flag_definitions_hypercache,
-    flag_definitions_without_cohorts_hypercache,
-)
+from products.feature_flags.backend.local_evaluation import flag_definitions_hypercache
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 REBUILD_URL = "/api/feature_flags_staff_cache/rebuild/"
@@ -134,24 +131,10 @@ class TestFeatureFlagsStaffCacheAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
 
-    def test_status_reports_the_two_definitions_variants_independently(self):
-        self.addCleanup(flag_definitions_hypercache.clear_cache, self.team)
-        self.addCleanup(flag_definitions_without_cohorts_hypercache.clear_cache, self.team)
-
-        # Only warm the without-cohorts variant; the with-cohorts variant stays cold.
-        flag_definitions_without_cohorts_hypercache.update_cache(self.team)
-
-        response = self.client.get(f"/api/feature_flags_staff_cache/?team_ids={self.team.id}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        results = response.json()["results"][0]
-        self.assertEqual(results["definitions_no_cohorts"]["source"], "redis")
-        self.assertEqual(results["definitions"]["source"], "miss")
-
     @parameterized.expand(
         [
             ("evaluation", flags_hypercache),
             ("definitions", flag_definitions_hypercache),
-            ("definitions_no_cohorts", flag_definitions_without_cohorts_hypercache),
         ]
     )
     def test_entry_reads_the_hypercache_matching_the_cache_param(self, cache_kind, hypercache):
@@ -160,7 +143,6 @@ class TestFeatureFlagsStaffCacheAPI(APIBaseTest):
         # regardless of how the test ends.
         self.addCleanup(flags_hypercache.clear_cache, self.team)
         self.addCleanup(flag_definitions_hypercache.clear_cache, self.team)
-        self.addCleanup(flag_definitions_without_cohorts_hypercache.clear_cache, self.team)
 
         FeatureFlag.objects.create(
             team=self.team,

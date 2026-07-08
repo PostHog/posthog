@@ -21,7 +21,7 @@ const NO_SELECTION_REASON = 'Select at least one team'
 
 const ALL_CACHES: StaffCacheKind[] = ['evaluation', 'definitions']
 
-const READABLE_CACHE_KINDS: StaffReadableCacheKind[] = ['evaluation', 'definitions', 'definitions_no_cohorts']
+const READABLE_CACHE_KINDS: StaffReadableCacheKind[] = ['evaluation', 'definitions']
 
 function CacheStatusCell({ status, onView }: { status?: StaffCacheEntryStatus; onView: () => void }): JSX.Element {
     const tag = !status ? (

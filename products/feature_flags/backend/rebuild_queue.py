@@ -13,9 +13,8 @@ Throttling keeps a permanently-failing team from being rebuilt on a loop:
 - a consecutive-failure circuit breaker stops attempts entirely for
   ``CIRCUIT_OPEN_SECONDS`` once a team fails ``CIRCUIT_OPEN_THRESHOLD`` times.
 
-Both cache variants (with and without cohorts) are rebuilt, so a with-cohorts miss
-heals the without-cohorts entry too. The drain exists for the mass-eviction backlog,
-so it loads the whole batch in one DB round (like the verifier) rather than per team.
+The drain exists for the mass-eviction backlog, so it loads the whole batch in one
+DB round (like the verifier) rather than per team.
 """
 
 import time
@@ -31,7 +30,6 @@ from posthog.redis import get_client
 from products.feature_flags.backend.local_evaluation import (
     _skip_write_if_group_mapping_emptied,
     flag_definitions_hypercache,
-    flag_definitions_without_cohorts_hypercache,
 )
 
 logger = structlog.get_logger(__name__)
@@ -168,8 +166,8 @@ def _emit_queue_gauges(redis: redis_lib.Redis, now: float) -> None:
 
 def _rebuild_batch(redis: redis_lib.Redis, team_ids: list[int]) -> dict[int, bool]:
     """Rebuild every eligible team from a single batched DB load, then record each
-    outcome. Mirrors the verifier: one batch_load_fn per variant, then set_cache_value
-    per team (no per-team load_fn), which is the point of draining in one pass.
+    outcome. Mirrors the verifier: one batch_load_fn, then set_cache_value per team
+    (no per-team load_fn), which is the point of draining in one pass.
 
     A SoftTimeLimitExceeded propagates so the task winds down cleanly (the interrupted
     teams stay missing and are re-enqueued by their next miss). Any other load error
@@ -179,18 +177,16 @@ def _rebuild_batch(redis: redis_lib.Redis, team_ids: list[int]) -> dict[int, boo
     if not team_ids:
         return {}
 
-    # Both flag_definitions caches are always constructed with a batch_load_fn; bind it
+    # flag_definitions_hypercache is always constructed with a batch_load_fn; bind it
     # to narrow the Optional type and fail loudly if that invariant ever breaks.
-    with_cohorts_load = flag_definitions_hypercache.batch_load_fn
-    without_cohorts_load = flag_definitions_without_cohorts_hypercache.batch_load_fn
-    if with_cohorts_load is None or without_cohorts_load is None:
-        raise RuntimeError("flag_definitions hypercaches must be configured with a batch_load_fn")
+    batch_load = flag_definitions_hypercache.batch_load_fn
+    if batch_load is None:
+        raise RuntimeError("flag_definitions_hypercache must be configured with a batch_load_fn")
 
     try:
         teams = list(Team.objects.filter(id__in=team_ids))
         teams_by_id = {team.id: team for team in teams}
-        with_cohorts = with_cohorts_load(teams)
-        without_cohorts = without_cohorts_load(teams)
+        payloads = batch_load(teams)
     except SoftTimeLimitExceeded:
         raise
     except Exception:
@@ -203,9 +199,9 @@ def _rebuild_batch(redis: redis_lib.Redis, team_ids: list[int]) -> dict[int, boo
         if team is None:
             results[team_id] = _record_result(redis, team_id, ok=False)
             continue
-        payload = with_cohorts[team_id]
+        payload = payloads[team_id]
         if _skip_write_if_group_mapping_emptied(team, payload):
-            # personhog lag would cache an emptied group_type_mapping; skip both writes
+            # personhog lag would cache an emptied group_type_mapping; skip the write
             # without counting a failure (that would wrongly advance the circuit breaker).
             # Release the cooldown so the team retries on the next drain once the mapping
             # is available, rather than staying missing for the full cooldown window.
@@ -213,7 +209,6 @@ def _rebuild_batch(redis: redis_lib.Redis, team_ids: list[int]) -> dict[int, boo
             continue
         try:
             flag_definitions_hypercache.set_cache_value(team, payload)
-            flag_definitions_without_cohorts_hypercache.set_cache_value(team, without_cohorts[team_id])
             ok = True
         except SoftTimeLimitExceeded:
             raise

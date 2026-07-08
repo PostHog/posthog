@@ -12,10 +12,8 @@ import * as zod from 'zod'
 /**
  * Staff-only, unscoped status/entry/rebuild/clear for the HyperCache-backed flag caches.
  *
- * Rebuild/clear act on two logical targets ('evaluation' and 'definitions'; the latter rebuilds
- * or clears both definitions-cache variants together). Status/entry can read a third, narrower
- * target ('definitions_no_cohorts') independently, since the two definitions-cache variants are
- * individually readable even though they're only mutated as a pair.
+ * Rebuild/clear act on two logical targets: 'evaluation' (the /flags cache) and 'definitions'
+ * (the /flags/definitions local-eval cache), independently readable and mutable.
  *
  * Reuses the existing cache functions and Celery tasks (the same mechanism signal handlers use
  * when a flag changes) rather than re-implementing cache-write logic. Registered on the root
@@ -43,10 +41,8 @@ export const FeatureFlagsStaffCacheClearCreateBody = /* @__PURE__ */ zod.object(
 /**
  * Staff-only, unscoped status/entry/rebuild/clear for the HyperCache-backed flag caches.
  *
- * Rebuild/clear act on two logical targets ('evaluation' and 'definitions'; the latter rebuilds
- * or clears both definitions-cache variants together). Status/entry can read a third, narrower
- * target ('definitions_no_cohorts') independently, since the two definitions-cache variants are
- * individually readable even though they're only mutated as a pair.
+ * Rebuild/clear act on two logical targets: 'evaluation' (the /flags cache) and 'definitions'
+ * (the /flags/definitions local-eval cache), independently readable and mutable.
  *
  * Reuses the existing cache functions and Celery tasks (the same mechanism signal handlers use
  * when a flag changes) rather than re-implementing cache-write logic. Registered on the root

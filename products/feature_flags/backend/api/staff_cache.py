@@ -15,10 +15,7 @@ from posthog.models.team import Team
 from posthog.permissions import IsStaffUser
 
 from products.feature_flags.backend.flags_cache import enqueue_evaluation_cache_invalidation, flags_hypercache
-from products.feature_flags.backend.local_evaluation import (
-    flag_definitions_hypercache,
-    flag_definitions_without_cohorts_hypercache,
-)
+from products.feature_flags.backend.local_evaluation import flag_definitions_hypercache
 from products.feature_flags.backend.tasks import (
     clear_team_definitions_cache,
     clear_team_evaluation_cache,
@@ -33,23 +30,17 @@ MAX_TEAMS_PER_MUTATION = 50
 
 EVALUATION = "evaluation"
 DEFINITIONS = "definitions"
-DEFINITIONS_NO_COHORTS = "definitions_no_cohorts"
 
-# What rebuild/clear act on. "definitions" already rebuilds/clears both definitions-cache
-# variants together (see update_flag_caches / clear_flag_definition_caches), so there is no
-# separate mutation target for the no-cohorts variant.
 CACHE_CHOICES = [EVALUATION, DEFINITIONS]
 
 # The readable caches, enumerated once here rather than hardcoded in list/entry.
 _READABLE_HYPERCACHES = {
     EVALUATION: flags_hypercache,
     DEFINITIONS: flag_definitions_hypercache,
-    DEFINITIONS_NO_COHORTS: flag_definitions_without_cohorts_hypercache,
 }
 
-# What status/entry can read. Unlike mutation, status/entry read each definitions-cache
-# variant independently, so the no-cohorts variant is separately observable here.
-READABLE_CACHE_CHOICES = list(_READABLE_HYPERCACHES)
+# Reading and mutating currently share the same choice set.
+READABLE_CACHE_CHOICES = CACHE_CHOICES
 
 
 def _team_ids_field(help_text: str) -> serializers.ListField:
@@ -83,15 +74,7 @@ class StaffCacheEntryStatusSerializer(serializers.Serializer):
 class StaffCacheTeamStatusSerializer(serializers.Serializer):
     team_id = serializers.IntegerField(help_text="Team id.")
     evaluation = StaffCacheEntryStatusSerializer(help_text="Status of the /flags evaluation cache.")
-    definitions = StaffCacheEntryStatusSerializer(
-        help_text="Status of the /flags/definitions local-eval cache (with-cohorts variant)."
-    )
-    definitions_no_cohorts = StaffCacheEntryStatusSerializer(
-        help_text=(
-            "Status of the /flags/definitions local-eval cache (without-cohorts variant, cohort "
-            "filters transformed to properties for simple SDK clients)."
-        )
-    )
+    definitions = StaffCacheEntryStatusSerializer(help_text="Status of the /flags/definitions local-eval cache.")
 
 
 @extend_schema_serializer(many=False)
@@ -128,9 +111,8 @@ class StaffCacheEntryQuerySerializer(serializers.Serializer):
     cache = serializers.ChoiceField(
         choices=READABLE_CACHE_CHOICES,
         help_text=(
-            "Which cache to fetch: 'evaluation' (the /flags cache), 'definitions' (the "
-            "/flags/definitions local-eval cache, with-cohorts variant), or 'definitions_no_cohorts' "
-            "(the without-cohorts variant served to simple SDK clients)."
+            "Which cache to fetch: 'evaluation' (the /flags cache) or 'definitions' "
+            "(the /flags/definitions local-eval cache)."
         ),
     )
 
@@ -209,10 +191,8 @@ class FeatureFlagsStaffCacheViewSet(viewsets.ViewSet):
     """
     Staff-only, unscoped status/entry/rebuild/clear for the HyperCache-backed flag caches.
 
-    Rebuild/clear act on two logical targets ('evaluation' and 'definitions'; the latter rebuilds
-    or clears both definitions-cache variants together). Status/entry can read a third, narrower
-    target ('definitions_no_cohorts') independently, since the two definitions-cache variants are
-    individually readable even though they're only mutated as a pair.
+    Rebuild/clear act on two logical targets: 'evaluation' (the /flags cache) and 'definitions'
+    (the /flags/definitions local-eval cache), independently readable and mutable.
 
     Reuses the existing cache functions and Celery tasks (the same mechanism signal handlers use
     when a flag changes) rather than re-implementing cache-write logic. Registered on the root
@@ -244,7 +224,6 @@ class FeatureFlagsStaffCacheViewSet(viewsets.ViewSet):
                 "team_id": team.id,
                 "evaluation": _entry_status(batches[EVALUATION][team.id]),
                 "definitions": _entry_status(batches[DEFINITIONS][team.id]),
-                "definitions_no_cohorts": _entry_status(batches[DEFINITIONS_NO_COHORTS][team.id]),
             }
             for team in teams
         ]

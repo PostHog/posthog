@@ -13,9 +13,9 @@ import {
     featureFlagsStaffTeamsList,
 } from '../generated/api'
 import type {
-    CachesEnumApi,
     FeatureFlagsStaffCacheEntryRetrieveCache,
     StaffCacheEntryResponseApi,
+    StaffCacheKindEnumApi,
     StaffCacheMutationResponseApi,
     StaffCacheTeamStatusApi,
     StaffTeamResultApi,
@@ -23,17 +23,14 @@ import type {
 import type { featureFlagsStaffToolsLogicType } from './featureFlagsStaffToolsLogicType'
 
 // What rebuild/clear can act on. Mirrors the backend's CACHE_CHOICES.
-export type StaffCacheKind = CachesEnumApi
+export type StaffCacheKind = StaffCacheKindEnumApi
 
-// What status/entry can read. Mirrors the backend's READABLE_CACHE_CHOICES: unlike mutation,
-// the two definitions-cache variants are individually observable even though they're only
-// mutated as a pair (see the backend's staff_cache.py module docstring).
+// What status/entry can read. Mirrors the backend's READABLE_CACHE_CHOICES.
 export type StaffReadableCacheKind = FeatureFlagsStaffCacheEntryRetrieveCache
 
 export const CACHE_LABELS: Record<StaffReadableCacheKind, string> = {
     evaluation: 'Flags cache',
-    definitions: 'Definitions cache (cohorts)',
-    definitions_no_cohorts: 'Definitions cache (no cohorts)',
+    definitions: 'Definitions cache',
 }
 
 const MIN_SEARCH_LENGTH = 2

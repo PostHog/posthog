@@ -1,6 +1,6 @@
 import json
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.contrib.auth.base_user import AbstractBaseUser
 from django.contrib.postgres.aggregates import ArrayAgg
@@ -16,14 +16,13 @@ import structlog
 from django_deprecate_fields import deprecate_field
 
 from posthog.caching.flags_redis_cache import write_flags_to_cache
-from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER, PropertyOperatorType
+from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.property import GroupTypeIndex
-from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import RootTeamManager, RootTeamMixin
 
@@ -298,146 +297,6 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
 
     def get_filters(self) -> dict:
         return self.filters
-
-    def transform_cohort_filters_for_easy_evaluation(
-        self,
-        using_database: str = "default",
-        seen_cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
-    ):
-        """
-        Expands cohort filters into person property filters when possible.
-        This allows for easy local flag evaluation.
-        """
-        # Expansion depends on number of conditions on the flag.
-        # If flag has only the cohort condition, we get more freedom to maneuver in the cohort expansion.
-        # If flag has multiple conditions, we can only expand the cohort condition if it's a single property group.
-        # Also support only a single cohort expansion. i.e. a flag with multiple cohort conditions will not be expanded.
-        # Few more edge cases are possible here, where expansion is possible, but it doesn't seem
-        # worth it trying to catch all of these.
-
-        if seen_cohorts_cache is None:
-            seen_cohorts_cache = {}
-
-        if len(self.get_cohort_ids(using_database=using_database, seen_cohorts_cache=seen_cohorts_cache)) != 1:
-            return self.conditions
-
-        cohort_group_rollout = None
-        cohort: CohortOrEmpty = None
-
-        parsed_conditions = []
-        for condition in self.conditions:
-            if condition.get("variant"):
-                # variant overrides are not supported for cohort expansion.
-                return self.conditions
-
-            cohort_condition = False
-            props = condition.get("properties", [])
-            cohort_group_rollout = condition.get("rollout_percentage")
-            for prop in props:
-                if prop.get("type") == "cohort":
-                    cohort_condition = True
-                    cohort_id = int(prop.get("value"))
-                    if cohort_id:
-                        if len(props) > 1:
-                            # We cannot expand this cohort condition if it's not the only property in its group.
-                            return self.conditions
-                        try:
-                            if cohort_id in seen_cohorts_cache:
-                                cohort = seen_cohorts_cache[cohort_id]
-                                if not cohort:
-                                    return self.conditions
-                            else:
-                                cohort = Cohort.objects.db_manager(using_database).get(
-                                    pk=cohort_id,
-                                    team__project_id=self.team.project_id,
-                                    deleted=False,
-                                )
-                                seen_cohorts_cache[cohort_id] = cohort
-                        except Cohort.DoesNotExist:
-                            seen_cohorts_cache[cohort_id] = ""
-                            return self.conditions
-            if not cohort_condition:
-                # flag group without a cohort filter, let it be as is.
-                parsed_conditions.append(condition)
-
-        if not cohort or len(cohort.properties.flat) == 0:
-            return self.conditions
-
-        if not all(property.type == "person" for property in cohort.properties.flat):
-            # Cohorts containing non-person property types (e.g. behavioral, person_metadata)
-            # are deliberately not inlined into flag groups. They flow to SDKs as cohort
-            # references; modern SDKs raise InconclusiveMatchError on unknown property types
-            # and fall back to /flags/, where the Rust matcher handles them.
-            #
-            # Note: do NOT route person_metadata through the legacy posthog/queries/base.py
-            # paths (`property_to_Q` / `match_property`). Those don't recognize the type;
-            # `match_property` in particular dispatches purely on `key` and would silently
-            # produce a wrong-but-not-erroring result.
-            return self.conditions
-
-        if any(property.negation for property in cohort.properties.flat):
-            # Local evaluation doesn't support negation.
-            return self.conditions
-
-        # all person properties, so now if we can express the cohort as feature flag groups, we'll be golden.
-
-        # If there's only one effective property group, we can always express this as feature flag groups.
-        # A single ff group, if cohort properties are AND'ed together.
-        # Multiple ff groups, if cohort properties are OR'ed together.
-        from posthog.models.property.util import clear_excess_levels
-
-        target_properties = clear_excess_levels(cohort.properties)
-
-        if isinstance(target_properties, Property):
-            # cohort was effectively a single property.
-            parsed_conditions.append(
-                {
-                    "properties": [target_properties.to_dict()],
-                    "rollout_percentage": cohort_group_rollout,
-                }
-            )
-
-        elif isinstance(target_properties.values[0], Property):
-            # Property Group of properties
-            if target_properties.type == PropertyOperatorType.AND:
-                parsed_conditions.append(
-                    {
-                        "properties": [prop.to_dict() for prop in target_properties.values],
-                        "rollout_percentage": cohort_group_rollout,
-                    }
-                )
-            else:
-                # cohort OR requires multiple ff group
-                for prop in target_properties.values:
-                    parsed_conditions.append(
-                        {
-                            "properties": [prop.to_dict()],
-                            "rollout_percentage": cohort_group_rollout,
-                        }
-                    )
-        else:
-            # If there's nested property groups, we need to express that as OR of ANDs.
-            # Being a bit dumb here, and not trying to apply De Morgan's law to coerce AND of ORs into OR of ANDs.
-            if target_properties.type == PropertyOperatorType.AND:
-                return self.conditions
-
-            for prop_group in cast(list[PropertyGroup], target_properties.values):
-                if (
-                    len(prop_group.values) == 0
-                    or not isinstance(prop_group.values[0], Property)
-                    or (prop_group.type == PropertyOperatorType.OR and len(prop_group.values) > 1)
-                ):
-                    # too nested or invalid, bail out
-                    return self.conditions
-
-                parsed_conditions.append(
-                    {
-                        "properties": [prop.to_dict() for prop in prop_group.values],
-                        "rollout_percentage": cohort_group_rollout,
-                    }
-                )
-
-        return parsed_conditions
 
     def get_cohort_ids(
         self,

@@ -151,27 +151,18 @@ This matches the Rust fallback path's petgraph-based cycle handling, where all c
 
 ## Local evaluation caching
 
-Feature flag local evaluation uses two separate HyperCache instances in `posthog/models/feature_flag/local_evaluation.py`:
+Feature flag local evaluation uses a HyperCache instance in `products/feature_flags/backend/local_evaluation.py`:
 
 ```python
-# Full flags with cohort definitions (for smart clients)
 flag_definitions_hypercache = HyperCache(
     namespace="feature_flags",
     value="flags_with_cohorts.json",
-    load_fn=lambda key: _get_flags_response_for_local_evaluation(team, include_cohorts=True),
-    enable_etag=True,
-)
-
-# Simplified flags without cohorts (legacy)
-flag_definitions_without_cohorts_hypercache = HyperCache(
-    namespace="feature_flags",
-    value="flags_without_cohorts.json",
-    load_fn=lambda key: _get_flags_response_for_local_evaluation(team, include_cohorts=False),
+    load_fn=lambda key: _get_flags_response_for_local_evaluation(team),
     enable_etag=True,
 )
 ```
 
-All current SDKs support cohort evaluation locally, so the dual-cache strategy is legacy. The `flag_definitions_without_cohorts_hypercache` cache exists for older SDK versions that couldn't handle cohort definitions. Once requests for flags without cohorts decline sufficiently, this cache can be removed.
+It includes full cohort definitions and group type mappings, since all current SDKs support cohort evaluation locally. A legacy `flag_definitions_without_cohorts_hypercache` variant — pre-flattened cohort filters for SDKs too old to evaluate cohorts locally — was removed once nothing served it to real clients anymore.
 
 ### Cache invalidation
 
@@ -358,12 +349,11 @@ The Rust service only operates when `FLAGS_REDIS_URL` is configured. All cache u
 
 Cache freshness is maintained through scheduled Celery tasks.
 
-| Task                                                         | Schedule         | Purpose                                                          |
-| ------------------------------------------------------------ | ---------------- | ---------------------------------------------------------------- |
-| `refresh_expiring_flags_cache_entries`                       | Hourly at :15    | Refresh caches with TTL < 24h before they expire                 |
-| `cleanup_stale_flags_expiry_tracking_task`                   | Daily at 3:15 AM | Remove expired team entries from tracking sorted set             |
-| `verify_and_fix_flag_definitions_cache_task`                 | Hourly at :50    | Verify flag definitions cache (with cohorts) against database    |
-| `verify_and_fix_flag_definitions_without_cohorts_cache_task` | Hourly at :10    | Verify flag definitions cache (without cohorts) against database |
+| Task                                         | Schedule         | Purpose                                              |
+| -------------------------------------------- | ---------------- | ---------------------------------------------------- |
+| `refresh_expiring_flags_cache_entries`       | Hourly at :15    | Refresh caches with TTL < 24h before they expire     |
+| `cleanup_stale_flags_expiry_tracking_task`   | Daily at 3:15 AM | Remove expired team entries from tracking sorted set |
+| `verify_and_fix_flag_definitions_cache_task` | Hourly at :50    | Verify flag definitions cache against database       |
 
 ### Refresh task
 
@@ -383,15 +373,15 @@ The task uses a Redis sorted set (`flags_cache_expiry`) to efficiently find expi
 
 ### Verification tasks
 
-Two independent verification tasks compare cached flag definitions against the database and fix discrepancies — one for the with-cohorts variant (runs at :50) and one for the without-cohorts variant (runs at :10). Each task:
+The flag definitions verification task (runs hourly at :50) compares cached flag definitions against the database and fixes discrepancies:
 
-1. Acquires its own distributed lock (so one variant can't block the other)
+1. Acquires a distributed lock so overlapping scheduled runs skip instead of duplicating work
 2. Samples teams from the cache
 3. Compares cached flags to current database state
 4. Auto-fixes mismatches by refreshing the cache
 5. Reports metrics on match/mismatch/miss rates
 
-Each task has a 25-minute soft / 30-minute hard time limit, since each only handles one variant.
+The task has a 25-minute soft / 30-minute hard time limit.
 
 Configuration:
 

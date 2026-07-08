@@ -718,6 +718,10 @@ SPECTACULAR_SETTINGS = {
         # redis/miss choice set. Pin to a stable name so the collision doesn't auto-resolve
         # to a hash name.
         "StaffCacheSourceEnum": ["redis", "miss"],
+        # StaffCacheEntryQuery/Response's singular `cache` field and StaffCacheMutation's
+        # `caches` list item share the same evaluation/definitions choice set. Pin to a
+        # stable name so "cache" and "caches" don't collide into a hash name.
+        "StaffCacheKindEnum": ["evaluation", "definitions"],
     },
 }
 

@@ -61,7 +61,6 @@ describe('featureFlagsStaffToolsLogic', () => {
                                 team_id: 5,
                                 evaluation: { source: 'redis', flag_count: 3 },
                                 definitions: { source: 'redis', flag_count: 3 },
-                                definitions_no_cohorts: { source: 'miss', flag_count: null },
                             },
                         ],
                     },
@@ -76,7 +75,6 @@ describe('featureFlagsStaffToolsLogic', () => {
                         team_id: 5,
                         evaluation: { source: 'redis', flag_count: 3 },
                         definitions: { source: 'redis', flag_count: 3 },
-                        definitions_no_cohorts: { source: 'miss', flag_count: null },
                     },
                 },
             })

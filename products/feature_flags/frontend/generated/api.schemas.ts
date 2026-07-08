@@ -36,10 +36,8 @@ export interface StaffCacheTeamStatusApi {
     team_id: number
     /** Status of the /flags evaluation cache. */
     evaluation: StaffCacheEntryStatusApi
-    /** Status of the /flags/definitions local-eval cache (with-cohorts variant). */
+    /** Status of the /flags/definitions local-eval cache. */
     definitions: StaffCacheEntryStatusApi
-    /** Status of the /flags/definitions local-eval cache (without-cohorts variant, cohort filters transformed to properties for simple SDK clients). */
-    definitions_no_cohorts: StaffCacheEntryStatusApi
 }
 
 export interface StaffCacheStatusResponseApi {
@@ -51,9 +49,9 @@ export interface StaffCacheStatusResponseApi {
  * * `evaluation` - evaluation
  * * `definitions` - definitions
  */
-export type CachesEnumApi = (typeof CachesEnumApi)[keyof typeof CachesEnumApi]
+export type StaffCacheKindEnumApi = (typeof StaffCacheKindEnumApi)[keyof typeof StaffCacheKindEnumApi]
 
-export const CachesEnumApi = {
+export const StaffCacheKindEnumApi = {
     Evaluation: 'evaluation',
     Definitions: 'definitions',
 } as const
@@ -65,7 +63,7 @@ export interface StaffCacheMutationApi {
      */
     team_ids: number[]
     /** Which logical caches to act on: 'evaluation' (the /flags cache) and/or 'definitions' (the /flags/definitions local-eval cache). Defaults to both. */
-    caches?: CachesEnumApi[]
+    caches?: StaffCacheKindEnumApi[]
 }
 
 export interface StaffCacheMutationResponseApi {
@@ -81,28 +79,14 @@ export interface StaffCacheMutationResponseApi {
  */
 export type StaffCacheEntryResponseApiData = { [key: string]: unknown } | null
 
-/**
- * * `evaluation` - evaluation
- * * `definitions` - definitions
- * * `definitions_no_cohorts` - definitions_no_cohorts
- */
-export type CacheEnumApi = (typeof CacheEnumApi)[keyof typeof CacheEnumApi]
-
-export const CacheEnumApi = {
-    Evaluation: 'evaluation',
-    Definitions: 'definitions',
-    DefinitionsNoCohorts: 'definitions_no_cohorts',
-} as const
-
 export interface StaffCacheEntryResponseApi {
     /** Team id. */
     team_id: number
     /** Which cache this entry is for.
      *
      * * `evaluation` - evaluation
-     * * `definitions` - definitions
-     * * `definitions_no_cohorts` - definitions_no_cohorts */
-    cache: CacheEnumApi
+     * * `definitions` - definitions */
+    cache: StaffCacheKindEnumApi
     /** 'redis' when a warm entry is cached, or 'miss' when nothing is cached in Redis.
      *
      * * `redis` - redis
@@ -1572,11 +1556,10 @@ export type FeatureFlagsStaffCacheListParams = {
 
 export type FeatureFlagsStaffCacheEntryRetrieveParams = {
     /**
-     * Which cache to fetch: 'evaluation' (the /flags cache), 'definitions' (the /flags/definitions local-eval cache, with-cohorts variant), or 'definitions_no_cohorts' (the without-cohorts variant served to simple SDK clients).
+     * Which cache to fetch: 'evaluation' (the /flags cache) or 'definitions' (the /flags/definitions local-eval cache).
      *
      * * `evaluation` - evaluation
      * * `definitions` - definitions
-     * * `definitions_no_cohorts` - definitions_no_cohorts
      * @minLength 1
      */
     cache: FeatureFlagsStaffCacheEntryRetrieveCache
@@ -1592,7 +1575,6 @@ export type FeatureFlagsStaffCacheEntryRetrieveCache =
 export const FeatureFlagsStaffCacheEntryRetrieveCache = {
     Evaluation: 'evaluation',
     Definitions: 'definitions',
-    DefinitionsNoCohorts: 'definitions_no_cohorts',
 } as const
 
 export type FeatureFlagsStaffTeamsListParams = {
