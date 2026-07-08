@@ -129,8 +129,8 @@ export const selfManagedSourceLogic = kea<selfManagedSourceLogicType>([
                     name: !name && 'Please enter a name.',
                     url_pattern: !url_pattern && 'Please enter a url pattern.',
                     credential: {
-                        access_secret: !credential.access_secret && 'Please enter an access secret.',
-                        access_key: !credential.access_key && 'Please enter an access key.',
+                        access_secret: !credential?.access_secret && 'Please enter an access secret.',
+                        access_key: !credential?.access_key && 'Please enter an access key.',
                     },
                     format: !format && 'Please enter the format of your files.',
                 }

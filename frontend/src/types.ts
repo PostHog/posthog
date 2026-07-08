@@ -5935,7 +5935,7 @@ export interface DataWarehouseTable {
     name: string
     format: DataWarehouseTableTypes
     url_pattern: string
-    credential: DataWarehouseCredential
+    credential: DataWarehouseCredential | null
     external_data_source?: ExternalDataSource
     external_schema?: SimpleExternalDataSourceSchema
     options?: { csv_allow_double_quotes?: boolean | null }
