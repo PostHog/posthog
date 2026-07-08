@@ -45,22 +45,40 @@ const ROOTS = [
             'src/lib/components/ActivityLog/describers',
             // Inlined hoggie SVGs are huge (up to ~1 MiB each), and one static barrel import
             // from eager code drags every hoggie used anywhere in the app onto the eager
-            // path. Eager code must use lazyHoggie from lib/brand/hoggies instead.
-            'node_modules/@posthog/brand/dist/generated/hoggies/',
+            // path. All app code uses pngHoggie (lib/brand/hoggies) instead - the package's
+            // `hoggies/png/*` URL stubs are allowed (a few bytes each, the image bytes stay
+            // out of the JS bundle entirely). Nothing imports the SVG modules today (oxlint
+            // no-restricted-imports bans them), so these are tripwires: verifyPrefix checks
+            // the package is still laid out as expected via the PNG stubs that DO ship.
+            {
+                pattern: 'node_modules/@posthog/brand/dist/generated/hoggies/svg/',
+                verifyPrefix: 'node_modules/@posthog/brand/dist/generated/hoggies/',
+            },
+            {
+                pattern: 'node_modules/@posthog/brand/dist/generated/hoggies/components/',
+                verifyPrefix: 'node_modules/@posthog/brand/dist/generated/hoggies/',
+            },
         ],
     },
     {
         root: 'src/scenes/AuthenticatedShell.tsx',
         label: 'authenticated shell (every logged-in page)',
         // 2026-07-07: 8.02 MiB eager output after moving all @posthog/brand/hoggies usage in
-        // eager code behind lazyHoggie (lib/brand/hoggies) — the hoggies themselves are now a
+        // eager code to PNG stubs (lib/brand/hoggies) — the inline-SVG modules are now a
         // forbidden module below. ~15% headroom so routine churn doesn't trip the warn.
         budgetBytes: 9_700_000,
         forbidden: [
             'node_modules/monaco-editor/',
             'src/lib/components/ActivityLog/describers',
-            // See the entry root's note: hoggies must stay behind lazyHoggie in eager code.
-            'node_modules/@posthog/brand/dist/generated/hoggies/',
+            // See the entry root's note: inline-SVG hoggies must stay off the eager path.
+            {
+                pattern: 'node_modules/@posthog/brand/dist/generated/hoggies/svg/',
+                verifyPrefix: 'node_modules/@posthog/brand/dist/generated/hoggies/',
+            },
+            {
+                pattern: 'node_modules/@posthog/brand/dist/generated/hoggies/components/',
+                verifyPrefix: 'node_modules/@posthog/brand/dist/generated/hoggies/',
+            },
         ],
     },
 ]
@@ -213,14 +231,20 @@ const report = { roots: [], errors: [], warnings: [] }
 // because `inputs` is the global metafile index, not per-root.
 const allInputKeys = Object.keys(inputs)
 
-// Self-verify: each forbidden pattern should match at least one module present anywhere in
-// the metafile inputs. If it matches nothing, the path string is stale (dist layout changed,
-// package renamed) and the guard silently stops enforcing. Warn once per unique pattern so
-// a pattern shared across roots doesn't produce duplicate annotations.
-for (const forbiddenSubstr of new Set(ROOTS.flatMap((r) => r.forbidden))) {
-    if (!allInputKeys.some((f) => f.includes(forbiddenSubstr))) {
+// Forbidden entries are strings, or { pattern, verifyPrefix } when the pattern is a pure
+// tripwire that legitimately matches nothing in a healthy build.
+const forbiddenPattern = (entry) => (typeof entry === 'string' ? entry : entry.pattern)
+const forbiddenVerify = (entry) => (typeof entry === 'string' ? entry : entry.verifyPrefix)
+
+// Self-verify: each forbidden pattern's verify prefix should match at least one module present
+// anywhere in the metafile inputs. If it matches nothing, the path string is stale (dist layout
+// changed, package renamed) and the guard silently stops enforcing. Tripwire entries verify a
+// broader prefix instead, since matching nothing is their healthy state. Warn once per unique
+// prefix so a pattern shared across roots doesn't produce duplicate annotations.
+for (const verifySubstr of new Set(ROOTS.flatMap((r) => r.forbidden.map(forbiddenVerify)))) {
+    if (!allInputKeys.some((f) => f.includes(verifySubstr))) {
         const msg =
-            `Forbidden pattern '${forbiddenSubstr}' does not match any module in the build — ` +
+            `Forbidden pattern (or its verify prefix) '${verifySubstr}' does not match any module in the build — ` +
             `the path may be stale. Update it in frontend/bin/check-eager-graph.mjs.`
         warnViolation(msg)
         report.warnings.push(msg)
@@ -274,7 +298,7 @@ for (const { root, label, budgetBytes, forbidden } of ROOTS) {
     // short when the output edge has no input-graph counterpart.
 
     const hitFiles = new Map()
-    for (const forbiddenSubstr of forbidden) {
+    for (const forbiddenSubstr of forbidden.map(forbiddenPattern)) {
         const hit = [...eagerBytesByFile.keys()].find((f) => f.includes(forbiddenSubstr))
         if (hit) {
             hitFiles.set(forbiddenSubstr, hit)

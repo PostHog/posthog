@@ -1,3 +1,11 @@
+import * as chartHog from '@posthog/brand/hoggies/png/chart-hog'
+import * as construction1 from '@posthog/brand/hoggies/png/construction-1'
+import * as director from '@posthog/brand/hoggies/png/director'
+import * as experiment from '@posthog/brand/hoggies/png/experiment'
+import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass'
+import * as readingIsMagic from '@posthog/brand/hoggies/png/reading-is-magic'
+import * as reporter from '@posthog/brand/hoggies/png/reporter'
+import * as roboHog from '@posthog/brand/hoggies/png/robo-hog'
 import {
     IconBolt,
     IconBuilding,
@@ -28,7 +36,7 @@ import {
     IconWarning,
 } from '@posthog/icons'
 
-import { lazyHoggie } from 'lib/brand/hoggies'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { ExplorerHog, FeatureFlagHog, MailHog } from 'lib/components/hedgehogs'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -36,14 +44,14 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { type AvailableOnboardingProducts, type OnboardingProduct } from '~/types'
 
-const HedgehogChartHog = lazyHoggie('HedgehogChartHog')
-const HedgehogConstruction1 = lazyHoggie('HedgehogConstruction1')
-const HedgehogDirector = lazyHoggie('HedgehogDirector')
-const HedgehogExperiment = lazyHoggie('HedgehogExperiment')
-const HedgehogMagnifyingGlass = lazyHoggie('HedgehogMagnifyingGlass')
-const HedgehogReadingIsMagic = lazyHoggie('HedgehogReadingIsMagic')
-const HedgehogReporter = lazyHoggie('HedgehogReporter')
-const HedgehogRoboHog = lazyHoggie('HedgehogRoboHog')
+const HedgehogChartHog = pngHoggie(chartHog)
+const HedgehogConstruction1 = pngHoggie(construction1)
+const HedgehogDirector = pngHoggie(director)
+const HedgehogExperiment = pngHoggie(experiment)
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlass)
+const HedgehogReadingIsMagic = pngHoggie(readingIsMagic)
+const HedgehogReporter = pngHoggie(reporter)
+const HedgehogRoboHog = pngHoggie(roboHog)
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string; color?: string }>> = {
     IconBolt,

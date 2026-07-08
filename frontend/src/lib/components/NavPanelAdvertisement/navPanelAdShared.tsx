@@ -28,7 +28,7 @@ export function isCampaignPayload(value: unknown): value is CampaignPayload {
 }
 
 export interface ProductPushDisplay {
-    /** Hoggie illustration shown in the promo card's hero image (lazy, via `lazyHoggie`) */
+    /** Hoggie illustration shown in the promo card's hero image (a PNG, via `pngHoggie`) */
     Hoggie: React.ComponentType<AssetSvgProps>
     /** Product brand color driving the hero's geometric background */
     accentColor: string

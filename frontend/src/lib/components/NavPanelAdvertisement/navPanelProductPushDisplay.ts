@@ -1,24 +1,40 @@
-import { lazyHoggie } from 'lib/brand/hoggies'
+import * as chartHog from '@posthog/brand/hoggies/png/chart-hog'
+import * as codeBubble from '@posthog/brand/hoggies/png/code-bubble'
+import * as cursorHog from '@posthog/brand/hoggies/png/cursor-hog'
+import * as director from '@posthog/brand/hoggies/png/director'
+import * as experiment from '@posthog/brand/hoggies/png/experiment'
+import * as judge from '@posthog/brand/hoggies/png/judge'
+import * as megaphone from '@posthog/brand/hoggies/png/megaphone'
+import * as noirHog from '@posthog/brand/hoggies/png/noir-hog'
+import * as panic from '@posthog/brand/hoggies/png/panic'
+import * as phoneCall from '@posthog/brand/hoggies/png/phone-call'
+import * as puzzle from '@posthog/brand/hoggies/png/puzzle'
+import * as roboHog from '@posthog/brand/hoggies/png/robo-hog'
+import * as trafficController from '@posthog/brand/hoggies/png/traffic-controller'
+import * as wizardHog from '@posthog/brand/hoggies/png/wizard-hog'
+import * as workflows from '@posthog/brand/hoggies/png/workflows'
+
+import { pngHoggie } from 'lib/brand/hoggies'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import type { ProductPushDisplay } from './navPanelAdShared'
 
-const HedgehogChartHog = lazyHoggie('HedgehogChartHog')
-const HedgehogCodeBubble = lazyHoggie('HedgehogCodeBubble')
-const HedgehogCursorHog = lazyHoggie('HedgehogCursorHog')
-const HedgehogDirector = lazyHoggie('HedgehogDirector')
-const HedgehogExperiment = lazyHoggie('HedgehogExperiment')
-const HedgehogJudge = lazyHoggie('HedgehogJudge')
-const HedgehogMegaphone = lazyHoggie('HedgehogMegaphone')
-const HedgehogNoirHog = lazyHoggie('HedgehogNoirHog')
-const HedgehogPanic = lazyHoggie('HedgehogPanic')
-const HedgehogPhoneCall = lazyHoggie('HedgehogPhoneCall')
-const HedgehogPuzzle = lazyHoggie('HedgehogPuzzle')
-const HedgehogRoboHog = lazyHoggie('HedgehogRoboHog')
-const HedgehogTrafficController = lazyHoggie('HedgehogTrafficController')
-const HedgehogWizardHog = lazyHoggie('HedgehogWizardHog')
-const HedgehogWorkflows = lazyHoggie('HedgehogWorkflows')
+const HedgehogChartHog = pngHoggie(chartHog)
+const HedgehogCodeBubble = pngHoggie(codeBubble)
+const HedgehogCursorHog = pngHoggie(cursorHog)
+const HedgehogDirector = pngHoggie(director)
+const HedgehogExperiment = pngHoggie(experiment)
+const HedgehogJudge = pngHoggie(judge)
+const HedgehogMegaphone = pngHoggie(megaphone)
+const HedgehogNoirHog = pngHoggie(noirHog)
+const HedgehogPanic = pngHoggie(panic)
+const HedgehogPhoneCall = pngHoggie(phoneCall)
+const HedgehogPuzzle = pngHoggie(puzzle)
+const HedgehogRoboHog = pngHoggie(roboHog)
+const HedgehogTrafficController = pngHoggie(trafficController)
+const HedgehogWizardHog = pngHoggie(wizardHog)
+const HedgehogWorkflows = pngHoggie(workflows)
 
 export const DEFAULT_PRODUCT_PUSH_DISPLAY: ProductPushDisplay = {
     Hoggie: HedgehogMegaphone,

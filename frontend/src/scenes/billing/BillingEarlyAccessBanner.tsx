@@ -1,11 +1,14 @@
 import { useActions } from 'kea'
 
-import { HedgehogConstruction2 } from '@posthog/brand/hoggies'
+import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import { Link } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+
+const HedgehogConstruction2 = pngHoggie(construction2Png)
 
 export function BillingEarlyAccessBanner(): JSX.Element {
     const { openSupportForm } = useActions(supportLogic)

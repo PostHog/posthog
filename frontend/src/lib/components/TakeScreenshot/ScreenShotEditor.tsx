@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
+import * as director from '@posthog/brand/hoggies/png/director'
 import { IconPencil, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonColorPicker, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
-import { lazyHoggie } from 'lib/brand/hoggies'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { getSeriesColorPalette } from 'lib/colors'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { downloadFile } from 'lib/utils/dom'
@@ -17,7 +18,7 @@ import {
     takeScreenshotLogic,
 } from './takeScreenshotLogic'
 
-const HedgehogDirector = lazyHoggie('HedgehogDirector')
+const HedgehogDirector = pngHoggie(director)
 
 export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): JSX.Element {
     const {

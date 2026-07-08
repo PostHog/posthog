@@ -1,9 +1,10 @@
 import { clsx } from 'clsx'
 import posthog from 'posthog-js'
 
-import { HedgehogExperiment } from '@posthog/brand/hoggies'
+import * as experimentPng from '@posthog/brand/hoggies/png/experiment'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
@@ -22,6 +23,8 @@ import {
 } from '../../components/WidgetCard'
 import type { DashboardWidgetComponentProps } from '../registry'
 import { parseExperimentsListWidgetConfig } from './experimentsWidgetConfigValidation'
+
+const HedgehogExperiment = pngHoggie(experimentPng)
 
 export type ExperimentsListWidgetRow = {
     id: number

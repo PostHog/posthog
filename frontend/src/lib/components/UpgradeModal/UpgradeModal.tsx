@@ -1,13 +1,14 @@
 import { useActions, useValues } from 'kea'
 
+import * as remoteWork from '@posthog/brand/hoggies/png/remote-work'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
-import { lazyHoggie } from 'lib/brand/hoggies'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 
 import { upgradeModalLogic } from './upgradeModalLogic'
 
-const HedgehogRemoteWork = lazyHoggie('HedgehogRemoteWork')
+const HedgehogRemoteWork = pngHoggie(remoteWork)
 
 export function UpgradeModal(): JSX.Element {
     const {
