@@ -112,6 +112,10 @@ For REST sources that mix top-level and fan-out endpoints, keep endpoint metadat
 2. generic fan-out helper path,
 3. top-level endpoint path.
 
+Source-specific config and behavior live in the backend, declared on the source class: the frontend never branches on `source_type`.
+When UI must vary by source (copy, warnings, capabilities), expose a semantic flag or enum through the API (a key, not prose) and have the frontend map it to copy with a generic fallback for unknown values.
+Examples: `index_mechanism`, `unreleasedSource`, `requiredScopes`.
+
 ## Canonical descriptions (semantic enrichment)
 
 After a table syncs, a background activity (`workflow_activities/enrich_table_semantics.py`) writes
