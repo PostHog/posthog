@@ -289,6 +289,7 @@ the row lists both.
 | rootly                  | HTTP                        | requests                                                        | ✅                          |
 | salesforce              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | salesloft               | HTTP                        | requests                                                        | ✅                          |
+| secoda                  | HTTP                        | requests                                                        | ✅                          |
 | segment                 | HTTP                        | requests                                                        | ✅                          |
 | sendgrid                | HTTP                        | requests                                                        | ✅                          |
 | sentry                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -641,7 +642,6 @@ doesn't conflict with concurrent PRs.
 - sap_successfactors
 - savvycal
 - search_ads_360
-- secoda
 - sendowl
 - sendpulse
 - senseforce
