@@ -1253,6 +1253,24 @@ def also_test_with_materialized_columns(
     return decorator
 
 
+# sqlparse.format(reindent=True) is quadratic-ish on large statements (~70ms on a big HogQL
+# listing query) and snapshot-heavy suites format hundreds per run. It's a pure function of the
+# input, and clean_varying_query_parts normalizes team ids/UUIDs/timestamps so the same query
+# shapes recur across tests - cache the formatting. Keys are the full SQL strings, so the cap
+# bounds memory rather than correctness.
+_sqlparse_format_cache: dict[str, str] = {}
+_SQLPARSE_FORMAT_CACHE_MAX_ENTRIES = 2048
+
+
+def _format_sql_for_snapshot(query: str) -> str:
+    formatted = _sqlparse_format_cache.get(query)
+    if formatted is None:
+        formatted = sqlparse.format(query, reindent=True)
+        if len(_sqlparse_format_cache) < _SQLPARSE_FORMAT_CACHE_MAX_ENTRIES:
+            _sqlparse_format_cache[query] = formatted
+    return formatted
+
+
 @pytest.mark.usefixtures("unittest_snapshot")
 class QueryMatchingTest:
     snapshot: Any
@@ -1265,7 +1283,7 @@ class QueryMatchingTest:
         query = clean_varying_query_parts(query, replace_all_numbers)
 
         try:
-            assert sqlparse.format(query, reindent=True) == self.snapshot
+            assert _format_sql_for_snapshot(query) == self.snapshot
         except AssertionError:
             diff_lines = "\n".join(self.snapshot.get_assert_diff())
             error_message = f"Query does not match snapshot. Update snapshots with --snapshot-update.\n\n{diff_lines}"
@@ -1935,7 +1953,7 @@ class HogQLSnapshotExtension(AmberSnapshotExtension):
     def serialize(cls, data, **kwargs):
         """Serialize the HogQL query."""
         # Format the query for readability
-        formatted = sqlparse.format(data, reindent=True)
+        formatted = _format_sql_for_snapshot(data)
         return f"'''\n{formatted}\n'''\n"
 
 
