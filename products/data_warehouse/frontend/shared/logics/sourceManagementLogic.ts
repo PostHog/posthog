@@ -6,7 +6,6 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { createFuse, Fuse } from 'lib/utils/fuseSearch'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
@@ -18,7 +17,6 @@ import {
     ExternalDataSourceSchema,
 } from '~/types'
 
-import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
 import { joinsLogic } from './joinsLogic'
 import type { sourceManagementLogicType } from './sourceManagementLogicType'
 import { sourcesDataLogic } from './sourcesDataLogic'
@@ -33,8 +31,6 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
             ['database', 'dataWarehouseTables'],
             sourcesDataLogic,
             ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
-            availableSourcesLogic,
-            ['availableSources'],
         ],
         actions: [
             databaseTableListLogic,
@@ -150,38 +146,22 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
                 return selfManagedTables.filter((table) => table.name.toLowerCase().includes(normalizedSearch))
             },
         ],
-        managedSources: [
-            (s) => [s.dataWarehouseSources],
-            (dataWarehouseSources): ExternalDataSource[] =>
-                (dataWarehouseSources?.results ?? []).filter(
-                    (source) => source.access_method?.toLowerCase() !== 'direct'
-                ),
-        ],
-        // Match the display label ("Google Ads") as well as the internal source_type ("GoogleAds"),
-        // so a search with the label's spacing/casing finds the source. Fuzzy, like the source catalog.
-        managedSourcesFuse: [
-            (s) => [s.managedSources, s.availableSources],
-            (managedSources, availableSources): Fuse<ExternalDataSource> =>
-                createFuse(managedSources, {
-                    keys: [
-                        {
-                            name: 'label',
-                            getFn: (source) => availableSources?.[source.source_type]?.label ?? source.source_type,
-                        },
-                        'source_type',
-                        'prefix',
-                        'description',
-                    ],
-                }),
-        ],
         filteredManagedSources: [
-            (s) => [s.managedSources, s.managedSourcesFuse, s.managedSearchTerm],
-            (managedSources, managedSourcesFuse, managedSearchTerm): ExternalDataSource[] => {
-                const trimmed = managedSearchTerm?.trim()
-                if (!trimmed) {
-                    return managedSources
+            (s) => [s.dataWarehouseSources, s.managedSearchTerm],
+            (dataWarehouseSources, managedSearchTerm): ExternalDataSource[] => {
+                const sources = (dataWarehouseSources?.results ?? []).filter(
+                    (source) => source.access_method?.toLowerCase() !== 'direct'
+                )
+                if (!managedSearchTerm?.trim()) {
+                    return sources
                 }
-                return managedSourcesFuse.search(trimmed).map((r) => r.item)
+                const normalizedSearch = managedSearchTerm.toLowerCase()
+                return sources.filter(
+                    (source) =>
+                        source.source_type.toLowerCase().includes(normalizedSearch) ||
+                        source.prefix?.toLowerCase().includes(normalizedSearch) ||
+                        source.description?.toLowerCase().includes(normalizedSearch)
+                )
             },
         ],
         hasZendeskSource: [

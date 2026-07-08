@@ -8,7 +8,6 @@ import { DatabaseSchemaQueryResponse } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ExternalDataSource } from '~/types'
 
-import { availableSourcesLogic } from '../../../scenes/NewSourceScene/availableSourcesLogic'
 import { sourceManagementLogic } from '../sourceManagementLogic'
 
 jest.mock('lib/api')
@@ -42,34 +41,6 @@ describe('sourceManagementLogic', () => {
     afterEach(() => {
         logic.unmount()
         databaseLogic.unmount()
-    })
-
-    it('matches managed sources by display label as well as internal source_type', async () => {
-        jest.spyOn(api.externalDataSources, 'wizard').mockResolvedValue({
-            GoogleAds: { name: 'GoogleAds', label: 'Google Ads' },
-        } as any)
-
-        logic.mount()
-        await expectLogic(availableSourcesLogic).toDispatchActions(['loadSuccess'])
-
-        sourceManagementLogic.actions.loadSourcesSuccess({
-            results: [{ id: 's1', source_type: 'GoogleAds', access_method: 'warehouse', schemas: [] }],
-            count: 1,
-            next: null,
-            previous: null,
-        } as any)
-
-        // Display label spelling ("Google ads" with a space) must find the "GoogleAds" source
-        logic.actions.setManagedSearchTerm('Google ads')
-        await expectLogic(logic).toMatchValues({
-            filteredManagedSources: [expect.objectContaining({ source_type: 'GoogleAds' })],
-        })
-
-        // Internal source_type spelling still matches
-        logic.actions.setManagedSearchTerm('googleads')
-        await expectLogic(logic).toMatchValues({
-            filteredManagedSources: [expect.objectContaining({ source_type: 'GoogleAds' })],
-        })
     })
 
     it('only includes tables with no source in selfManagedTables', async () => {
