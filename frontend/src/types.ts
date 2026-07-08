@@ -5660,6 +5660,8 @@ export type APIScopeObject =
     | 'customer_analytics'
     | 'customer_journey'
     | 'customer_profile_config'
+    | 'data_catalog'
+    | 'data_catalog_approval'
     | 'dashboard'
     | 'dashboard_template'
     | 'dataset'

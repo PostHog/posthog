@@ -93,6 +93,7 @@ ActivityScope = Literal[
     "SignalReport",
     "SignalScoutConfig",
     "StreamlitApp",
+    "Metric",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out", "copied"
@@ -396,6 +397,13 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 ]
 
 field_exclusions: dict[AuditableScope, list[str]] = {
+    "Metric": [
+        # Derived/throttled fields, not user-meaningful change diffs.
+        "last_run_at",
+        "source_insight_query_hash",
+        "referenced_table_names",
+        "deleted_at",
+    ],
     "OrganizationDomain": [
         "organization",
         "scim_provisioned_users",
