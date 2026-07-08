@@ -58,7 +58,9 @@ export function SurveyStatsView({ data }: SurveyStatsViewProps): ReactElement {
                                     <div>
                                         <div className="flex justify-between text-sm mb-1">
                                             <span className="text-muted-foreground">Dismissal rate</span>
-                                            <span className="tabular-nums">{data.rates.dismissal_rate.toFixed(1)}%</span>
+                                            <span className="tabular-nums">
+                                                {data.rates.dismissal_rate.toFixed(1)}%
+                                            </span>
                                         </div>
                                         <Progress value={data.rates.dismissal_rate} variant="warning" />
                                     </div>
