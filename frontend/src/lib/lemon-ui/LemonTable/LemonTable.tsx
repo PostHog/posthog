@@ -529,7 +529,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                                     )}
                                                                     /* eslint-disable-next-line react/forbid-dom-props */
                                                                     style={
-                                                                        maxHeaderWidth
+                                                                        truncateHeader
                                                                             ? { maxWidth: maxHeaderWidth }
                                                                             : undefined
                                                                     }
@@ -541,11 +541,15 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                                                 <IconInfo className="ml-1 text-base" />
                                                                             </div>
                                                                         </Tooltip>
-                                                                    ) : truncateHeader &&
-                                                                      typeof column.title === 'string' ? (
+                                                                    ) : truncateHeader ? (
+                                                                        // Block wrapper, so an element title's flex layout can shrink instead of min-content overflowing
                                                                         <div
                                                                             className="LemonTable__cell-content min-w-0"
-                                                                            title={column.title}
+                                                                            title={
+                                                                                typeof column.title === 'string'
+                                                                                    ? column.title
+                                                                                    : undefined
+                                                                            }
                                                                         >
                                                                             {column.title}
                                                                         </div>
