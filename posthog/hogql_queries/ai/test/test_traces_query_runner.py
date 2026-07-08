@@ -1027,6 +1027,34 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         assert "globalIn(" in sql
         assert "ai_events" in sql
 
+    def test_search_candidate_cap_applies_after_filters(self):
+        # With the cap at 1, the more recent trace matches the term but not the property
+        # filter. Drawing the cap from the filtered set keeps the older matching trace;
+        # capping raw text matches first would keep the recent one and empty the page.
+        _create_person(distinct_ids=["person1"], team=self.team)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_match",
+            team=self.team,
+            input="Contains the needle.",
+            properties={"foo": "bar"},
+            timestamp=datetime(2024, 12, 1, 0, 0),
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_recent",
+            team=self.team,
+            input="Contains the needle.",
+            timestamp=datetime(2024, 12, 1, 0, 30),
+        )
+
+        with patch("posthog.hogql_queries.ai.traces_query_runner.SEARCH_CANDIDATE_TRACE_LIMIT", 1):
+            response = self._run_search_query(
+                "needle",
+                properties=[EventPropertyFilter(key="foo", value="bar", operator=PropertyOperator.EXACT)],
+            )
+        self.assertEqual({trace.id for trace in response.results}, {"trace_match"})
+
     def test_model_parameters(self):
         _create_person(distinct_ids=["person1"], team=self.team, properties={"foo": "bar"})
         _create_ai_generation_event(

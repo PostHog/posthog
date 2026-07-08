@@ -37,7 +37,8 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 logger = structlog.get_logger(__name__)
 
-# Recency-ordered: matches beyond the cap silently drop when other filters discard most candidates.
+# Recency-ordered cap on the filtered candidate set: matches beyond it drop on deep
+# pages or when a group filter (not pushed into the subquery) discards most candidates.
 SEARCH_CANDIDATE_TRACE_LIMIT = 100_000
 
 
@@ -543,38 +544,73 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
 
     def _get_search_filter(self) -> ast.Expr | None:
         """Content columns live only in ai_events (a satellite cluster), so this
-        semijoins with GLOBAL IN: a plain IN would re-run the subquery per events shard.
+        semijoins with GLOBAL IN. Person/property filters are pushed in too so the
+        recency cap is drawn from the already-filtered set, not from raw text matches
+        the outer scan later discards; group filters stay outer ($group_N isn't a
+        column here). Each condition is a trace-level countIf so a term and a filter
+        matching different events of the same trace still count.
         """
         search_term = (self.query.searchTerm or "").strip()
         if not search_term:
             return None
 
         pattern = ast.Constant(value=f"%{_escape_like_pattern(search_term)}%")
-        search_subquery = parse_select(
-            """
-            SELECT trace_id
-            FROM posthog.ai_events
-            WHERE event IN ('$ai_generation', '$ai_embedding')
-              AND timestamp >= {date_from}
-              AND timestamp <= {date_to}
-              AND (input ILIKE {pattern} OR output ILIKE {pattern} OR output_choices ILIKE {pattern})
-            GROUP BY trace_id
-            ORDER BY max(timestamp) DESC
-            LIMIT {candidate_limit}
-            """,
-            placeholders={
-                "date_from": self._date_range.date_from_as_hogql(),
-                "date_to": self._date_range.date_to_as_hogql(),
-                "pattern": pattern,
-                "candidate_limit": ast.Constant(value=SEARCH_CANDIDATE_TRACE_LIMIT),
-            },
+        search_subquery = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+                SELECT trace_id
+                FROM posthog.ai_events
+                WHERE timestamp >= {date_from} AND timestamp <= {date_to}
+                GROUP BY trace_id
+                HAVING countIf(
+                    event IN ('$ai_generation', '$ai_embedding')
+                    AND (input ILIKE {pattern} OR output ILIKE {pattern} OR output_choices ILIKE {pattern})
+                ) > 0
+                ORDER BY max(timestamp) DESC
+                LIMIT {candidate_limit}
+                """,
+                placeholders={
+                    "date_from": self._date_range.date_from_as_hogql(),
+                    "date_to": self._date_range.date_to_as_hogql(),
+                    "pattern": pattern,
+                    "candidate_limit": ast.Constant(value=SEARCH_CANDIDATE_TRACE_LIMIT),
+                },
+            ),
         )
+
+        for expr in self._search_candidate_filters():
+            search_subquery.having = ast.And(
+                exprs=[
+                    search_subquery.having,
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Gt,
+                        left=ast.Call(name="countIf", args=[expr]),
+                        right=ast.Constant(value=0),
+                    ),
+                ]
+            )
 
         return ast.CompareOperation(
             op=ast.CompareOperationOp.GlobalIn,
             left=ast.Field(chain=["properties", "$ai_trace_id"]),
             right=search_subquery,
         )
+
+    def _search_candidate_filters(self) -> list[ast.Expr]:
+        filters: list[ast.Expr] = []
+        properties_filter = self._get_properties_filter()
+        if properties_filter is not None:
+            filters.append(properties_filter)
+        if self.query.personId:
+            filters.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["person_id"]),
+                    right=ast.Constant(value=self.query.personId),
+                )
+            )
+        return filters
 
     def _get_properties_filter(self) -> ast.Expr | None:
         property_filters: list[ast.Expr] = []
