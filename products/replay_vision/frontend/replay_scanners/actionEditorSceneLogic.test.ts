@@ -61,6 +61,8 @@ describe('actionEditorSceneLogic', () => {
             .toMatchValues({
                 isNew: false,
                 effectiveScannerId: 's1',
+                // The stored selection must surface as the "only matching" state, not hide behind "all".
+                targetingMode: 'filtered',
                 actionForm: {
                     name: 'action-e',
                     cadence: { weekdays: [0, 2], hour: 14, minute: 30 },
@@ -74,6 +76,13 @@ describe('actionEditorSceneLogic', () => {
                     max_score: null,
                 },
             })
+
+        // Switching back to "all" must clear the filter values — otherwise a hidden filter would
+        // silently keep narrowing the summary after save.
+        logic.actions.setTargetingMode('all')
+        await expectLogic(logic).toMatchValues({
+            actionForm: expect.objectContaining({ verdict: [], tags: [], min_score: null, max_score: null }),
+        })
     })
 
     it('creating an action submits and navigates to the new action page', async () => {

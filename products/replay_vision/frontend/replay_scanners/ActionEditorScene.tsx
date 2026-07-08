@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useMemo } from 'react'
 
-import { LemonButton, LemonInput, LemonInputSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonInputSelect, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { NotFound } from 'lib/components/NotFound'
@@ -156,8 +156,8 @@ const VERDICT_OPTIONS: { value: 'yes' | 'no' | 'inconclusive'; label: string }[]
 // the selected values narrow it (verdicts for monitors, tags for classifiers, a score range for
 // scorers). Summarizers have no outcome to filter on, so the section is hidden entirely.
 function TargetingSection({ scannerId }: { scannerId: string }): JSX.Element | null {
-    const { actionForm, actionFormErrors } = useValues(actionEditorSceneLogic)
-    const { setActionFormValue } = useActions(actionEditorSceneLogic)
+    const { actionForm, actionFormErrors, targetingMode } = useValues(actionEditorSceneLogic)
+    const { setActionFormValue, setTargetingMode } = useActions(actionEditorSceneLogic)
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
 
     if (!scanner) {
@@ -191,10 +191,7 @@ function TargetingSection({ scannerId }: { scannerId: string }): JSX.Element | n
                             </LemonButton>
                         ))}
                     </div>
-                    <span className="text-xs text-muted">
-                        Only summarize observations with these verdicts. Leave all unselected to summarize every
-                        observation.
-                    </span>
+                    <span className="text-xs text-muted">Only summarize observations with these verdicts.</span>
                 </div>
             )
             break
@@ -215,10 +212,7 @@ function TargetingSection({ scannerId }: { scannerId: string }): JSX.Element | n
                         }))}
                         data-attr="vision-action-targeting-tags"
                     />
-                    <span className="text-xs text-muted">
-                        Only summarize observations tagged with any of these. Leave empty to summarize every
-                        observation.
-                    </span>
+                    <span className="text-xs text-muted">Only summarize observations tagged with any of these.</span>
                 </div>
             )
             break
@@ -251,8 +245,7 @@ function TargetingSection({ scannerId }: { scannerId: string }): JSX.Element | n
                     ) : null}
                     <span className="text-xs text-muted">
                         Only summarize observations scored in this range (inclusive
-                        {scale ? `; this scanner scores ${scale.min}–${scale.max}` : ''}). Leave empty to summarize
-                        every observation.
+                        {scale ? `; this scanner scores ${scale.min}–${scale.max}` : ''}).
                     </span>
                 </div>
             )
@@ -264,9 +257,19 @@ function TargetingSection({ scannerId }: { scannerId: string }): JSX.Element | n
     }
 
     return (
-        <div>
-            <h4 className="mb-1">What to summarize</h4>
-            {controls}
+        <div className="flex flex-col gap-2">
+            <h4 className="mb-0">What to summarize</h4>
+            <LemonSegmentedButton
+                size="small"
+                value={targetingMode}
+                onChange={(mode) => setTargetingMode(mode)}
+                options={[
+                    { value: 'all' as const, label: 'All observations' },
+                    { value: 'filtered' as const, label: 'Only matching observations' },
+                ]}
+                data-attr="vision-action-targeting-mode"
+            />
+            {targetingMode === 'filtered' && controls}
         </div>
     )
 }
