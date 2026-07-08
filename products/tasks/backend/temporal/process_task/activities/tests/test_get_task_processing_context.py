@@ -2,18 +2,25 @@ import pytest
 from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
+from django.test import override_settings
 
 from asgiref.sync import async_to_sync
 
 from posthog.models import OrganizationMembership, User
 from posthog.models.user_integration import UserIntegration
 
-from products.tasks.backend.constants import MODAL_VM_SANDBOX_FEATURE_FLAG, SANDBOX_EVENT_INGEST_FEATURE_FLAG
+from products.tasks.backend.constants import (
+    AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
+    MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG,
+    MODAL_VM_SANDBOX_FEATURE_FLAG,
+    SANDBOX_EVENT_INGEST_FEATURE_FLAG,
+)
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
 from products.tasks.backend.models import SandboxEnvironment, Task
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,
+    _is_agent_proxy_keep_stream_open_enabled,
     _is_burstable_sandbox_resources_enabled,
     _is_modal_vm_sandbox_enabled,
     _is_sandbox_event_ingest_enabled,
@@ -269,6 +276,30 @@ class TestGetTaskProcessingContextActivity:
         sandbox_args, _sandbox_kwargs = feature_enabled_mock.call_args_list[1]
         assert sandbox_args[0] == SANDBOX_EVENT_INGEST_FEATURE_FLAG
 
+    @pytest.mark.django_db(transaction=True)
+    def test_pr_loop_enabled_for_signal_report_origin_ignores_flag(self, activity_environment, test_task):
+        # Signals implementation PRs are bot-authored and always opt into the PR
+        # follow-up loop ("babysitting"), independent of the org-level `tasks-pr-loop`
+        # rollout that gates other origins.
+        test_task.origin_product = Task.OriginProduct.SIGNAL_REPORT
+        test_task.save(update_fields=["origin_product"])
+        task_run = test_task.create_run()
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+
+        def feature_enabled(flag_key, **kwargs):
+            return False  # `tasks-pr-loop` disabled for the org
+
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            side_effect=feature_enabled,
+        ) as feature_enabled_mock:
+            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.pr_loop_enabled is True
+        # The signal_report origin short-circuits the gate, so the flag is never consulted.
+        called_flags = [call.args[0] for call in feature_enabled_mock.call_args_list]
+        assert "tasks-pr-loop" not in called_flags
+
     @pytest.mark.parametrize(
         "flag_value, expected",
         [
@@ -325,6 +356,68 @@ class TestGetTaskProcessingContextActivity:
                     organization_id="organization-id",
                     run_id="run-id",
                     state={"sandbox_event_ingest_enabled": True},
+                )
+                is True
+            )
+
+        feature_enabled_mock.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "flag_value, expected",
+        [
+            (True, True),
+            (False, False),
+            (None, False),
+        ],
+    )
+    def test_agent_proxy_keep_stream_open_flag_uses_organization_rollout(self, flag_value, expected):
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=flag_value,
+        ) as feature_enabled_mock:
+            assert (
+                _is_agent_proxy_keep_stream_open_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                )
+                is expected
+            )
+
+        feature_enabled_mock.assert_called_once_with(
+            AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
+            distinct_id="distinct-id",
+            groups={"organization": "organization-id"},
+            group_properties={"organization": {"id": "organization-id"}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
+    def test_agent_proxy_keep_stream_open_flag_fails_closed(self):
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            side_effect=RuntimeError("flag service failed"),
+        ):
+            assert (
+                _is_agent_proxy_keep_stream_open_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                )
+                is False
+            )
+
+    def test_agent_proxy_keep_stream_open_state_override_skips_flag_check(self):
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=False,
+        ) as feature_enabled_mock:
+            assert (
+                _is_agent_proxy_keep_stream_open_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                    state={"agent_proxy_keep_stream_open": True},
                 )
                 is True
             )
@@ -516,6 +609,46 @@ class TestGetTaskProcessingContextActivity:
             result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
         assert result.sandbox_event_ingest_enabled is True
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "legacy_resume_snapshots, directory_resume_snapshots, run_state, expected_resume_snapshots",
+        [
+            (True, False, {}, True),
+            (False, True, {}, True),
+            (False, False, {}, False),
+            (False, False, {"use_modal_directory_resume_snapshots": True}, False),
+            (False, True, {"use_modal_directory_resume_snapshots": False}, True),
+        ],
+    )
+    def test_get_task_processing_context_combines_legacy_and_directory_resume_snapshot_flags(
+        self,
+        activity_environment,
+        test_task,
+        legacy_resume_snapshots,
+        directory_resume_snapshots,
+        run_state,
+        expected_resume_snapshots,
+    ):
+        task_run = test_task.create_run(extra_state=run_state)
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+
+        def feature_enabled(flag_key, *args, **kwargs):
+            if flag_key == MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG:
+                return directory_resume_snapshots
+            return False
+
+        with (
+            override_settings(TASKS_USE_MODAL_RESUME_SNAPSHOTS=legacy_resume_snapshots),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+                side_effect=feature_enabled,
+            ),
+        ):
+            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.use_modal_resume_snapshots is expected_resume_snapshots
+        assert result.use_modal_directory_resume_snapshots is directory_resume_snapshots
 
     @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_exposes_ci_prompt(self, activity_environment, test_task):

@@ -24,6 +24,8 @@ from products.exports.backend.temporal.subscriptions.types import (
 )
 from products.product_analytics.backend.models.insight import Insight
 
+_WINDOW_END_UTC = "2026-06-25T12:00:00+00:00"
+
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
 
@@ -59,6 +61,7 @@ async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(te
         delivery.id,
         AiReportResult(
             markdown="# Weekly report",
+            window_end_utc=_WINDOW_END_UTC,
             diagnostics=(
                 QueryStepDiagnostic(description="adoption", hogql="SELECT count()", ok=True, error_type=None),
                 QueryStepDiagnostic(
@@ -72,22 +75,34 @@ async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(te
     snapshot = await _snapshot(delivery.id)
     assert snapshot[AI_REPORT_SNAPSHOT_KEY] == "# Weekly report"
     assert snapshot[AI_REPORT_DIAGNOSTICS_KEY] == [
-        {"description": "adoption", "hogql": "SELECT count()", "ok": True, "error_type": None},
-        {"description": "reliability", "hogql": "SELECT bad", "ok": False, "error_type": "ResolutionError"},
+        {
+            "description": "adoption",
+            "hogql": "SELECT count()",
+            "ok": True,
+            "error_type": None,
+            "human_readable_error": None,
+        },
+        {
+            "description": "reliability",
+            "hogql": "SELECT bad",
+            "ok": False,
+            "error_type": "ResolutionError",
+            "human_readable_error": None,
+        },
     ]
     # The generating prompt is captured so the delivery is reproducible and the viewer can show it.
     assert snapshot[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "weekly adoption + reliability report"
 
 
-@parameterized.expand([("none", None), ("empty", "")])
-async def test_persist_ai_report_omits_blank_prompt(team, user, _name, prompt) -> None:
+@pytest.mark.parametrize("prompt", [None, ""])
+async def test_persist_ai_report_omits_blank_prompt(team, user, prompt) -> None:
     # A non-AI sub passes prompt=None and a cleared prompt passes ""; neither should write the key
     # (so the viewer doesn't render an empty "prompt at time of generation" block).
     delivery = await _create_delivery(team, user)
 
     await _persist_ai_report(
         delivery.id,
-        AiReportResult(markdown="# report", diagnostics=()),
+        AiReportResult(markdown="# report", diagnostics=(), window_end_utc=_WINDOW_END_UTC),
         prompt=prompt,
     )
 
@@ -95,8 +110,6 @@ async def test_persist_ai_report_omits_blank_prompt(team, user, _name, prompt) -
     assert AI_REPORT_PROMPT_SNAPSHOT_KEY not in snapshot
 
 
-# These counts drive the workflow's FAILED-vs-COMPLETED decision: every query failing must report
-# failed == total so the delivery is recorded FAILED rather than a misleading "completed".
 class TestReportDiagnosticCounts:
     @parameterized.expand(
         [
@@ -111,6 +124,7 @@ class TestReportDiagnosticCounts:
     ):
         result = AiReportResult(
             markdown="report",
+            window_end_utc=_WINDOW_END_UTC,
             diagnostics=tuple(
                 QueryStepDiagnostic(
                     description=f"step {i}",
@@ -126,6 +140,7 @@ class TestReportDiagnosticCounts:
     def test_distinct_error_types_are_sorted_and_deduped(self):
         result = AiReportResult(
             markdown="report",
+            window_end_utc=_WINDOW_END_UTC,
             diagnostics=(
                 QueryStepDiagnostic(description="a", hogql="x", ok=False, error_type="ResolutionError"),
                 QueryStepDiagnostic(description="b", hogql="y", ok=False, error_type="ExposedHogQLError"),
@@ -143,6 +158,7 @@ async def test_snapshot_diagnostic_counts_reads_persisted_failure_shape(team, us
         delivery.id,
         AiReportResult(
             markdown="report",
+            window_end_utc=_WINDOW_END_UTC,
             diagnostics=(
                 QueryStepDiagnostic(description="ok step", hogql="SELECT 1", ok=True, error_type=None),
                 QueryStepDiagnostic(description="bad step", hogql="SELECT bad", ok=False, error_type="ResolutionError"),

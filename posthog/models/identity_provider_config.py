@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING, Any
 
 from django.contrib.postgres.fields import ArrayField
-from django.db import models
+from django.db import models, transaction
 
 import structlog
 
@@ -36,10 +36,12 @@ class IdentityProviderConfig(UUIDModel):
     multiple `OrganizationDomain` rows (via `OrganizationDomain.identity_provider_config`),
     and an organization can have zero, one, or many configs.
 
-    NOTE: While the migration to this model is in flight, `OrganizationDomain` remains the
-    source of truth. Writes to a domain's IdP fields are mirrored here automatically by
-    `OrganizationDomain.save()` (see `sync_identity_provider_config_from_domain`), so the
-    data is consistent when reads are switched over.
+    This model is the source of truth for IdP reads (SAML/SCIM/ID-JAG). The legacy IdP columns
+    on `OrganizationDomain` are kept in sync in both directions so neither can clobber the other:
+    `OrganizationDomain.save()` mirrors the domain's columns into the linked config
+    (`sync_identity_provider_config_from_domain`), and `save()` here mirrors the config back onto
+    every linked domain (`sync_domains_from_identity_provider_config`). Both use queryset
+    `update()` for the cross-write to avoid re-entering the other model's `save()`.
     """
 
     organization = models.ForeignKey(
@@ -95,6 +97,12 @@ class IdentityProviderConfig(UUIDModel):
     def __str__(self) -> str:
         return self.name or str(self.id)
 
+    def save(self, *args, **kwargs) -> None:
+        # Atomic so the config write and the mirrored domain writes cannot diverge.
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+            sync_domains_from_identity_provider_config(self)
+
     @property
     def has_saml(self) -> bool:
         """
@@ -118,13 +126,16 @@ class IdentityProviderConfig(UUIDModel):
 
 
 def _domain_has_any_idp_config(domain: "OrganizationDomain") -> bool:
+    # Reads the domain's own columns (the underscore-prefixed attributes, not `domain.has_saml`,
+    # which resolves through the linked config): this is the domain→config write path, so it must
+    # inspect the source side.
     return (
-        domain.has_saml
-        or domain.scim_enabled
-        or bool(domain.scim_bearer_token)
-        or bool(domain.id_jag_issuer_url)
-        or bool(domain.id_jag_jwks_url)
-        or bool(domain.id_jag_allowed_clients)
+        (bool(domain._saml_entity_id) and bool(domain._saml_acs_url) and bool(domain._saml_x509_cert))
+        or domain._scim_enabled
+        or bool(domain._scim_bearer_token)
+        or bool(domain._id_jag_issuer_url)
+        or bool(domain._id_jag_jwks_url)
+        or bool(domain._id_jag_allowed_clients)
     )
 
 
@@ -162,7 +173,8 @@ def sync_identity_provider_config_from_domain(domain: "OrganizationDomain", dry_
         config = IdentityProviderConfig.objects.create(
             organization_id=domain.organization_id,
             name=domain.domain,
-            **{field: getattr(domain, field) for field in IDP_CONFIG_SYNCED_FIELDS},
+            # The domain's columns are the underscore-prefixed attributes; the config's are not.
+            **{field: getattr(domain, f"_{field}") for field in IDP_CONFIG_SYNCED_FIELDS},
         )
         # Link via a queryset update to avoid recursing into `OrganizationDomain.save()`
         # (and to avoid emitting a second activity log entry for the same write).
@@ -171,9 +183,9 @@ def sync_identity_provider_config_from_domain(domain: "OrganizationDomain", dry_
         return "created"
 
     changed_fields: dict[str, Any] = {
-        field: getattr(domain, field)
+        field: getattr(domain, f"_{field}")
         for field in IDP_CONFIG_SYNCED_FIELDS
-        if getattr(config, field) != getattr(domain, field)
+        if getattr(config, field) != getattr(domain, f"_{field}")
     }
     if not changed_fields:
         return "unchanged"
@@ -183,3 +195,22 @@ def sync_identity_provider_config_from_domain(domain: "OrganizationDomain", dry_
         setattr(config, field, value)
     config.save(update_fields=[*changed_fields.keys(), "updated_at"])
     return "updated"
+
+
+def sync_domains_from_identity_provider_config(config: "IdentityProviderConfig") -> int:
+    """
+    Mirror an IdP config's fields onto every `OrganizationDomain` linked to it, keeping the
+    domains' legacy IdP columns in sync with the config (the source of truth for reads). This is
+    the reverse of `sync_identity_provider_config_from_domain`: with both directions in place,
+    the forward mirror in `OrganizationDomain.save()` never sees a divergence to clobber.
+
+    Uses a queryset `update()` (not `domain.save()`) so it cannot re-enter the forward mirror —
+    the two directions would otherwise recurse. Returns the number of domains updated.
+    """
+    # Imported here to avoid a circular import with `organization_domain`.
+    from posthog.models.organization_domain import OrganizationDomain  # noqa: PLC0415
+
+    # Write to the domain's underscore-prefixed columns (the config's fields are not prefixed).
+    return OrganizationDomain.objects.filter(identity_provider_config=config).update(
+        **{f"_{field}": getattr(config, field) for field in IDP_CONFIG_SYNCED_FIELDS}
+    )

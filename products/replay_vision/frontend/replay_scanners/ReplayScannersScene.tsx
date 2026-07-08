@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
+import { HedgehogXRay } from '@posthog/brand/hoggies'
 import { IconPencil, IconPlus, IconRefresh, IconSearch, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSwitch, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { XRayHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -44,6 +44,7 @@ export function ReplayScannersScene(): JSX.Element {
         scannersTotal,
         scannersSort,
         togglingIds,
+        deletingIds,
         search,
         enabledFilter,
         scannerTypeFilter,
@@ -83,7 +84,7 @@ export function ReplayScannersScene(): JSX.Element {
                         <LemonSwitch
                             checked={scanner.enabled}
                             onChange={() => toggleScannerEnabled(scanner.id)}
-                            disabled={togglingIds.includes(scanner.id)}
+                            disabledReason={togglingIds.includes(scanner.id) ? 'Updating…' : undefined}
                             size="small"
                             data-attr="vision-scanner-toggle-enabled"
                             data-ph-capture-attribute-scanner-type={scanner.scanner_type}
@@ -102,15 +103,6 @@ export function ReplayScannersScene(): JSX.Element {
             key: 'scanner_type',
             render: (_, scanner) => <ScannerTypeBadge scannerType={scanner.scanner_type} />,
             sorter: true,
-        },
-        {
-            title: 'Description',
-            key: 'description',
-            render: (_, scanner) => (
-                <div className="text-sm text-muted truncate max-w-md">
-                    {scanner.description || <span className="italic">No description</span>}
-                </div>
-            ),
         },
         {
             title: 'Sampling',
@@ -146,7 +138,7 @@ export function ReplayScannersScene(): JSX.Element {
                             size="small"
                             type="secondary"
                             icon={<IconPencil />}
-                            onClick={() => push(urls.replayVision(scanner.id))}
+                            to={urls.replayVision(scanner.id)}
                             tooltip="Edit"
                             data-attr="vision-scanner-edit-row"
                             data-ph-capture-attribute-scanner-type={scanner.scanner_type}
@@ -161,6 +153,8 @@ export function ReplayScannersScene(): JSX.Element {
                             type="secondary"
                             status="danger"
                             icon={<IconTrash />}
+                            loading={deletingIds.includes(scanner.id)}
+                            disabledReason={deletingIds.includes(scanner.id) ? 'Deleting…' : undefined}
                             onClick={() =>
                                 LemonDialog.open({
                                     title: `Delete "${scanner.name || 'Untitled scanner'}"?`,
@@ -216,7 +210,7 @@ export function ReplayScannersScene(): JSX.Element {
                 thingName="scanner"
                 description="Replay vision runs scanners over your completed sessions on a schedule or on demand. Describe what you want to look for and the model watches each recording for it — categorizing sessions, scoring intent, flagging bugs, or detecting any pattern you can put into a prompt. Each result lands as a queryable event you can build insights, alerts, and cohorts on."
                 secondaryDescription="Start from a template or build a fully custom scanner."
-                customHog={XRayHog}
+                customHog={HedgehogXRay}
                 action={() => push(urls.replayVisionTemplates())}
             />
 

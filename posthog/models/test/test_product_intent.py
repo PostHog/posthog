@@ -771,6 +771,40 @@ class TestProductIntent(BaseTest):
 
         assert self.product_intent.has_activated_llm_analytics() is False
 
+    def _make_mcp_tool_call_event_definition(self) -> EventDefinition:
+        return EventDefinition.objects.create(team=self.team, name="$mcp_tool_call")
+
+    def _make_mcp_intent(self, contexts: dict) -> ProductIntent:
+        ProductIntent.objects.filter(team=self.team, product_type=ProductKey.MCP_ANALYTICS).delete()
+        return ProductIntent.objects.create(
+            team=self.team,
+            product_type=ProductKey.MCP_ANALYTICS,
+            contexts=contexts,
+        )
+
+    def test_has_activated_mcp_analytics_with_tool_calls_and_dashboard_viewed(self):
+        self._make_mcp_tool_call_event_definition()
+        intent = self._make_mcp_intent({"mcp_analytics_viewed": 1})
+
+        assert intent.has_activated_mcp_analytics() is True
+
+    def test_has_not_activated_mcp_analytics_without_tool_calls(self):
+        intent = self._make_mcp_intent({"mcp_analytics_viewed": 5})
+
+        assert intent.has_activated_mcp_analytics() is False
+
+    def test_has_not_activated_mcp_analytics_with_tool_calls_but_no_engagement(self):
+        self._make_mcp_tool_call_event_definition()
+        intent = self._make_mcp_intent({})
+
+        assert intent.has_activated_mcp_analytics() is False
+
+    def test_has_not_activated_mcp_analytics_without_intent(self):
+        self._make_mcp_tool_call_event_definition()
+        ProductIntent.objects.filter(team=self.team, product_type=ProductKey.MCP_ANALYTICS).delete()
+
+        assert self.product_intent.has_activated_mcp_analytics() is False
+
     def test_has_activated_workflows_with_active_workflow(self):
         self.product_intent.product_type = ProductKey.WORKFLOWS
         self.product_intent.save()

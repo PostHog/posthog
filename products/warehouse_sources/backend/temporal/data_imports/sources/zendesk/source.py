@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    has_managed_hogql_schema = True  # canonical Zendesk schema in external_table_definitions
 
     @property
     def source_type(self) -> ExternalDataSourceType:

@@ -141,6 +141,45 @@ describe('subscriptionSceneLogic', () => {
         logic.unmount()
     })
 
+    // The failure path matters too: the header button's double-submit guard would stick
+    // if deliveringSubscriptionId reset only on success.
+    it.each([
+        { name: 'success', status: 202, terminalAction: 'deliverSubscriptionSuccess' },
+        { name: 'failure', status: 500, terminalAction: 'deliverSubscriptionFailure' },
+    ])('test delivery ($name) flips deliveringSubscriptionId then resets it', async ({ status, terminalAction }) => {
+        let testDeliveryCalls = 0
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/`]: [200, MOCK_SUBSCRIPTION],
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: [
+                    200,
+                    { results: [], next: null, previous: null },
+                ],
+            },
+            post: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/test-delivery/`]: () => {
+                    testDeliveryCalls += 1
+                    return [status, {}]
+                },
+            },
+        })
+        initKeaTests()
+
+        const logic = subscriptionSceneLogic({ id: '1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.deliverSubscription(1)
+        }).toMatchValues({ deliveringSubscriptionId: 1 })
+
+        await expectLogic(logic).toDispatchActions([terminalAction]).toMatchValues({
+            deliveringSubscriptionId: null,
+        })
+        expect(testDeliveryCalls).toEqual(1)
+        logic.unmount()
+    })
+
     it('loads an AI prompt subscription and its deliveries', async () => {
         useMocks({
             get: {

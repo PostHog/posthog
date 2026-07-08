@@ -3,11 +3,13 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { FeatureFlagFilters, FeatureFlagGroupType } from '~/types'
 
 import type { defaultReleaseConditionsLogicType } from './defaultReleaseConditionsLogicType'
+import { uniformAggregationGroupTypeIndex } from './defaultReleaseConditionsUtils'
 
 export interface DefaultReleaseConditionsResponse {
     enabled: boolean
@@ -122,6 +124,7 @@ export const defaultReleaseConditionsLogic = kea<defaultReleaseConditionsLogicTy
                 groups: groups.length > 0 ? groups : [{ properties: [], rollout_percentage: 0, variant: null }],
                 multivariate: null,
                 payloads: {},
+                aggregation_group_type_index: uniformAggregationGroupTypeIndex(groups),
             }),
         ],
 
@@ -131,10 +134,7 @@ export const defaultReleaseConditionsLogic = kea<defaultReleaseConditionsLogicTy
                 if (!saved) {
                     return false
                 }
-                return (
-                    localEnabled !== saved.enabled ||
-                    JSON.stringify(localGroups) !== JSON.stringify(saved.default_groups)
-                )
+                return localEnabled !== saved.enabled || !objectsEqual(localGroups, saved.default_groups)
             },
         ],
     }),

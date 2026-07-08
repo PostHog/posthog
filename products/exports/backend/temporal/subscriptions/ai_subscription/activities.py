@@ -33,6 +33,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_SNAPSHOT_KEY,
+    AI_REPORT_WINDOW_END_KEY,
     DeliverSubscriptionInputs,
     DeliverSubscriptionResult,
     GenerateAIReportInputs,
@@ -74,24 +75,28 @@ async def _load_ai_report(delivery_id: uuid.UUID) -> str | None:
     return _snapshot_report(await _load_snapshot(delivery_id))
 
 
-def _snapshot_diagnostic_counts(snapshot: dict | None) -> tuple[int, int, list[str]]:
-    # (failed_step_count, total_step_count, sorted distinct failure types) from the persisted
-    # diagnostics — used on Temporal redispatch to return the prior run's failure shape.
-    diagnostics = snapshot.get(AI_REPORT_DIAGNOSTICS_KEY) if snapshot else None
-    if not isinstance(diagnostics, list):
-        return (0, 0, [])
-    # Count steps over dicts only, so failed and total stay consistent if a malformed (non-dict) entry
-    # ever lands in the list — otherwise total could exceed failed and mask an all-failed report.
-    steps = [d for d in diagnostics if isinstance(d, dict)]
-    failed = [d for d in steps if d.get("ok") is False]
-    error_types = sorted({str(d["error_type"]) for d in failed if d.get("error_type")})
+def _tally_diagnostics(steps: list[tuple[bool, str | None]]) -> tuple[int, int, list[str]]:
+    # (failed_step_count, total_step_count, sorted distinct failure types) from (ok, error_type)
+    # pairs — shared by the persisted-snapshot and in-memory diagnostic paths.
+    failed = [error_type for ok, error_type in steps if not ok]
+    error_types = sorted({str(error_type) for error_type in failed if error_type})
     return (len(failed), len(steps), error_types)
 
 
+def _snapshot_diagnostic_counts(snapshot: dict | None) -> tuple[int, int, list[str]]:
+    # The prior run's failure shape, read back from the persisted diagnostics on Temporal redispatch.
+    diagnostics = snapshot.get(AI_REPORT_DIAGNOSTICS_KEY) if snapshot else None
+    if not isinstance(diagnostics, list):
+        return (0, 0, [])
+    # Only well-formed dict entries count — a malformed one would inflate the total and mask an
+    # all-failed report; `ok is not False` keeps a missing/None ok out of the failed set.
+    return _tally_diagnostics(
+        [(d.get("ok") is not False, d.get("error_type")) for d in diagnostics if isinstance(d, dict)]
+    )
+
+
 def _report_diagnostic_counts(result: AiReportResult) -> tuple[int, int, list[str]]:
-    failed = [d for d in result.diagnostics if not d.ok]
-    error_types = sorted({str(d.error_type) for d in failed if d.error_type})
-    return (len(failed), len(result.diagnostics), error_types)
+    return _tally_diagnostics([(d.ok, d.error_type) for d in result.diagnostics])
 
 
 async def _persist_ai_report(delivery_id: uuid.UUID, result: AiReportResult, prompt: str | None) -> None:
@@ -104,6 +109,7 @@ async def _persist_ai_report(delivery_id: uuid.UUID, result: AiReportResult, pro
             **(delivery.content_snapshot or {}),
             AI_REPORT_SNAPSHOT_KEY: result.markdown,
             AI_REPORT_DIAGNOSTICS_KEY: [dataclasses.asdict(d) for d in result.diagnostics],
+            AI_REPORT_WINDOW_END_KEY: result.window_end_utc,
             # prompt is None for non-AI subs; "" if cleared — omit either.
             **({AI_REPORT_PROMPT_SNAPSHOT_KEY: prompt} if prompt else {}),
         }

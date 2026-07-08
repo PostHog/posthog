@@ -17,6 +17,7 @@ from posthog.models import EventDefinition, EventProperty, PropertyDefinition, T
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.security.llm_prompt_sanitization import sanitize_user_text
 
+from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import (
     EVENT_SELECTION_PROMPT,
     EVENT_SELECTION_PROMPT_NAME,
@@ -26,6 +27,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.prompts imp
     resolve_prompt,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
+    MAX_STEP_HOGQL_LENGTH,
     EnrichedPromptSpec,
     QueryPlan,
     RelevantEvents,
@@ -44,6 +46,10 @@ PROMPT_MAX_LENGTH: int = int(SubscriptionAIPromptMaxLength.model_fields["root"].
 EVENT_NAMES_SAMPLE_LIMIT = 20
 # bounds the Postgres scan + context size for the dormant-events list
 NO_DATA_EVENT_NAMES_LIMIT = 25
+# "Dormant" is a fixed, long-horizon signal independent of the report window: an event not seen in this
+# many days is worth flagging so the planner doesn't fabricate it, regardless of how short a given run's
+# analysis window is.
+NO_DATA_LOOKBACK_DAYS = 30
 PERSON_PROPERTY_NAMES_LIMIT = 30
 EVENT_NAME_MAX_LENGTH = 120
 # The top-events list is volume-ranked, so a targeted request ("how are exports doing?") never surfaces
@@ -51,7 +57,11 @@ EVENT_NAME_MAX_LENGTH = 120
 # project's vocabulary (capped); their property schema is then injected — the planner otherwise can't
 # reference events, or their properties, it can't see.
 CANDIDATE_EVENTS_LIMIT = 500
-RELEVANT_EVENTS_LIMIT = 12
+# Ceiling on events whose schema is injected into the planner. Scaled up alongside the 25-step query-plan
+# cap: a metric-heavy prompt can legitimately span many distinct events, and starving the planner of an
+# event the prompt names forces it to guess. Bounded by EVENT_PROPERTIES_PER_EVENT_LIMIT so the injected
+# schema stays a few thousand property names at most.
+RELEVANT_EVENTS_LIMIT = 100
 EVENT_PROPERTIES_PER_EVENT_LIMIT = 15
 # A user-named event is pinned even when it falls outside the LLM candidate cap, but both ends are
 # bounded so neither a large taxonomy nor a degenerate prompt can blow up generation. The pin scan
@@ -60,6 +70,97 @@ EVENT_PROPERTIES_PER_EVENT_LIMIT = 15
 # MAX_PINNED_EVENTS pins survive (keeps the planner context / property lookup predictable).
 PINNED_EVENT_SCAN_LIMIT = 2000
 MAX_PINNED_EVENTS = 25
+# Tokens the user quoted in the prompt to name a specific event: `event name`, "event name",
+# or 'event name'. The capture groups are non-greedy so adjacent quotes don't merge into one token.
+_QUOTED_TOKEN_RE = re.compile(r"`([^`]+)`|\"([^\"]+)\"|'([^']+)'")
+
+# Placeholder tokens the planner writes instead of concrete dates, so frozen HogQL stays
+# window-agnostic; ReportWindow.render_window_filter substitutes the run's fresh bounds.
+DATE_RANGE_PLACEHOLDER = "{{date_range}}"
+COMPARE_DATE_RANGE_PLACEHOLDER = "{{compare_date_range}}"
+WINDOW_START_PLACEHOLDER = "{{window_start}}"
+WINDOW_END_PLACEHOLDER = "{{window_end}}"
+WINDOW_PLACEHOLDERS = (
+    DATE_RANGE_PLACEHOLDER,
+    COMPARE_DATE_RANGE_PLACEHOLDER,
+    WINDOW_START_PLACEHOLDER,
+    WINDOW_END_PLACEHOLDER,
+)
+# Bumping invalidates every frozen plan (they lazily re-plan on next delivery), so prompt/harness
+# improvements reach existing subscriptions instead of only new ones.
+AI_QUERY_PLAN_VERSION = 1
+
+# Top-level clause keywords the prettifier starts a new line at. Order matters: multi-word keywords
+# first so "GROUP BY" wins over a hypothetical prefix match.
+_CLAUSE_KEYWORDS = ("UNION ALL", "GROUP BY", "ORDER BY", "FROM", "PREWHERE", "WHERE", "HAVING", "LIMIT", "OFFSET")
+_LONGEST_CLAUSE_KEYWORD = max(len(kw) for kw in _CLAUSE_KEYWORDS)
+
+
+def prettify_hogql(hogql: str) -> str:
+    """Canonical whitespace-only reformat of a planner HogQL statement: each top-level clause and each
+    top-level SELECT column on its own line.
+
+    Frozen plans are rendered verbatim in the UI and diffed between plan versions, so a stable pretty
+    form matters. The real HogQL printer can't be used here — it refuses the unresolved `{{date_range}}`
+    window tokens — so this is a string-level pass that only ever collapses/inserts whitespace outside
+    quoted literals, never touching tokens or semantics. Falls back to the input if the result would
+    break the plan-step length contract.
+    """
+    out: list[str] = []
+    i, depth = 0, 0
+    n = len(hogql)
+    pending_ws = False
+    while i < n:
+        ch = hogql[i]
+        if ch in ("'", '"', "`"):
+            if pending_ws and out:
+                out.append(" ")
+            pending_ws = False
+            quote = ch
+            out.append(ch)
+            i += 1
+            while i < n:
+                c = hogql[i]
+                out.append(c)
+                i += 1
+                if c == "\\" and i < n:
+                    out.append(hogql[i])
+                    i += 1
+                elif c == quote:
+                    break
+            continue
+        if ch.isspace():
+            pending_ws = True
+            i += 1
+            continue
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        if ch == "," and depth == 0:
+            # Top-level commas only occur in SELECT / GROUP BY / ORDER BY lists — one item per line.
+            out.append(",\n    ")
+            pending_ws = False
+            i += 1
+            while i < n and hogql[i].isspace():
+                i += 1
+            continue
+        if pending_ws:
+            starts_clause = False
+            if depth == 0 and out:
+                upper = hogql[i : i + _LONGEST_CLAUSE_KEYWORD + 1].upper()
+                for kw in _CLAUSE_KEYWORDS:
+                    after = upper[len(kw) : len(kw) + 1]
+                    if upper.startswith(kw) and not (after.isalnum() or after == "_"):
+                        starts_clause = True
+                        break
+            out.append("\n" if starts_clause else " ")
+            pending_ws = False
+        out.append(ch)
+        i += 1
+    pretty = "".join(out).strip()
+    return pretty if len(pretty) <= MAX_STEP_HOGQL_LENGTH else hogql
+
 
 DEFAULT_PLANNER_MODEL = "gpt-4.1"
 DEFAULT_SYNTHESIS_MODEL = "gpt-4.1"
@@ -79,24 +180,14 @@ class StoredPlanInvalidError(Exception):
     pass
 
 
-# System placeholder the planner emits for a query's time filter, so the frozen HogQL stays
-# window-agnostic. The executor substitutes the run's fresh, code-computed bounds into it (see
-# `ReportWindow.render_window_filter`), keeping the persisted plan deterministic while letting the
-# analysis window advance every run. Double-brace (NOT the `{{{...}}}` `render_prompt` token) so it's a
-# distinct system token user-controlled prompt/event text can't smuggle in.
-DATE_RANGE_PLACEHOLDER = "{{date_range}}"
-
-
 @dataclass(frozen=True)
 class ReportWindow:
-    """Code-computed, timezone-aware analysis bounds for a report run.
+    """Half-open `[start, end)` analysis bounds for a report run, tz-aware in the team timezone.
 
-    `start`/`end` are tz-aware in the team's timezone so the planner never has to do timezone math
-    in HogQL. The half-open convention is `timestamp >= start AND timestamp < end` — `start_literal`/
-    `end_literal` render the bounds as `YYYY-MM-DD HH:MM:SS` (project-tz wall clock, no offset) for
-    both the planner context and the query filter. HogQL resolves a bare datetime literal against the
-    project timezone, so the offset is implied; this also keeps the filter on the stricter, faster
-    `toDateTime` path rather than the best-effort parser an offset suffix would force.
+    The literals render as project-tz wall clock without an offset: HogQL resolves bare datetime
+    literals against the project timezone, which keeps the LLM out of timezone math entirely.
+    `compare_start` is the equal-length period immediately before the window, for
+    period-over-period queries.
     """
 
     start: datetime
@@ -111,16 +202,32 @@ class ReportWindow:
         return self.end.strftime("%Y-%m-%d %H:%M:%S")
 
     @property
+    def compare_start(self) -> datetime:
+        # The equal-length period immediately before the window, for period-over-period queries.
+        return self.start - (self.end - self.start)
+
+    @property
+    def compare_start_literal(self) -> str:
+        return self.compare_start.strftime("%Y-%m-%d %H:%M:%S")
+
+    @property
     def window_filter_sql(self) -> str:
-        # The concrete half-open timestamp predicate the `{{date_range}}` placeholder resolves to.
         return f"timestamp >= toDateTime('{self.start_literal}') AND timestamp < toDateTime('{self.end_literal}')"
 
+    @property
+    def compare_filter_sql(self) -> str:
+        return (
+            f"timestamp >= toDateTime('{self.compare_start_literal}') AND timestamp < toDateTime('{self.end_literal}')"
+        )
+
     def render_window_filter(self, hogql: str) -> str:
-        # Single-pass, non-recursive replace of every `{{date_range}}` token with the run's window
-        # predicate. str.replace is non-recursive by construction — the substituted SQL contains no
-        # placeholder, so it can't re-expand. HogQL with no placeholder passes through unchanged
-        # (defensive: such plans aren't frozen, so a frozen step always carries the token).
-        return hogql.replace(DATE_RANGE_PLACEHOLDER, self.window_filter_sql)
+        # str.replace is non-recursive, and the substituted SQL contains no tokens, so nothing re-expands.
+        return (
+            hogql.replace(DATE_RANGE_PLACEHOLDER, self.window_filter_sql)
+            .replace(COMPARE_DATE_RANGE_PLACEHOLDER, self.compare_filter_sql)
+            .replace(WINDOW_START_PLACEHOLDER, f"toDateTime('{self.start_literal}')")
+            .replace(WINDOW_END_PLACEHOLDER, f"toDateTime('{self.end_literal}')")
+        )
 
 
 def _in_tz(dt: datetime, tz: tzinfo) -> datetime:
@@ -131,30 +238,46 @@ def _in_tz(dt: datetime, tz: tzinfo) -> datetime:
 
 def compute_report_window(
     team: Team,
-    last_successful_delivery_at: Optional[datetime],
+    last_scheduled_cutoff: Optional[datetime],
     now: datetime,
     window_days: int,
+    mode: str = Subscription.AIWindowMode.SINCE_LAST_SENT,
+    start_days_ago: Optional[int] = None,
+    end_days_ago: Optional[int] = None,
 ) -> ReportWindow:
-    """Compute the `[start, end)` analysis window for a report run, timezone-aware in the team's tz.
+    """Compute the `[start, end)` analysis window for a run. Pure — callers resolve the cutoff
+    and `now` and pass them in.
 
-    `end` is the run's "now"; `start` is the last SUCCESSFUL delivery's `finished_at` (gap-free
-    "since last send"), falling back to `end - window_days` when there's no prior successful
-    delivery. Both bounds are returned in the team timezone. Pure (no DB / no `datetime.now`) so
-    it's unit-testable — callers resolve `last_successful_delivery_at` and `now` and pass them in.
+    Mode shapes and defaults are documented on `AIPromptConfigSerializer` (the write-side schema);
+    day values arrive pre-validated via `Subscription.normalize_ai_window`. SINCE_LAST_SENT starts
+    where the previous scheduled report's coverage ended (gap-free "since last report"), falling
+    back to `end - window_days`; a day-based mode missing its values degrades to that same
+    fallback, with a warning so the ignored config is diagnosable.
     """
     tz = team.timezone_info
-    end = _in_tz(now, tz)
+    run_now = _in_tz(now, tz)
 
-    if last_successful_delivery_at is not None:
-        # "Since last send" is intentionally gap-free: a re-fire shortly after a successful delivery
-        # yields a small window (and a short report) because there's genuinely little new data — we
-        # don't pad it back to `window_days`, which would double-report data already sent.
-        start = _in_tz(last_successful_delivery_at, tz)
-        # A clock skew or a stale finished_at could land start after end; clamp to the fallback
-        # window so we never hand the planner an inverted range.
-        if start >= end:
-            start = end - timedelta(days=window_days)
-    else:
+    if mode == Subscription.AIWindowMode.LAST_N_DAYS and start_days_ago:
+        return ReportWindow(start=run_now - timedelta(days=start_days_ago), end=run_now)
+
+    if mode == Subscription.AIWindowMode.DAYS_AGO_RANGE and start_days_ago:
+        return ReportWindow(
+            start=run_now - timedelta(days=start_days_ago),
+            end=run_now - timedelta(days=end_days_ago or 0),
+        )
+
+    if mode != Subscription.AIWindowMode.SINCE_LAST_SENT:
+        logger.warning(
+            "ai_report.window_config_invalid_fallback",
+            team_id=team.pk,
+            mode=mode,
+            start_days_ago=start_days_ago,
+            end_days_ago=end_days_ago,
+        )
+
+    end = run_now
+    start = _in_tz(last_scheduled_cutoff, tz) if last_scheduled_cutoff is not None else None
+    if start is None or start >= end:
         start = end - timedelta(days=window_days)
 
     return ReportWindow(start=start, end=end)
@@ -187,12 +310,14 @@ def _top_event_names(team: Team, limit: int) -> list[str]:
     return [name for name in sanitized if name]
 
 
-def _no_data_event_names(team: Team, cutoff: datetime, limit: int) -> list[str]:
+def _no_data_event_names(team: Team, limit: int) -> list[str]:
     # Ground truth for "events with no data" lives in the event-definitions taxonomy, not the events
-    # table (which only contains events that fired). An event whose `last_seen_at` predates the window
-    # start (`cutoff`) — or was never seen — had no data in it. `last_seen_at` is maintained on ingestion
-    # so it can lag slightly, but it's the authoritative taxonomy signal and stops the LLM fabricating a
-    # plausible list of dormant events from its general knowledge of PostHog event names.
+    # table (which only contains events that fired). An event whose `last_seen_at` predates the dormancy
+    # cutoff — or was never seen — is treated as dormant. `last_seen_at` is maintained on ingestion so it
+    # can lag slightly, but it's the authoritative taxonomy signal and stops the LLM fabricating a
+    # plausible list of dormant events from its general knowledge of PostHog event names. The cutoff is a
+    # fixed lookback, decoupled from the report window: dormancy is a property of the event, not the run.
+    cutoff = datetime.now(tz=UTC) - timedelta(days=NO_DATA_LOOKBACK_DAYS)
     names = (
         EventDefinition.objects.filter(team_id=team.pk)
         .filter(Q(last_seen_at__isnull=True) | Q(last_seen_at__lt=cutoff))
@@ -226,26 +351,16 @@ def _group_type_labels(team: Team) -> list[str]:
     return labels
 
 
-def _candidate_event_names(team: Team, limit: int) -> dict[str, str]:
-    # {sanitized_name: raw_name} for the team's events, most-recently-seen first. Sanitized keys are what
-    # the selection LLM sees (event names are user-controlled); raw values feed the EventProperty lookup,
-    # which is keyed on the stored name. First raw wins if two names sanitize to the same string.
-    raw_names = (
-        EventDefinition.objects.filter(team_id=team.pk)
-        .order_by(F("last_seen_at").desc(nulls_last=True), "name")
-        .values_list("name", flat=True)[:limit]
-    )
+def _candidate_event_names(raw_names: Sequence[str]) -> dict[str, str]:
+    # {sanitized_name: raw_name}. Sanitized keys are what the selection LLM sees (event names are
+    # user-controlled); raw values feed the EventProperty lookup, which is keyed on the stored name.
+    # First raw wins if two names sanitize to the same string.
     candidates: dict[str, str] = {}
     for raw in raw_names:
         clean = sanitize_user_text(raw, EVENT_NAME_MAX_LENGTH)
         if clean and clean not in candidates:
             candidates[clean] = raw
     return candidates
-
-
-# Tokens the user quoted in the prompt to name a specific event: `event name`, "event name",
-# or 'event name'. The capture groups are non-greedy so adjacent quotes don't merge into one token.
-_QUOTED_TOKEN_RE = re.compile(r"`([^`]+)`|\"([^\"]+)\"|'([^']+)'")
 
 
 def _normalize_event_token(value: str) -> str:
@@ -255,11 +370,6 @@ def _normalize_event_token(value: str) -> str:
 
 
 def _extract_quoted_event_tokens(prompt: str) -> set[str]:
-    """Pure: pull the normalized tokens the user wrapped in backticks or quotes in the prompt.
-
-    These are explicit event references the user typed. Returns normalized strings (see
-    `_normalize_event_token`); validation against the team's taxonomy happens in `_pinned_event_names`.
-    """
     tokens: set[str] = set()
     for match in _QUOTED_TOKEN_RE.finditer(prompt):
         raw = next(group for group in match.groups() if group is not None)
@@ -278,30 +388,23 @@ def _appears_as_standalone_token(needle: str, haystack: str) -> bool:
     return re.search(rf"(?<![\w$.]){re.escape(needle)}(?![\w$.])", haystack) is not None
 
 
-def _pinned_event_names(team: Team, prompt: str) -> list[str]:
-    """Deterministically resolve the events the user named in the prompt to their RAW taxonomy names.
+def _pinned_event_names(prompt: str, event_names: Sequence[str]) -> list[str]:
+    """The events the user explicitly named in the prompt, resolved to their raw taxonomy names.
 
-    An event is pinned when its (normalized) name either (a) was quoted/backticked in the prompt, or
-    (b) appears verbatim as a standalone token in the prompt. Validation is a single team-scoped
-    `EventDefinition` lookup, most-recently-seen first and bounded by `PINNED_EVENT_SCAN_LIMIT` — well
-    past `CANDIDATE_EVENTS_LIMIT`, so a named event survives even when it falls outside the LLM
-    candidate set, without scanning an unbounded taxonomy. At most `MAX_PINNED_EVENTS` pins are
-    returned. Returns raw names so the EventProperty lookup (keyed on the stored name) works.
+    Why: naming an event is a statement of intent, not a relevance judgment — routing it through the
+    probabilistic LLM selection means a report can silently ignore the one event the user asked about.
+    Pins are matched deterministically (quoted/backticked, or a standalone token of the prompt) so an
+    explicit mention always reaches the planner, and capped at `MAX_PINNED_EVENTS` so a degenerate
+    prompt can't flood the context.
     """
     quoted = _extract_quoted_event_tokens(prompt)
-    # Bare matching needs a normalized haystack to test each event name against as a standalone token.
     haystack = _normalize_event_token(prompt)
     if not quoted and not haystack:
         return []
 
-    raw_names = (
-        EventDefinition.objects.filter(team_id=team.pk)
-        .order_by(F("last_seen_at").desc(nulls_last=True), "name")
-        .values_list("name", flat=True)[:PINNED_EVENT_SCAN_LIMIT]
-    )
     pinned: list[str] = []
     seen: set[str] = set()
-    for raw in raw_names:
+    for raw in event_names:
         normalized = _normalize_event_token(raw)
         if not normalized or normalized in seen:
             continue
@@ -313,12 +416,19 @@ def _pinned_event_names(team: Team, prompt: str) -> list[str]:
     return pinned
 
 
+def _recent_event_names(team: Team, limit: int) -> list[str]:
+    return list(
+        EventDefinition.objects.filter(team_id=team.pk)
+        .order_by(F("last_seen_at").desc(nulls_last=True), "name")
+        .values_list("name", flat=True)[:limit]
+    )
+
+
 def _llm_selected_events(
     team: Team, user: User, prompt: str, candidates: dict[str, str], trace_correlation_id: Optional[Union[int, str]]
 ) -> list[str]:
-    # The model picks relevant events from the project's vocabulary (vs lexical matching). Returns RAW
-    # event names (the EventProperty lookup is keyed on them); any failure degrades to no picks rather
-    # than breaking generation — the deterministic pins in `_select_relevant_events` still survive.
+    # The model picks relevant events from the project's vocabulary (vs lexical matching). Any failure
+    # degrades to no picks rather than breaking generation — deterministic pins still survive.
     posthog_properties: dict[str, Union[str, int]] = {"feature": "ai_subscription", "stage": "event_selection"}
     if trace_correlation_id is not None:
         posthog_properties["subscription_id"] = trace_correlation_id
@@ -359,27 +469,20 @@ def _llm_selected_events(
 def _select_relevant_events(
     team: Team, user: User, prompt: str, trace_correlation_id: Optional[Union[int, str]] = None
 ) -> list[str]:
-    # Pass 1 of context enrichment: resolve the events whose property schema the planner needs. Two
-    # sources, unioned: a deterministic pin of the events the user named in the prompt (always wins, even
-    # outside the candidate cap), and the LLM's relevance picks from the project's vocabulary. Returns RAW
-    # event names (the EventProperty lookup is keyed on them).
-    candidates = _candidate_event_names(team, CANDIDATE_EVENTS_LIMIT)
+    # Returns RAW event names (the EventProperty lookup is keyed on them).
+    recent_names = _recent_event_names(team, PINNED_EVENT_SCAN_LIMIT)
+    candidates = _candidate_event_names(recent_names[:CANDIDATE_EVENTS_LIMIT])
+    pinned = _pinned_event_names(prompt, recent_names)
     if not candidates:
-        return []
+        # No candidate vocabulary for the LLM pass, but explicit pins still count — the pin scan
+        # covers the full recent-names window, not just the candidate slice.
+        return pinned
 
-    # Pinned events lead the result so the `RELEVANT_EVENTS_LIMIT` cap drops LLM picks first — an event
-    # the user explicitly named must always end up queried, never truncated away by the cap.
-    pinned = _pinned_event_names(team, prompt)
     llm_selected = _llm_selected_events(team, user, prompt, candidates, trace_correlation_id)
 
-    # `dict.fromkeys` unions the two (each already deduped) order-preserving, pinned leading. Both paths
-    # resolve to the same raw representative per normalized name — identical `EventDefinition` ordering,
-    # first-raw-wins — so an event surfaced by both can't appear twice.
-    selected = list(dict.fromkeys((*pinned, *llm_selected)))
-    # Cap the union, but never below the (already MAX_PINNED_EVENTS-bounded) pinned set — explicit picks
-    # are the guarantee this PR adds.
-    cap = max(RELEVANT_EVENTS_LIMIT, len(pinned))
-    return selected[:cap]
+    # Pins lead so the cap can only ever drop LLM picks — an explicitly named event is never truncated.
+    union_pinned_first = list(dict.fromkeys((*pinned, *llm_selected)))
+    return union_pinned_first[: max(RELEVANT_EVENTS_LIMIT, len(pinned))]
 
 
 def _event_property_names(team: Team, events: list[str], per_event_limit: int) -> dict[str, list[str]]:
@@ -424,6 +527,8 @@ def build_context_blob(team: Team, window: ReportWindow, relevant_events: Sequen
         f"- Analysis window end (exclusive, project timezone): {window.end_literal}",
         f"- Filter timestamps with the placeholder token (verbatim, do NOT substitute the dates yourself): "
         f"{DATE_RANGE_PLACEHOLDER}",
+        f"- Previous-period start (for period-over-period comparisons only, project timezone): "
+        f"{window.compare_start_literal}",
     ]
     if event_names:
         lines.append("- Top events: " + ", ".join(event_names))
@@ -454,9 +559,12 @@ def build_context_blob(team: Team, window: ReportWindow, relevant_events: Sequen
             if clean_props:
                 lines.append(f"  - `{clean}` properties (use properties.<name>): " + ", ".join(clean_props))
 
-    no_data_events = _no_data_event_names(team, window.start, NO_DATA_EVENT_NAMES_LIMIT)
+    no_data_events = _no_data_event_names(team, NO_DATA_EVENT_NAMES_LIMIT)
     if no_data_events:
-        lines.append("- Events defined but with no data since the window start: " + ", ".join(no_data_events))
+        lines.append(
+            f"- Events defined but with no data in the last {NO_DATA_LOOKBACK_DAYS} day(s): "
+            + ", ".join(no_data_events)
+        )
 
     person_properties = _person_property_names(team, PERSON_PROPERTY_NAMES_LIMIT)
     if person_properties:
@@ -504,6 +612,10 @@ def generate_query_plan(
     result = llm.invoke([("system", rendered_prompt)])
     if not isinstance(result, QueryPlan):
         raise PromptRejectedError("Planner returned a malformed plan.")
+    # Canonicalize formatting once at generation so the executed SQL, diagnostics, and the frozen
+    # plan all carry the same pretty form.
+    for step in result.steps:
+        step.hogql = prettify_hogql(step.hogql)
     return result
 
 
@@ -533,25 +645,20 @@ def build_frozen_prompt(
     team: Team,
     prompt: Optional[str],
     window: ReportWindow,
-    query_plan: dict,
+    ai_query_plan: dict,
 ) -> EnrichedPromptSpec:
-    """Reconstruct the spec from a persisted plan — the deterministic reuse path.
+    """Rebuild the spec from a persisted plan without either LLM pass — the deterministic reuse path.
 
-    Skips BOTH LLM passes the live path runs (the planner and the event-selection model): the frozen
-    `QueryPlan` already encodes the steps, so the same window-agnostic HogQL runs every delivery (same
-    numbers, modulo real data). The context blob is rebuilt fresh for THIS run's window (no LLM — only
-    DB taxonomy reads) so synthesis sees the current schema; the plan's HogQL keeps its `{{date_range}}`
-    placeholder and the executor substitutes the fresh window. A structurally-invalid stored plan raises
-    `StoredPlanInvalidError` so the caller can self-heal by re-planning live (a `QueryPlan` schema change
-    must not brick every frozen subscription); a bad user prompt still raises `PromptRejectedError`.
+    Any invalid stored plan (stale version or bad shape) raises `StoredPlanInvalidError` so the caller
+    re-plans live: a plan-schema or prompt-harness change must invalidate frozen plans, never brick
+    the subscription.
     """
     cleaned = sanitize_prompt(prompt)
+    if ai_query_plan.get("version") != AI_QUERY_PLAN_VERSION:
+        raise StoredPlanInvalidError("Stored query plan version is stale.")
     try:
-        plan = QueryPlan.model_validate(query_plan)
+        plan = QueryPlan.model_validate(ai_query_plan.get("plan"))
     except ValidationError as exc:
-        # Recoverable: the caller re-plans live rather than permanently failing the subscription.
         raise StoredPlanInvalidError("Stored query plan is malformed.") from exc
-    # No relevant_events: the event-selection LLM ran at plan time, and the frozen HogQL already names the
-    # events it needs. The blob still carries window bounds + taxonomy context for synthesis.
     context_blob = build_context_blob(team, window)
     return EnrichedPromptSpec(cleaned_prompt=cleaned, context_blob=context_blob, plan=plan)

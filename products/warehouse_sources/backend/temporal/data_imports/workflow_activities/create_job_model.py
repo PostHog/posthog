@@ -4,6 +4,8 @@ import dataclasses
 from typing import Any
 
 from django.db import close_old_connections
+from django.db.models import Max
+from django.utils import timezone
 
 import posthoganalytics
 from structlog.contextvars import bind_contextvars
@@ -14,9 +16,12 @@ from posthog.models.team.team import Team
 from posthog.temporal.common.logger import get_logger
 
 from products.data_warehouse.backend.facade.api import delete_external_data_schedule
+from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
+from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import HIDDEN_COLUMNS, DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import emit_signals_enabled_for
 
 WAREHOUSE_PIPELINES_V3_FLAG = "warehouse-pipelines-v3"
@@ -51,6 +56,48 @@ def is_pipeline_v3_enabled(team_id: int, source_type: str) -> bool:
 
 
 LOGGER = get_logger(__name__)
+
+
+def _statistics_stale(team_id: int, table: DataWarehouseTable | None) -> bool:
+    """Whether column statistics need recomputing: no stats yet, or the freshest column row is older
+    than the recompute interval. Mirrors compute_table_statistics' own skip check so we don't spawn a
+    child that would immediately no-op on every sync."""
+    if table is None:
+        # First-ever sync — the table is created during it, so let the (post-sync) profiling run once.
+        return True
+    # Lazy: compute_table_statistics drags deltalake/pyarrow; keep it off this activity's import path.
+    from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.compute_table_statistics import (  # noqa: PLC0415
+        MIN_RECOMPUTE_INTERVAL,
+    )
+
+    latest = (
+        WarehouseColumnStatistics.objects.for_team(team_id)
+        .filter(table_id=table.id)
+        .aggregate(latest=Max("computed_at"))["latest"]
+    )
+    return latest is None or (timezone.now() - latest) >= MIN_RECOMPUTE_INTERVAL
+
+
+def _enrichment_pending(team_id: int, table: DataWarehouseTable | None, schema: ExternalDataSchema) -> bool:
+    """Whether semantic enrichment has work to do: any column without an annotation, or a missing
+    table-level description. Mirrors enrich_table_semantics' skip check. Computed from pre-sync state,
+    so columns added by this sync are picked up on the next one (matching the activity's re-sync
+    behaviour) rather than re-running enrichment on every sync."""
+    if table is None:
+        # First-ever sync — nothing is annotated yet, so there is work to do.
+        return True
+    # Hidden plumbing columns (_dlt_id, partition key, …) are never enriched, so they'd otherwise
+    # show up perpetually in `columns - annotated` and keep this returning True on every sync.
+    columns = set((table.columns or {}).keys()) - HIDDEN_COLUMNS
+    annotated = set(
+        WarehouseColumnAnnotation.objects.for_team(team_id)
+        .filter(table_id=table.id)
+        .values_list("column_name", flat=True)
+    )
+    new_columns = columns - annotated
+    # "" is the table-level annotation; absent description on both schema and annotations means work.
+    table_needs_description = not bool(schema.description) and "" not in annotated
+    return bool(new_columns or table_needs_description)
 
 
 def _build_schema_snapshot(schema: ExternalDataSchema) -> dict[str, Any]:
@@ -98,12 +145,17 @@ class CreateExternalDataJobModelActivityOutputs:
     # ISO timestamp of when the previous sync completed, used to detect new records
     last_synced_at: str | None = None
     emit_signals_enabled: bool = False
-    # True when semantic enrichment should run (feature flag on AND AI data processing approved), so the
-    # workflow can skip starting the enrichment child entirely instead of spawning a no-op.
+    # True when semantic enrichment is permitted (feature flag on AND AI data processing approved).
     enrichment_enabled: bool = False
-    # True when column-statistics profiling should run (feature flag on). No AI-data-processing consent
+    # True when column-statistics profiling is permitted (feature flag on). No AI-data-processing consent
     # term: it reads only the Delta log and writes to our own DB — nothing leaves our infra.
     statistics_enabled: bool = False
+    # True when enrichment is permitted AND there is actually work to do (unannotated columns or a missing
+    # table description). The workflow gates the child on this so a steady-state sync — which re-fires
+    # every few minutes — doesn't spawn a workflow + activity that just no-ops.
+    enrichment_needed: bool = False
+    # True when statistics are permitted AND stale (no row yet, or older than the recompute interval).
+    statistics_needed: bool = False
 
 
 @activity.defn
@@ -183,6 +235,12 @@ def create_external_data_job_model_activity(
 
         statistics_should_run = bool(team is not None and statistics_enabled(team))
 
+        # Narrow "permitted" down to "permitted AND has work to do" so steady-state syncs don't spawn
+        # no-op metadata workflows. The activities re-check this themselves as a safety net.
+        table = schema.table
+        enrichment_needed = enrichment_should_run and _enrichment_pending(inputs.team_id, table, schema)
+        statistics_needed = statistics_should_run and _statistics_stale(inputs.team_id, table)
+
         return CreateExternalDataJobModelActivityOutputs(
             job_id=str(job.id),
             incremental_or_append=schema.is_incremental or schema.is_append or schema.is_webhook,
@@ -192,6 +250,8 @@ def create_external_data_job_model_activity(
             emit_signals_enabled=emit_signals_enabled,
             enrichment_enabled=enrichment_should_run,
             statistics_enabled=statistics_should_run,
+            enrichment_needed=enrichment_needed,
+            statistics_needed=statistics_needed,
         )
     except Exception as e:
         logger.exception(

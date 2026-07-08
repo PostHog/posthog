@@ -42,9 +42,11 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import QueryError, ResolutionError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
+from posthog.errors import ExposedCHQueryError
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import (
@@ -618,13 +620,38 @@ class TestQueryRunner(BaseTest):
                 lambda: UserAccessControlError("query", "viewer", None),
                 SloOutcome.SUCCESS,
                 "user_error",
+                False,
             ),
-            ("concurrency_limit_exceeded", ConcurrencyLimitExceeded, SloOutcome.SUCCESS, "rate_limited"),
-            ("unclassified_value_error", ValueError, SloOutcome.FAILURE, "error"),
+            ("concurrency_limit_exceeded", ConcurrencyLimitExceeded, SloOutcome.SUCCESS, "rate_limited", False),
+            (
+                "user_hogql_query_error",
+                lambda: QueryError("Can't select a table when a column is expected: postgres_waitlist_entries"),
+                SloOutcome.SUCCESS,
+                "user_error",
+                False,
+            ),
+            (
+                # ClickHouse-raised user-safe error (code 60 = UNKNOWN_TABLE), e.g. a query
+                # referencing a deleted warehouse table — must not reach error tracking.
+                "user_facing_ch_query_error",
+                lambda: ExposedCHQueryError("Unknown table ae_event_people", code=60),
+                SloOutcome.SUCCESS,
+                "user_error",
+                False,
+            ),
+            (
+                # Internal (non-exposed) HogQL errors are server faults and must stay captured.
+                "internal_hogql_resolution_error",
+                lambda: ResolutionError("Unable to resolve field: ae_event_people"),
+                SloOutcome.FAILURE,
+                "error",
+                True,
+            ),
+            ("unclassified_value_error", ValueError, SloOutcome.FAILURE, "error", True),
         ]
     )
     def test_run_classifies_slo_error_at_except_boundary(
-        self, _name, exception_factory, expected_outcome, expected_error_category
+        self, _name, exception_factory, expected_outcome, expected_error_category, expected_captured
     ):
         TestQueryRunner = self.setup_test_query_runner_class()
         raised_exc = exception_factory()
@@ -635,7 +662,10 @@ class TestQueryRunner(BaseTest):
         TestQueryRunner.calculate = calculate_raises
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
-        with mock.patch("posthog.slo.context.emit_slo_completed") as mock_emit_slo_completed:
+        with (
+            mock.patch("posthog.slo.context.emit_slo_completed") as mock_emit_slo_completed,
+            mock.patch("posthog.hogql_queries.query_runner.capture_exception") as mock_capture_exception,
+        ):
             with pytest.raises(type(raised_exc)):
                 runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
@@ -643,6 +673,11 @@ class TestQueryRunner(BaseTest):
         completed_kwargs = mock_emit_slo_completed.call_args.kwargs
         assert completed_kwargs["properties"].outcome == expected_outcome
         assert completed_kwargs["extra_properties"]["error_category"] == expected_error_category
+
+        # User-input errors (SUCCESS outcome) must not be captured to error tracking; only FAILURE
+        # outcomes are. This is what keeps benign HogQL query errors out of error tracking.
+        captured = any(call.args and call.args[0] is raised_exc for call in mock_capture_exception.call_args_list)
+        assert captured == expected_captured
 
     def test_query_execution_metrics_not_recorded_on_cache_hit(self):
         from posthog.clickhouse.query_tagging import reset_query_tags

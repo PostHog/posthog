@@ -56,10 +56,11 @@ describe('createHogTransformEventStep', () => {
         }
     })
 
-    it('drops event when transformation returns null', async () => {
+    it('drops event when transformation returns null and emits a warning naming the transformation', async () => {
         const mockTransformer = createMockHogTransformer(() => ({
             event: null,
             invocationResults: [],
+            droppedBy: { id: 'hog-fn-1', name: 'Drop internal users' },
         }))
         const hogTransformEventStep = createHogTransformEventStep(mockTransformer)
         const input = createTestInput()
@@ -67,7 +68,25 @@ describe('createHogTransformEventStep', () => {
         const result = await hogTransformEventStep(input)
 
         expect(result.type).toBe(PipelineResultType.DROP)
-        expect(isDropResult(result) && result.reason).toBe('dropped_by_transformation')
+        if (isDropResult(result)) {
+            expect(result.reason).toBe('dropped_by_transformation')
+            expect(result.warnings).toEqual([
+                {
+                    type: 'event_dropped_by_transformation',
+                    details: {
+                        eventUuid: input.event.uuid,
+                        event: '$pageview',
+                        distinctId: 'user-1',
+                        transformationId: 'hog-fn-1',
+                        transformationName: 'Drop internal users',
+                    },
+                    category: 'transformation',
+                    severity: 'info',
+                    pipelineStep: 'hog-transform',
+                    key: 'hog-fn-1',
+                },
+            ])
+        }
     })
 
     it('returns transformed event with modified properties', async () => {

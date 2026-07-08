@@ -5,8 +5,8 @@ import { IngestionWarningsOutput } from '~/common/outputs'
 import { EVENTS_OUTPUT, EventOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { MessageSizeTooLarge } from '~/common/utils/db/error'
-import { eventProcessedAndIngestedCounter } from '~/ingestion/common/event-pipeline/metrics'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
+import { eventProcessedAndIngestedCounter } from '~/ingestion/common/metrics'
 import { isOkResult } from '~/ingestion/framework/results'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createTestMessage } from '~/tests/helpers/kafka-message'
@@ -26,7 +26,7 @@ jest.mock('~/ingestion/common/ingestion-warnings', () => ({
 }))
 
 // Mock the metrics module
-jest.mock('~/ingestion/common/event-pipeline/metrics', () => ({
+jest.mock('~/ingestion/common/metrics', () => ({
     eventProcessedAndIngestedCounter: {
         inc: jest.fn(),
     },
@@ -129,9 +129,16 @@ describe('emit-event-step', () => {
             // The event was not ingested, so the promise resolves with null
             await expect(result.sideEffects[0]).resolves.toBeNull()
 
-            expect(mockEmitIngestionWarning).toHaveBeenCalledWith(mockOutputs, 1, 'message_size_too_large', {
-                eventUuid: 'test-uuid',
-                distinctId: 'test-distinct-id',
+            expect(mockEmitIngestionWarning).toHaveBeenCalledWith(mockOutputs, 1, {
+                type: 'message_size_too_large',
+                details: {
+                    eventUuid: 'test-uuid',
+                    distinctId: 'test-distinct-id',
+                    personId: 'person-uuid',
+                },
+                category: 'size',
+                severity: 'error',
+                pipelineStep: 'emit-event',
             })
             // Metric should not be incremented when there's an error
             expect(mockEventProcessedAndIngestedCounter.inc).not.toHaveBeenCalled()

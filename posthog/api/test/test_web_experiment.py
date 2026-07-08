@@ -3,8 +3,12 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.web_experiment import WebExperimentsAPISerializer, WebExperimentViewSet
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.experiments.backend.models.web_experiment import WebExperiment
@@ -319,122 +323,6 @@ class TestWebExperiment(APIBaseTest):
         # New variant should not have transforms (not in original experiment)
         assert "transforms" not in variants["new_variant"]
 
-    def test_rejects_xss_in_text_field(self):
-        """Test that XSS attacks in text field are rejected"""
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/web_experiments/",
-            data={
-                "name": "XSS Text Test",
-                "variants": {
-                    "control": {
-                        "transforms": [{"html": "", "text": "Safe text", "selector": "#test"}],
-                        "rollout_percentage": 50,
-                    },
-                    "test": {
-                        "transforms": [
-                            {
-                                "html": "",
-                                "text": '<script>alert("XSS")</script>Hello',
-                                "selector": "#test",
-                            }
-                        ],
-                        "rollout_percentage": 50,
-                    },
-                },
-            },
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        response_data = response.json()
-        assert "script" in str(response_data).lower()
-
-    def test_rejects_xss_event_handlers_in_html(self):
-        """Test that event handlers in html field are rejected"""
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/web_experiments/",
-            data={
-                "name": "XSS Event Handler Test",
-                "variants": {
-                    "control": {
-                        "transforms": [{"html": "", "text": "Safe", "selector": "#test"}],
-                        "rollout_percentage": 50,
-                    },
-                    "test": {
-                        "transforms": [
-                            {
-                                "html": "<img src=x onerror=\"alert('XSS')\">",
-                                "text": "Test",
-                                "selector": "#test",
-                            }
-                        ],
-                        "rollout_percentage": 50,
-                    },
-                },
-            },
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        response_data = response.json()
-        assert "event handler" in str(response_data).lower()
-
-    def test_rejects_javascript_protocol(self):
-        """Test that javascript: protocol is rejected"""
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/web_experiments/",
-            data={
-                "name": "XSS JavaScript Protocol Test",
-                "variants": {
-                    "control": {
-                        "transforms": [{"html": "", "text": "Safe", "selector": "#test"}],
-                        "rollout_percentage": 50,
-                    },
-                    "test": {
-                        "transforms": [
-                            {
-                                "html": '<a href="javascript:alert(1)">Click</a>',
-                                "text": "Test",
-                                "selector": "#test",
-                            }
-                        ],
-                        "rollout_percentage": 50,
-                    },
-                },
-            },
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        response_data = response.json()
-        assert "javascript:" in str(response_data).lower()
-
-    def test_rejects_iframe_tags(self):
-        """Test that iframe tags are rejected"""
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/web_experiments/",
-            data={
-                "name": "XSS Iframe Test",
-                "variants": {
-                    "control": {
-                        "transforms": [{"html": "", "text": "Safe", "selector": "#test"}],
-                        "rollout_percentage": 50,
-                    },
-                    "test": {
-                        "transforms": [
-                            {
-                                "html": '<iframe src="https://evil.com"></iframe>',
-                                "text": "Test",
-                                "selector": "#test",
-                            }
-                        ],
-                        "rollout_percentage": 50,
-                    },
-                },
-            },
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        response_data = response.json()
-        assert "iframe" in str(response_data).lower()
-
     def test_web_experiment_activity_log_on_create_and_update(self):
         response = self._create_web_experiment()
         response_data = response.json()
@@ -537,3 +425,56 @@ class TestWebExperiment(APIBaseTest):
         # HTML should be preserved with original formatting
         assert transforms["html"] == complex_html
         assert transforms["text"] == "Safe <b>formatted</b> text"
+
+
+def _variants_with_test_transform(transform: dict) -> dict:
+    return {
+        "control": {"rollout_percentage": 50},
+        "test": {"rollout_percentage": 50, "transforms": [transform]},
+    }
+
+
+class TestWebExperimentValidationNoDB(SimpleTestCase):
+    # validate() / validate_no_xss are pure (no context, no DB), so the matrix runs without
+    # a database. test_validation_serializer_is_wired_to_viewset guards that the endpoint
+    # actually validates through this serializer.
+    def _assert_invalid(self, variants: dict, expected_substring: str) -> None:
+        serializer = WebExperimentsAPISerializer(data={"name": "x", "variants": variants})
+        assert not serializer.is_valid()
+        assert expected_substring in str(serializer.errors).lower()
+
+    @parameterized.expand(
+        [
+            ["script tag in text", {"selector": "#t", "text": '<script>alert("x")</script>'}, "script"],
+            ["event handler in html", {"selector": "#t", "html": '<img src=x onerror="alert(1)">'}, "event handler"],
+            [
+                "javascript protocol in html",
+                {"selector": "#t", "html": '<a href="javascript:alert(1)">x</a>'},
+                "javascript:",
+            ],
+            ["iframe in html", {"selector": "#t", "html": '<iframe src="https://evil.com"></iframe>'}, "iframe"],
+            ["object tag in html", {"selector": "#t", "html": "<object data=x></object>"}, "object"],
+            ["data:text/html in html", {"selector": "#t", "html": "data:text/html,<b>x</b>"}, "data:text/html"],
+        ]
+    )
+    def test_rejects_xss_in_transform(self, _name: str, transform: dict, expected_substring: str) -> None:
+        self._assert_invalid(_variants_with_test_transform(transform), expected_substring)
+
+    def test_rejects_missing_control_variant(self) -> None:
+        self._assert_invalid({"test": {"rollout_percentage": 50}}, "control variant")
+
+    def test_rejects_variant_without_rollout_percentage(self) -> None:
+        self._assert_invalid({"control": {}}, "rollout percentage")
+
+    def test_rejects_non_control_transform_without_selector(self) -> None:
+        variants = {
+            "control": {"rollout_percentage": 50},
+            "test": {"rollout_percentage": 50, "transforms": [{"text": "hi"}]},
+        }
+        self._assert_invalid(variants, "selector")
+
+    def test_validation_serializer_is_wired_to_viewset(self) -> None:
+        # Wiring guard (no DB): the ModelViewSet validates input through this serializer on
+        # create/update, so the no-DB matrix above covers the real endpoint validation path.
+        # If serializer_class is swapped or dropped, validation silently stops running.
+        assert WebExperimentViewSet.serializer_class is WebExperimentsAPISerializer

@@ -372,8 +372,8 @@ class TestVisionQuotaEndpoint(_VisionQuotaTestCase):
         assert resp.status_code == 404
 
 
-@patch("products.replay_vision.backend.api.scanners.async_to_sync")
-@patch("products.replay_vision.backend.api.scanners.sync_connect")
+@patch("products.replay_vision.backend.api.trigger.async_to_sync")
+@patch("products.replay_vision.backend.api.trigger.sync_connect")
 class TestObserveQuotaEnforcement(_VisionQuotaTestCase):
     @property
     def observe_url(self) -> str:

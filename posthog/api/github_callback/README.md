@@ -77,7 +77,7 @@ newlines. `GITHUB_APP_SLUG` and `GITHUB_WEBHOOK_SECRET` are instance settings
 Env vars alone create nothing — you must complete the install flow:
 
 1. Start the stack via `bin/start` / `hogli start`.
-2. Go to `http://localhost:8010/project/<id>/settings/project-integrations`.
+2. Go to `http://localhost:8010/project/<id>/integrations/github`.
 3. Connect **GitHub Integration** → you're sent to
    `github.com/apps/<slug>/installations/new`.
 4. Install the App on the account/org that owns your target repos.

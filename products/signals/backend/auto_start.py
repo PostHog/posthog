@@ -134,7 +134,9 @@ def _create_implementation_task_if_absent(
         team = Team.objects.select_related("organization").get(id=team_id)
         created = tasks_facade.create_and_run_task(
             team=team,
-            title=title,
+            # "Implementation: <report title>" mirrors the research task's "Research: <report title>"
+            # relabel, so the Runs surface reads "<relationship>: <report>" for every pipeline run.
+            title=f"Implementation: {title}",
             description=description,
             origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
             user_id=user_id,
@@ -146,6 +148,8 @@ def _create_implementation_task_if_absent(
             posthog_mcp_scopes="full",
             interaction_origin="signal_report",  # Makes the agent auto-push and open a draft PR
             ai_stage="implementation",
+            # Internal so the run stays out of the default task list; the report surfaces it by id.
+            internal=True,
         )
         if created.latest_run is None:
             raise RuntimeError(f"Task {created.task_id} auto-started without producing a TaskRun")

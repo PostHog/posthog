@@ -1,59 +1,89 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+import { useRef } from 'react'
 
-import { IconArrowRight } from '@posthog/icons'
-import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
+import {
+    Composer,
+    DEFAULT_SUGGESTIONS_DATA,
+    type SuggestionItem,
+    Suggestions,
+    Welcome,
+} from 'products/posthog_ai/frontend/api/primitives'
+import { resolveEffortForModel } from 'products/posthog_ai/frontend/utils/composerModels'
 
+import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { RepositorySelector } from './RepositorySelector'
 
 export function TaskComposer(): JSX.Element {
-    const { submitNewTask, setNewTaskData } = useActions(taskTrackerSceneLogic)
-    const { newTaskData, isSubmittingTask } = useValues(taskTrackerSceneLogic)
+    const { submitNewTask, setNewTaskData, setActiveSuggestionGroup, applySuggestion } =
+        useActions(taskTrackerSceneLogic)
+    const { newTaskData, isSubmittingTask, activeSuggestionGroup, headline, sendDisabledReason } =
+        useValues(taskTrackerSceneLogic)
+
+    const textAreaRef = useRef<HTMLTextAreaElement>(null)
+
+    const handleSelectSuggestion = (item: SuggestionItem): void => {
+        applySuggestion(item)
+        if (item.requiresUserInput) {
+            textAreaRef.current?.focus()
+        }
+    }
 
     return (
-        <div className="flex flex-col h-full min-h-0">
-            <div className="flex-1 min-h-0 overflow-y-auto">
-                <div className="flex flex-col gap-6 w-full max-w-2xl mx-auto lg:py-8 lg:px-4">
-                    <div>
-                        <h2 className="text-lg font-semibold mb-1">New task</h2>
-                        <p className="text-muted text-sm mb-0">
-                            Describe what you'd like an agent to do, then pick a repository to run it against.
-                        </p>
-                    </div>
+        <div className="flex flex-col h-full min-h-0 items-center justify-center overflow-y-auto p-4">
+            <div className="w-full max-w-2xl flex flex-col items-center gap-4">
+                <Welcome headline={headline} />
 
-                    <div>
-                        <label className="block text-sm font-medium mb-2">Description</label>
-                        <LemonTextArea
-                            value={newTaskData.description}
-                            onChange={(value) => setNewTaskData({ description: value })}
-                            placeholder="Describe the task in detail..."
-                            rows={8}
-                            autoFocus
-                        />
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-medium mb-2">Repository</label>
+                <Suggestions.Root
+                    activeGroup={activeSuggestionGroup}
+                    onActiveGroupChange={setActiveSuggestionGroup}
+                    onSelectSuggestion={handleSelectSuggestion}
+                    onNavigate={(url) => router.actions.push(url)}
+                >
+                    {/* Repo/branch picker sits 8px above the input it configures. */}
+                    <div className="w-full flex flex-col gap-2">
                         <RepositorySelector
                             value={newTaskData.repositoryConfig}
                             onChange={(config) => setNewTaskData({ repositoryConfig: config })}
                         />
+                        <Composer.Root
+                            value={newTaskData.description}
+                            onChange={(value) => setNewTaskData({ description: value })}
+                            onSubmit={submitNewTask}
+                            loading={isSubmittingTask}
+                            disabledReason={sendDisabledReason}
+                            textAreaRef={textAreaRef}
+                        >
+                            <Composer.Frame>
+                                <Composer.Field>
+                                    <Composer.Placeholder>Describe the task in detail…</Composer.Placeholder>
+                                    <Composer.Textarea autoFocus data-attr="task-composer-input" />
+                                </Composer.Field>
+                                <Composer.Footer>
+                                    <ComposerModelEffortPickers
+                                        selectedModel={newTaskData.model}
+                                        selectedEffort={newTaskData.reasoningEffort}
+                                        onModelChange={(model) =>
+                                            setNewTaskData({
+                                                model,
+                                                reasoningEffort: resolveEffortForModel(
+                                                    newTaskData.reasoningEffort,
+                                                    model
+                                                ),
+                                            })
+                                        }
+                                        onEffortChange={(reasoningEffort) => setNewTaskData({ reasoningEffort })}
+                                    />
+                                </Composer.Footer>
+                            </Composer.Frame>
+                            <Suggestions.Dropdown />
+                            <Composer.Submit data-attr="task-composer-send" />
+                        </Composer.Root>
                     </div>
-                </div>
-            </div>
 
-            <div className="border-t px-4 py-3 shrink-0">
-                <div className="w-full max-w-2xl mx-auto flex justify-end">
-                    <LemonButton
-                        type="primary"
-                        icon={<IconArrowRight />}
-                        onClick={submitNewTask}
-                        loading={isSubmittingTask}
-                        disabledReason={!newTaskData.description.trim() ? 'Add a description first' : undefined}
-                    >
-                        Create task
-                    </LemonButton>
-                </div>
+                    <Suggestions.Buttons data={DEFAULT_SUGGESTIONS_DATA} />
+                </Suggestions.Root>
             </div>
         </div>
     )

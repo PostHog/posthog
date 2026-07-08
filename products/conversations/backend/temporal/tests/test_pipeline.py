@@ -20,7 +20,7 @@ from products.conversations.backend.temporal.ai_reply.activities.safety_filter i
 from products.conversations.backend.temporal.ai_reply.activities.validate import _validate
 from products.conversations.backend.temporal.ai_reply.constants import (
     BASE_DRAFT_SCOPES,
-    DIAGNOSTIC_DRAFT_SCOPES,
+    DIAGNOSTIC_SCOPES_PRESET,
     LLM_REQUEST_TIMEOUT_SECONDS,
     MAX_ATTEMPTS,
 )
@@ -486,6 +486,41 @@ class TestPersistReplyActivity:
         assert comment.item_context["is_private"] is expected_private
 
 
+class TestBuildContextAutoPublish:
+    """build_context resolves which publishable types would auto-send on the ticket's channel.
+    This must mirror persist_reply's publish gate exactly, since it's what keeps customer-data
+    scopes off any auto-publishable draft."""
+
+    @parameterized.expand(
+        [
+            ("how_to_bot_reply", "widget", {"widget": {"how_to": "bot_reply"}}, ["how_to"]),
+            ("how_to_private_note", "widget", {"widget": {"how_to": "private_note"}}, []),
+            ("no_reply_modes_setting", "widget", None, []),
+            ("channel_mismatch", "slack", {"widget": {"how_to": "bot_reply"}}, []),
+            ("diagnostic_not_publishable", "widget", {"widget": {"diagnostic": "bot_reply"}}, []),
+            ("account_billing_not_publishable", "widget", {"widget": {"account_billing": "bot_reply"}}, []),
+        ]
+    )
+    @pytest.mark.django_db
+    def test_auto_publish_ticket_types(self, _name, channel_source, ai_reply_modes, expected):
+        from products.conversations.backend.temporal.ai_reply.activities.build_context import _build_context_sync
+
+        org = Organization.objects.create(name="Test Org")
+        settings: dict[str, Any] = {"ai_suggestions_enabled": True}
+        if ai_reply_modes is not None:
+            settings["ai_reply_modes"] = ai_reply_modes
+        team = Team.objects.create(organization=org, name="Test Team", conversations_settings=settings)
+        ticket = Ticket.objects.create_with_number(
+            team=team,
+            widget_session_id="aabbccdd-0000-0000-0000-000000000002",
+            distinct_id="test-user",
+            channel_source=channel_source,
+        )
+
+        output = _build_context_sync(team.id, str(ticket.id))
+        assert output.auto_publish_ticket_types == expected
+
+
 class TestStripJsonFence:
     @parameterized.expand(
         [
@@ -574,9 +609,19 @@ class TestUntrustedTicketGuard:
 
 
 class TestDiagnosticScopes:
-    """PR3: diagnostic tickets get wider read scopes + a diagnostic prompt block; others don't."""
+    """Customer-data scopes are granted only when the org opted in AND the reply won't be
+    auto-sent to the (untrusted) author. `auto_publishable` mirrors persist_reply's publish gate
+    (publishable type + channel mode == bot_reply): a private-note reply is human-reviewed, so
+    data tools are safe (incl. how_to set to private_note); an auto-sent reply stays doc/BK-only.
+    The diagnostic prompt block additionally keys off needs_diagnostics."""
 
-    async def _run_draft(self, needs_diagnostics: bool) -> tuple[str, list[str]]:
+    async def _run_draft(
+        self,
+        needs_diagnostics: bool = False,
+        diagnostics_allowed: bool = False,
+        auto_publishable: bool = False,
+        ticket_type: str = "how_to",
+    ) -> tuple[str, Any]:
         captured: dict[str, Any] = {}
 
         async def fake_start(prompt, context, **kwargs):
@@ -592,42 +637,129 @@ class TestDiagnosticScopes:
             patch(f"{DRAFT_MODULE}.MultiTurnSession.start", new=AsyncMock(side_effect=fake_start)),
         ):
             await _draft_async(
-                team_id=1, ticket_context="exports failing", chunk_ids=[], needs_diagnostics=needs_diagnostics
+                team_id=1,
+                ticket_context="exports failing",
+                chunk_ids=[],
+                ticket_type=ticket_type,
+                needs_diagnostics=needs_diagnostics,
+                diagnostics_allowed=diagnostics_allowed,
+                auto_publishable=auto_publishable,
             )
         return captured["prompt"], captured["scopes"]
 
     @pytest.mark.asyncio
-    async def test_diagnostic_ticket_requests_extra_scopes(self):
-        prompt, scopes = await self._run_draft(needs_diagnostics=True)
-        assert scopes == [*BASE_DRAFT_SCOPES, *DIAGNOSTIC_DRAFT_SCOPES]
-        # execute-sql/HogQL needs both query:read AND insight:read.
-        assert "query:read" in scopes and "insight:read" in scopes
-        assert "error_tracking:read" in scopes
-        assert "session_recording:read" in scopes
-        assert "logs:read" in scopes
+    async def test_opted_in_org_gets_read_only_preset_for_private_reply(self):
+        _, scopes = await self._run_draft(diagnostics_allowed=True, auto_publishable=False, ticket_type="diagnostic")
+        assert scopes == DIAGNOSTIC_SCOPES_PRESET
+
+    @pytest.mark.asyncio
+    async def test_private_note_how_to_gets_data_scopes_when_opted_in(self):
+        # The key refinement: a how_to left as private_note (auto_publishable=False) is human
+        # reviewed before sending, so an opted-in org's agent may use data tools on it.
+        _, scopes = await self._run_draft(diagnostics_allowed=True, auto_publishable=False, ticket_type="how_to")
+        assert scopes == DIAGNOSTIC_SCOPES_PRESET
+
+    @pytest.mark.asyncio
+    async def test_auto_publishable_reply_never_gets_data_scopes_even_when_opted_in(self):
+        # Security: a reply that will auto-send (bot_reply) must stay doc/BK-only, else a
+        # how-to-shaped question could pull project data the review gate passes as an aggregate
+        # and auto-send it to an untrusted author.
+        prompt, scopes = await self._run_draft(diagnostics_allowed=True, auto_publishable=True, ticket_type="how_to")
+        assert scopes == BASE_DRAFT_SCOPES
+        assert "DATA ACCESS" not in prompt
+        assert "connectionId" not in prompt
+
+    @pytest.mark.asyncio
+    async def test_auto_publishable_reply_no_data_scopes_even_if_classifier_flags_diagnostics(self):
+        # needs_diagnostics is LLM-controlled; the publish decision, not the classifier hint,
+        # gates data access.
+        _, scopes = await self._run_draft(
+            needs_diagnostics=True, diagnostics_allowed=True, auto_publishable=True, ticket_type="how_to"
+        )
+        assert scopes == BASE_DRAFT_SCOPES
+
+    @pytest.mark.asyncio
+    async def test_non_opted_in_org_stays_base_scopes(self):
+        _, scopes = await self._run_draft(diagnostics_allowed=False, auto_publishable=False, ticket_type="diagnostic")
+        assert scopes == BASE_DRAFT_SCOPES
+
+    @pytest.mark.asyncio
+    async def test_non_opted_in_org_stays_base_even_for_diagnostic_ticket(self):
+        prompt, scopes = await self._run_draft(
+            needs_diagnostics=True, diagnostics_allowed=False, ticket_type="diagnostic"
+        )
+        assert scopes == BASE_DRAFT_SCOPES
+        # No data tools were granted, so don't instruct the agent to investigate data it can't
+        # reach. The investigation block requires grants_customer_data, not needs_diagnostics alone.
+        assert "DIAGNOSTIC INVESTIGATION" not in prompt
+        assert "DATA ACCESS" not in prompt
+
+    @pytest.mark.asyncio
+    async def test_diagnostic_prompt_block_gated_on_needs_diagnostics(self):
+        prompt, _ = await self._run_draft(needs_diagnostics=True, diagnostics_allowed=True, ticket_type="diagnostic")
         assert "DIAGNOSTIC INVESTIGATION" in prompt
 
     @pytest.mark.asyncio
-    async def test_non_diagnostic_ticket_stays_base_scopes(self):
-        prompt, scopes = await self._run_draft(needs_diagnostics=False)
-        assert scopes == BASE_DRAFT_SCOPES
-        for diag_scope in ("error_tracking:read", "query:read", "insight:read", "session_recording:read", "logs:read"):
-            assert diag_scope not in scopes
+    async def test_no_diagnostic_prompt_block_when_not_flagged(self):
+        prompt, _ = await self._run_draft(needs_diagnostics=False, diagnostics_allowed=True, ticket_type="diagnostic")
         assert "DIAGNOSTIC INVESTIGATION" not in prompt
 
     @pytest.mark.asyncio
     async def test_diagnostic_prompt_forbids_raw_pii(self):
-        prompt, _ = await self._run_draft(needs_diagnostics=True)
+        prompt, _ = await self._run_draft(needs_diagnostics=True, diagnostics_allowed=True, ticket_type="diagnostic")
         assert "NEVER include raw emails" in prompt
         assert "prefer aggregates" in prompt
 
     @pytest.mark.asyncio
     async def test_diagnostic_prompt_forbids_external_connections(self):
-        # query:read exposes execute-sql's connectionId (external direct-query sources); the
-        # diagnostic prompt must keep the agent on the customer's own PostHog project data.
-        prompt, _ = await self._run_draft(needs_diagnostics=True)
+        prompt, _ = await self._run_draft(needs_diagnostics=True, diagnostics_allowed=True, ticket_type="diagnostic")
         assert "connectionId" in prompt
         assert "external" in prompt.lower()
+
+    @pytest.mark.asyncio
+    async def test_data_safety_guardrails_present_whenever_data_scopes_granted(self):
+        # Whenever the read_only preset is granted (opted-in + private reply), the connectionId/
+        # raw-PII guardrails must be in the prompt even when the classifier didn't flag
+        # diagnostics — otherwise the agent has data tools with no scope-limit constraints.
+        prompt, scopes = await self._run_draft(
+            needs_diagnostics=False, diagnostics_allowed=True, auto_publishable=False, ticket_type="account_billing"
+        )
+        assert scopes == DIAGNOSTIC_SCOPES_PRESET
+        assert "DIAGNOSTIC INVESTIGATION" not in prompt
+        assert "connectionId" in prompt
+        assert "NEVER include raw emails" in prompt
+        assert "prefer aggregates" in prompt
+
+    @pytest.mark.asyncio
+    async def test_no_data_safety_block_when_not_opted_in(self):
+        # Not opted in -> base scopes only (no customer-data tools) -> no data-access block.
+        prompt, _ = await self._run_draft(needs_diagnostics=False, diagnostics_allowed=False, ticket_type="diagnostic")
+        assert "DATA ACCESS" not in prompt
+        assert "connectionId" not in prompt
+
+    @pytest.mark.asyncio
+    async def test_always_on_context_is_authoritative(self):
+        captured: dict[str, Any] = {}
+
+        async def fake_start(prompt, context, **kwargs):
+            captured["prompt"] = prompt
+            result = SupportReplyDraft(reply="ok", citations=[], confidence=0.0, sources=[])
+            return AsyncMock(), result
+
+        with (
+            patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
+            patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
+            patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
+            patch(f"{DRAFT_MODULE}.MultiTurnSession.start", new=AsyncMock(side_effect=fake_start)),
+        ):
+            await _draft_async(
+                team_id=1,
+                ticket_context="question",
+                chunk_ids=[],
+                always_on_context="Always be kind.",
+            )
+        assert "TEAM POLICY (AUTHORITATIVE" in captured["prompt"]
+        assert "Always be kind." in captured["prompt"]
 
 
 class TestSafetyFilterActivity:
@@ -1006,81 +1138,6 @@ class TestValidateActivity:
 @patch(f"{CLASSIFY_MODULE}._classify", new_callable=AsyncMock)
 @patch(f"{SAFETY_FILTER_MODULE}._safety_filter", new_callable=AsyncMock)
 @patch(f"{BUILD_CONTEXT_MODULE}._build_context_sync")
-async def test_always_on_context_plumbed_to_draft(
-    mock_build,
-    mock_safety,
-    mock_classify,
-    mock_refine,
-    mock_retrieve,
-    mock_draft,
-    mock_validate,
-    mock_review,
-    mock_persist,
-    mock_record_triage,
-    workflow_input,
-    sample_chunk_ids,
-):
-    from temporalio.testing import WorkflowEnvironment
-    from temporalio.worker import Worker
-
-    mock_build.return_value = BuildContextOutput(
-        ticket_context="ticket text",
-        ticket_title="Help",
-        always_on_context="Be friendly and professional.",
-    )
-    mock_safety.return_value = SafetyFilterOutput(safe=True)
-    mock_classify.return_value = ClassifyOutput(ticket_type="how_to", needs_diagnostics=False, seed_queries=[])
-    mock_refine.return_value = RefineQueriesOutput(queries=["test query"])
-    mock_retrieve.return_value = RetrieveOutput(chunk_ids=sample_chunk_ids)
-    mock_draft.return_value = DraftOutput(
-        reply="Hi!",
-        citations=["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
-        confidence=0.95,
-    )
-    mock_validate.return_value = ValidateOutput(grounded=True, coverage=0.95, confidence=0.95, missing=[])
-    mock_review.return_value = ReviewReplyOutput(safe=True)
-
-    async with await WorkflowEnvironment.start_time_skipping() as env:
-        async with Worker(
-            env.client,
-            task_queue="test-queue",
-            workflows=[SupportReplyWorkflow],
-            activities=[
-                support_build_context_activity,
-                support_safety_filter_activity,
-                support_classify_activity,
-                support_refine_queries_activity,
-                support_retrieve_activity,
-                support_draft_activity,
-                support_validate_activity,
-                support_review_reply_activity,
-                support_persist_reply_activity,
-                support_record_triage_activity,
-            ],
-        ):
-            await env.client.execute_workflow(
-                SupportReplyWorkflow.run,
-                workflow_input,
-                id="test-always-on",
-                task_queue="test-queue",
-            )
-
-    # always_on_context is the 6th positional arg to _draft_async
-    assert mock_draft.call_args[0][5] == "Be friendly and professional."
-
-
-@pytest.mark.django_db
-@pytest.mark.asyncio
-@patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync")
-@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync")
-@patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock)
-@patch(f"{VALIDATE_MODULE}._validate", new_callable=AsyncMock)
-@patch(f"{DRAFT_MODULE}._draft_async", new_callable=AsyncMock)
-@patch(f"{RETRIEVE_MODULE}._retrieve_sync")
-@patch(f"{REFINE_QUERIES_MODULE}._refine_queries", new_callable=AsyncMock)
-@patch(f"{CLASSIFY_MODULE}._classify", new_callable=AsyncMock)
-@patch(f"{SAFETY_FILTER_MODULE}._safety_filter", new_callable=AsyncMock)
-@patch(f"{BUILD_CONTEXT_MODULE}._build_context_sync")
 async def test_workflow_short_circuits_unactionable(
     mock_build,
     mock_safety,
@@ -1135,6 +1192,7 @@ async def test_workflow_short_circuits_unactionable(
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
+@pytest.mark.parametrize("diagnostics_allowed,expected_needs_diagnostics", [(True, True), (False, False)])
 @patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync")
 @patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync")
 @patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock)
@@ -1145,7 +1203,7 @@ async def test_workflow_short_circuits_unactionable(
 @patch(f"{CLASSIFY_MODULE}._classify", new_callable=AsyncMock)
 @patch(f"{SAFETY_FILTER_MODULE}._safety_filter", new_callable=AsyncMock)
 @patch(f"{BUILD_CONTEXT_MODULE}._build_context_sync")
-async def test_classify_runs_once_and_threads_ticket_type(
+async def test_classify_threading_and_diagnostics_gating(
     mock_build,
     mock_safety,
     mock_classify,
@@ -1158,12 +1216,17 @@ async def test_classify_runs_once_and_threads_ticket_type(
     mock_record_triage,
     workflow_input,
     sample_chunk_ids,
+    diagnostics_allowed,
+    expected_needs_diagnostics,
 ):
     from temporalio.testing import WorkflowEnvironment
     from temporalio.worker import Worker
 
     mock_build.return_value = BuildContextOutput(
-        ticket_context="my exports keep failing", ticket_title="Broken", diagnostics_allowed=True
+        ticket_context="my exports keep failing",
+        ticket_title="Broken",
+        always_on_context="Be friendly and professional.",
+        diagnostics_allowed=diagnostics_allowed,
     )
     mock_safety.return_value = SafetyFilterOutput(safe=True)
     mock_classify.return_value = ClassifyOutput(
@@ -1208,90 +1271,21 @@ async def test_classify_runs_once_and_threads_ticket_type(
     # Classify is one-shot up front; the loop still ran MAX_ATTEMPTS times.
     assert mock_classify.call_count == 1
     assert mock_validate.call_count == MAX_ATTEMPTS
+    # always_on_context threads into draft (arg 5).
+    assert mock_draft.call_args[0][5] == "Be friendly and professional."
     # ticket_type threads into refine (arg 3), draft (arg 6), validate (arg 6).
     assert mock_refine.call_args[0][3] == "diagnostic"
     assert mock_draft.call_args[0][6] == "diagnostic"
     assert mock_validate.call_args[0][6] == "diagnostic"
     # seed_queries threads into refine (arg 4).
     assert mock_refine.call_args[0][4] == ["export failures"]
-    # needs_diagnostics threads into draft (arg 7) — classifier said True AND the team opted in.
-    assert mock_draft.call_args[0][7] is True
-
-
-@pytest.mark.django_db
-@pytest.mark.asyncio
-@patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync")
-@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync")
-@patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock)
-@patch(f"{VALIDATE_MODULE}._validate", new_callable=AsyncMock)
-@patch(f"{DRAFT_MODULE}._draft_async", new_callable=AsyncMock)
-@patch(f"{RETRIEVE_MODULE}._retrieve_sync")
-@patch(f"{REFINE_QUERIES_MODULE}._refine_queries", new_callable=AsyncMock)
-@patch(f"{CLASSIFY_MODULE}._classify", new_callable=AsyncMock)
-@patch(f"{SAFETY_FILTER_MODULE}._safety_filter", new_callable=AsyncMock)
-@patch(f"{BUILD_CONTEXT_MODULE}._build_context_sync")
-async def test_diagnostics_gated_off_when_team_not_opted_in(
-    mock_build,
-    mock_safety,
-    mock_classify,
-    mock_refine,
-    mock_retrieve,
-    mock_draft,
-    mock_validate,
-    mock_review,
-    mock_persist,
-    mock_record_triage,
-    workflow_input,
-    sample_chunk_ids,
-):
-    from temporalio.testing import WorkflowEnvironment
-    from temporalio.worker import Worker
-
-    # Classifier flags diagnostics, but the team did NOT opt in → draft must not get the wider scopes.
-    mock_build.return_value = BuildContextOutput(
-        ticket_context="my exports keep failing", ticket_title="Broken", diagnostics_allowed=False
-    )
-    mock_safety.return_value = SafetyFilterOutput(safe=True)
-    mock_classify.return_value = ClassifyOutput(
-        ticket_type="diagnostic", needs_diagnostics=True, seed_queries=["export failures"]
-    )
-    mock_refine.return_value = RefineQueriesOutput(queries=["export failures"])
-    mock_retrieve.return_value = RetrieveOutput(chunk_ids=sample_chunk_ids)
-    mock_draft.return_value = DraftOutput(
-        reply="Partial.",
-        citations=["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
-        confidence=0.3,
-    )
-    mock_validate.return_value = ValidateOutput(grounded=False, coverage=0.2, confidence=0.2, missing=["why"])
-    mock_review.return_value = ReviewReplyOutput(safe=True)
-
-    async with await WorkflowEnvironment.start_time_skipping() as env:
-        async with Worker(
-            env.client,
-            task_queue="test-queue",
-            workflows=[SupportReplyWorkflow],
-            activities=[
-                support_build_context_activity,
-                support_safety_filter_activity,
-                support_classify_activity,
-                support_refine_queries_activity,
-                support_retrieve_activity,
-                support_draft_activity,
-                support_validate_activity,
-                support_review_reply_activity,
-                support_persist_reply_activity,
-                support_record_triage_activity,
-            ],
-        ):
-            await env.client.execute_workflow(
-                SupportReplyWorkflow.run,
-                workflow_input,
-                id="test-diagnostics-gated-off",
-                task_queue="test-queue",
-            )
-
-    # needs_diagnostics into draft (arg 7) is False: classifier True AND team opt-in False.
-    assert mock_draft.call_args[0][7] is False
+    # needs_diagnostics threads into draft (arg 7) -- requires the classifier to flag it AND the team to opt in.
+    assert mock_draft.call_args[0][7] is expected_needs_diagnostics
+    # diagnostics_allowed threads into draft (arg 8) -- the org opt-in, independent of the classifier.
+    assert mock_draft.call_args[0][8] is diagnostics_allowed
+    # auto_publishable threads into draft (arg 9). This diagnostic ticket's channel has no
+    # bot_reply mode configured, so it's not auto-publishable.
+    assert mock_draft.call_args[0][9] is False
 
 
 class TestClassifyActivity:

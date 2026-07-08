@@ -113,6 +113,32 @@
   LIMIT 100
   '''
 # ---
+# name: TestInCohort.test_in_cohort_same_cohort_referenced_twice
+  '''
+  -- ClickHouse
+  SELECT events.event AS event 
+  FROM events LEFT JOIN (
+    SELECT cohortpeople.person_id AS person_id, 1 AS matched 
+    FROM cohortpeople 
+    WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, XX)) 
+    GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version 
+    HAVING greater(sum(cohortpeople.sign), 0)) AS in_cohort__XX ON equals(in_cohort__XX.person_id, events.person_id) 
+  WHERE and(equals(events.team_id, 99999), equals(in_cohort__XX.matched, 1), equals(events.event, %(hogql_val_0)s), equals(in_cohort__XX.matched, 1)) 
+  LIMIT 100 
+  SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  
+  -- HogQL
+  SELECT event 
+  FROM events LEFT JOIN (
+    SELECT person_id, 1 AS matched 
+    FROM raw_cohort_people 
+    WHERE equals(cohort_id, XX) 
+    GROUP BY person_id, cohort_id, version 
+    HAVING greater(sum(sign), 0)) AS in_cohort__XX ON equals(in_cohort__XX.person_id, person_id) 
+  WHERE and(equals(in_cohort__XX.matched, 1), equals(event, 'RANDOM_TEST_ID::UUID'), equals(in_cohort__XX.matched, 1)) 
+  LIMIT 100
+  '''
+# ---
 # name: TestInCohort.test_in_cohort_static
   '''
   -- ClickHouse
