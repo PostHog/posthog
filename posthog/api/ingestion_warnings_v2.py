@@ -94,7 +94,9 @@ class IngestionWarningV2SparklinePointSerializer(serializers.Serializer):
 
 class IngestionWarningV2SampleSerializer(serializers.Serializer):
     timestamp = serializers.DateTimeField(help_text="When the warning was emitted (UTC).")
-    source = serializers.CharField(help_text="Which pipeline emitted the warning (e.g. 'plugin-server').")
+    source = serializers.CharField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
+        help_text="Which pipeline emitted the warning (e.g. 'plugin-server')."
+    )
     pipeline_step = serializers.CharField(
         help_text="Ingestion pipeline step that emitted the warning. 'unknown' for warnings from "
         "producers that don't yet emit a step."
