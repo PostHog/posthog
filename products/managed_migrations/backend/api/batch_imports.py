@@ -7,6 +7,7 @@ from django.conf import settings
 import boto3
 import structlog
 import posthoganalytics
+from botocore.config import Config as BotoConfig
 from botocore.exceptions import BotoCoreError, ClientError
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_field
@@ -233,8 +234,9 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
         first assume the import role, then the customer's role with those credentials.
         """
         external_id = get_aws_external_id(self.context["get_team"]())
+        boto_timeout = BotoConfig(connect_timeout=5, read_timeout=10)
         try:
-            sts = boto3.client("sts")
+            sts = boto3.client("sts", config=boto_timeout)
             import_role = sts.assume_role(
                 RoleArn=settings.MANAGED_MIGRATIONS_IMPORT_ROLE_ARN,
                 RoleSessionName="posthog-managed-migration-validation",
@@ -251,6 +253,7 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
             aws_access_key_id=import_role["AccessKeyId"],
             aws_secret_access_key=import_role["SecretAccessKey"],
             aws_session_token=import_role["SessionToken"],
+            config=boto_timeout,
         )
         try:
             credentials = customer_sts.assume_role(
@@ -271,6 +274,7 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
             aws_access_key_id=credentials["AccessKeyId"],
             aws_secret_access_key=credentials["SecretAccessKey"],
             aws_session_token=credentials["SessionToken"],
+            config=boto_timeout,
         )
         try:
             s3.list_objects_v2(Bucket=data["s3_bucket"], Prefix=data.get("s3_prefix", ""), MaxKeys=1)
