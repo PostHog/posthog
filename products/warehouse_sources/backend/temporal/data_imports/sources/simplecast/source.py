@@ -27,8 +27,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.simplecast
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.simplecast.simplecast import (
     SimpleCastResumeConfig,
-    check_access,
     simplecast_source,
+    validate_credentials as _validate_credentials,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -110,12 +110,7 @@ You can create an API token on the **Private Apps** page in [Simplecast](https:/
         self, config: SimpleCastSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
         # The token is account-wide, so a single probe validates access to every schema.
-        status, message = check_access(config.api_key)
-        if status == 200:
-            return True, None
-        if status in (401, 403):
-            return False, "Invalid Simplecast API token"
-        return False, message or "Could not validate Simplecast API token"
+        return _validate_credentials(config.api_key)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[SimpleCastResumeConfig]:
         return ResumableSourceManager[SimpleCastResumeConfig](inputs, SimpleCastResumeConfig)
