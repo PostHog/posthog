@@ -142,7 +142,10 @@ fn base_row(
         &attributes,
     );
     KafkaMetricRow {
-        uuid: Uuid::new_v4().to_string(),
+        // now_v7 and count=1 for parity with the OTLP path (`build_number_row`):
+        // time-ordered UUIDs insert efficiently, and non-histogram rows carry
+        // count=1 so downstream consumers see identical semantics.
+        uuid: Uuid::now_v7().to_string(),
         trace_id: String::new(),
         span_id: String::new(),
         trace_flags: 0,
@@ -152,7 +155,7 @@ fn base_row(
         metric_name: key.name().to_string(),
         metric_type: metric_type.to_string(),
         value: 0.0,
-        count: 0,
+        count: 1,
         histogram_bounds: Vec::new(),
         histogram_counts: Vec::new(),
         unit: String::new(),
