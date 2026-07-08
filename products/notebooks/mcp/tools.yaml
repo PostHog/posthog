@@ -108,6 +108,20 @@ tools:
         description: >
             List all notebooks in the project. Supports filtering by search term, created_by, last_modified_by,
             date_from, date_to, and contains. Returns title, short_id, and creation/modification metadata.
+    notebooks-markdown-retrieve:
+        operation: notebooks_markdown_retrieve
+        enabled: true
+        scopes:
+            - notebook:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get notebook as markdown
+        description: >
+            Get a notebook's content rendered as markdown by short_id. Works for both markdown notebooks and legacy
+            rich-text notebooks (which are converted from their document structure to markdown). Useful for exporting a
+            notebook into docs or feeding its analysis to an AI agent.
     notebooks-partial-update:
         operation: notebooks_partial_update
         enabled: true

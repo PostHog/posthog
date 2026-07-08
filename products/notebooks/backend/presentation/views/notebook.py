@@ -49,6 +49,7 @@ from products.notebooks.backend import collab_stream, markdown_collab, presence
 from products.notebooks.backend.activity_logging import log_notebook_activity
 from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
+from products.notebooks.backend.markdown_conversion import convert_notebook_content_to_markdown
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
 from products.notebooks.backend.query_validation import InvalidNotebookQueryError, normalize_notebook_query_nodes
@@ -284,9 +285,9 @@ class NotebookSerializer(NotebookMinimalSerializer):
 class NotebookMarkdownSerializer(serializers.Serializer):
     markdown = serializers.CharField(
         allow_blank=True,
-        allow_null=True,
         read_only=True,
-        help_text="Markdown source for markdown notebooks, or `null` for legacy rich-text notebooks.",
+        help_text="The notebook content rendered as markdown. Markdown notebooks return their stored markdown "
+        "source; legacy rich-text notebooks are converted from their ProseMirror document.",
     )
 
 
@@ -537,13 +538,16 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     def _current_user(self) -> User | None:
         return self.request.user if isinstance(self.request.user, User) else None
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        description="Return the notebook's content rendered as markdown. Markdown notebooks return their stored "
+        "markdown source; legacy rich-text notebooks are converted from their ProseMirror document. Useful for "
+        "exporting a notebook into docs or feeding it to an AI agent.",
+        responses={200: NotebookMarkdownSerializer},
+    )
     @action(methods=["GET"], url_path="markdown", detail=True, required_scopes=["notebook:read"])
     def markdown(self, request: Request, **kwargs) -> Response:
         notebook = self.get_object()
-        serializer = NotebookMarkdownSerializer(
-            {"markdown": markdown_collab.get_markdown_notebook_markdown(notebook.content)}
-        )
+        serializer = NotebookMarkdownSerializer({"markdown": convert_notebook_content_to_markdown(notebook.content)})
         return Response(serializer.data)
 
     def safely_get_queryset(self, queryset) -> QuerySet:

@@ -381,6 +381,7 @@ export const notebookLogic = kea<notebookLogicType>([
         setEditingNodeEditing: (nodeId: string, editing: boolean) => ({ nodeId, editing }),
         exportJSON: true,
         downloadMarkdown: true,
+        downloadText: true,
         copyMarkdown: true,
         showConflictWarning: true,
         onUpdateEditor: true,
@@ -2000,13 +2001,19 @@ export const notebookLogic = kea<notebookLogicType>([
             downloadFile(file)
         },
         downloadMarkdown: () => {
-            const markdown = getMarkdownNotebookMarkdown(values.content)
+            const markdown = convertNotebookContentToMarkdown(values.content)
             const file = new File([markdown], `${slugify(values.title ?? 'untitled')}.md`, { type: 'text/markdown' })
 
             downloadFile(file)
         },
+        downloadText: () => {
+            const markdown = convertNotebookContentToMarkdown(values.content)
+            const file = new File([markdown], `${slugify(values.title ?? 'untitled')}.txt`, { type: 'text/plain' })
+
+            downloadFile(file)
+        },
         copyMarkdown: async () => {
-            await copyToClipboard(getMarkdownNotebookMarkdown(values.content), 'markdown')
+            await copyToClipboard(convertNotebookContentToMarkdown(values.content), 'markdown')
         },
 
         discardLocalChanges: () => {

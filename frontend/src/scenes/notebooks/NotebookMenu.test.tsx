@@ -74,10 +74,14 @@ describe('NotebookMenu', () => {
         jest.restoreAllMocks()
     })
 
-    it('shows the markdown download action for legacy notebooks rendered as markdown', () => {
+    it('offers markdown, text, and JSON export for a legacy notebook', () => {
         render(<NotebookMenu shortId={SHORT_ID} />)
 
+        // Legacy rich-text notebooks used to only get "Export JSON"; they now get usable
+        // markdown/text exports too, converted from their document structure.
         expect(screen.getByText('Download .md')).toBeInTheDocument()
-        expect(screen.queryByText('Export JSON')).not.toBeInTheDocument()
+        expect(screen.getByText('Download .txt')).toBeInTheDocument()
+        expect(screen.getByText('Copy markdown')).toBeInTheDocument()
+        expect(screen.getByText('Export JSON')).toBeInTheDocument()
     })
 })

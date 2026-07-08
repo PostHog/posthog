@@ -6,6 +6,7 @@ import {
     NotebooksCreateBody,
     NotebooksDestroyParams,
     NotebooksListQueryParams,
+    NotebooksMarkdownRetrieveParams,
     NotebooksPartialUpdateBody,
     NotebooksPartialUpdateParams,
     NotebooksRetrieveParams,
@@ -88,6 +89,21 @@ const notebooksList = (): ToolBase<
     },
 })
 
+const NotebooksMarkdownRetrieveSchema = NotebooksMarkdownRetrieveParams.omit({ project_id: true })
+
+const notebooksMarkdownRetrieve = (): ToolBase<typeof NotebooksMarkdownRetrieveSchema, Schemas.NotebookMarkdown> => ({
+    name: 'notebooks-markdown-retrieve',
+    schema: NotebooksMarkdownRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof NotebooksMarkdownRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.NotebookMarkdown>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/${encodeURIComponent(String(params.short_id))}/markdown/`,
+        })
+        return result
+    },
+})
+
 const NotebooksPartialUpdateSchema = NotebooksPartialUpdateParams.omit({ project_id: true }).extend(
     NotebooksPartialUpdateBody.shape
 )
@@ -141,6 +157,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'notebooks-create': notebooksCreate,
     'notebooks-destroy': notebooksDestroy,
     'notebooks-list': notebooksList,
+    'notebooks-markdown-retrieve': notebooksMarkdownRetrieve,
     'notebooks-partial-update': notebooksPartialUpdate,
     'notebooks-retrieve': notebooksRetrieve,
 }

@@ -31004,6 +31004,11 @@ export namespace Schemas {
       cursor_head?: number | null;
     }
 
+    export interface NotebookMarkdown {
+      /** The notebook content rendered as markdown. Markdown notebooks return their stored markdown source; legacy rich-text notebooks are converted from their ProseMirror document. */
+      readonly markdown: string;
+    }
+
     export interface NotebookMarkdownSave {
       /** Unique identifier for the client session, used to skip self-echo on the update stream. */
       client_id: string;

@@ -125,7 +125,17 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("legacy_rich_text", {"some": "kind", "of": "tip", "tap": "content"}, None),
+            (
+                "legacy_rich_text",
+                {
+                    "type": "doc",
+                    "content": [
+                        {"type": "heading", "attrs": {"level": 1}, "content": [{"type": "text", "text": "Report"}]},
+                        {"type": "paragraph", "content": [{"type": "text", "text": "Hello world"}]},
+                    ],
+                },
+                "# Report\n\nHello world",
+            ),
             (
                 "markdown_notebook",
                 {
@@ -141,7 +151,7 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
             ),
         ]
     )
-    def test_gets_notebook_markdown_by_shortid(self, _, content: dict, expected_markdown: str | None) -> None:
+    def test_gets_notebook_markdown_by_shortid(self, _, content: dict, expected_markdown: str) -> None:
         create_response = self.client.post(f"/api/projects/{self.team.id}/notebooks", data={"content": content})
         short_id = create_response.json()["short_id"]
 

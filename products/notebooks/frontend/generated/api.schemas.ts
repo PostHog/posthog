@@ -272,6 +272,11 @@ export interface NotebookCollabSaveApi {
     cursor_head?: number | null
 }
 
+export interface NotebookMarkdownApi {
+    /** The notebook content rendered as markdown. Markdown notebooks return their stored markdown source; legacy rich-text notebooks are converted from their ProseMirror document. */
+    readonly markdown: string
+}
+
 export type NotebooksListParams = {
     /**
      * Filter for notebooks that match a provided filter.
