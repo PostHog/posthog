@@ -1,13 +1,19 @@
 from typing import TYPE_CHECKING, Optional
 
+from opentelemetry import trace
 from pydantic import BaseModel
 
 from posthog.schema import DataWarehouseNode, FunnelsDataWarehouseNode, LifecycleDataWarehouseNode
 
+from posthog.caching.warehouse_name_cache import get_warehouse_names_for_team
+
 if TYPE_CHECKING:
     from posthog.models import Team
 
+tracer = trace.get_tracer(__name__)
 
+
+@tracer.start_as_current_span("queried_access_controlled_resources")
 def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str]]:
     """The set of access-control scope names a query reads, e.g. "notebook", "warehouse_table".
     Empty when the query reads no access-controlled table.
@@ -18,14 +24,10 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
     short-circuits the schema strip that would otherwise raise "You don't have access to table")."""
 
     # Deferred to break the query_runner -> this module -> hogql import cycle.
-    from posthog.hogql.database.database import get_data_warehouse_table_name  # noqa: PLC0415
     from posthog.hogql.database.schema.system import access_controlled_system_tables  # noqa: PLC0415
     from posthog.hogql.errors import BaseHogQLError  # noqa: PLC0415
     from posthog.hogql.metadata import get_table_names  # noqa: PLC0415
     from posthog.hogql.parser import parse_select  # noqa: PLC0415
-
-    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-    from products.warehouse_sources.backend.facade.models import DataWarehouseTable  # noqa: PLC0415
 
     # Raw HogQL is the only query that references system.* and warehouse tables by name
     if getattr(query, "kind", None) == "HogQLQuery":
@@ -43,30 +45,18 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
 
         # Warehouse tables/views are per-team and dynamic, and the HogQL schema isn't built here (the
         # fingerprint runs before any database), so resolve referenced warehouse objects with a light
-        # name lookup. We only add the scope here; the specific denied object IDs are folded into the
-        # cache key by AnalyticsQueryRunner._get_object_access_restrictions.
+        # name lookup, memoized per request. We only add the scope here; the specific denied object
+        # IDs are folded into the cache key by AnalyticsQueryRunner._get_object_access_restrictions.
         non_system_names = table_names - set(system_scopes)
         if non_system_names:
             # External tables are queryable under BOTH their raw name and the prefixed
             # source_type.prefix.table key (see database.py schema build), so match either form —
             # otherwise a denied user could read an allowed user's cached rows via the raw name.
-            warehouse_table_names: set[str] = set()
-            for table in (
-                DataWarehouseTable.objects.filter(team_id=team.pk)
-                .exclude(deleted=True)
-                .select_related("external_data_source")
-            ):
-                warehouse_table_names.add(table.name)
-                warehouse_table_names.add(get_data_warehouse_table_name(table.external_data_source, table.name))
-            if non_system_names & warehouse_table_names:
+            warehouse_names = get_warehouse_names_for_team(team.pk)
+            if non_system_names & warehouse_names.table_names:
                 scopes.add("warehouse_table")
 
-            view_names = set(
-                DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
-                .exclude(deleted=True)
-                .values_list("name", flat=True)
-            )
-            if non_system_names & view_names:
+            if non_system_names & warehouse_names.view_names:
                 scopes.add("warehouse_view")
                 # A non-materialized view re-resolves to its underlying warehouse tables at execution.
                 # A cache hit skips that resolution, so fold warehouse_table denials into the key too —

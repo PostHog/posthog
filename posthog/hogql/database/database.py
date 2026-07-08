@@ -9,6 +9,7 @@ from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from functools import cache
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
+from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.db.models import Prefetch, Q
@@ -1891,18 +1892,41 @@ class Database(BaseModel):
 def get_data_warehouse_table_name(source: ExternalDataSource | None, table_name: str):
     if source is None:
         return table_name
+    return get_data_warehouse_table_name_from_parts(
+        table_name,
+        source_id=source.pk,
+        source_type=source.source_type,
+        prefix=source.prefix,
+        access_method=source.access_method,
+    )
 
-    if source.access_method == ExternalDataSource.AccessMethod.DIRECT:
+
+def get_data_warehouse_table_name_from_parts(
+    table_name: str,
+    *,
+    source_id: UUID | None,
+    source_type: str | None,
+    prefix: str | None,
+    access_method: str | None,
+) -> str:
+    """`get_data_warehouse_table_name` from scalar source fields, for callers working off
+    `values_list` rows that must not materialize ExternalDataSource instances."""
+    if source_id is None or source_type is None:
         return table_name
 
-    source_type = source.source_type.lower()
-    prefix = (source.prefix or "").strip("_").lower()
-    table_name_stripped = _strip_external_source_prefix(source, table_name)
+    if access_method == ExternalDataSource.AccessMethod.DIRECT:
+        return table_name
 
-    if prefix:
-        return f"{source_type}.{prefix}.{table_name_stripped}".lower()
+    source_type_lower = source_type.lower()
+    clean_prefix = (prefix or "").strip("_").lower()
+    table_name_stripped = _strip_external_source_prefix_from_parts(
+        table_name, source_id=source_id, source_type=source_type, prefix=prefix
+    )
 
-    return f"{source_type}.{table_name_stripped}".lower()
+    if clean_prefix:
+        return f"{source_type_lower}.{clean_prefix}.{table_name_stripped}".lower()
+
+    return f"{source_type_lower}.{table_name_stripped}".lower()
 
 
 def _use_person_properties_from_events(database: Database) -> None:
@@ -2195,17 +2219,25 @@ def _get_active_external_data_schemas(warehouse_table: DataWarehouseTable) -> li
 
 
 def _strip_external_source_prefix(source: ExternalDataSource, table_name: str) -> str:
-    source_type = source.source_type.lower()
-    raw_prefix = (source.prefix or "").lower()
-    prefix = raw_prefix.strip("_")
+    return _strip_external_source_prefix_from_parts(
+        table_name, source_id=source.pk, source_type=source.source_type, prefix=source.prefix
+    )
+
+
+def _strip_external_source_prefix_from_parts(
+    table_name: str, *, source_id: UUID, source_type: str, prefix: str | None
+) -> str:
+    source_type_lower = source_type.lower()
+    raw_prefix = (prefix or "").lower()
+    clean_prefix = raw_prefix.strip("_")
 
     table_name_stripped = table_name
     known_prefixes = [
-        f"{source_type}_{source.pk.hex}_",
-        f"{raw_prefix}{source_type}_" if raw_prefix else None,
-        f"{prefix}_{source_type}_" if prefix else None,
-        f"{prefix}{source_type}_" if prefix else None,
-        f"{source_type}_",
+        f"{source_type_lower}_{source_id.hex}_",
+        f"{raw_prefix}{source_type_lower}_" if raw_prefix else None,
+        f"{clean_prefix}_{source_type_lower}_" if clean_prefix else None,
+        f"{clean_prefix}{source_type_lower}_" if clean_prefix else None,
+        f"{source_type_lower}_",
     ]
 
     for known_prefix in filter(None, known_prefixes):

@@ -1,5 +1,8 @@
 from posthog.test.base import BaseTest
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -14,6 +17,7 @@ from posthog.schema import (
 
 from posthog.hogql.database.database import get_data_warehouse_table_name
 
+from posthog.caching.warehouse_name_cache import warehouse_names_cache_scope
 from posthog.hogql_queries.access_controlled_resources import (
     _references_data_warehouse,
     queried_access_controlled_resources,
@@ -24,15 +28,19 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable,
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
+def _create_warehouse_table(team, name: str) -> DataWarehouseTable:
+    return DataWarehouseTable.objects.create(
+        name=name,
+        format="Parquet",
+        team=team,
+        url_pattern="https://bucket.s3/data/*",
+        columns={},
+    )
+
+
 class TestQueriedAccessControlledResources(BaseTest):
     def _create_warehouse_table(self, name: str) -> DataWarehouseTable:
-        return DataWarehouseTable.objects.create(
-            name=name,
-            format="Parquet",
-            team=self.team,
-            url_pattern="https://bucket.s3/data/*",
-            columns={},
-        )
+        return _create_warehouse_table(self.team, name)
 
     @staticmethod
     def _dw_node() -> DataWarehouseNode:
@@ -148,3 +156,83 @@ class TestQueriedAccessControlledResources(BaseTest):
         # A name that resolves to a warehouse table in a different team must not grant the scope here.
         result = queried_access_controlled_resources(HogQLQuery(query="select * from other_team_table"), self.team)
         assert result == set()
+
+
+class TestWarehouseNamesMemoization(BaseTest):
+    def _scan_counts(self, ctx: CaptureQueriesContext) -> tuple[int, int]:
+        table_scans = [q["sql"] for q in ctx.captured_queries if "posthog_datawarehousetable" in q["sql"]]
+        view_scans = [q["sql"] for q in ctx.captured_queries if "posthog_datawarehousesavedquery" in q["sql"]]
+        return len(table_scans), len(view_scans)
+
+    def test_warehouse_lookups_memoized_within_scope(self):
+        # A dashboard load fingerprints one query per tile; without the scope cache each fingerprint
+        # rescans every warehouse table and saved query of the team.
+        _create_warehouse_table(self.team, "my_warehouse_table")
+
+        with warehouse_names_cache_scope(), CaptureQueriesContext(connection) as ctx:
+            first = queried_access_controlled_resources(HogQLQuery(query="select * from my_warehouse_table"), self.team)
+            second = queried_access_controlled_resources(
+                HogQLQuery(query="select * from my_warehouse_table"), self.team
+            )
+
+        assert first == second == {"warehouse_table"}
+        assert self._scan_counts(ctx) == (1, 1)
+
+    def test_no_memoization_outside_scope(self):
+        # No scope must mean no caching: a thread-lifetime cache on a worker would fingerprint
+        # queries against a stale view of the team's warehouse objects.
+        with CaptureQueriesContext(connection) as ctx:
+            queried_access_controlled_resources(HogQLQuery(query="select * from some_table"), self.team)
+            queried_access_controlled_resources(HogQLQuery(query="select * from some_table"), self.team)
+
+        assert self._scan_counts(ctx) == (2, 2)
+
+    @parameterized.expand(
+        [
+            (
+                "table",
+                lambda self: _create_warehouse_table(self.team, "fresh_object"),
+                {"warehouse_table"},
+            ),
+            (
+                "view",
+                lambda self: DataWarehouseSavedQuery.objects.create(
+                    team=self.team, name="fresh_object", query={"kind": "HogQLQuery", "query": "select 1 as a"}
+                ),
+                {"warehouse_view", "warehouse_table"},
+            ),
+        ]
+    )
+    def test_create_and_soft_delete_invalidate_within_scope(self, _name, create, expected_scopes):
+        # Within one scope, warehouse object changes must invalidate the memo — a fingerprint
+        # computed against pre-change names would partition the query cache wrong for the rest of
+        # the request/task.
+        query = HogQLQuery(query="select * from fresh_object")
+        with warehouse_names_cache_scope():
+            assert queried_access_controlled_resources(query, self.team) == set()
+            obj = create(self)
+            assert queried_access_controlled_resources(query, self.team) == expected_scopes
+            obj.soft_delete()
+            assert queried_access_controlled_resources(query, self.team) == set()
+
+    def test_source_change_invalidates_within_scope(self):
+        # The prefixed queryable name depends on the source's prefix, so source edits must
+        # invalidate too, not just table/view rows.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="s",
+            connection_id="c",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            prefix="before",
+        )
+        table = _create_warehouse_table(self.team, "stripe_customers")
+        table.external_data_source = source
+        table.save()
+
+        query = HogQLQuery(query="select * from stripe.after.customers")
+        with warehouse_names_cache_scope():
+            assert queried_access_controlled_resources(query, self.team) == set()
+            source.prefix = "after"
+            source.save()
+            assert queried_access_controlled_resources(query, self.team) == {"warehouse_table"}

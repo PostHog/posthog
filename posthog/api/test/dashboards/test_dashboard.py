@@ -7,7 +7,9 @@ from unittest import mock
 from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils.timezone import now
 
 from dateutil.parser import isoparse
@@ -39,6 +41,7 @@ from products.dashboards.backend.api.dashboard import DashboardSerializer
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.models.insight_caching_state import InsightCachingState
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 from ee.models.rbac.access_control import AccessControl
@@ -681,6 +684,59 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
         with self.assertNumQueries(baseline + 11 + 11 + property_access_control_lookup):
             self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
+
+    def test_dashboard_hogql_tiles_scan_warehouse_names_once_per_request(self) -> None:
+        # Each HogQL tile's cache fingerprint resolves the team's warehouse names
+        # (queried_access_controlled_resources); the scan must be memoized per request, not run per
+        # tile — per-tile scans made HogQL-heavy dashboard loads take seconds per tile on
+        # warehouse-heavy teams.
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "hogql dashboard"})
+        for _ in range(3):
+            self.dashboard_api.create_insight(
+                {
+                    # References a table: a table-less query (`select 1`) never reaches the
+                    # warehouse name lookup at all
+                    "query": {
+                        "kind": "DataVisualizationNode",
+                        "source": {"kind": "HogQLQuery", "query": "select count() from events"},
+                    },
+                    "dashboards": [dashboard_id],
+                }
+            )
+
+        with CaptureQueriesContext(connection) as ctx:
+            self.dashboard_api.get_dashboard(dashboard_id, query_params={"refresh": "force_cache"})
+
+        table_scans = [q["sql"] for q in ctx.captured_queries if "posthog_datawarehousetable" in q["sql"]]
+        view_scans = [q["sql"] for q in ctx.captured_queries if "posthog_datawarehousesavedquery" in q["sql"]]
+        assert len(table_scans) == 1, table_scans
+        assert len(view_scans) == 1, view_scans
+
+    def test_force_cache_dashboard_get_skips_noop_caching_state_update(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        self.dashboard_api.create_insight(
+            {
+                "query": {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "select 1"}},
+                "dashboards": [dashboard_id],
+            }
+        )
+        # Warm the cache and the caching-state row with a blocking calculation
+        self.dashboard_api.get_dashboard(dashboard_id, query_params={"refresh": "blocking"})
+        tile = DashboardTile.objects.get(dashboard_id=dashboard_id)
+        state = InsightCachingState.objects.get(team=self.team, dashboard_tile=tile)
+        assert state.last_refresh is not None
+
+        # A warm-cache read re-writes identical caching-state values; it must skip the per-tile UPDATE
+        with CaptureQueriesContext(connection) as ctx:
+            self.dashboard_api.get_dashboard(dashboard_id, query_params={"refresh": "force_cache"})
+        updates = [q["sql"] for q in ctx.captured_queries if 'UPDATE "posthog_insightcachingstate"' in q["sql"]]
+        assert updates == [], updates
+
+        # The skip is opportunistic: a divergent row must still be healed by the next read
+        InsightCachingState.objects.filter(pk=state.pk).update(refresh_attempt=1)
+        self.dashboard_api.get_dashboard(dashboard_id, query_params={"refresh": "force_cache"})
+        state.refresh_from_db()
+        assert state.refresh_attempt == 0
 
     @snapshot_postgres_queries
     def test_listing_dashboards_is_not_nplus1(self) -> None:

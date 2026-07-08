@@ -23,6 +23,8 @@ if TYPE_CHECKING:
     from posthog.caching.fetch_from_cache import InsightResult
     from posthog.rbac.user_access_control import UserAccessControl
 
+    from products.product_analytics.backend.models.insight_caching_state import InsightCachingState
+
 
 logger = structlog.get_logger(__name__)
 
@@ -60,6 +62,7 @@ def calculate_for_query_based_insight(
     tile_filters_override: Optional[dict] = None,
     query_override: Optional[dict] = None,
     analytics_props: Optional[AnalyticsProps] = None,
+    current_caching_state: Optional["InsightCachingState"] = None,
 ) -> "InsightResult":
     from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
     from posthog.caching.insight_cache import update_cached_state
@@ -110,12 +113,22 @@ def calculate_for_query_based_insight(
     cache_key = response.get("cache_key")
     last_refresh = response.get("last_refresh")
     if isinstance(cache_key, str) and isinstance(last_refresh, datetime):
-        update_cached_state(  # Updating the relevant InsightCachingState
-            team.id,
-            cache_key,
-            last_refresh,
-            result=None,  # Not caching the result here, since in HogQL this is the query runner's responsibility
+        # A warm-cache read re-writes values identical to the caller's row; skip the per-tile UPDATE
+        # then. Opportunistic only: a divergent sibling row fails its own equality check on its own
+        # serialization and re-triggers the full update, which heals every row sharing the cache_key.
+        already_current = (
+            current_caching_state is not None
+            and current_caching_state.cache_key == cache_key
+            and current_caching_state.last_refresh == last_refresh
+            and current_caching_state.refresh_attempt == 0
         )
+        if not already_current:
+            update_cached_state(  # Updating the relevant InsightCachingState
+                team.id,
+                cache_key,
+                last_refresh,
+                result=None,  # Not caching the result here, since in HogQL this is the query runner's responsibility
+            )
 
     return InsightResult(
         # Translating `QueryResponse` to legacy insights shape

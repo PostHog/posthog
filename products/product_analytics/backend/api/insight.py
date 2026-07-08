@@ -448,6 +448,15 @@ class QueryFieldSerializer(serializers.Serializer):
         return data
 
 
+def _prefetched_caching_state(dashboard_tile: DashboardTile | None) -> InsightCachingState | None:
+    """The tile's caching state, only when already prefetched — never worth a query of its own."""
+    if dashboard_tile is None:
+        return None
+    if "caching_states" not in getattr(dashboard_tile, "_prefetched_objects_cache", {}):
+        return None
+    return dashboard_tile.caching_state
+
+
 def _last_refresh_for_shared_gate(insight: Insight, dashboard_tile: DashboardTile | None) -> datetime | None:
     """Throttle clock for `?refresh=force_blocking` on shared insights. On DB error, returns
     ``now()`` so the gate fails closed."""
@@ -1136,6 +1145,7 @@ class InsightSerializer(InsightBasicSerializer):
                         variables_override=variables_override,
                         tile_filters_override=tile_filters_override,
                         analytics_props=get_request_analytics_properties(self.context["request"]),
+                        current_caching_state=_prefetched_caching_state(dashboard_tile),
                     )
             except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
                 raise ValidationError(str(e), getattr(e, "code_name", None))
