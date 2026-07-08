@@ -205,6 +205,18 @@ class TestClassificationOutcomes:
             assert schema.status == ExternalDataSchema.Status.RUNNING
         assert fake_temporal.terminated == ([job.workflow_run_id] if expect_terminated else [])
 
+    def test_job_without_workflow_id_is_fixed_without_terminate(self, team, fake_temporal, queue_conn):
+        schema, job = _create_stuck_job(team)
+        ExternalDataJob.objects.filter(id=job.id).update(workflow_id=None, workflow_run_id=None)
+
+        _call("--live-run", "--yes")
+
+        job.refresh_from_db()
+        schema.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.FAILED
+        assert schema.status == ExternalDataSchema.Status.FAILED
+        assert fake_temporal.terminated == []
+
     def test_terminate_healthy_flag_sweeps_healthy_workflows(self, team, fake_temporal, queue_conn):
         schema, job = _create_stuck_job(team)
         assert job.workflow_run_id is not None

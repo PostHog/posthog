@@ -20,6 +20,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
+from django.db.models import Q
 
 import psycopg
 import structlog
@@ -30,7 +31,10 @@ from temporalio.service import RPCError, RPCStatusCode
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.temporal.common.client import sync_connect
 
-from products.data_warehouse.backend.facade.api import trigger_external_data_workflow
+from products.data_warehouse.backend.facade.api import (
+    is_any_external_data_schema_paused,
+    trigger_external_data_workflow,
+)
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
@@ -159,12 +163,20 @@ class Command(BaseCommand):
 
         triggered_schemas: set[str] = set()
         with psycopg.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as conn:
+            failed_jobs = 0
             for job, classification in actionable:
                 self.stdout.write(f"job={job.id}:")
-                is_latest = bool(job.schema_id) and self._is_latest_job_for_schema(job)
-                self._fix_job(conn, temporal, job, classification, reason=reason, is_latest=is_latest)
-                if trigger_sync:
-                    self._maybe_trigger_sync(job, triggered_schemas, is_latest=is_latest)
+                # One broken job must not abort the rest of the sweep.
+                try:
+                    is_latest = bool(job.schema_id) and self._is_latest_job_for_schema(job)
+                    self._fix_job(conn, temporal, job, classification, reason=reason, is_latest=is_latest)
+                    if trigger_sync:
+                        self._maybe_trigger_sync(job, triggered_schemas, is_latest=is_latest)
+                except Exception:
+                    failed_jobs += 1
+                    logger.exception("unstick_external_data_jobs_job_failed", job_id=str(job.id))
+                    self.stdout.write(self.style.ERROR("  FAILED to fix this job (see logs) - continuing"))
+                    continue
                 logger.info(
                     "unstick_external_data_jobs_fixed",
                     job_id=str(job.id),
@@ -173,7 +185,10 @@ class Command(BaseCommand):
                     classification=classification.kind,
                 )
 
-        self.stdout.write(self.style.SUCCESS(f"Done. Fixed {len(actionable)} job(s)."))
+        summary = f"Done. Fixed {len(actionable) - failed_jobs} job(s)."
+        if failed_jobs:
+            summary += f" {failed_jobs} job(s) FAILED to fix (see logs)."
+        self.stdout.write(self.style.SUCCESS(summary))
 
     # -- classification -----------------------------------------------------------
 
@@ -215,7 +230,8 @@ class Command(BaseCommand):
         reason: str,
         is_latest: bool,
     ) -> None:
-        """Each step is isolated so one failure doesn't abort the rest of the sweep."""
+        """External calls are individually isolated so the job row still gets fixed when
+        one of them fails; handle() isolates whole jobs from each other."""
         if classification.kind in ("wedged", "healthy"):
             self._terminate_workflow(temporal, job)
 
@@ -245,7 +261,7 @@ class Command(BaseCommand):
             elif get_v3_pipeline_lock_holder(job.team_id, str(job.schema_id)) is not None:
                 self.stdout.write("  redis lock: held by a different token - left in place")
 
-        if is_latest:
+        if is_latest and job.schema_id:
             schema_updated = ExternalDataSchema.objects.filter(
                 id=job.schema_id, team_id=job.team_id, status=ExternalDataSchema.Status.RUNNING
             ).update(status=ExternalDataSchema.Status.FAILED, latest_error=reason, updated_at=now)
@@ -284,11 +300,7 @@ class Command(BaseCommand):
         # Same guard the reload/resync endpoints apply before triggering a sync: a
         # Paused schema on the team means syncing was deliberately stopped, so a
         # bulk sweep shouldn't restart it.
-        if (
-            ExternalDataSchema.objects.exclude(deleted=True)
-            .filter(team_id=job.team_id, status=ExternalDataSchema.Status.PAUSED)
-            .exists()
-        ):
+        if is_any_external_data_schema_paused(job.team_id):
             self.stdout.write("  sync: team has a paused schema - not retriggering")
             return
 
@@ -305,10 +317,11 @@ class Command(BaseCommand):
     # -- shared -----------------------------------------------------------------
 
     def _is_latest_job_for_schema(self, job: ExternalDataJob) -> bool:
+        # id is the created_at tiebreak (UUIDT ids are time-ordered) so two jobs
+        # sharing a timestamp can't both count as latest.
         return (
-            not ExternalDataJob.objects.filter(
-                schema_id=job.schema_id, team_id=job.team_id, created_at__gt=job.created_at
-            )
+            not ExternalDataJob.objects.filter(schema_id=job.schema_id, team_id=job.team_id)
+            .filter(Q(created_at__gt=job.created_at) | Q(created_at=job.created_at, id__gt=job.id))
             .exclude(id=job.id)
             .exists()
         )
