@@ -127,7 +127,7 @@ impl JobModel {
                 posthog_batchimport.display_status_message,
                 posthog_batchimport.state,
                 posthog_batchimport.import_config,
-                posthog_batchimport.secrets,
+                posthog_batchimport.secrets as "secrets?",
                 posthog_batchimport.backoff_attempt,
                 posthog_batchimport.backoff_until,
                 next_job.previous_lease_id
@@ -400,7 +400,7 @@ struct JobRow {
     display_status_message: Option<String>,
     state: Option<serde_json::Value>,
     import_config: serde_json::Value,
-    secrets: String,
+    secrets: Option<String>,
     backoff_attempt: Option<i32>,
     backoff_until: Option<DateTime<Utc>>,
     previous_lease_id: Option<String>,
@@ -418,7 +418,13 @@ impl TryFrom<(JobRow, &[String], String)> for JobModel {
 
         let import_config = serde_json::from_value(row.import_config).context("Parsing config")?;
 
-        let secrets = JobSecrets::decrypt(&row.secrets, keys).context("Parsing keys")?;
+        // Jobs authenticating via IAM role have no secrets — the column is NULL.
+        let secrets = match row.secrets.as_deref() {
+            Some(data) if !data.is_empty() => {
+                JobSecrets::decrypt(data, keys).context("Decrypting secrets")?
+            }
+            _ => JobSecrets::empty(),
+        };
 
         Ok(JobModel {
             id: row.id,
@@ -508,6 +514,46 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    fn make_job_row(secrets: Option<String>) -> JobRow {
+        JobRow {
+            id: Uuid::now_v7(),
+            team_id: 1,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            status_message: None,
+            display_status_message: None,
+            state: None,
+            import_config: serde_json::to_value(
+                make_dummy_job_model(Uuid::now_v7(), "lease", 1).import_config,
+            )
+            .unwrap(),
+            secrets,
+            backoff_attempt: None,
+            backoff_until: None,
+            previous_lease_id: None,
+        }
+    }
+
+    // Jobs using IAM role auth store NULL secrets - parsing must skip decryption
+    // instead of failing (a parse failure pauses the job).
+    #[test]
+    fn test_null_and_empty_secrets_parse_as_empty() {
+        let keys = vec!["0".repeat(32)];
+        for secrets in [None, Some(String::new())] {
+            let model =
+                JobModel::try_from((make_job_row(secrets), keys.as_slice(), "l".to_string()))
+                    .unwrap();
+            assert!(model.secrets.secrets.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_undecryptable_secrets_still_fail_parsing() {
+        let keys = vec!["0".repeat(32)];
+        let row = make_job_row(Some("not-a-fernet-token".to_string()));
+        assert!(JobModel::try_from((row, keys.as_slice(), "l".to_string())).is_err());
     }
 
     #[test]

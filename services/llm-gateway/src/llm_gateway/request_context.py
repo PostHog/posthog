@@ -36,6 +36,7 @@ throttle_runner_var: ContextVar[ThrottleRunner | None] = ContextVar("throttle_ru
 throttle_context_var: ContextVar[ThrottleContext | None] = ContextVar("throttle_context", default=None)
 auth_user_var: ContextVar[AuthenticatedUser | None] = ContextVar("auth_user", default=None)
 time_to_first_token_var: ContextVar[float | None] = ContextVar("time_to_first_token", default=None)
+effort_var: ContextVar[str | None] = ContextVar("effort", default=None)
 
 
 def get_request_context() -> RequestContext | None:
@@ -166,6 +167,14 @@ def get_time_to_first_token() -> float | None:
 
 def set_time_to_first_token(ttft: float) -> None:
     time_to_first_token_var.set(ttft)
+
+
+def get_effort() -> str | None:
+    return effort_var.get()
+
+
+def set_effort(effort: str | None) -> None:
+    effort_var.set(effort)
 
 
 async def record_cost(cost: float, end_user_id: str | None = None) -> None:

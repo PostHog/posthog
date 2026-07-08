@@ -67,7 +67,7 @@ class _VisionActionAPITestCase(APIBaseTest):
             "name": "daily-summary",
             "scanner": str(self.scanner.id),
             "trigger_config": {"rrule": "FREQ=DAILY", "timezone": "UTC"},
-            "selection": {"scanner_type": "summarizer", "window_days": 1},
+            "selection": {"verdict": ["yes"]},
             "synthesis_config": {"prompt_guide": "keep it short"},
             "delivery_config": [
                 {"type": "slack", "integration_id": self.integration.id, "channel": "#general"},
@@ -192,9 +192,7 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
     def test_selection_valid_accepted(self) -> None:
         resp = self.client.post(
             self.actions_url,
-            data=self._create_payload(
-                selection={"scanner_type": "scorer", "min_score": 0.5, "max_score": 1.0, "tags": ["a", "b"]}
-            ),
+            data=self._create_payload(selection={"min_score": 0.5, "max_score": 1.0, "tags": ["a", "b"]}),
             format="json",
         )
         self.assertEqual(resp.status_code, 201, resp.content)
@@ -202,15 +200,28 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
         self.assertEqual(action.selection["min_score"], 0.5)
 
     def test_selection_unknown_key_ignored(self) -> None:
-        # The typed SelectionSerializer is the allowlist; unknown keys are dropped, not persisted.
+        # The typed SelectionSerializer is the allowlist; unknown keys (including the retired
+        # scanner_type/status/window_days) are dropped, not persisted.
         resp = self.client.post(
             self.actions_url,
-            data=self._create_payload(selection={"scanner_type": "summarizer", "bogus_key": "x"}),
+            data=self._create_payload(selection={"scanner_type": "summarizer", "window_days": 3, "bogus_key": "x"}),
             format="json",
         )
         self.assertEqual(resp.status_code, 201, resp.content)
         action = VisionAction.all_teams.get(id=resp.json()["id"])
-        self.assertNotIn("bogus_key", action.selection)
+        for key in ("bogus_key", "scanner_type", "window_days"):
+            self.assertNotIn(key, action.selection)
+
+    @parameterized.expand(
+        [
+            ("min_above_max", {"min_score": 2.0, "max_score": 1.0}),
+            ("unknown_verdict", {"verdict": ["maybe"]}),
+            ("verdict_not_a_list", {"verdict": "yes"}),
+        ]
+    )
+    def test_selection_invalid_rejected(self, _name: str, selection: dict[str, Any]) -> None:
+        resp = self.client.post(self.actions_url, data=self._create_payload(selection=selection), format="json")
+        self.assertEqual(resp.status_code, 400, resp.content)
 
 
 class TestVisionActionCrossTeamIDOR(_VisionActionAPITestCase):

@@ -21,6 +21,7 @@ class TestBuildConsumerConfig:
         assert config.recovery_grace_seconds == 300
         assert config.lease_ttl_seconds == config.recovery_grace_seconds
         assert config.poll_failure_liveness_threshold == 10
+        assert config.claim_path == "legacy"
 
     @parameterized.expand(
         [
@@ -33,6 +34,8 @@ class TestBuildConsumerConfig:
             (["--recovery-grace", "900"], "recovery_grace_seconds", 900),
             (["--poll-failure-liveness-threshold", "5"], "poll_failure_liveness_threshold", 5),
             (["--poll-failure-liveness-threshold", "0"], "poll_failure_liveness_threshold", None),
+            (["--claim-path", "state"], "claim_path", "state"),
+            (["--claim-path", "legacy"], "claim_path", "legacy"),
         ]
     )
     def test_flag_overrides_reach_the_config(self, argv: list[str], field: str, expected):

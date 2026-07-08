@@ -144,6 +144,7 @@ class TeamAdmin(admin.ModelAdmin):
         "updated_at",
         "internal_properties",
         "remote_config_cache_actions",
+        "flags_staff_tools_link",
         "delete_recordings",
         "api_token_display",
         "admit_state",
@@ -178,6 +179,7 @@ class TeamAdmin(admin.ModelAdmin):
                     "project",
                     "internal_properties",
                     "remote_config_cache_actions",
+                    "flags_staff_tools_link",
                 ],
             },
         ),
@@ -521,6 +523,16 @@ class TeamAdmin(admin.ModelAdmin):
         return format_html(
             '<a class="button" href="{}">Delete recordings</a>',
             delete_url,
+        )
+
+    @admin.display(description="Flags staff tools")
+    def flags_staff_tools_link(self, team: Team):
+        # Mirrors urls.featureFlagsStaffTools() in products/feature_flags/manifest.tsx; keep in sync.
+        if not team.pk:
+            return "-"
+        return format_html(
+            '<a class="button" href="/feature_flags/staff?team_id={}" target="_blank" rel="noopener noreferrer">Open flags staff tools</a>',
+            team.pk,
         )
 
     @admin.display(description="Remote config cache actions")
