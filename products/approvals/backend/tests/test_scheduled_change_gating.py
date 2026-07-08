@@ -537,7 +537,7 @@ class TestScheduledChangeGating(APIBaseTest):
         scheduled = self._recurring_enable_schedule(flag, gated=False)
         assert scheduled.change_request is None
 
-        cr = regate_recurring_scheduled_change(scheduled)
+        cr = regate_recurring_scheduled_change(scheduled, flag)
 
         assert cr is not None
         assert cr.state == ChangeRequestState.PENDING
@@ -554,7 +554,7 @@ class TestScheduledChangeGating(APIBaseTest):
         scheduled = self._recurring_enable_schedule(flag, gated=False)
 
         with self.assertRaises(PolicyConflict):
-            regate_recurring_scheduled_change(scheduled)
+            regate_recurring_scheduled_change(scheduled, flag)
 
     def test_recurring_regate_conflict_does_not_advance_schedule(self, _mock_enabled):
         # process_scheduled_changes re-gates before advancing scheduled_at. If the next occurrence's
@@ -604,6 +604,35 @@ class TestScheduledChangeGating(APIBaseTest):
         assert cr.state == ChangeRequestState.EXPIRED
         flag.refresh_from_db()
         assert flag.active is False
+
+    def test_failed_row_insert_rolls_back_the_created_cr(self, _mock_enabled):
+        # create() mints the pending CR and inserts the bound row in one transaction. If the row
+        # insert fails after the CR is created, the CR must roll back with it — otherwise it is
+        # orphaned, and once it reaches quorum ChangeRequestService.approve() auto-applies it
+        # immediately (its scheduled-deferral keys off a schedule row that never got saved),
+        # bypassing the schedule. Guards the create() transaction boundary.
+        from django.db import IntegrityError
+
+        from rest_framework import serializers
+
+        self._enable_policy()
+        flag = self._disabled_flag()
+
+        with patch.object(serializers.ModelSerializer, "create", side_effect=IntegrityError("boom")):
+            with self.assertRaises(IntegrityError):
+                self.client.post(
+                    f"/api/projects/{self.team.id}/scheduled_changes/",
+                    {
+                        "record_id": str(flag.id),
+                        "model_name": "FeatureFlag",
+                        "payload": {"operation": "update_status", "value": True},
+                        "scheduled_at": (timezone.now() + timedelta(hours=1)).isoformat(),
+                    },
+                    format="json",
+                )
+
+        assert ChangeRequest.objects.count() == 0
+        assert ScheduledChange.objects.filter(record_id=str(flag.id)).count() == 0
 
     def test_approved_then_stale_cr_is_not_applied(self, _mock_enabled):
         self._enable_policy()

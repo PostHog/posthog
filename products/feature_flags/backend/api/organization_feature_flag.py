@@ -1,6 +1,7 @@
 import copy
 from typing import cast
 
+from django.db import transaction
 from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
 
 import structlog
@@ -618,8 +619,24 @@ class OrganizationFeatureFlagView(
 
             # Gate the copied schedule against the target flag's policies, same as a directly
             # created schedule — a copy that would enable/roll out a flag still needs approval.
+            # Gate the CR and create the bound row in one transaction: if the row insert fails after
+            # the CR is minted, the CR is orphaned and a later approval auto-applies it immediately,
+            # bypassing the schedule (the same invariant create() documents and wraps).
             try:
-                change_request = gate_scheduled_change(target_flag, updated_payload, user)
+                with transaction.atomic():
+                    change_request = gate_scheduled_change(target_flag, updated_payload, user)
+                    ScheduledChange.objects.create(
+                        record_id=str(target_flag.id),
+                        model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+                        payload=updated_payload,
+                        scheduled_at=schedule.scheduled_at,
+                        is_recurring=schedule.is_recurring,
+                        recurrence_interval=schedule.recurrence_interval,
+                        end_date=schedule.end_date,
+                        team=target_flag.team,
+                        created_by=user,
+                        change_request=change_request,
+                    )
             except (PolicyConflict, ApprovalRequired):
                 # The copied change can't be gated with a fresh single CR on the target — it either
                 # matches multiple policies (PolicyConflict) or would bind an already-approved
@@ -631,19 +648,6 @@ class OrganizationFeatureFlagView(
                     target_flag_id=target_flag.id,
                 )
                 continue
-
-            ScheduledChange.objects.create(
-                record_id=str(target_flag.id),
-                model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
-                payload=updated_payload,
-                scheduled_at=schedule.scheduled_at,
-                is_recurring=schedule.is_recurring,
-                recurrence_interval=schedule.recurrence_interval,
-                end_date=schedule.end_date,
-                team=target_flag.team,
-                created_by=user,
-                change_request=change_request,
-            )
 
     def _remap_cohort_ids_in_payload(self, payload, cohort_mapping, cohort_cache):
         """Remap cohort IDs in schedule payload to target project cohorts."""

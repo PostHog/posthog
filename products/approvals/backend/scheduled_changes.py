@@ -10,13 +10,15 @@ change. The applier then keys off that binding (see ``process_scheduled_changes`
 """
 
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, NamedTuple, Optional
 
+from django.db import transaction
 from django.http import HttpRequest
 
 from products.approvals.backend import decorators
 from products.approvals.backend.exceptions import ApprovalRequired, PolicyConflict
 from products.approvals.backend.models import ChangeRequest, ChangeRequestState, ValidationStatus
+from products.approvals.backend.notifications import send_approval_expired_notification
 from products.approvals.backend.services import apply_change_request
 
 if TYPE_CHECKING:
@@ -24,6 +26,19 @@ if TYPE_CHECKING:
     from products.feature_flags.backend.models.scheduled_change import ScheduledChange
 
 logger = logging.getLogger(__name__)
+
+
+class _GatedAction(NamedTuple):
+    """The enabled approval action + policy that gates a scheduled change, plus the request-time
+    gate context needed to evaluate it. Named so the slots can't be silently reordered at the one
+    callsite that unpacks them (mirrors the structured ``GateResult`` returned by ``_evaluate_gate``).
+    """
+
+    action_class: Any
+    policy: Any
+    serializer: Any
+    http_request: HttpRequest
+    gate_args: tuple
 
 
 def scheduled_change_serializer_data(flag: "FeatureFlag", payload: dict[str, Any]) -> Optional[dict[str, Any]]:
@@ -44,9 +59,7 @@ def scheduled_change_serializer_data(flag: "FeatureFlag", payload: dict[str, Any
     return build_scheduled_change_serializer_data(flag, payload)
 
 
-def _detect_gated_action(
-    flag: "FeatureFlag", payload: dict[str, Any], user
-) -> Optional[tuple[Any, Any, Any, HttpRequest, tuple]]:
+def _detect_gated_action(flag: "FeatureFlag", payload: dict[str, Any], user) -> Optional[_GatedAction]:
     """Detect the enabled approval action + policy that gates a scheduled change — no side effects.
 
     Runs only the request-time gate's *detection* (``action.detect`` + ``_check_policy_for_action``)
@@ -103,7 +116,7 @@ def _detect_gated_action(
             if action_class.detect(http_request, serializer, *gate_args):
                 policy = decorators._check_policy_for_action(action_class, team, organization)
                 if policy:
-                    return action_class, policy, serializer, http_request, gate_args
+                    return _GatedAction(action_class, policy, serializer, http_request, gate_args)
         except Exception:
             logger.exception(
                 "Error detecting action for scheduled change",
@@ -145,16 +158,14 @@ def gate_scheduled_change(
     if detection is None:
         return None
 
-    matched_action, matched_policy, serializer, http_request, gate_args = detection
-
     result = decorators._evaluate_gate(
-        action_class=matched_action,
-        request=http_request,
+        action_class=detection.action_class,
+        request=detection.http_request,
         team=flag.team,
         organization=flag.team.organization,
-        policy=matched_policy,
-        view_or_serializer=serializer,
-        args=gate_args,
+        policy=detection.policy,
+        view_or_serializer=detection.serializer,
+        args=detection.gate_args,
         kwargs={},
     )
 
@@ -205,24 +216,57 @@ def gate_scheduled_change(
     return None
 
 
-def _unbound_change_is_now_gated(scheduled_change: "ScheduledChange") -> bool:
+def _unbound_change_is_now_gated(scheduled_change: "ScheduledChange", flag: "FeatureFlag") -> bool:
     """True when a schedule with no bound CR would flip a policy-gated field against the flag's
     *current* state.
 
     Detection only (no CR is created, no notification sent) — a fire-time re-check that closes the
     stale-read bypass where a change that was a harmless no-op at scheduling time becomes a real,
-    policy-gated change by the time it fires because the flag drifted in between.
+    policy-gated change by the time it fires because the flag drifted in between. Takes the flag the
+    sweep already loaded rather than re-querying the row (and its team/organization) under the open
+    transaction.
     """
-    from products.feature_flags.backend.models.feature_flag import FeatureFlag  # noqa: PLC0415
-
-    flag = FeatureFlag.objects.filter(id=scheduled_change.record_id, team_id=scheduled_change.team_id).first()
-    if flag is None:
-        # No flag to gate against; let the caller dispatch so the applier surfaces the missing-flag error.
-        return False
     return _detect_gated_action(flag, scheduled_change.payload, scheduled_change.created_by) is not None
 
 
-def apply_gated_scheduled_change(scheduled_change: "ScheduledChange") -> bool:
+def _expire_change_request(change_request: ChangeRequest, scheduled_change: "ScheduledChange", reason: str) -> None:
+    """Expire a scheduled change's bound CR (terminal state) and notify its requester.
+
+    Centralizes the expire → save → log → notify ritual shared by the fire-window-closed (PENDING)
+    and approved-but-stale branches of ``apply_gated_scheduled_change``. The notification mirrors
+    ``expire_old_change_requests`` (the canonical expiry sweep), so whoever requested — and, in the
+    stale case, approved — the change is told it was discarded instead of it silently vanishing.
+
+    The notification is deferred with ``transaction.on_commit`` because this runs inside the sweep's
+    ``transaction.atomic()``: emailing / realtime-dispatching before commit would fire even if the
+    surrounding transaction later rolls back.
+    """
+    change_request.state = ChangeRequestState.EXPIRED
+    change_request.save(update_fields=["state"])
+    logger.info(
+        reason,
+        extra={
+            "scheduled_change_id": scheduled_change.id,
+            "change_request_id": str(change_request.id),
+        },
+    )
+
+    def _notify() -> None:
+        try:
+            send_approval_expired_notification(change_request)
+        except Exception:
+            logger.warning(
+                "Failed to send change-request expiry notification for scheduled change",
+                extra={
+                    "scheduled_change_id": scheduled_change.id,
+                    "change_request_id": str(change_request.id),
+                },
+            )
+
+    transaction.on_commit(_notify)
+
+
+def apply_gated_scheduled_change(scheduled_change: "ScheduledChange", flag: "FeatureFlag") -> bool:
     """Decide what to do with a gated scheduled change at fire time.
 
     Returns ``True`` when the caller should dispatch the change through the normal
@@ -248,7 +292,7 @@ def apply_gated_scheduled_change(scheduled_change: "ScheduledChange") -> bool:
     ``ChangeRequestService.approve()``.
     """
     if scheduled_change.change_request_id is None:
-        return not _unbound_change_is_now_gated(scheduled_change)
+        return not _unbound_change_is_now_gated(scheduled_change, flag)
 
     # Re-fetch under a row lock rather than trusting the prefetched copy. The sweep locks only the
     # ScheduledChange rows (select_for_update(of=("self",))), so a concurrent approve() that flips
@@ -270,14 +314,10 @@ def apply_gated_scheduled_change(scheduled_change: "ScheduledChange") -> bool:
 
     if change_request.state == ChangeRequestState.PENDING:
         # Time window closed with no approval — expire the request (terminal) and skip the change.
-        change_request.state = ChangeRequestState.EXPIRED
-        change_request.save(update_fields=["state"])
-        logger.info(
+        _expire_change_request(
+            change_request,
+            scheduled_change,
             "Expired pending change request for scheduled change past its fire window",
-            extra={
-                "scheduled_change_id": scheduled_change.id,
-                "change_request_id": str(change_request.id),
-            },
         )
         return False
 
@@ -289,14 +329,10 @@ def apply_gated_scheduled_change(scheduled_change: "ScheduledChange") -> bool:
         # as a duplicate it can't reuse (reuse requires PENDING), raising ApprovalRequired and
         # retrying the schedule to exhaustion long before the sweep (expires_at is policy-tunable
         # and can be days out) would clear it.
-        change_request.state = ChangeRequestState.EXPIRED
-        change_request.save(update_fields=["state"])
-        logger.info(
+        _expire_change_request(
+            change_request,
+            scheduled_change,
             "Expired approved-but-stale change request for scheduled change",
-            extra={
-                "scheduled_change_id": scheduled_change.id,
-                "change_request_id": str(change_request.id),
-            },
         )
         return False
 
@@ -304,20 +340,18 @@ def apply_gated_scheduled_change(scheduled_change: "ScheduledChange") -> bool:
     return False
 
 
-def regate_recurring_scheduled_change(scheduled_change: "ScheduledChange") -> Optional[ChangeRequest]:
+def regate_recurring_scheduled_change(
+    scheduled_change: "ScheduledChange", flag: "FeatureFlag"
+) -> Optional[ChangeRequest]:
     """Create a fresh pending CR for the next occurrence of a recurring gated schedule.
 
     A bound ChangeRequest is single-use — it carries one occurrence's intent. When a recurring
     schedule advances to its next fire, re-run the gate against the flag's current state so the
     next occurrence is independently gated. Returns the new CR (or None if no policy now applies).
+    Takes the flag the sweep already loaded rather than re-querying it.
 
     May raise ``PolicyConflict`` when the next occurrence would match multiple policies; the
     scheduled-change task's error handling then records the failure and stops advancing the
     schedule rather than dispatching the occurrence ungated.
     """
-    from products.feature_flags.backend.models.feature_flag import FeatureFlag  # noqa: PLC0415
-
-    flag = FeatureFlag.objects.filter(id=scheduled_change.record_id, team_id=scheduled_change.team_id).first()
-    if flag is None:
-        return None
     return gate_scheduled_change(flag, scheduled_change.payload, scheduled_change.created_by)

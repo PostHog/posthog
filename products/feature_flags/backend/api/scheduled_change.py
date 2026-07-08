@@ -310,12 +310,18 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
         # Re-gate whenever the payload changes: create() only gates the payload the row is born with,
         # so without this an editor could create an ungated schedule and then PATCH its payload to a
         # policy-gated change, which the applier would dispatch with change_request=None (ungated).
-        if feature_flag is not None and "payload" in validated_data:
+        if feature_flag is None or "payload" not in validated_data:
+            return super().update(instance, validated_data)
+
+        # Re-gate (which can mint a fresh CR) and bind it in one transaction, mirroring create(): if
+        # the row update fails after the new CR is created, the CR — and the old-CR expiry — roll
+        # back together, so a failed update can't orphan a pending CR that approve() then auto-applies
+        # immediately, bypassing the schedule.
+        with transaction.atomic():
             validated_data["change_request"] = self._regate_on_payload_change(
                 instance, feature_flag, validated_data["payload"]
             )
-
-        return super().update(instance, validated_data)
+            return super().update(instance, validated_data)
 
     def _regate_on_payload_change(
         self, instance: ScheduledChange, feature_flag: FeatureFlag, new_payload: dict

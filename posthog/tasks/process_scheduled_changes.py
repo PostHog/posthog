@@ -166,7 +166,10 @@ def process_scheduled_changes() -> None:
                 # select_related would widen select_for_update's lock to the joined change_request /
                 # created_by rows, adding contention with the approve flow that mutates ChangeRequest.
                 ScheduledChange.objects.select_for_update(nowait=True, of=("self",))
-                .select_related("change_request", "created_by")
+                # No select_related("change_request"): apply_gated_scheduled_change always re-fetches
+                # the bound CR under select_for_update (the prefetched copy can be stale), and the
+                # rest of the loop only reads change_request_id — a local column needing no join.
+                .select_related("created_by")
                 .filter(
                     executed_at__isnull=True,
                     scheduled_at__lte=timezone.now(),
@@ -201,7 +204,7 @@ def process_scheduled_changes() -> None:
                     # it through the approved path once that CR is approved; if it is still pending
                     # when the fire window closes, the CR is expired and the change is skipped. An
                     # unbound (ungated) change dispatches through the serializer as before.
-                    if apply_gated_scheduled_change(scheduled_change):
+                    if apply_gated_scheduled_change(scheduled_change, instance):
                         instance.scheduled_changes_dispatcher(
                             scheduled_change.payload,
                             scheduled_change.created_by,
@@ -286,7 +289,7 @@ def process_scheduled_changes() -> None:
                             #      the failure handler stops advancing the schedule rather than silently
                             #      skipping the conflicting occurrence.
                             try:
-                                new_change_request = regate_recurring_scheduled_change(scheduled_change)
+                                new_change_request = regate_recurring_scheduled_change(scheduled_change, instance)
                             except ApprovalRequired:
                                 # A pending/approved CR for the same flag+action already exists (a
                                 # second schedule, or an immediate edit awaiting approval), so this
