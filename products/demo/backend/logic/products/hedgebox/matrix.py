@@ -51,7 +51,6 @@ from posthog.constants import PAGEVIEW_EVENT
 from posthog.exceptions_capture import capture_exception
 from posthog.models.event.util import create_event
 from posthog.models.oauth import OAuthApplication
-from posthog.scopes import UNPRIVILEGED_SCOPES
 from posthog.storage import object_storage
 
 from products.actions.backend.models.action import Action
@@ -1763,14 +1762,16 @@ class HedgeboxMatrix(Matrix):
                 authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
                 algorithm="RS256",
                 is_first_party=True,
-                # An empty ceiling resolves to UNPRIVILEGED_SCOPES at /authorize, which
-                # excludes the privileged/hidden scopes the onboarding wizard requests
-                # (llm_gateway:read, wizard_session:*) — so it failed with invalid_scope.
-                # Reproduce the broad default and add those so the wizard works locally.
-                scopes=sorted(
-                    UNPRIVILEGED_SCOPES
-                    | {"llm_gateway:read", "llm_gateway:write", "wizard_session:read", "wizard_session:write"}
-                ),
+                # No explicit ceiling: an empty `scopes` resolves to `UNPRIVILEGED_SCOPES | {"*"}`
+                # at `/authorize` (see `posthog.scopes.scopes_within_ceiling`), which grandfathers
+                # the legacy `scope=*` request PostHog Code and the CLI still send. An explicit
+                # ceiling — even a broad one — is not permitted `*` (the `"*" not in to_check`
+                # guard fires unconditionally when the ceiling is non-empty), so listing scopes
+                # here breaks first-party sign-in on this app. The onboarding wizard's
+                # privileged/hidden scopes (llm_gateway:*, wizard_session:*) — the original
+                # motivation for populating this list — are served by its own app now
+                # (`WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID`, provisioned in bin/ensure-local-setup),
+                # so grafting them here is redundant.
             )
         except (IntegrityError, ValidationError):
             pass
