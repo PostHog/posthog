@@ -5,10 +5,8 @@ edition = "2021"
 publish = false
 
 [dependencies]
+clap = { workspace = true }
 stateright = "0.31"
 
 [dependencies.personhog-coordination]
 path = "../personhog-coordination"
-
-[dependencies.assignment-coordination]
-path = "../common/assignment-coordination"

@@ -9,21 +9,33 @@
 //! Serves the Stateright web UI at http://localhost:3000 for stepping
 //! through counterexample traces state by state.
 
+use clap::{Parser, ValueEnum};
+
 use personhog_stateright::model::{HandoffModel, Variant};
 use stateright::Model;
 
+#[derive(Parser)]
+struct Args {
+    #[arg(value_enum)]
+    scenario: Scenario,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum Scenario {
+    /// Failures without zombie windows.
+    Current,
+    /// The double-zombie residual, with counterexamples.
+    CurrentZombie,
+    /// The epoch-fencing fix.
+    EpochFenced,
+}
+
 fn main() {
-    let arg = std::env::args().nth(1).unwrap_or_default();
-    let (variant, crashes, zombie_window) = match arg.as_str() {
-        "current" => (Variant::Current, 1, 0),
-        "current-zombie" => (Variant::Current, 1, 1),
-        "epoch-fenced" => (Variant::EpochFenced, 1, 1),
-        other => {
-            eprintln!(
-                "unknown variant {other:?}; expected current | current-zombie | epoch-fenced"
-            );
-            std::process::exit(2);
-        }
+    let args = Args::parse();
+    let (variant, crashes, zombie_window) = match args.scenario {
+        Scenario::Current => (Variant::Current, 1, 0),
+        Scenario::CurrentZombie => (Variant::Current, 1, 1),
+        Scenario::EpochFenced => (Variant::EpochFenced, 1, 1),
     };
 
     let model = HandoffModel {
@@ -37,6 +49,6 @@ fn main() {
         rejoins: 0,
         zombie_window,
     };
-    println!("exploring {arg} at http://localhost:3000 …");
+    println!("exploring {:?} at http://localhost:3000 …", args.scenario);
     model.checker().serve("localhost:3000");
 }

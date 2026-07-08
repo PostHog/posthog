@@ -7553,7 +7553,7 @@ dependencies = [
 name = "personhog-stateright"
 version = "0.1.0"
 dependencies = [
- "assignment-coordination",
+ "clap",
  "personhog-coordination",
  "stateright",
 ]
