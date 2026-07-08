@@ -1233,6 +1233,38 @@ class TestPlanAwareThrottling:
         assert result.allowed is True
 
     @pytest.mark.asyncio
+    async def test_usage_based_plan_not_free_throttled(self) -> None:
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
+
+        throttle = UserCostBurstThrottle(redis=None)
+        context = make_context(
+            product="posthog_code",
+            plan_key="posthog-code-usage-20260701",
+            seat_created_at="2026-01-01T00:00:00+00:00",
+        )
+
+        await throttle.record_cost(context, 100.0)
+        result = await throttle.allow_request(context)
+        assert result.allowed is True
+
+    @pytest.mark.asyncio
+    async def test_usage_based_plan_gets_5000_sustained_limit(self) -> None:
+        from llm_gateway.rate_limiting.cost_throttles import UserCostSustainedThrottle
+
+        throttle = UserCostSustainedThrottle(redis=None)
+        context = make_context(
+            product="posthog_code",
+            plan_key="posthog-code-usage-20260701",
+            seat_created_at="2026-01-01T00:00:00+00:00",
+        )
+
+        await throttle.record_cost(context, 3000.0)
+        assert (await throttle.allow_request(context)).allowed is True
+
+        await throttle.record_cost(context, 2000.0)
+        assert (await throttle.allow_request(context)).allowed is False
+
+    @pytest.mark.asyncio
     async def test_renamed_pro_plan_allows_higher_usage(self) -> None:
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 

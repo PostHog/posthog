@@ -10,6 +10,7 @@ from redis.asyncio import Redis
 from llm_gateway.config import (
     DEFAULT_USER_COST_LIMIT,
     FREE_PLAN_COST_LIMIT,
+    USAGE_BASED_POSTHOG_CODE_COST_LIMIT,
     get_settings,
 )
 
@@ -17,7 +18,12 @@ if TYPE_CHECKING:
     from llm_gateway.config import UserCostLimit
 from llm_gateway.rate_limiting.redis_limiter import CostRateLimiter
 from llm_gateway.rate_limiting.throttles import Throttle, ThrottleContext, ThrottleResult, get_rate_limit_multiplier
-from llm_gateway.services.plan_resolver import POSTHOG_CODE_PRODUCT, get_billing_period_number, is_pro_plan
+from llm_gateway.services.plan_resolver import (
+    POSTHOG_CODE_PRODUCT,
+    get_billing_period_number,
+    is_pro_plan,
+    is_usage_based_plan,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -35,6 +41,7 @@ def _is_free_plan_throttled(context: ThrottleContext) -> bool:
     return (
         context.product == POSTHOG_CODE_PRODUCT
         and not is_pro_plan(context.plan_key)
+        and not is_usage_based_plan(context.plan_key)
         and context.seat_created_at is not None
     )
 
@@ -239,6 +246,9 @@ class _UserCostThrottleBase(CostThrottle):
         return f"{base}:m{mult}"
 
     def _get_config(self, context: ThrottleContext) -> UserCostLimit:
+        if context.product == POSTHOG_CODE_PRODUCT and is_usage_based_plan(context.plan_key):
+            return USAGE_BASED_POSTHOG_CODE_COST_LIMIT
+
         if _is_free_plan_throttled(context):
             return FREE_PLAN_COST_LIMIT
 
