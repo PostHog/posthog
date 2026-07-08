@@ -1,4 +1,5 @@
 import uuid
+import datetime
 import dataclasses
 
 import pytest
@@ -22,6 +23,7 @@ from products.pulse.backend.sources.base import SourceItem, SourceItemKind
 from products.pulse.backend.temporal.activities import (
     MAX_ITEMS,
     gather_brief_inputs_activity,
+    prepare_mission_activity,
     synthesize_brief_activity,
 )
 from products.pulse.backend.temporal.inputs import GenerateBriefWorkflowInputs, SynthesizeActivityInputs
@@ -221,6 +223,50 @@ async def test_gather_activity_refuses_without_ai_consent(team) -> None:
         await env.run(
             gather_brief_inputs_activity,
             GenerateBriefWorkflowInputs(team_id=team.pk, brief_id="unused", brief_config_id=None, period_days=7),
+        )
+    assert exc_info.value.non_retryable is True
+
+
+async def test_prepare_mission_returns_seeds_and_pins_window(team, user) -> None:
+    await _set_ai_consent(team, True)
+    brief = await _create_brief(team, user)
+    env = ActivityEnvironment()
+    with patch("products.pulse.backend.temporal.activities.get_sources", return_value=[_StubSource()]):
+        bundle = await env.run(
+            prepare_mission_activity,
+            GenerateBriefWorkflowInputs(team_id=team.pk, brief_id=str(brief.id), period_days=7),
+        )
+    assert bundle["mission"] == "general_brief"
+    assert bundle["brief_id"] == str(brief.id)
+    assert [item["fingerprint_hint"] for item in bundle["seed_items"]] == ["abc:0"]
+    assert [grant["name"] for grant in bundle["tool_grants"]] == ["posthog"]
+    reloaded = await _reload_brief(brief.id)
+    assert reloaded.window_start is not None and reloaded.window_end is not None
+    assert reloaded.window_end - reloaded.window_start == datetime.timedelta(days=7)
+
+
+async def test_prepare_mission_returns_empty_seeds_when_sources_are_quiet(team, user) -> None:
+    await _set_ai_consent(team, True)
+    brief = await _create_brief(team, user)
+    env = ActivityEnvironment()
+    with patch("products.pulse.backend.temporal.activities.get_sources", return_value=[]):
+        bundle = await env.run(
+            prepare_mission_activity,
+            GenerateBriefWorkflowInputs(team_id=team.pk, brief_id=str(brief.id), period_days=7),
+        )
+    assert bundle["seed_items"] == []
+    reloaded = await _reload_brief(brief.id)
+    assert reloaded.window_start is not None and reloaded.window_end is not None
+
+
+async def test_prepare_mission_refuses_without_ai_consent(team, user) -> None:
+    await _set_ai_consent(team, False)
+    brief = await _create_brief(team, user)
+    env = ActivityEnvironment()
+    with pytest.raises(ApplicationError) as exc_info:
+        await env.run(
+            prepare_mission_activity,
+            GenerateBriefWorkflowInputs(team_id=team.pk, brief_id=str(brief.id), period_days=7),
         )
     assert exc_info.value.non_retryable is True
 

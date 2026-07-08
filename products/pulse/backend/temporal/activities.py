@@ -10,6 +10,7 @@ from posthog.models.team import Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 
+from products.pulse.backend.agent.mission import build_general_brief_mission
 from products.pulse.backend.generation.accountability import OpportunityStatusLine, collect_accountability
 from products.pulse.backend.generation.goal import GoalStatus, collect_goal_status
 from products.pulse.backend.generation.persist import opportunity_fingerprint, persist_brief_output
@@ -60,20 +61,18 @@ def _mark_brief_failed(team_id: int, brief_id: str, error: str) -> None:
     ProductBrief.objects.for_team(team_id).filter(id=brief_id).update(status=ProductBrief.Status.FAILED, error=error)
 
 
-@temporalio.activity.defn
-async def gather_brief_inputs_activity(inputs: GenerateBriefWorkflowInputs) -> list[dict]:
-    team = await database_sync_to_async(_get_team, thread_sensitive=False)(inputs.team_id)
+def _check_ai_consent(team: Team) -> None:
     if not team.organization.is_ai_data_processing_approved:
         raise ApplicationError("AI data processing not approved for this organization", non_retryable=True)
-    config = await database_sync_to_async(_get_config, thread_sensitive=False)(team, inputs.brief_config_id)
+
+
+async def _gather_source_items(team: Team, config: BriefConfig | None, period_days: int) -> list[SourceItem]:
     sources = get_sources()
     items: list[SourceItem] = []
     failed_sources = 0
     for source in sources:
         try:
-            gathered = await database_sync_to_async(source.gather, thread_sensitive=False)(
-                team, config, inputs.period_days
-            )
+            gathered = await database_sync_to_async(source.gather, thread_sensitive=False)(team, config, period_days)
         except Exception:
             # One broken source must not kill the brief; the other sources still contribute.
             logger.exception("pulse_source_gather_failed", team_id=team.id, source=source.name)
@@ -85,7 +84,39 @@ async def gather_brief_inputs_activity(inputs: GenerateBriefWorkflowInputs) -> l
         raise ApplicationError(f"brief gather failed: all {failed_sources} source(s) failed")
     # Stable sort: highest-priority kinds survive the cap, source order preserved within a kind.
     items.sort(key=lambda item: KIND_PRIORITY.get(item.kind, len(KIND_PRIORITY)))
-    return [dataclasses.asdict(item) for item in items[:MAX_ITEMS]]
+    return items[:MAX_ITEMS]
+
+
+@temporalio.activity.defn
+async def gather_brief_inputs_activity(inputs: GenerateBriefWorkflowInputs) -> list[dict]:
+    team = await database_sync_to_async(_get_team, thread_sensitive=False)(inputs.team_id)
+    _check_ai_consent(team)
+    config = await database_sync_to_async(_get_config, thread_sensitive=False)(team, inputs.brief_config_id)
+    items = await _gather_source_items(team, config, inputs.period_days)
+    return [dataclasses.asdict(item) for item in items]
+
+
+@temporalio.activity.defn
+async def prepare_mission_activity(inputs: GenerateBriefWorkflowInputs) -> dict:
+    """Deterministic, secret-free half of the agent engine: scan sources for seeds,
+    pin the frozen observation window on the brief row, and return the mission bundle.
+    An empty seed_items list signals the quiet-week cheap path (skip the agent)."""
+    team = await database_sync_to_async(_get_team, thread_sensitive=False)(inputs.team_id)
+    _check_ai_consent(team)
+    config = await database_sync_to_async(_get_config, thread_sensitive=False)(team, inputs.brief_config_id)
+    brief = await database_sync_to_async(_get_brief, thread_sensitive=False)(inputs.team_id, inputs.brief_id)
+    items = await _gather_source_items(team, config, inputs.period_days)
+    bundle = build_general_brief_mission(team=team, brief=brief, config=config, items=items)
+
+    def _pin_window() -> None:
+        ProductBrief.objects.for_team(inputs.team_id).filter(id=inputs.brief_id).update(
+            window_start=bundle.window_start, window_end=bundle.window_end
+        )
+
+    await database_sync_to_async(_pin_window, thread_sensitive=False)()
+    # No secrets in the bundle: the OAuth token is minted inside run_agent so it
+    # never lands in persisted workflow history.
+    return bundle.model_dump(mode="json")
 
 
 @temporalio.activity.defn
