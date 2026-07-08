@@ -177,6 +177,7 @@ describe('Warning Basics', () => {
     it('a step can add multiple warnings', async () => {
         interface Event {
             name: string
+            timestamp?: string
             properties: Record<string, any>
         }
 
@@ -186,24 +187,26 @@ describe('Warning Basics', () => {
                     items.map((item) => {
                         const warnings: PipelineWarning[] = []
 
-                        if (item.name.length > 50) {
+                        const groupKey = item.properties['$group_key']
+                        if (groupKey && String(groupKey).length > 400) {
                             warnings.push({
                                 type: 'group_key_too_long',
-                                details: { length: item.name.length, max: 50 },
+                                details: { groupKey: String(groupKey).slice(0, 20), max: 400 },
                             })
                         }
 
-                        if (Object.keys(item.properties).length > 100) {
+                        if (item.timestamp && isNaN(Date.parse(item.timestamp))) {
                             warnings.push({
-                                type: 'person_properties_size_violation',
-                                details: { count: Object.keys(item.properties).length, max: 100 },
+                                type: 'ignored_invalid_timestamp',
+                                details: { value: item.timestamp },
                             })
                         }
 
-                        if (item.properties['$ip'] && typeof item.properties['$ip'] !== 'string') {
+                        const processPerson = item.properties['$process_person_profile']
+                        if (processPerson !== undefined && typeof processPerson !== 'boolean') {
                             warnings.push({
                                 type: 'invalid_process_person_profile',
-                                details: { received: typeof item.properties['$ip'] },
+                                details: { received: typeof processPerson },
                             })
                         }
 
@@ -219,21 +222,19 @@ describe('Warning Basics', () => {
             .build()
 
         // Create an event that triggers multiple warnings
-        const longName = 'a'.repeat(60)
-        const manyProperties: Record<string, any> = {}
-        for (let i = 0; i < 110; i++) {
-            manyProperties[`prop${i}`] = i
+        const properties: Record<string, any> = {
+            $group_key: 'g'.repeat(500),
+            $process_person_profile: 'yes', // Not a boolean
         }
-        manyProperties['$ip'] = 12345 // Wrong type
 
-        const batch = [createOkContext({ name: longName, properties: manyProperties }, { team })]
+        const batch = [createOkContext({ name: '$groupidentify', timestamp: 'not-a-date', properties }, { team })]
         pipeline.feed(batch)
 
         const results = await pipeline.next()
 
         expect(results![0].context.warnings).toHaveLength(3)
         expect(results![0].context.warnings.map((w) => w.type)).toContain('group_key_too_long')
-        expect(results![0].context.warnings.map((w) => w.type)).toContain('person_properties_size_violation')
+        expect(results![0].context.warnings.map((w) => w.type)).toContain('ignored_invalid_timestamp')
         expect(results![0].context.warnings.map((w) => w.type)).toContain('invalid_process_person_profile')
     })
 })
