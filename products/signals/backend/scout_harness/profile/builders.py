@@ -70,7 +70,7 @@ logger = logging.getLogger(__name__)
 # rows whose `source_version` doesn't match the current build, so adding a new key here
 # (or restructuring an existing one) without bumping the version would silently mix old
 # and new shapes in the cache.
-INVENTORY_SOURCE_VERSION = "v8"
+INVENTORY_SOURCE_VERSION = "v9"
 
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without
@@ -743,17 +743,27 @@ def _recent_reviewer_corrections(team: Team) -> dict[str, Any]:
 def _top_events(team: Team) -> list[dict[str, Any]] | None:
     """Top events by count over the lookback window, with reach + burst signals.
 
-    For each of the top 50 events in the last 7 days:
-      - `count` — total occurrences in the window
+    Every count here is over a rolling `TOP_EVENTS_LOOKBACK_DAYS`-day window, *not*
+    lifetime. Each row carries `window_days` so that's un-missable: a capture gap can
+    collapse a real, high-volume project's in-window counts to near-zero, and without
+    the window on the payload a scout keying a "no data worth watching" close-out on
+    `top_events` thinness can't tell a project that just went dark from one that never
+    had traffic. When the counts look thin, rule out a capture gap (compare to a
+    trailing baseline via a direct `execute-sql`) before concluding low-volume.
+
+    For each of the top 50 events in the window:
+      - `window_days` — the rolling window every count/timestamp below is measured over.
+      - `count` — total occurrences in the window (windowed, not lifetime).
       - `distinct_users` — `uniq(person_id)`; reach. Distinguishes a high-count event
         from one power user vs from many users.
-      - `recent_24h_count` — count in the last 24h. Compare to `count / 7` to spot
-        bursts: ratio well above 1/7 means the event is concentrated in the last day.
+      - `recent_24h_count` — count in the last 24h. Compare to `count / window_days` to
+        spot bursts: a ratio well above `1 / window_days` means the event is
+        concentrated in the last day.
       - `recent_24h_users` — `uniq(person_id)` over the last 24h. A burst across many
         users is qualitatively different from one user looping.
-      - `first_seen` / `last_seen` — both *within the window*. Recent `first_seen`
-        suggests a new event type or fresh burst; near-window-edge `first_seen` just
-        means it's been around at least that long (the window can't tell you the
+      - `first_seen_in_window` / `last_seen_in_window` — both *within the window*. Recent
+        `first_seen_in_window` suggests a new event type or fresh burst; near-window-edge
+        just means it's been around at least that long (the window can't tell you the
         true first-ever timestamp).
 
     Returns `None` rather than `[]` if the query fails or times out, so the agent can
@@ -796,13 +806,14 @@ def _top_events(team: Team) -> list[dict[str, Any]] | None:
     rows = response.results or []
     return [
         {
+            "window_days": TOP_EVENTS_LOOKBACK_DAYS,
             "event": row[0],
             "count": int(row[1]),
             "distinct_users": int(row[2]),
             "recent_24h_count": int(row[3]),
             "recent_24h_users": int(row[4]),
-            "first_seen": row[5].isoformat() if row[5] else None,
-            "last_seen": row[6].isoformat() if row[6] else None,
+            "first_seen_in_window": row[5].isoformat() if row[5] else None,
+            "last_seen_in_window": row[6].isoformat() if row[6] else None,
         }
         for row in rows
     ]
