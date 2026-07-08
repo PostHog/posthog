@@ -24,6 +24,7 @@ from posthog.temporal.experiments.models import (
 )
 from posthog.temporal.experiments.utils import DEFAULT_EXPERIMENT_RECALCULATION_HOUR, check_significance_transition
 
+from products.experiments.backend.facade.timeseries import backfill_experiment_timeseries
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
 from products.experiments.backend.hogql_queries.error_handling import capture_experiment_metric_error_event
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
@@ -33,7 +34,6 @@ from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult as ExperimentMetricResultModel,
 )
-from products.experiments.backend.timeseries_backfill import backfill_experiment_timeseries
 from products.experiments.stats.shared.statistics import StatisticError
 
 logger = structlog.get_logger(__name__)

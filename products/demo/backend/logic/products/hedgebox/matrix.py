@@ -71,6 +71,7 @@ from products.event_definitions.backend.models.schema import (
     SchemaPropertyGroup,
     SchemaPropertyGroupProperty,
 )
+from products.experiments.backend.facade.timeseries import backfill_experiment_timeseries
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.models.experiment import (
@@ -79,7 +80,6 @@ from products.experiments.backend.models.experiment import (
     ExperimentTimeseriesRecalculation,
     ExperimentToSavedMetric,
 )
-from products.experiments.backend.timeseries_backfill import backfill_experiment_timeseries
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, get_or_create_datawarehouse_credential
