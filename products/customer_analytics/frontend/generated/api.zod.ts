@@ -159,6 +159,13 @@ export const AccountsNotebooksCreateBody = /* @__PURE__ */ zod.object({
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
 })
 
+export const AccountsRelationshipsCreateBody = /* @__PURE__ */ zod
+    .object({
+        definition: zod.uuid().describe('Id of the relationship definition to assign.'),
+        user: zod.number().describe("PostHog user id of the assignee. Must be a member of the account's organization."),
+    })
+    .describe('Input for assigning a user to an account relationship.')
+
 export const accountsUpdateBodyNameMax = 400
 
 export const accountsUpdateBodyExternalIdMax = 400
