@@ -199,10 +199,7 @@ def resolve_types(
         resolver = Resolver(scopes=scopes, context=context, dialect=dialect)
     else:
         resolver = resolver_factory(context, dialect, scopes)
-    try:
-        return resolver.visit(node)
-    except RecursionError:
-        raise QueryError("Query is too deeply nested to process. Please simplify it.") from None
+    return resolver.visit(node)
 
 
 def _select_type_columns(

@@ -8,9 +8,10 @@ from posthog.hogql.base import _VISIT_NAME_REPLACEMENTS, AST, camel_case_pattern
 from posthog.hogql.errors import (
     InternalHogQLError,
     NotImplementedError as HogQLNotImplementedError,
+    QueryError,
 )
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, Visitor
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, Visitor, clone_expr
 
 
 class TestVisitor(BaseTest):
@@ -249,3 +250,15 @@ class TestVisitor(BaseTest):
     def test_order_expr_rejects_invalid_direction(self, _name: str, direction: str):
         with self.assertRaises(ValueError):
             ast.OrderExpr(expr=ast.Field(chain=["col"]), order=direction)  # type: ignore[arg-type]
+
+    def test_deeply_nested_clone_raises_query_error_not_recursion_error(self):
+        # clone_expr never passes through resolve_types, so guarding only that boundary would leave
+        # this path (and the direct Resolver.visit in query.py) crashing with a raw RecursionError.
+        # The guard lives on the shared Visitor.visit, so a deep clone surfaces a clean QueryError.
+        node: ast.Expr = ast.Constant(value=1)
+        for _ in range(2000):
+            node = ast.Not(expr=node)
+
+        with self.assertRaises(QueryError) as context:
+            clone_expr(node)
+        self.assertEqual(str(context.exception), "Query is too deeply nested to process. Please simplify it.")

@@ -4,7 +4,7 @@ from typing import Any, Generic, Optional, TypeVar
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectSetNode
 from posthog.hogql.base import AST, Expr
-from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.errors import BaseHogQLError, QueryError
 from posthog.hogql.utils import is_simple_value
 
 T = TypeVar("T")
@@ -37,6 +37,13 @@ class Visitor(Generic[T]):
                 e.start = node.start
                 e.end = node.end
             raise
+        except RecursionError:
+            # A pathologically nested AST exhausts Python's stack mid-visit. Convert the raw
+            # overflow into a clean, user-facing HogQL error at this shared visit() chokepoint so
+            # every visitor (resolver, cloning, printer) and every entry point is covered, instead
+            # of letting it escape to error tracking as an unhandled server failure. Only queries
+            # that already overflow are intercepted, so this never rejects a query that resolves today.
+            raise QueryError("Query is too deeply nested to process. Please simplify it.") from None
 
 
 class TraversingVisitor(Visitor[None]):
