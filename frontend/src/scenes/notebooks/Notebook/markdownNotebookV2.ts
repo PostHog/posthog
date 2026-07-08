@@ -544,12 +544,7 @@ function serializeRichContentNode(
     }
 
     if (nodeType === 'blockquote') {
-        return (node.content ?? [])
-            .map((child) => serializeRichContentNode(child, listDepth, options))
-            .join('\n')
-            .split('\n')
-            .map((line) => `> ${line}`)
-            .join('\n')
+        return serializeBlockquoteNode(node, listDepth, options)
     }
 
     if (nodeType === 'bulletList' || nodeType === 'orderedList' || nodeType === 'taskList') {
@@ -684,26 +679,101 @@ function serializeLegacyLinkNode(node: JSONContent, options: NotebookMarkdownCon
     return serializeUnknownRichContentNode(node)
 }
 
+// The markdown notebook blockquote only holds inline text (and list lines), so block content
+// inside a v1 blockquote or callout — embedded cards like Query/Python, headings, code blocks,
+// tables, nested quotes — is emitted as standalone blocks that split the quote. Quoting those
+// lines instead would produce markdown the parser can only read back as escaped literal text,
+// destroying the nodes on the next save.
+function isBlockquotableRichContentNode(node: JSONContent, serialized: string): boolean {
+    const nodeType = getRichContentNodeType(node)
+    if (nodeType === 'paragraph' || nodeType === 'text') {
+        return true
+    }
+    // Blockquoted lists parse back (`> - item`), but only while every line is a list line — a
+    // list that spilled block content into standalone blocks splits out of the quote with them.
+    if (LIST_NODE_TYPES.has(nodeType ?? '')) {
+        return !serialized.includes('\n\n')
+    }
+    return false
+}
+
+function serializeBlockquoteNode(
+    node: JSONContent,
+    listDepth: number,
+    options: NotebookMarkdownConversionOptions = {}
+): string {
+    const blocks: string[] = []
+    let pendingQuoteLines: string[] = []
+    const flushQuoteLines = (): void => {
+        if (pendingQuoteLines.length) {
+            blocks.push(pendingQuoteLines.map((line) => `> ${line}`).join('\n'))
+            pendingQuoteLines = []
+        }
+    }
+
+    for (const child of node.content ?? []) {
+        const childMarkdown = serializeRichContentNode(child, listDepth, options)
+        if (isBlockquotableRichContentNode(child, childMarkdown)) {
+            pendingQuoteLines.push(...childMarkdown.split('\n'))
+        } else if (childMarkdown.trim()) {
+            flushQuoteLines()
+            blocks.push(childMarkdown)
+        }
+    }
+    flushQuoteLines()
+
+    return blocks.join('\n\n')
+}
+
 function serializeCalloutNode(node: JSONContent, options: NotebookMarkdownConversionOptions = {}): string {
-    const body = (node.content ?? [])
-        .map((child) => serializeRichContentNode(child, 0, options))
-        .filter((block) => block.trim().length > 0)
-        .join('\n\n')
-        .trim()
     const emoji =
         typeof node.attrs?.emoji === 'string' && node.attrs.emoji.trim()
             ? escapeInlineMarkdownText(node.attrs.emoji.trim())
             : ''
-    const blockquoteBody = `${emoji}${emoji && body ? ' ' : ''}${body}`.trim()
+    const blocks: string[] = []
+    let pendingQuoteBodies: string[] = []
+    let emojiPlaced = false
+    const flushQuoteBodies = (): void => {
+        if (!pendingQuoteBodies.length) {
+            return
+        }
+        let body = pendingQuoteBodies.join('\n\n')
+        if (emoji && !emojiPlaced) {
+            body = `${emoji} ${body}`
+            emojiPlaced = true
+        }
+        blocks.push(
+            body
+                .split('\n')
+                .map((line) => `> ${line}`)
+                .join('\n')
+        )
+        pendingQuoteBodies = []
+    }
 
-    if (!blockquoteBody) {
+    for (const child of node.content ?? []) {
+        const childMarkdown = serializeRichContentNode(child, 0, options)
+        if (!childMarkdown.trim()) {
+            continue
+        }
+        if (isBlockquotableRichContentNode(child, childMarkdown)) {
+            pendingQuoteBodies.push(childMarkdown)
+        } else {
+            flushQuoteBodies()
+            blocks.push(childMarkdown)
+        }
+    }
+    flushQuoteBodies()
+
+    if (emoji && !emojiPlaced) {
+        blocks.unshift(`> ${emoji}`)
+    }
+
+    if (!blocks.length) {
         return serializeUnknownRichContentNode(node)
     }
 
-    return blockquoteBody
-        .split('\n')
-        .map((line) => `> ${line}`)
-        .join('\n')
+    return blocks.join('\n\n')
 }
 
 function isNotebookObjectProp(value: NotebookPropValue | undefined): value is Record<string, NotebookPropValue> {

@@ -14,6 +14,7 @@ from temporalio.testing import ActivityEnvironment
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline import repartition_controller as ctrl
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.repartition import (
@@ -158,6 +159,59 @@ class TestRepartitionDetection:
         assert schema.repartition_pending is None
         assert capture.call_args.args[0] == "warehouse_repartition_skipped"
         assert capture.call_args.args[1]["reason"] == "unpartitionable_no_keys"
+
+    def test_unpartitioned_over_budget_with_keys_enables_partitioning(self, team):
+        # An unpartitioned table that's over budget but HAS a usable key must be flagged to become
+        # partitioned (partition_mode=None → auto-detect on the rewrite), not skipped — this is the
+        # not-partitioned → partitioned transition.
+        schema = _make_schema(team, {"primary_key_columns": ["id"]})
+        with tempfile.TemporaryDirectory() as d:
+            delta = _write_unpartitioned_delta(f"{d}/u")
+            with (
+                patch.object(ctrl, "target_partition_bytes", return_value=1),
+                patch.object(ctrl, "is_auto_repartition_enabled", return_value=True),
+                patch.object(ctrl, "capture_repartition_event"),
+            ):
+                self._detect(team, schema, delta)
+
+        schema.refresh_from_db()
+        assert schema.repartition_pending is not None
+        assert schema.repartition_pending["partition_mode"] is None
+        assert schema.repartition_pending["partition_keys"] == ["id"]
+
+
+class TestRepartitionOOMHistoryTrigger:
+    def _detect(self, team, schema: ExternalDataSchema, delta: deltalake.DeltaTable) -> None:
+        async_to_sync(ctrl.maybe_flag_for_repartition)(schema, schema.source, _make_job(team, schema), delta, logger)
+
+    @pytest.mark.parametrize("oom_count,expect_flag", [(3, True), (2, False)])
+    def test_repeated_ooms_flag_a_within_budget_table(self, team, oom_count, expect_flag):
+        # The hybrid trigger's reason for existing: a table whose compressed partition looks within
+        # budget but that keeps OOMing (its real working set is bigger — e.g. wide nested JSON) must be
+        # repartitioned once it crosses the OOM threshold, and left alone below it.
+        schema = _make_schema(
+            team,
+            {"partitioning_enabled": True, "partition_mode": "md5", "partition_count": 2, "partitioning_keys": ["id"]},
+        )
+        for _ in range(oom_count):
+            ExternalDataSchemaOOMEvent.objects.for_team(schema.team_id).create(team_id=schema.team_id, schema=schema)
+
+        with tempfile.TemporaryDirectory() as d:
+            delta = _write_partitioned_delta(f"{d}/t", ["0", "1"])
+            with (
+                patch.object(ctrl, "target_partition_bytes", return_value=10**12),  # well within the size budget
+                patch.object(ctrl, "repartition_oom_threshold", return_value=3),
+                patch.object(ctrl, "is_auto_repartition_enabled", return_value=True),
+                patch.object(ctrl, "capture_repartition_event"),
+            ):
+                self._detect(team, schema, delta)
+
+        schema.refresh_from_db()
+        if expect_flag:
+            assert schema.repartition_pending is not None
+            assert schema.repartition_pending["trigger_reason"] == "oom_history"
+        else:
+            assert schema.repartition_pending is None
 
 
 class TestRepartitionActivity:

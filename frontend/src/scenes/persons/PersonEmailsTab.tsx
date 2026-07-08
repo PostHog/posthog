@@ -1,9 +1,10 @@
 import { useValues } from 'kea'
 import { useState } from 'react'
 
-import { HedgehogGreek } from '@posthog/brand/hoggies'
+import * as greekPng from '@posthog/brand/hoggies/png/greek'
 import { LemonTable, Link } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 
@@ -11,6 +12,8 @@ import { EmailViewerModal } from 'products/workflows/frontend/Workflows/EmailVie
 import { MessageAsset } from 'products/workflows/frontend/Workflows/messageAssetsApi'
 
 import { personEmailsLogic } from './personEmailsLogic'
+
+const HedgehogGreek = pngHoggie(greekPng)
 
 interface PersonEmailsTabProps {
     teamId: number

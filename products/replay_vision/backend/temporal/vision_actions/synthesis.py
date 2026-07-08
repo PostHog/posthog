@@ -21,10 +21,10 @@ from posthog.models.team import Team
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
-from products.replay_vision.backend.max_tools import _EVENT_ID_CITATION_RE, _as_untrusted_data, describe_scanner_outcome
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
+from products.replay_vision.backend.observation_formatting import EVENT_ID_CITATION_RE, describe_output
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.gemini import gemini_api_key
@@ -35,6 +35,7 @@ from products.replay_vision.backend.temporal.vision_actions.types import (
 )
 
 from ee.billing.quota_limiting import is_team_over_ai_credit_budget
+from ee.hogai.utils.untrusted import as_untrusted_data
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -281,8 +282,8 @@ def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) 
             continue
         # Collapse to a single line: keeps the feed one-observation-per-line and stops recording-derived
         # text from forging extra descriptor-bearing lines inside the untrusted fence.
-        clean = re.sub(r"\s+", " ", _EVENT_ID_CITATION_RE.sub("", text)).strip()
-        descriptor = describe_scanner_outcome(output)
+        clean = re.sub(r"\s+", " ", EVENT_ID_CITATION_RE.sub("", text)).strip()
+        descriptor = describe_output(output)
         lines.append(f"- ({created_at:%Y-%m-%d}) {f'{descriptor}: ' if descriptor else ''}{clean}")
         # Recorded in lockstep with `lines`: only observations whose summary was actually included.
         observation_ids.append(str(observation_id))
@@ -333,7 +334,7 @@ def _run_synthesis(team: Team, action: VisionAction, lines: list[str]) -> str:
 
     # Lead with the (trusted) guide so the fenced untrusted observation block is always the last
     # thing the model reads — nothing instruction-shaped trails it for injected text to blend into.
-    human = prompt_guide + _as_untrusted_data("observations", lines)
+    human = prompt_guide + as_untrusted_data("observations", lines)
 
     # Same PostHog-instrumented Gemini client + Replay Vision tagging the scanners use, so the
     # generation is captured in LLM analytics attributed to Replay Vision. The enclosing activity's

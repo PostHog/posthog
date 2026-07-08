@@ -1020,10 +1020,12 @@ def _produce_invalidation(team_id: int) -> None:
 def _enqueue_invalidation(team_id: int) -> None:
     """Run from `transaction.on_commit`: route to Kafka if enabled, otherwise Celery.
 
-    Deferring until commit avoids race conditions where the Celery worker reads
-    pre-commit state. Shared by all four signal handlers wired to the
-    flag-invalidation topic. Cohort invalidation is intentionally not routed
-    here — cohort changes flow through their own topic.
+    Model signal handlers wrap this in `transaction.on_commit`: deferring until commit
+    avoids race conditions where the Celery worker reads pre-commit state. Callers with no
+    open transaction to defer past (e.g. staff tooling, via `enqueue_evaluation_cache_invalidation`)
+    call it directly. Shared by all four signal handlers wired to the flag-invalidation topic.
+    Cohort invalidation is intentionally not routed here, since cohort changes flow through their
+    own topic.
 
     The two paths are mutually exclusive so the rollout proves the Kafka path
     actually works end to end: Celery is not a fallback when the flag is on,
@@ -1034,13 +1036,26 @@ def _enqueue_invalidation(team_id: int) -> None:
     is dropped, not retried via Celery. Watch `flags_cache_invalidation_produce_failed`
     logs during rollout. Celery's `.delay()` is allowed to raise when the flag
     is off — it's the sole path in that case and operators want broker failures loud.
+
+    Guarded on FLAGS_REDIS_URL here (not just at each call site) so every caller, including
+    ones outside a signal handler, gets the same no-op-when-unconfigured behavior for free.
     """
+    if not settings.FLAGS_REDIS_URL:
+        return
+
     from products.feature_flags.backend.tasks import update_team_service_flags_cache
 
     if _route_to_kafka(team_id):
         _produce_invalidation(team_id)
     else:
         update_team_service_flags_cache.delay(team_id)
+
+
+def enqueue_evaluation_cache_invalidation(team_id: int) -> None:
+    """Public entry point for `_enqueue_invalidation`, for callers outside a model signal handler
+    (e.g. staff tooling) that want a rebuild to raise the exact same invalidation signal (Kafka
+    or Celery routing) that an organic flag create/update/delete raises."""
+    _enqueue_invalidation(team_id)
 
 
 @receiver(post_save, sender=FeatureFlag)

@@ -38,13 +38,10 @@ describe('EmailValidationService', () => {
         mockResolveMx.mockResolvedValue([{ exchange: 'mx.example.com', priority: 10 }])
         mockResolve4.mockResolvedValue(['1.2.3.4'])
         mockResolve6.mockResolvedValue([])
-        service = new EmailValidationService(
-            { CDP_EMAIL_MX_VALIDATION_ENABLED: true, CDP_EMAIL_MX_VALIDATION_ENFORCE_TEAMS: '2' },
-            null
-        )
+        service = new EmailValidationService(null)
     })
 
-    describe('gating and shadow mode', () => {
+    describe('gating', () => {
         it('does not validate (returns null, no DNS) for non-email actions', async () => {
             const reason = await service.getSkipReason(emailInvocation('x@dead.invalid'), {
                 type: 'function_sms',
@@ -54,42 +51,18 @@ describe('EmailValidationService', () => {
             expect(mockResolveMx).not.toHaveBeenCalled()
         })
 
-        it('does nothing when the kill switch is off, even for a dead domain', async () => {
-            const disabled = new EmailValidationService(
-                { CDP_EMAIL_MX_VALIDATION_ENABLED: false, CDP_EMAIL_MX_VALIDATION_ENFORCE_TEAMS: '*' },
-                null
-            )
-            expect(await disabled.getSkipReason(emailInvocation('x@dead.invalid'), emailAction)).toBeNull()
-            expect(mockResolveMx).not.toHaveBeenCalled()
-        })
-
-        it('shadow mode: validates and records the would-skip, but lets the send proceed', async () => {
+        it('records the per-team skip metric when blocking', async () => {
             mockResolveMx.mockRejectedValue(dnsError('ENOTFOUND'))
             mockResolve4.mockRejectedValue(dnsError('ENOTFOUND'))
             mockResolve6.mockRejectedValue(dnsError('ENOTFOUND'))
 
-            // Team 3 is not in the enforce list ('2') — observe-only.
             const reason = await service.getSkipReason(emailInvocation('x@dead.invalid', 3), emailAction)
 
-            expect(reason).toBeNull()
-            expect(mockResolveMx).toHaveBeenCalled()
-            const metric = await register.getSingleMetric('cdp_email_mx_would_skip_total')!.get()
+            expect(reason).toContain('no reachable mail servers')
+            const metric = await register.getSingleMetric('cdp_email_mx_skipped_total')!.get()
             expect(metric.values).toContainEqual(
                 expect.objectContaining({ labels: { team_id: '3', reason: 'invalid_domain' } })
             )
-        })
-
-        it('enforces skips for all teams when configured with "*"', async () => {
-            const wildcard = new EmailValidationService(
-                { CDP_EMAIL_MX_VALIDATION_ENABLED: true, CDP_EMAIL_MX_VALIDATION_ENFORCE_TEAMS: '*' },
-                null
-            )
-            mockResolveMx.mockRejectedValue(dnsError('ENOTFOUND'))
-            mockResolve4.mockRejectedValue(dnsError('ENOTFOUND'))
-            mockResolve6.mockRejectedValue(dnsError('ENOTFOUND'))
-
-            const reason = await wildcard.getSkipReason(emailInvocation('x@dead.invalid', 999), emailAction)
-            expect(reason).toContain('no reachable mail servers')
         })
     })
 
@@ -257,10 +230,7 @@ describe('EmailValidationService', () => {
                 useClient: jest.fn().mockResolvedValue('0'), // '0' = domain previously found undeliverable
                 usePipeline: jest.fn(),
             }
-            const withValkey = new EmailValidationService(
-                { CDP_EMAIL_MX_VALIDATION_ENABLED: true, CDP_EMAIL_MX_VALIDATION_ENFORCE_TEAMS: '2' },
-                valkey
-            )
+            const withValkey = new EmailValidationService(valkey)
 
             const reason = await withValkey.getSkipReason(emailInvocation('user@known-dead.example'), emailAction)
             expect(reason).toContain('no reachable mail servers')

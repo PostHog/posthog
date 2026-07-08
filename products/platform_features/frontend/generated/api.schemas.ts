@@ -982,6 +982,7 @@ export type ActivityLogListParams = {
      * * `ExternalDataSchema` - ExternalDataSchema
      * * `Evaluation` - Evaluation
      * * `LLMTrace` - LLMTrace
+     * * `AIGatewayCredit` - AIGatewayCredit
      * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
      * * `CustomerProfileConfig` - CustomerProfileConfig
      * * `Log` - Log
@@ -1063,6 +1064,7 @@ export const ActivityLogListScope = {
     ExternalDataSchema: 'ExternalDataSchema',
     Evaluation: 'Evaluation',
     LLMTrace: 'LLMTrace',
+    AIGatewayCredit: 'AIGatewayCredit',
     WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
     CustomerProfileConfig: 'CustomerProfileConfig',
     Log: 'Log',
@@ -1131,6 +1133,7 @@ export const ActivityLogListScope = {
  * * `ExternalDataSchema` - ExternalDataSchema
  * * `Evaluation` - Evaluation
  * * `LLMTrace` - LLMTrace
+ * * `AIGatewayCredit` - AIGatewayCredit
  * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
  * * `CustomerProfileConfig` - CustomerProfileConfig
  * * `Log` - Log
@@ -1200,6 +1203,7 @@ export const ActivityLogListScopesItem = {
     ExternalDataSchema: 'ExternalDataSchema',
     Evaluation: 'Evaluation',
     LLMTrace: 'LLMTrace',
+    AIGatewayCredit: 'AIGatewayCredit',
     WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
     CustomerProfileConfig: 'CustomerProfileConfig',
     Log: 'Log',

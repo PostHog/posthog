@@ -109,7 +109,7 @@ impl CymbalResolution for StubServer {
     type ResolveStream = ResolveStream;
     type SubscribeStream = SubscribeStream;
 
-    /// Default Subscribe behaviour: emit freshness/draining-only `LoadEvent`s
+    /// Default Subscribe behaviour: emit freshness/draining/load `LoadEvent`s
     /// on a fast tick so snapshot-required routing can warm up quickly.
     async fn subscribe(
         &self,
@@ -129,6 +129,8 @@ impl CymbalResolution for StubServer {
                     draining: false,
                     sequence,
                     message: String::new(),
+                    in_flight: 0,
+                    max_in_flight: 64,
                 };
                 if tx.send(Ok(event)).await.is_err() {
                     return;
