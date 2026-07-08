@@ -173,9 +173,14 @@ class HoglandBackend(PreviewBackend):
         try:
             return self._client.create(**self._create_kwargs())
         except ConflictError:
-            stale = self._resolve_box()
-            if stale is not None:
-                stale.delete()
+            try:
+                stale = self._resolve_box()
+                if stale is not None:
+                    stale.delete()
+            except NotFoundError:
+                # TTL cleanup or a racing teardown already removed it — the
+                # name is free either way, so fall through to the retry loop.
+                pass
         # Retry while the freed name propagates; the final attempt is outside the
         # guard so a lingering ConflictError surfaces instead of being swallowed.
         for _ in range(10):

@@ -267,9 +267,10 @@ class PostHogPreviewStack:
         services = " ".join(self.DEPS)
         script = (
             f"cd {self.repo_dir} && docker compose -f {self.COMPOSE} -f {self.OVERRIDE} up -d --no-build {services} && "
-            "for _ in $(seq 1 60); do "
+            "healthy=0; for _ in $(seq 1 60); do "
             f"docker compose -f {self.COMPOSE} -f {self.OVERRIDE} ps --format '{{{{.Service}}}} {{{{.Status}}}}' "
-            "| grep '^db ' | grep -q healthy && break; sleep 4; done"
+            "| grep '^db ' | grep -q healthy && { healthy=1; break; }; sleep 4; done; "
+            '[ "$healthy" = 1 ] || { echo "db never became healthy" >&2; exit 1; }'
         )
         self.backend.run_long(script, name="up-deps", timeout=900)
 

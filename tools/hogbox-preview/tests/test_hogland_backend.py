@@ -41,10 +41,11 @@ class _FakeClient:
     """Minimal stand-in for the SDK client. Each method's behaviour is set by the
     test; every call is recorded so we can assert teardown reached delete_pen."""
 
-    def __init__(self, *, get=None, get_pen=None, boxes=None):
+    def __init__(self, *, get=None, get_pen=None, boxes=None, create=None):
         self._get = get
         self._get_pen = get_pen
         self._boxes = boxes or []
+        self._create = create
         self.deleted_pens: list[str] = []
 
     def get(self, box_id):
@@ -62,6 +63,11 @@ class _FakeClient:
 
     def delete_pen(self, name):
         self.deleted_pens.append(name)
+
+    def create(self, **kwargs):
+        if callable(self._create):
+            return self._create(**kwargs)
+        return self._create
 
 
 @unittest.skipUnless(HAVE_SDK, "posthog-hogland SDK not installed")
@@ -114,6 +120,41 @@ class DestroyReleasesPenTest(unittest.TestCase):
 
         self.assertTrue(box.deleted)
         self.assertEqual(client.deleted_pens, ["preview-pr-999"])
+
+
+@unittest.skipUnless(HAVE_SDK, "posthog-hogland SDK not installed")
+class RestoreFreshHandlesStaleConflictTest(unittest.TestCase):
+    """A name conflict on create() means a prior run's box is still in the way.
+    If that box was already reaped (TTL cleanup or a racing teardown) between
+    resolving it and deleting it, the retry must still proceed — not abort."""
+
+    def _backend(self, client):
+        from hogbox_preview.hogland_backend import HoglandBackend
+
+        backend = HoglandBackend(host="https://example.invalid", name="preview-pr-999", token="test-token")
+        backend._client = client
+        return backend
+
+    def test_retries_create_when_stale_box_already_gone(self):
+        from hogland import ConflictError, NotFoundError
+
+        stale_box = _FakeBox(delete_raises=NotFoundError("box gone", status_code=404))
+        created = object()
+        attempts = {"n": 0}
+
+        def create(**_kwargs):
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise ConflictError("name taken")
+            return created
+
+        client = _FakeClient(create=create)
+        backend = self._backend(client)
+        backend._box = stale_box  # _resolve_box short-circuits to the live handle
+
+        result = backend._restore_fresh()
+
+        self.assertIs(result, created)
 
 
 if __name__ == "__main__":
