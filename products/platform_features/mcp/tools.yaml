@@ -9,6 +9,9 @@ feature: platform_features
 url_prefix: /
 ui_apps: {}
 tools:
+    activity-log-list:
+        operation: activity_log_list
+        enabled: false
     advanced-activity-logs-export:
         operation: advanced_activity_logs_export_create
         enabled: false
@@ -38,10 +41,10 @@ tools:
         list: true
         title: List activity in the project.
         description: >
-            List activity log entries — who changed what and when (feature flag changes, dashboard edits,
-            experiment launches, insight edits, etc.), with field-level diffs. Filter by scope, activity type,
-            user, item, date range, and free-text search. Use this to audit a specific resource's history or to
-            see what changed recently across the project.
+            List activity log entries — who changed what and when (feature flag changes, dashboard edits, experiment
+            launches, insight edits, etc.), with field-level diffs. Filter by scope, activity type, user, item, date
+            range, and free-text search. Use this to audit a specific resource's history or to see what changed recently
+            across the project.
         param_overrides:
             page_size:
                 default: 10
