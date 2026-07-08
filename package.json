@@ -146,7 +146,8 @@
             "fast-xml-parser@^5": ">=5.3.5",
             "jest-playwright-preset>playwright-core": "1.60.0",
             "@smithy/node-http-handler": "4.4.9",
-            "@smithy/core": "3.24.6"
+            "@smithy/core": "3.24.6",
+            "rolldown": "1.1.4"
         },
         "patchedDependencies": {
             "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch",
