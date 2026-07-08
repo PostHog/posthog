@@ -126,6 +126,44 @@ describe('insightVizDataLogic', () => {
             })
         })
 
+        it('clamps exclusion step ranges when funnel steps are removed', () => {
+            const exclusion = {
+                kind: NodeKind.EventsNode,
+                name: '$exclusion',
+                event: '$exclusion',
+                funnelFromStep: 1,
+                funnelToStep: 2,
+            }
+            const querySource = {
+                ...funnelsQueryDefault,
+                series: [funnelsQueryDefault.series[0], funnelsQueryDefault.series[0], funnelsQueryDefault.series[0]],
+                funnelsFilter: {
+                    exclusions: [exclusion],
+                },
+            } as FunnelsQuery
+            builtInsightVizDataLogic.actions.updateQuerySource(querySource)
+
+            expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    ...querySource,
+                    series: querySource.series.slice(0, 2),
+                } as FunnelsQuery)
+            }).toMatchValues({
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        ...querySource,
+                        series: querySource.series.slice(0, 2),
+                        funnelsFilter: {
+                            exclusions: [{ ...exclusion, funnelFromStep: 0, funnelToStep: 1 }],
+                        },
+                        trendsFilter: {}, // we currently don't remove insight filters of previous query kinds
+                        version: 2,
+                    },
+                },
+            })
+        })
+
         it('clears a custom lifecycle aggregation target when switching away from a data warehouse series', () => {
             const lifecycleQuery: LifecycleQuery = {
                 kind: NodeKind.LifecycleQuery,

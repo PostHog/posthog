@@ -875,20 +875,27 @@ const handleQuerySourceUpdateSideEffects = (
         }
     }
 
-    // clamp the funnel steps
-    if (
-        maybeChangedSeries &&
-        isFunnelsQuery(currentState) &&
-        ((insightFilter as FunnelsFilter)?.funnelFromStep != null ||
-            (insightFilter as FunnelsFilter)?.funnelToStep != null)
-    ) {
-        // Filter out GroupNode types as funnels only use AnyEntityNode
-        const funnelSeries: AnyEntityNode<FunnelsDataWarehouseNode>[] = maybeChangedSeries.filter(
-            (node): node is AnyEntityNode<FunnelsDataWarehouseNode> => node.kind !== NodeKind.GroupNode
-        )
-        ;(mergedUpdate as FunnelsQuery).funnelsFilter = {
-            ...(insightFilter as FunnelsFilter),
-            ...getClampedFunnelStepRange(insightFilter as FunnelsFilter, funnelSeries),
+    // clamp the funnel step range and exclusion step ranges
+    if (maybeChangedSeries && isFunnelsQuery(currentState)) {
+        const funnelsFilter = insightFilter as FunnelsFilter
+        const exclusions = funnelsFilter?.exclusions
+        if (funnelsFilter?.funnelFromStep != null || funnelsFilter?.funnelToStep != null || exclusions?.length) {
+            // Filter out GroupNode types as funnels only use AnyEntityNode
+            const funnelSeries: AnyEntityNode<FunnelsDataWarehouseNode>[] = maybeChangedSeries.filter(
+                (node): node is AnyEntityNode<FunnelsDataWarehouseNode> => node.kind !== NodeKind.GroupNode
+            )
+            ;(mergedUpdate as FunnelsQuery).funnelsFilter = {
+                ...funnelsFilter,
+                ...getClampedFunnelStepRange(funnelsFilter, funnelSeries),
+                ...(exclusions?.length
+                    ? {
+                          exclusions: exclusions.map((exclusion) => ({
+                              ...exclusion,
+                              ...getClampedFunnelStepRange(exclusion, funnelSeries),
+                          })),
+                      }
+                    : {}),
+            }
         }
     }
 
