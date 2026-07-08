@@ -9,6 +9,7 @@ with one row per (org, team, query_source, worker size) per UTC day, and
 import json
 import datetime as dt
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -32,7 +33,7 @@ def _response(status_code: int = 200, body: dict | None = None, raw_text: str | 
     return response
 
 
-USAGE_BODY = {
+USAGE_BODY: dict[str, Any] = {
     "watermark_low": "2026-07-06T00:00:00Z",
     "watermark_high": "2026-07-07T12:39:00Z",
     "usage": [

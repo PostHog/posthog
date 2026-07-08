@@ -2,7 +2,7 @@ import gzip
 import json
 import base64
 import dataclasses
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 from uuid import uuid4
@@ -2701,7 +2701,7 @@ class TestManagedWarehouseUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
     def _usage(
         self,
         team: Team,
-        date: datetime.date,
+        date: date,
         query_source: str = "standard",
         cpu: str = "8",
         mem_gib: str = "16",
