@@ -2856,7 +2856,7 @@ class SalesLoftSourceConfig(config.Config):
 
 @config.config
 class SalesflareSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

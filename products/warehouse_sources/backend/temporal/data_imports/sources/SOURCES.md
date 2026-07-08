@@ -297,6 +297,7 @@ the row lists both.
 | rootly                  | HTTP                        | requests                                                        | ✅                          |
 | ruddr                   | HTTP                        | requests                                                        | ✅                          |
 | salesforce              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| salesflare              | HTTP                        | requests                                                        | ✅                          |
 | salesloft               | HTTP                        | requests                                                        | ✅                          |
 | secoda                  | HTTP                        | requests                                                        | ✅                          |
 | segment                 | HTTP                        | requests                                                        | ✅                          |
@@ -636,7 +637,6 @@ doesn't conflict with concurrent PRs.
 - sage_hr
 - sage_intacct
 - sailthru
-- salesflare
 - salesforce_marketing_cloud
 - sanity
 - sap_concur
