@@ -1,13 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import {
-    IconBrackets,
-    IconChevronLeft,
-    IconChevronRight,
-    IconExpand45,
-    IconPin,
-    IconPinFilled,
-} from '@posthog/icons'
+import { IconBrackets, IconChevronLeft, IconChevronRight, IconExpand45, IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
