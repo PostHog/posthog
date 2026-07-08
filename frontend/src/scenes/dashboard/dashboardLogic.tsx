@@ -47,6 +47,7 @@ import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic
 import { objectsEqual } from 'lib/utils/objects'
 import { shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
+import type { DashboardAddTileType } from 'scenes/dashboard/dashboardAddTileTypes'
 import { BREAKPOINTS, dashboardToSaveableTemplate, getDashboardTileDisplayName } from 'scenes/dashboard/dashboardUtils'
 import {
     calculateDuplicateLayout,
@@ -193,6 +194,19 @@ const tileLayoutsFromDashboard = (
         tileIdToLayouts[tile.id] = tile.layouts
     })
     return tileIdToLayouts
+}
+
+function tileTypeOf(tile: DashboardTile<QueryBasedInsightModel>): DashboardAddTileType {
+    if (tile.text) {
+        return 'text_card'
+    }
+    if (tile.button_tile) {
+        return 'button'
+    }
+    if (tile.widget) {
+        return 'widget'
+    }
+    return 'insight'
 }
 
 function mergeUpdatedWidgetTileIntoDashboard(
@@ -2245,14 +2259,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 h
             )
 
-            const insertedTileType = newTile.text
-                ? 'text_card'
-                : newTile.button_tile
-                  ? 'button'
-                  : newTile.widget
-                    ? 'widget'
-                    : 'insight'
-            eventUsageLogic.actions.reportDashboardTileInsertedInline(insertedTileType, slot.x, slot.y, slot.w != null)
+            eventUsageLogic.actions.reportDashboardTileInsertedInline(
+                tileTypeOf(newTile),
+                slot.x,
+                slot.y,
+                slot.w != null
+            )
 
             if (newTileAlreadyAtSlot && tilesToUpdate.length === 0) {
                 return
