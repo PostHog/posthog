@@ -296,6 +296,17 @@ class TestResolver(BaseTest):
             resolve_types(expr, self.context, dialect="clickhouse")
         assert "Duplicate column alias 'a'" in str(ctx.exception)
 
+    def test_empty_alias_raises_query_error(self):
+        # An empty alias comes from malformed user input, so it must surface as a user-facing
+        # QueryError (4xx), not an internal ImpossibleASTError (500) that pollutes error tracking.
+        expr = ast.SelectQuery(
+            select=[ast.Alias(alias="", expr=ast.Constant(value=1))],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+        )
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(expr, self.context, dialect="clickhouse")
+        assert "Alias cannot be empty" in str(ctx.exception)
+
     def test_resolve_replace_columns(self):
         expr = self._select("SELECT (* REPLACE (1 AS event)) FROM events")
 

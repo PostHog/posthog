@@ -1501,7 +1501,7 @@ class Resolver(CloningVisitor):
         if node.alias in scope.aliases and not node.hidden:
             raise QueryError(f"Cannot redefine an alias with the name: {node.alias}")
         if node.alias == "":
-            raise ImpossibleASTError("Alias cannot be empty")
+            raise QueryError("Alias cannot be empty", node=node)
 
         node = super().visit_alias(node)
         node.type = ast.FieldAliasType(alias=node.alias, type=node.expr.type or ast.UnknownType())
