@@ -407,6 +407,39 @@ function fireSelectAllShortcut(element: HTMLElement): void {
     fireEvent.keyDown(element, { key: 'a', metaKey: true })
 }
 
+// jsdom has no URL.createObjectURL, so the debug-log download needs stubs; restore() puts the
+// original (usually absent) properties back so the stubs never leak into other tests.
+function stubNotebookLogDownload(): {
+    createObjectURL: jest.Mock<string, [Blob]>
+    anchorClick: jest.SpyInstance
+    restore: () => void
+} {
+    const originalCreateObjectURL = Object.getOwnPropertyDescriptor(window.URL, 'createObjectURL')
+    const originalRevokeObjectURL = Object.getOwnPropertyDescriptor(window.URL, 'revokeObjectURL')
+    const createObjectURL = jest.fn((_blob: Blob) => 'blob:notebook-debug-log')
+    Object.defineProperty(window.URL, 'createObjectURL', { value: createObjectURL, configurable: true })
+    Object.defineProperty(window.URL, 'revokeObjectURL', { value: jest.fn(), configurable: true })
+    const anchorClick = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+    const restoreUrlProperty = (name: 'createObjectURL' | 'revokeObjectURL', descriptor?: PropertyDescriptor): void => {
+        if (descriptor) {
+            Object.defineProperty(window.URL, name, descriptor)
+        } else {
+            delete (window.URL as unknown as Record<string, unknown>)[name]
+        }
+    }
+
+    return {
+        createObjectURL,
+        anchorClick,
+        restore: () => {
+            anchorClick.mockRestore()
+            restoreUrlProperty('createObjectURL', originalCreateObjectURL)
+            restoreUrlProperty('revokeObjectURL', originalRevokeObjectURL)
+        },
+    }
+}
+
 function expectNoDuplicateKeyWarnings(callback: () => void): void {
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined)
     let thrownError: unknown
@@ -2395,11 +2428,7 @@ Intro paragraph
     })
 
     it('records keystrokes, mouse events, and commits into a downloadable debug log', async () => {
-        const createObjectURL = jest.fn((_blob: Blob) => 'blob:notebook-debug-log')
-        const revokeObjectURL = jest.fn()
-        Object.defineProperty(window.URL, 'createObjectURL', { value: createObjectURL, configurable: true })
-        Object.defineProperty(window.URL, 'revokeObjectURL', { value: revokeObjectURL, configurable: true })
-        const anchorClick = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+        const { createObjectURL, anchorClick, restore } = stubNotebookLogDownload()
 
         try {
             const { container } = render(
@@ -2446,16 +2475,12 @@ Intro paragraph
             const keydownEntry = entries.find((entry) => entry.type === 'keydown')
             expect(keydownEntry?.key).toEqual('a')
         } finally {
-            anchorClick.mockRestore()
+            restore()
         }
     })
 
     it('downloads the debug log automatically when an uncaught error fires while recording', async () => {
-        const createObjectURL = jest.fn((_blob: Blob) => 'blob:notebook-crash-log')
-        const revokeObjectURL = jest.fn()
-        Object.defineProperty(window.URL, 'createObjectURL', { value: createObjectURL, configurable: true })
-        Object.defineProperty(window.URL, 'revokeObjectURL', { value: revokeObjectURL, configurable: true })
-        const anchorClick = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+        const { createObjectURL, anchorClick, restore } = stubNotebookLogDownload()
 
         try {
             const { container } = render(
@@ -2484,16 +2509,12 @@ Intro paragraph
             expect(crashEntry.error).toEqual('Error: boom')
             expect(crashEntry.markdown).toEqual(withNotebookTitle('Hello there'))
         } finally {
-            anchorClick.mockRestore()
+            restore()
         }
     })
 
     it('downloads the debug log when a React commit crash hits the editor', async () => {
-        const createObjectURL = jest.fn((_blob: Blob) => 'blob:notebook-crash-log')
-        const revokeObjectURL = jest.fn()
-        Object.defineProperty(window.URL, 'createObjectURL', { value: createObjectURL, configurable: true })
-        Object.defineProperty(window.URL, 'revokeObjectURL', { value: revokeObjectURL, configurable: true })
-        const anchorClick = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+        const { createObjectURL, anchorClick, restore } = stubNotebookLogDownload()
         const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined)
 
         try {
@@ -2529,7 +2550,7 @@ Intro paragraph
             expect(String(crashEntry.error)).toContain('not a child of this node')
         } finally {
             consoleError.mockRestore()
-            anchorClick.mockRestore()
+            restore()
         }
     })
 
