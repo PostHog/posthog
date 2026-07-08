@@ -1778,6 +1778,78 @@ describe('dashboardLogic', () => {
         })
     })
 
+    describe('inline insertion follow-up', () => {
+        // Two insight tiles stacked in the left column (0-6); the right column is free.
+        const leftColumnDashboard = (
+            extraTiles: DashboardTile<QueryBasedInsightModel>[] = []
+        ): DashboardType<QueryBasedInsightModel> => {
+            const top = {
+                ...tileFromInsight(insightOnDashboard(172, [12]), 301),
+                layouts: { sm: { i: '301', x: 0, y: 0, w: 6, h: 5 } },
+            } as DashboardTile<QueryBasedInsightModel>
+            const bottom = {
+                ...tileFromInsight(insightOnDashboard(175, [12]), 302),
+                layouts: { sm: { i: '302', x: 0, y: 5, w: 6, h: 5 } },
+            } as DashboardTile<QueryBasedInsightModel>
+            return { ...dashboardResult(12, [top, bottom, ...extraTiles]), id: 12 }
+        }
+
+        // The tile the add flow created and the dashboard returns. When it already carries the slot layout
+        // (text/widget), the follow-up should only shift the displaced tile; when it has none (insight added
+        // via reload), the follow-up must position it too.
+        it.each([
+            {
+                scenario: 'tile created at the slot — new tile is not re-patched',
+                createdTile: {
+                    id: 999,
+                    text: { body: 'note', last_modified_at: '2021-01-01T00:00:00Z' },
+                    layouts: { sm: { i: '999', x: 0, y: 5, w: 2, h: 2 } },
+                    color: null,
+                } as unknown as DashboardTile<QueryBasedInsightModel>,
+                newTileId: 999,
+                expectNewTileInPatch: false,
+            },
+            {
+                scenario: 'tile arrived without a layout — new tile is positioned by the follow-up',
+                createdTile: {
+                    ...tileFromInsight(insightOnDashboard(666, [12]), 998),
+                    layouts: {},
+                } as DashboardTile<QueryBasedInsightModel>,
+                newTileId: 998,
+                expectNewTileInPatch: true,
+            },
+        ])(
+            'applyPendingInsertion shifts displaced tiles ($scenario)',
+            async ({ createdTile, newTileId, expectNewTileInPatch }) => {
+                const updateSpy = jest.spyOn(api, 'update').mockResolvedValue(leftColumnDashboard() as any)
+                logic = dashboardLogic({ id: 12, dashboard: leftColumnDashboard() })
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+
+                logic.actions.setPendingInsertion({ x: 0, y: 5, w: null })
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    dashboardsModel.actions.updateDashboardSuccess(leftColumnDashboard([createdTile]) as any)
+                }).toFinishAllListeners()
+
+                const patchCall = updateSpy.mock.calls.filter(
+                    ([url, body]) =>
+                        typeof url === 'string' &&
+                        url.includes('/dashboards/12') &&
+                        !!(body as { tiles?: unknown })?.tiles
+                )
+                const lastPatchBody = patchCall.at(-1)?.[1] as { tiles?: { id: number }[] } | undefined
+                const patchedIds = (lastPatchBody?.tiles || []).map((t) => t.id)
+
+                expect(patchedIds).toContain(302) // the displaced tile is always shifted down
+                expect(patchedIds.includes(newTileId)).toBe(expectNewTileInPatch)
+
+                updateSpy.mockRestore()
+            }
+        )
+    })
+
     describe('widget tiles', () => {
         let lemonToastInfoSpy: jest.SpiedFunction<typeof lemonToast.info>
 

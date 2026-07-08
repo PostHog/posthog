@@ -2232,6 +2232,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const w = slot.w ?? newTileLayoutEntry?.w ?? DEFAULT_INSERTED_TILE_SIZE.w
             const h = newTileLayoutEntry?.h ?? DEFAULT_INSERTED_TILE_SIZE.h
 
+            // Text/widget tiles are created at the slot, so only the tiles they displace need moving.
+            // Insights arrive with no layout (added via a reload) and still need positioning here.
+            const newTileAlreadyAtSlot = newTileLayoutEntry?.x === slot.x && newTileLayoutEntry?.y === slot.y
+
             const { newTileLayout, tilesToUpdate } = calculateInsertionLayout(
                 smLayout,
                 newTile.id,
@@ -2241,18 +2245,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 h
             )
 
-            // Apply optimistically so the grid reflows immediately.
-            const shiftById = new Map(tilesToUpdate.map((t) => [t.id, t.layouts.sm]))
-            const newSmLayout = (smLayout || []).map((l) => {
-                if (String(l.i) === String(newTile.id)) {
-                    return { ...l, ...newTileLayout.sm }
-                }
-                const shifted = shiftById.get(parseInt(l.i))
-                return shifted ? { ...l, ...shifted } : l
-            })
-            actions.updateLayouts({ ...values.layouts, sm: newSmLayout })
-
-            // The inline insert has now landed at the line — report it (outcome, vs the option-clicked intent).
+            // The inline insert has landed at the line — report it (outcome, vs the option-clicked intent).
             const insertedTileType = newTile.text
                 ? 'text_card'
                 : newTile.button_tile
@@ -2262,19 +2255,37 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     : 'insight'
             eventUsageLogic.actions.reportDashboardTileInsertedInline(insertedTileType, slot.x, slot.y, slot.w != null)
 
+            // Already at the slot with nothing to displace — the created position stands, no follow-up needed.
+            if (newTileAlreadyAtSlot && tilesToUpdate.length === 0) {
+                return
+            }
+
+            // Apply optimistically so the grid reflows immediately.
+            const shiftById = new Map(tilesToUpdate.map((t) => [t.id, t.layouts.sm]))
+            const newSmLayout = (smLayout || []).map((l) => {
+                if (!newTileAlreadyAtSlot && String(l.i) === String(newTile.id)) {
+                    return { ...l, ...newTileLayout.sm }
+                }
+                const shifted = shiftById.get(parseInt(l.i))
+                return shifted ? { ...l, ...shifted } : l
+            })
+            actions.updateLayouts({ ...values.layouts, sm: newSmLayout })
+
             // In edit mode the change is saved with the rest of the edit session.
             if (values.layoutEditMode) {
                 return
             }
 
-            // Persist the repositioning (same raw-PATCH shape as duplicateTile / saveEditModeChanges).
-            // TODO: drop this follow-up request once the tile-create endpoints can insert at a position
-            // (and reflow the displaced tiles) server-side, so an inline insert is a single round trip.
+            // Persist the reflow (same raw-PATCH shape as duplicateTile / saveEditModeChanges). The new tile's
+            // own layout only rides along when we had to place it (insights); text/widget tiles already carry it.
+            const tilesToPersist = newTileAlreadyAtSlot
+                ? tilesToUpdate
+                : [...tilesToUpdate, { id: newTile.id, layouts: newTileLayout }]
             try {
                 const response: DashboardType<InsightModel> = await api.update(
                     `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
                     {
-                        tiles: [...tilesToUpdate, { id: newTile.id, layouts: newTileLayout }],
+                        tiles: tilesToPersist,
                     }
                 )
                 const updated = getQueryBasedDashboard(response)
