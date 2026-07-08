@@ -360,6 +360,7 @@ export function DashboardItems(): JSX.Element {
                 setContainerHeight(containerRef.current.clientHeight)
             }
         })
+        // oxlint-disable-next-line react-hooks/exhaustive-deps -- ref reads inside requestAnimationFrame aren't valid deps
     }, [updateLayouts])
 
     const handleWidthChange = useCallback(

@@ -20,6 +20,7 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import TypedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import (
@@ -129,6 +130,9 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     """PR and CI lifecycle analytics over the GitHub warehouse data."""
 
     scope_object = "engineering_analytics"
+    # Same rollout flag as the UI scene and the MCP tools, so the product is gated end to end.
+    permission_classes = [PostHogFeatureFlagPermission]
+    posthog_feature_flag = "engineering-analytics"
     scope_object_read_actions = [
         "sources",
         "ci_cards",

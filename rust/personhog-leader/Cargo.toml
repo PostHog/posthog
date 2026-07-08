@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 personhog-proto = { path = "../personhog-proto" }
+personhog-common = { path = "../personhog-common" }
 personhog-coordination = { path = "../personhog-coordination" }
 assignment-coordination = { path = "../common/assignment-coordination" }
 common-kafka = { path = "../common/kafka" }

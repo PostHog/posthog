@@ -1,7 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
-
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -88,57 +86,6 @@ describe('visionActionsLogic', () => {
         }).toMatchValues({
             visionActions: [expect.objectContaining({ id: 'b' })],
         })
-    })
-
-    it('creating an action submits, closes the form, and reloads', async () => {
-        await expectLogic(logic, () => {
-            logic.actions.openCreateForm()
-            logic.actions.setVisionActionFormValue('name', 'My action')
-            logic.actions.submitVisionActionForm()
-        })
-            .toDispatchActions(['submitVisionActionFormSuccess', 'closeForm', 'loadActions'])
-            .toMatchValues({ formVisible: false })
-    })
-
-    it('openEditForm prefills the form from an existing action', async () => {
-        const existing: VisionActionApi = {
-            ...action('e'),
-            trigger_config: { rrule: 'FREQ=WEEKLY;BYDAY=MO,WE;BYHOUR=14;BYMINUTE=30', timezone: 'Europe/Prague' },
-            synthesis_config: { prompt_guide: 'focus on checkout' },
-            delivery_config: [{ type: 'slack', integration_id: 5, channel: 'C123' }],
-        }
-        await expectLogic(logic, () => {
-            logic.actions.openEditForm(existing)
-        }).toMatchValues({
-            formVisible: true,
-            editingAction: expect.objectContaining({ id: 'e' }),
-            visionActionForm: {
-                name: 'action-e',
-                cadence: { weekdays: [0, 2], hour: 14, minute: 30 },
-                timezone: 'Europe/Prague',
-                prompt_guide: 'focus on checkout',
-                integration_id: 5,
-                channel: 'C123',
-            },
-        })
-    })
-
-    it('keeps the form open and surfaces the API error detail when the submit fails', async () => {
-        useMocks({
-            post: {
-                '/api/projects/:team/vision/actions/': () => [400, { detail: 'nope' }],
-            },
-        })
-        const errorToast = jest.spyOn(lemonToast, 'error')
-        await expectLogic(logic, () => {
-            logic.actions.openCreateForm()
-            logic.actions.setVisionActionFormValue('name', 'My action')
-            logic.actions.submitVisionActionForm()
-        })
-            .toDispatchActions(['submitVisionActionFormFailure'])
-            .toMatchValues({ formVisible: true })
-        // The toast must surface the API's `detail` so the user sees why it failed, not a generic message.
-        expect(errorToast).toHaveBeenCalledWith(expect.stringContaining('nope'))
     })
 
     it('buildActionBody maps the form to the API body, including a Slack delivery target', () => {

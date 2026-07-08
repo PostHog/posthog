@@ -21634,6 +21634,7 @@ class TracesQuery(BaseModel):
         ),
     )
     response: TracesQueryResponse | None = None
+    searchTerm: str | None = None
     showColumnConfigurator: bool | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
