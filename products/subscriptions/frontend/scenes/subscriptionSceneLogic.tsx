@@ -3,19 +3,6 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
-import {
-    subscriptionsDeliveriesList,
-    subscriptionsPartialUpdate,
-    subscriptionsRetrieve,
-    subscriptionsTestDeliveryCreate,
-} from '@posthog/products-subscriptions/frontend/generated/api'
-import type {
-    PaginatedSubscriptionDeliveryListApi,
-    SubscriptionApi,
-    SubscriptionsDeliveriesListStatus,
-} from '@posthog/products-subscriptions/frontend/generated/api.schemas'
-
-import { runSubscriptionTestDelivery } from 'lib/components/Subscriptions/runSubscriptionTestDelivery'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -24,6 +11,19 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
+import {
+    subscriptionsDeliveriesList,
+    subscriptionsPartialUpdate,
+    subscriptionsRetrieve,
+    subscriptionsTestDeliveryCreate,
+} from 'products/subscriptions/frontend/generated/api'
+import type {
+    PaginatedSubscriptionDeliveryListApi,
+    SubscriptionApi,
+    SubscriptionsDeliveriesListStatus,
+} from 'products/subscriptions/frontend/generated/api.schemas'
+
+import { runSubscriptionTestDelivery } from '../components/Subscriptions/runSubscriptionTestDelivery'
 import { subscriptionName } from './components/SubscriptionsTable'
 import type { subscriptionSceneLogicType } from './subscriptionSceneLogicType'
 

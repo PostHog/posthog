@@ -2,8 +2,6 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
-import type { SubscriptionApi } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
-import { ResourceTypeEnumApi } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 
 import { NotFound } from 'lib/components/NotFound'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -13,6 +11,9 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+
+import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import { ResourceTypeEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 import { SubscriptionDeliveryHistory } from './components/SubscriptionDeliveryHistory'
 import { isSubscriptionEnabled, subscriptionEditHref, subscriptionName } from './components/SubscriptionsTable'

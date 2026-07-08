@@ -1,7 +1,7 @@
-import { subscriptionsPartialUpdate } from '@posthog/products-subscriptions/frontend/generated/api'
-
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+
+import { subscriptionsPartialUpdate } from 'products/subscriptions/frontend/generated/api'
 
 export async function toggleSubscriptionEnabled(id: number, enabled: boolean): Promise<boolean> {
     try {

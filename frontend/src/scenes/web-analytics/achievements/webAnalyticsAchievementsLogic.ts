@@ -170,7 +170,8 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
             if (pending.length === 0) {
                 return
             }
-            pending.forEach((entry) => {
+            if (pending.length === 1) {
+                const entry = pending[0]
                 const track = values.definitions.find((t) => t.key === entry.track_key)
                 lemonToast.success(
                     `Achievement unlocked — ${track?.display_name ?? entry.track_key}: ${entry.stage_name}`,
@@ -181,6 +182,15 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
                         },
                     }
                 )
+            } else {
+                lemonToast.success(`You've unlocked ${pending.length} web analytics achievements`, {
+                    button: {
+                        label: 'View',
+                        action: () => actions.openModal(),
+                    },
+                })
+            }
+            pending.forEach((entry) => {
                 actions.acknowledgeCelebration(entry.track_key, entry.stage)
             })
             actions.triggerConfetti()

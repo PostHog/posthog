@@ -1,9 +1,9 @@
 import { afterMount, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { subscriptionsList } from '@posthog/products-subscriptions/frontend/generated/api'
-
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+
+import { subscriptionsList } from 'products/subscriptions/frontend/generated/api'
 
 import type { subscriptionCountLogicType } from './subscriptionCountLogicType'
 

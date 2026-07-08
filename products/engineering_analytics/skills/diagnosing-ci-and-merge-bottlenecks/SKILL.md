@@ -26,12 +26,14 @@ autonomous agents (e.g. PostHog Code) reasoning about their own PRs.
   which PRs have failing or pending CI, which are stuck open longest, per-author or per-repo triage, and
   time-to-merge stats (aggregate `open_to_merge_seconds` over the returned merged rows yourself — median and p95,
   never a mean).
-- **`workflow-health`** — per-workflow CI health over a window (`date_from` / `date_to`, default last 30 days):
+- **`workflow-health`** — per-workflow CI health over a window (`date_from` / `date_to`, default last 24 hours):
   `run_count`, `success_rate`, `p50_seconds`, `p95_seconds`, `last_failure_at`. Answers "is CI getting faster or
   slower" and "which workflow is the slow or flaky long pole". There is no built-in trend — call it over two
-  adjacent windows and compare. `success_rate` / `p50_seconds` / `p95_seconds` cover completed runs only and are
-  `null` when a window has no completed runs — guard for null before comparing two windows (a workflow can have
-  runs in one and none in the other).
+  adjacent windows and compare. `success_rate` covers completed runs; `p50_seconds` / `p95_seconds` cover
+  successful runs only (cancelled and failed runs end early and would bias the duration trend). Each is `null`
+  when a window has no qualifying runs — guard for null before comparing two windows (a workflow can have runs
+  in one and none in the other). `run_scope=pull_request` scopes to PR-attributed runs, excluding master/main
+  (same-repo PRs only — fork runs carry no PR attribution).
 - **`pr-lifecycle`** — a single PR's timeline: a header plus ordered events — opened, then a CI started/finished
   pair **per workflow run** (many on a multi-workflow repo, interleaved by time), then merged/closed. Answers
   "where is PR N stuck". `metric_quality` is `partial`.
