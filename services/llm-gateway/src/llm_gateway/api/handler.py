@@ -26,6 +26,7 @@ from llm_gateway.request_context import (
     get_posthog_properties,
     get_request_id,
     set_auth_user,
+    set_posthog_properties,
     set_request_context,
     set_time_to_first_token,
 )
@@ -131,6 +132,33 @@ def _sanitize_request_data(data: dict[str, Any]) -> dict[str, Any]:
     return {k: _sanitize_request_value(v) for k, v in data.items() if k not in FORBIDDEN_REQUEST_PARAMS}
 
 
+def _extract_effort(request_data: dict[str, Any]) -> str | None:
+    """Pull the reasoning-effort level out of a request body, normalized across providers.
+
+    Callers express effort in three shapes depending on the API surface:
+      - Anthropic Messages: ``output_config: {"effort": "..."}``
+      - OpenAI chat completions: ``reasoning_effort: "..."``
+      - OpenAI Responses: ``reasoning: {"effort": "..."}``
+
+    Returns the effort string (e.g. "low"/"medium"/"high"/"xhigh"/"max"), or None when the
+    request didn't set one. Kept permissive on the value so a newly-introduced effort level is
+    captured rather than silently dropped.
+    """
+    candidates: list[Any] = []
+    output_config = request_data.get("output_config")
+    if isinstance(output_config, dict):
+        candidates.append(output_config.get("effort"))
+    candidates.append(request_data.get("reasoning_effort"))
+    reasoning = request_data.get("reasoning")
+    if isinstance(reasoning, dict):
+        candidates.append(reasoning.get("effort"))
+
+    for candidate in candidates:
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+    return None
+
+
 async def handle_llm_request(
     request_data: dict[str, Any],
     user: AuthenticatedUser,
@@ -154,6 +182,18 @@ async def handle_llm_request(
         )
     )
     set_auth_user(user)
+
+    # Effort isn't a first-class LiteLLM logging field, so thread it onto the captured
+    # $ai_generation event via the request context the PostHog callback already reads.
+    # The request body is authoritative for what was actually sent to the model, so it
+    # wins over any caller-supplied x-posthog-property-$ai_effort header. This is the
+    # shared chokepoint for every provider (Anthropic, OpenAI chat/responses, Cloudflare),
+    # so a single extraction here covers them all, on both success and error events.
+    effort = _extract_effort(request_data)
+    if effort is not None:
+        properties = dict(get_posthog_properties() or {})
+        properties["$ai_effort"] = effort
+        set_posthog_properties(properties)
 
     structlog.contextvars.bind_contextvars(
         user_id=user.user_id,
