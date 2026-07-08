@@ -322,6 +322,11 @@ class MetricQueryRunner:
         for row in response.results:
             bounds = list(row[1 + group_count])
             counts = list(row[3 + group_count])
+            if sum(counts) <= 0:
+                # No computable increase in this bucket (e.g. a cumulative
+                # series' first sample has nothing to diff against). A gap is
+                # honest; a fabricated quantile of 0 reads as "p95 is 0s".
+                continue
             rows.append(
                 {
                     "time": row[0].isoformat() if isinstance(row[0], dt.datetime) else row[0],

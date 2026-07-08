@@ -127,6 +127,16 @@ export function initKea({
                         lemonToast.error(`${identifierToHuman(actionKey)} failed: ${errorMessage}`)
                     }
                 }
+                // Cooperative cancellation (an aborted fetch, or a query superseded via
+                // `abortController.abort('new query started')` as in the logs/tracing data
+                // logics) is expected control flow, not a failure worth logging or reporting.
+                const isCancellation =
+                    error?.name === 'AbortError' ||
+                    error === 'new query started' ||
+                    error?.message === 'new query started'
+                if (isCancellation) {
+                    return
+                }
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }

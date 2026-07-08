@@ -147,6 +147,7 @@ def publish_prompt_version(
     prompt_payload: Any | None = None,
     edits: list[dict[str, str]] | None = None,
     base_version: int,
+    version_description: str | None = None,
 ) -> LLMPrompt:
     with transaction.atomic():
         current_latest = (
@@ -176,6 +177,7 @@ def publish_prompt_version(
             version=current_latest.version + 1,
             is_latest=True,
             created_by=user,
+            version_description=version_description,
         )
 
         refreshed_prompt = (

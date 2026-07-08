@@ -18,6 +18,9 @@ def register_routes(routers: RouterRegistry) -> None:
     routers.projects.register(
         r"sandbox_environments", tasks.SandboxEnvironmentViewSet, "project_sandbox_environments", ["team_id"]
     )
+    routers.projects.register(
+        r"sandbox_custom_images", tasks.SandboxCustomImageViewSet, "project_sandbox_custom_images", ["team_id"]
+    )
     routers.projects.register(r"code_workflow", code_home.CodeWorkflowViewSet, "project_code_workflow", ["team_id"])
     routers.projects.register(r"code_home", code_home.CodeHomeViewSet, "project_code_home", ["team_id"])
     routers.root.register(r"code/invites", tasks.CodeInviteViewSet, "code_invites")

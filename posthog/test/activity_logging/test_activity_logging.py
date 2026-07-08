@@ -235,6 +235,8 @@ class TestActivityLogVisibilityManager(BaseTest):
             ("user_changed_password", "User", "changed_password", False, False),
             # InstanceSetting updates are staff-only and must be hidden from non-staff viewers
             ("instance_setting_updated", "InstanceSetting", "updated", False, True),
+            # AI-gateway top-ups are staff-only and must be hidden from non-staff viewers
+            ("ai_gateway_credit_added", "AIGatewayCredit", "credit_added", False, True),
             # Non-User scopes are unaffected
             ("feature_flag_created", "FeatureFlag", "created", False, False),
             ("feature_flag_updated", "FeatureFlag", "updated", True, False),
@@ -264,6 +266,8 @@ class TestActivityLogVisibilityManager(BaseTest):
             ("user_created_staff_bypass", "User", "created", False, False),
             # Staff can also see InstanceSetting updates (allow_staff=True)
             ("instance_setting_updated_staff_bypass", "InstanceSetting", "updated", False, False),
+            # Staff can also see AI-gateway top-ups (allow_staff=True)
+            ("ai_gateway_credit_added_staff_bypass", "AIGatewayCredit", "credit_added", False, False),
             # Non-User activities still not restricted for anyone
             ("feature_flag_created", "FeatureFlag", "created", False, False),
         ]
@@ -299,6 +303,20 @@ class TestActivityLogVisibilityManager(BaseTest):
         self.assertFalse(filtered.filter(scope="User", activity="logged_in", was_impersonated=True).exists())
         self.assertFalse(filtered.filter(scope="User", activity="updated").exists())
         self.assertTrue(filtered.filter(scope="FeatureFlag", activity="created").exists())
+
+    def test_queryset_excludes_ai_gateway_credit_for_non_staff(self) -> None:
+        # Pin the actual API-facing exclusion path (apply_to_queryset), not just is_restricted:
+        # the staff email, credit reason, and balance must stay out of org-scoped endpoints.
+        ActivityLog.objects.create(team_id=self.team.id, scope="AIGatewayCredit", activity="credit_added")
+        ActivityLog.objects.create(team_id=self.team.id, scope="FeatureFlag", activity="created")
+        queryset = ActivityLog.objects.filter(team_id=self.team.id)
+
+        non_staff = activity_visibility_manager.apply_to_queryset(queryset, is_staff=False)
+        assert not non_staff.filter(scope="AIGatewayCredit").exists()
+        assert non_staff.filter(scope="FeatureFlag").exists()
+
+        staff = activity_visibility_manager.apply_to_queryset(queryset, is_staff=True)
+        assert staff.filter(scope="AIGatewayCredit").exists()
 
     def test_queryset_includes_all_logs_for_staff(self) -> None:
         ActivityLog.objects.create(team_id=self.team.id, scope="User", activity="logged_in", was_impersonated=True)

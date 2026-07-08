@@ -15,7 +15,13 @@ from rest_framework.response import Response
 
 from posthog.models.organization import OrganizationMembership
 
-from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet, DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import (
+    DAG,
+    DataWarehouseManagedViewSet,
+    DataWarehouseSavedQuery,
+    Node,
+    NodeType,
+)
 from products.warehouse_sources.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
 
 MANAGED_VIEWSET_KIND = "revenue_analytics"
@@ -244,7 +250,12 @@ class TestDataModelingJobViewSetAccessControl(WarehouseAccessControlTestMixin):
 
 @pytest.mark.ee
 class TestLineageAccessControl(WarehouseAccessControlTestMixin):
-    """Upstream lineage read — viewer OK, none blocked."""
+    """Lineage read on the merged data_modeling_nodes endpoint — viewer OK, none blocked.
+
+    NodeViewSet is `scope_object = "INTERNAL"`, so the lineage action gates on warehouse RBAC
+    itself. Without that explicit check any project member could read lineage metadata (node
+    names/types/edges) — the regression this guards against.
+    """
 
     resource = "warehouse_objects"
 
@@ -256,9 +267,16 @@ class TestLineageAccessControl(WarehouseAccessControlTestMixin):
             query={"kind": "HogQLQuery", "query": "select 1"},
             created_by=self.viewer_user,
         )
+        self.dag = DAG.objects.create(team=self.team, name="test")
+        self.node = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            saved_query=self.saved_query,
+            type=NodeType.VIEW,
+        )
 
     def _url(self) -> str:
-        return f"/api/environments/{self.team.pk}/lineage/get_upstream/?model_id={self.saved_query.id}"
+        return f"/api/environments/{self.team.pk}/data_modeling_nodes/lineage/?saved_query_id={self.saved_query.id}"
 
     def test_viewer_can_read(self):
         self._create_access_control(self.viewer_user, access_level="viewer")
