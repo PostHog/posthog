@@ -8,6 +8,21 @@ import { toolbarConfigLogic } from './toolbarConfigLogic'
 
 type OAuthTokens = { access_token: string; refresh_token: string; expires_in: number }
 
+/** Refresh failure that carries the HTTP status, so callers can tell a transient 5xx from a real 4xx. */
+class RefreshError extends Error {
+    status: number
+    constructor(status: number) {
+        super(`Refresh failed: ${status}`)
+        this.name = 'RefreshError'
+        this.status = status
+    }
+}
+
+/** 5xx from the OAuth server is a transient blip the toolbar recovers from — noise, not a real error. */
+function isTransientServerError(e: unknown): boolean {
+    return e instanceof RefreshError && e.status >= 500
+}
+
 let refreshPromise: Promise<OAuthTokens> | null = null
 
 export async function refreshOAuthTokens(
@@ -29,13 +44,20 @@ export async function refreshOAuthTokens(
             })
 
             if (!response.ok) {
-                const err = new Error(`Refresh failed: ${response.status}`)
+                const err = new RefreshError(response.status)
                 toolbarPosthogJS.capture('toolbar token refresh', {
                     status: 'error',
                     http_status: response.status,
                     duration_ms: Math.round(performance.now() - startTime),
                 })
-                captureToolbarException(err, 'token_refresh')
+                // A transient 5xx from the OAuth server is recovered from gracefully downstream
+                // (re-auth toast + tokenExpired), so log it but don't spawn an error-tracking issue.
+                // 4xx and unexpected statuses are still reported.
+                if (isTransientServerError(err)) {
+                    toolbarLogger.warn('auth', 'Token refresh failed (server)', { status: response.status })
+                } else {
+                    captureToolbarException(err, 'token_refresh')
+                }
                 throw err
             }
 
@@ -93,7 +115,11 @@ export async function withTokenRefresh(
         return await retryRequest(access)
     } catch (e) {
         toolbarLogger.error('auth', 'Token refresh retry failed', { status: response.status })
-        captureToolbarException(e, 'token_refresh_retry')
+        // Transient 5xx failures were already logged in refreshOAuthTokens and don't warrant an
+        // exception — only report genuinely-unexpected failures (network errors, 4xx, malformed).
+        if (!isTransientServerError(e)) {
+            captureToolbarException(e, 'token_refresh_retry')
+        }
         lemonToast.error('Please re-authenticate to continue using the toolbar.')
         toolbarConfigLogic.actions.tokenExpired()
         return response
