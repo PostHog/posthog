@@ -25,8 +25,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shortio.se
     SHORTIO_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shortio.shortio import (
-    check_access,
     shortio_source,
+    validate_credentials as _validate_credentials,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -110,12 +110,7 @@ This version syncs your top-level list of **domains** only. Per-domain links and
         self, config: ShortioSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
         # The API key is account-wide, so a single probe validates access to the domain list.
-        status, message = check_access(config.api_key)
-        if status == 200:
-            return True, None
-        if status in (401, 403):
-            return False, "Invalid Short.io API key"
-        return False, message or "Could not validate Short.io API key"
+        return _validate_credentials(config.api_key)
 
     def source_for_pipeline(self, config: ShortioSourceConfig, inputs: SourceInputs) -> SourceResponse:
         if inputs.schema_name not in SHORTIO_ENDPOINTS:

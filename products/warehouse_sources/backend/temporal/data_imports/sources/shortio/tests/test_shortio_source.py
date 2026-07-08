@@ -2,6 +2,7 @@ import pytest
 from unittest import mock
 
 import structlog
+from parameterized import parameterized
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
@@ -89,45 +90,43 @@ class TestShortioSource:
         descriptions = self.source.get_canonical_descriptions()
         assert set(descriptions) == set(ENDPOINTS)
 
-    @pytest.mark.parametrize(
-        "observed_error",
+    @parameterized.expand(
         [
-            "401 Client Error: Unauthorized for url: https://api.short.io/api/domains",
-            "403 Client Error: Forbidden for url: https://api.short.io/api/domains",
-        ],
+            ("401 Client Error: Unauthorized for url: https://api.short.io/api/domains",),
+            ("403 Client Error: Forbidden for url: https://api.short.io/api/domains",),
+        ]
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
 
-    @pytest.mark.parametrize(
-        "unrelated_error",
+    @parameterized.expand(
         [
-            "500 Server Error: Internal Server Error for url: https://api.short.io/api/domains",
-            "429 Client Error: Too Many Requests for url: https://api.short.io/api/domains",
-        ],
+            ("500 Server Error: Internal Server Error for url: https://api.short.io/api/domains",),
+            ("429 Client Error: Too Many Requests for url: https://api.short.io/api/domains",),
+        ]
     )
     def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
 
-    @pytest.mark.parametrize(
-        "status, expected_valid, expected_message",
+    @parameterized.expand(
         [
-            (200, True, None),
-            (401, False, "Invalid Short.io API key"),
-            (403, False, "Invalid Short.io API key"),
-            (500, False, "Short.io returned HTTP 500"),
-            (0, False, "Could not connect to Short.io: boom"),
-        ],
+            ("ok", 200, True, None),
+            ("unauthorized", 401, False, "Invalid Short.io API key"),
+            ("forbidden", 403, False, "Invalid Short.io API key"),
+            ("server_error", 500, False, "Short.io returned HTTP 500"),
+            ("connection_error", 0, False, "Could not connect to Short.io: boom"),
+        ]
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.shortio.source.check_access")
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.shortio.shortio.check_access")
     def test_validate_credentials(
         self,
-        mock_check: mock.MagicMock,
+        _name: str,
         status: int,
         expected_valid: bool,
         expected_message: str | None,
+        mock_check: mock.MagicMock,
     ) -> None:
         message = (
             "Short.io returned HTTP 500"

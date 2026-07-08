@@ -1,7 +1,7 @@
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import requests
 from parameterized import parameterized
@@ -76,65 +76,80 @@ class TestFetchAll:
         session = self._session_returning(200, body)
         assert _fetch_all_unwrapped(session, "/api/domains", MagicMock()) == body
 
-    def test_non_list_body_is_retryable(self) -> None:
+    def test_non_list_body_fails_fast(self) -> None:
+        # A non-list 200 means the schema changed under us — it must not be retried.
         session = self._session_returning(200, {"error": "nope"})
-        with pytest.raises(ShortioRetryableError):
+        with pytest.raises(ValueError):
             _fetch_all_unwrapped(session, "/api/domains", MagicMock())
 
 
 class TestCheckAccess:
-    def _patch_session(self, monkeypatch: Any, response: Any) -> MagicMock:
+    @staticmethod
+    def _configure_session(mock_make_session: MagicMock, response: Any) -> MagicMock:
         session = MagicMock()
         if isinstance(response, Exception):
             session.get.side_effect = response
         else:
             session.get.return_value = response
-        monkeypatch.setattr(shortio, "make_tracked_session", lambda **kwargs: session)
+        mock_make_session.return_value = session
         return session
 
-    @pytest.mark.parametrize(
-        "status, ok, expected_status, expected_message",
+    @parameterized.expand(
         [
-            (200, True, 200, None),
-            (401, False, 401, None),
-            (403, False, 403, None),
-            (500, False, 500, "Short.io returned HTTP 500"),
-        ],
+            ("ok", 200, True, 200, None),
+            ("unauthorized", 401, False, 401, None),
+            ("forbidden", 403, False, 403, None),
+            ("server_error", 500, False, 500, "Short.io returned HTTP 500"),
+        ]
     )
+    @patch.object(shortio, "make_tracked_session")
     def test_status_mapping(
-        self, status: int, ok: bool, expected_status: int, expected_message: str | None, monkeypatch: Any
+        self,
+        _name: str,
+        status: int,
+        ok: bool,
+        expected_status: int,
+        expected_message: str | None,
+        mock_make_session: MagicMock,
     ) -> None:
         response = MagicMock()
         response.status_code = status
         response.ok = ok
-        self._patch_session(monkeypatch, response)
+        self._configure_session(mock_make_session, response)
         assert check_access("sk-key") == (expected_status, expected_message)
 
-    def test_connection_error_maps_to_zero(self, monkeypatch: Any) -> None:
-        self._patch_session(monkeypatch, requests.ConnectionError("boom"))
+    @patch.object(shortio, "make_tracked_session")
+    def test_connection_error_maps_to_zero(self, mock_make_session: MagicMock) -> None:
+        self._configure_session(mock_make_session, requests.ConnectionError("boom"))
         status, message = check_access("sk-key")
         assert status == 0
         assert message is not None and "boom" in message
 
-    @pytest.mark.parametrize(
-        "status, expected_valid, expected_message",
+    @parameterized.expand(
         [
-            (200, True, None),
-            (401, False, "Invalid Short.io API key"),
-            (403, False, "Invalid Short.io API key"),
-            (500, False, "Short.io returned HTTP 500"),
-        ],
+            ("ok", 200, True, None),
+            ("unauthorized", 401, False, "Invalid Short.io API key"),
+            ("forbidden", 403, False, "Invalid Short.io API key"),
+            ("server_error", 500, False, "Short.io returned HTTP 500"),
+        ]
     )
+    @patch.object(shortio, "make_tracked_session")
     def test_validate_credentials(
-        self, status: int, expected_valid: bool, expected_message: str | None, monkeypatch: Any
+        self,
+        _name: str,
+        status: int,
+        expected_valid: bool,
+        expected_message: str | None,
+        mock_make_session: MagicMock,
     ) -> None:
         response = MagicMock()
         response.status_code = status
         response.ok = status < 400
-        self._patch_session(monkeypatch, response)
+        self._configure_session(mock_make_session, response)
         assert validate_credentials("sk-key") == (expected_valid, expected_message)
 
-    def test_api_key_sent_raw_in_authorization_header(self, monkeypatch: Any) -> None:
+    @patch.object(shortio, "make_tracked_session")
+    def test_api_key_sent_raw_in_authorization_header(self, mock_make_session: MagicMock) -> None:
         # Short.io uses the raw secret key in Authorization — no 'Bearer' prefix.
         captured: dict[str, Any] = {}
 
@@ -147,7 +162,7 @@ class TestCheckAccess:
             session.get.return_value = response
             return session
 
-        monkeypatch.setattr(shortio, "make_tracked_session", fake_make_session)
+        mock_make_session.side_effect = fake_make_session
         check_access("sk-key")
         assert captured["headers"]["Authorization"] == "sk-key"
 

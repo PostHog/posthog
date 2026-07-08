@@ -46,9 +46,12 @@ def _fetch_all(
         response.raise_for_status()
 
     data = response.json()
-    # The domains endpoint returns a bare JSON array of domain records.
+    # The domains endpoint returns a bare JSON array of domain records. A non-list 200 means the
+    # schema changed under us — retrying can't fix that, so fail fast with a clear message.
     if not isinstance(data, list):
-        raise ShortioRetryableError(f"Short.io returned an unexpected payload for {path}: {type(data).__name__}")
+        raise ValueError(
+            f"Short.io returned an unexpected payload for {path}: expected list, got {type(data).__name__}"
+        )
     return data
 
 
