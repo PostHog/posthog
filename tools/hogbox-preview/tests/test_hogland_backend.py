@@ -145,7 +145,7 @@ class RestoreFreshHandlesStaleConflictTest(unittest.TestCase):
         def create(**_kwargs):
             attempts["n"] += 1
             if attempts["n"] == 1:
-                raise ConflictError("name taken")
+                raise ConflictError("name taken", status_code=409)
             return created
 
         client = _FakeClient(create=create)
