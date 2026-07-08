@@ -1,7 +1,10 @@
 import datetime as dt
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
+from parameterized import parameterized
 
 from posthog.schema import (
     DashboardFilter,
@@ -12,9 +15,16 @@ from posthog.schema import (
     MetricsQueryGroupBy,
 )
 
+from posthog.constants import AvailableFeature
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.rbac.user_access_control import UserAccessControlError
+
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation
 from products.metrics.backend.metrics_query_runner import MetricsQueryRunner
 from products.metrics.backend.tests._seeder import seed_metric
+
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -104,6 +114,45 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 200, response.json()
         assert "results" in response.json()
+
+    def test_validate_query_runner_access_granted(self) -> None:
+        query = MetricsQuery(clauses=[MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum")])
+
+        assert self._runner(query).validate_query_runner_access(self.user) is True
+
+    def test_validate_query_runner_access_denied_without_resource_access(self) -> None:
+        AccessControl.objects.create(team=self.team, resource="metrics", access_level="none")
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        query = MetricsQuery(clauses=[MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum")])
+
+        with pytest.raises(UserAccessControlError):
+            self._runner(query).validate_query_runner_access(self.user)
+
+    @parameterized.expand(
+        [
+            (["query:read"], 403),
+            (["query:read", "metrics:read"], 200),
+        ]
+    )
+    def test_query_endpoint_scope_parity_for_api_keys(self, scopes: list[str], expected_status: int) -> None:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="test", user=self.user, secure_value=hash_key_value(value), scopes=scopes)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/query/",
+            {
+                "query": {
+                    "kind": "MetricsQuery",
+                    "clauses": [{"name": "a", "metricName": "queue_depth", "aggregation": "sum"}],
+                }
+            },
+            HTTP_AUTHORIZATION=f"Bearer {value}",
+        )
+
+        assert response.status_code == expected_status, response.json()
 
     def test_dashboard_date_filters_override_query_date_range(self) -> None:
         query = MetricsQuery(
