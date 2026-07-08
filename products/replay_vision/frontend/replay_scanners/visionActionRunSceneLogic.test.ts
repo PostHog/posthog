@@ -13,15 +13,15 @@ const obs = (index: number, id: string): RunObservationApi => ({
 })
 
 describe('resolveObservationCitations', () => {
-    it('links resolvable [obs N] markers and drops the ones that no longer resolve', () => {
+    it('links resolvable [obs N] markers as [N] and drops the ones that no longer resolve', () => {
         // obs 3 has no matching observation (deleted, or the model invented it) — it must be dropped, not
-        // rendered as a dead `[obs 3]` or misdirected to another row.
+        // rendered as a dead `[3]` or misdirected to another row.
         const out = resolveObservationCitations('Friction here [obs 1] [obs 2]. Gone [obs 3].', [
             obs(1, 'aaa'),
             obs(2, 'bbb'),
         ])
         expect(out).toBe(
-            `Friction here [obs 1](${urls.replayVisionObservation('aaa')}) [obs 2](${urls.replayVisionObservation(
+            `Friction here [[1]](${urls.replayVisionObservation('aaa')}) [[2]](${urls.replayVisionObservation(
                 'bbb'
             )}). Gone .`
         )
@@ -30,6 +30,6 @@ describe('resolveObservationCitations', () => {
     it('maps a citation to its index, not its array position, after an earlier observation is deleted', () => {
         // obs 1 was deleted, so the array starts at index 2. `[obs 2]` must still resolve to id 'bbb'.
         const out = resolveObservationCitations('See [obs 2].', [obs(2, 'bbb'), obs(3, 'ccc')])
-        expect(out).toBe(`See [obs 2](${urls.replayVisionObservation('bbb')}).`)
+        expect(out).toBe(`See [[2]](${urls.replayVisionObservation('bbb')}).`)
     })
 })

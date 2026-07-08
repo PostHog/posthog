@@ -13,15 +13,15 @@ import type { RunObservationApi, VisionActionApi, VisionActionRunApi } from '../
 import type { visionActionRunSceneLogicType } from './visionActionRunSceneLogicType'
 
 /**
- * Resolve the `[obs N]` citation markers the synthesizer leaves in a group summary into links to each
- * observation. `N` is the observation's stable `index` (its position in the summary), so a deleted
+ * Resolve the `[obs N]` citation markers the synthesizer leaves in a group summary into `[N]` links to
+ * each observation. `N` is the observation's stable `index` (its position in the summary), so a deleted
  * observation drops its citation rather than misdirecting to a renumbered neighbor.
  */
 export function resolveObservationCitations(markdown: string, observations: readonly RunObservationApi[]): string {
     const byIndex = new Map(observations.map((obs) => [obs.index, obs]))
     return markdown.replace(/\[obs (\d+)\]/g, (_match, n: string) => {
         const obs = byIndex.get(Number(n))
-        return obs ? `[obs ${n}](${urls.replayVisionObservation(obs.id)})` : ''
+        return obs ? `[[${n}]](${urls.replayVisionObservation(obs.id)})` : ''
     })
 }
 

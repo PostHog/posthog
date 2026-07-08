@@ -29,10 +29,10 @@ export const scene: SceneExport = {
 function RecordingsIncluded({ observations }: { observations: readonly RunObservationApi[] }): JSX.Element {
     const columns: LemonTableColumns<RunObservationApi> = [
         {
-            // Matches the `[obs N]` citations in the summary above, so a reader can trace a cited theme to its row.
+            // Matches the `[N]` citations in the summary above, so a reader can trace a cited theme to its row.
             title: '#',
             key: 'index',
-            render: (_, obs) => <span className="text-muted whitespace-nowrap">obs {obs.index}</span>,
+            render: (_, obs) => <span className="text-muted whitespace-nowrap">[{obs.index}]</span>,
         },
         {
             title: 'Observation',

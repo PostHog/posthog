@@ -324,7 +324,7 @@ export interface PaginatedVisionActionRunListListApi {
  * One recording an action run included in its summary — the 'recordings included' list on the run detail view.
  */
 export interface RunObservationApi {
-    /** 1-based position of this observation in the summary, stable across deletions. The synthesized report cites observations by this number (e.g. `[obs 3]`), so consumers use it to resolve a citation to its observation. */
+    /** 1-based reference number of this observation in the summary, stable across deletions. The synthesized report cites observations by this number (rendered like `[3]`), so consumers use it to resolve a citation to its observation. */
     readonly index: number
     /** Observation id; links to the observation detail view. */
     readonly id: string
