@@ -13,6 +13,7 @@ import structlog
 import posthoganalytics
 from temporalio import activity
 
+from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.constants import STREAM_VIA_PROXY_FEATURE_FLAG
@@ -171,18 +172,6 @@ async def relay_agent_design_signals(input: RelayAgentDesignSignalsInput) -> Non
     await _relay_from_redis(input, emitter, workflow_handle)
 
 
-async def _heartbeat_periodically(stop: asyncio.Event) -> None:
-    """Emit an activity heartbeat on a fixed interval. A quiet turn keeps the SSE connection alive
-    with keepalive comments (which httpx_sse drops, yielding no events), so relying on event-driven
-    heartbeats alone would let the activity's heartbeat timeout fire mid-run."""
-    while not stop.is_set():
-        activity.heartbeat()
-        try:
-            await asyncio.wait_for(stop.wait(), timeout=HEARTBEAT_INTERVAL_SECONDS)
-        except TimeoutError:
-            pass
-
-
 async def _relay_from_agent_proxy(
     base_url: str,
     task_run: TaskRunModel,
@@ -193,13 +182,12 @@ async def _relay_from_agent_proxy(
     """Consume the run's live agent-proxy SSE stream and drive the Slack signals.
 
     Reconnects with ``Last-Event-ID`` on transient drops and proxy stream rotations, and stops on
-    the terminal ``stream-end`` frame. Failures are non-fatal — the relay is best-effort.
+    the terminal ``stream-end`` frame. ``Heartbeater`` keeps the activity alive through quiet turns,
+    where the proxy's keepalive comments yield no SSE events to heartbeat on. Best-effort.
     """
     events_url = f"{base_url.rstrip('/')}/v1/runs/{input.run_id}/stream"
 
-    stop_heartbeat = asyncio.Event()
-    heartbeat_task = asyncio.create_task(_heartbeat_periodically(stop_heartbeat))
-    try:
+    async with Heartbeater():
         last_event_id: str | None = None
         reconnect_count = 0
         while True:
@@ -259,9 +247,6 @@ async def _relay_from_agent_proxy(
                 )
                 return
             await asyncio.sleep(min(2**reconnect_count, 30))
-    finally:
-        stop_heartbeat.set()
-        await heartbeat_task
 
 
 async def _relay_from_redis(
