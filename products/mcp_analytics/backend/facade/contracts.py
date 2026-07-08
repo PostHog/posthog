@@ -92,6 +92,12 @@ class MCPToolCall:
 
 
 @dataclass(frozen=True)
+class MCPToolCallsPage:
+    results: list[MCPToolCall]
+    has_next: bool
+
+
+@dataclass(frozen=True)
 class IntentClusterToolEntry:
     tool: str
     count: int

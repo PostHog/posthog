@@ -391,6 +391,46 @@ describe('markdown round trip', () => {
         })
     })
 
+    describe('code block comment anchors', () => {
+        it('round-trips ref tokens in the fence info string alongside the language', () => {
+            const document = makeDocument([
+                {
+                    id: '',
+                    type: 'code',
+                    language: 'python',
+                    text: 'a = 1\nb = 2',
+                    refs: [
+                        { id: 'abc123', start: 0, end: 5 },
+                        { id: 'def456', start: 6, end: 11 },
+                    ],
+                },
+            ])
+
+            const serialized = serializeMarkdownNotebook(document)
+            expect(serialized).toEqual('```python ref=abc123:0-5 ref=def456:6-11\na = 1\nb = 2\n```')
+            expect(stripIds(parseMarkdownNotebook(serialized))).toEqual(stripIds(document))
+        })
+
+        it('round-trips a ref token on a code block without a language', () => {
+            const document = makeDocument([
+                { id: '', type: 'code', language: undefined, text: 'select 1', refs: [{ id: 'a1', start: 0, end: 6 }] },
+            ])
+
+            expect(stripIds(roundTrip(document))).toEqual(stripIds(document))
+        })
+
+        it('drops anchors whose range the code no longer contains and clamps overlong ends', () => {
+            const nodes = parseMarkdownNotebook('```js ref=gone:90-99 ref=kept:2-99\nshort\n```').nodes
+
+            expect(nodes).toHaveLength(1)
+            expect(nodes[0]).toMatchObject({
+                type: 'code',
+                language: 'js',
+                refs: [{ id: 'kept', start: 2, end: 5 }],
+            })
+        })
+    })
+
     describe('underscore and asterisk emphasis', () => {
         it('parses underscore emphasis at word boundaries', () => {
             const nodes = parseMarkdownNotebook('_em_ and __strong__ but not user_id or snake_case_words').nodes

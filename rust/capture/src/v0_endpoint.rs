@@ -13,10 +13,7 @@ use crate::{
     router,
 };
 
-#[instrument(
-    skip(state, body, meta),
-    fields(params_lib_version, params_compression)
-)]
+#[instrument(skip(state, body, meta), fields(params_compression))]
 #[debug_handler]
 pub async fn event(
     state: State<router::State>,
@@ -29,13 +26,7 @@ pub async fn event(
 ) -> Result<CaptureResponse, CaptureError> {
     let mut params: EventQuery = meta.0;
 
-    // TODO(eli): temporary peek at these
-    if params.lib_version.is_some() {
-        Span::current().record(
-            "params_lib_version",
-            format!("{:?}", params.lib_version.as_ref()),
-        );
-    }
+    // TODO(eli): temporary peek at compression
     if params.compression.is_some() {
         Span::current().record(
             "params_compression",

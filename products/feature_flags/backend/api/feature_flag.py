@@ -62,7 +62,12 @@ from posthog.models.property import Property
 from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes, is_service_auth
 from posthog.ph_client import feature_enabled_or_false
 from posthog.queries.base import determine_parsed_date_for_property_matching
-from posthog.rate_limit import BurstRateThrottle, ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+    PersonalOrProjectSecretApiKeyRateThrottle,
+    ProjectSecretApiKeyTeamRateThrottle,
+)
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings.feature_flags import REMOTE_CONFIG_RATE_LIMITS
@@ -254,10 +259,19 @@ def assert_feature_flag_write_scope(
     )
 
     if _is_enforce_feature_flag_write_scope_enabled(request, team_id=team_id):
+        # Tailor the remediation to the token type — only personal API keys are edited on the
+        # user-api-keys settings page; OAuth / ID-JAG / project-secret keys are managed elsewhere.
+        if auth_kind == "personal_api_key":
+            key_guidance = (
+                f"Add `feature_flag:write` to your personal API key at "
+                f"{settings.SITE_URL}/settings/user-api-keys (editing its scopes keeps the same key value), "
+                f"or use a key with the `*` scope."
+            )
+        else:
+            key_guidance = "Add `feature_flag:write` to the key you're using, or use a key with the `*` scope."
         raise exceptions.PermissionDenied(
             f"This action also modifies a feature flag, which requires the `feature_flag:write` scope "
-            f"in addition to `{resource_scope}`. Add `feature_flag:write` to your API key, or use a key "
-            f"with the `*` scope."
+            f"in addition to `{resource_scope}`. {key_guidance}"
         )
 
 
@@ -552,23 +566,46 @@ def check_flag_limits_for_team(
         )
 
 
-class RemoteConfigThrottle(BurstRateThrottle):
+# Default per-key and per-team cap for remote_config. Both throttles below respect
+# per-team overrides from REMOTE_CONFIG_RATE_LIMITS.
+REMOTE_CONFIG_DEFAULT_RATE = "600/minute"
+
+
+def _apply_remote_config_team_rate_override(throttle, view) -> None:
+    # Raise or lower a specific team's remote_config cap via REMOTE_CONFIG_RATE_LIMITS. On any
+    # lookup/parse failure, leave the default rate in place rather than failing the request.
+    team_id = throttle.safely_get_team_id_from_view(view)
+    if team_id:
+        try:
+            custom_rate = REMOTE_CONFIG_RATE_LIMITS.get(team_id)
+            if custom_rate:
+                num_requests, duration = throttle.parse_rate(custom_rate)
+                throttle.rate = custom_rate
+                throttle.num_requests = num_requests
+                throttle.duration = duration
+        except Exception:
+            logger.exception("Error getting team-specific rate limit for team %s", team_id)
+
+
+class RemoteConfigThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    # Per-key throttle; the PSAK-aware base also throttles PSAK requests, which the plain
+    # PersonalApiKeyRateThrottle would let through.
     scope = "feature_flag_remote_config"
-    rate = "600/minute"
+    rate = REMOTE_CONFIG_DEFAULT_RATE
 
     def allow_request(self, request, view):
-        logger = logging.getLogger(__name__)
+        _apply_remote_config_team_rate_override(self, view)
+        return super().allow_request(request, view)
 
-        team_id = self.safely_get_team_id_from_view(view)
-        if team_id:
-            try:
-                custom_rate = REMOTE_CONFIG_RATE_LIMITS.get(team_id)
-                if custom_rate:
-                    self.rate = custom_rate
-                    self.num_requests, self.duration = self.parse_rate(self.rate)
-            except Exception:
-                logger.exception(f"Error getting team-specific rate limit for team {team_id}")
 
+class RemoteConfigProjectSecretApiKeyTeamThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    # Per-team aggregate cap stacked alongside the per-key RemoteConfigThrottle so a project can't
+    # multiply its budget by minting many keys. Defense-in-depth for the new credential.
+    scope = "feature_flag_remote_config_psak_team"
+    rate = REMOTE_CONFIG_DEFAULT_RATE
+
+    def allow_request(self, request, view):
+        _apply_remote_config_team_rate_override(self, view)
         return super().allow_request(request, view)
 
 
@@ -1739,7 +1776,7 @@ class FeatureFlagSerializer(
 
         if "deleted" in validated_data and validated_data["deleted"] is True:
             # Check for linked early access features
-            if instance.features.count() > 0:
+            if instance.features.exists():
                 raise exceptions.ValidationError(
                     "Cannot delete a feature flag that is in use with early access features. Please delete the early access feature before deleting the flag."
                 )
@@ -1925,22 +1962,8 @@ class FeatureFlagSerializer(
                 # nosemgrep: idor-lookup-without-team -- dashboard objects validated via get_fields() queryset restriction
                 FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
 
-        # Propagate the new variants and aggregation group type index to the linked experiments
-        if "filters" in validated_data:
-            filters = validated_data["filters"] or {}
-            multivariate = filters.get("multivariate") or {}
-            variants = multivariate.get("variants", [])
-            aggregation_group_type_index = filters.get("aggregation_group_type_index")
-
-            for experiment in instance.experiment_set.all():
-                if experiment.parameters is None:
-                    experiment.parameters = {}
-                experiment.parameters["feature_flag_variants"] = variants
-                if aggregation_group_type_index is not None:
-                    experiment.parameters["aggregation_group_type_index"] = aggregation_group_type_index
-                else:
-                    experiment.parameters.pop("aggregation_group_type_index", None)
-                experiment.save()
+        # The linked feature flag is the source of truth for variants and aggregation group type;
+        # experiment reads derive these from the flag (see ExperimentBaseSerializer).
 
         if old_key != instance.key:
             _update_feature_flag_dashboard(instance, old_key)
@@ -2660,6 +2683,8 @@ class FeatureFlagViewSet(
     """
 
     scope_object = "feature_flag"
+    # Record a tags change per flag when bulk_update_tags mutates it, matching the single-object path.
+    bulk_tag_activity_scope = "FeatureFlag"
     psak_allowed_actions = ["remote_config"]
     # Opt the shared TaggedItemViewSetMixin action into feature_flag:write.
     # Other inheritors of the mixin don't extend write actions and so still
@@ -4055,7 +4080,7 @@ class FeatureFlagViewSet(
             ProjectSecretAPIKeyAuthentication,
         ],
         permission_classes=[TeamSecretTokenPermission],
-        throttle_classes=[RemoteConfigThrottle],
+        throttle_classes=[RemoteConfigThrottle, RemoteConfigProjectSecretApiKeyTeamThrottle],
     )
     def remote_config(self, request: request.Request, **kwargs):
         response = self._remote_config_response(request, **kwargs)

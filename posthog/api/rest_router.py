@@ -11,6 +11,7 @@ import posthog.temporal.ai  # noqa: F401
 from posthog.api import data_color_theme, metalytics, my_notifications, project, user_integration, user_push_token
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.js_snippet import JsSnippetViewSet
+from posthog.api.product_enablement import ProductEnablementViewSet
 from posthog.api.query_performance_proxy import QueryPerformanceProxyViewSet
 from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry
 from posthog.api.sdk_health import SdkHealthViewSet
@@ -170,6 +171,14 @@ projects_router.register(
     r"quota_limits",
     QuotaLimitsViewSet,
     "project_quota_limits",
+    ["team_id"],
+)
+# Self-driving turns products ON (via the `products-enable` MCP tool) before enabling their
+# signal sources. Gated by the narrow `product_enablement` scope, never `project:write`.
+projects_router.register(
+    r"product_enablement",
+    ProductEnablementViewSet,
+    "project_product_enablement",
     ["team_id"],
 )
 

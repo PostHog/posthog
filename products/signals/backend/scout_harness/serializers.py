@@ -12,8 +12,6 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from posthog.schema import Severity
-
 from products.signals.backend.artefact_schemas import ActionabilityChoice, Priority
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
@@ -162,7 +160,7 @@ class SignalScoutEmissionSerializer(serializers.ModelSerializer):
         help_text="Agent's confidence the finding is real in [0, 1].",
     )
     severity = serializers.ChoiceField(
-        choices=[(s.value, s.value) for s in Severity],
+        choices=[(p.value, p.value) for p in Priority],
         allow_null=True,
         help_text="Optional severity tag — one of P0, P1, P2, P3, P4 — or null if the run didn't set one.",
     )
@@ -525,7 +523,7 @@ class EmitFindingRequestSerializer(serializers.Serializer):
         help_text="Optional one-line hypothesis the finding tests.",
     )
     severity = serializers.ChoiceField(
-        choices=[(s.value, s.value) for s in Severity],
+        choices=[(p.value, p.value) for p in Priority],
         required=False,
         allow_null=True,
         help_text="Optional severity tag — one of P0, P1, P2, P3, P4. Informational only.",
@@ -571,6 +569,14 @@ class EmitFindingResponseSerializer(serializers.Serializer):
     skipped_reason = serializers.CharField(
         allow_null=True,
         help_text="`ai_processing_not_approved` | `source_disabled` | null when emitted normally.",
+    )
+    remediation = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "One-line, actionable next step when `skipped_reason` is set and the block is fixable "
+            "(e.g. an org admin must approve AI data processing). Null when emitted normally or the "
+            "skip isn't something the scout can act on."
+        ),
     )
 
 
@@ -720,6 +726,14 @@ class EmitReportResponseSerializer(serializers.Serializer):
         allow_null=True,
         help_text="When the safety judge suppressed the report, why; null when safe.",
     )
+    remediation = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "One-line, actionable next step when `skipped_reason` is set and the block is fixable "
+            "(e.g. an org admin must approve AI data processing). Null when the report was authored "
+            "or the skip isn't something the scout can act on."
+        ),
+    )
 
 
 class EditReportRequestSerializer(serializers.Serializer):
@@ -828,6 +842,29 @@ class SignalSourceConfigsBucketsSerializer(serializers.Serializer):
     disabled = serializers.ListField(
         child=SignalSourceConfigEntrySerializer(),
         help_text="Source configs the team has explicitly disabled (different from never wired up).",
+    )
+
+
+class EmitEligibilitySerializer(serializers.Serializer):
+    """`inventory.emit_eligibility` — whether scout findings can reach the inbox for this team."""
+
+    ai_processing_approved = serializers.BooleanField(
+        help_text="Whether the organization has approved AI data processing (an org-level gate on all scout emits).",
+    )
+    source_enabled = serializers.BooleanField(
+        help_text="Whether the `signals_scout` signal source is enabled for this team.",
+    )
+    can_emit = serializers.BooleanField(
+        help_text=(
+            "True only when both team/org-level gates pass, so scout findings (signal and report "
+            "channels alike) actually reach the inbox. When False, every emit is silently dropped — "
+            "quick-close instead of doing throwaway investigation. Does not account for a scout's "
+            "own dry-run `emit` toggle, which is per-config, not team-wide."
+        ),
+    )
+    remediation = serializers.CharField(
+        allow_null=True,
+        help_text="One-line next step to unblock emits when `can_emit` is False; null when emits can flow.",
     )
 
 
@@ -959,6 +996,33 @@ class RecentActivitySerializer(serializers.Serializer):
     by_scope = serializers.ListField(
         child=ScopeActivityEntrySerializer(),
         help_text="Per-scope activity rows, busiest scope first. Triage which entity type the team has worked in lately.",
+    )
+
+
+class ReviewerCorrectionEntrySerializer(serializers.Serializer):
+    """One row in `inventory.recent_reviewer_corrections.corrections`."""
+
+    report_id = serializers.CharField(help_text="UUID of the report whose reviewers a human edited.")
+    report_title = serializers.CharField(allow_null=True, help_text="Report title at the time of the edit.")
+    before = serializers.ListField(
+        child=serializers.CharField(), help_text="GitHub logins on the report before the human edit (lowercased)."
+    )
+    after = serializers.ListField(
+        child=serializers.CharField(), help_text="GitHub logins on the report after the human edit (lowercased)."
+    )
+    at = serializers.CharField(allow_null=True, help_text="ISO-8601 timestamp of the edit.")
+
+
+class RecentReviewerCorrectionsSerializer(serializers.Serializer):
+    """`inventory.recent_reviewer_corrections` — human edits to report reviewer lists."""
+
+    window_days = serializers.IntegerField(help_text="Lookback window in days the corrections cover.")
+    corrections = serializers.ListField(
+        child=ReviewerCorrectionEntrySerializer(),
+        help_text=(
+            "Human reviewer edits, newest first. A human swapping a report's suggested "
+            "reviewers is authoritative ownership precedent — route to who they chose."
+        ),
     )
 
 
@@ -1198,6 +1262,13 @@ class ProjectProfileInventorySerializer(serializers.Serializer):
     signal_source_configs = SignalSourceConfigsBucketsSerializer(
         help_text="Signal source configs split into enabled / disabled buckets.",
     )
+    emit_eligibility = EmitEligibilitySerializer(
+        help_text=(
+            "Whether scout findings can actually reach the inbox for this team — the org-level AI "
+            "data-processing consent gate and the `signals_scout` source toggle, plus a one-line "
+            "remediation pointer. Read at cold start to quick-close before doing throwaway work."
+        ),
+    )
     existing_inbox_reports = ExistingInboxReportsSerializer(
         help_text="Counts of reports already in the inbox, grouped by status.",
     )
@@ -1209,6 +1280,13 @@ class ProjectProfileInventorySerializer(serializers.Serializer):
             "scope reports `edits` (total log entries), `users` (distinct user count), "
             "and `last_edit` (ISO-8601). Use to triage which scope a team has been working "
             "in lately before drilling down via the per-entity readers or `activity-log-list`."
+        ),
+    )
+    recent_reviewer_corrections = RecentReviewerCorrectionsSerializer(
+        help_text=(
+            "Recent human edits to report reviewer lists (before/after GitHub logins). "
+            "The strongest ownership precedent available — check it before setting "
+            "`suggested_reviewers` and fold what it shows into `reviewer:` memory keys."
         ),
     )
     recent_dashboards = serializers.ListField(
@@ -1449,6 +1527,26 @@ class SignalScoutConfigCreateSerializer(serializers.Serializer):
         if not value.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
             raise serializers.ValidationError(f"Scout skill names must start with '{SIGNALS_SCOUT_SKILL_PREFIX}'.")
         return value
+
+
+class SignalScoutManualRunSerializer(serializers.Serializer):
+    """Response for an on-demand (`run now`) scout dispatch.
+
+    The run executes asynchronously on the Temporal worker, so there is no `SignalScoutRun`
+    row yet at response time — the bridge row is created once the run's first turn starts.
+    Poll the scout's runs (`signals-scout-runs-list`) to see the resulting run and its findings.
+    """
+
+    skill_name = serializers.CharField(help_text="The `signals-scout-*` skill that was dispatched.")
+    workflow_id = serializers.CharField(
+        help_text=(
+            "Temporal workflow id for the dispatched run. The run executes asynchronously; poll the "
+            "scout's runs to see the resulting run row, its status, and any emitted findings."
+        )
+    )
+    started = serializers.BooleanField(
+        help_text="True when a new run was dispatched. The endpoint returns 409 instead when a run for this scout is already in progress."
+    )
 
 
 # --- Team metadata ---------------------------------------------------------

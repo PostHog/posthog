@@ -1,4 +1,10 @@
+import posthog from 'posthog-js'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { initKeaTests } from '~/test/init'
+import { AppContext } from '~/types'
 
 import {
     hasPinnedContext,
@@ -9,6 +15,7 @@ import {
 import { TaxonomicFilterGroupType } from './types'
 
 const MIGRATION_KEY = 'taxonomicFilterPinnedProperties__migrated__default'
+const DEFAULTS_SEEDED_KEY = 'taxonomicFilterPinnedProperties__defaultsSeeded__default'
 const OLD_PERSIST_KEY = 'scenes.session-recordings.player.playerSettingsLogic.quickFilterProperties'
 
 describe('taxonomicFilterPinnedPropertiesLogic', () => {
@@ -278,6 +285,136 @@ describe('taxonomicFilterPinnedPropertiesLogic', () => {
             const filters = logic.values.pinnedFilters
             expect(filters).toHaveLength(1)
             expect(filters[0].value).toBe('$pageview')
+        })
+    })
+
+    describe('seeding default pinned filters', () => {
+        const seededState = (seeded: string[], touched = false): string => JSON.stringify({ seeded, touched })
+
+        const mountWith = (
+            hasPageview: boolean,
+            hasPersonEmail: boolean,
+            { flagEnabled = true, freshStorage = true }: { flagEnabled?: boolean; freshStorage?: boolean } = {}
+        ): void => {
+            logic.unmount()
+            if (freshStorage) {
+                localStorage.clear()
+            }
+            window.POSTHOG_APP_CONTEXT = {
+                has_pageview: hasPageview,
+                has_person_email: hasPersonEmail,
+            } as unknown as AppContext
+            initKeaTests()
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags(
+                [],
+                flagEnabled ? { [FEATURE_FLAGS.TAXONOMIC_FILTER_DEFAULT_PINS]: true } : {}
+            )
+            logic = taxonomicFilterPinnedPropertiesLogic.build()
+            logic.mount()
+        }
+
+        afterEach(() => {
+            window.POSTHOG_APP_CONTEXT = undefined as unknown as AppContext
+        })
+
+        it.each([
+            {
+                description: 'pins both $current_url and email when the team sends both',
+                hasPageview: true,
+                hasPersonEmail: true,
+                expected: [
+                    { value: '$current_url', groupType: TaxonomicFilterGroupType.EventProperties },
+                    { value: 'email', groupType: TaxonomicFilterGroupType.PersonProperties },
+                ],
+            },
+            {
+                description: 'pins only email when the team sends no pageviews',
+                hasPageview: false,
+                hasPersonEmail: true,
+                expected: [{ value: 'email', groupType: TaxonomicFilterGroupType.PersonProperties }],
+            },
+            {
+                description: 'pins only $current_url when the team does not send email',
+                hasPageview: true,
+                hasPersonEmail: false,
+                expected: [{ value: '$current_url', groupType: TaxonomicFilterGroupType.EventProperties }],
+            },
+            {
+                description: 'pins nothing when the team sends neither',
+                hasPageview: false,
+                hasPersonEmail: false,
+                expected: [],
+            },
+        ])('$description', ({ hasPageview, hasPersonEmail, expected }) => {
+            mountWith(hasPageview, hasPersonEmail)
+
+            expect(logic.values.pinnedFilters.map((f) => ({ value: f.value, groupType: f.groupType }))).toEqual(
+                expected
+            )
+            expect(localStorage.getItem(DEFAULTS_SEEDED_KEY)).toBe(
+                expected.length > 0 ? seededState(expected.map((e) => e.value)) : null
+            )
+        })
+
+        it('seeds nothing when the feature flag is disabled', () => {
+            mountWith(true, true, { flagEnabled: false })
+
+            expect(logic.values.pinnedFilters).toEqual([])
+            expect(localStorage.getItem(DEFAULTS_SEEDED_KEY)).toBeNull()
+        })
+
+        it('tops up a default that becomes available on a later mount', () => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            mountWith(true, false)
+            expect(logic.values.pinnedFilters.map((f) => f.value)).toEqual(['$current_url'])
+
+            mountWith(true, true, { freshStorage: false })
+
+            expect(logic.values.pinnedFilters.map((f) => f.value)).toEqual(['$current_url', 'email'])
+            expect(localStorage.getItem(DEFAULTS_SEEDED_KEY)).toBe(seededState(['$current_url', 'email']))
+            expect(captureSpy).toHaveBeenCalledWith('taxonomic filter default pins seeded', { values: ['email'] })
+        })
+
+        it('any pin interaction opts the user out of all future seeding', () => {
+            mountWith(true, false)
+            logic.actions.togglePin(TaxonomicFilterGroupType.EventProperties, 'Event properties', '$current_url', {
+                name: '$current_url',
+            })
+            expect(logic.values.pinnedFilters).toEqual([])
+
+            mountWith(true, true, { freshStorage: false })
+
+            expect(logic.values.pinnedFilters).toEqual([])
+        })
+
+        it('does not seed over pins that predate the seeded-state record', () => {
+            mountWith(false, false)
+            logic.actions.togglePin(TaxonomicFilterGroupType.EventProperties, 'Event properties', '$browser', {
+                name: '$browser',
+            })
+            localStorage.removeItem(DEFAULTS_SEEDED_KEY)
+
+            mountWith(true, true, { freshStorage: false })
+
+            expect(logic.values.pinnedFilters.map((f) => f.value)).toEqual(['$browser'])
+            expect(localStorage.getItem(DEFAULTS_SEEDED_KEY)).toBe(seededState([], true))
+        })
+
+        it('does not seed over quick filters migrated in the same mount', () => {
+            logic.unmount()
+            localStorage.clear()
+            localStorage.setItem(OLD_PERSIST_KEY, JSON.stringify(['name', '$os']))
+            window.POSTHOG_APP_CONTEXT = { has_pageview: true, has_person_email: true } as unknown as AppContext
+
+            initKeaTests()
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TAXONOMIC_FILTER_DEFAULT_PINS]: true })
+            logic = taxonomicFilterPinnedPropertiesLogic.build()
+            logic.mount()
+
+            expect(logic.values.pinnedFilters.map((f) => f.value)).toEqual(['name', '$os'])
+            expect(localStorage.getItem(DEFAULTS_SEEDED_KEY)).toBe(seededState([], true))
         })
     })
 

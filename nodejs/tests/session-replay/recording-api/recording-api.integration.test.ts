@@ -118,7 +118,7 @@ describe('Recording API encryption integration', () => {
                 ]
 
                 // Generate key first (simulates ingestion creating the key)
-                const sessionKey = await keyStore.generateKey(sessionId, teamId)
+                const sessionKey = await keyStore.generateKey(sessionId, teamId, 30)
 
                 const blockData = await createBlockData(originalEvents)
                 const { data: encrypted } = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
@@ -153,7 +153,7 @@ describe('Recording API encryption integration', () => {
                 const blockData = await createBlockData([{ type: 2, data: { content: 'same content' } }])
 
                 // Generate key first
-                const sessionKey = await keyStore.generateKey(sessionId, teamId)
+                const sessionKey = await keyStore.generateKey(sessionId, teamId, 30)
 
                 const { data: encrypted1 } = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
                 const { data: encrypted2 } = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
@@ -180,8 +180,8 @@ describe('Recording API encryption integration', () => {
                 const timestamp = Date.now()
 
                 // Generate keys for both sessions
-                const keyA = await keyStore.generateKey(`session-a-${timestamp}`, 42)
-                const keyB = await keyStore.generateKey(`session-b-${timestamp}`, 42)
+                const keyA = await keyStore.generateKey(`session-a-${timestamp}`, 42, 30)
+                const keyB = await keyStore.generateKey(`session-b-${timestamp}`, 42, 30)
 
                 const { data: encrypted1 } = encryptor.encryptBlockWithKey(
                     `session-a-${timestamp}`,
@@ -218,8 +218,8 @@ describe('Recording API encryption integration', () => {
                 const blockData = await createBlockData([{ type: 2, data: { content: 'content' } }])
 
                 // Generate keys for both teams
-                const key1 = await keyStore.generateKey(sessionId, 1)
-                const key2 = await keyStore.generateKey(sessionId, 2)
+                const key1 = await keyStore.generateKey(sessionId, 1, 30)
+                const key2 = await keyStore.generateKey(sessionId, 2, 30)
 
                 const { data: encryptedTeam1 } = encryptor.encryptBlockWithKey(sessionId, 1, blockData, key1)
                 const { data: encryptedTeam2 } = encryptor.encryptBlockWithKey(sessionId, 2, blockData, key2)
@@ -249,7 +249,7 @@ describe('Recording API encryption integration', () => {
                 const blockData = await createBlockData([{ type: 2, data: { secret: 'sensitive data' } }])
 
                 // Generate key first
-                const sessionKey = await keyStore.generateKey(sessionId, teamId)
+                const sessionKey = await keyStore.generateKey(sessionId, teamId, 30)
 
                 // Encrypt
                 const { data: encrypted } = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
@@ -279,7 +279,7 @@ describe('Recording API encryption integration', () => {
                 const teamId = 42
 
                 // Generate key first
-                await keyStore.generateKey(sessionId, teamId)
+                await keyStore.generateKey(sessionId, teamId, 30)
 
                 // Delete and capture time (timestamps are in seconds)
                 const beforeDelete = Math.floor(Date.now() / 1000)
@@ -302,7 +302,7 @@ describe('Recording API encryption integration', () => {
                 const blockData = await createBlockData([{ type: 2, data: { content: 'content' } }])
 
                 // Generate and delete key
-                await keyStore.generateKey(sessionId, teamId)
+                await keyStore.generateKey(sessionId, teamId, 30)
                 await keyStore.deleteKey(sessionId, teamId, 'test@example.com')
 
                 // Encryption should fail
@@ -336,7 +336,7 @@ describe('Recording API encryption integration', () => {
 
                 // Generate keys and encrypt all sessions
                 for (const sessionId of sessions) {
-                    const sessionKey = await keyStore.generateKey(sessionId, teamId)
+                    const sessionKey = await keyStore.generateKey(sessionId, teamId, 30)
                     const blockData = await createBlockData([{ type: 2, data: { session: sessionId } }])
                     encrypted[sessionId] = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey).data
                 }
@@ -371,7 +371,7 @@ describe('Recording API encryption integration', () => {
                 const teamId = 42
 
                 // Generate key first
-                const sessionKey = await keyStore.generateKey(sessionId, teamId)
+                const sessionKey = await keyStore.generateKey(sessionId, teamId, 30)
 
                 // Create large events (100 events with substantial data)
                 const largeEvents = Array.from({ length: 100 }, (_, i) => ({
@@ -457,10 +457,6 @@ describe('Recording API encryption integration', () => {
         let keyStore: DynamoDBKeyStore
         let encryptor: SodiumRecordingEncryptor
         let decryptor: SodiumRecordingDecryptor
-
-        const mockRetentionService = {
-            getSessionRetentionDays: jest.fn().mockResolvedValue(30),
-        }
 
         async function setupKmsKey(): Promise<void> {
             try {
@@ -580,7 +576,7 @@ describe('Recording API encryption integration', () => {
         })
 
         beforeEach(async () => {
-            keyStore = new DynamoDBKeyStore(dynamoDBClient, kmsClient, mockRetentionService as any)
+            keyStore = new DynamoDBKeyStore(dynamoDBClient, kmsClient)
             await keyStore.start()
 
             encryptor = new SodiumRecordingEncryptor(keyStore)
@@ -601,7 +597,7 @@ describe('Recording API encryption integration', () => {
                 const sessionId = `kms-test-${Date.now()}`
                 const teamId = 1
 
-                const generatedKey = await keyStore.generateKey(sessionId, teamId)
+                const generatedKey = await keyStore.generateKey(sessionId, teamId, 30)
 
                 expect(generatedKey.sessionState).toBe('ciphertext')
                 expect(generatedKey.plaintextKey.length).toBe(sodium.crypto_secretbox_KEYBYTES)
@@ -618,7 +614,7 @@ describe('Recording API encryption integration', () => {
                 const sessionId = `double-delete-${Date.now()}`
                 const teamId = 4
 
-                await keyStore.generateKey(sessionId, teamId)
+                await keyStore.generateKey(sessionId, teamId, 30)
                 await keyStore.deleteKey(sessionId, teamId, 'test@example.com')
 
                 const result = await keyStore.deleteKey(sessionId, teamId, 'test@example.com')
@@ -631,8 +627,8 @@ describe('Recording API encryption integration', () => {
                 const team1 = 10
                 const team2 = 20
 
-                const key1 = await keyStore.generateKey(sessionId, team1)
-                const key2 = await keyStore.generateKey(sessionId, team2)
+                const key1 = await keyStore.generateKey(sessionId, team1, 30)
+                const key2 = await keyStore.generateKey(sessionId, team2, 30)
 
                 expect(key1.plaintextKey.equals(key2.plaintextKey)).toBe(false)
 
@@ -648,8 +644,8 @@ describe('Recording API encryption integration', () => {
                 const team1 = 30
                 const team2 = 40
 
-                await keyStore.generateKey(sessionId, team1)
-                await keyStore.generateKey(sessionId, team2)
+                await keyStore.generateKey(sessionId, team1, 30)
+                await keyStore.generateKey(sessionId, team2, 30)
 
                 await keyStore.deleteKey(sessionId, team1, 'test@example.com')
 
@@ -707,7 +703,7 @@ describe('Recording API encryption integration', () => {
                     { type: 3, data: { source: 2, mutations: [{ id: 1 }] } },
                 ]
 
-                const sessionKey = await keyStore.generateKey(sessionId, teamId)
+                const sessionKey = await keyStore.generateKey(sessionId, teamId, 30)
                 const blockData = await createBlockData(originalEvents)
                 const { data: encrypted } = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
 
@@ -735,7 +731,7 @@ describe('Recording API encryption integration', () => {
                 const sessionId = `s3-deleted-${Date.now()}`
                 const teamId = 1
 
-                const sessionKey = await keyStore.generateKey(sessionId, teamId)
+                const sessionKey = await keyStore.generateKey(sessionId, teamId, 30)
                 const blockData = await createBlockData([{ type: 2, data: { content: 'secret' } }])
                 const { data: encrypted } = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
 
@@ -807,7 +803,7 @@ describe('Recording API encryption integration', () => {
                 const teamId = 1
                 const originalEvents = [{ type: 2, data: { content: 'hello' } }]
 
-                const sessionKey = await keyStore.generateKey(sessionId, teamId)
+                const sessionKey = await keyStore.generateKey(sessionId, teamId, 30)
                 const blockData = await createBlockData(originalEvents)
                 const { data: encrypted } = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
 
@@ -833,7 +829,7 @@ describe('Recording API encryption integration', () => {
                 const sessionId = 'http-deleted-session'
                 const teamId = 1
 
-                const sessionKey = await keyStore.generateKey(sessionId, teamId)
+                const sessionKey = await keyStore.generateKey(sessionId, teamId, 30)
                 const blockData = await createBlockData([{ type: 2, data: { content: 'secret' } }])
                 const { data: encrypted } = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
 
@@ -878,7 +874,7 @@ describe('Recording API encryption integration', () => {
                     { type: 3, data: { content: 'world' } },
                 ]
 
-                const sessionKey = await keyStore.generateKey(sessionId, teamId)
+                const sessionKey = await keyStore.generateKey(sessionId, teamId, 30)
                 const blockData = await createBlockData(originalEvents)
                 const { data: encrypted } = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
 
@@ -910,7 +906,7 @@ describe('Recording API encryption integration', () => {
                 const teamId = 1
                 const originalEvents = [{ type: 2, data: { content: 'compressed' } }]
 
-                const sessionKey = await keyStore.generateKey(sessionId, teamId)
+                const sessionKey = await keyStore.generateKey(sessionId, teamId, 30)
                 const blockData = await createBlockData(originalEvents)
                 const { data: encrypted } = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
 
@@ -943,7 +939,7 @@ describe('Recording API encryption integration', () => {
             const sessionId = `cache-invalidation-${Date.now()}`
             const teamId = 1
 
-            await cachedKeyStore.generateKey(sessionId, teamId)
+            await cachedKeyStore.generateKey(sessionId, teamId, 30)
 
             // Populate cache
             const cachedKey = await cachedKeyStore.getKey(sessionId, teamId)
@@ -972,7 +968,7 @@ describe('Recording API encryption integration', () => {
             const sessionId = `cache-decrypt-${Date.now()}`
             const teamId = 1
 
-            const sessionKey = await cachedKeyStore.generateKey(sessionId, teamId)
+            const sessionKey = await cachedKeyStore.generateKey(sessionId, teamId, 30)
             const blockData = await createBlockData([{ type: 2, data: { content: 'cached' } }])
             const { data: encrypted } = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
 
@@ -998,7 +994,7 @@ describe('Recording API encryption integration', () => {
             const sessionId = `nested-cache-${Date.now()}`
             const teamId = 1
 
-            await outerCache.generateKey(sessionId, teamId)
+            await outerCache.generateKey(sessionId, teamId, 30)
 
             // Populate both cache layers
             const key = await outerCache.getKey(sessionId, teamId)

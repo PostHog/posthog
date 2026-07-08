@@ -64,7 +64,13 @@ PRINTER_CLASSES: dict[HogQLDialect, type[BasePrinter]] = {
 }
 
 
-def to_printed_hogql(query: ast.Expr, team: Team, modifiers: "HogQLQueryModifiers | None" = None) -> str:
+def to_printed_hogql(
+    query: ast.Expr,
+    team: Team,
+    modifiers: "HogQLQueryModifiers | None" = None,
+    *,
+    bypass_warehouse_access_control: bool = False,
+) -> str:
     """Prints the HogQL query without mutating the node"""
     return prepare_and_print_ast(
         clone_expr(query),
@@ -73,6 +79,7 @@ def to_printed_hogql(query: ast.Expr, team: Team, modifiers: "HogQLQueryModifier
             team_id=team.pk,
             enable_select_queries=True,
             modifiers=create_default_modifiers_for_team(team, modifiers),
+            bypass_warehouse_access_control=bypass_warehouse_access_control,
         ),
         pretty=True,
     )[0]
@@ -209,6 +216,9 @@ def prepare_ast_for_printing(
     if context.modifiers.optimizeProjections:
         with context.timings.measure("projection_pushdown"):
             node = pushdown_projections(node, context)
+        # Pushdown mutates SelectQueryType.columns, staling cached CTE tables. Drop them so a
+        # wrongly pruned column fails loudly at compile time instead of emitting broken SQL.
+        context.cte_database_table_cache.clear()
 
     if dialect in SQL_TARGET_DIALECTS:
         with context.timings.measure("resolve_lazy_tables"):

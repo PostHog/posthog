@@ -4,6 +4,7 @@ import pLimit from 'p-limit'
 import { Counter, Histogram } from 'prom-client'
 
 import { KafkaConsumerInterface, createKafkaConsumer, parseKafkaHeaders } from '~/common/kafka/consumer'
+import { recordPiiReplacements } from '~/common/metrics/otel-metrics'
 import { AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
@@ -330,7 +331,8 @@ export class LogsIngestionConsumer {
                 message.message.value!,
                 logsSettings,
                 ruleSet,
-                message.teamId
+                message.teamId,
+                message.bytesUncompressed
             )
             if (sampled.recordsDropped > 0) {
                 logsSamplingRecordsDroppedCounter.inc({ team_id: message.teamId.toString() }, sampled.recordsDropped)
@@ -476,6 +478,7 @@ export class LogsIngestionConsumer {
         if (delta.piiReplacements === 0) {
             return
         }
+        recordPiiReplacements(this.appSource, delta.piiReplacements)
         const row = usage.get(teamId) || { ...DEFAULT_USAGE_STATS }
         row.piiReplacements += delta.piiReplacements
         usage.set(teamId, row)
@@ -577,6 +580,7 @@ export class LogsIngestionConsumer {
 
                         let bytesUncompressedHeaderOverride: number | undefined
                         let bytesCompressedHeaderOverride: number | undefined
+                        let recordCountHeaderOverride: number | undefined
 
                         // Drop rules removed rows from this message — credit billing by the dropped
                         // content fraction. `bytesReceived` stays gross (what was sent); `bytesAllowed`
@@ -628,8 +632,9 @@ export class LogsIngestionConsumer {
                                     )
                                 }
 
-                                // Scale both size headers down by the same dropped content fraction so
-                                // downstream accounting sees only the surviving bytes.
+                                // Scale both size headers down by the same dropped content fraction, and
+                                // reduce the record count by the exact number of rows dropped, so
+                                // downstream accounting sees only the surviving rows and bytes.
                                 const compressedCredit = billingByteReductionForDrops(
                                     message.bytesCompressed,
                                     resolved.contentBytesDropped,
@@ -637,6 +642,7 @@ export class LogsIngestionConsumer {
                                 )
                                 bytesUncompressedHeaderOverride = Math.max(0, header - contentCredit)
                                 bytesCompressedHeaderOverride = Math.max(0, message.bytesCompressed - compressedCredit)
+                                recordCountHeaderOverride = Math.max(0, message.recordCount - resolved.recordsDropped)
                             }
                         }
 
@@ -671,6 +677,9 @@ export class LogsIngestionConsumer {
                                         : {}),
                                     ...(bytesCompressedHeaderOverride !== undefined
                                         ? { bytes_compressed: bytesCompressedHeaderOverride.toString() }
+                                        : {}),
+                                    ...(recordCountHeaderOverride !== undefined
+                                        ? { record_count: recordCountHeaderOverride.toString() }
                                         : {}),
                                 },
                             },

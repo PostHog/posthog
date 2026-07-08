@@ -93,7 +93,7 @@ class TestStripeGetRowsIncrementalCursor:
             "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe._build_resources",
             return_value={"charge": resource},
         ):
-            rows = list(
+            tables = list(
                 get_rows(
                     api_key="sk_test_123",
                     endpoint="charge",
@@ -106,7 +106,39 @@ class TestStripeGetRowsIncrementalCursor:
                 )
             )
 
-        assert [obj["id"] for obj in rows] == ["ch_2"]
+        rows = [row for table in tables for row in table.to_pylist()]
+        assert [row["id"] for row in rows] == ["ch_2"]
+
+    def test_backfill_branch_yields_all_earlier_objects_in_bounded_chunks(self):
+        # The created[lt] backfill must yield every earlier object AND batch them into bounded chunks:
+        # each yielded chunk is what makes the pipeline persist the `earliest` watermark, so a large
+        # backfill checkpoints progress mid-attempt instead of restarting the whole scan on a
+        # heartbeat timeout. A single giant batch (the previous behaviour) never checkpoints.
+        objects = [{"id": f"ch_{i}", "created": 1700000000 - i} for i in range(5)]
+        resource = StripeResource(method=lambda params: cast(ListObject[Any], _FakeStripeList(objects)))
+        resumable_source_manager = mock.MagicMock()
+        resumable_source_manager.can_resume.return_value = False
+
+        with (
+            mock.patch.object(stripe_module, "STRIPE_CHUNK_SIZE", 2),
+            mock.patch.object(stripe_module, "_build_resources", return_value={"charge": resource}),
+        ):
+            tables = list(
+                get_rows(
+                    api_key="sk_test_123",
+                    endpoint="charge",
+                    account_id=None,
+                    db_incremental_field_last_value=None,
+                    db_incremental_field_earliest_value=1700000100,
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=resumable_source_manager,
+                    should_use_incremental_field=True,
+                )
+            )
+
+        rows = [row for table in tables for row in table.to_pylist()]
+        assert [row["id"] for row in rows] == [f"ch_{i}" for i in range(5)]
+        assert len(tables) > 1
 
 
 class TestStripeSource:
@@ -361,12 +393,11 @@ class TestStripeBatcherDrainsSplitChunks:
         resumable_source_manager.can_resume.return_value = False
 
         # Tiny caps force every 2-row buffer flush to split into single-row chunks.
-        splitting_batcher = functools.partial(
-            stripe_module.Batcher, chunk_size=2, max_table_bytes=1, max_column_offset_bytes=1
-        )
+        splitting_batcher = functools.partial(stripe_module.Batcher, max_table_bytes=1, max_column_offset_bytes=1)
 
         with (
             patch.object(stripe_module, "StripeClient"),
+            patch.object(stripe_module, "STRIPE_CHUNK_SIZE", 2),
             patch.object(stripe_module, "Batcher", splitting_batcher),
             patch.object(stripe_module, "_build_resources", return_value={"charge": resource}),
         ):
@@ -390,11 +421,12 @@ class TestStripeBatcherDrainsSplitChunks:
         def nested_method(customer=None, params=None):
             return _list_object(nested_objects)
 
-        splitting_batcher = functools.partial(
-            stripe_module.Batcher, chunk_size=2, max_table_bytes=1, max_column_offset_bytes=1
-        )
+        splitting_batcher = functools.partial(stripe_module.Batcher, max_table_bytes=1, max_column_offset_bytes=1)
 
-        with patch.object(stripe_module, "Batcher", splitting_batcher):
+        with (
+            patch.object(stripe_module, "STRIPE_CHUNK_SIZE", 2),
+            patch.object(stripe_module, "Batcher", splitting_batcher),
+        ):
             rows = _run_nested_get_rows(nested_method, parent_objects=[{"id": "cus_1"}])
 
         assert [row["id"] for row in rows] == [f"cbt_{i}" for i in range(6)]
@@ -409,12 +441,11 @@ class TestStripeBatcherDrainsSplitChunks:
         resumable_source_manager = MagicMock()
         resumable_source_manager.can_resume.return_value = False
 
-        splitting_batcher = functools.partial(
-            stripe_module.Batcher, chunk_size=100, max_table_bytes=1, max_column_offset_bytes=1
-        )
+        splitting_batcher = functools.partial(stripe_module.Batcher, max_table_bytes=1, max_column_offset_bytes=1)
 
         with (
             patch.object(stripe_module, "StripeClient"),
+            patch.object(stripe_module, "STRIPE_CHUNK_SIZE", 100),
             patch.object(stripe_module, "Batcher", splitting_batcher),
             patch.object(stripe_module, "_build_resources", return_value={"charge": resource}),
         ):

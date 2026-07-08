@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 8 enabled ops
+ * PostHog API - MCP 9 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -22,6 +22,46 @@ export const EngineeringAnalyticsCiFailureLogsParams = /* @__PURE__ */ zod.objec
 export const EngineeringAnalyticsCiFailureLogsQueryParams = /* @__PURE__ */ zod.object({
     pr_number: zod.number().describe('Pull request number whose CI failure logs to fetch.'),
     repo: zod.string().describe("'owner/name' repository the pull request belongs to."),
+    source_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.'
+        ),
+})
+
+/**
+ * The flaky-test leaderboard: backend tests ranked by flakiness signal from the per-test CI spans, over a window (default -7d, maximum 30 days). A test qualifies by passing on retry at least min_rerun_passes times OR failing on at least min_failed_prs distinct PRs. All figures are absolute counts, never rates: fast passing runs are not emitted, so denominators are biased. Pass-on-retry counts only flow from CI lanes running with reruns enabled; in other lanes a flake surfaces as a plain failure, which the distinct-PR count catches.
+ */
+export const EngineeringAnalyticsFlakyTestsParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const EngineeringAnalyticsFlakyTestsQueryParams = /* @__PURE__ */ zod.object({
+    date_from: zod
+        .string()
+        .optional()
+        .describe(
+            "Window start: relative ('-7d', '-30d') or ISO8601. Defaults to -7d; the window may span at most 30 days."
+        ),
+    date_to: zod.string().optional().describe('Window end: relative or ISO8601. Defaults to now.'),
+    limit: zod.number().optional().describe('Maximum number of tests to return (1-200). Defaults to 50.'),
+    min_failed_prs: zod
+        .number()
+        .optional()
+        .describe(
+            'A test qualifies once it failed on at least this many distinct pull requests in the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.'
+        ),
+    min_rerun_passes: zod
+        .number()
+        .optional()
+        .describe(
+            'A test qualifies once it passed on retry at least this many times in the window (OR-ed with min_failed_prs). Minimum 1. Defaults to 1.'
+        ),
     source_id: zod
         .string()
         .optional()
@@ -123,7 +163,7 @@ export const EngineeringAnalyticsWorkflowHealthQueryParams = /* @__PURE__ */ zod
         .string()
         .optional()
         .describe(
-            "Optional exact git branch (head_branch) to scope workflow health to, e.g. 'main'. Omit or leave blank to aggregate across all branches."
+            "Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches."
         ),
     date_from: zod.string().optional().describe("Window start: relative ('-24h', '-7d') or ISO8601. Defaults to -24h."),
     date_to: zod.string().optional().describe('Window end: relative or ISO8601. Defaults to now.'),
@@ -163,7 +203,7 @@ export const EngineeringAnalyticsWorkflowJobsQueryParams = /* @__PURE__ */ zod.o
 })
 
 /**
- * A workflow's estimated CI cost broken down by runner tier over a window (date_from default -30d), highest spend first. Returns an empty list when the job-level source isn't synced.
+ * A workflow's estimated CI cost broken down by runner tier over a window (date_from default -30d), highest spend first. Optionally scope to a single git branch via `branch`. Returns an empty list when the job-level source isn't synced.
  */
 export const EngineeringAnalyticsWorkflowRunnerCostsParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -174,6 +214,12 @@ export const EngineeringAnalyticsWorkflowRunnerCostsParams = /* @__PURE__ */ zod
 })
 
 export const EngineeringAnalyticsWorkflowRunnerCostsQueryParams = /* @__PURE__ */ zod.object({
+    branch: zod
+        .string()
+        .optional()
+        .describe(
+            "Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches."
+        ),
     date_from: zod.string().optional().describe("Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d."),
     date_to: zod.string().optional().describe('Window end: relative or ISO8601. Defaults to now.'),
     repo: zod.string().describe("'owner/name' repository the workflow belongs to."),

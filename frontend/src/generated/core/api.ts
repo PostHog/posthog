@@ -66,6 +66,8 @@ import type {
     PatchedProjectBackwardCompatApi,
     PatchedProjectSecretAPIKeyApi,
     PatchedUserApi,
+    ProductEnablementApi,
+    ProductEnablementResultApi,
     ProjectBackwardCompatApi,
     ProjectSecretAPIKeyApi,
     ProjectSecretApiKeysListParams,
@@ -2541,6 +2543,23 @@ export const notebooksSharingRefreshCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sharingConfigurationApi),
+    })
+}
+
+export const getProductEnablementCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/product_enablement/`
+}
+
+export const productEnablementCreate = async (
+    projectId: string,
+    productEnablementApi: ProductEnablementApi,
+    options?: RequestInit
+): Promise<ProductEnablementResultApi> => {
+    return apiMutator<ProductEnablementResultApi>(getProductEnablementCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(productEnablementApi),
     })
 }
 

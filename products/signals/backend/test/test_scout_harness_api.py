@@ -12,6 +12,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 from social_django.models import UserSocialAuth
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import OAuthApplication
 from posthog.models.organization import Organization
@@ -34,6 +35,7 @@ from products.signals.backend.models import (
     SignalScratchpad,
 )
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, discover_canonical_skills
+from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM_PER_TICK
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
@@ -295,7 +297,7 @@ class TestScoutHarnessRunEmissionsAPI(APIBaseTest):
 
 
 # Patch target: the helper is hot-imported into the view module, so patch it there, not at source.
-_FETCH_REPORT_IDS = "products.signals.backend.scout_harness.views.fetch_report_ids_for_source_ids"
+_FETCH_REPORT_IDS = "products.signals.backend.temporal.signal_queries.fetch_report_ids_for_source_ids"
 
 
 class TestScoutHarnessEmissionReportsAPI(APIBaseTest):
@@ -886,6 +888,7 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
             "integrations",
             "external_data_sources",
             "signal_source_configs",
+            "emit_eligibility",
             "existing_inbox_reports",
             "recent_activity",
             "recent_dashboards",
@@ -898,6 +901,7 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
             "recent_notebooks",
             "recent_cohorts",
             "recent_actions",
+            "recent_reviewer_corrections",
             "top_events",
         }
 
@@ -1486,6 +1490,153 @@ class TestScoutHarnessMetadataAPI(APIBaseTest):
         _make_run(self.team)
         body = self._get({"guaranteed_team_ids": [self.team.id], "default_team_config": {"max_runs_per_day": 5}}).json()
         assert body["limits"]["runs_today"] == 1
+
+
+_QUOTA = "products.signals.backend.scout_harness.views.is_team_signals_quota_limited"
+_START = "products.signals.backend.temporal.agentic.scout_scheduler.start_manual_signals_scout_run"
+_CONNECT = "products.signals.backend.scout_harness.views.sync_connect"
+_WITHHELD = "products.signals.backend.scout_harness.views.withheld_skills_for_team"
+_FLAG = "products.signals.backend.scout_harness.views._read_flag_payload"
+
+
+class TestScoutHarnessConfigRunAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # The run action requires a live backing skill; every dispatch case needs one present.
+        LLMSkill.objects.create(team=self.team, name="signals-scout-foo", description="Foo scout.", body="...")
+        # The manual run honors the same enrollment + daily-budget gates as the coordinator. Enroll
+        # this team by default (no daily cap) so the dispatch cases reach the run path; the
+        # enrollment/budget regression cases override this payload.
+        flag = patch(_FLAG, return_value={"guaranteed_team_ids": [self.team.id]})
+        flag.start()
+        self.addCleanup(flag.stop)
+
+    def _run_url(self, config_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/configs/{config_id}/run/"
+
+    @parameterized.expand([("enabled", True), ("disabled", False)])
+    def test_run_dispatches_and_returns_workflow_id(self, _name: str, enabled: bool) -> None:
+        # Disabled scouts are dispatchable too (run-to-test before enabling) — that's the regression
+        # guard for the "allow disabled" decision; a stray `enabled` gate would fail the disabled case.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", enabled=enabled)
+        with (
+            patch(_QUOTA, return_value=False),
+            patch(_CONNECT) as connect,
+            patch(_START, return_value="wf-123") as start,
+        ):
+            response = self.client.post(self._run_url(str(config.id)))
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert response.json() == {"skill_name": "signals-scout-foo", "workflow_id": "wf-123", "started": True}
+        start.assert_called_once_with(connect.return_value, team_id=self.team.id, skill_name="signals-scout-foo")
+
+    def test_run_over_quota_returns_429_without_dispatching(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        with patch(_QUOTA, return_value=True), patch(_START) as start:
+            response = self.client.post(self._run_url(str(config.id)))
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        start.assert_not_called()
+
+    def test_run_with_in_flight_run_returns_409_without_dispatching(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        _make_run(self.team, skill_name="signals-scout-foo")  # TaskRun IN_PROGRESS by default
+        with patch(_QUOTA, return_value=False), patch(_START) as start:
+            response = self.client.post(self._run_url(str(config.id)))
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        start.assert_not_called()
+
+    def test_run_maps_workflow_already_started_race_to_409(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        race = WorkflowAlreadyStartedError("wf", "RunSignalsScoutWorkflow")
+        with patch(_QUOTA, return_value=False), patch(_CONNECT), patch(_START, side_effect=race):
+            response = self.client.post(self._run_url(str(config.id)))
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+
+    def test_run_unknown_config_returns_404_without_dispatching(self) -> None:
+        with patch(_QUOTA, return_value=False), patch(_START) as start:
+            response = self.client.post(self._run_url("00000000-0000-0000-0000-000000000000"))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        start.assert_not_called()
+
+    def test_run_withheld_scout_returns_404_without_dispatching(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        with (
+            patch(_WITHHELD, return_value={"signals-scout-foo"}),
+            patch(_QUOTA, return_value=False),
+            patch(_START) as start,
+        ):
+            response = self.client.post(self._run_url(str(config.id)))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        start.assert_not_called()
+
+    def test_run_config_without_backing_skill_returns_404_without_dispatching(self) -> None:
+        # A config can outlive its skill; dispatching would 202 then fail in the runner with no run
+        # row to poll. Reject up front — guards the latest-non-deleted-skill check in `run`.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-orphan")
+        with patch(_QUOTA, return_value=False), patch(_START) as start:
+            response = self.client.post(self._run_url(str(config.id)))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        start.assert_not_called()
+
+    def test_run_dispatches_when_only_in_flight_run_is_stale(self) -> None:
+        # An orphan past the stale cutoff (crashed worker, never wrote a terminal status) must not
+        # wedge the 409 fail-fast — otherwise a disabled scout, whose only run path is this endpoint,
+        # could never recover. The dispatched run's own self-heal reaps it; the view must let it through.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        stale = _make_run(self.team, skill_name="signals-scout-foo")  # TaskRun IN_PROGRESS by default
+        old = timezone.now() - timedelta(seconds=STALE_RUN_CUTOFF_S + 60)
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        TaskRun.objects.filter(id=stale.task_run_id).update(created_at=old)
+        with (
+            patch(_QUOTA, return_value=False),
+            patch(_CONNECT),
+            patch(_START, return_value="wf-123") as start,
+        ):
+            response = self.client.post(self._run_url(str(config.id)))
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        start.assert_called_once()
+
+    def test_run_on_skipped_team_returns_403_without_dispatching(self) -> None:
+        # `skip_team_ids` is the operator kill switch: the coordinator never schedules a skipped
+        # team, so the manual trigger must refuse it too — otherwise any `signal_scout:write` caller
+        # could run a scout an operator deliberately suppressed. Guards the enrollment check in `run`.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        with (
+            patch(_FLAG, return_value={"guaranteed_team_ids": [self.team.id], "skip_team_ids": [self.team.id]}),
+            patch(_QUOTA, return_value=False),
+            patch(_START) as start,
+        ):
+            response = self.client.post(self._run_url(str(config.id)))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        start.assert_not_called()
+
+    def test_run_over_daily_budget_returns_429_without_dispatching(self) -> None:
+        # Manual runs count against the same per-team daily budget the coordinator enforces, so once
+        # `max_runs_per_day` is spent the trigger is throttled instead of letting repeated manual runs
+        # blow past the cap. One run already landed today and the cap is 1 → the next is refused.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        _make_run(self.team, skill_name="signals-scout-foo", task_run_status=TaskRun.Status.COMPLETED)
+        with (
+            patch(
+                _FLAG,
+                return_value={"guaranteed_team_ids": [self.team.id], "default_team_config": {"max_runs_per_day": 1}},
+            ),
+            patch(_QUOTA, return_value=False),
+            patch(_START) as start,
+        ):
+            response = self.client.post(self._run_url(str(config.id)))
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        start.assert_not_called()
 
 
 class TestScoutHarnessMembersAPI(APIBaseTest):

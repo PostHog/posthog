@@ -1,1 +1,1 @@
-1246_alter_organizationdomain_id_jag_allowed_clients_and_more
+1247_oauthaccesstoken_token_idx

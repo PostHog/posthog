@@ -186,7 +186,7 @@ class TestPostApprovalCommentTask:
             post_approval_comment(repo.team_id, "00000000-0000-0000-0000-000000000002")
 
     def test_retries_on_rate_limit(self, repo):
-        from posthog.models.integration import GitHubRateLimitError
+        from posthog.egress.github.transport import GitHubRateLimitError
 
         with (
             patch(

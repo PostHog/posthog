@@ -497,6 +497,7 @@ services:
                 # Auto-create only fires on producer-first writes, so pre-create them here.
                 TOPICS="document_embeddings_input \
                     document_embedding_results \
+                    error_tracking_ingestion_notifications \
                     clickhouse_events_json \
                     clickhouse_ai_events_json \
                     clickhouse_heatmap_events \

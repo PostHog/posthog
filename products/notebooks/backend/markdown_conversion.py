@@ -287,7 +287,9 @@ def _serialize_rich_content_node(
     if isinstance(node_type, str) and node_type in NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG:
         return _serialize_component_node(
             NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG[node_type],
-            _get_serializable_attrs(node.get("attrs") if isinstance(node.get("attrs"), dict) else None),
+            _with_default_hidden_filters(
+                _get_serializable_attrs(node.get("attrs") if isinstance(node.get("attrs"), dict) else None)
+            ),
         )
 
     child_markdown = "\n\n".join(
@@ -314,7 +316,10 @@ def _serialize_legacy_insight_node(node: JSONContent) -> str:
     insight_short_id = attrs.get("short_id") if isinstance(attrs.get("short_id"), str) else attrs.get("id")
     if not isinstance(insight_short_id, str) or not insight_short_id:
         return _serialize_unknown_rich_content_node(node)
-    return _serialize_component_node("Query", {"query": {"kind": "SavedInsightNode", "shortId": insight_short_id}})
+    return _serialize_component_node(
+        "Query",
+        _with_default_hidden_filters({"query": {"kind": "SavedInsightNode", "shortId": insight_short_id}}),
+    )
 
 
 def _serialize_legacy_dashboard_node(node: JSONContent) -> str:
@@ -330,7 +335,7 @@ def _serialize_legacy_query_node(node: JSONContent) -> str:
     query = props.get("query")
     if isinstance(query, dict) and query.get("kind") == "HogQLQuery":
         props["query"] = {"kind": "DataVisualizationNode", "source": query}
-    return _serialize_component_node("Query", props)
+    return _serialize_component_node("Query", _with_default_hidden_filters(props))
 
 
 def _serialize_legacy_link_node(node: JSONContent, options: NotebookMarkdownConversionOptions) -> str:
@@ -626,6 +631,12 @@ def _get_serializable_component_props(props: Mapping[str, NotebookPropValue]) ->
     if hide_results:
         next_props["hideResults"] = True
     return next_props
+
+
+def _with_default_hidden_filters(props: dict[str, NotebookPropValue]) -> dict[str, NotebookPropValue]:
+    if isinstance(props.get("hideFilters"), bool) or isinstance(props.get("edit"), bool):
+        return props
+    return {**props, "hideFilters": True}
 
 
 def _get_ordered_component_prop_entries(props: Mapping[str, NotebookPropValue]) -> list[tuple[str, NotebookPropValue]]:

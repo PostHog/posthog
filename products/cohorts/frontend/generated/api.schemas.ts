@@ -69,13 +69,28 @@ export interface CohortFilterApi {
 }
 
 export interface PersonFilterApi {
+    operator?: string | null
+    value?: unknown
     bytecode?: unknown[] | null
     bytecode_error?: string | null
     conditionHash?: string | null
     type: 'person'
     key: string
+    negation?: boolean
+}
+
+/**
+ * Filter on a top-level persons-table column (e.g. created_at) rather than the
+ * properties JSON. The matching key must be one of PERSON_METADATA_FIELDS.
+ */
+export interface PersonMetadataFilterApi {
     operator?: string | null
     value?: unknown
+    bytecode?: unknown[] | null
+    bytecode_error?: string | null
+    conditionHash?: string | null
+    type: 'person_metadata'
+    key: string
     negation?: boolean
 }
 
@@ -84,7 +99,7 @@ export interface PersonFilterApi {
  */
 export interface CohortFilterGroupApi {
     type: PropertyGroupOperatorApi
-    values: (BehavioralFilterApi | CohortFilterApi | PersonFilterApi | CohortFilterGroupApi)[]
+    values: (BehavioralFilterApi | CohortFilterApi | PersonFilterApi | PersonMetadataFilterApi | CohortFilterGroupApi)[]
 }
 
 export interface CohortFiltersApi {
@@ -210,7 +225,7 @@ export interface CohortApi {
      * * `analytical` - analytical */
     cohort_type?: CohortTypeEnumApi | BlankEnumApi | null
     readonly experiment_set: readonly number[]
-    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type: SearchMatchTypeEnumApi | null
     _create_in_folder?: string
     _create_static_person_ids?: string[]
@@ -265,7 +280,7 @@ export interface PatchedCohortApi {
      * * `analytical` - analytical */
     cohort_type?: CohortTypeEnumApi | BlankEnumApi | null
     readonly experiment_set?: readonly number[]
-    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type?: SearchMatchTypeEnumApi | null
     _create_in_folder?: string
     _create_static_person_ids?: string[]
@@ -403,7 +418,7 @@ export type CohortsListParams = {
      */
     offset?: number
     /**
-     * Optional. Match against cohort `name`. Returns case-insensitive substring matches and fuzzy trigram matches (typos, transpositions, prefix-as-you-type) together, ordered exact-first then by relevance; each result's `search_match_type` is `exact` or `similar`. When omitted, cohorts are ordered newest-first. Capped at 200 characters; longer queries return a 400 error.
+     * Optional. Match against cohort `name`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, transpositions, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Results are ordered by relevance. When omitted, cohorts are ordered newest-first. Capped at 200 characters; longer queries return a 400 error.
      */
     search?: string
 }
