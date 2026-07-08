@@ -146,12 +146,10 @@ function TableRowRaw<T extends Record<string, any>>({
                             const cellChildren = isTableCellRepresentation(contents) ? contents.children : contents
                             // Clip only when a max width is set and the column isn't sized by its author.
                             const truncateCell = !!maxCellWidth && !column.width && !column.fullWidth
-                            const cellTitle =
-                                typeof rawContents === 'string' || typeof rawContents === 'number'
-                                    ? String(rawContents)
-                                    : typeof value === 'string' || typeof value === 'number'
-                                      ? String(value)
-                                      : undefined
+                            const cellText =
+                                typeof cellChildren === 'string' || typeof cellChildren === 'number'
+                                    ? String(cellChildren)
+                                    : undefined
                             return (
                                 <td
                                     key={`col-${columnGroupIndex}-${columnKeyOrIndex}`}
@@ -174,13 +172,10 @@ function TableRowRaw<T extends Record<string, any>>({
                                     {...extraCellProps}
                                 >
                                     {truncateCell ? (
-                                        // Clips inside the cell, since sticky cells keep `overflow: visible` for their scroll shadow.
-                                        // Single-line ellipsis only for plain text; element content keeps its own wrapping.
+                                        // Clipped inside the cell, since sticky cells keep `overflow: visible` for their scroll shadow
                                         <div
-                                            className={
-                                                cellTitle !== undefined ? 'truncate' : 'overflow-hidden text-ellipsis'
-                                            }
-                                            title={cellTitle}
+                                            className={cellText !== undefined ? 'truncate' : 'overflow-hidden'}
+                                            title={cellText}
                                             // eslint-disable-next-line react/forbid-dom-props
                                             style={{ maxWidth: maxCellWidth }}
                                         >
