@@ -86,9 +86,10 @@ def _fetch_page(
     page: int,
     logger: FilteringBoundLogger,
 ) -> dict[str, Any]:
+    params: dict[str, str | int] = {"shop_domain": shop_domain, "page": page, "per_page": PAGE_SIZE}
     response = session.get(
         f"{JUDGEME_BASE_URL}{path}",
-        params={"shop_domain": shop_domain, "page": page, "per_page": PAGE_SIZE},
+        params=params,
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
 
