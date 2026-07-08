@@ -52,6 +52,13 @@ class _RaisingSource:
         raise RuntimeError("source exploded")
 
 
+class _EmptySource:
+    name = "empty"
+
+    def gather(self, team, config, period_days) -> list[SourceItem]:
+        return []
+
+
 class _ManyItemsSource:
     def __init__(self, kind: SourceItemKind, count: int) -> None:
         self.name = f"many_{kind}"
@@ -139,18 +146,24 @@ async def test_gather_activity_survives_one_broken_source(team) -> None:
     assert [item["fingerprint_hint"] for item in items] == ["abc:0"]
 
 
-async def test_gather_activity_raises_when_all_sources_fail(team) -> None:
+@pytest.mark.parametrize(
+    "sources,expect_raise",
+    [
+        ([_RaisingSource(), _EmptySource()], False),  # partial failure in a quiet week -> empty brief, no raise
+        ([_RaisingSource(), _RaisingSource()], True),  # every source failed -> retryable error
+    ],
+)
+async def test_gather_activity_failed_sources(team, sources, expect_raise) -> None:
     await _set_ai_consent(team, True)
     env = ActivityEnvironment()
-    with patch(
-        "products.pulse.backend.temporal.activities.get_sources", return_value=[_RaisingSource(), _RaisingSource()]
-    ):
-        with pytest.raises(ApplicationError) as exc_info:
-            await env.run(
-                gather_brief_inputs_activity,
-                GenerateBriefWorkflowInputs(team_id=team.pk, brief_id="unused", brief_config_id=None, period_days=7),
-            )
-    assert exc_info.value.non_retryable is False
+    inputs = GenerateBriefWorkflowInputs(team_id=team.pk, brief_id="unused", brief_config_id=None, period_days=7)
+    with patch("products.pulse.backend.temporal.activities.get_sources", return_value=sources):
+        if expect_raise:
+            with pytest.raises(ApplicationError) as exc_info:
+                await env.run(gather_brief_inputs_activity, inputs)
+            assert exc_info.value.non_retryable is False
+        else:
+            assert await env.run(gather_brief_inputs_activity, inputs) == []
 
 
 async def test_gather_activity_cap_keeps_high_priority_kinds(team) -> None:
