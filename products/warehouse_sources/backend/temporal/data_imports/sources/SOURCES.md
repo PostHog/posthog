@@ -280,6 +280,7 @@ the row lists both.
 | plaid                   | HTTP                        | requests                                                        | ✅                          |
 | postgres                | DB protocol                 | psycopg                                                         | ➖                          |
 | postmark                | HTTP                        | requests                                                        | ✅                          |
+| pretix                  | HTTP                        | requests                                                        | ✅                          |
 | productboard            | HTTP                        | requests                                                        | ✅                          |
 | pylon                   | HTTP                        | requests                                                        | ✅                          |
 | qualaroo                | HTTP                        | requests                                                        | ✅                          |
@@ -611,7 +612,6 @@ doesn't conflict with concurrent PRs.
 - polygon
 - poplar
 - prestashop
-- pretix
 - primetric
 - printify
 - productive
