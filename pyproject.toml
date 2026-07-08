@@ -544,6 +544,7 @@ ignore_imports = [
     # the facade.
     "products.logs.backend.presentation.views.api -> products.logs.backend.count_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.count_ranges_query_runner",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.group_by_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.has_logs_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.log_attributes_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.log_facet_values_query_runner",

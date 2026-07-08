@@ -1053,6 +1053,92 @@ export interface _LogsFacetValuesResponseApi {
     results: _LogFacetValueApi[]
 }
 
+/**
+ * * `log` - log
+ * * `resource` - resource
+ * * `column` - column
+ */
+export type GroupBySourceEnumApi = (typeof GroupBySourceEnumApi)[keyof typeof GroupBySourceEnumApi]
+
+export const GroupBySourceEnumApi = {
+    Log: 'log',
+    Resource: 'resource',
+    Column: 'column',
+} as const
+
+/**
+ * * `log_count` - log_count
+ * * `error_count` - error_count
+ * * `last_seen` - last_seen
+ */
+export type OrderGroupsByEnumApi = (typeof OrderGroupsByEnumApi)[keyof typeof OrderGroupsByEnumApi]
+
+export const OrderGroupsByEnumApi = {
+    LogCount: 'log_count',
+    ErrorCount: 'error_count',
+    LastSeen: 'last_seen',
+} as const
+
+export interface _LogsGroupByBodyApi {
+    /** Date range to aggregate over. Defaults to last hour. */
+    dateRange?: _DateRangeApi
+    /** Filter by log severity levels before grouping. */
+    severityLevels?: SeverityLevelsEnumApi[]
+    /** Restrict grouping to these service names. */
+    serviceNames?: string[]
+    /** Full-text search term to filter log bodies before grouping. */
+    searchTerm?: string
+    /** Property filters applied before grouping. Same shape as the query-logs endpoint. */
+    filterGroup?: _LogPropertyFilterApi[]
+    /** The key to group logs by — an attribute key (e.g. "session_id", "service.name") or, when groupBySource is "column", one of the top-level log fields: "severity_level", "trace_id", "span_id". */
+    groupBy: string
+    /** Where the grouping key lives: "log" for log-level attributes, "resource" for resource-level attributes, "column" for top-level log fields.
+     *
+     * * `log` - log
+     * * `resource` - resource
+     * * `column` - column */
+    groupBySource?: GroupBySourceEnumApi
+    /** Aggregate to rank groups by (descending): "log_count" for the noisiest groups, "error_count" for the most failing, "last_seen" for the most recent.
+     *
+     * * `log_count` - log_count
+     * * `error_count` - error_count
+     * * `last_seen` - last_seen */
+    orderGroupsBy?: OrderGroupsByEnumApi
+    /**
+     * Maximum number of groups to return (top-N by orderGroupsBy). Defaults to 100.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+}
+
+export interface _LogsGroupByRequestApi {
+    /** The group-by query to execute. */
+    query: _LogsGroupByBodyApi
+}
+
+export interface _LogsGroupByGroupApi {
+    /** The grouped attribute value identifying this group. */
+    value: string
+    /** Number of matching logs in this group. */
+    log_count: number
+    /** Number of matching logs in this group at severity "error" or "fatal". */
+    error_count: number
+    /** ISO 8601 timestamp of the most recent matching log in this group. */
+    last_seen: string
+}
+
+export interface _LogsGroupByResponseApi {
+    /** Top groups ordered by the requested aggregate, descending. Capped at `limit`. */
+    groups: _LogsGroupByGroupApi[]
+    /** Total distinct group values matching the filters, before the top-N cap. */
+    total_groups: number
+    /** Total matching logs across all groups (rows without the grouping key are excluded). */
+    total_logs: number
+    /** True when more groups matched than were returned (total_groups > groups length). */
+    truncated: boolean
+}
+
 export interface _LogsPatternsBodyApi {
     /** Date range to mine patterns from. Defaults to last hour. */
     dateRange?: _DateRangeApi
