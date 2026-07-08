@@ -8,6 +8,8 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { alertsToThresholdGoalLines, insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -184,6 +186,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         dataVisualizationProps,
         presetChartHeight,
     } = useValues(dataVisualizationLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines } = useValues(displayLogic)
@@ -220,6 +223,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     // opted in with context.onDateRangeZoom (the insight scene's view mode).
     const contextZoom = props.context?.onDateRangeZoom
     const canZoomDateRange =
+        !!featureFlags[FEATURE_FLAGS.INSIGHT_DRAG_TO_ZOOM] &&
         (!readOnly || !!contextZoom) &&
         !dashboardId &&
         sourceFeatures.has(QueryFeature.dateRangePicker) &&

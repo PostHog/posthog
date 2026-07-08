@@ -28,9 +28,11 @@ import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
@@ -909,10 +911,13 @@ function InternalDataTableVisualization(
 
     const { queryInput } = useValues(sqlEditorLogic)
     const { runQuery } = useActions(sqlEditorLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     // Drag-to-zoom rewrites filters.dateRange, which only applies when the SQL consumes {filters}.
     const canZoomDateRange =
-        !props.embedded && queryUsesFiltersPlaceholder(queryInput ?? props.query.source.query ?? null)
+        !!featureFlags[FEATURE_FLAGS.INSIGHT_DRAG_TO_ZOOM] &&
+        !props.embedded &&
+        queryUsesFiltersPlaceholder(queryInput ?? props.query.source.query ?? null)
 
     const propsQuery = props.query
     const propsSetQuery = props.setQuery
