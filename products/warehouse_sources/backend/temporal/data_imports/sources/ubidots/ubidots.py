@@ -2,7 +2,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse, urlunparse
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -64,6 +64,21 @@ def _validated_api_base_url(api_base_url: str | None) -> str:
     return normalized
 
 
+def _validated_page_url(url: str, base_url: str) -> str:
+    """Pin pagination and resume URLs to the configured Ubidots host.
+
+    ``next`` links come from API responses and resume cursors come from Redis; neither may
+    redirect the token-bearing session off the configured host. A matching-host http link is
+    upgraded to https rather than rejected, since proxied APIs sometimes emit http next links.
+    """
+    parsed = urlparse(url)
+    if parsed.netloc != urlparse(base_url).netloc or parsed.scheme not in ("http", "https"):
+        raise ValueError(f"Refusing to follow pagination URL off the configured Ubidots host: {url}")
+    if parsed.scheme == "http":
+        return urlunparse(parsed._replace(scheme="https"))
+    return url
+
+
 def _start_timestamp_ms(value: Any) -> Optional[int]:
     """Coerce an incremental watermark into the millisecond epoch integer `start` expects."""
     if value is None:
@@ -123,7 +138,7 @@ def get_rows(
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     url: Optional[str] = (
-        resume.next_url
+        _validated_page_url(resume.next_url, base_url)
         if (resume and resume.next_url)
         else f"{base_url}{config.path}?{urlencode({'page_size': PAGE_SIZE})}"
     )
@@ -139,10 +154,10 @@ def get_rows(
         if not next_url:
             break
 
-        url = next_url
+        url = _validated_page_url(next_url, base_url)
         # Save AFTER yielding so a crash re-fetches from the next cursor (already-yielded pages are
         # persisted); merge dedupes the re-pulled page on the primary key.
-        resumable_source_manager.save_state(UbidotsResumeConfig(next_url=next_url))
+        resumable_source_manager.save_state(UbidotsResumeConfig(next_url=url))
 
 
 def _iter_variable_ids(
@@ -153,7 +168,8 @@ def _iter_variable_ids(
     """List every variable id via the v2.0 API — the parent set the values stream fans out over."""
     url: Optional[str] = f"{base_url}{VARIABLES_LIST_PATH}?{urlencode({'page_size': PAGE_SIZE})}"
     while url:
-        items, url = _fetch_page(session, url, logger)
+        items, next_url = _fetch_page(session, url, logger)
+        url = _validated_page_url(next_url, base_url) if next_url else None
         for item in items:
             # Direct access on purpose: a variable without an id would otherwise silently drop its
             # whole time series from the sync — better to fail loudly on a malformed page.
@@ -192,7 +208,7 @@ def get_values_rows(
             continue
 
         if variable_id == resume_variable_id and resume_next_url:
-            url: Optional[str] = resume_next_url
+            url: Optional[str] = _validated_page_url(resume_next_url, base_url)
             logger.debug(f"Ubidots: resuming values for variable {variable_id} from cursor {url}")
         else:
             url = _initial_values_url(base_url, variable_id, start)
@@ -215,12 +231,12 @@ def get_values_rows(
                 )
                 break
 
-            url = next_url
+            url = _validated_page_url(next_url, base_url)
             # Save AFTER yielding so a crash re-fetches from the next cursor; merge dedupes the
             # re-pulled page on ["variable", "timestamp"].
             resumable_source_manager.save_state(
                 UbidotsResumeConfig(
-                    next_url=next_url,
+                    next_url=url,
                     current_variable_id=variable_id,
                     completed_variable_ids=sorted(completed),
                 )

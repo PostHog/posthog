@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.ub
     UbidotsRetryableError,
     _start_timestamp_ms,
     _validated_api_base_url,
+    _validated_page_url,
     check_access,
     get_rows,
     get_values_rows,
@@ -112,6 +113,12 @@ class TestGetRows:
         rows = self._collect(manager, monkeypatch, {DEVICES_FIRST_URL: ([], None)})
         assert rows == []
         assert manager.saved == []
+
+    def test_tampered_resume_cursor_is_rejected(self, monkeypatch: Any) -> None:
+        # A poisoned Redis cursor must never be fetched with the token-bearing session.
+        manager = _FakeResumableManager(UbidotsResumeConfig(next_url="https://evil.example.com/steal"))
+        with pytest.raises(ValueError, match="off the configured Ubidots host"):
+            self._collect(manager, monkeypatch, {})
 
 
 class TestGetValuesRows:
@@ -242,6 +249,16 @@ class TestGetValuesRows:
         # The capped variable still counts as complete so the sync can finish.
         assert manager.saved[-1].completed_variable_ids == ["var1"]
 
+    def test_poisoned_next_link_is_rejected(self, monkeypatch: Any) -> None:
+        # A next link off the configured host must stop the sync, not be followed with the token.
+        manager = _FakeResumableManager()
+        pages: dict[str, tuple[list[dict], Optional[str]]] = {
+            VARIABLES_FIRST_URL: ([{"id": "var1"}], None),
+            _values_url("var1"): ([{"timestamp": 2}], "https://evil.example.com/next"),
+        }
+        with pytest.raises(ValueError, match="off the configured Ubidots host"):
+            self._collect(manager, monkeypatch, pages)
+
     def test_variables_list_pagination_is_followed(self, monkeypatch: Any) -> None:
         variables_page2 = f"{DEFAULT_UBIDOTS_API_BASE_URL}/api/v2.0/variables/?page=2&page_size=200"
         manager = _FakeResumableManager()
@@ -347,6 +364,34 @@ class TestHelpers:
         # The stored token must never be sent to a host outside the fixed Ubidots set.
         with pytest.raises(ValueError):
             _validated_api_base_url(given)
+
+    @parameterized.expand(
+        [
+            ("same_host_https", "https://industrial.api.ubidots.com/api/v2.0/devices/?page=2"),
+            ("same_host_with_query", "https://industrial.api.ubidots.com/api/v1.6/variables/v1/values?page=3"),
+        ]
+    )
+    def test_validated_page_url_accepts_same_host(self, _name: str, url: str) -> None:
+        assert _validated_page_url(url, DEFAULT_UBIDOTS_API_BASE_URL) == url
+
+    def test_validated_page_url_upgrades_http_to_https(self) -> None:
+        # Proxied APIs sometimes emit http next links; same-host http is upgraded, not rejected.
+        upgraded = _validated_page_url(
+            "http://industrial.api.ubidots.com/api/v2.0/devices/?page=2", DEFAULT_UBIDOTS_API_BASE_URL
+        )
+        assert upgraded == "https://industrial.api.ubidots.com/api/v2.0/devices/?page=2"
+
+    @parameterized.expand(
+        [
+            ("attacker_host", "https://evil.example.com/api/v2.0/devices/?page=2"),
+            ("lookalike", "https://industrial.api.ubidots.com.evil.example.com/api/v2.0/devices/"),
+            ("other_ubidots_host", "https://things.ubidots.com/api/v2.0/devices/?page=2"),
+            ("non_http_scheme", "file:///etc/passwd"),
+        ]
+    )
+    def test_validated_page_url_rejects_off_host_urls(self, _name: str, url: str) -> None:
+        with pytest.raises(ValueError, match="off the configured Ubidots host"):
+            _validated_page_url(url, DEFAULT_UBIDOTS_API_BASE_URL)
 
 
 class TestCheckAccess:
