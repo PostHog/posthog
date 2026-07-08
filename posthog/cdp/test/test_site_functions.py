@@ -312,7 +312,7 @@ class TestSiteFunctions(TestCase):
         ]
     )
     @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
-    def test_get_transpiled_function_with_unsupported_cohort_raises_error(
+    def test_get_transpiled_function_with_unsupported_cohort_is_skipped(
         self, _name, is_static, filters, mock_transpile_fn
     ):
         cohort = Cohort.objects.create(
@@ -333,8 +333,10 @@ class TestSiteFunctions(TestCase):
             "filter_test_accounts": True,
         }
 
-        with pytest.raises(Exception, match="cohort"):
-            get_transpiled_function(self.hog_function)
+        # A cohort that can't be evaluated in real-time is skipped rather than failing the
+        # whole transpilation, so the site function still builds.
+        result = get_transpiled_function(self.hog_function)
+        assert result is not None
 
     @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_mappings(self, mock_transpile_fn):

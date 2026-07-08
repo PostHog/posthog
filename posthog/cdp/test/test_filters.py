@@ -490,7 +490,37 @@ class TestCohortInlining(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         res = execute_bytecode(result["bytecode"], hog_globals)
         assert res.result is False
 
-    def test_behavioral_cohort_still_errors(self):
+    def test_static_cohort_skipped_with_warning(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test users",
+            filters={"properties": {}},
+            is_static=True,
+        )
+        self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": cohort.pk, "operator": "not_in"}]
+        self.team.save()
+
+        # A static cohort can't be evaluated in real-time, but it must not disable the
+        # destination: the filter is skipped and the function still compiles to bytecode.
+        result = compile_filters_bytecode(
+            {"filter_test_accounts": True, "events": [{"id": "$pageview", "name": "$pageview", "type": "events"}]},
+            self.team,
+        )
+        assert result.get("bytecode") is not None
+        assert "bytecode_error" not in result
+        assert _normalize_error(result["bytecode_warning"]) == (
+            "Some of your internal/test user filters can't be evaluated in real-time and were skipped: "
+            "cohort 'Test users' (id=N) is a static cohort — static cohort membership can't be evaluated in "
+            "real-time filters. Events from those users may still be processed by this destination. "
+            "To filter them out in real-time, switch to a cohort that only uses person properties, "
+            "or replace the cohort with inline person property filters. "
+            "Update your filters at: SETTINGS_URL#internal-user-filtering"
+        )
+
+        # The skipped filter no longer excludes anyone, so a matching event passes through.
+        assert execute_bytecode(result["bytecode"], {"event": "$pageview"}).result is True
+
+    def test_behavioral_cohort_skipped_with_warning(self):
         cohort = Cohort.objects.create(
             team=self.team,
             name="Behavioral cohort",
@@ -513,17 +543,19 @@ class TestCohortInlining(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.team.save()
 
         result = compile_filters_bytecode({"filter_test_accounts": True}, self.team)
-        assert result["bytecode"] is None
-        assert _normalize_error(result["bytecode_error"]) == (
-            "Your internal/test user filters include cohorts that can't be used in real-time filters: "
+        assert result.get("bytecode") is not None
+        assert "bytecode_error" not in result
+        assert _normalize_error(result["bytecode_warning"]) == (
+            "Some of your internal/test user filters can't be evaluated in real-time and were skipped: "
             "cohort 'Behavioral cohort' (id=N) contains behavioral filters — "
             "only cohorts with exclusively person property filters can be used in real-time filters. "
-            "Either switch to a cohort that only uses person properties, "
+            "Events from those users may still be processed by this destination. "
+            "To filter them out in real-time, switch to a cohort that only uses person properties, "
             "or replace the cohort with inline person property filters. "
             "Update your filters at: SETTINGS_URL#internal-user-filtering"
         )
 
-    def test_nested_cohort_reference_still_errors(self):
+    def test_nested_cohort_reference_skipped_with_warning(self):
         inner_cohort = Cohort.objects.create(
             team=self.team,
             name="Inner cohort",
@@ -550,26 +582,30 @@ class TestCohortInlining(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.team.save()
 
         result = compile_filters_bytecode({"filter_test_accounts": True}, self.team)
-        assert result["bytecode"] is None
-        assert _normalize_error(result["bytecode_error"]) == (
-            "Your internal/test user filters include cohorts that can't be used in real-time filters: "
+        assert result.get("bytecode") is not None
+        assert "bytecode_error" not in result
+        assert _normalize_error(result["bytecode_warning"]) == (
+            "Some of your internal/test user filters can't be evaluated in real-time and were skipped: "
             "cohort 'Outer cohort with nested ref' (id=N) contains cohort filters — "
             "only cohorts with exclusively person property filters can be used in real-time filters. "
-            "Either switch to a cohort that only uses person properties, "
+            "Events from those users may still be processed by this destination. "
+            "To filter them out in real-time, switch to a cohort that only uses person properties, "
             "or replace the cohort with inline person property filters. "
             "Update your filters at: SETTINGS_URL#internal-user-filtering"
         )
 
-    def test_nonexistent_cohort_falls_through_to_error(self):
+    def test_nonexistent_cohort_skipped_with_warning(self):
         self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": 999999}]
         self.team.save()
 
         result = compile_filters_bytecode({"filter_test_accounts": True}, self.team)
-        assert result["bytecode"] is None
-        assert _normalize_error(result["bytecode_error"]) == (
-            "Your internal/test user filters include cohorts that can't be used in real-time filters: "
+        assert result.get("bytecode") is not None
+        assert "bytecode_error" not in result
+        assert _normalize_error(result["bytecode_warning"]) == (
+            "Some of your internal/test user filters can't be evaluated in real-time and were skipped: "
             "cohort id=N not found. "
-            "Either switch to a cohort that only uses person properties, "
+            "Events from those users may still be processed by this destination. "
+            "To filter them out in real-time, switch to a cohort that only uses person properties, "
             "or replace the cohort with inline person property filters. "
             "Update your filters at: SETTINGS_URL#internal-user-filtering"
         )
@@ -726,7 +762,7 @@ class TestCohortInlining(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         hog_globals = {"person": {"properties": {"email": "bot@test.io", "role": "engineer"}}}
         assert execute_bytecode(result["bytecode"], hog_globals).result is True
 
-    def test_empty_cohort_properties_falls_through(self):
+    def test_empty_cohort_properties_skipped_with_warning(self):
         cohort = Cohort.objects.create(
             team=self.team,
             name="Empty cohort",
@@ -737,12 +773,13 @@ class TestCohortInlining(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.team.save()
 
         result = compile_filters_bytecode({"filter_test_accounts": True}, self.team)
-        # Empty properties caught by _try_inline_cohort_filter, raises CohortInlineError
-        assert result["bytecode"] is None
-        assert _normalize_error(result["bytecode_error"]) == (
-            "Your internal/test user filters include cohorts that can't be used in real-time filters: "
+        assert result.get("bytecode") is not None
+        assert "bytecode_error" not in result
+        assert _normalize_error(result["bytecode_warning"]) == (
+            "Some of your internal/test user filters can't be evaluated in real-time and were skipped: "
             "cohort 'Empty cohort' (id=N) has no properties defined. "
-            "Either switch to a cohort that only uses person properties, "
+            "Events from those users may still be processed by this destination. "
+            "To filter them out in real-time, switch to a cohort that only uses person properties, "
             "or replace the cohort with inline person property filters. "
             "Update your filters at: SETTINGS_URL#internal-user-filtering"
         )

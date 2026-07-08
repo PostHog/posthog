@@ -6998,6 +6998,7 @@ export interface CyclotronJobFiltersType {
     filter_test_accounts?: boolean
     bytecode?: any[]
     bytecode_error?: string
+    bytecode_warning?: string
 }
 
 export type CyclotronJobInputType = CyclotronInputType

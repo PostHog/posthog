@@ -491,6 +491,7 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
     transpiled = serializers.JSONField(required=False)
     filter_test_accounts = serializers.BooleanField(required=False)
     bytecode_error = serializers.CharField(required=False)
+    bytecode_warning = serializers.CharField(required=False, allow_null=True)
 
     def to_internal_value(self, data):
         # Weirdly nested serializers don't get this set...

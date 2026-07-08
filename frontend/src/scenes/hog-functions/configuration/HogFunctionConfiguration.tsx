@@ -98,6 +98,12 @@ export function HogFunctionConfiguration({
                             <b>Error saving filters:</b> {hogFunction.filters.bytecode_error}
                         </LemonBanner>
                     </div>
+                ) : hogFunction?.filters?.bytecode_warning ? (
+                    <div>
+                        <LemonBanner type="warning">
+                            <b>Some filters were skipped:</b> {hogFunction.filters.bytecode_warning}
+                        </LemonBanner>
+                    </div>
                 ) : [
                       'template-google-ads',
                       'template-meta-ads',

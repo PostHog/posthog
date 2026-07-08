@@ -16,14 +16,6 @@ from products.cohorts.backend.models.cohort import Cohort
 COHORT_FILTER_TYPES = frozenset({"cohort", "static-cohort", "precalculated-cohort", "dynamic-cohort"})
 
 
-class CohortInlineError(Exception):
-    """Raised when cohort test account filters can't be inlined for real-time use."""
-
-    def __init__(self, reasons: list[str]):
-        self.reasons = reasons
-        super().__init__("Can't use cohorts in real-time filters")
-
-
 def _is_cohort_filter(prop: dict) -> bool:
     return isinstance(prop, dict) and prop.get("type") in COHORT_FILTER_TYPES
 
@@ -106,36 +98,39 @@ def _try_inline_cohort_filter(prop: dict, team: Team) -> tuple[list[ast.Expr], N
     return exprs, None
 
 
-def _build_test_account_filters(filters: dict, team: Team) -> list[ast.Expr]:
+def _build_test_account_filters(filters: dict, team: Team) -> tuple[list[ast.Expr], list[str]]:
     """Build filters to exclude test account events.
 
     For cohort filters that only contain person properties, inline the properties
     directly so they work in real-time bytecode filters (which can't do cohort lookups).
+
+    A cohort that can't be inlined (static cohort, behavioral cohort, missing cohort, ...)
+    is skipped rather than failing the whole compilation: a team-level test-account filter
+    that can't be evaluated in real-time should degrade to "that one filter is ignored"
+    rather than taking the entire destination down. The skip reasons are returned alongside
+    the expressions so callers can surface them as a warning.
     """
     if not filters.get("filter_test_accounts", False):
-        return []
+        return [], []
 
     result: list[ast.Expr] = []
-    inline_failures: list[str] = []
+    warnings: list[str] = []
     for prop in team.test_account_filters:
         if _is_cohort_filter(prop):
             exprs, reason = _try_inline_cohort_filter(prop, team)
             if exprs is not None:
                 result.extend(exprs)
                 continue
-            # Cohort couldn't be inlined — record the reason and skip the standard
-            # path (property_to_expr would generate a CohortMembership node that
-            # the bytecode compiler will reject anyway).
+            # Cohort couldn't be inlined, so skip it and record why. The standard
+            # property_to_expr path would generate a CohortMembership node that the
+            # bytecode compiler rejects, which would disable the destination outright.
             if reason:
-                inline_failures.append(reason)
+                warnings.append(reason)
             continue
         # Non-cohort filter — use standard path
         result.append(property_to_expr(prop, team))
 
-    if inline_failures:
-        raise CohortInlineError(inline_failures)
-
-    return result
+    return result, warnings
 
 
 def _build_global_property_filters(filters: dict, team: Team) -> list[ast.Expr]:
@@ -206,8 +201,8 @@ def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, A
     Optimized to evaluate test account filters only once at the top level,
     rather than duplicating them for each event/action check.
     """
-    # Build component filters
-    test_account_filters = _build_test_account_filters(filters, team)
+    # Build component filters (warnings are surfaced by compile_filters_bytecode)
+    test_account_filters, _ = _build_test_account_filters(filters, team)
     global_property_filters = _build_global_property_filters(filters, team)
 
     # Get all event and action filters
@@ -274,6 +269,18 @@ def _internal_user_settings_url(team_id: int) -> str:
     return f"{site_url}/project/{team_id}/settings/project#internal-user-filtering"
 
 
+def _format_test_account_warning(reasons: list[str], team_id: int) -> str:
+    settings_url = _internal_user_settings_url(team_id)
+    details = "; ".join(reasons)
+    return (
+        f"Some of your internal/test user filters can't be evaluated in real-time and were skipped: "
+        f"{details}. Events from those users may still be processed by this destination. "
+        f"To filter them out in real-time, switch to a cohort that only uses person properties, "
+        f"or replace the cohort with inline person property filters. "
+        f"Update your filters at: {settings_url}"
+    )
+
+
 class _LowerConstantMembership(CloningVisitor):
     """Rewrite `x IN (c1, c2, ...)` / `x NOT IN (...)` over constant literals into a coercing
     OR-of-EQ / AND-of-NotEq chain. The Hog VM evaluates the IN/NOT_IN opcode with strict equality
@@ -321,17 +328,15 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
             raise Exception(f"Filter compilation errors: {error_messages}")
         if "bytecode_error" in filters:
             del filters["bytecode_error"]
-    except CohortInlineError as e:
-        settings_url = _internal_user_settings_url(team.id)
-        details = "; ".join(e.reasons)
-        filters["bytecode"] = None
-        filters["bytecode_error"] = (
-            f"Your internal/test user filters include cohorts that can't be used in real-time filters: "
-            f"{details}. "
-            f"Either switch to a cohort that only uses person properties, "
-            f"or replace the cohort with inline person property filters. "
-            f"Update your filters at: {settings_url}"
-        )
+
+        # Test-account cohort filters that can't be evaluated in real-time are skipped
+        # rather than failing compilation. Surface them as a non-fatal warning so the
+        # destination keeps running instead of being disabled outright.
+        _, test_account_warnings = _build_test_account_filters(filters, team)
+        if test_account_warnings:
+            filters["bytecode_warning"] = _format_test_account_warning(test_account_warnings, team.id)
+        elif "bytecode_warning" in filters:
+            del filters["bytecode_warning"]
     except Exception as e:
         error_msg = str(e)
 
@@ -348,6 +353,8 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
 
         filters["bytecode"] = None
         filters["bytecode_error"] = error_msg
+        if "bytecode_warning" in filters:
+            del filters["bytecode_warning"]
 
     return filters
 
