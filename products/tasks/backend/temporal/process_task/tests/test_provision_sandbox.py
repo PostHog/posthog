@@ -52,15 +52,27 @@ def _prepared(**overrides) -> PrepareSandboxForRepositoryOutput:
     return PrepareSandboxForRepositoryOutput(**defaults)
 
 
+# A prefixed-dispatch id (not the derived task-processing-<task>-<run> shape): the tags read the
+# RUNNING workflow's id via activity.info(), which only exists inside an activity context — and
+# labeling prefixed dispatches correctly is the reason the derived id was dropped.
+_WORKFLOW_ID = "review-pr:42:posthog/posthog:7-sandbox"
+
+
+def _build_tags(*args, **kwargs):
+    with patch(f"{_PROVISION}.activity") as mock_activity:
+        mock_activity.info.return_value = MagicMock(workflow_id=_WORKFLOW_ID)
+        return _build_sandbox_tags(*args, **kwargs)
+
+
 def test_build_sandbox_tags_includes_all_identifiers():
-    tags = _build_sandbox_tags(_context(), _prepared(), use_vm_sandbox=False)
+    tags = _build_tags(_context(), _prepared(), use_vm_sandbox=False)
 
     assert tags == {
         "task_id": "task-123",
         "task_run_id": "run-456",
         "origin_product": "error_tracking",
         "team_id": "42",
-        "workflow_id": "task-processing-task-123-run-456",
+        "workflow_id": _WORKFLOW_ID,
         "image_source": "base_image",
         "sandbox_runtime": "gvisor",
     }
@@ -68,20 +80,20 @@ def test_build_sandbox_tags_includes_all_identifiers():
 
 @pytest.mark.parametrize("use_vm_sandbox, expected", [(True, "vm"), (False, "gvisor")])
 def test_build_sandbox_tags_marks_runtime(use_vm_sandbox, expected):
-    tags = _build_sandbox_tags(_context(), _prepared(), use_vm_sandbox=use_vm_sandbox)
+    tags = _build_tags(_context(), _prepared(), use_vm_sandbox=use_vm_sandbox)
 
     assert tags["sandbox_runtime"] == expected
 
 
 @pytest.mark.parametrize("image_source", ["base_image", "resume_snapshot", "repository_snapshot"])
 def test_build_sandbox_tags_reflects_image_source(image_source):
-    tags = _build_sandbox_tags(_context(), _prepared(image_source=image_source), use_vm_sandbox=False)
+    tags = _build_tags(_context(), _prepared(image_source=image_source), use_vm_sandbox=False)
 
     assert tags["image_source"] == image_source
 
 
 def test_build_sandbox_tags_drops_none_values():
-    tags = _build_sandbox_tags(_context(origin_product=None), _prepared(), use_vm_sandbox=False)
+    tags = _build_tags(_context(origin_product=None), _prepared(), use_vm_sandbox=False)
 
     assert "origin_product" not in tags
     assert all(isinstance(value, str) for value in tags.values())
