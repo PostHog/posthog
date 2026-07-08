@@ -950,9 +950,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         if status == "active" and instance and instance.status != "active" and "actions" not in data:
             action_serializer = HogFlowActionSerializer(data=instance.actions, many=True, context=self.context)
             if not action_serializer.is_valid():
-                raise serializers.ValidationError(
-                    {"actions": _describe_action_errors(action_serializer.errors, instance.actions)}
-                )
+                # many=True yields a list of per-action errors despite the ReturnDict annotation
+                action_errors = cast(list[Any], action_serializer.errors)
+                raise serializers.ValidationError({"actions": _describe_action_errors(action_errors, instance.actions)})
             actions = action_serializer.validated_data
 
         # The trigger is derived from the actions. We can trust the action level validation and pull it out
