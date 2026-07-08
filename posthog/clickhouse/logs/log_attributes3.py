@@ -1,8 +1,9 @@
 from django.conf import settings
 
-from posthog.clickhouse.table_engines import AggregatingMergeTree, ReplicationScheme
+from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 
 TABLE_NAME = "log_attributes3"
+DISTRIBUTED_TABLE_NAME = "log_attributes3_distributed"
 
 
 def LOG_ATTRIBUTES3_TABLE_SQL():
@@ -32,3 +33,22 @@ SETTINGS
     deduplicate_merge_projection_mode = 'drop',
     index_granularity = 8192
 """
+
+
+def LOG_ATTRIBUTES3_DISTRIBUTED_TABLE_SQL():
+    # A separate distributed table rather than repointing log_attributes_distributed:
+    # log_attributes3 only holds data written since its MVs went live, so cutting the
+    # shared read table over before that floor ages past the TTL would silently drop
+    # history for existing readers. Readers that need severity opt in here; the shared
+    # table can be cut over (and this one retired) once gen 3 covers full retention.
+    return """
+CREATE TABLE IF NOT EXISTS {database}.{distributed_table_name} AS {database}.{table_name} ENGINE = {engine}
+""".format(
+        engine=Distributed(
+            data_table=TABLE_NAME,
+            cluster=settings.CLICKHOUSE_LOGS_CLUSTER,
+        ),
+        database=settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE,
+        distributed_table_name=DISTRIBUTED_TABLE_NAME,
+        table_name=TABLE_NAME,
+    )

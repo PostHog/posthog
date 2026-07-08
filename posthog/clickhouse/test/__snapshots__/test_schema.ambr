@@ -2791,6 +2791,13 @@
   
   '''
 # ---
+# name: test_create_table_query[log_attributes3_distributed]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.log_attributes3_distributed AS posthog_test.log_attributes3 ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'log_attributes3')
+  
+  '''
+# ---
 # name: test_create_table_query[log_attributes]
   '''
   
