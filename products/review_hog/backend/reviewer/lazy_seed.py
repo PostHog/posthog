@@ -104,7 +104,7 @@ class SyncResult:
     created_skill_names: tuple[str, ...] = ()
     updated_skill_names: tuple[str, ...] = ()
     diverged_skill_names: tuple[str, ...] = ()
-    tombstoned_skill_names: tuple[str, ...] = ()
+    resurrected_skill_names: tuple[str, ...] = ()
     pruned_skill_names: tuple[str, ...] = ()
     skipped_reason: str | None = None
 
@@ -335,13 +335,48 @@ def _update_skill_from_canonical(
             )
 
 
+def _resurrect_skill_from_canonical(
+    team: Team, newest_dead: LLMSkill, canonical: CanonicalSkill, canonical_hash: str, *, category: str
+) -> None:
+    """Recreate a canonical whose rows were all soft-deleted (e.g. archived from the Skills UI).
+
+    Skill deletion is not ReviewHog's opt-out signal — disabling the `ReviewSkillConfig` is — so the
+    sync restores the canonical at the next version instead of honoring an archive made on an
+    unrelated surface. A racing write collides on the unique constraint; the caller swallows it.
+    """
+    with transaction.atomic():
+        new_skill = LLMSkill.objects.create(
+            team=team,
+            name=canonical.name,
+            description=canonical.description,
+            body=canonical.body,
+            allowed_tools=list(canonical.allowed_tools),
+            metadata={
+                "seeded_by": REVIEW_HOG_SEEDED_BY,
+                "source": _SOURCE,
+                "canonical_hash": canonical_hash,
+            },
+            category=category,
+            version=newest_dead.version + 1,
+            is_latest=True,
+        )
+        if canonical.files:
+            LLMSkillFile.objects.bulk_create(
+                [
+                    LLMSkillFile(skill=new_skill, path=f.path, content=f.content, content_type=f.content_type)
+                    for f in canonical.files
+                ]
+            )
+
+
 def _sync_canonicals(
     team: Team, *, canonicals: tuple[CanonicalSkill, ...], category: str, prefix: str, prune: bool = False
 ) -> SyncResult:
     """Reconcile a team's rows with a set of canonical `<prefix>*` skills on disk.
 
-    Per skill: create if missing, update if we seeded it and the team hasn't edited it, otherwise
-    leave it alone (diverged / hand-authored / tombstoned). Only rows tagged
+    Per skill: create if missing, update if we seeded it and the team hasn't edited it, resurrect
+    if every row is soft-deleted (skill deletion is not ReviewHog's opt-out — the config toggle is),
+    otherwise leave it alone (diverged / hand-authored). Only rows tagged
     `metadata.seeded_by == "review_hog"` are ever updated.
 
     `prune` (default off) additionally tombstones live `<prefix>*` rows we seeded whose canonical was
@@ -356,7 +391,7 @@ def _sync_canonicals(
     created: list[str] = []
     updated: list[str] = []
     diverged: list[str] = []
-    tombstoned: list[str] = []
+    resurrected: list[str] = []
     pruned: list[str] = []
 
     for canonical in canonicals:
@@ -376,8 +411,16 @@ def _sync_canonicals(
 
         live = next((r for r in rows if not r.deleted and r.is_latest), None)
         if live is None:
-            # All rows deleted / non-latest — the team removed this perspective. Don't resurrect.
-            tombstoned.append(canonical.name)
+            # All rows dead (e.g. archived via the general Skills UI). Canonicals always come back:
+            # disabling the ReviewSkillConfig is the opt-out lever, not skill deletion.
+            try:
+                _resurrect_skill_from_canonical(team, rows[0], canonical, canonical_hash, category=category)
+                resurrected.append(canonical.name)
+            except IntegrityError:
+                logger.info(
+                    "review_hog: concurrent resurrect lost the race; skipping",
+                    extra={"team_id": team.id, "skill_name": canonical.name},
+                )
             continue
 
         if (live.metadata or {}).get("seeded_by") != REVIEW_HOG_SEEDED_BY:
@@ -438,7 +481,7 @@ def _sync_canonicals(
             ).update(deleted=True, is_latest=False)
             pruned.append(row.name)
 
-    if created or updated or pruned:
+    if created or updated or resurrected or pruned:
         logger.info(
             "review_hog: synced canonical skills",
             extra={
@@ -447,7 +490,7 @@ def _sync_canonicals(
                 "created_skills": created,
                 "updated_skills": updated,
                 "diverged_skills": diverged,
-                "tombstoned_skills": tombstoned,
+                "resurrected_skills": resurrected,
                 "pruned_skills": pruned,
             },
         )
@@ -456,7 +499,7 @@ def _sync_canonicals(
         created_skill_names=tuple(created),
         updated_skill_names=tuple(updated),
         diverged_skill_names=tuple(diverged),
-        tombstoned_skill_names=tuple(tombstoned),
+        resurrected_skill_names=tuple(resurrected),
         pruned_skill_names=tuple(pruned),
     )
 

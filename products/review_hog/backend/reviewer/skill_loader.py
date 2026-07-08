@@ -10,6 +10,7 @@ skill body over the PostHog MCP — so these loaders only need to pin the curren
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from posthog.models.scoping.manager import resolve_effective_team_id
@@ -17,6 +18,8 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 from products.review_hog.backend.models import ReviewSkillConfig
 from products.review_hog.backend.reviewer.models.issues_review import PerspectiveType
 from products.skills.backend.models.skills import LLMSkill
+
+logger = logging.getLogger(__name__)
 
 # Naming contract for review perspectives (mirrors `SIGNALS_SCOUT_SKILL_PREFIX`): any team skill with
 # this prefix is a perspective. Canonical and custom are identical except canonicals auto-seed enabled.
@@ -34,12 +37,8 @@ PERSPECTIVES: tuple[tuple[PerspectiveType, str], ...] = (
 CANONICAL_PERSPECTIVE_SKILL_NAMES: tuple[str, ...] = tuple(name for _, name in PERSPECTIVES)
 
 
-class PerspectiveSkillNotFoundError(LookupError):
-    """A user has an enabled perspective config whose `LLMSkill` row is missing (a real sync error)."""
-
-
 class NoEnabledPerspectivesError(LookupError):
-    """A user has zero enabled review perspectives on the team — there is nothing to review with."""
+    """No enabled review perspective resolves to a live skill — there is nothing to review with."""
 
 
 @dataclass(frozen=True)
@@ -85,10 +84,11 @@ def load_perspectives_for_run(team_id: int, acting_user_id: int) -> list[LoadedP
 
     Seeds the canonical configs first (so a cold user gets the 3 canonicals), then reads the user's
     enabled set and resolves each name to its live `LLMSkill` (latest, non-deleted). `pass_number`
-    is a per-run index over the enabled set sorted by name — a re-run with the same enabled set is
-    deterministic. Raises `NoEnabledPerspectivesError` if the user has zero enabled (min-1 floor)
-    and `PerspectiveSkillNotFoundError` if an enabled perspective's skill row is missing (a real
-    setup error — the caller cold-start-syncs the canonicals first).
+    is a per-run index over the resolved set sorted by name — a re-run with the same enabled set is
+    deterministic. An enabled perspective with no live skill row (e.g. an archived custom) is
+    skipped with a warning rather than failing the run; restoring the skill resumes it. Raises
+    `NoEnabledPerspectivesError` when nothing resolves — zero enabled (min-1 floor) or every
+    enabled name is dead.
     """
     register_missing_perspective_configs(team_id, acting_user_id)
     # Prefix-scope: perspectives and validators share this table — read only perspective rows here.
@@ -111,15 +111,26 @@ def load_perspectives_for_run(team_id: int, acting_user_id: int) -> list[LoadedP
         ).values_list("name", "version", "description")
     }
     loaded: list[LoadedPerspective] = []
-    for pass_number, skill_name in enumerate(enabled_names, start=1):
+    for skill_name in enabled_names:
         resolved = latest_by_name.get(skill_name)
         if resolved is None:
-            raise PerspectiveSkillNotFoundError(
-                f"No live skill '{skill_name}' on team {team_id} — the canonical sync has not seeded it"
+            # Enabled config pointing at a dead skill (e.g. archived from the Skills UI): drop it
+            # from this run instead of failing the review; restoring the skill resumes it.
+            logger.warning(
+                "review_hog: enabled perspective '%s' has no live skill on team %s; skipping it this run",
+                skill_name,
+                team_id,
             )
+            continue
         version, description = resolved
         loaded.append(
-            LoadedPerspective(pass_number=pass_number, skill_name=skill_name, version=version, description=description)
+            LoadedPerspective(
+                pass_number=len(loaded) + 1, skill_name=skill_name, version=version, description=description
+            )
+        )
+    if not loaded:
+        raise NoEnabledPerspectivesError(
+            f"None of user {acting_user_id}'s enabled perspectives has a live skill on team {team_id}"
         )
     return loaded
 
@@ -165,9 +176,11 @@ def _load_single_active_skill(
     """Resolve a user's single-active `<prefix>*` skill selection to a (name, pinned version).
 
     Reads the user's one enabled row for the prefix, falling back to the canonical when none is
-    enabled — there is always a default, so no min-1 floor. Raises `error` if the selected skill's
-    live row is missing (surfaced loudly like perspectives). The enabled set is single-active in app
-    code; `sorted(...)[0]` is only a deterministic tiebreak.
+    enabled — there is always a default, so no min-1 floor. A selected custom whose skill row is
+    dead (e.g. archived from the Skills UI) also falls back to the canonical rather than failing
+    the run. Raises `error` only when the canonical itself has no live row (the sync recreates
+    archived canonicals, so this is a genuine seeding failure). The enabled set is single-active in
+    app code; `sorted(...)[0]` is only a deterministic tiebreak.
     """
     enabled_names = sorted(
         ReviewSkillConfig.objects.for_team(team_id)
@@ -175,11 +188,24 @@ def _load_single_active_skill(
         .values_list("skill_name", flat=True)
     )
     skill_name = enabled_names[0] if enabled_names else canonical_name
-    version = (
-        LLMSkill.objects.filter(team_id=team_id, name=skill_name, deleted=False, is_latest=True)
-        .values_list("version", flat=True)
-        .first()
-    )
+
+    def _live_version(name: str) -> int | None:
+        return (
+            LLMSkill.objects.filter(team_id=team_id, name=name, deleted=False, is_latest=True)
+            .values_list("version", flat=True)
+            .first()
+        )
+
+    version = _live_version(skill_name)
+    if version is None and skill_name != canonical_name:
+        logger.warning(
+            "review_hog: selected skill '%s' has no live row on team %s; falling back to canonical '%s'",
+            skill_name,
+            team_id,
+            canonical_name,
+        )
+        skill_name = canonical_name
+        version = _live_version(canonical_name)
     if version is None:
         raise error(f"No live skill '{skill_name}' on team {team_id} — the canonical sync has not seeded it")
     return skill_name, version
@@ -190,7 +216,8 @@ def load_validation_skill_for_run(team_id: int, acting_user_id: int) -> LoadedVa
 
     Mirrors `load_perspectives_for_run` but single-active: seeds the canonical config (so a cold user
     has the canonical selected), then resolves the user's one enabled `review-hog-validation-*` row
-    (canonical fallback; loud `ValidationSkillNotFoundError` on a missing skill row).
+    (canonical fallback when none is enabled or the selection's row is dead; loud
+    `ValidationSkillNotFoundError` only when the canonical itself is missing).
     """
     register_missing_validation_config(team_id, acting_user_id)
     skill_name, version = _load_single_active_skill(
@@ -241,7 +268,8 @@ def load_blind_spots_skill_for_run(team_id: int, acting_user_id: int) -> LoadedB
 
     Mirrors `load_validation_skill_for_run`: seeds the canonical config (so a cold user has the
     canonical selected), then resolves the user's one enabled `review-hog-blind-spots-*` row
-    (canonical fallback; loud `BlindSpotsSkillNotFoundError` on a missing skill row).
+    (canonical fallback when none is enabled or the selection's row is dead; loud
+    `BlindSpotsSkillNotFoundError` only when the canonical itself is missing).
     """
     register_missing_blind_spots_config(team_id, acting_user_id)
     skill_name, version = _load_single_active_skill(

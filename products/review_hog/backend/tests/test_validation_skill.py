@@ -148,9 +148,9 @@ class TestLoadValidationSkillForRun(BaseTest):
 
         assert loaded.skill_name == REVIEW_HOG_VALIDATION_SKILL_NAME
 
-    def test_raises_when_the_selected_skill_row_is_missing(self) -> None:
-        # The user selected a custom validator whose skill row was later archived — surfaced loudly,
-        # like a missing perspective, rather than silently swapped.
+    def test_falls_back_to_canonical_when_the_selected_skill_row_is_missing(self) -> None:
+        # The user selected a custom validator whose skill row was later archived — the run falls
+        # back to the canonical instead of failing until someone repairs the config.
         sync_canonical_validation(self.team)
         configs = ReviewSkillConfig.objects.for_team(self.team.id)
         register_missing_validation_config(self.team.id, self.user.id)
@@ -159,8 +159,9 @@ class TestLoadValidationSkillForRun(BaseTest):
             team_id=self.team.id, user_id=self.user.id, skill_name=f"{REVIEW_HOG_VALIDATION_PREFIX}ghost", enabled=True
         )
 
-        with pytest.raises(ValidationSkillNotFoundError):
-            load_validation_skill_for_run(self.team.id, self.user.id)
+        loaded = load_validation_skill_for_run(self.team.id, self.user.id)
+
+        assert loaded.skill_name == REVIEW_HOG_VALIDATION_SKILL_NAME
 
     def test_raises_when_no_skill_synced(self) -> None:
         # No sync ran, so even the canonical fallback has no skill row — a real setup error.

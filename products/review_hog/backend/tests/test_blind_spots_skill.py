@@ -72,8 +72,8 @@ class TestLoadBlindSpotsSkillForRun(BaseTest):
 
         assert loaded.skill_name == REVIEW_HOG_BLIND_SPOTS_SKILL_NAME
 
-    def test_raises_when_the_selected_skill_row_is_missing(self) -> None:
-        # A selected sweep whose skill row was archived fails loudly, not silently swapped.
+    def test_falls_back_to_canonical_when_the_selected_skill_row_is_missing(self) -> None:
+        # A selected sweep whose skill row was archived falls back to the canonical, not a dead run.
         sync_canonical_blind_spots(self.team)
         register_missing_blind_spots_config(self.team.id, self.user.id)
         configs = ReviewSkillConfig.objects.for_team(self.team.id)
@@ -82,8 +82,9 @@ class TestLoadBlindSpotsSkillForRun(BaseTest):
             team_id=self.team.id, user_id=self.user.id, skill_name=f"{REVIEW_HOG_BLIND_SPOTS_PREFIX}ghost", enabled=True
         )
 
-        with pytest.raises(BlindSpotsSkillNotFoundError):
-            load_blind_spots_skill_for_run(self.team.id, self.user.id)
+        loaded = load_blind_spots_skill_for_run(self.team.id, self.user.id)
+
+        assert loaded.skill_name == REVIEW_HOG_BLIND_SPOTS_SKILL_NAME
 
     def test_raises_when_no_skill_synced(self) -> None:
         # No sync ran, so even the canonical fallback has no row — a setup error, fail loudly.

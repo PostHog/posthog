@@ -18,7 +18,6 @@ from products.review_hog.backend.reviewer.skill_loader import (
     REVIEW_HOG_PERSPECTIVE_PREFIX,
     REVIEW_HOG_VALIDATION_SKILL_NAME,
     NoEnabledPerspectivesError,
-    PerspectiveSkillNotFoundError,
     load_perspectives_for_run,
     register_missing_perspective_configs,
 )
@@ -125,6 +124,19 @@ class TestSyncCanonicalPerspectives(BaseTest):
         assert removed in result.pruned_skill_names
         assert not LLMSkill.objects.filter(team=self.team, name=removed, deleted=False, is_latest=True).exists()
 
+    def test_resync_resurrects_an_archived_canonical(self) -> None:
+        # Archiving a canonical via the general Skills UI must not stick: the config toggle is the
+        # opt-out, so the next sync restores the skill instead of leaving reviews permanently broken.
+        sync_canonical_perspectives(self.team)
+        LLMSkill.objects.filter(team=self.team, name=_LOGIC).update(deleted=True, is_latest=False)
+
+        result = sync_canonical_perspectives(self.team)
+
+        assert _LOGIC in result.resurrected_skill_names
+        revived = LLMSkill.objects.get(team=self.team, name=_LOGIC, deleted=False, is_latest=True)
+        assert revived.version == 2
+        assert revived.metadata["seeded_by"] == REVIEW_HOG_SEEDED_BY
+
 
 class TestRegisterMissingPerspectiveConfigs(BaseTest):
     def test_seeds_only_canonicals_enabled_and_is_idempotent(self) -> None:
@@ -225,10 +237,23 @@ class TestLoadPerspectivesForRun(BaseTest):
         with pytest.raises(NoEnabledPerspectivesError):
             load_perspectives_for_run(self.team.id, self.user.id)
 
-    def test_raises_when_an_enabled_skill_row_is_missing(self) -> None:
-        # Configs seed enabled, but no skills were synced — a real setup error, surfaced loudly.
-        with pytest.raises(PerspectiveSkillNotFoundError):
+    def test_raises_when_no_enabled_perspective_has_a_live_skill(self) -> None:
+        # Configs seed enabled, but no skills were synced — nothing resolves, surfaced loudly.
+        with pytest.raises(NoEnabledPerspectivesError):
             load_perspectives_for_run(self.team.id, self.user.id)
+
+    def test_skips_an_enabled_perspective_whose_skill_is_dead_and_reindexes(self) -> None:
+        # An archived custom must drop out of the run (not fail it), and pass numbers stay 1..N.
+        sync_canonical_perspectives(self.team)
+        register_missing_perspective_configs(self.team.id, self.user.id)
+        ReviewSkillConfig.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, skill_name=_CUSTOM, enabled=True
+        )
+
+        loaded = load_perspectives_for_run(self.team.id, self.user.id)
+
+        assert [lp.skill_name for lp in loaded] == sorted(CANONICAL_PERSPECTIVE_SKILL_NAMES)
+        assert [lp.pass_number for lp in loaded] == list(range(1, len(loaded) + 1))
 
     def test_enablement_is_per_user(self) -> None:
         # Disabling a perspective for one user must not affect another user's run — enablement is per-USER.

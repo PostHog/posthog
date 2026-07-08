@@ -86,7 +86,8 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    - **Customizable single-active blind-spots skill**, exactly the validator pattern: third prefix
      `review-hog-blind-spots-*` in `ReviewSkillConfig` (canonical: `review-hog-blind-spots-general`, on
      disk under `skills/`), `load_blind_spots_skill_for_run` mirroring the validator loader (canonical
-     fallback, hard-raise on missing selected skill; shared `_load_single_active_skill` /
+     fallback — since 2026-07-08 also when the selected skill's row is dead; raises only if the canonical
+     itself is missing; shared `_load_single_active_skill` /
      `_register_missing_configs` helpers now back both), sibling `ReviewBlindSpotsConfigViewSet` at
      `/blind_spots`, seeded by the cold-start sync. (2026-07-02 follow-up, scout-coordinator-style:
      the cold-start sync now runs `prune=True` — disk-removed canonicals tombstone on the team's next
@@ -1223,7 +1224,8 @@ reproducible and is independently required for resume and the loop.
     framing** — the pass-numbered "three-pass" wording was wrong once they run in parallel; substance kept).
     A `sync_review_hog_skills` command (ported from Signals' `sync_canonical_skills` / `lazy_seed.py`) mirrors
     each disk `SKILL.md` into **per-team `LLMSkill` / `LLMSkillFile` rows** (content-hashed; buckets
-    created/updated/diverged/tombstoned/pruned; ownership guard `metadata.seeded_by == "review_hog"`,
+    created/updated/diverged/resurrected/pruned since 2026-07-08 — an all-dead canonical is recreated, not tombstoned;
+    ownership guard `metadata.seeded_by == "review_hog"`,
     `category = "review_perspective"`), driven both by `manage.py sync_review_hog_skills`
     (`--team-id` / `--all-teams` / `--dry-run`) and a **lazy cold-start sync** at the start of a review run
     (mirroring the scout runner — no Temporal coordinator needed yet). Reuses the shared `LLMSkill` model, so
@@ -2552,14 +2554,13 @@ validations (`_prepare_validation_prompt` warns-and-skips on a missing chunk id,
 skill abstraction today (hardcoded `CHUNKING_SYSTEM_PROMPT`, `tools/split_pr_into_chunks.py`). If team
 customization is ever truly needed, promote chunking to a **team-wide** versioned skill — never per-user.
 
-**⏭ DEFERRED — "reset to canonical" (ships with the UI). DON'T FORGET — this is the one missing piece of the
-team-level story.** There is **no revert path today**: `archive_skill` soft-deletes all versions → the next sync
-sees no live row → the **tombstoned** branch, which does **not** recreate; and the sync deliberately leaves
-diverged rows alone. So once a team edits a canonical skill, the only way back is a **force re-pull** —
-overwrite the edited row with disk canonical as a new version, re-stamping `canonical_hash` — via a small
-`lazy_seed` helper (the `sync_review_hog_skills` command this was once sketched as a flag on was deleted
-2026-07-02; the helper's main consumer is the future UI button anyway). Deferred until the ReviewHog skills
-**UI** lands.
+**⏭ DEFERRED — "reset to canonical" (ships with the UI).** 2026-07-08 update: a crude revert path now exists —
+`archive_skill` soft-deletes all versions, and the next sync's **resurrect** branch recreates the vanilla canonical
+(skill deletion is not the opt-out; the config toggle is — see the archived-canonical outage fix). So archive-then-
+resync IS a reset for canonicals. Still deferred for the UI: an in-place **force re-pull** of a live edited row
+(overwrite with disk canonical as a new version, re-stamping `canonical_hash`) via a small `lazy_seed` helper, so
+users don't need the archive detour (the `sync_review_hog_skills` command this was once sketched as a flag on was
+deleted 2026-07-02; the helper's main consumer is the future UI button anyway).
 
 **✅ 2026-07-02 — the ReviewHog UI landed** as the Inbox "Code review" tab (see the dated BUILT section near
 the top): enable/select skills per user, view bodies read-only, trigger + threshold settings; editing still
@@ -2690,11 +2691,13 @@ PERSPECTIVES`); the obsolete `test_registry_order_matches_perspective_type_enum`
   write, no row lock — same posture as Signals' scout config viewset); a rare concurrent double-disable that slips
   through fails loudly at the loader rather than producing a wrong review. Deliberately not hard-guarded with a
   transaction/`select_for_update` — that's overengineering for a borderline single-user race.
-- **Known edge — a dangling enabled config (custom skill deleted but its config left enabled) raises
-  `PerspectiveSkillNotFoundError` and fails the run, uniformly with a missing canonical.** This honors the locked
-  "enabled-but-missing-skill ⇒ raise, no canonical/custom branching" decision (the viewset validates skill existence
-  at enable time, so this only happens if a skill is archived after being enabled). If this proves too harsh, a
-  uniform soft-skip + the min-1 floor is the obvious follow-up.
+- **A dangling enabled config (skill archived after being enabled) soft-skips, it no longer fails the run**
+  (2026-07-08, reversing the earlier "enabled-but-missing-skill ⇒ raise" decision — archiving from the general
+  Skills UI was a permanent, non-self-healing outage: tombstone never recreated, config never re-evaluated, loader
+  raised, workflow died). Now: perspectives warn-and-skip dead names (`NoEnabledPerspectivesError` only when
+  nothing resolves), validator/blind-spots fall back to the canonical, and the sync **resurrects** all-dead
+  canonicals instead of tombstoning (`PerspectiveSkillNotFoundError` deleted). The config toggle is the one
+  opt-out lever; skill deletion is not a signal.
 
 **Still deferred (own steps):** the ReviewHog skills **UI** (add / enable-disable perspectives, edit, reset-to-
 canonical) — API/MCP only for now; the **"reset to canonical"** force-re-pull (above) ships with that UI; a future
