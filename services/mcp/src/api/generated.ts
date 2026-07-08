@@ -31,6 +31,51 @@ export namespace Schemas {
       AiGenerationClusters: '$ai_generation_clusters',
     } as const;
 
+    /**
+     * * `since_last_sent` - Since last report
+     * * `last_n_days` - Last N days
+     * * `days_ago_range` - Between X and Y days ago
+     */
+    export type AIWindowConfigModeEnum = typeof AIWindowConfigModeEnum[keyof typeof AIWindowConfigModeEnum];
+
+
+    export const AIWindowConfigModeEnum = {
+      SinceLastSent: 'since_last_sent',
+      LastNDays: 'last_n_days',
+      DaysAgoRange: 'days_ago_range',
+    } as const;
+
+    export interface AIWindowConfig {
+      /** What the report analyzes each run:
+       * * `since_last_sent` (default) — everything since the previous successful scheduled delivery (gap-free; test/manual sends don't move the anchor)
+       * * `last_n_days` — a fixed trailing window of start_days_ago days
+       * * `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago
+       *
+       * * `since_last_sent` - Since last report
+       * * `last_n_days` - Last N days
+       * * `days_ago_range` - Between X and Y days ago */
+      mode?: AIWindowConfigModeEnum;
+      /**
+         * Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365.
+         * @minimum 1
+         * @maximum 365
+         * @nullable
+         */
+      start_days_ago?: number | null;
+      /**
+         * Upper bound of the analysis window, in days before the run (0 = now). Required for 'days_ago_range' and must be less than start_days_ago; ignored for other modes. 0-365.
+         * @minimum 0
+         * @maximum 365
+         * @nullable
+         */
+      end_days_ago?: number | null;
+    }
+
+    export interface AIPromptConfig {
+      /** Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous scheduled delivery). */
+      window?: AIWindowConfig;
+    }
+
     export interface AIReportQueryDiagnostic {
       /** What this query step was meant to compute. */
       description: string;
@@ -34925,6 +34970,8 @@ export namespace Schemas {
          * @nullable
          */
       prompt?: string | null;
+      /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
+      ai_prompt_config?: AIPromptConfig;
       /** Delivery channel: email or slack.
        *
        * * `email` - Email
@@ -42088,6 +42135,8 @@ export namespace Schemas {
          * @nullable
          */
       prompt?: string | null;
+      /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
+      ai_prompt_config?: AIPromptConfig;
       /** Delivery channel: email or slack.
        *
        * * `email` - Email
