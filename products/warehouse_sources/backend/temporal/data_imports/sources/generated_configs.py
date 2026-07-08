@@ -806,7 +806,8 @@ class ConcordSourceConfig(config.Config):
 
 @config.config
 class ConfigCatSourceConfig(config.Config):
-    pass
+    basic_auth_username: str
+    basic_auth_password: str
 
 
 @config.config
